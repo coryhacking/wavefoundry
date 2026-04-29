@@ -4,15 +4,15 @@ Owner: Engineering
 Status: active
 Last verified: 2026-04-28
 
-This folder is Wavefoundry's self-hosted Wave Framework project operating surface. Framework seed prompts and reusable framework reference material live under `framework/seeds/`. Project-local docs (plans, waves, architecture notes, agent roles, journals) live here.
+This folder is Wavefoundry's self-hosted Wave Framework project operating surface. Framework seed prompts and reusable framework reference material live under `.wavefoundry/framework/seeds/`. Project-local docs (plans, waves, architecture notes, agent roles, journals) live here.
 
 ## Documentation Boundaries
 
 - `README.md` at the repository root explains Wavefoundry as the product.
 - `AGENTS.md` gives agents repository-level operating instructions, shortcuts, and stage gate.
-- `framework/README.md` maps the canonical Wave Framework seed pack.
-- `framework/seeds/` contains framework source material.
-- `framework/scripts/` contains framework tooling.
+- `.wavefoundry/framework/README.md` maps the canonical Wave Framework seed pack.
+- `.wavefoundry/framework/seeds/` contains framework source material.
+- `.wavefoundry/framework/scripts/` contains framework tooling.
 - `docs/` is Wavefoundry's self-hosted project operating surface.
 
 ## Documentation Map
@@ -34,5 +34,5 @@ This folder is Wavefoundry's self-hosted Wave Framework project operating surfac
 ## Near-Term Docs To Add
 
 - `docs/specs/mcp-tool-surface.md` — MCP tool contracts (once server is scaffolded)
-- `docs/architecture/decisions/DEC-001-self-hosting-symlink.md` — ADR for symlink approach
+- `docs/architecture/decisions/DEC-001-framework-location.md` — ADR for framework content location (`.wavefoundry/framework/` as canonical directory)
 - `docs/contributing/docs-maintenance.md` — doc freshness and metadata policy

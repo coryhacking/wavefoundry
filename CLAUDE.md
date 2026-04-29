@@ -28,4 +28,4 @@ python3 .wavefoundry/framework/scripts/run_tests.py
 
 ## Self-Hosting Note
 
-`.wavefoundry/framework` is a symlink to `../framework`. All seed paths like `.wavefoundry/framework/seeds/` resolve to `framework/seeds/`.
+`.wavefoundry/framework/` is the canonical framework directory. Seeds at `.wavefoundry/framework/seeds/`, scripts at `.wavefoundry/framework/scripts/`.

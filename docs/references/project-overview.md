@@ -18,23 +18,22 @@ Wavefoundry is the canonical repository for the Wave Framework and its future lo
 
 ```
 wavefoundry/
-  framework/seeds/         Canonical seed prompts (001–250 numbered)
-  framework/scripts/       Framework tooling (lint, gardener, lifecycle ID, packaging, rendering)
-  framework/README.md      Canonical prompt map, public commands, factor model
-  framework/VERSION        Current distribution version (2026-04-28a)
-  .wavefoundry/framework/  Symlink → ../framework (self-hosting mode)
-  docs/                    Wavefoundry self-hosted Wave Framework operating surface (this tree)
-  AGENTS.md                Root agent entry map with shortcuts, stage gate, git commits policy
-  README.md                Product README for Wavefoundry
+  .wavefoundry/framework/seeds/    Canonical seed prompts (001–250 numbered)
+  .wavefoundry/framework/scripts/  Framework tooling (lint, gardener, lifecycle ID, packaging, rendering)
+  .wavefoundry/framework/README.md Canonical prompt map, public commands, factor model
+  .wavefoundry/framework/VERSION   Current distribution version (2026-04-28a)
+  docs/                            Wavefoundry self-hosted Wave Framework operating surface (this tree)
+  AGENTS.md                        Root agent entry map with shortcuts, stage gate, git commits policy
+  README.md                        Product README for Wavefoundry
 ```
 
 ## Self-Hosting Boundary
 
 Wavefoundry uses the Wave Framework to develop itself:
 
-- `framework/` is the **canonical framework product source**. Edits here change the framework for all target repositories.
+- `.wavefoundry/framework/` is the **canonical framework directory**. Edits here change the framework for all target repositories. `build_pack.py` packages this directory into dated zip distributions for operators.
 - `docs/` is **Wavefoundry's self-hosted project operating surface**. Plans, waves, architecture notes, agent roles, and journals live here.
-- When `docs/` guidance conflicts with `framework/seeds/` on generic framework behavior, the seed source wins.
+- When `docs/` guidance conflicts with `.wavefoundry/framework/seeds/` on generic framework behavior, the seed source wins.
 - When project-specific policy under `docs/` conflicts with generic framework defaults, the local policy governs Wavefoundry until a wave changes the framework default.
 
 ## Workflow Overview

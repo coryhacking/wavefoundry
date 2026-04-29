@@ -50,4 +50,4 @@ Last distilled: 2026-04-28
 
 - **Watchpoint:** The operator-facing upgrade workflow depends on `wavefoundry-framework-<date><letter>.zip` being placed at the repository root. If the zip filename format changes, the **Upgrade wave framework** prompt doc must be updated simultaneously.
 - **Watchpoint:** The operator summary (output of Init wave framework) must tell the operator: what files were installed, what the lifecycle looks like, how to generate IDs, and where config lives.
-- **Watchpoint:** Docs-lint failure after upgrade is the most common operator failure mode. The fix path (`framework_revision` must match `framework/VERSION`) should be surfaced clearly in any upgrade error output.
+- **Watchpoint:** Docs-lint failure after upgrade is the most common operator failure mode. The fix path (`framework_revision` must match `.wavefoundry/framework/VERSION`) should be surfaced clearly in any upgrade error output.

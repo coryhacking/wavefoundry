@@ -44,7 +44,7 @@ Before implementation begins, the wave-coordinator confirms:
 When `code-reviewer` is required:
 - Check branch completeness and re-entrant safety for any per-key mutable state the change touches
 - Verify dominant patterns from `docs/repo-profile.json` `code_patterns` are followed (when patterns exist)
-- Verify `framework/scripts/tests/` coverage for any new script behavior
+- Verify `.wavefoundry/framework/scripts/tests/` coverage for any new script behavior
 - All blocking findings must be fixed before the wave proceeds to close
 
 ## QA Review Requirements

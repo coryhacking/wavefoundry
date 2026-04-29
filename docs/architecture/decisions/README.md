@@ -8,7 +8,7 @@ Architecture Decision Records (ADRs) capture significant design decisions made f
 
 ## Naming Convention
 
-Files use the pattern `DEC-NNN-<slug>.md` with zero-padded three-digit numbers and kebab-case slugs, e.g. `DEC-001-self-hosting-symlink.md`.
+Files use the pattern `DEC-NNN-<slug>.md` with zero-padded three-digit numbers and kebab-case slugs, e.g. `DEC-001-framework-location.md`.
 
 ## When to Create an ADR
 

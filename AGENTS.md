@@ -33,10 +33,10 @@ Wavefoundry uses the Wave Framework to develop the Wave Framework.
 
 This is intentional bootstrapping, not a source-of-truth collapse:
 
-- `framework/` is the canonical framework product source: seed prompts, reference material, scripts, renderers, validators, packaging logic, and upgrade logic.
+- `.wavefoundry/framework/` is the canonical framework product source: seed prompts, reference material, scripts, renderers, validators, packaging logic, and upgrade logic.
 - `docs/` is Wavefoundry's self-hosted project operating surface: plans, waves, local prompt surfaces, agent roles, handoff, journals, MCP design docs, and project-specific decision records.
 - Changes to framework behavior should be planned, reviewed, and closed through Wavefoundry's local `docs/` wave process.
-- When `framework/seeds/` conflicts with rendered local prompt surfaces under `docs/prompts/`, treat `framework/seeds/` as source of truth for framework behavior.
+- When `.wavefoundry/framework/seeds/` conflicts with rendered local prompt surfaces under `docs/prompts/`, treat `.wavefoundry/framework/seeds/` as source of truth for framework behavior.
 - When project-specific process policy under `docs/` conflicts with generic framework defaults, treat the project-specific `docs/` policy as the local operating rule for Wavefoundry, then decide whether the framework default should be changed through an explicit wave.
 - Install and upgrade tools should support a self-hosting mode where Wavefoundry is both the framework source repository and a target repository consuming rendered framework surfaces.
 - Do not edit generated self-hosted surfaces as a substitute for fixing canonical framework seeds. If a rendered file is wrong because a seed is wrong, update the seed and regenerate or document the drift.
@@ -61,8 +61,8 @@ Public Wave Framework commands for Wavefoundry's self-hosted surface. Full detai
 | **Close wave** | Finalize and archive the wave | `docs/prompts/close-wave.md` |
 | **Finalize feature** | Single-change closure path | `docs/prompts/finalize-feature.md` |
 | **Interrogate this plan** | Stress-test a change doc before admission | `docs/prompts/interrogate-plan.md` |
-| **Package Wavefoundry** | Build framework zip distribution | `framework/seeds/240-package-wavefoundry.prompt.md` |
-| **Migrate to Wavefoundry** | Migrate a target repo from legacy layout | `framework/seeds/250-migrate-existing-wave-project.prompt.md` |
+| **Package Wavefoundry** | Build framework zip distribution | `.wavefoundry/framework/seeds/240-package-wavefoundry.prompt.md` |
+| **Migrate to Wavefoundry** | Migrate a target repo from legacy layout | `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md` |
 
 Legacy aliases: `Init wave context`, `Upgrade wave context`, `Package wave framework`, `Package wave context` — identical behavior; accept from operators and older docs.
 
@@ -159,7 +159,7 @@ wavefoundry/
   examples/
 ```
 
-`framework/seeds/` contains canonical seed prompts and framework reference material. `framework/scripts/` contains framework validation, packaging, rendering, migration, and maintenance tooling.
+`.wavefoundry/framework/seeds/` contains canonical seed prompts and framework reference material. `.wavefoundry/framework/scripts/` contains framework validation, packaging, rendering, migration, and maintenance tooling.
 
 ## Target Repository Model
 
@@ -285,11 +285,11 @@ Use real target paths only in local configuration, fixtures, or operator-provide
 
 **Framework distribution zip archives:** Zip files at the repository root (`wavefoundry-framework-*.zip`) are transport artifacts only. Never commit them. If a zip was accidentally committed, remove it with `git rm --cached <file>.zip`.
 
-**Seed prompts:** Never delete or overwrite seed prompts under `framework/seeds/` without an explicit wave and `seed_edit_allowed` guard approval. Seed edits affect all target repositories.
+**Seed prompts:** Never delete or overwrite seed prompts under `.wavefoundry/framework/seeds/` without an explicit wave and `seed_edit_allowed` guard approval. Seed edits affect all target repositories.
 
 ## Initial Milestones
 
-1. Inventory `framework/seeds/` and `framework/scripts/`.
+1. Inventory `.wavefoundry/framework/seeds/` and `.wavefoundry/framework/scripts/`.
 2. Implement `wave.current`, `code.search`, and `code.read`.
 3. Port lifecycle ID generation into Wavefoundry.
 4. Port or wrap validation logic for `wave.validate`.

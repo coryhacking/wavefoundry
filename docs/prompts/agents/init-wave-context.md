@@ -6,11 +6,11 @@ Last verified: 2026-04-28
 
 ## Context
 
-You are running **Init wave framework** (seed-010) on the Wavefoundry repository. This is the self-hosting mode: `framework/` is the canonical source; `.wavefoundry/framework` is a symlink to `../framework`.
+You are running **Init wave framework** (seed-010) on the Wavefoundry repository. This is the self-hosting mode: `.wavefoundry/framework/` is the canonical framework directory.
 
 ## Key Precedences
 
-- When `docs/` local policy conflicts with `framework/seeds/` on generic framework behavior, the seed source wins.
+- When `docs/` local policy conflicts with `.wavefoundry/framework/seeds/` on generic framework behavior, the seed source wins.
 - When Wavefoundry-specific policy under `docs/` conflicts with generic defaults, the local policy governs.
 
 ## Git Commits Policy
@@ -19,11 +19,13 @@ Agents must not run `git commit` unless the operator explicitly instructs them i
 
 ## Self-Hosting Paths
 
-| Canonical Reference | Actual Path |
-|--------------------|-------------|
-| `.wavefoundry/framework/scripts/` | `framework/scripts/` (via symlink) |
-| `.wavefoundry/framework/seeds/` | `framework/seeds/` (via symlink) |
-| `.wavefoundry/framework/VERSION` | `framework/VERSION` (via symlink) |
+All framework paths are direct:
+
+| Path | Content |
+|------|---------|
+| `.wavefoundry/framework/scripts/` | Framework tooling scripts |
+| `.wavefoundry/framework/seeds/` | Canonical seed prompts |
+| `.wavefoundry/framework/VERSION` | Current framework version |
 
 ## Epoch
 

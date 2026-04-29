@@ -7,7 +7,7 @@ __pycache__/
 dist/
 build/
 
-# Wavefoundry framework pack archives (tracked source lives under framework/; do not commit zip drops)
+# Wavefoundry framework pack archives (tracked source lives under .wavefoundry/framework/; do not commit zip drops)
 /agent-workflows.zip
 /wavefoundry-framework*.zip
 

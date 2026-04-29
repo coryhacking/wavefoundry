@@ -12,8 +12,8 @@ It should work against any explicitly configured target repository with Wave Fra
 
 ## What This Repository Owns
 
-- Canonical Wave Framework seed prompts and reference material under `framework/seeds/`.
-- Framework scripts under `framework/scripts/` for validation, rendering, packaging, migration, lifecycle IDs, and maintenance.
+- Canonical Wave Framework seed prompts and reference material under `.wavefoundry/framework/seeds/`.
+- Framework scripts under `.wavefoundry/framework/scripts/` for validation, rendering, packaging, migration, lifecycle IDs, and maintenance.
 - Distribution packaging for the canonical framework source.
 - Migration guidance for projects moving from the old `agent-workflows/wave-context-framework/` layout to the Wavefoundry layout.
 - The future local MCP server and code index.
@@ -72,14 +72,14 @@ wavefoundry/
 
 ## Framework Source
 
-`framework/` is the canonical Wave Framework source tree.
+`.wavefoundry/framework/` is the canonical Wave Framework source tree in this self-hosted repository.
 
-`framework/seeds/` contains the seed prompts and framework reference material. `framework/scripts/` contains the executable framework tooling. `framework/README.md` is the canonical map of the seed pack, prompt numbering, public command surface, and package behavior.
+`.wavefoundry/framework/seeds/` contains the seed prompts and framework reference material. `.wavefoundry/framework/scripts/` contains the executable framework tooling. `.wavefoundry/framework/README.md` is the canonical map of the seed pack, prompt numbering, public command surface, and package behavior.
 
 Package Wavefoundry from this repository with:
 
 ```bash
-python3 framework/scripts/build_pack.py
+python3 .wavefoundry/framework/scripts/build_pack.py
 ```
 
 The package is a dated `wavefoundry-framework-YYYY-MM-DDx.zip` archive. Packaging is a maintainer action; target-repository install and upgrade behavior is a separate concern.
@@ -115,10 +115,10 @@ Wavefoundry should use the Wave Framework to develop the Wave Framework.
 
 That self-hosting boundary is:
 
-- `framework/` is canonical framework product source.
+- `.wavefoundry/framework/` is canonical framework product source.
 - `docs/` is Wavefoundry's project operating surface.
 - Framework behavior changes should be planned, reviewed, and closed through Wavefoundry's local wave process once the local docs surface is installed.
-- If rendered local docs conflict with `framework/seeds/`, the seed source wins for generic framework behavior.
+- If rendered local docs conflict with `.wavefoundry/framework/seeds/`, the seed source wins for generic framework behavior.
 - If Wavefoundry-specific policy under `docs/` conflicts with generic defaults, the local project policy governs this repository until a wave changes the framework default.
 
 ## Existing Project Migration
@@ -130,7 +130,7 @@ Migrate to Wavefoundry
 Upgrade to Wavefoundry
 ```
 
-The migration prompt is `framework/seeds/250-migrate-existing-wave-project.prompt.md`. It preserves target-local docs and customizations, stages the canonical framework under `.wavefoundry/framework/`, validates compatibility, and leaves the old tree in place until validation passes and the operator has reviewed the migration result.
+The migration prompt is `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md`. It preserves target-local docs and customizations, stages the canonical framework under `.wavefoundry/framework/`, validates compatibility, and leaves the old tree in place until validation passes and the operator has reviewed the migration result.
 
 ## Non-Goals
 

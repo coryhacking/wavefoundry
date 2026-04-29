@@ -12,6 +12,6 @@ Reviews behavioral spec consistency. Stance: specs define stable system boundari
 
 - Review changes to `docs/specs/*.md` (behavioral contracts) for consistency with implementation
 - Verify prompt surface docs (`docs/prompts/`) stay aligned with `AGENTS.md` shortcut table and manifest
-- Verify no project-specific guidance was added to canonical seeds (`framework/seeds/*.prompt.md`)
-- Confirm `framework_revision` in manifest matches `framework/VERSION` after any pack change
+- Verify no project-specific guidance was added to canonical seeds (`.wavefoundry/framework/seeds/*.prompt.md`)
+- Confirm `framework_revision` in manifest matches `.wavefoundry/framework/VERSION` after any pack change
 - Required at wave closure when `docs/specs/*.md` changed; record finding or N/A with rationale

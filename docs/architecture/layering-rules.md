@@ -8,9 +8,9 @@ Last verified: 2026-04-28
 
 | Layer | May Import / Read | May Not Import / Read |
 |-------|-----------------|----------------------|
-| `framework/seeds/` | Nothing (text files only) | Any runtime code |
-| `framework/scripts/` | Python stdlib; `framework/scripts/wave_lint_lib/` | `src/wavefoundry/` (future MCP) |
-| `src/wavefoundry/` (future) | Python stdlib; third-party libs; `framework/seeds/` for seed resolution | `framework/scripts/` (use as library only if explicitly extracted) |
+| `.wavefoundry/framework/seeds/` | Nothing (text files only) | Any runtime code |
+| `.wavefoundry/framework/scripts/` | Python stdlib; `.wavefoundry/framework/scripts/wave_lint_lib/` | `src/wavefoundry/` (future MCP) |
+| `src/wavefoundry/` (future) | Python stdlib; third-party libs; `.wavefoundry/framework/seeds/` for seed resolution | `.wavefoundry/framework/scripts/` (use as library only if explicitly extracted) |
 | `docs/` | N/A (markdown only; consumed by scripts, not importing scripts) | — |
 
 ## Boundary Invariants
@@ -19,7 +19,7 @@ Last verified: 2026-04-28
 |------|-----------|----------------------|
 | MCP server → target repo | Must never write outside configured allowed roots without mutation tool approval | Inferred from AGENTS.md and seed-050 safety rules |
 | `build_pack.py` → VERSION | Must stamp VERSION before writing zip; VERSION must match zip basename date+letter | Verified from build_pack.py behavior described in seeds |
-| `docs_lint.py` → manifest | Must fail (exit non-zero) when `framework_revision` in manifest does not match `framework/VERSION` | Verified from seed-010 lint gate requirement |
+| `docs_lint.py` → manifest | Must fail (exit non-zero) when `framework_revision` in manifest does not match `.wavefoundry/framework/VERSION` | Verified from seed-010 lint gate requirement |
 | `render_platform_surfaces.py` → `.github/` | Must not create or modify `.github/workflows/` — only `.github/hooks/` | Verified from seed-050 scope boundary |
 
 ## Violation Detection

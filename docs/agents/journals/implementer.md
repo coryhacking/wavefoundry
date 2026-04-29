@@ -16,8 +16,8 @@ Last distilled: 2026-04-28
 ## Salience Triggers
 
 - **High:** Pre-edit hook blocks a framework script edit — confirm guard-override is set before retrying; do not bypass the hook itself.
-- **High:** `python3 framework/scripts/run_tests.py` fails after implementation — do not signal complete until fixed.
-- **Medium:** A pattern problem in `framework/scripts/` is severe enough to warrant deviation — surface with rationale and wait for operator approval before deviating.
+- **High:** `python3 .wavefoundry/framework/scripts/run_tests.py` fails after implementation — do not signal complete until fixed.
+- **Medium:** A pattern problem in `.wavefoundry/framework/scripts/` is severe enough to warrant deviation — surface with rationale and wait for operator approval before deviating.
 - **Medium:** A tool or environment failure causes significant lost time — journal the failure mode so future sessions know the recovery path.
 - **Low:** `__pycache__` appears in `git status` — the post-Bash hook may have failed; investigate `.claude/hooks/pycache-cleanup.py`.
 
@@ -28,7 +28,7 @@ Last distilled: 2026-04-28
 ## Distillation
 
 - **Framework edit guard pattern:** To edit protected framework files, set `framework_edit_allowed: true` in `.wavefoundry/guard-overrides.json` (gitignored). Remove the override after the implementation session ends. The guard is not a shortcut to skip — it is the authorized bypass path.
-- **Run tests before handoff:** `python3 framework/scripts/run_tests.py` must pass before signaling implementation complete. Do not rely on type checking or docs-lint alone.
+- **Run tests before handoff:** `python3 .wavefoundry/framework/scripts/run_tests.py` must pass before signaling implementation complete. Do not rely on type checking or docs-lint alone.
 
 ## Promotion Evidence
 
@@ -49,6 +49,6 @@ Last distilled: 2026-04-28
 
 ## Active Watchpoints
 
-- **Watchpoint:** All framework scripts in `framework/scripts/` are protected by the pre-edit hook. Any edit attempt will be blocked unless `seed_edit_allowed` or `framework_edit_allowed` is set in `.wavefoundry/guard-overrides.json`. Verify the guard-override is set before attempting edits; do not bypass by editing the hook itself.
-- **Watchpoint:** After any framework script edit, run `python3 framework/scripts/run_tests.py` before signaling implementation complete. Do not skip this step.
+- **Watchpoint:** All framework scripts in `.wavefoundry/framework/scripts/` are protected by the pre-edit hook. Any edit attempt will be blocked unless `seed_edit_allowed` or `framework_edit_allowed` is set in `.wavefoundry/guard-overrides.json`. Verify the guard-override is set before attempting edits; do not bypass by editing the hook itself.
+- **Watchpoint:** After any framework script edit, run `python3 .wavefoundry/framework/scripts/run_tests.py` before signaling implementation complete. Do not skip this step.
 - **Watchpoint:** `__pycache__` directories are cleaned by the post-Bash hook. If a `__pycache__` appears in `git status`, the hook may have failed — check `.claude/hooks/pycache-cleanup.py`.

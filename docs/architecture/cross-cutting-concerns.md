@@ -27,8 +27,8 @@ Only `render_platform_surfaces.py` writes to platform config files.
 
 ## Shared Utilities
 
-- `framework/scripts/wave_lint_lib/` — shared modules for docs_lint: `link_validators.py`, `metadata_validators.py`, `context.py`, `helpers.py`.
-- These are internal to `framework/scripts/`; not exposed as a public library.
+- `.wavefoundry/framework/scripts/wave_lint_lib/` — shared modules for docs_lint: `link_validators.py`, `metadata_validators.py`, `context.py`, `helpers.py`.
+- These are internal to `.wavefoundry/framework/scripts/`; not exposed as a public library.
 
 ## Observability
 

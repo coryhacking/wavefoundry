@@ -15,12 +15,12 @@ Perform a reindex pass when any of the following occur:
 | Signal | Affected Docs |
 |--------|---------------|
 | Wave closed | `docs/waves/README.md` (active/completed wave tables); agent journals (distillation) |
-| Feature finalized | `docs/waves/README.md`; `docs/plans/` (archive retired plans) |
+| Feature finalized | `docs/waves/README.md`; `docs/PLANS.md` |
 | New architecture doc created or retired | `docs/ARCHITECTURE.md` child docs table |
 | New role doc added or retired | `docs/agents/README.md`; `docs/agents/platform-mapping.md` |
 | New persona added or retired | `docs/agents/personas/README.md`; `docs/prompts/prompt-surface-manifest.json` |
 | New prompt doc added or retired | `docs/prompts/index.md`; `docs/prompts/prompt-surface-manifest.json`; `AGENTS.md` Shortcut Phrases |
-| `framework/VERSION` bumped | `docs/prompts/prompt-surface-manifest.json` (`framework_revision`); `docs/agents/session-handoff.md` |
+| `.wavefoundry/framework/VERSION` bumped | `docs/prompts/prompt-surface-manifest.json` (`framework_revision`); `docs/agents/session-handoff.md` |
 | Missing doc created | `docs/missing-docs.md` (remove resolved entry) |
 | Tech debt resolved | `docs/references/tech-debt-tracker.md` (retire item) |
 
@@ -44,7 +44,7 @@ These sections are known to drift without a reindex pass:
 4. Update `docs/agents/session-handoff.md`
 
 **Feature finalization reindex**:
-1. Archive or retire the plan doc from `docs/plans/`
+1. Confirm the admitted change doc remains wave-owned under `docs/waves/<wave-id>/`
 2. Verify `docs/PLANS.md` reflects current plans state
 
 **Framework revision reindex** (on VERSION bump):

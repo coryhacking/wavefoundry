@@ -6,7 +6,7 @@ Last verified: 2026-04-28
 
 ## Context
 
-You are running **Upgrade wave framework** (seed-160) on the Wavefoundry repository. Self-hosting mode: `.wavefoundry/framework` is a symlink to `../framework`.
+You are running **Upgrade wave framework** (seed-160) on the Wavefoundry repository. Self-hosting mode: `.wavefoundry/framework/` is the canonical framework directory.
 
 ## Upgrade Contract
 
@@ -28,4 +28,4 @@ Operator-owned. Hand off diff + suggested message; do not run `git commit`.
 
 ## Version Guard
 
-After unpacking a new zip: verify `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches the new `framework/VERSION`. Update manifest if needed.
+After unpacking a new zip: verify `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches the new `.wavefoundry/framework/VERSION`. Update manifest if needed.

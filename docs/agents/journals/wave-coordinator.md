@@ -27,13 +27,13 @@ Last distilled: 2026-04-28
 
 ## Distillation
 
-- **Self-hosting symlink invariant:** `.wavefoundry/framework` is a symlink to `../framework`. All canonical script paths resolve through the symlink. If scripts behave unexpectedly, verify with `ls -la .wavefoundry/framework`.
+- **Self-hosting path invariant:** `.wavefoundry/framework/` contains the canonical framework content. If scripts behave unexpectedly, verify with `ls .wavefoundry/framework/`.
 - **Lifecycle ID epoch is fixed:** `epoch_utc: "2022-04-28T00:00:00Z"` was set at init from the greenfield fallback. Do not re-anchor this value — it invalidates all existing wave and change IDs.
-- **Stage gate must precede all framework edits:** Any edit to `framework/scripts/` or `framework/seeds/` requires a clean Prepare wave pass as the immediately preceding lifecycle step.
+- **Stage gate must precede all framework edits:** Any edit to `.wavefoundry/framework/scripts/` or `.wavefoundry/framework/seeds/` requires a clean Prepare wave pass as the immediately preceding lifecycle step.
 
 ## Promotion Evidence
 
-- Lessons about self-hosting symlink and lifecycle ID epoch have been promoted to `docs/references/project-context-memory.md` at init.
+- Lessons about self-hosting path resolution and lifecycle ID epoch have been promoted to `docs/references/project-context-memory.md` at init.
 - Future promotions: record incident here with reference to the target doc (e.g., `docs/references/project-context-memory.md`).
 
 ## Retirement And Supersession
@@ -50,6 +50,6 @@ Last distilled: 2026-04-28
 
 ## Active Watchpoints
 
-- **Watchpoint:** Self-hosting mode — `.wavefoundry/framework` is a symlink; scripts using the path via the symlink resolve correctly, but if the symlink is broken, all framework scripts fail silently. Check `ls -la .wavefoundry/framework` if scripts behave unexpectedly.
-- **Watchpoint:** Stage gate must be enforced before any code edit to `framework/scripts/` or `framework/seeds/`. The coordinator must verify Prepare wave passed before delegating to an implementer.
+- **Watchpoint:** Self-hosting mode — `.wavefoundry/framework/` is a real directory containing the canonical framework content. If this directory is missing or corrupted, all framework scripts fail. Check `ls .wavefoundry/framework/` if scripts behave unexpectedly; restore with `git checkout HEAD -- .wavefoundry/framework` if needed.
+- **Watchpoint:** Stage gate must be enforced before any code edit to `.wavefoundry/framework/scripts/` or `.wavefoundry/framework/seeds/`. The coordinator must verify Prepare wave passed before delegating to an implementer.
 - **Follow-up:** When MCP server scaffolding begins, update `docs/architecture/current-state.md` and re-evaluate factor 07 (port binding) and factor 09 (disposability) in `docs/repo-profile.json`.

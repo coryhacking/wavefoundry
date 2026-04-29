@@ -11,7 +11,7 @@ Reviews packaging and distribution integrity. Stance: the framework zip is the p
 ## Responsibilities
 
 - Review `build_pack.py` changes for VERSION stamp correctness and letter suffix semantics
-- Verify `framework/VERSION` is not manually edited
+- Verify `.wavefoundry/framework/VERSION` is not manually edited
 - Verify distribution zips are gitignored (`/wavefoundry-framework*.zip` in `.gitignore`)
 - Confirm `docs/prompts/prompt-surface-manifest.json` `framework_revision` is updated before packaging
 - Reference `docs/contributing/build-and-verification.md` **Wave framework pack upgrade verification** for the packaging contract

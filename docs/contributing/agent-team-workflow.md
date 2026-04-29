@@ -48,6 +48,6 @@ Wavefoundry uses the standard Wave Framework generic roles. The wave-coordinator
 See `docs/prompts/agent-routing-concurrency.md` for read-only vs write-owning lane rules and serialization points.
 
 Protected surfaces that require single-lane ownership:
-- `framework/seeds/` — seed edits require `seed_edit_allowed` guard approval; single write owner at a time
+- `.wavefoundry/framework/seeds/` — seed edits require `seed_edit_allowed` guard approval; single write owner at a time
 - `docs/prompts/` and `AGENTS.md` — framework-maintenance edits require `framework_edit_allowed` approval; single write owner
 - `docs/workflow-config.json` and `docs/prompts/prompt-surface-manifest.json` — manifest/config writes require coordinator confirmation before parallel work proceeds

@@ -19,7 +19,7 @@ Follow the ReAct loop (Thought → Action → Observe → Reflect on blocking fi
 
 ## Wavefoundry-Specific Implementation Rules
 
-- **Framework script changes:** after any edit to `framework/scripts/`, run `python3 .wavefoundry/framework/scripts/run_tests.py` before declaring the implementation task done.
+- **Framework script changes:** after any edit to `.wavefoundry/framework/scripts/`, run `python3 .wavefoundry/framework/scripts/run_tests.py` before declaring the implementation task done.
 - **Seed edits:** require `seed_edit_allowed` guard approval in `.wavefoundry/guard-overrides.json`; reset after editing.
 - **Framework plan gate:** `framework_edit_allowed` approval required for broad `docs/prompts/`, `AGENTS.md`, or hook config edits.
 - **Docs gate:** after any `docs/` edit, the post-edit hook runs `./docs-lint`; fix failures before continuing.

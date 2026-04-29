@@ -32,7 +32,7 @@
     "evidence_sources": [
       "docs/architecture/",
       "docs/specs/",
-      "framework/seeds/",
+      ".wavefoundry/framework/seeds/",
       "docs/RELIABILITY.md"
     ],
     "max_persona_count": 5,

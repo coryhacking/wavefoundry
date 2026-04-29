@@ -36,7 +36,7 @@ A developer or engineering lead who installs, upgrades, and operates the Wave Fr
 
 ## Failure Modes
 
-- Docs-lint fails after an upgrade: manifest `framework_revision` doesn't match new `framework/VERSION`
+- Docs-lint fails after an upgrade: manifest `framework_revision` doesn't match new `.wavefoundry/framework/VERSION`
 - Lifecycle IDs look wrong: epoch was re-anchored incorrectly during upgrade
 - Customizations overwritten: project-specific prompt doc changes lost during upgrade
 - Zip not found: wrong filename, wrong directory, or zip wasn't placed at repo root
@@ -70,7 +70,7 @@ A developer or engineering lead who installs, upgrades, and operates the Wave Fr
 
 - Any change to `docs/prompts/install-wavefoundry.md` or `docs/prompts/upgrade-wavefoundry.md`.
 - Any change to seed-010 or seed-020 that affects the operator summary or installed file set.
-- Any change to `framework/VERSION` or `docs/prompts/prompt-surface-manifest.json` `framework_revision`.
+- Any change to `.wavefoundry/framework/VERSION` or `docs/prompts/prompt-surface-manifest.json` `framework_revision`.
 - MCP tool design review when a tool failure would be visible to the operator without a clear recovery path.
 
 ## Escalation Conditions

@@ -25,9 +25,9 @@ Run all required review lanes against the admitted changes. Review is not option
 
 ## Code Review Specifics (Wavefoundry)
 
-- Framework script changes: verify test coverage in `framework/scripts/tests/`
+- Framework script changes: verify test coverage in `.wavefoundry/framework/scripts/tests/`
 - Seed prompt changes: verify no project-specific guidance was added to generic seeds
-- Manifest changes: verify `framework_revision` matches `framework/VERSION`
+- Manifest changes: verify `framework_revision` matches `.wavefoundry/framework/VERSION`
 
 ## Required Before Close
 

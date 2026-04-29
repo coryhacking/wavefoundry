@@ -11,7 +11,7 @@ Tracks known documentation gaps — items that should exist but don't yet, or it
 | Gap | Why Needed | Priority |
 |-----|-----------|---------|
 | `docs/specs/mcp-tool-surface.md` | Formal tool contracts for wave.current, wave.validate, code.search, etc. once MCP server is scaffolded | high |
-| `docs/architecture/decisions/DEC-001-self-hosting-symlink.md` | Record the decision to use a symlink rather than a copy for self-hosting | medium |
+| `docs/architecture/decisions/DEC-001-framework-location.md` | Record the decision to place framework content at `.wavefoundry/framework/` as the canonical directory | medium |
 | `docs/architecture/decisions/DEC-002-mcp-transport.md` | Record transport decision (stdio vs socket) once MCP server design is finalized | medium |
 | `docs/contributing/docs-maintenance.md` | Explains doc freshness expectations, metadata update triggers | low |
 | Factor 07 (port binding) ADR | Need decision on MCP server transport before this factor can be fully evaluated | medium |

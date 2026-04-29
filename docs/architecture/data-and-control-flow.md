@@ -20,11 +20,11 @@ Last verified: 2026-04-28
 ### Path 2: Docs Lint Gate
 
 1. `./docs-lint` (wrapper) calls `python3 .wavefoundry/framework/scripts/docs_lint.py`
-2. Linter reads `docs/prompts/prompt-surface-manifest.json`, checks `framework_revision` against `framework/VERSION`
+2. Linter reads `docs/prompts/prompt-surface-manifest.json`, checks `framework_revision` against `.wavefoundry/framework/VERSION`
 3. Validates required prompt docs exist, metadata fields are present, wave/journal roots exist
 4. Exits 0 on pass or non-zero with actionable error on failure
 
-**State read:** `docs/`, `framework/VERSION`
+**State read:** `docs/`, `.wavefoundry/framework/VERSION`
 **State written:** none
 **Triggered by:** Claude Code post-edit hook (after any `docs/` file edit), manual operator run
 
@@ -35,19 +35,19 @@ Last verified: 2026-04-28
 3. Generates `.cursor/hooks/after-file-edit`, `.github/hooks/pre-tool-use`, `.github/hooks/post-tool-use`
 4. Merges `.claude/settings.json` hooks (does not replace full file)
 
-**State read:** `framework/scripts/` (templates)
+**State read:** `.wavefoundry/framework/scripts/` (templates)
 **State written:** `.claude/`, `.cursor/`, `.github/hooks/`
 **Must not touch:** `.github/workflows/`, `.git/hooks/`
 
 ### Path 4: Framework Packaging
 
-1. Operator runs `python3 framework/scripts/build_pack.py` (from repo root)
+1. Operator runs `python3 .wavefoundry/framework/scripts/build_pack.py` (from repo root)
 2. Script determines today's date; finds highest letter suffix for that date in output directory
-3. Stamps `framework/VERSION` to `<date><letter>`
-4. Zips `framework/` tree into `wavefoundry-framework-<date><letter>.zip` at repo root
+3. Stamps `.wavefoundry/framework/VERSION` to `<date><letter>`
+4. Zips the canonical framework tree into `wavefoundry-framework-<date><letter>.zip` at repo root
 
-**State read:** `framework/` tree, output directory listing
-**State written:** `framework/VERSION`, zip archive at repo root
+**State read:** `.wavefoundry/framework/` tree, output directory listing
+**State written:** `.wavefoundry/framework/VERSION`, zip archive at repo root
 **Note:** zip file is gitignored; do not commit it
 
 ### Path 5: Future MCP Tool Calls (planned)
@@ -66,6 +66,6 @@ Last verified: 2026-04-28
 |-------|-------|---------|-----------|
 | `docs/workflow-config.json` | Engineering | lifecycle_id.py, docs_lint.py | Wave Framework init/upgrade |
 | `docs/prompts/prompt-surface-manifest.json` | Engineering | docs_lint.py | seed-100 / upgrade |
-| `framework/VERSION` | build_pack.py | docs_lint.py | build_pack.py |
+| `.wavefoundry/framework/VERSION` | build_pack.py | docs_lint.py | build_pack.py |
 | `.claude/settings.json` | Engineering | Claude Code | render_platform_surfaces.py (merge) |
 | Wave records `docs/waves/<id>/wave.md` | wave-coordinator | wave.current (future MCP) | wave lifecycle commands |

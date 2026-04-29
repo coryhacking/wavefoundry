@@ -12,7 +12,7 @@ You are running **Review wave** on Wavefoundry.
 
 | Lane | What to Check |
 |------|--------------|
-| `code-reviewer` | Framework script correctness; pattern compliance; test coverage in `framework/scripts/tests/`; no project-specific guidance added to generic seeds |
+| `code-reviewer` | Framework script correctness; pattern compliance; test coverage in `.wavefoundry/framework/scripts/tests/`; no project-specific guidance added to generic seeds |
 | `qa-reviewer` | AC coverage per `## AC priority` table; multi-step verification for stateful behavior; framework test suite passes |
 | `architecture-reviewer` | Module boundary violations; layering rules compliance; domain-map consistency |
 | `docs-contract-reviewer` | Behavioral spec consistency; manifest/VERSION alignment |

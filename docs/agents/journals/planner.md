@@ -26,7 +26,7 @@ Last distilled: 2026-04-28
 
 ## Distillation
 
-- **code_patterns is not yet authoritative:** `docs/repo-profile.json` `code_patterns` status is `insufficient_history`. When planning changes to `framework/scripts/`, detect patterns by reading the existing scripts directly rather than relying on the profile field.
+- **code_patterns is not yet authoritative:** `docs/repo-profile.json` `code_patterns` status is `insufficient_history`. When planning changes to `.wavefoundry/framework/scripts/`, detect patterns by reading the existing scripts directly rather than relying on the profile field.
 - **MCP spec is a prerequisite for MCP implementation:** Any wave touching MCP tool contracts requires `docs/specs/mcp-tool-surface.md` to exist before Prepare wave can pass. If this file is missing, record it as a Level 3 blocker in the change doc Risks section.
 
 ## Promotion Evidence

@@ -26,7 +26,7 @@ Last verified: 2026-04-28
 
 ## Review-Sensitive Surfaces
 
-- `framework/seeds/` — any seed edit may affect all target repositories; requires architecture + docs-contract review
+- `.wavefoundry/framework/seeds/` — any seed edit may affect all target repositories; requires architecture + docs-contract review
 - `docs_lint.py` validation logic — correctness failures silently pass bad docs; requires code + QA review
 - `build_pack.py` VERSION stamping — incorrect stamp corrupts version guard; requires code + release review
 - Future MCP tool contracts — breaking changes affect all clients; require architecture + docs-contract review

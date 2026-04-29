@@ -20,13 +20,13 @@ python3 .wavefoundry/framework/scripts/run_tests.py
 
 `./docs-lint` validates:
 - Required prompt docs exist under `docs/prompts/`
-- `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches `framework/VERSION`
+- `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches `.wavefoundry/framework/VERSION`
 - Required metadata fields (`Owner:`, `Status:`, `Last verified:`) on canonical docs
 - Wave and journal root directories exist
 
 `./docs-gardener` refreshes stale metadata timestamps.
 
-Both wrappers forward to `.wavefoundry/framework/scripts/` via the self-hosting symlink.
+Both wrappers forward to `.wavefoundry/framework/scripts/` directly.
 
 ## Framework Script Hygiene
 
@@ -48,9 +48,9 @@ When a new framework version is available, upgrade using this procedure:
 
 **Bring the pack in:**
 
-Option A (zip drop): Place a `wavefoundry-framework-<date><letter>.zip` at the repository root and run **Upgrade wave framework**. The upgrade seed (`seed-160`) unpacks the lexicographically greatest zip, stages it under `.wavefoundry/framework/` (which in self-hosting mode updates `framework/` via the symlink), runs `render_platform_surfaces.py`, and continues full reconciliation.
+Option A (zip drop): Place a `wavefoundry-framework-<date><letter>.zip` at the repository root and run **Upgrade wave framework**. The upgrade seed (`seed-160`) unpacks the lexicographically greatest zip into `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation.
 
-Option B (direct merge): Merge or copy into `framework/` then run **Upgrade wave framework**.
+Option B (direct merge): Merge or copy into `.wavefoundry/framework/` then run **Upgrade wave framework**.
 
 **What the unpack step ignores:** archives with other names (e.g. `agent-workflows.zip`) and zips outside the repository root.
 
@@ -69,7 +69,7 @@ python3 .wavefoundry/framework/scripts/run_tests.py
 
 **For full upgrade procedure:** see `docs/prompts/upgrade-wavefoundry.md` and `.wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md`.
 
-**`build_pack.py` semantics:** default zip date is today (local ISO); letter suffix is the next letter after the maximum suffix already present for that date in the output directory (not the first missing gap). The script stamps `framework/VERSION` to `<date><letter>` before writing the archive. Use `--date` only for tests or exceptional rebuilds.
+**`build_pack.py` semantics:** default zip date is today (local ISO); letter suffix is the next letter after the maximum suffix already present for that date in the output directory (not the first missing gap). The script stamps `.wavefoundry/framework/VERSION` to `<date><letter>` before writing the archive. Use `--date` only for tests or exceptional rebuilds.
 
 ## Git Commits
 
