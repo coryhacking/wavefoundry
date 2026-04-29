@@ -14,7 +14,6 @@ Tasks:
    - `docs/contributing/`
    - `docs/design/`
    - `docs/plans/`
-   - `docs/plans/completed/`
    - `docs/specs/`
    - `docs/references/`
    - `docs/agents/`

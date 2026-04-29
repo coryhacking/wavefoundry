@@ -26,5 +26,6 @@ None.
 
 - The framework content lives at `.wavefoundry/framework/`. This is the canonical self-hosting mode.
 - Operator-approved waiver on 2026-04-28: symlink-reference cleanup may proceed without a wave for the narrow scope of comment and documentation wording updates tied to the completed framework move.
+- Operator-approved waiver on 2026-04-29: root-cause cleanup may proceed without a wave for the narrow scope of retiring stale `docs/plans/completed/` bootstrap guidance and strengthening shared root-cause-first implementation guidance in canonical framework seeds.
 - No legacy baseline wave was created; this was a greenfield install.
 - Lifecycle ID epoch: `2022-04-28T00:00:00Z` (4 years before init date; no prior git history).
