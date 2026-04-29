@@ -48,7 +48,7 @@ When a new framework version is available, upgrade using this procedure:
 
 **Bring the pack in:**
 
-Option A (zip drop): Place a `wavefoundry-framework-<date><letter>.zip` at the repository root and run **Upgrade wave framework**. The upgrade seed (`seed-160`) unpacks the lexicographically greatest zip into `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation.
+Option A (zip drop): Place a `wavefoundry-<date><letter>.zip` at the repository root and run **Upgrade wave framework**. The upgrade seed (`seed-160`) unpacks the lexicographically greatest zip into `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation.
 
 Option B (direct merge): Merge or copy into `.wavefoundry/framework/` then run **Upgrade wave framework**.
 

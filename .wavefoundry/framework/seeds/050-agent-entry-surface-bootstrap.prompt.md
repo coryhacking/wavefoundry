@@ -123,13 +123,13 @@ Preserve the personal-override carve-out (the framework tree can be tracked, but
 ```gitignore
 .wavefoundry/guard-overrides.json
 ```
-- **Framework distribution zip drops (do not commit)** — the version-controlled pack is the unpacked tree under `.wavefoundry/framework/` (including sources consumed by `scripts/build_pack.py`). Zip archives at the repository root — dated `wavefoundry-framework-*.zip` from packaging or vendor drops, or legacy `agent-workflows.zip` — are for local unpack or transport only; **never commit them**. If a repository still tracks an older zip, remove it from the index (`git rm --cached <file>.zip`) and rely on ignore rules. When the following anchored block is missing from `.gitignore`, add it (leading `/` limits matches to repository root):
+- **Framework distribution zip drops (do not commit)** — the version-controlled pack is the unpacked tree under `.wavefoundry/framework/` (including sources consumed by `scripts/build_pack.py`). Zip archives at the repository root — dated `wavefoundry-*.zip` from packaging or vendor drops, or legacy `agent-workflows.zip` — are for local unpack or transport only; **never commit them**. If a repository still tracks an older zip, remove it from the index (`git rm --cached <file>.zip`) and rely on ignore rules. When the following anchored block is missing from `.gitignore`, add it (leading `/` limits matches to repository root):
 ```gitignore
 # Wavefoundry framework pack archives (tracked source lives under .wavefoundry/framework/; do not commit zip drops)
 /agent-workflows.zip
-/wavefoundry-framework*.zip
+/wavefoundry-*.zip
 ```
-- **Operator-owned `git commit` (policy, not hooks)** — document in `AGENTS.md` and `docs/contributing/build-and-verification.md` that **agents must not** run `git commit` unless the operator explicitly instructs them to finalize that commit in the **current** request after review; default is to hand off a suggested message and diff for the operator to commit locally. Do not rely on shell hooks or env-var bypasses for this — keep it as explicit workflow policy.
+- **Operator-owned `git commit` (policy, not hooks)** — document in `AGENTS.md` and `docs/contributing/build-and-verification.md` that **agents must not** run `git commit` unless the operator explicitly instructs them to finalize that commit in the **current** request after review; default is to hand off a suggested message and diff for the operator to commit locally. The policy must also say that agents do **not** infer commit approval from broad phrases like "go ahead", "ship it", or "commit the changes": before any commit, the agent must present or confirm the exact commit scope and receive a clear finalization instruction for that reviewed scope. Do not rely on shell hooks or env-var bypasses for this — keep it as explicit workflow policy.
 - **Project-specific post-edit checks** — when a repository needs additional formatter or validator hooks beyond the generic docs gate, define and render those as repo-local adaptations rather than hard-coding project paths into the shared framework.
 
 ### Shared hook purposes (apply on every host per its pre/post capability)

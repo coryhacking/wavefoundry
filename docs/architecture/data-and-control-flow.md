@@ -44,7 +44,7 @@ Last verified: 2026-04-28
 1. Operator runs `python3 .wavefoundry/framework/scripts/build_pack.py` (from repo root)
 2. Script determines today's date; finds highest letter suffix for that date in output directory
 3. Stamps `.wavefoundry/framework/VERSION` to `<date><letter>`
-4. Zips the canonical framework tree into `wavefoundry-framework-<date><letter>.zip` at repo root
+4. Zips the canonical framework tree into `wavefoundry-<date><letter>.zip` at repo root
 
 **State read:** `.wavefoundry/framework/` tree, output directory listing
 **State written:** `.wavefoundry/framework/VERSION`, zip archive at repo root

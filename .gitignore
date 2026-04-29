@@ -9,7 +9,7 @@ build/
 
 # Wavefoundry framework pack archives (tracked source lives under .wavefoundry/framework/; do not commit zip drops)
 /agent-workflows.zip
-/wavefoundry-framework*.zip
+/wavefoundry-*.zip
 
 # Wavefoundry local approval state (never commit)
 .wavefoundry/guard-overrides.json

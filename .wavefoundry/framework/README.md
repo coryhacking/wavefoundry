@@ -26,7 +26,7 @@ Use these public phrases in a target project's repository:
 - `Close wave`
 - `Finalize feature`
 
-Packaging (maintainer / cross-repo distribution) uses **`Package Wavefoundry`** -> `framework/seeds/240-package-wavefoundry.prompt.md`. From the Wavefoundry repository root, run `python3 framework/scripts/build_pack.py`. The script writes `wavefoundry-framework-YYYY-MM-DDx.zip` using today's date by default and a letter `x` that is the successor of the highest existing suffix for that date in the output directory. It stamps `framework/VERSION` to the same `<date><letter>` before writing the archive. Every zip entry begins with `framework/`, so extracting at a Wavefoundry repository root restores the canonical framework source layout. Legacy phrases such as **`Package wave framework`** and **`Package wave context`** remain accepted only as migration aliases.
+Packaging (maintainer / cross-repo distribution) uses **`Package Wavefoundry`** -> `framework/seeds/240-package-wavefoundry.prompt.md`. From the Wavefoundry repository root, run `python3 framework/scripts/build_pack.py`. The script writes `wavefoundry-YYYY-MM-DDx.zip` using today's date by default and a letter `x` that is the successor of the highest existing suffix for that date in the output directory. It stamps `framework/VERSION` to the same `<date><letter>` before writing the archive. Every zip entry begins with `framework/`, so extracting at a Wavefoundry repository root restores the canonical framework source layout. Legacy phrases such as **`Package wave framework`** and **`Package wave context`** remain accepted only as migration aliases.
 
 **`Install wave framework`** (legacy: **`Install wave context`**) may be accepted as a convenience alias, but it is not a new primary public command:
 

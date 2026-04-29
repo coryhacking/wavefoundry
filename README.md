@@ -82,7 +82,7 @@ Package Wavefoundry from this repository with:
 python3 .wavefoundry/framework/scripts/build_pack.py
 ```
 
-The package is a dated `wavefoundry-framework-YYYY-MM-DDx.zip` archive. Packaging is a maintainer action; target-repository install and upgrade behavior is a separate concern.
+The package is a dated `wavefoundry-YYYY-MM-DDx.zip` archive. Packaging is a maintainer action; target-repository install and upgrade behavior is a separate concern.
 
 ## MCP Direction
 

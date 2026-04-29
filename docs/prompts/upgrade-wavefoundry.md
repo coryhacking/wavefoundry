@@ -12,7 +12,7 @@ Upgrade the Wave Framework operating surface in a target repository. Reconciles 
 
 ## Upgrade Steps
 
-**Step 0 (optional zip adoption):** If a `wavefoundry-framework-<date><letter>.zip` is at the repository root, the upgrade seed unpacks the lexicographically greatest zip, stages it under `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation. Archives with other names or outside the root are ignored.
+**Step 0 (optional zip adoption):** If a `wavefoundry-<date><letter>.zip` is at the repository root, the upgrade seed unpacks the lexicographically greatest zip, stages it under `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation. Archives with other names or outside the root are ignored.
 
 **Full reconciliation:**
 1. Inventory current state (seed-030 in targeted mode)

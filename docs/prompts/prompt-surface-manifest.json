@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "seed_framework_source": ".wavefoundry/framework",
-  "framework_revision": "2026-04-28a",
-  "generated_at": "2026-04-28",
+  "framework_revision": "2026-04-29a",
+  "generated_at": "2026-04-29",
   "generated_artifacts": [
     "docs/prompts/prompt-surface-manifest.json",
     "docs/agents/session-handoff.md",

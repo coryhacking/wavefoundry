@@ -19,7 +19,7 @@ The migration moves the target repository toward the Wavefoundry target layout w
 This prompt may be invoked in either mode:
 
 - **Native Wavefoundry mode:** an agent in the Wavefoundry source repository reads `framework/seeds/250-migrate-existing-wave-project.prompt.md` before migrating a target repository.
-- **Post-unpack handoff mode:** an old-layout target repository first runs `Migrate to Wavefoundry` from `agent-workflows/wave-context-framework/240-migrate-to-wavefoundry.prompt.md`; that bridge stages a `wavefoundry-framework-*.zip` under `.wavefoundry/framework/`, then reads this file from `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md`.
+- **Post-unpack handoff mode:** an old-layout target repository first runs `Migrate to Wavefoundry` from `agent-workflows/wave-context-framework/240-migrate-to-wavefoundry.prompt.md`; that bridge stages a `wavefoundry-*.zip` under `.wavefoundry/framework/`, then reads this file from `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md`.
 
 In post-unpack handoff mode, this staged file is the canonical migration instruction for the package that was just unpacked. Follow this file for compatibility checks, activation, validation, and reporting while still obeying the target repository's local `AGENTS.md` safety rules.
 

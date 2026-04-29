@@ -64,7 +64,7 @@ class BuildPackTests(unittest.TestCase):
         path = build_pack.build_zip(
             self.tmp, "2099-12-01", framework_dir=fw, write_version=True
         )
-        self.assertEqual(path.name, "wavefoundry-framework-2099-12-01a.zip")
+        self.assertEqual(path.name, "wavefoundry-2099-12-01a.zip")
         self.assertEqual((fw / "VERSION").read_text(encoding="utf-8"), "2099-12-01a\n")
         with zipfile.ZipFile(path) as zf:
             member = "framework/VERSION"
@@ -79,21 +79,21 @@ class BuildPackTests(unittest.TestCase):
 
     def test_unsuffixed_same_date_file_is_ignored_by_scanner(self):
         # Place a file that matches the date prefix but has NO letter suffix.
-        (self.tmp / "wavefoundry-framework-2099-01-01.zip").write_bytes(b"dummy")
+        (self.tmp / "wavefoundry-2099-01-01.zip").write_bytes(b"dummy")
         path = self._build()
         # No valid letter-suffixed pack yet — first pack is still `a`.
         self.assertTrue(path.name.endswith("a.zip"), path.name)
 
     def test_next_suffix_is_successor_of_max_not_first_gap(self):
         # Only `b` exists — next must be `c`, not filling gap `a`.
-        (self.tmp / "wavefoundry-framework-2099-01-01b.zip").write_bytes(b"x")
+        (self.tmp / "wavefoundry-2099-01-01b.zip").write_bytes(b"x")
         path = self._build()
         self.assertTrue(path.name.endswith("c.zip"), path.name)
 
     def test_suffix_exhaustion_raises(self):
         date_str = "2099-01-01"
         for letter in build_pack.SUFFIX_LETTERS:
-            (self.tmp / f"wavefoundry-framework-{date_str}{letter}.zip").write_bytes(b"x")
+            (self.tmp / f"wavefoundry-{date_str}{letter}.zip").write_bytes(b"x")
         with self.assertRaises(RuntimeError) as ctx:
             build_pack.build_zip(self.tmp, date_str, write_version=False)
         self.assertIn("a–z", str(ctx.exception))

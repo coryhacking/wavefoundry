@@ -19,7 +19,7 @@ A developer or engineering lead who installs, upgrades, and operates the Wave Fr
 ## Workflows
 
 **Installation:**
-1. Obtain a `wavefoundry-framework-<date><letter>.zip` from a Wavefoundry release
+1. Obtain a `wavefoundry-<date><letter>.zip` from a Wavefoundry release
 2. Place at repository root; run **Init wave framework**
 3. Review the operator summary: what was installed, how the lifecycle works, where config lives
 4. Commit the self-hosted surface (operator-owned commit)
@@ -30,7 +30,7 @@ A developer or engineering lead who installs, upgrades, and operates the Wave Fr
 - Generate IDs: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>`
 
 **Upgrade:**
-1. Drop a new `wavefoundry-framework-<date><letter>.zip` at the repository root
+1. Drop a new `wavefoundry-<date><letter>.zip` at the repository root
 2. Run **Upgrade wave framework**
 3. Review the diff of changed files; commit after verification
 

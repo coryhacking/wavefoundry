@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build a dated distribution zip of Wavefoundry's canonical framework tree.
 
-Produces wavefoundry-framework-YYYY-MM-DDx.zip at the repository root (or a
+Produces wavefoundry-YYYY-MM-DDx.zip at the repository root (or a
 specified output directory), where x is the next lowercase letter suffix after
 the highest one already present for that date (``a``, then ``b``, …; if only
 ``…b.zip`` exists, the next is ``c``). If ``z`` is already used, the script exits
@@ -9,13 +9,13 @@ non-zero.
 
 Unless ``--date`` is passed, the date in the filename is **today** (local
 machine calendar date in ISO form). The suffix letter is the **successor of the highest letter already present** for
-that date (scan ``wavefoundry-framework-<date><letter>.zip`` in the output
+that date (scan ``wavefoundry-<date><letter>.zip`` in the output
 directory). If only ``…b.zip`` exists, the next build is ``…c.zip``, not
 ``…a.zip``. If none exist, the first build uses ``a``.
 
 Before building the archive, writes ``framework/VERSION``
 to a single line ``<YYYY-MM-DD><letter>`` so the packed tree matches the zip
-name (same string as in the filename after the ``wavefoundry-framework-``
+name (same string as in the filename after the ``wavefoundry-``
 prefix and before ``.zip``).
 
 Usage:
@@ -38,7 +38,7 @@ EXCLUDED_DIRS = {"__pycache__", ".pytest_cache"}
 EXCLUDED_REL_PATHS = {"scripts/tests/tmp"}
 
 FRAMEWORK_REL = "framework"
-ZIP_PREFIX = "wavefoundry-framework-"
+ZIP_PREFIX = "wavefoundry-"
 SUFFIX_LETTERS = "abcdefghijklmnopqrstuvwxyz"
 
 

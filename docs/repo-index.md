@@ -59,7 +59,7 @@ No shipped product implementation sources exist yet. The MCP Python package (`sr
 | Unit | Kind | Build/Run Entrypoint | Notes |
 |------|------|----------------------|-------|
 | Framework scripts | CLI tools | `python3 .wavefoundry/framework/scripts/<script>.py` | Run directly from repo root |
-| Wave Framework zip | Distribution archive | `python3 .wavefoundry/framework/scripts/build_pack.py` | Produces `wavefoundry-framework-<date><letter>.zip` |
+| Wave Framework zip | Distribution archive | `python3 .wavefoundry/framework/scripts/build_pack.py` | Produces `wavefoundry-<date><letter>.zip` |
 | Future MCP server | stdio daemon | `src/wavefoundry/server.py` (planned) | Not yet scaffolded |
 
 ### Inter-Unit Edges

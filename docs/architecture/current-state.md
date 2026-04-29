@@ -14,7 +14,7 @@ Developer/agent
   ├── python3 .wavefoundry/framework/scripts/lifecycle_id.py  →  docs/workflow-config.json (read)
   ├── python3 .wavefoundry/framework/scripts/docs_lint.py      →  docs/ tree (read)
   ├── python3 .wavefoundry/framework/scripts/docs_gardener.py  →  docs/ tree (read/write metadata)
-  ├── python3 .wavefoundry/framework/scripts/build_pack.py     →  .wavefoundry/framework/VERSION (write), wavefoundry-framework-*.zip (write)
+  ├── python3 .wavefoundry/framework/scripts/build_pack.py     →  .wavefoundry/framework/VERSION (write), wavefoundry-*.zip (write)
   └── python3 .wavefoundry/framework/scripts/render_platform_surfaces.py  →  .claude/, .cursor/, .github/hooks/ (write)
 ```
 

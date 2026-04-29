@@ -46,18 +46,19 @@ python3 -B framework/scripts/run_tests.py
 
 4. Run `python3 framework/scripts/build_pack.py` once to stamp `framework/VERSION` to the computed revision and create the zip.
 5. If the computed revision changes between planning and packaging, rebuild so the zip filename and `framework/VERSION` match.
+6. After packaging and verification, hand off the diff plus a suggested commit message unless the operator explicitly instructs you to finalize the commit in the current request after reviewing that scope.
 
 ## What It Produces
 
 A zip file at the repository root named:
 
 ```text
-wavefoundry-framework-YYYY-MM-DDx.zip
+wavefoundry-YYYY-MM-DDx.zip
 ```
 
-`YYYY-MM-DD` is today's local calendar date in ISO format unless you pass `--date`. `x` is a lowercase letter suffix. The script scans the output directory for existing `wavefoundry-framework-<same-date><letter>.zip` files and picks the letter after the highest suffix already present. It does not backfill lower gaps.
+`YYYY-MM-DD` is today's local calendar date in ISO format unless you pass `--date`. `x` is a lowercase letter suffix. The script scans the output directory for existing `wavefoundry-<same-date><letter>.zip` files and picks the letter after the highest suffix already present. It does not backfill lower gaps.
 
-Immediately before building the archive, the script writes `framework/VERSION` to a single line `<YYYY-MM-DD><letter>`, the same string embedded in the zip filename between `wavefoundry-framework-` and `.zip`.
+Immediately before building the archive, the script writes `framework/VERSION` to a single line `<YYYY-MM-DD><letter>`, the same string embedded in the zip filename between `wavefoundry-` and `.zip`.
 
 ## Options
 
@@ -84,7 +85,7 @@ python3 framework/scripts/build_pack.py --date 2026-04-10
 Every entry inside the zip begins with `framework/`, so extracting with:
 
 ```bash
-unzip -o wavefoundry-framework-YYYY-MM-DDx.zip -d <wavefoundry-root>
+unzip -o wavefoundry-YYYY-MM-DDx.zip -d <wavefoundry-root>
 ```
 
 restores files to the canonical source layout.

@@ -46,8 +46,21 @@ Last distilled: 2026-04-28
 - Review: distill at install-wave or upgrade-wave closure; promote recurring operator pain points to `docs/references/project-context-memory.md`.
 - Delete retired entries after one wave cycle.
 
+## Active Waves
+
+wave-id: `1293d mcp-server-foundation`
+
+Change ID: `12926-feat wavefoundry-mcp-index`
+Advisory review: MCP server ships as part of standard install/upgrade. Ensure the
+install experience surfaces the one-time model download (~162MB total), that
+`.wavefoundry/index/` is gitignored by default, and that MCP server registration in
+`.claude/settings.json` does not overwrite operator customizations.
+
+Change ID: `1293b-feat mcp-wave-lifecycle`
+Stub only; full planning deferred until `12926` is stable.
+
 ## Active Watchpoints
 
-- **Watchpoint:** The operator-facing upgrade workflow depends on `wavefoundry-framework-<date><letter>.zip` being placed at the repository root. If the zip filename format changes, the **Upgrade wave framework** prompt doc must be updated simultaneously.
+- **Watchpoint:** The operator-facing upgrade workflow depends on `wavefoundry-<date><letter>.zip` being placed at the repository root. If the zip filename format changes, the **Upgrade wave framework** prompt doc must be updated simultaneously.
 - **Watchpoint:** The operator summary (output of Init wave framework) must tell the operator: what files were installed, what the lifecycle looks like, how to generate IDs, and where config lives.
 - **Watchpoint:** Docs-lint failure after upgrade is the most common operator failure mode. The fix path (`framework_revision` must match `.wavefoundry/framework/VERSION`) should be surfaced clearly in any upgrade error output.
