@@ -1,0 +1,20 @@
+{
+  "wave_execution": {
+    "enabled": true
+  },
+  "agent_memory": {
+    "enabled": true
+  },
+  "project_persona_generation": {
+    "enabled": true
+  },
+  "prompt_generation": {
+    "seed_framework_source": ".wavefoundry/framework"
+  },
+  "factor_review_policy": {
+    "required": true
+  },
+  "persona_review_policy": {
+    "required": true
+  }
+}

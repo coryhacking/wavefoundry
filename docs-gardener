@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Docs gardener wrapper — forwards to .wavefoundry/framework/scripts/docs_gardener.py
+# Self-hosting: .wavefoundry/framework is a symlink to ../framework
+set -euo pipefail
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$PROJECT_ROOT/.wavefoundry/framework/scripts/docs_gardener.py" \
+  --project-root "$PROJECT_ROOT" "$@"

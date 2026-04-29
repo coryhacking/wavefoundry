@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Docs lint wrapper — forwards to .wavefoundry/framework/scripts/docs_lint.py
+# Self-hosting: .wavefoundry/framework is a symlink to ../framework
+set -euo pipefail
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
+exec python3 ".wavefoundry/framework/scripts/docs_lint.py" "$@"

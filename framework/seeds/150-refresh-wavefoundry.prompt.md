@@ -1,0 +1,109 @@
+# 150 - Refresh Wavefoundry (Internal Helper)
+
+Intent:
+
+- Internal helper for drift reconciliation and repo-local Wavefoundry-managed framework refresh after code, docs, or policy changes.
+
+Tasks:
+
+1. Choose `quick`, `targeted`, or `full` scope.
+2. **Holistic project state evaluation** — On `full` scope, perform a structured re-evaluation of how the project actually exists today across every dimension listed below before running subsequent tasks. The goal is to surface drift that is invisible to prompt-surface and config-file checks alone. Record findings in a structured list: for each dimension, note whether it is `current`, `drifted`, or `unknown`, and flag drifted items for reconciliation in the relevant downstream task. On `targeted` scope, run only the dimensions whose trigger signals (code changes, new files, changed configs) were detected. On `quick` scope, skip this task.
+
+   **Source code structure** — compare actual source tree against `docs/repo-index.md`:
+   - Scan top-level module directories, build roots (`pom.xml`, `build.gradle*`, `go.mod`, `Cargo.toml`, `*.csproj`, `package.json`, etc.) and check whether all modules are still reflected in `docs/repo-index.md`; flag added modules, removed modules, and renamed packages
+   - Check for new application entry points (new `main()`, new Lambda handlers, new CLI commands, new HTTP server registrations) and new public API surfaces (new REST controllers, new gRPC service definitions, new exported packages)
+   - Note changes to the module ownership and layering (new shared utility modules, changed dependency direction between modules) and flag for architecture doc reconciliation
+
+   **Dependency graph** — compare current dependency manifests against architecture and security docs:
+   - Detect major version bumps in key dependencies (framework upgrades, SDK upgrades, runtime upgrades) and flag for architecture, security, and quality doc review
+   - Detect newly added dependencies and evaluate their trust surface (network-accessible libs, crypto libs, auth libs, serialization libs — all expand the security surface)
+   - Detect removed dependencies and check whether their removal invalidates existing architecture or security doc claims
+   - Flag dependency changes that affect factor applicability (e.g., adding a message broker library implies factor-04 and factor-08; adding an OTel SDK implies factor-14)
+
+   **Build and test procedure currency** — compare `docs/contributing/build-and-verification.md` against actual build configs and CI pipelines:
+   - Check whether documented build commands still work as described (compare against `Makefile` targets, Gradle tasks, `npm run` scripts, `cargo` commands, etc.)
+   - Check whether documented test commands match CI pipeline steps and current test framework config (`jest.config.*`, `pytest.ini`, `surefire` plugin config, `go test` flags, etc.)
+   - Detect new test categories (new integration test suites, new smoke test jobs, new contract test stages) not yet documented
+   - Check whether required tool versions documented in build-and-verification.md still match pinned versions in `.tool-versions`, `global.json`, `rust-toolchain.toml`, `gradle-wrapper.properties`, `.nvmrc`, etc.
+   - Flag any new pre-commit hooks (`.pre-commit-config.yaml`, `.husky/`, `lefthook.yml`) that impose new local workflow requirements
+   - When the repository vendors `.wavefoundry/framework/`, ensure `docs/contributing/build-and-verification.md` contains an up-to-date **Wave framework pack upgrade verification** section matching the current seed contract (`seed-040` task 16, `seed-160` step 0, and `docs/prompts/upgrade-wavefoundry.md` in this repo or the seed reference). Backfill or refresh the section when missing, stale, or contradicting automatic zip adoption / hook regeneration / framework test / docs-gate ordering.
+   - When `docs/prompts/package-wavefoundry.md` or `scripts/build_pack.py` exists, ensure repo-local packaging docs describe **suffix = successor of max letter for that date** in the zip output directory (not first missing `a`–`z` gap) and **VERSION** stamping — aligned with `040` task 16 and the checked-in `build_pack.py`.
+
+   **Security surface freshness** — compare `docs/SECURITY.md` and `docs/architecture/threat-model.md` against current source:
+   - Check for new network-exposed endpoints (new HTTP routes, new gRPC services, new WebSocket handlers) not reflected in the threat model
+   - Check for new authentication or authorization mechanisms introduced since last verified date
+   - Check for new PII or sensitive data flows (new fields stored, new external APIs sending user data, new logging that may include sensitive values)
+   - Check for new secrets handling patterns (new secret manager integrations, new env var secrets, new credential files)
+   - Flag any newly added dependency that has known CVEs or introduces a new trust boundary
+   - Check whether security docs `Last verified` dates are within the project's `max_last_verified_age_days` threshold from `docs/workflow-config.json`
+
+   **Quality posture currency** — compare `docs/QUALITY_SCORE.md` against actual linting and analysis config:
+   - Check whether documented quality gates still match enforced gates in CI (coverage thresholds in JaCoCo/Istanbul/tarpaulin/coverlet, lint rules in `.eslintrc`/`.golangci.yml`/`clippy.toml`/checkstyle, type-check strictness in `tsconfig.json` or mypy config)
+   - Detect new static analysis tools added (new Gradle plugins, new pre-commit hooks, new SonarQube/Semgrep/CodeQL rules) and document them
+   - Detect removed or weakened quality gates and flag as a quality regression signal
+   - Check `docs/references/tech-debt-tracker.md` for items that have been resolved in code but not marked complete, and for new debt patterns identified in recent journal entries
+
+   **Reliability and operability currency** — compare `docs/RELIABILITY.md` against current operational config:
+   - Check for new SLOs or changed latency/availability targets in monitoring config (Prometheus alerting rules, Datadog SLO definitions, CloudWatch alarms)
+   - Check for new runbooks needed by new operational failure modes introduced by dependency or architecture changes
+   - Check for new graceful shutdown or startup requirements introduced by new frameworks or deployment targets
+   - Check whether `docs/architecture/performance-budget.md` reflects current load test results or capacity planning; flag for refresh when new services or scaling targets were added
+
+   **Spec and behavior contract currency** — compare `docs/specs/*.md` against current implementation:
+   - Check whether behavior contracts described in spec files are still implemented as specified (look for divergence signals: renamed methods, removed endpoints, changed field names, altered error codes, changed numeric limits, changed default values)
+   - Check whether any new behavior that should be specified exists in code but has no spec entry; a component is spec-worthy when it is: (a) security-critical (validator, serializer, auth context, credential handler), (b) the telemetry output contract that downstream consumers depend on (span attribute keys, attribute values), (c) an operator-facing configuration surface (configuration properties, environment variables), or (d) a background job or scheduling contract with observable SLO implications
+   - Flag specs whose `Last verified` date predates significant code changes in the areas they describe
+   - For each spec-worthy component found without a spec, or each existing spec found to diverge from current implementation: record it as a `drifted` item with component name, source file, and a recommendation to invoke `230-author-spec`
+
+   **Missing docs and coverage gaps** — refresh `docs/missing-docs.md` (or `docs/gaps/missing-docs.md`):
+   - Check for new modules, new public APIs, or new integration surfaces added since last verified that have no corresponding doc coverage
+   - Check for items in missing-docs that have since been documented and should be removed
+   - Check for doc stubs created during init that are still marked `TBD` or `Unknown` — flag for resolution when code evidence now exists
+
+   **Contribution workflow and governance drift** — compare contributing docs against actual repo governance config:
+   - Check `.github/PULL_REQUEST_TEMPLATE.md`, `.github/ISSUE_TEMPLATE/`, and `CODEOWNERS` for changes that should be reflected in `docs/contributing/change-workflow.md` or `docs/contributing/agent-team-workflow.md`
+   - Check for new branch protection rules, required status checks, or merge strategies that affect the documented workflow
+   - Check `docs/contributing/build-and-verification.md` for any required local setup steps that have changed (new env vars, new service dependencies, new Docker requirements)
+
+   **Thin pointer and platform surface completeness** — sweep all entry files against current AGENTS.md:
+   - Check `CLAUDE.md`, `.cursor/rules/project-context.mdc`, `.junie/guidelines.md`, `.github/copilot-instructions.md`, `WARP.md` for stale command references, outdated stage gate language, or missing wave-context shortcut pointers
+   - Check `.claude/agents/*.md` native agent files: do they reflect current role definitions in `docs/agents/`? Are any roles documented in `docs/agents/` that lack a corresponding `.claude/agents/` file when `agent_platform_generation` enables Claude agents? Are any `.claude/agents/` files present for roles that no longer exist?
+   - Check `.claude/settings.json` for stale hook paths or missing PostToolUse hygiene hook when framework scripts changed location
+
+   **Repo profile archetype and project identity drift** — evaluate whether `docs/repo-profile.json` still accurately describes the project:
+   - Check whether the project archetype (library, service, CLI, agent, monorepo, etc.) has changed — a library that gained a REST API is now also a service; a script that gained persistent state now has operability requirements
+   - Check whether supported agent platforms in `agent_platform_generation` reflect the IDE/tooling actually used by the team (from IDE config re-scan in task 6)
+   - Check whether `enabled_agent_roles` still matches the team's actual review practice as evidenced by wave history and journal entries
+   - **Design surface drift**: when `docs/repo-profile.json` contains a `design_system.design_evidence` block, check whether the `ui_roots` paths still exist and whether significant UI-surface files changed since the `Last verified:` date in `docs/design/design-language.md`; if so, flag `docs/design/design-language.md` as stale and add it to the drifted list for operator refresh; also check that `docs/workflow-config.json` `design_review_triggers` is present — flag as missing if the design doc exists but the config key does not
+
+   **License and compliance** — on `full` scope only:
+   - Check whether any newly added dependencies introduce license obligations incompatible with the project's existing license (e.g., GPL dependency in a proprietary project, AGPL in a closed-source service)
+   - Flag dependency licenses that require attribution, notice files, or source disclosure
+   - Check whether `LICENSE` file copyright year is current
+
+3. Run the ongoing reindex workflow from `seed-140`.
+4. Refresh prompt-surface files affected by current drift.
+5. **Implementation guard, bug-fix QA, close-wave prompts, and prepare-time relocation (upgrade parity with init)** — On `targeted` or `full` scope (and on `quick` when `AGENTS.md`, `seed-050`, `docs/contributing/agent-team-workflow.md`, or `docs/prompts/implement-*.md` changed in the seed pack), reconcile `AGENTS.md` and thin pointers per `seed-050`: ensure **Git commits (operator-owned)** exists in `AGENTS.md` and matches the current `050` contract; ensure `docs/contributing/build-and-verification.md` includes a **Git commits** subsection aligned with that policy when that file exists — backfill when missing or when `050` changed in the seed pack. When `docs/repo-profile.json` / `docs/repo-index.md` indicates shipped product code, ensure **Implementation guard (product code)** exists, matches the current template, and lists product roots; backfill the section and thin-pointer startup lines if missing. Refresh `docs/prompts/implement-feature.md`, `docs/prompts/implement-wave.md`, `docs/prompts/plan-feature.md`, and `docs/prompts/index.md` so guard requirements match `seed-100`. When the repo is documentation-only, ensure obsolete guard sections are removed or replaced with the deferral one-liner per `050`. Also reconcile `docs/prompts/close-wave.md`, `docs/prompts/agents/close-wave.md`, and `docs/contributing/review-and-evals.md` (**Wave closure** / docs-contract-at-close) when `100` / `190` closure expectations changed in the seed pack, including explicit chronology reconciliation (`Status`, `Current state`, change states, `Completed at`), required-reviewer reconciliation from readiness to review checkpoints, and closure-artifact reconciliation (journal distillation, durable memory promotion, session-handoff clear/refresh). Ensure close-wave surfaces state that reviewer lessons should be journaled when role journals exist, and when role journals do not exist yet, lessons are captured in canonical existing journals without turning missing role-journal files into a hard closure blocker. When `seed-020` changed in the seed pack, reconcile the **Execution contract** section in `docs/contributing/agent-team-workflow.md` to carry the current full rule set with a reference to `020`; backfill the section when missing. Also reconcile **Execution contract** sections in canonical role docs (`docs/agents/implementer.md`, `docs/agents/planner.md`, `docs/agents/wave-coordinator.md`) with role-relevant subsets per `seed-050` **Execution Contract in Canonical Role Docs**; backfill when missing. When `docs/contributing/agent-team-workflow.md` or `seed-100` changed, ensure **`qa-reviewer` for bug fixes** is reflected in seeded `prepare-wave` / `implement-wave` surfaces and that `docs/workflow-config.json` includes `review_policies.require_qa_reviewer_for_bug_fixes` when the repo adopts that policy. When **`001-feature-wave-framework-overview.md`**, **`seed-170`**, **`seed-180`**, **`seed-190`**, **`seed-200`**, **`seed-100`**, or **`seed-110`** changed in the seed pack, also reconcile **prepare-time relocation** and **wave-owned change docs** wording across `docs/prompts/prepare-wave.md`, `docs/prompts/implement-wave.md`, `docs/prompts/implement-feature.md`, `docs/prompts/plan-feature.md`, `docs/prompts/create-wave.md`, `docs/prompts/review-wave.md`, matching `docs/prompts/agents/*` bodies, `docs/contributing/feature-wave-lifecycle-overview.md`, `docs/waves/README.md`, and `docs/PLANS.md` (when present) so **activation-time plan moves** do not reappear alongside `100`’s required behaviors.
+6. Refresh personas when evidence from the repository changed materially.
+7. **Re-scan IDE, toolchain, framework, CI/CD, and cloud scripting artifacts (`seed-030` task 6)** — On `full` scope, or `targeted` when any of the following changed or appeared since the last inventory: IDE config files (`.idea/`, `.vscode/`, `.xcodeproj/`, `.sln`), language or build manifests (`pom.xml`, `build.gradle*`, `go.mod`, `Cargo.toml`, `package.json`, `pyproject.toml`, `build.sbt`, `*.csproj`, `CMakeLists.txt`, `Makefile`, etc.), CI/CD pipeline files (`.github/workflows/`, `.gitlab-ci.yml`, `azure-pipelines.yml`, `Jenkinsfile`, `cloudbuild.yaml`, etc.), container or cloud scripting files (`Dockerfile`, `docker-compose.yml`, `wrangler.toml`, `host.json`, `serverless.yml`, `*.bicep`, `*.tf`, `Pulumi.yaml`, etc.), secrets or observability config (`datadog.yaml`, `otelcol-config.yaml`, `prometheus.yml`, `.sops.yaml`, etc.), or testing tool configs (`jest.config.*`, `playwright.config.*`, `cypress.config.*`, `*.robot`, etc.). When the re-scan finds new signals, update `docs/repo-index.md` with the discovered facts, then hand off to task 8 (factor-review re-evaluation) so newly applicable factors get agent files and newly inapplicable factors are retired. Skip re-scan on `quick` scope unless the user explicitly requests it.
+8. Re-evaluate factor-review applicability and update `factor_review_policy` in `docs/workflow-config.json` when project operating characteristics reflected in the repository changed materially — including signals discovered by the task 6 re-scan; re-evaluate `persona_review_policy` and readiness-gating expectations when the user base or operational model changed.
+9. Evaluate journal health and distill promotion candidates. For each role journal: identify incidents that have recurred more than once — these are candidates for promotion to `docs/references/project-context-memory.md` or a canonical doc. Identify active cautions whose root cause no longer exists in the codebase — retire them from the journal and from memory rather than leaving stale warnings. Do not promote one-time incidents that have been structurally resolved. The test for promotion is: would a future agent working in this area avoid a mistake or find a critical constraint faster because of this entry?
+10. Evaluate operating-memory health when role/persona/journal prompts changed: confirm journals and role/persona docs preserve operating identity, salience triggers, governance, taxonomy/routing, progressive hot-path capture, retrieval semantics, and retirement/supersession cues. Flag any local prompt or closure doc that still implies journal capture waits until `Close wave`.
+11. Refresh wave conventions and manifest state when repo-local policy changed, including readiness-before-implementation and rerun-before-closure rules.
+12. **Spec authoring and refresh (`seed-230`)** — On `full` scope, or `targeted` when task 2 flagged spec-related drift: for each `drifted` item from the spec currency dimension, invoke `230-author-spec` to author or refresh the spec. Author new specs for spec-worthy components that have no `docs/specs/` entry. Refresh stale specs by re-reading the source file and updating all constants, limits, defaults, and contract sections that diverged. Update `docs/specs/README.md` after each addition. Resolve corresponding entries in `docs/missing-docs.md` when the gap was listed there. Skip on `quick` scope unless the user explicitly requests it.
+13. **Architecture doc reconciliation (`seed-060`)** — On `full` scope, or `targeted` when `docs/repo-index.md`, top-level modules, build packaging, or integration surfaces changed materially, or when `seed-060` changed in the seed pack: refresh `docs/ARCHITECTURE.md` and `docs/architecture/{current-state,domain-map,layering-rules,cross-cutting-concerns,data-and-control-flow,testing-architecture}.md` (and `docs/architecture/decisions/template.md` when ADR conventions changed) so they stay aligned with inventory, **preserve repo-grown verified detail**, and close or update **open questions** when new evidence exists. Ensure the hub table matches files on disk; do not drop child docs without recording the rationale in `docs/missing-docs.md` or the hub.
+
+Output:
+
+- repo-local prompt-system reconciliation summary
+- holistic project state evaluation findings (from task 2 on `full` scope): per-dimension `current` / `drifted` / `unknown` status with specific drift items flagged
+- minimal docs-only patch set where drift was found
+- summary of user personas touched, factor-review agent changes, policy updates, and lessons promoted
+- list of dimensions found `drifted` that require follow-up action beyond what was auto-reconciled during this run
+
+Guardrails:
+
+- Do not wipe journals.
+- Do not erase repo-grown prompt behavior unless evidence from the repository invalidates it.
+- Do not remove a factor-review agent or erase factor-review history unless current evidence from the repository shows that factor is no longer applicable.
+- Do not bulk-rewrite historical journal entries only to satisfy a new schema; migrate active guidance and preserve standing directives unless explicitly superseded.

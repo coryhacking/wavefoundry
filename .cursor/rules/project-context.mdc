@@ -1,0 +1,26 @@
+---
+description: Wavefoundry project context for Cursor
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# Wavefoundry — Cursor Context
+
+Thin pointer. Read `AGENTS.md` first for the full agent operating surface.
+
+## Startup Order
+
+1. Read `AGENTS.md` — shortcuts, stage gate, framework script hygiene, git commits policy
+2. Read `docs/prompts/index.md` — public command catalog
+3. Read `docs/agents/session-handoff.md` — current session state if work is in progress
+
+## Key Guardrails
+
+- Stage gate before any code edit: change doc → wave admission → Prepare wave
+- Never commit without explicit operator instruction in the current session
+- Seed edits require `seed_edit_allowed` guard approval
+- Framework maintenance edits require `framework_edit_allowed` guard approval
+
+## After File Edits
+
+The `afterFileEdit` hook runs docs-lint after any edit to `docs/`. Fix failures before continuing.

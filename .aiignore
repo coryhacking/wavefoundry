@@ -1,0 +1,3 @@
+# Protect seed prompts from unintentional modification.
+# To allow Junie to edit seed prompts, temporarily comment out this line.
+.wavefoundry/framework/seeds/*.prompt.md

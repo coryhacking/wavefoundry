@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Wavefoundry framework pack archives (tracked source lives under framework/; do not commit zip drops)
+/agent-workflows.zip
+/wavefoundry-framework*.zip
+
+# Wavefoundry local approval state (never commit)
+.wavefoundry/guard-overrides.json
+
+# Personal Claude Code overrides (not project-level)
+.claude/settings.local.json
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+*.swp

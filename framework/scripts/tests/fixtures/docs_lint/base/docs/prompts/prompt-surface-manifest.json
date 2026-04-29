@@ -1,0 +1,26 @@
+{
+  "schema_version": 2,
+  "framework_revision": "2099-01-01a",
+  "seed_framework_source": ".wavefoundry/framework",
+  "generated_artifacts": [
+    "docs/prompts/prompt-surface-manifest.json",
+    "docs/agents/session-handoff.md",
+    "docs/waves/",
+    "docs/agents/journals/",
+    "docs/agents/personas/"
+  ],
+  "public_prompt_surface": [
+    {
+      "doc": "docs/prompts/install-wavefoundry.md",
+      "shortcut": "Init wave framework"
+    },
+    {
+      "doc": "docs/prompts/upgrade-wavefoundry.md",
+      "shortcut": "Upgrade wave framework"
+    },
+    {
+      "doc": "docs/prompts/plan-feature.md",
+      "shortcut": "Plan feature"
+    }
+  ]
+}

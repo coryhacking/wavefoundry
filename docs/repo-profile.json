@@ -1,0 +1,153 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-04-28",
+  "project_archetypes": [
+    "framework_tooling",
+    "cli_tool",
+    "developer_tool"
+  ],
+  "project_traits": [
+    "local_only",
+    "no_network_dependency",
+    "self_hosting",
+    "seed_pack_distribution",
+    "future_mcp_server"
+  ],
+  "runtime_surfaces": [
+    "cli_scripts",
+    "future_mcp_stdio_server"
+  ],
+  "deployment_modes": [
+    "local_python_scripts",
+    "zip_distribution_to_target_repos",
+    "future_local_mcp_server"
+  ],
+  "security_sensitivity": {
+    "level": "low",
+    "notes": "No credentials, PII, or network exposure in current scripts. Future MCP server must enforce allowed-roots isolation and refuse writes outside configured roots."
+  },
+  "performance_sensitivity": {
+    "level": "low",
+    "notes": "Docs-lint and gardener scripts run on docs trees, expected to be fast. Future MCP code-search index may have indexing latency for large repos."
+  },
+  "design_sensitivity": {
+    "level": "none",
+    "notes": "No UI surface; CLI and MCP tool outputs are plain text or JSON."
+  },
+  "design_system": {
+    "design_evidence": {
+      "detected": false,
+      "stack_specific_source": "No UI roots found; CLI-only tooling and seed-prompt text files",
+      "has_design_tokens": false,
+      "token_files": [],
+      "has_component_library": false,
+      "component_library": null,
+      "has_storybook": false,
+      "storybook_config_path": null,
+      "has_typography_system": false,
+      "typography_source": null,
+      "ui_roots": [],
+      "detected_methodology": []
+    }
+  },
+  "code_patterns": {
+    "status": "insufficient_history"
+  },
+  "persona_candidates": [
+    {
+      "name": "framework-operator",
+      "evidence": "The install seed (010) and upgrade seed (160) describe a distinct operator role that installs Wavefoundry into a target repository, runs lifecycle commands, reviews diffs, and controls git commits. This operator has a specific workflow and failure mode set (incorrect epoch, stale prompt surface, drift between seed source and rendered docs).",
+      "related_factor_ids": ["05", "12"]
+    },
+    {
+      "name": "wave-coordinator",
+      "evidence": "The wave-coordinator persona is described extensively across seeds (010, 050, 100, 110, 180) with specific operating identity, salience triggers, and responsibilities for managing wave execution, admission, reviewer allocation, and closure in a target repository. The framework ships a wave-coordinator agent doc template.",
+      "related_factor_ids": []
+    }
+  ],
+  "supported_agent_platforms": [
+    "claude",
+    "cursor",
+    "copilot",
+    "junie",
+    "warp",
+    "codex"
+  ],
+  "factor_review": {
+    "01": {
+      "name": "Codebase",
+      "status": "not-applicable",
+      "rationale": "Single repository with a single deployable target (framework zip). No multi-deploy or per-branch environment pattern yet."
+    },
+    "02": {
+      "name": "Dependencies",
+      "status": "partial",
+      "rationale": "Python scripts currently use only stdlib. Future MCP package (pyproject.toml) will introduce declared dependencies requiring pinning and isolation. Becomes applicable once pyproject.toml is added."
+    },
+    "03": {
+      "name": "Config",
+      "status": "applicable",
+      "rationale": "Framework reads docs/workflow-config.json for lifecycle epoch and wave settings. Future MCP server reads allowed_roots config. Config values differ meaningfully by installation."
+    },
+    "04": {
+      "name": "Backing services",
+      "status": "not-applicable",
+      "rationale": "No external databases, caches, or APIs used. Future MCP server is local-only."
+    },
+    "05": {
+      "name": "Build / release / run",
+      "status": "applicable",
+      "rationale": "build_pack.py produces a dated zip distribution with VERSION stamping. Strict build/release semantics (letter suffix, date stamping) are already implemented."
+    },
+    "06": {
+      "name": "Processes",
+      "status": "not-applicable",
+      "rationale": "Framework scripts are single-invocation CLIs. Future MCP server may have a process model but is not yet designed."
+    },
+    "07": {
+      "name": "Port binding",
+      "status": "partial",
+      "rationale": "Future MCP server may bind a port or use stdio. Not yet implemented. Re-evaluate when server is scaffolded."
+    },
+    "08": {
+      "name": "Concurrency",
+      "status": "not-applicable",
+      "rationale": "No concurrent scaling requirement. Scripts are single-process. Future MCP server will handle one request at a time (stdio transport)."
+    },
+    "09": {
+      "name": "Disposability",
+      "status": "partial",
+      "rationale": "Future MCP server as a long-running daemon will need graceful startup/shutdown. Not yet implemented. Re-evaluate when server is scaffolded."
+    },
+    "10": {
+      "name": "Dev / prod parity",
+      "status": "not-applicable",
+      "rationale": "No distinct dev/staging/prod environments. All operation is local."
+    },
+    "11": {
+      "name": "Logs",
+      "status": "not-applicable",
+      "rationale": "Framework scripts print to stdout/stderr directly. No structured logging system. Future MCP server may warrant structured logs."
+    },
+    "12": {
+      "name": "Admin processes",
+      "status": "applicable",
+      "rationale": "lifecycle_id.py, build_pack.py, render_platform_surfaces.py, docs_lint.py, and docs_gardener.py are all admin/operational CLI commands. These are the primary interface for maintainers."
+    },
+    "13": {
+      "name": "API first",
+      "status": "applicable",
+      "rationale": "The future MCP tool surface (wave.current, wave.validate, code.search, code.read, etc.) is a first-class integration contract. Tool contracts are defined before implementation. This is the primary consumer interface."
+    },
+    "14": {
+      "name": "Telemetry",
+      "status": "not-applicable",
+      "rationale": "No monitoring, alerting, or tracing requirements. Local tool; no operational dashboard."
+    },
+    "15": {
+      "name": "Auth and security",
+      "status": "not-applicable",
+      "rationale": "No authentication or multi-user access control. Allowed-roots isolation in the future MCP server is a safety guardrail, not an auth system."
+    }
+  }
+}

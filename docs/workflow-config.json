@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-04-28",
+  "lifecycle_id_policy": {
+    "epoch_utc": "2022-04-28T00:00:00Z",
+    "hour_offset": 0,
+    "prefix_width": 5,
+    "time_unit": "hours",
+    "minute_bucket": "half-minute-step",
+    "notes": "Epoch is UTC midnight 4 years before init date (2026-04-28); no prior git history. Produces 0xxxx-prefixed IDs, visually distinct from 00000 baseline wave prefix."
+  },
+  "wave_execution": {
+    "waves_required_for_non_trivial_work": true,
+    "wave_root": "docs/waves/",
+    "readiness_required_before_implementation": true,
+    "rerun_prepare_before_closure": true,
+    "contract_freeze_before_parallelism": true,
+    "auto_prepare_when_missing": false,
+    "lifecycle_mode": "standard"
+  },
+  "agent_memory": {
+    "journal_root": "docs/agents/journals/",
+    "promotion_behavior": "promote_repeated_validated_lessons_to_canonical_docs",
+    "distillation_behavior": "distill_at_wave_closure_and_reindex",
+    "entry_schema_version": "1.0",
+    "retention_policy": "retire_when_root_cause_resolved_or_constraint_no_longer_exists",
+    "sensitivity": "no_secrets_credentials_pii_in_journals"
+  },
+  "project_persona_generation": {
+    "enabled": true,
+    "persona_root": "docs/agents/personas/",
+    "evidence_sources": [
+      "docs/architecture/",
+      "docs/specs/",
+      "framework/seeds/",
+      "docs/RELIABILITY.md"
+    ],
+    "max_persona_count": 5,
+    "retirement_policy": "retire_when_no_longer_grounded_in_repository_evidence"
+  },
+  "prompt_generation": {
+    "seed_framework_source": ".wavefoundry/framework",
+    "public_prompt_root": "docs/prompts/",
+    "prompt_surface_manifest": "docs/prompts/prompt-surface-manifest.json",
+    "upgrade_merge_behavior": "preserve_repo_grown_adaptations",
+    "output_contract_schema_version": "1.0"
+  },
+  "factor_review_policy": {
+    "applicable_factors": ["03", "05", "12", "13"],
+    "partial_factors": ["02", "07", "09"],
+    "not_applicable_factors": ["01", "04", "06", "08", "10", "11", "14", "15"],
+    "use_native_subagents": true,
+    "fallback_to_review_lanes": true,
+    "findings_gating": false,
+    "findings_advisory": true,
+    "activation_trigger": "wave_with_changes_touching_applicable_factor_surfaces"
+  },
+  "persona_review_policy": {
+    "enabled": true,
+    "persona_root": "docs/agents/personas/",
+    "invoke_on_change_types": ["feat", "enh", "change"],
+    "invoke_phases": ["spec_authoring", "design_review", "acceptance"],
+    "findings_gating": false,
+    "findings_advisory": true,
+    "active_personas": ["framework-operator", "wave-coordinator"]
+  },
+  "review_policies": {
+    "require_qa_reviewer_for_bug_fixes": true,
+    "require_code_reviewer_for_non_trivial_implementation": true,
+    "require_architecture_reviewer_for_cross_boundary_changes": true,
+    "require_docs_contract_reviewer_for_spec_changes": true
+  },
+  "design_review_triggers": [],
+  "require_design_review_for_ui_surface_changes": false
+}
