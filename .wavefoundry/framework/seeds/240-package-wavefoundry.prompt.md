@@ -44,7 +44,7 @@ Before the final zip build:
 python3 -B framework/scripts/run_tests.py
 ```
 
-4. Run `python3 framework/scripts/build_pack.py` once to stamp `framework/VERSION` to the computed revision and create the zip.
+4. Run `python3 framework/scripts/build_pack.py` once to stamp `framework/VERSION`, rebuild `framework/index/`, and create the zip.
 5. If the computed revision changes between planning and packaging, rebuild so the zip filename and `framework/VERSION` match.
 6. After packaging and verification, hand off the diff plus a suggested commit message unless the operator explicitly instructs you to finalize the commit in the current request after reviewing that scope.
 
@@ -58,7 +58,7 @@ wavefoundry-YYYY-MM-DDx.zip
 
 `YYYY-MM-DD` is today's local calendar date in ISO format unless you pass `--date`. `x` is a lowercase letter suffix. The script scans the output directory for existing `wavefoundry-<same-date><letter>.zip` files and picks the letter after the highest suffix already present. It does not backfill lower gaps.
 
-Immediately before building the archive, the script writes `framework/VERSION` to a single line `<YYYY-MM-DD><letter>`, the same string embedded in the zip filename between `wavefoundry-` and `.zip`.
+Immediately before building the archive, the script writes `framework/VERSION` to a single line `<YYYY-MM-DD><letter>`, the same string embedded in the zip filename between `wavefoundry-` and `.zip`. It also rebuilds `framework/index/`, a packaged semantic index for the canonical framework docs and seeds, so target repositories do not need to re-embed the framework corpus after install or upgrade.
 
 ## Options
 
@@ -66,6 +66,7 @@ Immediately before building the archive, the script writes `framework/VERSION` t
 | --- | --- |
 | `--output <dir>` | Write the zip to `<dir>` instead of the repository root. The directory must already exist. |
 | `--date <YYYY-MM-DD>` | Use this date instead of today for the filename, `VERSION` stamp, and suffix scan. Use this for tests or exceptional re-builds only; normal packaging should rely on today's date. |
+| `--skip-framework-index` | Skip rebuilding `framework/index/`. Use only for emergency packaging when index dependencies are unavailable and the operator accepts that target repositories will rebuild framework search locally. |
 
 ## Examples
 
@@ -99,6 +100,8 @@ In target repositories, do not extract this zip directly to the repository root 
 - `*.pyc` files
 - `.DS_Store` files
 - `scripts/tests/tmp/` directories
+
+`framework/index/` is intentionally included when present. It is generated during packaging and tied to the packaged framework version.
 
 ## When To Use
 

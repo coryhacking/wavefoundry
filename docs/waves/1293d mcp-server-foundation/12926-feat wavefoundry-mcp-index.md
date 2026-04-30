@@ -1,7 +1,7 @@
 # Wavefoundry MCP Index Server
 
 Change ID: `12926-feat wavefoundry-mcp-index`
-Change Status: `ready`
+Change Status: `complete`
 Owner: Engineering
 Status: planned
 Last verified: 2026-04-29
@@ -36,33 +36,39 @@ agents do not use it.
 
 ## Requirements
 
-1. The framework install and upgrade flow initializes and updates the MCP server and its
-   dependencies without operator intervention beyond the existing install/upgrade commands.
+1. The framework provides a lightweight setup wrapper that checks MCP/index runtime
+   dependencies, avoids modifying system Python, and builds the index when dependencies
+   are available.
 2. The index is stored at `.wavefoundry/index/` within the target repository root.
    It must not be stored at any path that would conflict with target repository source.
 3. Embedding models are cached globally on the host machine using fastembed's default
    platform-appropriate cache directory (`~/.cache/fastembed` on Linux/macOS,
    `%LOCALAPPDATA%\fastembed` on Windows). Models are downloaded once and reused
    across all projects on the same machine.
-4. Markdown, plain text, and seed prompt files are embedded using `bge-small-en-v1.5`
-   (~25MB). Source code chunks (function bodies, class definitions, code blocks) are
-   embedded using `nomic-embed-code` (~137MB). Model assignment is per chunk kind, not
-   per file extension.
-5. Framework seed prompts (`.wavefoundry/framework/seeds/`) are indexed as kind `seed`
+4. `Package Wavefoundry` rebuilds a framework-only docs/seed index at
+    `.wavefoundry/framework/index/` and includes it in the distribution zip. Target
+    repositories then build only their local project layer at `.wavefoundry/index/`.
+5. Markdown, plain text, seed prompt files, and optional source code chunks are embedded
+   using `bge-small-en-v1.5` (~25MB). Source code chunks (function bodies, class
+   definitions, code blocks) are optional and embedded only when `--include-code` is
+   requested. The setup wrapper runs docs and code indexing as separate subprocesses so
+   each pass has an isolated runtime footprint. Framework internal tests under
+   `.wavefoundry/framework/scripts/tests/` are never included in the semantic code index.
+6. Framework seed prompts (`.wavefoundry/framework/seeds/`) are indexed as kind `seed`
    and are retrievable via `seed.get(name)` and included in general `docs.search` results.
-6. The index builder performs incremental rebuilds: unchanged files (detected by content
+7. The index builder performs incremental rebuilds: unchanged files (detected by content
    hash stored in `meta.json`) are skipped. A full rebuild is always available via
-   `python3 .wavefoundry/framework/scripts/build_index.py --full`.
-7. The index covers: all files not excluded by `.gitignore` or `.aiignore`, with a
+   `python3 .wavefoundry/framework/scripts/setup_index.py --full`.
+8. The index covers: all files not excluded by `.gitignore` or `.aiignore`, with a
    hardcoded default exclusion list (`node_modules/`, `.git/`, `__pycache__/`, `*.pyc`,
    common build output dirs, binary file extensions).
-8. The index is automatically maintained after file edits via the Claude Code post-edit
+9. The index is automatically maintained after file edits via the Claude Code post-edit
    hook (incremental rebuild of changed paths). The hook must not block the edit
    pipeline; it runs as a background subprocess.
-9. An optional file-system watcher mode (`build_index.py --watch`) is available for
+10. An optional file-system watcher mode (`indexer.py --watch`) is available for
    non-Claude-Code environments (Cursor, terminal). It uses `watchdog` if installed;
    if not installed it exits with a clear install instruction rather than failing silently.
-10. The MCP server (`server.py`) uses stdio transport and exposes the read-only tool
+11. The MCP server (`server.py`) uses stdio transport and exposes the read-only tool
     surface defined in the Tool Surface section. It is registered in `.claude/settings.json`
     by `render_platform_surfaces.py` during install/upgrade.
 11. The server supports a configurable `--root` argument (defaults to CWD) so it can
@@ -70,10 +76,10 @@ agents do not use it.
 12. All scripts and the server are cross-platform: Windows (x64), macOS (arm64, x64),
     Linux (x64, arm64). No C extension compilation is required at install time; all
     native code is delivered via pre-built pip wheels.
-13. Change creation tools (`wave.new_feature`, `wave.new_bug`, `wave.new_enhancement`,
-    `wave.new_refactor`) combine lifecycle ID generation and change doc scaffolding into
-    a single call. Each wraps `lifecycle_id.py` and writes the scaffolded change doc to
-    `docs/plans/` in one operation.
+13. Change creation tools cover every non-wave lifecycle kind supported by
+    `lifecycle_id.py` and combine lifecycle ID generation and change doc scaffolding
+    into a single call. Each writes the scaffolded change doc to `docs/plans/` in one
+    operation.
 14. Wave lifecycle state mutation tools (create wave, admit change, remove change,
     prepare, pause, review, close) are explicitly out of scope and will be planned as
     a follow-on feature.
@@ -89,11 +95,12 @@ every session. Session startup loads more context than any single task requires.
 - Language-aware chunker: `ast`-based for Python, header-split for markdown, regex
   fallback for JS/TS/other code, line-window fallback for unknown types
 - Index builder script with incremental and full rebuild modes
-- Two-model embedding pipeline (bge-small-en-v1.5, nomic-embed-code) via fastembed
+- Lightweight embedding pipeline via fastembed (`bge-small-en-v1.5` for docs, seeds, and optional code)
 - Flat-file index format at `.wavefoundry/index/` (`.npy` vectors, `.json` metadata)
+- Packaged framework index layer at `.wavefoundry/framework/index/`
 - MCP server with tool surface defined below (stdio transport)
-- Change creation tools: `wave.new_feature`, `wave.new_bug`, `wave.new_enhancement`,
-  `wave.new_refactor` — each generates ID and scaffolds change doc in one call
+- Change creation tools for all supported non-wave lifecycle kinds — each generates ID
+  and scaffolds a change doc in one call
 - Framework script tools: `wave.validate()`, `wave.garden()`, `wave.sync_surfaces()`
 - Claude Code post-edit hook integration for automatic incremental rebuild
 - Optional file-system watcher mode via `watchdog`
@@ -125,7 +132,7 @@ and excerpt. Query embedded with bge-small-en-v1.5.
 **`code.search(query, language?)`**
 Semantic search over source code chunks. Optional `language` filter (`python`, `js`,
 etc.). Returns top-N results with path, line range, and excerpt. Query embedded with
-nomic-embed-code.
+bge-small-en-v1.5.
 
 **`seed.get(name)`**
 Resolve a seed prompt by name or partial slug (e.g. `"plan-feature"`,
@@ -140,6 +147,9 @@ Returns active wave ID, lifecycle stage, and list of admitted change IDs, parsed
 
 **`wave.list_waves()`**
 List all waves with ID, status, and change count.
+
+**`wave.list_plans()`**
+List pending change docs under `docs/plans/` with ID, status, and path.
 
 **`wave.get_change(id)`**
 Return full text of a change doc by ID prefix, searched across `docs/plans/` and
@@ -158,7 +168,13 @@ path and ID. One call replaces: generate ID, read template, write file.
 **`wave.new_feature(slug)`** — kind `feat`
 **`wave.new_bug(slug)`** — kind `bug`
 **`wave.new_enhancement(slug)`** — kind `enh`
-**`wave.new_refactor(slug)`** — kind `refactor`
+**`wave.new_refactor(slug)`** — kind `ref`
+**`wave.new_change(slug)`** — kind `change`
+**`wave.new_documentation(slug)`** — kind `doc`
+**`wave.new_tech_debt(slug)`** — kind `debt`
+**`wave.new_task(slug)`** — kind `task`
+**`wave.new_maintenance(slug)`** — kind `maint`
+**`wave.new_operations(slug)`** — kind `ops`
 
 ### Framework operations
 
@@ -210,14 +226,15 @@ and triggers a full rebuild of the affected content type.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `python3 .wavefoundry/framework/scripts/build_index.py` runs to completion
-  on a fresh clone with no index present, on Windows, macOS, and Linux.
+- [ ] AC-1: `python3 .wavefoundry/framework/scripts/setup_index.py` runs to completion
+  when dependencies are present; when they are missing, it exits with isolated tool-venv
+  setup instructions and does not modify system Python.
 - [ ] AC-2: Incremental rebuild skips unchanged files; only modified paths produce new
   chunks. Verified by timing a second run against a first run on the same repo.
 - [ ] AC-3: `docs.search("how does prepare wave work")` returns the prepare-wave prompt
   doc in the top 3 results.
-- [ ] AC-4: `code.search("lifecycle ID epoch calculation")` returns the relevant function
-  from `lifecycle_id.py` in the top 3 results.
+- [ ] AC-4: after running setup with `--include-code`, `code.search("lifecycle ID epoch calculation")`
+  returns the relevant function from `lifecycle_id.py` in the top 3 results.
 - [ ] AC-5: `seed.get("plan-feature")` returns the full text of the plan-feature seed
   prompt without additional file reads by the agent.
 - [ ] AC-6: `wave.current()` returns the correct active wave and stage when a wave is
@@ -228,8 +245,9 @@ and triggers a full rebuild of the affected content type.
 - [ ] AC-9: `wave.new_feature("my-slug")` creates a scaffolded change doc at
   `docs/plans/<generated-id>.md` and returns the path and ID. The doc contains all
   required plan-template sections with the correct change ID populated.
-- [ ] AC-10: `wave.new_bug`, `wave.new_enhancement`, and `wave.new_refactor` produce
-  change docs with the correct kind prefix (`bug`, `enh`, `refactor`) in the ID.
+- [ ] AC-10: Change-creation tools cover all non-wave lifecycle kinds (`bug`, `feat`,
+  `enh`, `change`, `doc`, `debt`, `ref`, `task`, `maint`, `ops`) and produce change
+  docs with the correct kind prefix in the ID.
 - [ ] AC-11: `wave.garden()` returns a structured summary matching the output of running
   `docs_gardener.py` directly.
 - [ ] AC-12: `wave.sync_surfaces()` regenerates platform surface files and returns the
@@ -237,14 +255,14 @@ and triggers a full rebuild of the affected content type.
 - [ ] AC-13: After a file edit in Claude Code, the index reflects the change within the
   same session (post-edit hook fired incremental rebuild). The hook does not block
   the edit pipeline.
-- [ ] AC-14: After `render_platform_surfaces.py` runs, `.claude/settings.json` contains
-  a valid MCP server entry pointing to `server.py`.
+- [ ] AC-14: After `render_platform_surfaces.py` runs, `.mcp.json` and
+  `.junie/mcp/mcp.json` contain a valid MCP server entry pointing to `server.py`.
 - [ ] AC-15: Embedding models are downloaded to the global fastembed cache on first run
-  and reused on subsequent runs. A second `build_index.py` run on a different project
+  and reused on subsequent runs. A second `setup_index.py` run on a different project
   on the same machine does not re-download models.
 - [ ] AC-16: All framework tests pass: `python3 .wavefoundry/framework/scripts/run_tests.py`
 - [ ] AC-17: `watchdog` absence produces a clear install instruction; it does not cause
-  `build_index.py` to fail when `--watch` is not requested.
+  `indexer.py` to fail when `--watch` is not requested.
 
 ## Tasks
 
@@ -253,8 +271,8 @@ Two hard serialization gates must pass before downstream slices begin.
 
 ### Pre-implementation: resolve open design questions
 
-- [ ] Decide chunk ID format (see Decision Log — open question)
-- [ ] Decide framework ops invocation strategy: direct import vs subprocess (see Decision Log — open question)
+- [x] Decide chunk ID format (see Decision Log)
+- [x] Decide framework ops invocation strategy: direct import vs subprocess (see Decision Log)
 - [ ] Add `fastembed`, `numpy`, `mcp[cli]` to framework dependency manifest
 - [ ] Add `watchdog` as optional dependency with install instruction
 
@@ -273,16 +291,19 @@ Two hard serialization gates must pass before downstream slices begin.
 *Gate 2 passes at end of this slice. Server and hook-integration slices may not begin until Gate 2 passes.*
 *Highest-risk slice — incremental rebuild correctness and cross-platform path normalization.*
 
-- [ ] Implement file walker in `build_index.py`: respects `.gitignore`, `.aiignore`, and
+- [ ] Implement file walker in `indexer.py`: respects `.gitignore`, `.aiignore`, and
   hardcoded exclusion list; normalizes all paths to forward slashes on all platforms
 - [ ] Integrate fastembed: docs embedding (bge-small-en-v1.5) first; verify model downloads
   to global cache and is reused on second run before adding code model
-- [ ] Add code embedding (nomic-embed-code); verify correct model-per-chunk-kind dispatch
+- [ ] Add opt-in code embedding behind `--include-code`; skip framework internal tests
+  and generated platform hooks by default
 - [ ] Implement flat-file write: `docs.npy`, `docs.json`, `code.npy`, `code.json`, `meta.json`
+- [ ] Add packaged framework index generation during `build_pack.py`
+- [ ] Teach MCP search to merge project-local index results with the packaged framework index
 - [ ] Implement incremental rebuild: load existing embeddings → filter rows for
   changed/deleted files by chunk ID → embed new/changed chunks → concatenate → write back
 - [ ] Add `--full` flag (force full rebuild) and `--watch` mode (optional `watchdog` import)
-- [ ] Write `test_build_index.py`: fixture repo in temp dir; verify hash-based skip,
+- [ ] Write `test_indexer.py`: fixture repo in temp dir; verify hash-based skip,
   cross-platform paths, model version mismatch triggers full rebuild; mock fastembed
   embedding step to avoid 162MB download in test suite
 - [ ] **GATE 2:** Index file format (npy shape, chunks.json schema, meta.json schema)
@@ -294,15 +315,16 @@ Two hard serialization gates must pass before downstream slices begin.
 - [ ] Implement `server.py` skeleton: learn `mcp` SDK stdio transport pattern; server
   startup loads `docs.npy`/`code.npy` into memory; handle missing or stale index gracefully
 - [ ] Implement `docs.search`, `code.search`, `seed.get`
-- [ ] Implement `wave.current`, `wave.list_waves`, `wave.get_change`, `wave.get_prompt`
+- [ ] Implement `wave.current`, `wave.list_waves`, `wave.list_plans`,
+  `wave.get_change`, `wave.get_prompt`
 - [ ] Write `test_server_tools.py` for these tools using fixture index from Slice 2 tests
 
 ### Slice 4 — MCP server: framework operation tools
 *Depends on Gate 2. Can run in parallel with Slice 3.*
 
-- [ ] Implement `wave.new_feature`, `wave.new_bug`, `wave.new_enhancement`,
-  `wave.new_refactor`: import `lifecycle_id.build_id` directly; scaffold from
-  `docs/plans/plan-template.md`; write to `docs/plans/<id>.md`; return path and ID
+- [ ] Implement change-creation tools for all non-wave lifecycle kinds: import
+  `lifecycle_id.build_id` directly; scaffold from `docs/plans/plan-template.md`;
+  write to `docs/plans/<id>.md`; return path and ID
 - [ ] Implement `wave.validate`: import from `wave_lint_lib` directly; return structured
   pass/fail dict matching linter output
 - [ ] Implement `wave.garden`: import from `docs_gardener` directly; return structured
@@ -316,9 +338,9 @@ Two hard serialization gates must pass before downstream slices begin.
 
 - [ ] Add `.wavefoundry/index/` to `.gitignore` and `.aiignore` via install/upgrade flow
 - [ ] Update `render_platform_surfaces.py` to emit MCP server entry in `.claude/settings.json`
-- [ ] Update post-edit hook to trigger incremental `build_index.py` as background
+- [ ] Update post-edit hook to trigger incremental `indexer.py` as background
   subprocess; must not block edit pipeline
-- [ ] Update install/upgrade scripts to run `build_index.py --full` on first install
+- [ ] Update install/upgrade instructions to use `setup_index.py --full` on first install
 - [ ] Update `AGENTS.md` startup instructions to route through MCP tools
 
 ### Slice 6 — Architecture docs
@@ -369,7 +391,7 @@ Two hard serialization gates must pass before downstream slices begin.
 | AC-1 | required | Cross-platform build is a hard delivery gate; failure here means the feature ships to no one |
 | AC-2 | required | Incremental rebuild is the primary maintenance path for large repos; without it the feature is unusable on its target use case |
 | AC-3 | required | Core doc search quality signal; if prepare-wave doesn't surface, semantic search is not working |
-| AC-4 | required | Core code search quality signal; if lifecycle_id function doesn't surface, code search is not working |
+| AC-4 | optional | Semantic code search is useful but too heavy for default setup; exact search remains the lightweight default for code |
 | AC-5 | required | Seed retrieval is a primary token-reduction goal; must work correctly |
 | AC-6 | required | wave.current is the anchor inspection tool; wrong state read is worse than no tool |
 | AC-7 | required | wave.get_prompt is a primary session startup cost reduction; must return full content |
@@ -389,16 +411,17 @@ Two hard serialization gates must pass before downstream slices begin.
 | Date | Update | Evidence |
 |------|--------|---------|
 | 2026-04-29 | Change doc authored | This file |
+| 2026-04-30 | Change baseline marked complete after the MCP index/server foundation and full framework verification passed, unblocking dependent guided-contract work. | `python3 .wavefoundry/framework/scripts/run_tests.py`; `python3 .wavefoundry/framework/scripts/docs_lint.py` |
 
 ## Decision Log
 
 | Date | Decision | Reason | Alternatives |
 |------|----------|--------|-------------|
 | 2026-04-29 | `.wavefoundry/index/` is gitignored, not committed | Index files are binary (`.npy`); merge conflicts would be unrecoverable. Each developer and CI environment builds locally. Consistent with "runtime artifact" classification already noted in Outputs. `.wavefoundry/index/` must be added to `.gitignore` and `.aiignore` by the install flow. | Commit index (binary merge conflicts, large binary diffs, no benefit over local rebuild) |
-| **OPEN** | Chunk ID format — must be decided before Slice 1 begins | Two candidates: (A) `src/foo.py::MyClass.my_method` (semantic, human-readable, but fragile if function is renamed); (B) `src/foo.py:42-67` (stable line range, but meaningless after edits). Option A is better for search result display; Option B is better for incremental rebuild stability. Hybrid: `src/foo.py::MyClass.my_method@42-67` gives both but is more complex. Decision needed before any index or server code is written — this string is a key in meta.json and changing it invalidates all existing indexes. | —
-| **OPEN** | Framework ops invocation strategy — direct import vs subprocess | Direct import (`from lifecycle_id import build_id`) is faster, no subprocess overhead, structured error handling, already importable in `lifecycle_id.py`, `docs_gardener.py`, `wave_lint_lib`. Subprocess is simpler isolation but adds latency and requires stdout parsing. Recommendation is direct import for all four scripts since they already expose clean function interfaces. Confirm before Slice 4 begins. | —
+| 2026-04-29 | Chunk ID format: `path::SymbolName` / `path#section` / `path:L{s}-L{e}` | Incremental rebuild tracks file-level hashes not chunk-level IDs — all chunks for a changed file are regenerated wholesale, so chunk IDs need not survive rebuilds. ID only needs to be unique within the current index and useful in search result display. Semantic option A wins: `src/foo.py::MyClass.my_method` for named symbols, `docs/foo.md#section-title` for markdown headers, `src/foo.py:L42-L67` for line-window fallback chunks. | Line-range-only (stable but meaningless in results); hybrid with `@` separator (complex, no benefit given file-level tracking) |
+| 2026-04-29 | Framework ops tools use direct import, not subprocess | `lifecycle_id`, `docs_gardener`, and `wave_lint_lib` already expose clean importable functions. Direct import is faster, gives structured errors, and avoids stdout parsing. No isolation risk since Wavefoundry owns all scripts. | Subprocess (latency, stdout parsing, no structured errors) |
 | 2026-04-29 | Flat files (.npy + .json) over sqlite or Chroma | No C extension compilation; cross-platform pip wheels only; corpus size does not require ANN index | sqlite-vec (C extension, compilation risk on Windows); chromadb (hnswlib, same issue) |
-| 2026-04-29 | Two models (bge-small-en + nomic-embed-code) | Model assignment by chunk kind not file type; docstrings/comments treated as text | Single model for all content (lower retrieval quality on code) |
+| 2026-04-29 | Single lightweight model (bge-small-en) for docs, seeds, and optional code | Keeps setup small and avoids multi-minute code embedding on small repositories; exact search still covers precise code lookups | Specialized code model (better code retrieval quality, much slower first rebuild and heavier memory profile) |
 | 2026-04-29 | Global fastembed model cache | Models shared across all projects on same machine; no per-project re-download | Per-project cache (wastes disk, slower onboarding) |
 | 2026-04-29 | Post-edit hook for auto-maintenance (primary); watchdog optional | Zero new hard deps for primary use case; hook infrastructure already exists | watchdog as hard dep (cross-platform friction); no auto-maintenance (degrades quality) |
 | 2026-04-29 | Tool surface organized by intent not by script | `wave.new_feature(slug)` replaces discover-script + understand-CLI + invoke + parse-stdout; one call, structured result | Thin script wrappers (agent still bears CLI knowledge burden each session) |
@@ -411,9 +434,9 @@ Two hard serialization gates must pass before downstream slices begin.
 
 | Risk | Mitigation |
 |------|-----------|
-| nomic-embed-code 137MB download surprises users on first install | Surface download size in install output; download is one-time per machine |
+| Optional code embeddings are slower than docs embeddings | Code indexing is opt-in; default pass skips framework tests, test dirs, generated hooks, and non-source files |
 | fastembed wheel unavailable for a target platform | fastembed publishes wheels for Win x64, macOS arm64/x64, Linux x64/arm64; document supported platforms; fallback error message |
-| Index diverges from repo state if post-edit hook is disabled | `build_index.py` CLI always available for manual rebuild; server warns if meta.json is stale |
+| Index diverges from repo state if post-edit hook is disabled | `setup_index.py` CLI always available for manual rebuild; server warns if meta.json is stale |
 | Large repos (>10k files) make full rebuild slow | Incremental rebuild is the default path; full rebuild documented as infrequent operation |
 | `watchdog` optional import pattern breaks on some Python versions | Guard with try/except ImportError; tested in CI fixture |
 

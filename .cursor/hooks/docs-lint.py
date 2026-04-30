@@ -140,6 +140,61 @@ def maybe_cleanup_pycache(command_text: str) -> None:
     for cache_dir in scripts_root.rglob("__pycache__"):
         shutil.rmtree(cache_dir, ignore_errors=True)
 
+
+def should_reindex(path: str) -> bool:
+    if not path:
+        return False
+    if path.startswith(".wavefoundry/index/"):
+        return False
+    if path.startswith(".wavefoundry/framework/index/"):
+        return False
+    suffix = Path(path).suffix.lower()
+    skip_suffixes = {".pyc", ".npy", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+                     ".ico", ".woff", ".woff2", ".ttf", ".eot", ".zip"}
+    return suffix not in skip_suffixes
+
+
+def should_reindex_framework(path: str) -> bool:
+    if not should_reindex(path):
+        return False
+    return path.startswith(".wavefoundry/framework/")
+
+
+def maybe_trigger_reindex(file_path: str) -> None:
+    if not should_reindex(file_path):
+        return
+    indexer = REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
+    if not indexer.exists():
+        return
+    subprocess.Popen(
+        [sys.executable, str(indexer), "--root", str(REPO_ROOT)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        cwd=str(REPO_ROOT),
+        start_new_session=True,
+    )
+    if should_reindex_framework(file_path):
+        framework_index = REPO_ROOT / ".wavefoundry" / "framework" / "index"
+        subprocess.Popen(
+            [
+                sys.executable,
+                str(indexer),
+                "--root",
+                str(REPO_ROOT),
+                "--content",
+                "docs",
+                "--index-dir",
+                str(framework_index),
+                "--include-prefix",
+                ".wavefoundry/framework",
+                "--no-ignore-files",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            cwd=str(REPO_ROOT),
+            start_new_session=True,
+        )
+
 def main() -> int:
     payload = load_payload(read_payload_text())
     file_path = detect_file_path(payload)

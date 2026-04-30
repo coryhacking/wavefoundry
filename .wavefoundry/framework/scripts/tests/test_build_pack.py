@@ -5,7 +5,7 @@ import sys
 import unittest
 import zipfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
@@ -70,6 +70,45 @@ class BuildPackTests(unittest.TestCase):
             member = "framework/VERSION"
             self.assertIn(member, zf.namelist())
             self.assertEqual(zf.read(member).decode(), "2099-12-01a\n")
+
+    def test_prebuild_index_runs_before_zip_and_is_packaged(self):
+        fw = self.tmp / "mini-fw"
+        fw.mkdir(parents=True)
+        (fw / "stub.txt").write_text("stub", encoding="utf-8")
+
+        def fake_prebuild(framework_dir, *, verbose=False):
+            index_dir = framework_dir / "index"
+            index_dir.mkdir(parents=True)
+            (index_dir / "meta.json").write_text("{}", encoding="utf-8")
+
+        with patch.object(build_pack, "build_framework_index", side_effect=fake_prebuild) as mocked:
+            path = build_pack.build_zip(
+                self.tmp,
+                "2099-12-02",
+                framework_dir=fw,
+                write_version=True,
+                prebuild_index=True,
+            )
+
+        mocked.assert_called_once_with(fw, verbose=False)
+        with zipfile.ZipFile(path) as zf:
+            self.assertIn("framework/index/meta.json", zf.namelist())
+
+    def test_framework_index_uses_repo_relative_paths_when_under_wavefoundry(self):
+        repo = self.tmp / "repo"
+        fw = repo / ".wavefoundry" / "framework"
+        fw.mkdir(parents=True)
+        fake_indexer = MagicMock()
+
+        with patch.object(build_pack, "_load_indexer", return_value=fake_indexer):
+            build_pack.build_framework_index(fw)
+
+        fake_indexer.build_index.assert_called_once()
+        kwargs = fake_indexer.build_index.call_args.kwargs
+        self.assertEqual(fake_indexer.build_index.call_args.args[0], repo.resolve())
+        self.assertEqual(kwargs["index_dir"], (fw / "index").resolve())
+        self.assertEqual(kwargs["include_prefixes"], (".wavefoundry/framework",))
+        self.assertFalse(kwargs["respect_ignore"])
 
     def test_second_build_does_not_alter_first_zip_mtime(self):
         first = self._build()

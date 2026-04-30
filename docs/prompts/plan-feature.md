@@ -13,15 +13,26 @@ Author a consolidated change document at `docs/plans/<change-id>.md`. Wave admis
 ## Steps
 
 1. Clarify scope through discovery; classify by risk and blast radius.
-2. Generate a change ID: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>`
-3. Author the change doc using `docs/plans/plan-template.md`. Include:
+2. Create the staged change doc through MCP when available:
+   - `feat` → `wave_new_feature`
+   - `bug` → `wave_new_bug`
+   - `enh` → `wave_new_enhancement`
+   - `ref` → `wave_new_refactor`
+   - `change` → `wave_new_change`
+   - `doc` → `wave_new_documentation`
+   - `debt` → `wave_new_tech_debt`
+   - `task` → `wave_new_task`
+   - `maint` → `wave_new_maintenance`
+   - `ops` → `wave_new_operations`
+3. If MCP is unavailable, use the CLI fallback: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>`, then create `docs/plans/<change-id>.md` from `docs/plans/plan-template.md`.
+4. Author or refine the change doc. Include:
    - `## Rationale` — specific motivation a reviewer can understand
    - `## Requirements` — numbered behavioral requirements
    - `## Scope` — in-scope / out-of-scope
    - `## Acceptance Criteria` — testable outcomes
    - `## Affected architecture docs` — which architecture docs need updating, or N/A with rationale (required when the change crosses module boundaries, integration contracts, primary data/control paths, or test/release seams)
-4. Surface assumptions explicitly; prefer one clarifying question over a wrong assumption.
-5. Note: **Interrogate this plan** is available as an optional stress-test before admission.
+5. Surface assumptions explicitly; prefer one clarifying question over a wrong assumption.
+6. Note: **Interrogate this plan** is available as an optional stress-test before admission.
 
 ## Stage Gate
 

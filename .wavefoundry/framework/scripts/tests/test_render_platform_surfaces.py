@@ -70,6 +70,15 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
                 copilot_hooks["hooks"]["preToolUse"][0]["bash"],
                 expected_copilot_command,
             )
+            junie_mcp = json.loads((repo_root / ".junie" / "mcp" / "mcp.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                junie_mcp["mcpServers"]["wavefoundry"]["command"],
+                "python3",
+            )
+            self.assertEqual(
+                junie_mcp["mcpServers"]["wavefoundry"]["args"],
+                [".wavefoundry/framework/scripts/server.py"],
+            )
 
             self.assertTrue((repo_root / ".claude" / "hooks" / "pre-edit").exists())
             self.assertTrue((repo_root / ".claude" / "hooks" / "pre-edit.py").exists())
@@ -93,6 +102,12 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
                 ".wavefoundry/guard-overrides.json",
                 (repo_root / ".claude" / "hooks" / "pre-edit.py").read_text(encoding="utf-8"),
             )
+            post_edit = (repo_root / ".claude" / "hooks" / "post-edit.py").read_text(encoding="utf-8")
+            self.assertIn("--index-dir", post_edit)
+            self.assertIn(".wavefoundry/framework/index", post_edit)
+            self.assertIn("--include-prefix", post_edit)
+            self.assertIn(".wavefoundry/framework", post_edit)
+            self.assertIn("--no-ignore-files", post_edit)
             self.assertIn(
                 ".wavefoundry/guard-overrides.json",
                 (repo_root / ".claude" / "skills" / "upgrade-wave.md").read_text(encoding="utf-8"),

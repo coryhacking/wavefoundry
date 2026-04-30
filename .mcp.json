@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "wavefoundry": {
+      "command": "python3",
+      "args": [
+        ".wavefoundry/framework/scripts/server.py"
+      ]
+    }
+  }
+}

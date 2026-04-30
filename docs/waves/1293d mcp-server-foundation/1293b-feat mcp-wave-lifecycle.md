@@ -1,9 +1,9 @@
 # MCP Wave Lifecycle State Mutations
 
 Change ID: `1293b-feat mcp-wave-lifecycle`
-Change Status: `stub`
+Change Status: `complete`
 Owner: Engineering
-Status: stub
+Status: complete
 Last verified: 2026-04-29
 Wave: `1293d mcp-server-foundation`
 Depends on: `12926-feat wavefoundry-mcp-index` (MCP server and framework operation
@@ -69,33 +69,44 @@ On pass: archives wave, updates workflow state. Returns archive path.
 
 ## Requirements
 
-(To be fully authored at planning time. Stub entries below capture known constraints.)
-
-1. All lifecycle tools are transactional: preconditions checked, validations run,
-   state advanced only on full pass.
-2. All lifecycle tools delegate validation to the same implementations used by
-   standalone `wave.validate()` and `wave.garden()`.
-3. Lifecycle tools return structured pass/fail — never raw script output.
-4. This feature must not be planned or implemented until `12926-feat wavefoundry-mcp-index`
-   has reached a stable implementation that can be depended on.
+1. Lifecycle mutation tools expose a mode contract (`dry_run`, `create`/`apply`) and
+   return the shared MCP envelope fields (`status`, `data`, `diagnostics`,
+   `next_tools`, `usage`).
+2. `wave_create_wave`, `wave_add_change`, and `wave_remove_change` mutate only
+   `docs/waves/<wave-id>/wave.md` and must be retry-safe.
+3. `wave_prepare` and `wave_close` must run docs validation before reporting success.
+4. `wave_pause` writes `docs/agents/session-handoff.md` in create mode and reports
+   the target path in dry-run mode.
+5. Lifecycle tools must keep root-safety and prefix contracts established in `12926`
+   and `12993`.
 
 ## Scope
 
-(To be fully scoped at planning time.)
+**In scope:** `wave_create_wave`, `wave_add_change`, `wave_remove_change`,
+`wave_prepare`, `wave_pause`, `wave_review`, `wave_close`; transactional dry-run
+semantics; shared diagnostics and follow-up hints.
 
-**In scope:** `wave.create_wave`, `wave.admit_change`, `wave.remove_change`,
-`wave.prepare`, `wave.pause`, `wave.review`, `wave.close`.
-
-**Out of scope:** Multi-wave coordination, concurrent wave support, remote/cloud
-operation, rollback of closed waves.
+**Out of scope:** Multi-wave coordination, concurrent wave locking, remote/cloud
+operation, rollback/restore for closed waves, full lane-orchestration automation.
 
 ## Acceptance Criteria
 
-(To be authored at planning time.)
+- AC-1: `wave_create_wave(slug, mode='dry_run')` returns planned ID/path and does not write.
+- AC-2: `wave_create_wave(..., mode='create')` writes exactly one wave record and repeat calls diagnose `already_exists`.
+- AC-3: `wave_add_change`/`wave_remove_change` are retry-safe and produce predictable diagnostics.
+- AC-4: `wave_prepare` fails when no admitted changes or docs-lint fails; succeeds otherwise.
+- AC-5: `wave_pause` writes session handoff in create mode.
+- AC-6: `wave_review` and `wave_close` return structured outputs and enforce lint-on-close.
+- AC-7: Contract tests cover registration and core lifecycle mutation behavior.
 
 ## Tasks
 
-(To be authored at planning time.)
+- [x] Implement lifecycle mutation helpers in `server.py`.
+- [x] Register lifecycle tools in FastMCP surface (`wave_create_wave`, `wave_add_change`,
+  `wave_remove_change`, `wave_prepare`, `wave_pause`, `wave_review`, `wave_close`).
+- [x] Add server tests for lifecycle mutations and registration.
+- [x] Run `python3 -B -m unittest discover -s .wavefoundry/framework/scripts/tests -p 'test_server_tools.py'`.
+- [x] Run `python3 .wavefoundry/framework/scripts/run_tests.py`.
 
 ## Affected Architecture Docs
 

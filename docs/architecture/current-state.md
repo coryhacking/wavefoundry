@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-04-29
 
 ## Runtime Topology
 
-**Development-time topology (current state):**
+**Development-time topology:**
 
 ```
 Developer/agent
@@ -14,20 +14,48 @@ Developer/agent
   ├── python3 .wavefoundry/framework/scripts/lifecycle_id.py  →  docs/workflow-config.json (read)
   ├── python3 .wavefoundry/framework/scripts/docs_lint.py      →  docs/ tree (read)
   ├── python3 .wavefoundry/framework/scripts/docs_gardener.py  →  docs/ tree (read/write metadata)
-  ├── python3 .wavefoundry/framework/scripts/build_pack.py     →  .wavefoundry/framework/VERSION (write), wavefoundry-*.zip (write)
-  └── python3 .wavefoundry/framework/scripts/render_platform_surfaces.py  →  .claude/, .cursor/, .github/hooks/ (write)
+  ├── python3 .wavefoundry/framework/scripts/build_pack.py     →  .wavefoundry/framework/VERSION (write), .wavefoundry/framework/index/ (write), wavefoundry-*.zip (write)
+  ├── python3 .wavefoundry/framework/scripts/render_platform_surfaces.py  →  .claude/, .cursor/, .github/hooks/, .junie/mcp/, .mcp.json (write)
+  └── python3 .wavefoundry/framework/scripts/setup_index.py    →  .wavefoundry/index/ (write)
 ```
 
-**Planned runtime topology (future MCP server, not yet implemented):**
+**MCP topology (active):**
 
 ```
 MCP client (Claude Code, Cursor, Copilot, etc.)
   │
-  └── stdio or socket
-        └── wavefoundry MCP server (src/wavefoundry/server.py)
-              ├── wave.* tools    →  target repository docs/ (read; mutation tools future)
-              ├── code.search     →  target repository files (read)
-              └── code.read       →  target repository files (read)
+  └── stdio transport
+        └── .wavefoundry/framework/scripts/server.py  (FastMCP)
+              ├── wave_help
+              ├── docs_search / code_search / seed_get
+              │       └── .wavefoundry/index/ (read: *.npy, *.json)
+              ├── wave_current / wave_list_waves / wave_list_plans / wave_get_change / wave_get_prompt
+              │       └── docs/waves/ (read), docs/plans/ (read), docs/prompts/ (read)
+              ├── wave_change_create / wave_new_* compatibility wrappers
+              │       └── docs/plans/ (write), lifecycle_id.py (import)
+              └── wave_validate / wave_garden / wave_sync_surfaces
+                      └── docs_lint.py / docs_gardener.py / render_platform_surfaces.py (subprocess)
+```
+
+**Index build flow:**
+
+```
+setup_index.py --root .
+  ├── dependency check → fastembed, numpy, mcp[cli] in current Python
+  ├── indexer.py --root . --content docs
+  ├── optional separate subprocess: indexer.py --root . --content code
+  ├── walk_repo()      →  respects .gitignore, .aiignore, hardcoded excludes
+  ├── chunker.py       →  chunk_python / chunk_markdown / chunk_line_window
+  ├── fastembed        →  BAAI/bge-small-en-v1.5 (docs/seeds and optional code)
+  └── .wavefoundry/index/
+        ├── docs.npy / docs.json
+        ├── code.npy / code.json
+        └── meta.json  (file hashes, model versions for incremental rebuild)
+
+build_pack.py
+  ├── stamps .wavefoundry/framework/VERSION
+  ├── rebuilds .wavefoundry/framework/index/ for packaged framework docs/seeds
+  └── writes wavefoundry-YYYY-MM-DDx.zip including framework/index/
 ```
 
 ## Current Risk Areas
@@ -36,8 +64,10 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
 |------|---------|-----------|
 | Framework dir accidentally deleted | `.wavefoundry/framework/` is tracked in git; restore with `git checkout HEAD -- .wavefoundry/framework` | Covered by normal git recovery |
 | No CI/CD | No automated test runs on push | Framework tests run manually: `python3 .wavefoundry/framework/scripts/run_tests.py` |
-| MCP server not yet designed | Transport, allowed-roots config format, tool contracts all TBD | Keep read-only tools first; defer mutation tools |
+| Index not built on first install | `fastembed`, `numpy`, and `mcp[cli]` must be available in the Python runtime; index built manually before server is useful | `setup_index.py` checks dependencies and prints isolated tool-venv setup commands when missing |
+| Transactional lifecycle mutations not yet implemented | `wave_new_*` tools create draft docs but do not admit them to a wave | Change `1293b-feat mcp-wave-lifecycle` will add admit/prepare/close tools |
+| MCP contract migration incomplete | Discovery, `wave_map`, envelopes, consolidated creation, prefix checks, `docs_search` kind validation, per-process caches (wave/plan lists, prompt resolution, `wave_help` catalogue snapshot, index reload on mutation), `resolve_path_under_root`, and server-side rejection of unexpected tool kwargs (when forwarded by the runtime) are in place; first-class `code_read` / keyword search tools remain future work | `docs/specs/mcp-tool-surface.md` is the governing contract for follow-on MCP work |
 
 ## Verification Sources
 
-This doc was verified from direct inspection of: `.wavefoundry/framework/scripts/`, `.wavefoundry/framework/seeds/`, `.venv/pyvenv.cfg`, repository root file listing, `docs/repo-index.md`.
+This doc was verified from direct inspection of: `.wavefoundry/framework/scripts/`, `.wavefoundry/framework/seeds/`, repository root file listing, `docs/repo-index.md`.

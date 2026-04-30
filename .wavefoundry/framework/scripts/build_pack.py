@@ -23,6 +23,7 @@ Usage:
 """
 
 import argparse
+import importlib.util
 import os
 import sys
 import zipfile
@@ -132,12 +133,43 @@ def write_pack_version(framework_dir: Path, date_str: str, suffix: str) -> None:
     version_path.write_text(f"{date_str}{suffix}\n", encoding="utf-8")
 
 
+def _load_indexer():
+    script_dir = Path(__file__).resolve().parent
+    spec = importlib.util.spec_from_file_location("indexer", script_dir / "indexer.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["indexer"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def build_framework_index(framework_dir: Path, *, verbose: bool = False) -> None:
+    """Build the packaged framework docs/seed index under framework/index/."""
+    indexer = _load_indexer()
+    framework_dir = framework_dir.resolve()
+    root = framework_dir
+    include_prefixes: tuple[str, ...] = ()
+    if framework_dir.parent.name == ".wavefoundry":
+        root = framework_dir.parent.parent
+        include_prefixes = (framework_dir.relative_to(root).as_posix(),)
+    indexer.build_index(
+        root,
+        full=True,
+        content="docs",
+        index_dir=framework_dir / "index",
+        include_prefixes=include_prefixes,
+        respect_ignore=False,
+        verbose=verbose,
+    )
+
+
 def build_zip(
     output_dir: Path,
     date_str: str,
     *,
     framework_dir: Optional[Path] = None,
     write_version: bool = True,
+    prebuild_index: bool = False,
+    verbose: bool = False,
 ) -> Path:
     suffix = next_suffix(output_dir, date_str)
     zip_name = f"{ZIP_PREFIX}{date_str}{suffix}.zip"
@@ -148,6 +180,9 @@ def build_zip(
 
     if write_version:
         write_pack_version(fw, date_str, suffix)
+
+    if prebuild_index:
+        build_framework_index(fw, verbose=verbose)
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for abs_path, arcname in collect_files(fw):
@@ -173,6 +208,12 @@ def main():
             "scan (default: today's local date)."
         ),
     )
+    parser.add_argument(
+        "--skip-framework-index",
+        action="store_true",
+        help="Skip rebuilding framework/index before packaging.",
+    )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Print index build progress")
     args = parser.parse_args()
 
     # Packaging date is always "today" unless explicitly overridden for tests or
@@ -202,7 +243,12 @@ def main():
             sys.exit(1)
 
     try:
-        zip_path = build_zip(output_dir, date_str)
+        zip_path = build_zip(
+            output_dir,
+            date_str,
+            prebuild_index=not args.skip_framework_index,
+            verbose=args.verbose,
+        )
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         sys.exit(1)

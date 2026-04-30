@@ -264,6 +264,61 @@ def hook_helpers() -> str:
             scripts_root = REPO_ROOT / ".wavefoundry" / "framework" / "scripts"
             for cache_dir in scripts_root.rglob("__pycache__"):
                 shutil.rmtree(cache_dir, ignore_errors=True)
+
+
+        def should_reindex(path: str) -> bool:
+            if not path:
+                return False
+            if path.startswith(".wavefoundry/index/"):
+                return False
+            if path.startswith(".wavefoundry/framework/index/"):
+                return False
+            suffix = Path(path).suffix.lower()
+            skip_suffixes = {".pyc", ".npy", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+                             ".ico", ".woff", ".woff2", ".ttf", ".eot", ".zip"}
+            return suffix not in skip_suffixes
+
+
+        def should_reindex_framework(path: str) -> bool:
+            if not should_reindex(path):
+                return False
+            return path.startswith(".wavefoundry/framework/")
+
+
+        def maybe_trigger_reindex(file_path: str) -> None:
+            if not should_reindex(file_path):
+                return
+            indexer = REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
+            if not indexer.exists():
+                return
+            subprocess.Popen(
+                [sys.executable, str(indexer), "--root", str(REPO_ROOT)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                cwd=str(REPO_ROOT),
+                start_new_session=True,
+            )
+            if should_reindex_framework(file_path):
+                framework_index = REPO_ROOT / ".wavefoundry" / "framework" / "index"
+                subprocess.Popen(
+                    [
+                        sys.executable,
+                        str(indexer),
+                        "--root",
+                        str(REPO_ROOT),
+                        "--content",
+                        "docs",
+                        "--index-dir",
+                        str(framework_index),
+                        "--include-prefix",
+                        ".wavefoundry/framework",
+                        "--no-ignore-files",
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    cwd=str(REPO_ROOT),
+                    start_new_session=True,
+                )
         """
     ).strip()
 
@@ -319,6 +374,7 @@ def claude_post_edit_source() -> str:
             if blocked:
                 print(message, file=sys.stderr)
                 return 1
+            maybe_trigger_reindex(file_path)
             return 0
 
 
@@ -446,14 +502,6 @@ def cursor_docs_lint_source() -> str:
 def cursor_after_file_edit_source() -> str:
     return compose_script(
         """
-        from __future__ import annotations
-
-        import json
-        import subprocess
-        import sys
-        from pathlib import Path
-
-        REPO_ROOT = Path(__file__).resolve().parents[2]
         GATES = (
             REPO_ROOT / ".cursor" / "hooks" / "seed-warn.py",
             REPO_ROOT / ".cursor" / "hooks" / "framework-plan-warn.py",
@@ -462,12 +510,13 @@ def cursor_after_file_edit_source() -> str:
 
 
         def main() -> int:
-            payload = sys.stdin.read()
+            raw = read_payload_text()
+            payload = load_payload(raw)
             for gate in GATES:
                 result = subprocess.run(
                     [sys.executable, str(gate)],
                     cwd=REPO_ROOT,
-                    input=payload,
+                    input=raw,
                     text=True,
                     capture_output=True,
                     check=False,
@@ -479,13 +528,13 @@ def cursor_after_file_edit_source() -> str:
                 if result.returncode != 0:
                     print(json.dumps({"continue": False, "message": output or "Cursor hook failed."}))
                     return 0
+            maybe_trigger_reindex(detect_file_path(payload))
             return 0
 
 
         if __name__ == "__main__":
             raise SystemExit(main())
-        """,
-        include_helpers=False,
+        """
     )
 
 
@@ -530,6 +579,7 @@ def copilot_post_tool_use_source() -> str:
             if blocked:
                 print(message, file=sys.stderr)
                 return 1
+            maybe_trigger_reindex(file_path)
             return 0
 
 
@@ -629,6 +679,42 @@ def render_claude_settings(repo_root: Path) -> None:
     write_text(settings_path, json.dumps(existing, indent=2) + "\n")
 
 
+def render_mcp_json(repo_root: Path) -> None:
+    mcp_path = repo_root / ".mcp.json"
+    existing: dict[str, object] = {}
+    if mcp_path.exists():
+        try:
+            loaded = json.loads(mcp_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                existing = loaded
+        except json.JSONDecodeError:
+            existing = {}
+    existing.setdefault("mcpServers", {})
+    existing["mcpServers"]["wavefoundry"] = {
+        "command": "python3",
+        "args": [".wavefoundry/framework/scripts/server.py"],
+    }
+    write_text(mcp_path, json.dumps(existing, indent=2) + "\n")
+
+
+def render_junie_mcp_json(repo_root: Path) -> None:
+    mcp_path = repo_root / ".junie" / "mcp" / "mcp.json"
+    existing: dict[str, object] = {}
+    if mcp_path.exists():
+        try:
+            loaded = json.loads(mcp_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                existing = loaded
+        except json.JSONDecodeError:
+            existing = {}
+    existing.setdefault("mcpServers", {})
+    existing["mcpServers"]["wavefoundry"] = {
+        "command": "python3",
+        "args": [".wavefoundry/framework/scripts/server.py"],
+    }
+    write_text(mcp_path, json.dumps(existing, indent=2) + "\n")
+
+
 def render_cursor_hooks(repo_root: Path) -> None:
     config = {
         "version": 1,
@@ -662,6 +748,63 @@ def render_copilot_hooks(repo_root: Path) -> None:
         },
     }
     write_text(repo_root / ".github" / "hooks" / "hooks.json", json.dumps(config, indent=2) + "\n")
+
+
+def git_hook_source(hook_name: str) -> str:
+    """Return Python source for a git hook that fires an incremental reindex."""
+    lines = [
+        "#!/usr/bin/env python3",
+        "from __future__ import annotations",
+        "",
+        "import subprocess",
+        "import sys",
+        "from pathlib import Path",
+        "",
+        "REPO_ROOT = Path(__file__).resolve().parents[2]",
+        "",
+    ]
+    if hook_name == "post-checkout":
+        lines += [
+            "# Only reindex on branch checkouts (arg 3 == \"1\"); skip file checkouts.",
+            "if len(sys.argv) >= 4 and sys.argv[3] != \"1\":",
+            "    raise SystemExit(0)",
+            "",
+        ]
+    lines += [
+        "",
+        "def main() -> int:",
+        "    indexer = REPO_ROOT / \".wavefoundry\" / \"framework\" / \"scripts\" / \"indexer.py\"",
+        "    if not indexer.exists():",
+        "        return 0",
+        "    subprocess.Popen(",
+        "        [sys.executable, str(indexer), \"--root\", str(REPO_ROOT)],",
+        "        stdout=subprocess.DEVNULL,",
+        "        stderr=subprocess.DEVNULL,",
+        "        cwd=str(REPO_ROOT),",
+        "        start_new_session=True,",
+        "    )",
+        "    return 0",
+        "",
+        "",
+        "if __name__ == \"__main__\":",
+        "    raise SystemExit(main())",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+GIT_HOOK_NAMES = ("post-commit", "post-merge", "post-rewrite", "post-checkout")
+
+
+def render_git_hooks(repo_root: Path) -> None:
+    """Write git hook scripts to .wavefoundry/git-hooks/ for indexer integration.
+
+    Install with: git config core.hooksPath .wavefoundry/git-hooks
+    """
+    hooks_dir = repo_root / ".wavefoundry" / "git-hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    for name in GIT_HOOK_NAMES:
+        write_text(hooks_dir / name, git_hook_source(name), executable=True)
 
 
 def render_windsurf_hooks(repo_root: Path) -> None:
@@ -755,6 +898,7 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
         write_hook_bundle(repo_root / ".claude" / "hooks" / "pycache-cleanup", claude_pycache_cleanup_source())
         write_hook_bundle(repo_root / ".claude" / "hooks" / "simulate-hooks", claude_simulate_hooks_source())
         render_claude_settings(repo_root)
+        render_mcp_json(repo_root)
         render_upgrade_skill(repo_root)
     elif platform == "cursor":
         remove_files(
@@ -801,6 +945,7 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
         render_windsurf_hooks(repo_root)
     elif platform == "junie":
         render_aiignore(repo_root)
+        render_junie_mcp_json(repo_root)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -818,6 +963,7 @@ def main(argv: list[str] | None = None) -> int:
         remove_copilot_artifacts(repo_root)
     for platform in sorted(platforms):
         render_platform_entrypoints(repo_root, platform)
+    render_git_hooks(repo_root)
     return 0
 
 

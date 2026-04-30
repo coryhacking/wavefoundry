@@ -10,6 +10,23 @@ You are running **Plan feature** on Wavefoundry. Author a consolidated change do
 
 ## Change ID Generation
 
+Use MCP first when the Wavefoundry server is available. The `wave_new_*` tools generate the lifecycle ID and scaffold `docs/plans/<change-id>.md` in one call:
+
+| Kind | MCP tool |
+|------|----------|
+| `feat` | `wave_new_feature` |
+| `bug` | `wave_new_bug` |
+| `enh` | `wave_new_enhancement` |
+| `ref` | `wave_new_refactor` |
+| `change` | `wave_new_change` |
+| `doc` | `wave_new_documentation` |
+| `debt` | `wave_new_tech_debt` |
+| `task` | `wave_new_task` |
+| `maint` | `wave_new_maintenance` |
+| `ops` | `wave_new_operations` |
+
+If MCP is unavailable, use the CLI fallback:
+
 ```bash
 python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>
 ```

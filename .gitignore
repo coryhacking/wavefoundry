@@ -14,6 +14,10 @@ build/
 # Wavefoundry local approval state (never commit)
 .wavefoundry/guard-overrides.json
 
+# Wavefoundry semantic index (binary + per-machine, never commit)
+.wavefoundry/index/
+.wavefoundry/framework/index/
+
 # Personal Claude Code overrides (not project-level)
 .claude/settings.local.json
 

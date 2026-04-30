@@ -29,7 +29,7 @@ Tasks:
 9. Ensure `docs/references/roles.md` exists and defines how canonical docs use metadata fields such as `Owner:`, `Status:`, and `Last verified:` (so `AGENTS.md` **Start Here** and `docs/contributing/docs-maintenance.md`, when seeded, can point at one definition).
 10. Ensure `docs/references/project-context-memory.md` and other refreshable docs live in topical homes with clear regeneration semantics.
 11. Seed `docs/plans/plan-template.md` as the consolidated change document template. The template must use the new single-document model:
-    - `Change ID:` using the `<id-prefix>-change <slug>` format from `python3 .wavefoundry/framework/scripts/lifecycle_id.py`
+    - `Change ID:` using the `<id-prefix>-change <slug>` format from the MCP `wave_new_change` tool when available, with `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind change --slug <slug>` as the CLI fallback
     - `## Rationale` — why the change is needed; must state a specific motivation a reviewer can understand without additional context
     - `## Requirements` — numbered behavioral requirements; each must be specific enough for an implementer to act on unambiguously
     - `## Scope` — problem statement, in-scope, out-of-scope
