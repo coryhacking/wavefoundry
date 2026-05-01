@@ -97,6 +97,18 @@ python3 .wavefoundry/framework/scripts/run_tests.py
 # Then commit (operator-owned — see Git commits below)
 ```
 
+**Upgrade-path checks for new features (2026-04-30+):**
+
+- Host MCP surfaces updated by `render_platform_surfaces.py`:
+  - `.cursor/mcp.json` contains `mcpServers.wavefoundry`
+  - `.mcp.json` and `.junie/mcp/mcp.json` include the Wavefoundry stdio entry when those hosts are used
+- Canonical CLI launchers exist and resolve to packaged scripts:
+  - `.wavefoundry/bin/docs-lint`
+  - `.wavefoundry/bin/docs-gardener`
+- MCP recovery tools from the upgraded server are available:
+  - `wave_audit` (combined wave + lint + index check)
+  - `wave_index_build` (deterministic project/framework index rebuild path)
+
 **For full upgrade procedure:** see `docs/prompts/upgrade-wavefoundry.md` and `.wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md`.
 
 **`build_pack.py` semantics:** default zip date is today (local ISO); letter suffix is the next letter after the maximum suffix already present for that date in the output directory (not the first missing gap). The script stamps `.wavefoundry/framework/VERSION` to `<date><letter>` before writing the archive. Use `--date` only for tests or exceptional rebuilds.

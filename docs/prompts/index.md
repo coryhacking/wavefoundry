@@ -39,7 +39,7 @@ This prompt surface follows `.wavefoundry/framework/seeds/020-run-contract.promp
 
 | Phrase | Purpose | Doc |
 |--------|---------|-----|
-| **Package Wavefoundry** | Build framework zip distribution | `.wavefoundry/framework/seeds/240-package-wavefoundry.prompt.md` |
+| **Package Wavefoundry** | Build framework zip distribution | `docs/prompts/package-wavefoundry.md` |
 | **Migrate to Wavefoundry** | Migrate a target repo from legacy layout | `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md` |
 
 ## Legacy Aliases

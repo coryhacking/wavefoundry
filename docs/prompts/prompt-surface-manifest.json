@@ -31,6 +31,10 @@
       "shortcut": "Upgrade wave framework"
     },
     {
+      "doc": "docs/prompts/package-wavefoundry.md",
+      "shortcut": "Package Wavefoundry"
+    },
+    {
       "doc": "docs/prompts/plan-feature.md",
       "shortcut": "Plan feature"
     },

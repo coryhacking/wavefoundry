@@ -61,7 +61,7 @@ Public Wave Framework commands for Wavefoundry's self-hosted surface. Full detai
 | **Close wave** | Finalize and archive the wave | `docs/prompts/close-wave.md` |
 | **Finalize feature** | Single-change closure path | `docs/prompts/finalize-feature.md` |
 | **Interrogate this plan** | Stress-test a change doc before admission | `docs/prompts/interrogate-plan.md` |
-| **Package Wavefoundry** | Build framework zip distribution | `.wavefoundry/framework/seeds/240-package-wavefoundry.prompt.md` |
+| **Package Wavefoundry** | Build framework zip distribution | `docs/prompts/package-wavefoundry.md` |
 | **Migrate to Wavefoundry** | Migrate a target repo from legacy layout | `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md` |
 
 Legacy aliases: `Init wave context`, `Upgrade wave context`, `Package wave framework`, `Package wave context` — identical behavior; accept from operators and older docs.
