@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-04-30
 
 ## Role Routing
 
@@ -33,6 +33,41 @@ Wavefoundry uses the standard Wave Framework generic roles. The wave-coordinator
 |---------|------------|
 | `framework-operator` | Spec authoring for install/upgrade behavior; MCP tool design review; acceptance of operator-facing changes |
 | `wave-coordinator` (persona) | Spec authoring for wave lifecycle behavior; acceptance of wave execution changes |
+
+## Specialist Agent Routing
+
+Wavefoundry now distinguishes three specialist tiers in addition to generic roles, personas, and factor-review agents:
+
+- `universal specialist` — reusable across many repositories
+- `archetype specialist` — enabled from repo shape
+- `repo-local specialist` — project-specific extension
+
+### Universal Specialists
+
+Invoke these when the change needs deeper expertise than a generic role normally carries:
+
+| Specialist | Invoke when |
+|------------|-------------|
+| `software-architect` | Major topology, subsystem decomposition, or cross-boundary design work |
+| `security-engineer` | Threat-model, authz, sensitive-data, or trust-boundary changes need more than a review lane |
+| `technical-writer` | Operator docs, onboarding docs, or durable reference docs need active authorship |
+| `codebase-onboarding-engineer` | Repo discovery, architecture walkthroughs, or onboarding maps are the primary output |
+| `workflow-architect` | Multi-step flows, handoffs, failure modes, or recovery paths need explicit design |
+| `reality-checker` | Claims need adversarial evidence review before closure or release |
+
+Deferred or adapt-only catalog candidates such as `mcp-builder`, `lsp-index-engineer`, `ux-architect`, `incident-response-commander`, or `spring-boot-engineer` are tracked in `docs/agents/specialists/README.md` but are not part of the supported framework routing surface yet.
+
+### Archetype Specialists
+
+Enable these from repo evidence rather than by default:
+
+| Archetype | Typical Specialists |
+|-----------|---------------------|
+| Web / full-stack | `frontend-developer`, `backend-architect`, `devops-automator`, `sre`, `accessibility-auditor`, `api-tester`, `database-optimizer` |
+| Mobile / desktop | `mobile-app-builder`, `apple-platform-engineer` |
+| AI / agent | `ai-engineer`, `agentic-identity-and-trust-architect` |
+| JVM / service | `java-backend-engineer` |
+| CLI / developer tools | `terminal-integration-specialist` |
 
 ## Factor-Review Agent Routing
 

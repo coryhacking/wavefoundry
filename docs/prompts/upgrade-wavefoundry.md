@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-04-30
 
 Shortcut: **`Upgrade wave framework`** | Legacy: **`Upgrade wave context`**
 
@@ -19,14 +19,14 @@ Upgrade the Wave Framework operating surface in a target repository. Reconciles 
 2. Drift-detect against canonical framework (read-only subagents for inventory)
 3. Produce a file-level upgrade plan before broad edits
 4. Reconcile prompt surface, platform surfaces, `AGENTS.md`, manifests
-5. Run `./docs-gardener && ./docs-lint` to verify
+5. Verify docs gate: **with MCP**, run **`wave_garden`** (when metadata needs refresh) then **`wave_validate`**; **without MCP**, run `.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`
 
 ## Verification Checklist
 
 See `docs/contributing/build-and-verification.md` **Wave framework pack upgrade verification** for the ordered operator commands.
 
 1. Framework tests: `python3 .wavefoundry/framework/scripts/run_tests.py`
-2. Docs gate: `./docs-gardener && ./docs-lint`
+2. Docs gate: **`wave_garden`** / **`wave_validate`** over MCP when available; otherwise `.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`
 3. Review diff of pack changes, hooks, `docs/prompts/`, manifests
 4. Commit (operator-owned)
 

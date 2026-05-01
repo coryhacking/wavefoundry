@@ -15,7 +15,7 @@ Migration tasks:
    - `.wavefoundry/framework/`
    - **`Init wave framework`** (legacy: **`Init wave context`**)
    - **`Upgrade wave framework`** (legacy: **`Upgrade wave context`**)
-3. Update root wrapper references so `./docs-lint` and `./docs-gardener` stop pointing at the legacy framework path.
+3. Update root wrapper references so `.wavefoundry/bin/docs-lint` and `.wavefoundry/bin/docs-gardener` stop pointing at the legacy framework path. **Agent-facing docs** should still prefer MCP **`wave_validate`** / **`wave_garden`** over shelling to those launchers when MCP is available (`seed-050`).
 4. Create or preserve the reserved `wave-0` baseline wave when legacy pre-wave docs are still the source corpus:
    - Use `00000 wave-zero-plans-and-specs` as the `wave-id`
    - Give it a `Title` that starts with `Legacy`

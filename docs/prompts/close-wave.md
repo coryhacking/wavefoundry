@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-04-30
 
 Shortcut: **`Close wave`**
 
@@ -33,5 +33,5 @@ Finalize and archive the wave. Closure requires full reconciliation — not just
 ## Wavefoundry-Specific Closure Checks
 
 - If framework scripts changed: confirm `python3 .wavefoundry/framework/scripts/run_tests.py` passes
-- If `docs/prompts/` or manifest changed: confirm `./docs-lint` passes
+- If `docs/prompts/` or manifest changed: confirm docs gate passes (**`wave_validate`** over MCP, or **`.wavefoundry/bin/docs-lint`** if MCP is unavailable)
 - If seed prompts changed: confirm guard-overrides reset to `false`

@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-04-30
 
 Actor: wave-coordinator
 Schema version: 1.0
-Last distilled: 2026-04-28
+Last distilled: 2026-04-30
 
 ## Operating Identity
 
@@ -23,7 +23,18 @@ Last distilled: 2026-04-28
 
 ## Recent Captures
 
-- None at init. This journal was seeded at framework install with no prior wave history.
+wave-id: `129p8 mcp-docs-search-reliability` (**closed** 2026-04-30)
+Change ID: `129p7-bug mcp-docs-search-reliability`
+Change ID: `129nj-enh agent-catalog-expansion`
+Change ID: `129pc-enh wave-admit-relocates-change-doc`
+Change ID: `129q6-enh mcp-index-watch-control`
+Change ID: `12a0c-debt framework-script-code-quality`
+Change ID: `12a0x-enh mcp-tool-annotations-and-search-limit`
+Change ID: `12a17-feat multi-host-mcp-registration`
+Change ID: `12a1j-feat wavefoundry-bin-cli-wrappers`
+Change ID: `12a46-enh mcp-round2-review-fixes`
+Change ID: `12a4d-enh wave-audit-tool`
+- `2026-04-30` — Wave `129p8 mcp-docs-search-reliability` **closed**. Ten admitted changes completed (MCP search/index health, specialist catalog + seeds, admit-time relocation + lifecycle tests, index watcher + `wave_index_build` + mutation freshness, script quality, MCP annotations round 1, multi-host MCP JSON merge, `.wavefoundry/bin/` + seed sweep, MCP round-2 correctness, **`wave_audit`** aggregate). Prefer **`wave_audit`** for combined readiness; follow **`next_tools`** on failure. Memory: `docs/references/project-context-memory.md` **MCP audit landing**.
 
 ## Distillation
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-04-30
 
 Durable reusable workflow guidance discovered during waves and promoted from journals.
 
@@ -10,7 +10,11 @@ Durable reusable workflow guidance discovered during waves and promoted from jou
 
 Wavefoundry is both the framework source repository and a target repository consuming rendered framework surfaces. The framework content lives at `.wavefoundry/framework/`. Seeds reference `.wavefoundry/framework/scripts/<script>.py` and `.wavefoundry/framework/seeds/` directly.
 
-Root wrappers (`./docs-lint`, `./docs-gardener`) point to `.wavefoundry/framework/scripts/` — this is intentional and correct for self-hosting mode. `build_pack.py` is self-locating: it derives the framework root from its own file location, so packaging reads from `.wavefoundry/framework/` and produces a zip with `framework/` entries for operators.
+**Agents** should prefer MCP **`wave_validate`** and **`wave_garden`** over shelling to the bin launchers. Canonical **CLI** launchers (`.wavefoundry/bin/docs-lint`, `.wavefoundry/bin/docs-gardener`) delegate to `.wavefoundry/framework/scripts/` for hooks, CI, and hosts without MCP — intentional for self-hosting mode. `build_pack.py` is self-locating: it derives the framework root from its own file location, so packaging reads from `.wavefoundry/framework/` and produces a zip with `framework/` entries for operators.
+
+## MCP audit landing (`wave_audit`)
+
+Use MCP **`wave_audit`** as the default read-only **combined** check after uncertainty or a mutating tool: it returns **`data.wave`**, **`data.validation`** (same information as **`wave_validate`** / docs-lint), **`data.index`** (semantic readiness summary), and **`data.ready`** (`true` only when a wave is present **active or planned**, lint passes, and **`semantic_ready`** is true). It does **not** write docs or trigger reindexes. When a sub-check fails, follow **`next_tools`** (`wave_validate`, `wave_index_build`, or `wave_current`) instead of guessing. When **`ready`** is **`true`**, **`next_tools`** is still **`["wave_current"]`** — a default navigation hint, not a recovery step. Individual tools remain available for targeted debugging.
 
 ## Framework VERSION Semantics
 

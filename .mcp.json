@@ -3,7 +3,9 @@
     "wavefoundry": {
       "command": "python3",
       "args": [
-        ".wavefoundry/framework/scripts/server.py"
+        ".wavefoundry/framework/scripts/server.py",
+        "--root",
+        "."
       ]
     }
   }

@@ -7,6 +7,10 @@ Status: planned
 Last verified: 2026-04-29
 Wave: TBD
 
+## Environment note (Wavefoundry self-host)
+
+Post-edit hooks and local verification use **`.wavefoundry/bin/docs-lint`** and **`.wavefoundry/bin/docs-gardener`**. This repository does **not** ship repo-root `./docs-lint` / `./docs-gardener` shims. Where this plan names “wrapper” CLI fallback after MCP, use **`.wavefoundry/bin/...`** here; target repositories may still carry legacy root shims until upgraded.
+
 ## Rationale
 
 Three related gaps motivate this change. All three are about replacing direct script invocations in agent instructions with the MCP tools that already (or will, after this change) provide structured equivalents.
@@ -15,9 +19,9 @@ Three related gaps motivate this change. All three are about replacing direct sc
 
 **2. The seed and prompt instructions still route through `lifecycle_id.py`.** `docs/prompts/plan-feature.md`, `docs/plans/plan-template.md`, and `.wavefoundry/framework/seeds/170-plan-feature.prompt.md` instruct agents to run `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>` directly. The MCP `wave_new_`* tools should be the canonical agent path for change creation in any repository where the server is registered; the script invocation is correct for operators on the CLI but should not be the default agent route.
 
-**3. Validation and gardening instructions still route through `./docs-lint` and `./docs-gardener` directly.** The MCP server already exposes `wave_validate` (wraps `docs_lint.py`) and `wave_garden` (wraps `docs_gardener.py`) as structured tools, but ~14 instruction sites across `docs/prompts/`, `docs/prompts/agents/`, `AGENTS.md`, `CLAUDE.md`, and `docs/contributing/build-and-verification.md` still tell agents to invoke the wrapper scripts directly. Output parsing, exit-code handling, and error surfacing all become per-agent responsibilities under the script path; the MCP tools return structured pass/fail with extracted errors. Symmetric reasoning to the change-creation case: the wrappers stay shipped for operator CLI use, but the agent default should be MCP.
+**3. Validation and gardening instructions still route through shell entrypoints (historically `./docs-lint` / `./docs-gardener`; now `.wavefoundry/bin/docs-lint` / `.wavefoundry/bin/docs-gardener` in this repo) instead of MCP first.** The MCP server already exposes `wave_validate` (wraps `docs_lint.py`) and `wave_garden` (wraps `docs_gardener.py`) as structured tools, but instruction sites across `docs/prompts/`, `docs/prompts/agents/`, `AGENTS.md`, `CLAUDE.md`, and `docs/contributing/build-and-verification.md` may still tell agents to invoke the CLI launchers directly. Output parsing, exit-code handling, and error surfacing all become per-agent responsibilities under the script path; the MCP tools return structured pass/fail with extracted errors. Symmetric reasoning to the change-creation case: the **bin** launchers remain for hooks, CI, and operator CLI, but the agent default should be MCP.
 
-**Wave creation is deliberately excluded from this change.** The lifecycle mutation tools (`wave_create`, `wave_add_change`, etc.) were explicitly deferred from the foundation feature (see [12926-feat wavefoundry-mcp-index](../waves/1293d mcp-server-foundation/12926-feat wavefoundry-mcp-index.md), Requirement 14) and have not been planned. Until that follow-on lands, `lifecycle_id.py --kind wave` remains the canonical path for wave-folder ID generation and seed/prompt references to it must remain intact. Full retirement of script invocation depends on that follow-on. The post-edit hook in `.claude/hooks/post-edit.py` and the Cursor `.cursor/hooks/after-file-edit.py` continue to invoke `./docs-lint` directly because hooks are not MCP clients; only **agent-facing instructions** are rerouted.
+**Wave creation is deliberately excluded from this change.** The lifecycle mutation tools (`wave_create`, `wave_add_change`, etc.) were explicitly deferred from the foundation feature (see [12926-feat wavefoundry-mcp-index](../waves/1293d mcp-server-foundation/12926-feat wavefoundry-mcp-index.md), Requirement 14) and have not been planned. Until that follow-on lands, `lifecycle_id.py --kind wave` remains the canonical path for wave-folder ID generation and seed/prompt references to it must remain intact. Full retirement of script invocation depends on that follow-on. The post-edit hook in `.claude/hooks/post-edit.py` and the Cursor `.cursor/hooks/after-file-edit.py` continue to invoke **`.wavefoundry/bin/docs-lint`** directly (not MCP) because hooks are not MCP clients; only **agent-facing instructions** are rerouted.
 
 ## Requirements
 
@@ -31,14 +35,14 @@ Three related gaps motivate this change. All three are about replacing direct sc
 8. `.wavefoundry/framework/seeds/170-plan-feature.prompt.md` and `.wavefoundry/framework/seeds/040-docs-structure-bootstrap.prompt.md` are updated identically. Editing seeds requires `seed_edit_allowed.enabled: true` in `.wavefoundry/guard-overrides.json` for the duration of the edit and reset afterward.
 9. The MCP foundation change doc ([12926-feat](../waves/1293d mcp-server-foundation/12926-feat wavefoundry-mcp-index.md)) Requirement 13 currently names only four creation tools; this change does not edit that closed-wave artifact, but the new tools satisfy the broader intent.
 10. `lifecycle_id.py` itself is not edited. The script remains the canonical ID source called by the MCP tools and the only available path for wave-folder ID generation until lifecycle mutation tools land.
-11. Agent-facing instruction sites that currently say "run `./docs-lint`" or "run `./docs-gardener`" are updated to instruct calling MCP `wave_validate` and `wave_garden` first, with the wrapper command listed as a labeled CLI fallback. The full inventory: `docs/prompts/implement-wave.md`, `docs/prompts/close-wave.md`, `docs/prompts/upgrade-wavefoundry.md`, `docs/prompts/implement-feature.md`, `docs/prompts/agents/upgrade-wave-context.md`, `docs/prompts/agents/implement-wave.md`, `docs/prompts/agents/close-wave.md`, `docs/prompts/agents/implement-feature.md`, `docs/contributing/build-and-verification.md`, and `AGENTS.md` "What Wavefoundry Owns" / MCP Server sections.
-12. `CLAUDE.md` "Docs Gate" section retains the description that the post-edit hook runs `./docs-lint`, because the hook is not an MCP client; this is purely descriptive of what happens automatically and is not an agent instruction. No edit to `CLAUDE.md` is required for that line.
+11. Agent-facing instruction sites that still tell agents to run the docs gate via shell first are updated to instruct calling MCP `wave_validate` and `wave_garden` first, with **`.wavefoundry/bin/docs-lint`** / **`.wavefoundry/bin/docs-gardener`** (or legacy repo-root shims, when present in a target repo) listed as labeled CLI fallbacks. The full inventory: `docs/prompts/implement-wave.md`, `docs/prompts/close-wave.md`, `docs/prompts/upgrade-wavefoundry.md`, `docs/prompts/implement-feature.md`, `docs/prompts/agents/upgrade-wave-context.md`, `docs/prompts/agents/implement-wave.md`, `docs/prompts/agents/close-wave.md`, `docs/prompts/agents/implement-feature.md`, `docs/contributing/build-and-verification.md`, and `AGENTS.md` "What Wavefoundry Owns" / MCP Server sections.
+12. `CLAUDE.md` "Docs Gate" section describes that the post-edit hook runs **`.wavefoundry/bin/docs-lint`** (not MCP); this is purely descriptive of what happens automatically and is not an agent instruction.
 13. The seed `.wavefoundry/framework/seeds/030-inventory-and-map.prompt.md` and any other seed under `.wavefoundry/framework/seeds/` that names `docs_lint.py` or `docs_gardener.py` as an agent step is updated to instruct MCP-first routing; descriptive references (i.e., naming the script as a project artifact rather than a step to execute) are left intact. Seed edits are gated by `seed_edit_allowed.enabled: true` in `.wavefoundry/guard-overrides.json`.
-14. The wrapper scripts `./docs-lint` and `./docs-gardener` (and their `.py` backends `docs_lint.py`, `docs_gardener.py`) are not removed, renamed, or modified. They remain the canonical CLI entry points and the implementations that MCP tools delegate to. This change is purely about routing in agent-facing instructions.
+14. The **Python** implementations `docs_lint.py` and `docs_gardener.py` under `.wavefoundry/framework/scripts/` remain the backends MCP tools delegate to. **`.wavefoundry/bin/`** launchers remain the canonical non-MCP CLI entrypoints in this repository (repo-root `./docs-lint` / `./docs-gardener` shims are optional in other targets and are not required here). This change is about routing in agent-facing instructions and seed text, not removing the backends.
 
 ## Scope
 
-**Problem statement:** Agents must shell out to scripts for three workflows that already (or after this change, will) have MCP equivalents: change-doc creation (six of ten kinds missing tools), docs validation (`./docs-lint`), and docs gardening (`./docs-gardener`). Instructions across prompts, seeds, and agent docs still route through scripts, undermining the structured-tool-call benefit the MCP foundation feature established for the four creation kinds it did cover.
+**Problem statement:** Agents must shell out to scripts for three workflows that already (or after this change, will) have MCP equivalents: change-doc creation (six of ten kinds missing tools), docs validation (CLI via `.wavefoundry/bin/docs-lint` or legacy `./docs-lint`), and docs gardening (CLI via `.wavefoundry/bin/docs-gardener` or legacy `./docs-gardener`). Instructions across prompts, seeds, and agent docs still route through scripts, undermining the structured-tool-call benefit the MCP foundation feature established for the four creation kinds it did cover.
 
 **In scope:**
 
@@ -55,7 +59,7 @@ Three related gaps motivate this change. All three are about replacing direct sc
 - Removing `lifecycle_id.py` itself — it remains the canonical generator called internally by MCP
 - Renaming existing tools (`wave_new_feature` etc. stay as-is for backwards compatibility)
 - Changing `lifecycle_id.py`'s kind taxonomy
-- Modifying the post-edit hook in `.claude/hooks/post-edit.py` or `.cursor/hooks/after-file-edit.py` to call MCP instead of `./docs-lint` directly — hooks are not MCP clients and the cost of making them so (process startup latency, transport boilerplate) outweighs the benefit
+- Modifying the post-edit hook in `.claude/hooks/post-edit.py` or `.cursor/hooks/after-file-edit.py` to call MCP instead of **`.wavefoundry/bin/docs-lint`** directly — hooks are not MCP clients and the cost of making them so (process startup latency, transport boilerplate) outweighs the benefit
 - Modifying `wave_validate` or `wave_garden` tool implementations themselves — only their adoption in instruction sites is in scope
 - Sync surfaces tool routing: `wave_sync_surfaces` exists but no agent-facing instructions currently tell agents to run `render_platform_surfaces.py`; reviewing or expanding that surface is deferred
 
@@ -67,15 +71,15 @@ Three related gaps motivate this change. All three are about replacing direct sc
 - AC-4: `AGENTS.md` "MCP Server" section lists all 10 `wave_new_`* tools.
 - AC-5: `docs/prompts/plan-feature.md`, `docs/prompts/agents/plan-feature.md`, and `docs/plans/plan-template.md` instruct the MCP-first path with script as fallback.
 - AC-6: Seed files `170-plan-feature.prompt.md` and `040-docs-structure-bootstrap.prompt.md` route the change-ID step through MCP tools first.
-- AC-7: `./docs-lint` passes.
+- AC-7: MCP **`wave_validate`** succeeds when MCP is used for the gate; **`.wavefoundry/bin/docs-lint`** passes when verifying via CLI (no MCP).
 - AC-8: After the seed edits, `.wavefoundry/guard-overrides.json` is restored to `seed_edit_allowed.enabled: false`.
 - AC-9: Server can be cold-loaded via the existing test harness without errors after the new tool registrations.
 - AC-10: The eight non-`feat` `lifecycle_id.py` kinds remain reachable via MCP after this change (4 pre-existing + 6 new = 10 covered, matching the script's full taxonomy).
-- AC-11: Every prompt and agent prompt listed in Requirement 11 instructs MCP `wave_validate` first when the agent needs to run docs validation, with `./docs-lint` shown as a labeled CLI fallback.
-- AC-12: Every prompt and agent prompt listed in Requirement 11 instructs MCP `wave_garden` first when the agent needs to run docs gardening, with `./docs-gardener` shown as a labeled CLI fallback.
-- AC-13: `docs/contributing/build-and-verification.md` retains the `./docs-gardener && ./docs-lint` shell snippets as authoritative *operator/CI* guidance, alongside an MCP-first agent guidance section that names the tools.
-- AC-14: A grep over `docs/prompts/`, `docs/prompts/agents/`, and `AGENTS.md` shows zero un-prefixed references to `./docs-lint` or `./docs-gardener` as an agent instruction step (i.e., they only appear under "fallback" or "operator CLI" labels). Descriptive mentions ("the docs-lint validator checks…") are not affected.
-- AC-15: Hook-driven invocations of `./docs-lint` (post-edit hook in `.claude/hooks/`, `.cursor/hooks/`) are unchanged and verified still passing via `python3 .wavefoundry/framework/scripts/run_tests.py`.
+- AC-11: Every prompt and agent prompt listed in Requirement 11 instructs MCP `wave_validate` first when the agent needs to run docs validation, with **`.wavefoundry/bin/docs-lint`** (or legacy `./docs-lint` when present) shown as a labeled CLI fallback.
+- AC-12: Every prompt and agent prompt listed in Requirement 11 instructs MCP `wave_garden` first when the agent needs to run docs gardening, with **`.wavefoundry/bin/docs-gardener`** (or legacy `./docs-gardener` when present) shown as a labeled CLI fallback.
+- AC-13: `docs/contributing/build-and-verification.md` retains the **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`** shell snippets as authoritative *operator/CI* guidance, alongside an MCP-first agent guidance section that names the tools.
+- AC-14: A grep over `docs/prompts/`, `docs/prompts/agents/`, and `AGENTS.md` shows no stale instruction that tells agents to use **only** repo-root `./docs-lint` or `./docs-gardener` as the primary path where `bin/` is the contract (fallback labeling is OK). Descriptive mentions ("the docs-lint validator checks…") are not affected.
+- AC-15: Hook-driven invocations of **`.wavefoundry/bin/docs-lint`** (post-edit hook in `.claude/hooks/`, `.cursor/hooks/`) remain subprocess-based and verified still passing via `python3 .wavefoundry/framework/scripts/run_tests.py`.
 
 ## Tasks
 
@@ -90,13 +94,13 @@ Three related gaps motivate this change. All three are about replacing direct sc
 - Set `.wavefoundry/guard-overrides.json` `seed_edit_allowed.enabled: true`.
 - Update `.wavefoundry/framework/seeds/170-plan-feature.prompt.md` to mention MCP `wave_new_<kind>` tools as primary and script as fallback for the change-ID step. Preserve `--kind wave` script invocation language for wave-folder ID generation.
 - Update `.wavefoundry/framework/seeds/040-docs-structure-bootstrap.prompt.md` similarly.
-- Inventory all instruction sites that say "run `./docs-lint`" or "run `./docs-gardener`" via grep and confirm against the Requirement 11 list before editing.
+- Inventory all instruction sites that still prefer shell over MCP for the docs gate (including `.wavefoundry/bin/docs-lint` / legacy `./docs-lint`) via grep and confirm against the Requirement 11 list before editing.
 - Update each prompt and agent prompt in the Requirement 11 inventory to MCP-first routing with labeled CLI fallback. Order: top-level prompts before `agents/` mirrors so wording can be reused.
 - Update `AGENTS.md` "MCP Server" tools list (already touched for change-creation tools) to also note that `wave_validate`/`wave_garden` are the agent-default for docs validation/gardening.
-- Update `docs/contributing/build-and-verification.md` to add an MCP-first section while preserving the `./docs-gardener && ./docs-lint` shell snippets as operator/CI guidance.
+- Update `docs/contributing/build-and-verification.md` to add an MCP-first section while preserving the **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`** shell snippets as operator/CI guidance.
 - Update any seed under `.wavefoundry/framework/seeds/` (besides those already named) that names `docs_lint.py`/`docs_gardener.py` as an agent step (typically `030-inventory-and-map.prompt.md`, possibly others — confirmed via grep). Use the same MCP-first / fallback pattern. Performed inside the same `seed_edit_allowed` window as the change-creation seed updates.
 - Restore `.wavefoundry/guard-overrides.json` `seed_edit_allowed.enabled: false`.
-- Run `./docs-lint` (or `wave_validate` once tools land) and confirm pass.
+- Run MCP **`wave_validate`** (preferred) or **`.wavefoundry/bin/docs-lint`** (CLI only) and confirm pass.
 - Run grep verification per AC-14 and record output.
 - Update this change doc Progress Log with task completion timestamps and evidence.
 

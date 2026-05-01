@@ -2,31 +2,61 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-04-30
 
 ## Verification Commands
 
 Run these from the repository root to verify the Wavefoundry self-hosted surface is healthy:
 
+**Agents (MCP attached):** Prefer **`wave_garden`** then **`wave_validate`** (or **`wave_audit`** for a combined wave + lint + index snapshot) instead of shelling out to the bin launchers. Use the tools’ structured results to fix failures.
+
+**Operators / CI / no MCP:** Use the shell sequence below.
+
 ```bash
 # Docs gate (metadata + prompt surface + manifest validation)
-./docs-gardener && ./docs-lint
+.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint
 
 # Framework script tests (no bytecode)
 python3 .wavefoundry/framework/scripts/run_tests.py
 ```
 
+## Semantic Index And Offline Search
+
+Build or refresh the local semantic index with:
+
+```bash
+python3 .wavefoundry/framework/scripts/setup_index.py
+```
+
+What this does:
+- checks required runtime packages
+- prewarms the embedding model cache
+- verifies that cached models can load in offline-only mode
+- rebuilds the project docs index (and optional code index when requested)
+
+If the repo needs extra project index roots beyond the default, declare them explicitly in `docs/workflow-config.json` under `indexing.project_include_prefixes`. Use repo-relative `docs` and `code` lists rather than one-off booleans. Wavefoundry uses this in self-hosting mode to include `.wavefoundry/framework/scripts` in project code search without changing the default for ordinary target repos.
+
+If `wave_index_health` reports `index_missing` or `index_stale`, rerun `setup_index.py`. If `docs_search` falls back to lexical mode and you need to know whether the semantic index is stale or missing, call `wave_index_health` explicitly. In clients that do not execute the post-edit hook path, assume manual reindexing is required after meaningful docs changes.
+
+Wavefoundry MCP doc-mutating tools now also request a detached background docs-index refresh after successful writes. That improves freshness in non-hook environments such as Codex, but it is best-effort and non-blocking; use `wave_index_health` when you need an explicit health verdict or rerun `setup_index.py` for deterministic rebuilds.
+
+If you need that deterministic index path through MCP instead of shell, use `wave_index_build(content="docs", mode="update")` for the normal incremental project docs index, `wave_index_build(content="all", mode="rebuild")` for a forced full project build (docs+code via `setup_index.py`), or `wave_index_build(content="docs", layer="framework")` for the packaged framework docs/seeds index.
+
+Successful `wave_index_build` responses include structured `stats` so you can confirm how many files were indexed, how many doc/code chunks exist for the selected layer, and whether the run was already up to date.
+
 ## Docs Gate
 
-`./docs-lint` validates:
+Same checks whether you run **`wave_validate`** / **`wave_garden`** over MCP or the bin scripts below.
+
+`.wavefoundry/bin/docs-lint` validates:
 - Required prompt docs exist under `docs/prompts/`
 - `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches `.wavefoundry/framework/VERSION`
 - Required metadata fields (`Owner:`, `Status:`, `Last verified:`) on canonical docs
 - Wave and journal root directories exist
 
-`./docs-gardener` refreshes stale metadata timestamps.
+`.wavefoundry/bin/docs-gardener` refreshes stale metadata timestamps.
 
-Both wrappers forward to `.wavefoundry/framework/scripts/` directly.
+Both launchers live under `.wavefoundry/bin/` and delegate to `.wavefoundry/framework/scripts/`. This repository does not ship repo-root `./docs-lint` or `./docs-gardener` shims. **Agents should use MCP `wave_validate` and `wave_garden` first**; reserve **`.wavefoundry/bin/docs-lint`** / **`.wavefoundry/bin/docs-gardener`** for hooks, CI, and hosts without MCP.
 
 ## Framework Script Hygiene
 
@@ -61,7 +91,7 @@ Option B (direct merge): Merge or copy into `.wavefoundry/framework/` then run *
 python3 .wavefoundry/framework/scripts/run_tests.py
 
 # Run docs gate
-./docs-gardener && ./docs-lint
+.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint
 
 # Review diff of pack changes, hooks, docs/prompts/, manifests
 # Then commit (operator-owned — see Git commits below)

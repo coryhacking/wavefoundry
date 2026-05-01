@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-04-30
 
 Adapted from `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` for Wavefoundry's specific reviewer roles, personas, and artifact paths.
 
@@ -24,7 +24,7 @@ Add change to wave
   → admit change into wave; relocate doc to docs/waves/<wave-id>/
 
 Prepare wave (stage gate — required before implementation)
-  → confirm readiness: doc complete, review lanes selected, AC priority recorded
+  → confirm readiness: admitted docs are wave-owned, doc complete, review lanes selected, AC priority recorded
   → required reviewers confirmed; product-owner acknowledgment if product-impacting
 
 Implement wave / Implement feature

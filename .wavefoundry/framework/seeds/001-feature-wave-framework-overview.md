@@ -24,7 +24,7 @@ The **wave** is the primary delivery unit. A wave is a bounded, reviewable conta
 - All changes admitted into a wave are implemented and reviewed together as a unit
 - The wave is what gets committed and delivered — individual changes do not ship independently outside a wave
 - When a wave closes, admitted changes are either complete or explicitly carried forward into the next wave
-- The wave folder (`docs/waves/<wave-id>/`) is the active working home and permanent archive: it holds `wave.md`, the admitted change docs relocated there during `Prepare wave`, and any reports from the wave's period
+- The wave folder (`docs/waves/<wave-id>/`) is the active working home and permanent archive: it holds `wave.md`, the admitted change docs relocated there during `Add change to wave`, and any reports from the wave's period
 
 ## Core Concepts
 
@@ -34,7 +34,7 @@ The **wave** is the primary delivery unit. A wave is a bounded, reviewable conta
   - `<slug>` — kebab-case human-readable description of the wave's theme
   - Example: `1a2yy routine-behavior-contract`
   - The legacy baseline wave reserves `00000` as its prefix: `00000 wave-zero-plans-and-specs`
-- **change**: a tracked unit of work admitted into a wave — a bug fix, feature, enhancement, refactor, or other concrete change; represented by a consolidated change document that starts in `docs/plans/<change-id>.md` and moves into `docs/waves/<wave-id>/<change-id>.md` during `Prepare wave` before implementation
+- **change**: a tracked unit of work admitted into a wave — a bug fix, feature, enhancement, refactor, or other concrete change; represented by a consolidated change document that starts in `docs/plans/<change-id>.md` and moves into `docs/waves/<wave-id>/<change-id>.md` during `Add change to wave` before implementation
 - **change-id**: identifies one tracked change within a wave, using the format `<prefix>-<kind> <slug>` where `<kind>` is one of: `bug`, `feat`, `enh`, `change`, `doc`, `debt`, `ref`, `task`, `maint`, `ops`; for example `1mgvf-enh routine-status-contract-centralization`
 - **active wave**: the wave currently being implemented and reviewed
 - **carry-forward**: a change not completed when a wave closed, admitted into the next wave with its unfinished work made explicit
@@ -43,7 +43,7 @@ The **wave** is the primary delivery unit. A wave is a bounded, reviewable conta
 ## Lifecycle At A Glance
 
 1. Plan the wave — define scope, admit changes, establish review gates.
-2. Ready the wave — relocate admitted change docs into the wave folder, evaluate the admitted changes, select required implementer, reviewer, and persona lanes, and block start until readiness is clean.
+2. Ready the wave — validate that admitted change docs are already wave-owned, repair placement drift if needed, evaluate the admitted changes, select required implementer, reviewer, and persona lanes, and block start until readiness is clean.
 3. Implement the wave — implement all admitted changes together.
 4. Review the wave — run required review lanes as a unified set and rerun readiness at final review.
 5. Close and commit the wave — record completion, reconcile wave-owned change docs and reports, commit the result.
@@ -68,7 +68,7 @@ flowchart TD
 ```
 
 - Start by classifying the work and deciding whether it can stay in the smaller default workflow or needs the full wave lifecycle.
-- Create a consolidated change document (`docs/plans/<change-id>.md`) for each tracked change admitted into the wave, then move the admitted docs into `docs/waves/<wave-id>/` during `Prepare wave` before implementation begins.
+- Create a consolidated change document (`docs/plans/<change-id>.md`) for each tracked change admitted into the wave, then move the admitted docs into `docs/waves/<wave-id>/` during `Add change to wave` before implementation begins.
 - Define the wave record under `docs/waves/<wave-id>/wave.md` with: objective, admitted changes as `## Changes`, completion criteria, review checkpoints, and participant roster.
 - A wave may admit one or more changes when their assumptions, dependencies, and review timing are compatible enough to execute together.
 - For exact planning rules, use the seeded project's feature workflow, planning prompt, and plan/spec conventions.
@@ -86,7 +86,7 @@ flowchart TD
 ```
 
 - A wave should not start implementation until a readiness evaluation has passed.
-- Readiness includes relocating admitted change docs out of `docs/plans/` into `docs/waves/<wave-id>/` and clearing duplicate staging copies.
+- Readiness includes validating that admitted change docs are already in `docs/waves/<wave-id>/`, repairing staged-only drift when needed, and clearing duplicate staging copies.
 - The readiness evaluation determines which implementer lanes, reviewer lanes, and persona lanes must participate.
 - If a user asks to implement the wave directly, the coordinator should run or confirm this readiness evaluation automatically first.
 
@@ -109,7 +109,7 @@ flowchart TD
 
 - Implementation should stay inside the admitted wave scope; changes outside the wave must wait for the next wave.
 - Implementation should start only after readiness has passed; otherwise the coordinator must block and repair the prerequisites first.
-- Admitted change docs should already live under `docs/waves/<wave-id>/` after `Prepare wave`; repair drift defensively if staging copies remain.
+- Admitted change docs should already live under `docs/waves/<wave-id>/` after `Add change to wave`; `Prepare wave` repairs drift defensively if staging copies remain.
 - Verification follows the project's build, test, docs, and smoke-check procedures before wave closure.
 - For exact reviewer roles, personas, and gate triggers, use the seeded project's agent-team workflow and review docs.
 
@@ -189,7 +189,7 @@ flowchart TD
 ```
 
 - Closing a wave means reconciling every scoped change — not just marking the wave done.
-- Ensure all admitted change plan files were moved from `docs/plans/` into `docs/waves/<wave-id>/` during `Prepare wave`, then leave them there through closure.
+- Ensure all admitted change plan files were moved from `docs/plans/` into `docs/waves/<wave-id>/` during `Add change to wave`, then leave them there through closure.
 - Move all reports from `docs/reports/` that fall within the wave's active period into `docs/waves/<wave-id>/` and summarize them in `## Reports` in `wave.md`.
 - Record `Completed at` in `wave.md` when the wave is formally closed.
 - Rerun the readiness evaluation during final review before closure so new reviewer or persona triggers introduced during implementation do not get skipped.

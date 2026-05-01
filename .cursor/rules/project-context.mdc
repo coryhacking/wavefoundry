@@ -23,4 +23,6 @@ Thin pointer. Read `AGENTS.md` first for the full agent operating surface.
 
 ## After File Edits
 
-The `afterFileEdit` hook runs docs-lint after any edit to `docs/`. Fix failures before continuing.
+**Agents:** Prefer MCP **`wave_validate`** (and **`wave_garden`** when metadata needs refresh) over shelling out to docs launchers.
+
+The `afterFileEdit` hook runs **`.wavefoundry/bin/docs-lint`** after any edit to `docs/`. Fix failures before continuing.

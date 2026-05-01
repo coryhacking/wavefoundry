@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-04-29
+Last verified: 2026-04-30
 Completed At: 2026-04-29
 
 wave-id: `1293d mcp-server-foundation`
@@ -161,6 +161,69 @@ mutation modes, compatibility wrapper strategy
 - factor-13-api-first advisory review (12926, 12993): complete
 - factor-12-admin-processes advisory review (12926): complete
 - framework-operator acceptance (12926, 12993): approved
+
+## Full Wave Review (2026-04-30)
+
+### Scope
+All three changes (`12926`, `1293b`, `12993`). 267 framework tests pass. `docs-lint` clean.
+
+### AC Verification
+
+**12926 — required ACs:**
+- AC-1 ✅ `setup_index.py` dependency check + isolated venv help (covered by `test_setup_index.py`)
+- AC-2 ✅ Incremental rebuild: hash-based skip in `indexer.py`; `test_indexer.py` verifies changed-only rebuild
+- AC-3 ✅ `docs_search` semantic path wired; lexical fallback when index not ready
+- AC-5 ✅ `seed_get` by name/slug (covered by server tests)
+- AC-6 ✅ `wave_current` parses active wave state; "no active wave" handled
+- AC-7 ✅ `wave_get_prompt` returns full prompt text
+- AC-8 ✅ `wave_validate` returns structured pass/fail matching `docs_lint.py`
+- AC-9 ✅ `wave_new_feature` scaffolds plan doc in one call
+- AC-10 ✅ All 10 kinds (`bug`, `feat`, `enh`, `ref`, `change`, `doc`, `debt`, `task`, `maint`, `ops`) registered; `test_all_tools_registered` enumerates them
+- AC-12 ✅ `wave_sync_surfaces` regenerates platform configs and returns written paths
+- AC-13 ✅ Claude Code post-edit hook fires background `indexer.py` subprocess; hook does not block edit pipeline. **Note:** git hooks (post-commit, post-merge, post-rewrite, post-checkout) are generated at `.wavefoundry/git-hooks/` but require `git config core.hooksPath .wavefoundry/git-hooks` to activate — this is a manual operator step not yet documented in setup/contributing docs.
+- AC-14 ✅ `.mcp.json` and `.junie/mcp/mcp.json` both contain valid wavefoundry server entries
+- AC-15 ✅ Global fastembed cache via default platform cache dir; no per-project re-download
+- AC-16 ✅ 267/267 tests pass
+- AC-17 ✅ `--watch` without `watchdog` exits cleanly with install instruction
+
+**12993 — required ACs:**
+- AC-1 ✅ `wave_help()` returns structured workflow catalogue
+- AC-2 ✅ `wave_help(goal="plan_feature")` returns recommended chain with usage hints
+- AC-3 ✅ All tools return `{status, data, diagnostics, next_tools, usage}` envelope
+- AC-4 ✅ `wave_change_create(mode="dry_run")` reports planned path without writing
+- AC-5 ✅ `wave_change_create(mode="create")` is repeat-safe; repeat calls return `already_exists` diagnostic
+- AC-6 ✅ `wave_new_*` wrappers delegate to consolidated creation path
+- AC-9 ✅ `resolve_path_under_root` rejects parent-escape paths; tests cover traversal rejection
+- AC-10 ✅ `trust_label` field in all search/read results (`TRUSTED_FRAMEWORK`, `TRUSTED_PROJECT_METADATA`, `UNTRUSTED_PROJECT_CONTENT`)
+- AC-11 ✅ Tests cover discovery, envelopes, dry-run, wrappers, anchors, root rejection
+- AC-13 ✅ Core verbs documented in `wave_help` catalogue
+- AC-14 ✅ Prefix contract enforced at registration; `test_registered_tools_obey_prefix_contract` would fail on violations
+- AC-15 ✅ `wave_map` resolves `doc:`/`code:`/`seed:` stable addresses from search `result_id`
+- AC-16 ✅ Stable diagnostic field names (`code`, `message`, `recovery_tools`, `recovery_usage`) across all tools
+- AC-17 ✅ `mode` enum (`dry_run` / `create`) shared across lifecycle mutation tools
+- AC-18 ✅ `_ensure_no_extra_args` guards on all MCP tool handlers; unknown kwargs return diagnostic
+- AC-19 ✅ `wave_help` designated as audit/recovery landing tool; cited in mutation responses
+- AC-20 ✅ `McpRepoCache` caches wave/plan lists and prompt text keyed by mtime fingerprints; `wave_help` catalogue uses `lru_cache`; index `_loaded` state resets on mutation
+- AC-21 ✅ Repeat mutation calls return `already_exists` diagnostic with existing path and next recovery tool
+
+**1293b — ACs:**
+- AC-1–7 ✅ Lifecycle tools (`wave_create_wave`, `wave_add_change`, `wave_remove_change`, `wave_prepare`, `wave_pause`, `wave_review`, `wave_close`) implemented and tested
+
+### Issues Found and Resolved
+
+**Issue 1 — Performance regression (FIXED):**
+`docs_search_response()` unconditionally called `index.docs_health()` on every search request, triggering an O(repo) filesystem walk + SHA-256 hash pass before any retrieval work. Root cause: pre-flight staleness check was wired into the hot search path rather than relying on exception-based fallback.
+
+Fix: removed `docs_health()` pre-flight from `docs_search_response()`. Fallback is now fully exception-driven: `IndexNotReadyError` → lexical fallback with `index_not_ready` diagnostic; `SemanticModelUnavailableOfflineError` → lexical fallback. `docs_health()` remains available as an explicit standalone call. The `index_stale` and `index_missing` pre-flight diagnostic codes are retired; staleness detection is delegated to background reindex hooks.
+
+Affected tests: `test_docs_search_reports_stale_index_and_uses_lexical_fallback` and `test_docs_search_reports_missing_index_and_uses_lexical_fallback` replaced by `test_docs_search_calls_semantic_search_directly_without_health_preflight` (asserts `docs_health` is never called) and `test_docs_search_falls_back_to_lexical_on_index_not_ready` (asserts `IndexNotReadyError` → lexical fallback). Test count: 256 → 267.
+
+**Issue 2 — Stale architecture docs (FIXED):**
+`docs/architecture/data-and-control-flow.md` Path 6 step 3 and `docs/architecture/current-state.md` risk row both described `docs_search` as checking layer health on every call. Both updated to accurately describe the exception-driven fallback and the deliberate decision to avoid per-query repo walks.
+
+### Open Operational Gap (non-blocking)
+
+Git hooks at `.wavefoundry/git-hooks/` (post-commit, post-merge, post-rewrite, post-checkout) are generated and correct but require `git config core.hooksPath .wavefoundry/git-hooks` to activate. This manual step is not yet documented in setup or contributing docs. The primary incremental-reindex path (Claude Code post-edit hook) is unaffected. Recommend documenting the git hooks activation step in `docs/contributing/build-and-verification.md` in the `1297t` wave alongside the other MCP routing updates.
 
 ## Journal Refs
 

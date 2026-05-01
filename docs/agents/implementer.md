@@ -13,7 +13,7 @@ The implementer executes code changes per the admitted change doc. Stance: detec
 - Read and follow the admitted change doc's Requirements, Scope, and Acceptance Criteria
 - Detect patterns from `docs/repo-profile.json` `code_patterns` (when populated) before implementing
 - Follow patterns; surface significant deviations with rationale before proceeding
-- Run framework tests and docs-lint after changes
+- Run framework tests after changes; for the docs gate **prefer MCP `wave_validate`** (and `wave_garden` when metadata needs refresh). Use `.wavefoundry/bin/docs-lint` only when MCP is not available
 - Hand off diff + suggested commit message; never commit without operator instruction
 
 ## Salience Triggers

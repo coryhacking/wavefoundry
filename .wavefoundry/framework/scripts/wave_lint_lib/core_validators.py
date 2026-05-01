@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -46,12 +47,58 @@ def _check_lifecycle_id_policy(data: dict) -> list[str]:
     return failures
 
 
+_SCRIPTS_GIT_PATHSPEC = ".wavefoundry/framework/scripts/"
+
+
+def _git_tracked_pycache_paths(root: Path) -> list[str] | None:
+    """Return repo-root-relative POSIX paths under framework scripts that are tracked and contain ``__pycache__``.
+
+    Call only after a filesystem walk has found at least one ``__pycache__`` under framework scripts, so
+    ``docs_lint`` does not invoke ``git`` when there is nothing on disk to classify.
+
+    Returns ``None`` when the repository should be treated as non-git (no ``.git``, ``git`` missing, or
+    ``git ls-files`` failed): callers treat every on-disk ``__pycache__`` as a failure.
+    """
+    if not (root / ".git").exists():
+        return None
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z", "-c", "--", _SCRIPTS_GIT_PATHSPEC],
+            capture_output=True,
+            timeout=120,
+            check=False,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    tracked: list[str] = []
+    for chunk in (proc.stdout or b"").split(b"\0"):
+        if not chunk:
+            continue
+        rel = chunk.decode(errors="replace").replace("\\", "/")
+        if "__pycache__" in rel:
+            tracked.append(rel)
+    return tracked
+
+
 def check_pycache(root: Path) -> list[str]:
     failures: list[str] = []
     scripts_root = root / ".wavefoundry" / "framework" / "scripts"
     if not scripts_root.exists():
         return failures
-    for path in scripts_root.rglob("__pycache__"):
+
+    on_disk = list(scripts_root.rglob("__pycache__"))
+    if not on_disk:
+        return failures
+
+    tracked = _git_tracked_pycache_paths(root)
+    if tracked is not None:
+        for rel in tracked:
+            failures.append(f"python bytecode cache should not be checked in: {rel}")
+        return failures
+
+    for path in on_disk:
         try:
             rel = path.relative_to(root)
         except ValueError:

@@ -16,6 +16,18 @@ GUARD_OVERRIDES_REL = ".wavefoundry/guard-overrides.json"
 
 
 def discover_repo_root() -> Path:
+    """Walk up from CWD to find the repo root for the renderer.
+
+    Intentional differences from the copies in other scripts:
+    - Anchors on ``FRAMEWORK_RENDERER_REL`` (presence of this script itself)
+      rather than ``docs/workflow-config.json``, so it works even when the
+      framework bundle is deployed without a full docs tree.
+    - Never returns ``None`` — falls back to the script's own grandparent.
+
+    Cross-reference: ``server._discover_root``, ``indexer._discover_root``,
+    ``lifecycle_id.discover_repo_root``, ``docs_gardener.project_root``.
+    A future consolidation task should unify these into a shared utility.
+    """
     for env_key in ("PROJECT_ROOT", "REPO_ROOT"):
         raw = os.environ.get(env_key)
         if raw:
@@ -249,7 +261,7 @@ def hook_helpers() -> str:
         def maybe_docs_lint(file_path: str) -> tuple[bool, str]:
             if not file_path.startswith("docs/"):
                 return False, ""
-            result = run_command([str(REPO_ROOT / "docs-lint")])
+            result = run_command([str(REPO_ROOT / ".wavefoundry" / "bin" / "docs-lint")])
             if result.returncode == 0:
                 return False, ""
             message = (result.stdout + result.stderr).strip()
@@ -679,40 +691,73 @@ def render_claude_settings(repo_root: Path) -> None:
     write_text(settings_path, json.dumps(existing, indent=2) + "\n")
 
 
-def render_mcp_json(repo_root: Path) -> None:
-    mcp_path = repo_root / ".mcp.json"
+def _merge_mcp_server(target: Path, stanza: dict) -> None:
+    """Read-modify-write an MCP JSON config file, setting only ``mcpServers["wavefoundry"]``.
+
+    Preserves all other top-level keys and all unrelated ``mcpServers`` entries.
+    Creates the file (and any parent directories) when it does not yet exist.
+    Safe to call repeatedly — subsequent calls are idempotent for the same stanza.
+    """
     existing: dict[str, object] = {}
-    if mcp_path.exists():
+    if target.exists():
         try:
-            loaded = json.loads(mcp_path.read_text(encoding="utf-8"))
+            loaded = json.loads(target.read_text(encoding="utf-8"))
             if isinstance(loaded, dict):
                 existing = loaded
         except json.JSONDecodeError:
             existing = {}
     existing.setdefault("mcpServers", {})
-    existing["mcpServers"]["wavefoundry"] = {
-        "command": "python3",
-        "args": [".wavefoundry/framework/scripts/server.py"],
-    }
-    write_text(mcp_path, json.dumps(existing, indent=2) + "\n")
+    existing["mcpServers"]["wavefoundry"] = stanza
+    target.parent.mkdir(parents=True, exist_ok=True)
+    write_text(target, json.dumps(existing, indent=2) + "\n")
+
+
+def render_mcp_json(repo_root: Path) -> None:
+    """Merge the Wavefoundry stdio MCP entry into the Claude repo-root ``.mcp.json``.
+
+    Uses ``--root .`` so the stanza is portable: Claude Code launches from the
+    project directory, so ``"."`` resolves to the repo root without embedding a
+    machine-specific absolute path.
+    """
+    _merge_mcp_server(
+        repo_root / ".mcp.json",
+        {
+            "command": "python3",
+            "args": [".wavefoundry/framework/scripts/server.py", "--root", "."],
+        },
+    )
 
 
 def render_junie_mcp_json(repo_root: Path) -> None:
-    mcp_path = repo_root / ".junie" / "mcp" / "mcp.json"
-    existing: dict[str, object] = {}
-    if mcp_path.exists():
-        try:
-            loaded = json.loads(mcp_path.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict):
-                existing = loaded
-        except json.JSONDecodeError:
-            existing = {}
-    existing.setdefault("mcpServers", {})
-    existing["mcpServers"]["wavefoundry"] = {
-        "command": "python3",
-        "args": [".wavefoundry/framework/scripts/server.py"],
-    }
-    write_text(mcp_path, json.dumps(existing, indent=2) + "\n")
+    """Merge the Wavefoundry stdio MCP entry into the Junie ``.junie/mcp/mcp.json``."""
+    _merge_mcp_server(
+        repo_root / ".junie" / "mcp" / "mcp.json",
+        {
+            "command": "python3",
+            "args": [".wavefoundry/framework/scripts/server.py", "--root", "."],
+        },
+    )
+
+
+def render_cursor_mcp_json(repo_root: Path) -> None:
+    """Merge the Wavefoundry stdio MCP entry into the Cursor ``.cursor/mcp.json``.
+
+    Uses Cursor's ``${workspaceFolder}`` interpolation token for ``--root`` so
+    the stanza is portable across machines without embedding an absolute path.
+    """
+    _merge_mcp_server(
+        repo_root / ".cursor" / "mcp.json",
+        {
+            "type": "stdio",
+            "command": "python3",
+            "args": [
+                ".wavefoundry/framework/scripts/server.py",
+                "--root",
+                "${workspaceFolder}",
+            ],
+            "cwd": "${workspaceFolder}",
+        },
+    )
 
 
 def render_cursor_hooks(repo_root: Path) -> None:
@@ -796,6 +841,37 @@ def git_hook_source(hook_name: str) -> str:
 GIT_HOOK_NAMES = ("post-commit", "post-merge", "post-rewrite", "post-checkout")
 
 
+def render_bin_launchers(repo_root: Path) -> None:
+    """Write canonical CLI launchers to .wavefoundry/bin/.
+
+    These are the authoritative entry points for hooks, CI, and operators who
+    are not using MCP.  Agents should prefer the MCP tools (wave_validate,
+    wave_garden) over invoking these directly.
+    """
+    bin_dir = repo_root / ".wavefoundry" / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+
+    docs_lint_src = """\
+#!/usr/bin/env bash
+# Canonical docs-lint launcher — .wavefoundry/bin/docs-lint
+# Resolves repo root from this script's location and delegates to docs_lint.py.
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$REPO_ROOT"
+exec python3 ".wavefoundry/framework/scripts/docs_lint.py" "$@"
+"""
+    docs_gardener_src = """\
+#!/usr/bin/env bash
+# Canonical docs-gardener launcher — .wavefoundry/bin/docs-gardener
+# Resolves repo root from this script's location and delegates to docs_gardener.py.
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+exec python3 "$REPO_ROOT/.wavefoundry/framework/scripts/docs_gardener.py" "$@"
+"""
+    write_text(bin_dir / "docs-lint", docs_lint_src, executable=True)
+    write_text(bin_dir / "docs-gardener", docs_gardener_src, executable=True)
+
+
 def render_git_hooks(repo_root: Path) -> None:
     """Write git hook scripts to .wavefoundry/git-hooks/ for indexer integration.
 
@@ -822,20 +898,49 @@ def render_windsurf_hooks(repo_root: Path) -> None:
 
 
 def render_aiignore(repo_root: Path) -> None:
+    """Keep ``.aiignore`` focused on local index artifacts.
+
+    Framework seed prompts are intentionally **not** listed: hosts that honor
+    ``.aiignore`` would block reads; canonical seeds should stay readable. Seed
+    edits use ``seed_edit_allowed`` and platform hooks where installed.
+    """
     aiignore = repo_root / ".aiignore"
-    lines = []
-    if aiignore.exists():
-        lines = aiignore.read_text(encoding="utf-8").splitlines()
-    block = [
-        "# Protect wave seed prompts from unintentional Junie reads or writes.",
-        "# Temporarily comment this line out only when explicitly updating the seed pack.",
-        ".wavefoundry/framework/seeds/*.prompt.md",
+    index_block = [
+        "# Wavefoundry semantic index (binary and per-machine — not project source)",
+        ".wavefoundry/index/",
+        ".wavefoundry/framework/index/",
     ]
-    if ".wavefoundry/framework/seeds/*.prompt.md" not in lines:
-        if lines and lines[-1] != "":
-            lines.append("")
-        lines.extend(block)
-    write_text(aiignore, "\n".join(lines).rstrip() + "\n")
+    lines: list[str] = []
+    if aiignore.exists():
+        for line in aiignore.read_text(encoding="utf-8").splitlines():
+            if ".wavefoundry/framework/seeds/*.prompt.md" in line:
+                continue
+            if "Protect seed prompts" in line:
+                continue
+            if "Protect wave seed prompts" in line:
+                continue
+            if "Junie to edit seed prompts" in line:
+                continue
+            if "Junie reads or writes" in line:
+                continue
+            if "explicitly updating the seed pack" in line:
+                continue
+            lines.append(line)
+
+    def _is_index_meta_line(line: str) -> bool:
+        s = line.strip()
+        return s in (".wavefoundry/index/", ".wavefoundry/framework/index/") or s.startswith(
+            "# Wavefoundry semantic index"
+        )
+
+    rest = [ln for ln in lines if not _is_index_meta_line(ln)]
+    while rest and rest[-1] == "":
+        rest.pop()
+    lines_out = list(index_block)
+    if rest:
+        lines_out.append("")
+        lines_out.extend(rest)
+    write_text(aiignore, "\n".join(lines_out).rstrip() + "\n")
 
 
 def render_upgrade_skill(repo_root: Path) -> None:
@@ -862,8 +967,8 @@ Use this checklist when intentionally editing the wave framework or repo-local w
 
 1. `python3 -B .wavefoundry/framework/scripts/run_tests.py`
 2. `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py`
-3. `./docs-gardener`
-4. `./docs-lint`
+3. `.wavefoundry/bin/docs-gardener`
+4. `.wavefoundry/bin/docs-lint`
 
 ## Guardrails
 
@@ -925,6 +1030,7 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
         write_hook_bundle(repo_root / ".cursor" / "hooks" / "framework-plan-warn", cursor_framework_warn_source())
         write_hook_bundle(repo_root / ".cursor" / "hooks" / "docs-lint", cursor_docs_lint_source())
         render_cursor_hooks(repo_root)
+        render_cursor_mcp_json(repo_root)
     elif platform == "copilot":
         remove_files(
             [
@@ -963,6 +1069,7 @@ def main(argv: list[str] | None = None) -> int:
         remove_copilot_artifacts(repo_root)
     for platform in sorted(platforms):
         render_platform_entrypoints(repo_root, platform)
+    render_bin_launchers(repo_root)
     render_git_hooks(repo_root)
     return 0
 

@@ -18,6 +18,18 @@ LAST_VERIFIED_PATTERN = re.compile(r"^(Last verified:\s+)(\d{4}-\d{2}-\d{2})$", 
 
 
 def project_root() -> Path:
+    """Return the project root from ``PROJECT_ROOT`` env var or CWD.
+
+    Intentional differences from the copies in other scripts:
+    - Only reads ``PROJECT_ROOT`` (not ``REPO_ROOT``) — the gardener is always
+      invoked with an explicit env var or from the correct working directory.
+    - Does not walk up the directory tree; relies on the caller to set the env.
+    - Never returns ``None``.
+
+    Cross-reference: ``server._discover_root``, ``indexer._discover_root``,
+    ``lifecycle_id.discover_repo_root``, ``render_platform_surfaces.discover_repo_root``.
+    A future consolidation task should unify these into a shared utility.
+    """
     env_root = os.environ.get("PROJECT_ROOT")
     return (Path(env_root) if env_root else Path.cwd()).resolve()
 

@@ -45,6 +45,14 @@
     "upgrade_merge_behavior": "preserve_repo_grown_adaptations",
     "output_contract_schema_version": "1.0"
   },
+  "indexing": {
+    "project_include_prefixes": {
+      "docs": [],
+      "code": [
+        ".wavefoundry/framework/scripts"
+      ]
+    }
+  },
   "factor_review_policy": {
     "applicable_factors": ["03", "05", "12", "13"],
     "partial_factors": ["02", "07", "09"],

@@ -18,7 +18,9 @@ Thin pointer. Read `AGENTS.md` first for the full agent operating surface.
 
 ## Docs Gate
 
-After any edit to files under `docs/`, the post-edit hook runs `./docs-lint` automatically. Fix failures before continuing.
+**Agents:** Prefer MCP **`wave_validate`** (and **`wave_garden`** when refreshing metadata). **`wave_audit`** is useful for a combined wave + lint + index readout.
+
+After any edit to files under `docs/`, the post-edit hook still runs **`.wavefoundry/bin/docs-lint`** automatically — fix failures before continuing; do not treat the hook as a replacement for MCP verification when the server is available.
 
 ## Framework Tests
 

@@ -87,21 +87,22 @@ Execution flow:
    - `persona_review_policy`, including when user/operator personas are invoked and whether their findings are advisory or gating
    - readiness-review behavior, including whether readiness is required before implementation, auto-runs when missing, and reruns before closure
    - **`lifecycle_id_policy`** in `docs/workflow-config.json` — when missing, backfill with the framework default epoch (`2020-02-02T02:02:00Z`) and `hour_offset` `0` (plus optional metadata fields aligned with current seed standard) so greenfield and legacy installs match `lifecycle_id.py` documentation; **never overwrite** an existing `epoch_utc` or `hour_offset` once set, so issued IDs stay valid
+   - `indexing.project_include_prefixes` when the repo intentionally extends the default project semantic index to additional roots; preserve explicit repo-local prefixes and backfill the generic structure when the repo already depends on non-default indexed paths
    - canonical workflow docs and role docs when the current framework standard requires them and they are missing or stale
    - `docs/ARCHITECTURE.md` and `docs/architecture/{current-state,domain-map,layering-rules,cross-cutting-concerns,data-and-control-flow,testing-architecture}.md` (and `docs/architecture/decisions/template.md` when ADR seeding changed) when `seed-060`, `seed-030`, or repository topology changed; merge with repo-specific depth per `060` guardrails
    - `docs/prompts/close-wave.md`, `docs/prompts/agents/close-wave.md`, and `docs/contributing/review-and-evals.md` (**Wave closure** / docs-contract-at-close) when the seed pack’s `seed-190` or `seed-100` closure expectations have evolved
    - `docs/prompts/upgrade-wavefoundry.md` and `docs/prompts/agents/upgrade-wavefoundry.md` when the seed pack's upgrade contract changes
-   - root `./docs-lint`, `./docs-gardener`, and any legacy `./package-wave-framework` wrappers so they point to the **current** script filenames under `.wavefoundry/framework/scripts/` or are retired when packaging is not supported in a target repository. These wrappers live at the repository root and are **not** overwritten by pack unpack, so they must be reconciled explicitly during upgrade. Required invocations for packs at `2026-04-22a` and later in this repository:
-     - `./docs-lint` must invoke `scripts/docs_lint.py` (underscore) — the retired `scripts/docs-lint.py` path must not be referenced
-     - `./docs-gardener` must invoke `scripts/docs_gardener.py` (underscore) — the retired `scripts/docs-gardener.py` path must not be referenced
+   - **`.wavefoundry/bin/docs-lint`**, **`.wavefoundry/bin/docs-gardener`**, and any legacy **`./package-wave-framework`** repo-root wrapper so they point to the **current** script filenames under `.wavefoundry/framework/scripts/` or are retired when packaging is not supported in a target repository. These **bin** launchers (and any repo-root packaging helper) are **not** overwritten blindly by pack unpack, so reconcile them explicitly during upgrade. Required invocations for packs at `2026-04-22a` and later in this repository:
+     - `.wavefoundry/bin/docs-lint` must invoke `scripts/docs_lint.py` (underscore) — the retired `scripts/docs-lint.py` path must not be referenced
+     - `.wavefoundry/bin/docs-gardener` must invoke `scripts/docs_gardener.py` (underscore) — the retired `scripts/docs-gardener.py` path must not be referenced
      - `./package-wave-framework`, when intentionally retained in a source repository, must invoke `scripts/build_pack.py` — the retired `scripts/build_zip.py` path must not be referenced
 
-     External CLI names (the wrapper filenames at the repo root) remain hyphenated for conventional CLI ergonomics; only the Python module filenames moved to snake_case.
-   - `docs/contributing/build-and-verification.md` — ensure a **Git commits** subsection (operator-owned policy, aligned with `050` and **Git commits** in `AGENTS.md`) exists whenever that file is refreshed; backfill when missing or when `050` changed. Ensure a **Wave framework pack upgrade verification** section exists and matches `seed-040` task 17 (ordered checklist: root zip or manual tree update → **Upgrade wave framework** → framework `run_tests.py` → `./docs-gardener && ./docs-lint` → diff/commit; cross-links to `docs/prompts/upgrade-wavefoundry.md` and `docs/prompts/package-wavefoundry.md` when applicable; step-0 exclusions and product-build N/A note). Backfill when the repo vendors the pack but the section is missing or stale.
+     Launcher filenames under **`.wavefoundry/bin/`** remain hyphenated for conventional CLI ergonomics; only the Python module filenames moved to snake_case.
+   - `docs/contributing/build-and-verification.md` — ensure a **Git commits** subsection (operator-owned policy, aligned with `050` and **Git commits** in `AGENTS.md`) exists whenever that file is refreshed; backfill when missing or when `050` changed. Ensure a **Wave framework pack upgrade verification** section exists and matches `seed-040` task 17 (ordered checklist: root zip or manual tree update → **Upgrade wave framework** → framework `run_tests.py` → docs gate (**agents with MCP:** **`wave_garden`** then **`wave_validate`**; **operators / CI / no MCP:** **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`**) → diff/commit; cross-links to `docs/prompts/upgrade-wavefoundry.md` and `docs/prompts/package-wavefoundry.md` when applicable; step-0 exclusions and product-build N/A note). Backfill when the repo vendors the pack but the section is missing or stale.
    - `docs/design/design-language.md` — backfill when `docs/repo-profile.json` `design_system.design_evidence.detected` is `true` but `docs/design/design-language.md` does not exist; use the canonical structure defined in `seed-040` task 13 and re-run `030` design surface scan to gather current evidence before seeding. When `design-language.md` exists but `design_system` in the profile has changed since last verified (check `Last verified:` date in the file vs profile `design_sensitivity` or `ui_roots` changes), flag as stale and prompt the operator to refresh the file before closing the upgrade.
    - `.gitignore` scoping when broad ignore rules would hide framework-managed files
 9. Retire or rewrite stale local prompt/docs references that still point at legacy framework names or obsolete helper surfaces after replacement artifacts are in place. **Delete fully-superseded prompt files** rather than leaving tombstone files with "RETIRED" notices — a tombstone that is no longer needed as a migration alias only adds noise and confusion. A prompt file should be deleted when: (a) a replacement file exists at the canonical path, (b) no live references to the old file remain in AGENTS.md, docs/prompts/index.md, or prompt-surface-manifest.json, and (c) the migration window is over. Remove the corresponding entry from `docs/prompts/index.md` legacy aliases section when deleting tombstones. Also remove any empty legacy workspace directories (`docs/exec-plans/`, `docs/product-specs/`, `docs/gaps/`, `docs/performance/`, `docs/generated/`) that may have been left as shells by the init or a prior upgrade run.
-10. Re-run the docs gate.
+10. Re-run the docs gate (**MCP:** **`wave_garden`** then **`wave_validate`** when attached; **CLI:** **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`**).
 
 11. **Operating-memory upgrade reconciliation:** When `seed-006`, `seed-050`, `seed-120`, `seed-130`, `seed-140`, `seed-160`, `seed-170`, `seed-180`, `seed-190`, `seed-200`, or `seed-210` changed the journal/role/persona memory contract, upgrade existing projects using this checklist:
    - Preserve operator standing directives, active cautions, security/release-sensitive notes, and evidence refs unless explicitly superseded with evidence.
@@ -112,12 +113,12 @@ Execution flow:
    - Prefer seed-derived wording over local forks, but preserve project-specific constraints and repo-grown policy that remains valid.
    - Update local lifecycle prompts and contributing docs when they still route all journal work to `Close wave` only.
    - Rename `## Follow-up Signals` to `## Active Watchpoints` in all journal files where the old section name is present; preserve all content under the renamed header.
-   - Run framework tests plus `./docs-gardener && ./docs-lint` after reconciliation.
+   - Run framework tests plus the docs gate after reconciliation (**MCP:** **`wave_garden`** then **`wave_validate`** when attached; otherwise **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`**).
 
 Upgrade execution contract:
 
 - Treat **`seed-150`** (and, when applicable, **`seed-220`**) as the authoritative refresh instructions for each artifact class; **`160`** orchestrates sequencing and validation.
-- Upgrade is **incomplete** if required repo-local outputs remain missing, if **`docs/prompts/prompt-surface-manifest.json`** and **`docs/workflow-config.json`** `prompt_generation.seed_framework_source` **diverge**, or if **`./docs-lint` fails** when `.wavefoundry/framework/scripts/docs_lint.py` is present in the target repository after the run.
+- Upgrade is **incomplete** if required repo-local outputs remain missing, if **`docs/prompts/prompt-surface-manifest.json`** and **`docs/workflow-config.json`** `prompt_generation.seed_framework_source` **diverge**, or if the **docs gate fails** after upgrade when `.wavefoundry/framework/scripts/docs_lint.py` is present — i.e. **`wave_validate`** does not report success over MCP (when that is how the run was verified), or **`.wavefoundry/bin/docs-lint` exits non-zero** when verified via CLI.
 
 Operator summary (required handoff):
 
@@ -126,7 +127,7 @@ After upgrade completes successfully, deliver a concise **high-level overview** 
 Include the following topics in plain language:
 
 1. **What was refreshed**
-   - Prompt surface (`docs/prompts/`, optional `docs/prompts/agents/`), `AGENTS.md` and thin pointers, `docs/workflow-config.json` / `docs/repo-profile.json` when schema or policy standard moved, manifests (`docs/prompts/prompt-surface-manifest.json`), build-and-verification and lifecycle companion docs if regenerated, root `./docs-lint` and `./docs-gardener` wrappers, native role wrappers when `enabled_agent_roles` or platform generation changed.
+   - Prompt surface (`docs/prompts/`, optional `docs/prompts/agents/`), `AGENTS.md` and thin pointers, `docs/workflow-config.json` / `docs/repo-profile.json` when schema or policy standard moved, manifests (`docs/prompts/prompt-surface-manifest.json`), build-and-verification and lifecycle companion docs if regenerated, **`.wavefoundry/bin/docs-lint`** and **`.wavefoundry/bin/docs-gardener`** launchers, native role wrappers when `enabled_agent_roles` or platform generation changed.
    - Explicit callout if **Git commits (operator-owned)**, **Implementation guard**, **close-wave / docs-contract-at-close**, or **framework script hygiene** were backfilled or updated (per `050-` / `100-` / `190-` seed prompts).
 
 2. **What was preserved**
@@ -144,7 +145,7 @@ Include the following topics in plain language:
 
 6. **Documentation setup and verification**
    - Reiterate canonical entry: `docs/README.md`, `docs/prompts/index.md`, `docs/references/project-overview.md`.
-   - Confirm post-upgrade gates ran or must run: **`./docs-gardener`** and **`./docs-lint`** per `docs/contributing/build-and-verification.md` (pass `--date <YYYY-MM-DD>` only when overriding today's date).
+   - Confirm post-upgrade docs gate ran or must run per `docs/contributing/build-and-verification.md`: **agents with MCP** — **`wave_garden`** then **`wave_validate`**; **operators / CI / no MCP** — **`.wavefoundry/bin/docs-gardener`** and **`.wavefoundry/bin/docs-lint`** (pass `--date <YYYY-MM-DD>` only when overriding today's date).
 
 7. **Important configuration and precondition**
    - When step 0 ran, call out which zip was unpacked and that hooks were regenerated immediately afterward.
@@ -179,7 +180,7 @@ Required upgrade behaviors:
 - generate or retain factor-review agent files only for factors marked `applicable` in `docs/repo-profile.json`; re-evaluate skipped factors when project scope changes materially; do not invent factor-review agents without evidence
 - backfill missing repo-local outputs required by the current framework standard rather than only reporting drift
 - backfill **`lifecycle_id_policy`** when absent and the repo vendors `lifecycle_id.py`, without changing existing epoch/offset values when already present
-- when seed lifecycle docs (`001`, `170`, `180`, `190`, `200`, `100`, `110`) changed, reconcile repo-local prompts and lifecycle companions so **prepare-time relocation** stays consistent with `docs-lint` and `seed-100` (coordinate with `seed-150` task 5)
+- when seed lifecycle docs (`001`, `170`, `180`, `190`, `200`, `100`, `110`) changed, reconcile repo-local prompts and lifecycle companions so **prepare-time relocation** stays consistent with the **docs gate** (`wave_validate` / `wave_garden` over MCP, or `.wavefoundry/bin/docs-lint` rules) and `seed-100` (coordinate with `seed-150` task 5)
 - ensure lifecycle ID generation is co-located with framework scripts by keeping `.wavefoundry/framework/scripts/lifecycle_id.py` as the canonical entrypoint and updating stale legacy path references
 - reconcile **Git commits (operator-owned)** in `AGENTS.md` and the **Git commits** subsection in `docs/contributing/build-and-verification.md` on every upgrade when `seed-050` changed, or when either surface predates the policy; treat upgrade as the peer of init for this contract, not an optional follow-up
 - reconcile **Implementation guard (product code)** on every upgrade when `seed-050` or `seed-100` changed, or when `AGENTS.md` / implement prompts predate the guard; treat upgrade as the peer of init for this policy, not an optional follow-up

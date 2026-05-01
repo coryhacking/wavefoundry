@@ -26,6 +26,14 @@ Generated role and persona docs must preserve operating identity for software-en
 
 Keep these sections concise and role-specific. Do not claim agents have emotions; operational salience records observed engineering impact.
 
+Canonical role docs should also carry the following structural sharpness when the role type supports it:
+
+- **Default stance:** the evidence posture the role starts from before it has proof otherwise.
+- **Do not / anti-goals:** role boundaries that prevent overlap, silent redesign, or implicit scope expansion.
+- **Output shape:** the expected structure of a good role output so downstream lanes know what to expect.
+- **Review dimensions or evidence requirements:** when the role reviews work rather than authors it.
+- **Assumption tracking:** what assumptions must be named, tested, or escalated before the role signs off.
+
 Tasks:
 
 1. Create or update `AGENTS.md` as the canonical entry map. Prefer concise, **non-obvious** routing and guardrails agents would otherwise get wrong; omit trivia they can re-derive from `docs/repo-index.md` or the tree.
@@ -42,13 +50,15 @@ Tasks:
 7. Ensure parent directories exist before writing wrappers.
 8. Keep non-canonical entry files and native wrappers thin and mechanical.
 9. When generating or refreshing canonical role/persona docs, add or preserve operating identity, salience triggers, and memory responsibilities. Thin native wrappers should point to those canonical sections rather than duplicating them.
-10. Update `.gitignore` so framework-managed platform files are tracked rather than silently excluded.
-11. Add the framework script hygiene rule to `AGENTS.md` as a universal cross-agent instruction (see below).
-12. Seed `.claude/settings.json` with the project-level Claude Code hook that automates the same rule for Claude Code (see below).
-13. Prefer generating platform hook/config surfaces via `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` rather than hand-editing each hook file independently. Keep the repo-local hook files at the platform-expected paths, but treat them as generated Python entrypoints rendered from generic framework templates. Use a repo-global guard override file (`.wavefoundry/guard-overrides.json`) rather than provider-specific sentinel files for temporary seed/framework edit approval.
-14. **Stage gate (repository code)** — Add a `## Stage Gate (repository code)` section to `AGENTS.md` before the Implementation guard. This gate applies to all repository code (product source, scripts, tests, build manifests, and other checked-in code/config that affects shipped or verified behavior). It must require all three of the following before the first code edit in a given effort: (1) a consolidated change document exists; (2) the change is admitted into a wave via `Create wave` / `Add change to wave`; (3) the wave has a successful `Prepare wave` / `Ready wave` pass as the immediately preceding lifecycle step. If any step is missing, agents must stop and route back to `Plan feature`, `Create wave`, `Add change to wave`, or `Prepare wave`. Mark documentation-only edits under `docs/`, prompt/framework docs that do not change repository code, and operator-approved explicit waivers for a named scope as out of scope for this gate.
-15. **Implementation guard (product code)** — When the project ships product implementation source (present in the repository), add an `## Implementation guard (product code)` section to `AGENTS.md` immediately after the Stage gate section. Use the decision signals and template below. When the repo is documentation-only, specs-only, or contains only the wave framework pack with no shipped product code, omit the section or add a single line that the guard should be added once implementation directories exist.
-16. When an Implementation guard section exists in `AGENTS.md`, set thin-pointer startup step 1 in `CLAUDE.md`, `.cursor/rules/project-context.mdc`, `.junie/guidelines.md`, `.github/copilot-instructions.md`, and `WARP.md` to: read `AGENTS.md` including **Implementation guard (product code)** before editing product targets. When the section does not exist, keep the generic “read `AGENTS.md`” step without that sub-clause.
+10. Support the canonical agent taxonomy in repo-local docs and wrappers: `generic`, `persona`, `factor-review`, `universal specialist`, `archetype specialist`, and `repo-local specialist`. Only the first three are guaranteed in every seeded repository; specialist tiers are enabled from repo evidence and repo-local config.
+11. Generate specialist wrappers only for roles that are enabled by repo-local evidence or operator configuration. Universal specialists are cross-project roles such as architecture, security, docs, and onboarding. Archetype specialists are keyed to repository shape, such as web/full-stack, mobile/desktop, AI/agent, JVM/service, or infrastructure-heavy repos. Repo-local specialists are project-specific and must stay clearly separated from reusable framework defaults.
+12. Update `.gitignore` so framework-managed platform files are tracked rather than silently excluded.
+13. Add the framework script hygiene rule to `AGENTS.md` as a universal cross-agent instruction (see below).
+14. Seed `.claude/settings.json` with the project-level Claude Code hook that automates the same rule for Claude Code (see below).
+15. Prefer generating platform hook/config surfaces via `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` rather than hand-editing each hook file independently. Keep the repo-local hook files at the platform-expected paths, but treat them as generated Python entrypoints rendered from generic framework templates. Use a repo-global guard override file (`.wavefoundry/guard-overrides.json`) rather than provider-specific sentinel files for temporary seed/framework edit approval.
+16. **Stage gate (repository code)** — Add a `## Stage Gate (repository code)` section to `AGENTS.md` before the Implementation guard. This gate applies to all repository code (product source, scripts, tests, build manifests, and other checked-in code/config that affects shipped or verified behavior). It must require all three of the following before the first code edit in a given effort: (1) a consolidated change document exists; (2) the change is admitted into a wave via `Create wave` / `Add change to wave`; (3) the wave has a successful `Prepare wave` / `Ready wave` pass as the immediately preceding lifecycle step. If any step is missing, agents must stop and route back to `Plan feature`, `Create wave`, `Add change to wave`, or `Prepare wave`. Mark documentation-only edits under `docs/`, prompt/framework docs that do not change repository code, and operator-approved explicit waivers for a named scope as out of scope for this gate.
+17. **Implementation guard (product code)** — When the project ships product implementation source (present in the repository), add an `## Implementation guard (product code)` section to `AGENTS.md` immediately after the Stage gate section. Use the decision signals and template below. When the repo is documentation-only, specs-only, or contains only the wave framework pack with no shipped product code, omit the section or add a single line that the guard should be added once implementation directories exist.
+18. When an Implementation guard section exists in `AGENTS.md`, set thin-pointer startup step 1 in `CLAUDE.md`, `.cursor/rules/project-context.mdc`, `.junie/guidelines.md`, `.github/copilot-instructions.md`, and `WARP.md` to: read `AGENTS.md` including **Implementation guard (product code)** before editing product targets. When the section does not exist, keep the generic “read `AGENTS.md`” step without that sub-clause.
 
 **When to add the guard**
 
@@ -73,6 +83,7 @@ Required semantics:
 - generic role routing
 - factor-review agent routing when applicable factors exist
 - persona routing when personas exist
+- specialist routing when repo evidence enables universal, archetype, or repo-local specialists
 - sync policy for thin pointer files
 - native wrapper locations and naming policy when enabled
 - tracking policy for generated platform-native files
@@ -132,11 +143,15 @@ Preserve the personal-override carve-out (the framework tree can be tracked, but
 - **Operator-owned `git commit` (policy, not hooks)** — document in `AGENTS.md` and `docs/contributing/build-and-verification.md` that **agents must not** run `git commit` unless the operator explicitly instructs them to finalize that commit in the **current** request after review; default is to hand off a suggested message and diff for the operator to commit locally. The policy must also say that agents do **not** infer commit approval from broad phrases like "go ahead", "ship it", or "commit the changes": before any commit, the agent must present or confirm the exact commit scope and receive a clear finalization instruction for that reviewed scope. Do not rely on shell hooks or env-var bypasses for this — keep it as explicit workflow policy.
 - **Project-specific post-edit checks** — when a repository needs additional formatter or validator hooks beyond the generic docs gate, define and render those as repo-local adaptations rather than hard-coding project paths into the shared framework.
 
+### Wavefoundry MCP — docs gate for agents
+
+Seeded **`AGENTS.md`**, **`CLAUDE.md`**, thin pointers, and **`docs/prompts/*`** must instruct **agents** to prefer MCP **`wave_validate`** (docs lint results), **`wave_garden`** (metadata gardening; follow the tool `mode` contract), and **`wave_audit`** (combined wave + validation + index readout) over shelling out to **`.wavefoundry/bin/docs-lint`** / **`.wavefoundry/bin/docs-gardener`**. Treat the **bin** launchers as **CLI / hook / CI** fallbacks when MCP is not attached. Hooks below **cannot** call MCP and therefore still invoke **`.wavefoundry/bin/docs-lint`** — that does not change MCP-first agent guidance.
+
 ### Shared hook purposes (apply on every host per its pre/post capability)
 
 - **Seed protection** — block (or warn+halt where pre-write is unavailable) edits to `*.prompt.md` files under `.wavefoundry/framework/` unless `.wavefoundry/guard-overrides.json` sets `seed_edit_allowed.enabled` to `true`. Use the repo-global override file only for intentional seed edits, then remove it or set the flag back to `false`.
 - **Framework plan gate** — block (or warn+halt) broad framework-maintenance edits to `.wavefoundry/framework/`, `docs/prompts/`, `AGENTS.md`, and tracked hook configs unless `.wavefoundry/guard-overrides.json` sets `framework_edit_allowed.enabled` to `true` after the operator reviews the file-level patch plan.
-- **`docs-lint`** — run `./docs-lint` after any Edit/Write to files under `docs/`, failing the hook when the docs gate fails.
+- **`docs-lint` hook** — run **`.wavefoundry/bin/docs-lint`** after any Edit/Write to files under `docs/`, failing the hook when the docs gate fails (subprocess hook path; not MCP).
 - **pycache cleanup** (Claude Code only) — remove `__pycache__` directories after framework test runs.
 
 ### Per-platform capability matrix
@@ -149,7 +164,7 @@ Preserve the personal-override carve-out (the framework tree can be tracked, but
 | Copilot      | ✅ `preToolUse` seed + framework approval             | ✅ `postToolUse` `docs-lint`                             | `.github/hooks/hooks.json`                                         |
 | Codex        | ❌ instruction-only                                   | ❌                                                       | `AGENTS.md`, `docs/prompts/`, `.codex/skills/`                     |
 | Air          | ❌ hosted-provider only                               | ❌ hosted-provider only                                  | existing provider wrappers only                                    |
-| Junie        | ❌ instruction-only (use `.aiignore` — see below)      | ❌                                                       | `.junie/guidelines.md`                                             |
+| Junie        | ❌ instruction-only (`AGENTS.md`, `.junie/guidelines.md`) | ❌                                                    | `.junie/guidelines.md`                                             |
 | Warp         | ❌ instruction-only                                   | ❌                                                       | `WARP.md`                                                          |
 
 For Codex, Air, Junie, and Warp, reinforce rules in `AGENTS.md` and the respective thin-pointer or native-wrapper files only.
@@ -195,7 +210,7 @@ Generated entrypoints:
 - `.cursor/hooks/after-file-edit` — runs Cursor gates in order and stops after the first blocking result
 - `.cursor/hooks/seed-warn` — seed-protection warn+halt
 - `.cursor/hooks/framework-plan-warn` — framework-plan-gate warn+halt
-- `.cursor/hooks/docs-lint` — runs `./docs-lint` after docs edits and halts with actionable output when the docs gate fails
+- `.cursor/hooks/docs-lint` — runs `.wavefoundry/bin/docs-lint` after docs edits and halts with actionable output when the docs gate fails
 
 `.gitignore` must track `.cursor/hooks.json` and `.cursor/hooks/` (`!.cursor/hooks.json` and `!.cursor/hooks/` carve-outs when `.cursor/` is broadly ignored). The repo-global `.wavefoundry/guard-overrides.json` override file remains gitignored.
 
@@ -214,7 +229,7 @@ Windsurf has `pre_write_code` which fires **before** the write — true blocking
 
 Generated entrypoints:
 - `.windsurf/hooks/seed-protect` — true-blocking seed protection + framework plan gate
-- `.windsurf/hooks/docs-lint` — runs `./docs-lint` after docs edits
+- `.windsurf/hooks/docs-lint` — runs `.wavefoundry/bin/docs-lint` after docs edits
 
 `.gitignore` tracks `.windsurf/hooks.json` and `.windsurf/hooks/`.
 
@@ -239,22 +254,15 @@ Scope boundary:
 
 Generated entrypoints:
 - `.github/hooks/pre-tool-use` — blocks seed-prompt edits and broad framework-maintenance edits per the guard-override file
-- `.github/hooks/post-tool-use` — runs `./docs-lint` after docs edits
+- `.github/hooks/post-tool-use` — runs `.wavefoundry/bin/docs-lint` after docs edits
 
 Keep `.github/copilot-instructions.md` as a thin pointer and route mechanical enforcement through `.github/hooks/hooks.json`.
 
-## Junie `.aiignore` Contract
+## Junie
 
-Seed `.aiignore` at the repository root when the project uses Junie. Junie has no hook system, but `.aiignore` (gitignore-style syntax) hard-restricts which files Junie can read or write. Use it to block unintentional seed prompt modification — the strongest protection available for Junie since it prevents even accidental reads during upgrade sessions.
+Junie does not ship the same hook surfaces as Cursor or Copilot. Rely on `AGENTS.md` and `.junie/guidelines.md` for seed and framework edit discipline (`seed_edit_allowed`, stage gate).
 
-Add to `.aiignore`:
-```
-# Protect seed prompts from unintentional modification.
-# To allow Junie to edit seed prompts, temporarily comment out this line.
-.wavefoundry/framework/seeds/*.prompt.md
-```
-
-Note: this also blocks Junie from reading seed prompts, which may limit its ability to understand framework intent. Operators should comment out the line temporarily when explicitly working on seed prompts, then restore it.
+Do **not** add `.wavefoundry/framework/seeds/*.prompt.md` to `.aiignore` for Junie: in hosts that enforce `.aiignore`, that pattern blocks **reads** as well as writes, which hides canonical seeds from agents. The install renderer seeds `.aiignore` with **index directories only** (see `render_aiignore`).
 
 ## Execution Contract in Canonical Role Docs
 

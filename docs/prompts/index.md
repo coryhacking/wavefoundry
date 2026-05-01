@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-04-30
 
 Public shortcut phrase catalog for Wavefoundry. See `AGENTS.md` for the routing table.
 
@@ -20,12 +20,13 @@ This prompt surface follows `.wavefoundry/framework/seeds/020-run-contract.promp
 | Phrase | Purpose | Doc |
 |--------|---------|-----|
 | **Init wave framework** | Initialize Wave Framework in a target repository | `docs/prompts/install-wavefoundry.md` |
+| **Enable Wavefoundry MCP** | Register the local MCP server in Claude Code, Cursor, Junie, Copilot, Codex, or Air | `docs/prompts/install-wavefoundry.md#mcp--wavefoundry-server` |
 | **Upgrade wave framework** | Upgrade Wave Framework in a target repository | `docs/prompts/upgrade-wavefoundry.md` |
 | **Plan feature** | Author a consolidated change document | `docs/prompts/plan-feature.md` |
 | **Create wave** | Create a wave record | `docs/prompts/create-wave.md` |
 | **Add change to wave** | Admit a change doc into the active wave | `docs/prompts/add-change-to-wave.md` |
 | **Remove change from wave** | Remove an admitted change from the wave | `docs/prompts/remove-change-from-wave.md` |
-| **Prepare wave** / **Ready wave** | Confirm readiness; relocate change docs; AC priority | `docs/prompts/prepare-wave.md` |
+| **Prepare wave** / **Ready wave** | Confirm readiness; validate/repair change-doc placement; AC priority | `docs/prompts/prepare-wave.md` |
 | **Implement wave** | Coordinator-managed multi-change implementation loop | `docs/prompts/implement-wave.md` |
 | **Implement feature** | Single-change docs-first implementation | `docs/prompts/implement-feature.md` |
 | **Pause wave** | Park session state in handoff artifact | `docs/prompts/pause-wave.md` |

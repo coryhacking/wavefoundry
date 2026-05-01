@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-04-30
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
@@ -12,7 +12,7 @@ Confirm wave readiness before implementation begins. The stage gate: implementat
 
 ## Steps
 
-1. Relocate all admitted change docs from `docs/plans/` into `docs/waves/<wave-id>/`.
+1. Validate that every admitted change doc already lives in `docs/waves/<wave-id>/`. If an admitted doc is still staged in `docs/plans/`, repair the placement by moving it into the wave folder; if duplicate staged and wave copies exist, stop and resolve the conflict explicitly.
 2. Confirm each change doc is complete: Rationale, Requirements, Scope, Acceptance Criteria, Affected architecture docs.
 3. Select required review lanes for each admitted change (see `docs/contributing/agent-team-workflow.md`).
 4. Confirm `qa-reviewer` is included for any bug fix (`review_policies.require_qa_reviewer_for_bug_fixes: true`).
@@ -23,7 +23,8 @@ Confirm wave readiness before implementation begins. The stage gate: implementat
 ## Readiness Verdict
 
 Record a readiness verdict in the wave record `## Review checkpoints` (e.g., `Prepare wave — readiness verdict`). The wave is ready when:
-- All admitted change docs are relocated and complete
+- All admitted change docs are complete and wave-owned
+- Any admitted-doc placement drift was repaired or explicitly resolved
 - All required review lanes are confirmed
 - AC priority is recorded on each change doc
 - Product-owner acknowledgment is recorded (when applicable)

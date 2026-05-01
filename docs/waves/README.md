@@ -2,21 +2,22 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-04-30
 
 Wave records for Wavefoundry delivery work. Each wave is a bounded, reviewable container for one or more admitted changes.
 
 ## Wave Lifecycle
 
-`planned` → `active` → `completed` | `superseded`
+`planned` → `active` → `completed` | `superseded` (wave records may use **`Status: closed`** for a completed delivery — same meaning as **completed** for the index in this repo)
 
 ## Active Waves
 
-*(None — no active delivery waves yet)*
+*(none)*
 
 ## Completed Waves
 
-*(None — greenfield install; no baseline legacy wave was created)*
+- `129p8 mcp-docs-search-reliability`
+- `1293d mcp-server-foundation`
 
 ## Wave ID Format
 

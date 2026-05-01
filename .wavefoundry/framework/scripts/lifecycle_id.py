@@ -16,6 +16,18 @@ SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
 def discover_repo_root() -> Path | None:
+    """Walk up from CWD to find the repo root anchored by ``workflow-config.json``.
+
+    Intentional differences from the copies in other scripts:
+    - Returns ``None`` (instead of CWD) when no anchor is found — callers that
+      need a guaranteed path should handle the ``None`` case.
+    - Also tries the script's own grandparent directory as a last-resort anchor
+      (useful when the script is invoked from inside the framework bundle).
+
+    Cross-reference: ``server._discover_root``, ``indexer._discover_root``,
+    ``render_platform_surfaces.discover_repo_root``, ``docs_gardener.project_root``.
+    A future consolidation task should unify these into a shared utility.
+    """
     for env_key in ("PROJECT_ROOT", "REPO_ROOT"):
         raw = os.environ.get(env_key)
         if raw:

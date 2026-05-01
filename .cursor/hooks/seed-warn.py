@@ -124,7 +124,7 @@ def run_command(argv: list[str]) -> subprocess.CompletedProcess[str]:
 def maybe_docs_lint(file_path: str) -> tuple[bool, str]:
     if not file_path.startswith("docs/"):
         return False, ""
-    result = run_command([str(REPO_ROOT / "docs-lint")])
+    result = run_command([str(REPO_ROOT / ".wavefoundry" / "bin" / "docs-lint")])
     if result.returncode == 0:
         return False, ""
     message = (result.stdout + result.stderr).strip()

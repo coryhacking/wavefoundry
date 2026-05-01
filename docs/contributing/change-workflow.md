@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-04-30
 
 ## Default Change Path
 
@@ -10,8 +10,8 @@ All non-trivial work follows this sequence. Do not edit repository code before s
 
 1. **Plan feature** — write a consolidated change doc at `docs/plans/<change-id>.md` using `docs/plans/plan-template.md`. Generate a change ID: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>`.
 2. **Create wave** — create `docs/waves/<wave-id>/wave.md`. Generate a wave ID: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>`.
-3. **Add change to wave** — admit the change into the wave. Relocate the change doc from `docs/plans/` into `docs/waves/<wave-id>/`.
-4. **Prepare wave** — confirm readiness: all admitted changes documented, review lanes selected, AC priority recorded. The wave must have a clean Prepare wave pass before implementation begins.
+3. **Add change to wave** — admit the change into the wave and relocate the active change doc from `docs/plans/` into `docs/waves/<wave-id>/`.
+4. **Prepare wave** — confirm readiness: validate admitted-doc placement, repair any staged-only doc, confirm all admitted changes are documented, select review lanes, record AC priority. The wave must have a clean Prepare wave pass before implementation begins.
 5. **Implement wave / Implement feature** — execute the admitted changes. Coordinator manages reviewer lanes during implementation.
 6. **Review wave** — all required review lanes (code, QA, architecture, etc.) must produce findings or be explicitly deferred with rationale.
 7. **Close wave / Finalize feature** — mark all changes complete or deferred; distill journals; promote memory to canonical docs; clear session handoff.

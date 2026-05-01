@@ -74,9 +74,9 @@ Execution contract (complete seed, not partial):
 - Run steps **1→15 in order** unless early classification in steps **1–3** determines the repository **already has an installed Wave Framework layer** — then **hand off to `Upgrade wave framework`** (legacy: **`Upgrade wave context`**) (`seed-160`) instead of re-running bootstrap as init.
 - When **legacy baseline capture** applies, finish **Init expectations** steps for `00000 wave-zero-plans-and-specs` **before** declaring init complete; for greenfield repos, skip baseline creation but still execute **4→13** so the full output set exists.
 - **Authoritative detail per artifact class** lives in the numbered pack prompt for that step (for example `seed-040` for topical `docs/` layout, `plan-template.md` section model, **Wave framework pack upgrade verification** and **Git commits** inside `docs/contributing/build-and-verification.md` (task 16), `seed-050` for `AGENTS.md` (including **Git commits (operator-owned)**), thin pointers / `.claude/settings.json` hook, `seed-080` / `seed-090` for wrappers and gate contract, `seed-100` for prompt semantics and manifest registration). If `010` and a step prompt disagree on a file, **follow the step prompt** for that file.
-- **Mechanical completeness when the pack includes `scripts/docs_lint.py`:** init is **not finished** until **`./docs-lint` exits 0** from the repository root (after wrappers exist). Seed **`docs/prompts/prompt-surface-manifest.json`** and **`docs/workflow-config.json`** so they satisfy the gate:
-  - **Manifest** must include at least `schema_version`, `seed_framework_source` (must match `prompt_generation.seed_framework_source` in workflow config — both typically `.wavefoundry/framework`), **`framework_revision`** (string equal to `.wavefoundry/framework/VERSION` for the pack that seeded or last upgraded the repo — required by `./docs-lint` and by `seed-160` **version guard**), `generated_artifacts` listing refreshable roots the gate tracks (at minimum the manifest path, `docs/agents/session-handoff.md`, `docs/waves/`, `docs/agents/journals/`, `docs/agents/personas/`), and `public_prompt_surface` with a **shortcut and `doc` path for every public Wave Framework prompt file** under `docs/prompts/` that corresponds to an **`AGENTS.md` shortcut phrase** (keep duplicates out; align with `docs/prompts/index.md`).
-  - **Workflow config** must include top-level sections **`wave_execution`**, **`agent_memory`**, **`project_persona_generation`**, **`prompt_generation`** (nested `seed_framework_source` aligned with the manifest), **`factor_review_policy`**, and **`persona_review_policy`** — plus **`lifecycle_id_policy`** (see required outputs below) so lifecycle ID epoch and optional hour offset are project-owned in `docs/workflow-config.json` and match `lifecycle_id.py` — plus whatever additional keys this project needs (`lifecycle_mode`, `enabled_agent_roles`, `agent_platform_generation`, `review_policies`, module roots, etc.) so wave execution and reviews are configurable without forking prompts.
+- **Mechanical completeness when the pack includes `scripts/docs_lint.py`:** init is **not finished** until the docs gate passes: **agents with MCP attached must get a successful `wave_validate`** (use `wave_garden` first when metadata timestamps need refresh); **hosts without MCP** must run **`.wavefoundry/bin/docs-lint` exit 0** from the repository root after **`.wavefoundry/bin/`** launchers exist. Seed **`docs/prompts/prompt-surface-manifest.json`** and **`docs/workflow-config.json`** so they satisfy the gate:
+  - **Manifest** must include at least `schema_version`, `seed_framework_source` (must match `prompt_generation.seed_framework_source` in workflow config — both typically `.wavefoundry/framework`), **`framework_revision`** (string equal to `.wavefoundry/framework/VERSION` for the pack that seeded or last upgraded the repo — required by the docs gate, whether checked via MCP **`wave_validate`** or **`.wavefoundry/bin/docs-lint`**, and by `seed-160` **version guard**), `generated_artifacts` listing refreshable roots the gate tracks (at minimum the manifest path, `docs/agents/session-handoff.md`, `docs/waves/`, `docs/agents/journals/`, `docs/agents/personas/`), and `public_prompt_surface` with a **shortcut and `doc` path for every public Wave Framework prompt file** under `docs/prompts/` that corresponds to an **`AGENTS.md` shortcut phrase** (keep duplicates out; align with `docs/prompts/index.md`).
+  - **Workflow config** must include top-level sections **`wave_execution`**, **`agent_memory`**, **`project_persona_generation`**, **`prompt_generation`** (nested `seed_framework_source` aligned with the manifest), **`factor_review_policy`**, and **`persona_review_policy`** — plus **`lifecycle_id_policy`** (see required outputs below) so lifecycle ID epoch and optional hour offset are project-owned in `docs/workflow-config.json` and match `lifecycle_id.py` — plus whatever additional keys this project needs (`lifecycle_mode`, `enabled_agent_roles`, `agent_platform_generation`, `review_policies`, module roots, `indexing`, etc.) so wave execution, reviews, and optional indexing extensions are configurable without forking prompts.
 - Copy or keep the **entire** `.wavefoundry/framework/scripts/` tree (including `docs_lint.py`, `docs_gardener.py`, `lifecycle_id.py`, and supporting modules) in the target repository whenever the repo vendors the pack; **`lifecycle_id.py` must exist** before relying on scripted IDs.
 - Init must explicitly run `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` after the agent-entry bootstrap so tracked platform hook/config surfaces are rendered deterministically rather than being left implicit.
 - Hook rendering may create Copilot agent files under `.github/hooks/`, but it must not create or modify GitHub Actions workflows under `.github/workflows/` and must not touch local git hooks under `.git/hooks/`.
@@ -110,7 +110,7 @@ Include the following topics in plain language:
 
 5. **Documentation setup and quality gates**
    - How to navigate docs: start with `docs/README.md`, `docs/references/project-overview.md`, and `docs/prompts/index.md`.
-   - After init, run project verification from `docs/contributing/build-and-verification.md` (includes docs gate): root **`./docs-lint`** and, when metadata gardening is part of the repo standard, **`./docs-gardener`** (see seeded wrappers pointing at `.wavefoundry/framework/scripts/`).
+   - After init, run project verification from `docs/contributing/build-and-verification.md` (includes docs gate): **prefer MCP `wave_garden` (if needed) then `wave_validate`**; **CLI fallback** when MCP is not attached: **`.wavefoundry/bin/docs-gardener`** and **`.wavefoundry/bin/docs-lint`** (launchers under `.wavefoundry/bin/` pointing at `.wavefoundry/framework/scripts/`).
    - Framework script hygiene for Python tests under the pack (prefer `python3 -B` or `run_tests.py` per `AGENTS.md` **Framework Script Hygiene** when present).
 
 6. **Important configuration**
@@ -180,6 +180,10 @@ Required outputs:
     - when user/operator persona agents are invoked (wave readiness review, spec authoring, design review, acceptance)
     - whether persona findings are advisory or gating for behavioral changes
   - review policy flags (`review_policies`), including at minimum booleans aligned with `docs/contributing/agent-team-workflow.md` — for example `require_qa_reviewer_for_bug_fixes` when **product bug fixes** must include **`qa-reviewer`** in readiness and **Review checkpoints**
+  - optional indexing policy (`indexing`) when the repo needs additional project index roots beyond the default:
+    - use `project_include_prefixes` with explicit `docs` and/or `code` lists of repo-relative prefixes
+    - keep the default empty for normal product repos
+    - use this for self-hosting or atypical layouts where excluded roots should still participate in semantic search
 - refreshable artifacts in topical homes such as:
   - `docs/prompts/prompt-surface-manifest.json`
   - `docs/agents/session-handoff.md`
@@ -196,9 +200,9 @@ Required outputs:
 - generic role journals
 - persona agent docs and journals when evidence supports them
 - factor-review agent files (`.claude/agents/factor-<nn>-<name>.md`) only for factors marked `applicable` in the inventory; record skipped factors with rationale in `docs/repo-profile.json`
-- root wrappers:
-  - `./docs-lint`
-  - `./docs-gardener`
+- root wrappers (hooks / CI / CLI; **agents** prefer MCP **`wave_validate`** / **`wave_garden`** — `seed-050`):
+  - `.wavefoundry/bin/docs-lint`
+  - `.wavefoundry/bin/docs-gardener`
 - agent entry files and thin pointers:
   - `AGENTS.md` (includes **Git commits (operator-owned)** per `seed-050` — agents must not `git commit` unless the operator explicitly instructs them in the **current** request; includes **Implementation guard (product code)** when the project ships product implementation source in the repository, per `050`; otherwise a short note that the guard can be added when implementation directories appear)
   - `CLAUDE.md`
@@ -282,7 +286,7 @@ Recommended init verification checks:
 - verify `docs/workflow-config.json` contains the top-level sections `wave_execution`, `agent_memory`, `project_persona_generation`, `prompt_generation`, `factor_review_policy`, and `persona_review_policy`
 - verify `docs/workflow-config.json` contains **`lifecycle_id_policy`** when the repository vendors `lifecycle_id.py` (typical wave-context install), with valid `epoch_utc` and non-negative integer `hour_offset`
 - verify `docs/prompts/prompt-surface-manifest.json` contains `schema_version` and `seed_framework_source`, and that `prompt_generation.seed_framework_source` matches the manifest’s `seed_framework_source`
-- when framework scripts are present, run `./docs-lint` and resolve failures before declaring init complete
+- when framework scripts are present, confirm the docs gate passes (**`wave_validate`** over MCP when available; otherwise **`.wavefoundry/bin/docs-lint`**) and resolve failures before declaring init complete
 - verify `docs/ARCHITECTURE.md` indexes the seeded `docs/architecture/*.md` child docs and that **domain-map**, **layering-rules**, **cross-cutting-concerns**, **data-and-control-flow**, and **testing-architecture** are populated from evidence in the repository (or explicitly scoped as N/A for trivial repos); verify **decisions/template.md** exists and is linked from **decisions/README.md**
 
 Guardrails:

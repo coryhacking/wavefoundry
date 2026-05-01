@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-04-30
 
 Shortcut: **`Implement wave`**
 
@@ -34,6 +34,6 @@ The coordinator:
 
 After any framework script change:
 1. `python3 .wavefoundry/framework/scripts/run_tests.py`
-2. `./docs-lint`
+2. **Docs gate:** With MCP attached, run **`wave_validate`** (use **`wave_garden`** first if metadata timestamps need refresh). **CLI fallback (no MCP):** `.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`
 
 Fix any failures before declaring the implementation complete.

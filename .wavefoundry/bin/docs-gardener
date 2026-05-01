@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Canonical docs-gardener launcher — .wavefoundry/bin/docs-gardener
+# Resolves repo root from this script's location and delegates to docs_gardener.py.
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+exec python3 "$REPO_ROOT/.wavefoundry/framework/scripts/docs_gardener.py" "$@"

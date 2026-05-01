@@ -6,8 +6,8 @@ Intent:
 
 Tasks:
 
-1. Ensure target repositories get root wrappers for `./docs-lint` and `./docs-gardener`.
-2. Ensure those wrappers call the canonical script implementations from `.wavefoundry/framework/scripts/`.
+1. Ensure target repositories get **`.wavefoundry/bin/docs-lint`** and **`.wavefoundry/bin/docs-gardener`** launchers (via install / `render_platform_surfaces`) that invoke the canonical scripts under `.wavefoundry/framework/scripts/`. **Agent-facing instructions** should prefer MCP **`wave_validate`**, **`wave_garden`**, and **`wave_audit`** over shelling out to those launchers when the Wavefoundry MCP server is available.
+2. Ensure hooks and CI entrypoints resolve **`.wavefoundry/bin/docs-lint`** / **`.wavefoundry/bin/docs-gardener`** from the repository root (see `050` hook contracts).
 3. Define the minimum docs gate and where it should run.
 4. Ensure generated files are trackable in git and not accidentally hidden by broad ignore rules.
 5. Keep generated prompts, persona wrappers, and key framework files versioned when they are part of the checked-in project contract in the repository.
@@ -25,14 +25,15 @@ Required semantics:
 
 Root wrapper contract:
 
-- `./docs-lint` should forward to `.wavefoundry/framework/scripts/docs_lint.py`
-- `./docs-gardener` should forward to `.wavefoundry/framework/scripts/docs_gardener.py`
+- `.wavefoundry/bin/docs-lint` should forward to `.wavefoundry/framework/scripts/docs_lint.py`
+- `.wavefoundry/bin/docs-gardener` should forward to `.wavefoundry/framework/scripts/docs_gardener.py`
 - wrappers should pass `PROJECT_ROOT` as the repository root
 - wrappers should use project-root-relative execution so seeded repos remain portable
 
 Minimum docs gate:
 
-- `./docs-gardener && ./docs-lint` (pass `--date <YYYY-MM-DD>` only when overriding today's date; use `--paths <doc>` or `--all-docs` to target specific files instead of git-changed docs)
+- **Agents (MCP attached):** **`wave_garden`** when metadata needs refresh, then **`wave_validate`** (or **`wave_audit`** for a combined readout); follow each tool’s parameter contract.
+- **Operators / CI / hooks / no MCP:** **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`** (pass `--date <YYYY-MM-DD>` only when overriding today's date; use `--paths <doc>` or `--all-docs` to target specific files instead of git-changed docs)
 
 Validation targets to cover:
 

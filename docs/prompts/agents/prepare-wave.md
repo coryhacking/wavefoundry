@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-04-30
 
 ## Context
 
@@ -10,7 +10,7 @@ You are running **Prepare wave** on Wavefoundry. This is the stage gate for impl
 
 ## Steps
 
-1. Move all admitted change docs from `docs/plans/` into `docs/waves/<wave-id>/`.
+1. Validate that all admitted change docs already live in `docs/waves/<wave-id>/`; repair any staged-only doc by moving it there, and stop on duplicate staged + wave copies.
 2. Verify each change doc has: Rationale, Requirements, Scope, Acceptance Criteria, Affected architecture docs.
 3. Select review lanes (see `docs/contributing/agent-team-workflow.md`).
 4. Confirm `qa-reviewer` for any bug fix.

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-04-30
 
 ## Who
 
@@ -25,7 +25,7 @@ A developer or engineering lead who installs, upgrades, and operates the Wave Fr
 4. Commit the self-hosted surface (operator-owned commit)
 
 **Daily operation:**
-- Run `./docs-lint` to verify the docs gate
+- Verify the docs gate: prefer MCP **`wave_validate`** (and **`wave_garden`** when metadata needs refresh); use **`.wavefoundry/bin/docs-lint`** only without MCP
 - Use shortcut phrases from `AGENTS.md` for planning, wave management, and closure
 - Generate IDs: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>`
 

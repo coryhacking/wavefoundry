@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-04-30
 
 ## Allowed Dependencies
 
@@ -25,4 +25,4 @@ Last verified: 2026-04-28
 ## Violation Detection
 
 - Dependency violations: currently informal (no import linter); enforce through code review using this doc.
-- Boundary invariants: enforced through `./docs-lint` (manifest revision check), seed protection hook, and framework plan gate hook.
+- Boundary invariants: enforced through MCP **`wave_validate`** (agents) or **`.wavefoundry/bin/docs-lint`** (hooks/CI), plus seed protection hook and framework plan gate hook.

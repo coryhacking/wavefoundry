@@ -414,6 +414,53 @@ class IncrementalBuildTests(unittest.TestCase):
         self.assertIn(".wavefoundry/framework/README.md", meta["file_hashes"])
         self.assertTrue(any(c["path"] == ".wavefoundry/framework/README.md" for c in chunks))
 
+    def test_project_docs_index_can_opt_in_excluded_prefixes(self):
+        _make_repo(self.root, {
+            "docs/guide.md": "## Intro\n\nHello.\n",
+            ".wavefoundry/framework/README.md": "## Framework\n\nCanonical framework docs.\n",
+        })
+
+        docs_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
+            self.bi.build_index(
+                self.root,
+                full=True,
+                content="docs",
+                project_include_prefixes=(".wavefoundry/framework",),
+                verbose=False,
+            )
+
+        index_dir = self.root / ".wavefoundry" / "index"
+        meta = json.loads((index_dir / "meta.json").read_text())
+        chunks = json.loads((index_dir / "docs.json").read_text())
+        self.assertIn(".wavefoundry/framework/README.md", meta["file_hashes"])
+        self.assertTrue(any(c["path"] == ".wavefoundry/framework/README.md" for c in chunks))
+
+    def test_project_code_index_can_opt_in_excluded_prefixes(self):
+        _make_repo(self.root, {
+            "src/app.py": "def app(): pass\n",
+            ".wavefoundry/framework/scripts/server.py": "def server_main(): pass\n",
+            "vendor/docs/custom.py": "def custom(): pass\n",
+        })
+
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            self.bi.build_index(
+                self.root,
+                full=True,
+                content="code",
+                project_include_prefixes=(".wavefoundry/framework/scripts", "vendor/docs"),
+                verbose=False,
+            )
+
+        index_dir = self.root / ".wavefoundry" / "index"
+        meta = json.loads((index_dir / "meta.json").read_text())
+        code_chunks = json.loads((index_dir / "code.json").read_text())
+        self.assertIn(".wavefoundry/framework/scripts/server.py", meta["file_hashes"])
+        self.assertTrue(any(c["path"] == ".wavefoundry/framework/scripts/server.py" for c in code_chunks))
+        self.assertIn("vendor/docs/custom.py", meta["file_hashes"])
+
 
 class ModelVersionChangeTests(unittest.TestCase):
     def setUp(self):

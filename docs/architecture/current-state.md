@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-29
+Last verified: 2026-04-30
 
 ## Runtime Topology
 
@@ -16,7 +16,7 @@ Developer/agent
   ├── python3 .wavefoundry/framework/scripts/docs_gardener.py  →  docs/ tree (read/write metadata)
   ├── python3 .wavefoundry/framework/scripts/build_pack.py     →  .wavefoundry/framework/VERSION (write), .wavefoundry/framework/index/ (write), wavefoundry-*.zip (write)
   ├── python3 .wavefoundry/framework/scripts/render_platform_surfaces.py  →  .claude/, .cursor/, .github/hooks/, .junie/mcp/, .mcp.json (write)
-  └── python3 .wavefoundry/framework/scripts/setup_index.py    →  .wavefoundry/index/ (write)
+  └── python3 .wavefoundry/framework/scripts/setup_index.py    →  local model cache (write/verify), .wavefoundry/index/ (write)
 ```
 
 **MCP topology (active):**
@@ -32,7 +32,11 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
               ├── wave_current / wave_list_waves / wave_list_plans / wave_get_change / wave_get_prompt
               │       └── docs/waves/ (read), docs/plans/ (read), docs/prompts/ (read)
               ├── wave_change_create / wave_new_* compatibility wrappers
-              │       └── docs/plans/ (write), lifecycle_id.py (import)
+              │       └── docs/plans/ (write), lifecycle_id.py (import), background index refresh request
+              ├── wave_add_change / wave_remove_change / wave_prepare
+              │       └── docs/waves/ (read/write), docs/plans/ (read/write), background index refresh request
+              ├── wave_index_health / wave_index_build
+              │       └── .wavefoundry/index/ (read/write), .wavefoundry/framework/index/ (read/write), indexer.py (subprocess)
               └── wave_validate / wave_garden / wave_sync_surfaces
                       └── docs_lint.py / docs_gardener.py / render_platform_surfaces.py (subprocess)
 ```
@@ -42,8 +46,10 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
 ```
 setup_index.py --root .
   ├── dependency check → fastembed, numpy, mcp[cli] in current Python
-  ├── indexer.py --root . --content docs
-  ├── optional separate subprocess: indexer.py --root . --content code
+  ├── prewarm docs/code embedding models in local cache
+  ├── verify cached models in offline-only mode
+  ├── indexer.py --root . --content docs   (default; docs/seeds only)
+  ├── or with --include-code: indexer.py --root . --content all  (single subprocess, docs + code)
   ├── walk_repo()      →  respects .gitignore, .aiignore, hardcoded excludes
   ├── chunker.py       →  chunk_python / chunk_markdown / chunk_line_window
   ├── fastembed        →  BAAI/bge-small-en-v1.5 (docs/seeds and optional code)
@@ -64,8 +70,9 @@ build_pack.py
 |------|---------|-----------|
 | Framework dir accidentally deleted | `.wavefoundry/framework/` is tracked in git; restore with `git checkout HEAD -- .wavefoundry/framework` | Covered by normal git recovery |
 | No CI/CD | No automated test runs on push | Framework tests run manually: `python3 .wavefoundry/framework/scripts/run_tests.py` |
-| Index not built on first install | `fastembed`, `numpy`, and `mcp[cli]` must be available in the Python runtime; index built manually before server is useful | `setup_index.py` checks dependencies and prints isolated tool-venv setup commands when missing |
-| Transactional lifecycle mutations not yet implemented | `wave_new_*` tools create draft docs but do not admit them to a wave | Change `1293b-feat mcp-wave-lifecycle` will add admit/prepare/close tools |
+| Index not built on first install | `fastembed`, `numpy`, and `mcp[cli]` must be available in the Python runtime; index built manually before server is useful | `setup_index.py` checks dependencies, prewarms/verifies the embedding model cache, and prints isolated tool-venv setup commands when missing |
+| Search index drift or missing cache | Hook-driven indexing is not guaranteed in every agent environment, and query embedding must remain offline-safe | `docs_search` falls back to lexical search with structured diagnostics when the index is not ready or the semantic model is unavailable offline; per-query repo hash walks were removed to avoid O(repo) latency on every search; mutating MCP doc tools now request background incremental refresh for affected docs in non-hook environments; additional project index roots are explicit in `docs/workflow-config.json` `indexing.project_include_prefixes` rather than hidden repo-specific toggles |
+| Lifecycle mutation drift between docs and files | Admitted change docs can drift between `docs/plans/` and wave folders when operators or tools bypass the normal lifecycle path | `wave_add_change`, `wave_remove_change`, and `wave_prepare` now relocate or repair placement and emit explicit diagnostics for duplicates or mismatched wave ownership |
 | MCP contract migration incomplete | Discovery, `wave_map`, envelopes, consolidated creation, prefix checks, `docs_search` kind validation, per-process caches (wave/plan lists, prompt resolution, `wave_help` catalogue snapshot, index reload on mutation), `resolve_path_under_root`, and server-side rejection of unexpected tool kwargs (when forwarded by the runtime) are in place; first-class `code_read` / keyword search tools remain future work | `docs/specs/mcp-tool-surface.md` is the governing contract for follow-on MCP work |
 
 ## Verification Sources

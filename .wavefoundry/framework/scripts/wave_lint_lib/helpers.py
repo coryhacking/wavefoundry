@@ -47,10 +47,6 @@ def relative_to_root(root: Path, path: Path) -> str:
         return str(path)
 
 
-def has_markdown_metadata(text: str) -> bool:
-    return "Owner:" in text and "Status:" in text and "Last verified:" in text
-
-
 def write_if_changed(path: Path, content: str) -> bool:
     existing = path.read_text(encoding="utf-8") if path.exists() else None
     if existing == content:

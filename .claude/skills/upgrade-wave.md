@@ -21,8 +21,7 @@ Use this checklist when intentionally editing the wave framework or repo-local w
 
 1. `python3 -B .wavefoundry/framework/scripts/run_tests.py`
 2. `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py`
-3. `./docs-gardener`
-4. `./docs-lint`
+3. **Docs gate:** Prefer MCP **`wave_garden`** (if needed) then **`wave_validate`**. **CLI fallback:** `.wavefoundry/bin/docs-gardener` then `.wavefoundry/bin/docs-lint`
 
 ## Guardrails
 

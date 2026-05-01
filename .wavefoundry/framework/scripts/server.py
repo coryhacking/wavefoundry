@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import functools
 import json
 import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Literal, Optional
 
 sys.dont_write_bytecode = True
 
@@ -18,6 +19,18 @@ sys.dont_write_bytecode = True
 # ---------------------------------------------------------------------------
 
 def _discover_root(override: Optional[str] = None) -> Path:
+    """Walk up from CWD to find the repo root anchored by ``workflow-config.json``.
+
+    Intentional differences from the copies in other scripts:
+    - Accepts an explicit ``override`` path (used when ``--root`` is passed on
+      the CLI or via MCP tool arguments).
+    - Checks both ``PROJECT_ROOT`` and ``REPO_ROOT`` env vars.
+    - Never returns ``None`` — falls back to CWD when no anchor is found.
+
+    Cross-reference: ``indexer._discover_root``, ``lifecycle_id.discover_repo_root``,
+    ``render_platform_surfaces.discover_repo_root``, ``docs_gardener.project_root``.
+    A future consolidation task should unify these into a shared utility.
+    """
     if override:
         return Path(override).expanduser().resolve()
     for env_key in ("PROJECT_ROOT", "REPO_ROOT"):
@@ -41,6 +54,10 @@ class IndexNotReadyError(Exception):
     pass
 
 
+class SemanticModelUnavailableOfflineError(IndexNotReadyError):
+    pass
+
+
 TRUSTED_FRAMEWORK = "trusted_framework"
 TRUSTED_PROJECT_METADATA = "trusted_project_metadata"
 UNTRUSTED_PROJECT_CONTENT = "untrusted_project_content"
@@ -48,6 +65,46 @@ VALID_CHANGE_KINDS = {"bug", "feat", "enh", "change", "doc", "debt", "ref", "tas
 MCP_TOOL_PREFIXES = ("wave_", "docs_", "code_", "seed_")
 DOCS_SEARCH_KINDS = frozenset({"doc", "seed", "architecture", "prompt"})
 _PROMPT_MISS = object()
+"""Sentinel used by ``McpRepoCache.get_prompt_text_cached`` to cache a None
+result (i.e. prompt not found) without storing Python ``None``, which cannot
+be distinguished from a cache miss. Compared with ``is``, so it must be a
+module-level singleton. If ``server.py`` is ever re-executed in the same
+process, a new object will be created and old cache entries will be treated as
+misses — acceptable because the cache is process-scoped."""
+BACKGROUND_INDEX_REFRESH_THROTTLE_SECONDS = 15.0
+
+
+def _index_layer_readiness(layer: dict[str, Any]) -> str:
+    """Per-layer index state for operators (missing / stale / current / idle)."""
+    has_sources = bool(layer.get("has_sources"))
+    meta_present = bool(layer.get("meta_present"))
+    docs_present = bool(layer.get("docs_present"))
+    stale_paths = layer.get("stale_paths") or []
+    if has_sources and (not meta_present or not docs_present):
+        return "missing"
+    if stale_paths:
+        return "stale"
+    if meta_present and docs_present:
+        return "current"
+    return "idle"
+
+
+def _index_readiness_overview(
+    missing_layers: list[str],
+    stale_layers: list[str],
+    compatible_chunks: bool,
+    has_any_index: bool,
+) -> str:
+    """Aggregate readiness: incomplete, needs_update, degraded, absent, or ready."""
+    if missing_layers:
+        return "incomplete"
+    if stale_layers:
+        return "needs_update"
+    if has_any_index and not compatible_chunks:
+        return "degraded"
+    if not has_any_index:
+        return "absent"
+    return "ready"
 
 
 class WaveIndex:
@@ -66,6 +123,180 @@ class WaveIndex:
         self._code_embedder = None
         self._meta: dict = {}
         self._loaded = False
+
+    def _indexer_module(self):
+        return _load_script("indexer")
+
+    def _layer_current_hashes(self, layer: str) -> dict[str, str]:
+        idx = self._indexer_module()
+        # Framework index builds use ``--no-ignore-files`` (see ``run_index_rebuild``); match
+        # that walk so ``meta.json`` ``file_hashes`` keys align with health checks.
+        files = idx.walk_repo(self.root, respect_ignore=layer == "project")
+        index_dir = self.index_dir if layer == "project" else self.framework_index_dir
+        files = [path for path in files if not idx._is_relative_to(path, index_dir)]
+        if layer == "project":
+            files = idx._filter_project_index_excludes(files, self.root, ())
+        else:
+            files = idx._filter_by_prefixes(files, self.root, (".wavefoundry/framework/",))
+        return idx._build_file_hashes(files, self.root)
+
+    def _layer_health(self, layer: str) -> dict[str, Any]:
+        """Compute health metadata for one index layer (``'project'`` or ``'framework'``).
+
+        Walks the repo and hashes every indexed file, then compares the result
+        against the hashes stored in ``meta.json``.  Paths where the digest
+        differs (or that are present in one set but not the other) are reported
+        as ``stale_paths``.  This is an O(total-indexed-bytes) operation — call
+        it only via the explicit ``wave_index_health`` MCP tool, never on the
+        search hot path.
+        """
+        index_dir = self.index_dir if layer == "project" else self.framework_index_dir
+        meta_path = index_dir / "meta.json"
+        docs_json_path = index_dir / "docs.json"
+        meta = self._meta.get(layer) if self._loaded else {}
+        if not isinstance(meta, dict):
+            meta = {}
+        current_hashes = self._layer_current_hashes(layer)
+        old_hashes = meta.get("file_hashes", {}) if isinstance(meta.get("file_hashes", {}), dict) else {}
+        stale_paths = sorted(
+            {
+                path for path, digest in current_hashes.items()
+                if old_hashes.get(path) != digest
+            } | (set(old_hashes.keys()) - set(current_hashes.keys()))
+        )
+        docs_present = docs_json_path.exists()
+        meta_present = meta_path.exists()
+        return {
+            "layer": layer,
+            "index_dir": str(index_dir),
+            "meta_present": meta_present,
+            "docs_present": docs_present,
+            "has_sources": bool(current_hashes),
+            "stale_paths": stale_paths,
+            "current_hash_count": len(current_hashes),
+        }
+
+    def docs_health(self) -> dict[str, Any]:
+        self._ensure_loaded()
+        project = self._layer_health("project")
+        framework = self._layer_health("framework")
+        project["readiness"] = _index_layer_readiness(project)
+        framework["readiness"] = _index_layer_readiness(framework)
+        compatible_chunks = bool(self._docs_chunks)
+        has_any_index = project["meta_present"] or framework["meta_present"]
+        stale_layers = [layer["layer"] for layer in (project, framework) if layer["stale_paths"]]
+        missing_layers = [
+            layer["layer"]
+            for layer in (project, framework)
+            if layer["has_sources"] and (not layer["meta_present"] or not layer["docs_present"])
+        ]
+        readiness_overview = _index_readiness_overview(
+            missing_layers, stale_layers, compatible_chunks, has_any_index
+        )
+        return {
+            "project": project,
+            "framework": framework,
+            "has_any_index": has_any_index,
+            "stale_layers": stale_layers,
+            "missing_layers": missing_layers,
+            "compatible_chunks": compatible_chunks,
+            "readiness_overview": readiness_overview,
+            "semantic_ready": has_any_index and not stale_layers and compatible_chunks,
+        }
+
+    @contextlib.contextmanager
+    def _offline_model_env(self):
+        prior = os.environ.get("HF_HUB_OFFLINE")
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        try:
+            yield
+        finally:
+            if prior is None:
+                os.environ.pop("HF_HUB_OFFLINE", None)
+            else:
+                os.environ["HF_HUB_OFFLINE"] = prior
+
+    def _live_docs_chunks(self) -> list[dict[str, Any]]:
+        """Walk the repo and chunk all doc files on the fly (no index required).
+
+        Used as a lexical-fallback data source when the semantic index is
+        unavailable or not yet built.  Does a full filesystem walk on every
+        call — not suitable for the search hot path in large repos.  Results
+        are not cached here; callers should cache if repeated fallback queries
+        are expected.
+        """
+        idx = self._indexer_module()
+        files = idx.walk_repo(self.root, respect_ignore=True)
+        files = [path for path in files if not idx._is_relative_to(path, self.index_dir)]
+        files = [path for path in files if not idx._is_relative_to(path, self.framework_index_dir)]
+
+        chunks: list[dict[str, Any]] = []
+        seen_paths: set[str] = set()
+        for path in files:
+            rel = str(path.relative_to(self.root)).replace("\\", "/")
+            if rel.startswith(".wavefoundry/framework/"):
+                if not rel.endswith(".md") and not rel.endswith(".json"):
+                    continue
+            elif not rel.startswith("docs/"):
+                continue
+            if rel in seen_paths:
+                continue
+            seen_paths.add(rel)
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            doc_chunks, _ = idx._chunks_for_file(rel, content)
+            chunks.extend(doc_chunks)
+        return chunks
+
+    def _lexical_score(self, query: str, chunk: dict[str, Any]) -> float:
+        terms = re.findall(r"[a-z0-9]+", query.lower())
+        if not terms:
+            return 0.0
+        haystack = " ".join(
+            str(chunk.get(field) or "")
+            for field in ("path", "section", "text", "kind")
+        ).lower()
+        score = 0.0
+        unique_terms = set(terms)
+        for term in unique_terms:
+            count = haystack.count(term)
+            if count:
+                score += 1.0 + min(count, 5) * 0.25
+                if str(chunk.get("path") or "").lower().endswith(f"{term}.md"):
+                    score += 0.5
+        return score
+
+    def _doc_matches_kind(self, chunk: dict[str, Any], kind: Optional[str]) -> bool:
+        if not kind:
+            return True
+        chunk_kind = str(chunk.get("kind") or "")
+        normalized_path = str(chunk.get("path") or "").replace("\\", "/")
+        if kind == "seed":
+            return chunk_kind == "seed"
+        if chunk_kind != "doc":
+            return False
+        if kind == "doc":
+            return True
+        if kind == "prompt":
+            return normalized_path.startswith("docs/prompts/")
+        if kind == "architecture":
+            return normalized_path == "docs/ARCHITECTURE.md" or normalized_path.startswith("docs/architecture/")
+        return chunk_kind == kind
+
+    def search_docs_lexical(self, query: str, kind: Optional[str] = None, top_n: int = 5) -> list[dict]:
+        chunks = self._live_docs_chunks()
+        if kind:
+            chunks = [chunk for chunk in chunks if self._doc_matches_kind(chunk, kind)]
+        ranked = []
+        for chunk in chunks:
+            score = self._lexical_score(query, chunk)
+            if score <= 0:
+                continue
+            ranked.append({**chunk, "score": score})
+        ranked.sort(key=lambda chunk: (-float(chunk["score"]), str(chunk.get("path") or ""), str(chunk.get("section") or "")))
+        return ranked[:top_n]
 
     def _ensure_loaded(self) -> None:
         if self._loaded:
@@ -199,12 +430,35 @@ class WaveIndex:
             raise IndexNotReadyError(
                 "fastembed is not installed. Run: python3 .wavefoundry/framework/scripts/setup_index.py"
             )
-        return TextEmbedding(model_name=model_name)
+        try:
+            with self._offline_model_env():
+                return TextEmbedding(model_name=model_name, local_files_only=True)
+        except TypeError:
+            try:
+                with self._offline_model_env():
+                    return TextEmbedding(model_name=model_name)
+            except Exception as exc:  # pragma: no cover - fallback path
+                raise SemanticModelUnavailableOfflineError(
+                    f"Semantic query model '{model_name}' is unavailable offline. "
+                    "Run: python3 .wavefoundry/framework/scripts/setup_index.py --root ."
+                ) from exc
+        except Exception as exc:
+            raise SemanticModelUnavailableOfflineError(
+                f"Semantic query model '{model_name}' is unavailable offline. "
+                "Run: python3 .wavefoundry/framework/scripts/setup_index.py --root ."
+            ) from exc
 
     def _embed_query(self, text: str, model_name: str) -> "np.ndarray":
         import numpy as np
         embedder = self._get_embedder(model_name)
-        return next(iter(embedder.embed([text])))
+        try:
+            with self._offline_model_env():
+                return next(iter(embedder.embed([text])))
+        except Exception as exc:
+            raise SemanticModelUnavailableOfflineError(
+                f"Semantic query model '{model_name}' is unavailable offline. "
+                "Run: python3 .wavefoundry/framework/scripts/setup_index.py --root ."
+            ) from exc
 
     def _indexer_constant(self, name: str) -> str:
         mod = _load_script("indexer")
@@ -238,7 +492,7 @@ class WaveIndex:
         qvec = self._embed_query(query, DOCS_MODEL)
         results = self._cosine_search(qvec, self._docs_vecs, self._docs_chunks, top_n * 2)
         if kind:
-            results = [r for r in results if r.get("kind") == kind]
+            results = [r for r in results if self._doc_matches_kind(r, kind)]
         return results[:top_n]
 
     def search_code(self, query: str, language: Optional[str] = None, top_n: int = 5) -> list[dict]:
@@ -279,6 +533,43 @@ def _read_workflow_config(root: Path) -> dict:
         except (json.JSONDecodeError, OSError):
             pass
     return {}
+
+
+def _normalize_prefix_list(raw: object) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        return ()
+    normalized: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        token = item.strip().replace("\\", "/").strip("/")
+        if token and token not in normalized:
+            normalized.append(token)
+    return tuple(normalized)
+
+
+def _workflow_project_include_prefixes(root: Path) -> dict[str, tuple[str, ...]]:
+    data = _read_workflow_config(root)
+    if not isinstance(data, dict):
+        return {"docs": (), "code": ()}
+    indexing = data.get("indexing", {})
+    if not isinstance(indexing, dict):
+        return {"docs": (), "code": ()}
+
+    configured = indexing.get("project_include_prefixes", {})
+    if isinstance(configured, list):
+        prefixes = _normalize_prefix_list(configured)
+        return {"docs": prefixes, "code": prefixes}
+
+    docs_prefixes: tuple[str, ...] = ()
+    code_prefixes: tuple[str, ...] = ()
+    if isinstance(configured, dict):
+        docs_prefixes = _normalize_prefix_list(configured.get("docs"))
+        code_prefixes = _normalize_prefix_list(configured.get("code"))
+
+    if not code_prefixes and bool(indexing.get("include_framework_code_for_code_search", False)):
+        code_prefixes = (".wavefoundry/framework/scripts",)
+    return {"docs": docs_prefixes, "code": code_prefixes}
 
 
 _WAVE_ID_PATTERN = re.compile(r"^wave-id:\s+`([^`]+)`", re.MULTILINE)
@@ -349,8 +640,48 @@ def list_plans(root: Path) -> list[dict]:
     return result
 
 
+def _dir_fingerprint(
+    directory: Path,
+    glob: str,
+    *,
+    skip: Optional[set[str]] = None,
+    recursive: bool = False,
+) -> tuple[int, int]:
+    """Return a ``(file_count, max_mtime_ns)`` fingerprint for a directory.
+
+    Used to detect whether a watched directory has changed since the last cache
+    population. Returns ``(0, 0)`` when the directory does not exist.
+
+    Args:
+        directory: The directory to scan.
+        glob: Glob pattern passed to ``Path.rglob`` (recursive) or ``Path.glob``.
+        skip: Optional set of filenames to exclude from the scan.
+        recursive: When True, uses ``rglob``; otherwise uses ``glob``.
+    """
+    if not directory.exists():
+        return (0, 0)
+    best_ns = 0
+    count = 0
+    scanner = directory.rglob(glob) if recursive else directory.glob(glob)
+    for p in scanner:
+        if skip and p.name in skip:
+            continue
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        count += 1
+        best_ns = max(best_ns, int(st.st_mtime_ns))
+    return (count, best_ns)
+
+
 class McpRepoCache:
-    """Per-process cache for wave/plan summaries; invalidated when repo metadata changes."""
+    """Per-process cache for wave/plan summaries and prompt lookups.
+
+    Invalidated automatically when the underlying directory fingerprint
+    (file count + max mtime) changes. Call ``invalidate()`` explicitly after
+    any mutating operation to force an immediate refresh on the next access.
+    """
 
     def __init__(self, root: Path, *, index: Optional[WaveIndex] = None) -> None:
         self.root = root.resolve()
@@ -363,6 +694,7 @@ class McpRepoCache:
         self._prompt_key: Optional[tuple[int, int]] = None
 
     def invalidate(self) -> None:
+        """Clear all cached data and mark the semantic index for reload."""
         self._waves = None
         self._waves_key = None
         self._plans = None
@@ -373,51 +705,17 @@ class McpRepoCache:
             self._index._loaded = False
 
     def _wave_fingerprint(self) -> tuple[int, int]:
-        waves = self.root / "docs" / "waves"
-        if not waves.exists():
-            return (0, 0)
-        best_ns = 0
-        count = 0
-        for p in waves.rglob("wave.md"):
-            try:
-                st = p.stat()
-            except OSError:
-                continue
-            count += 1
-            best_ns = max(best_ns, int(st.st_mtime_ns))
-        return (count, best_ns)
+        return _dir_fingerprint(
+            self.root / "docs" / "waves", "wave.md", recursive=True
+        )
 
     def _plans_fingerprint(self) -> tuple[int, int]:
-        plans = self.root / "docs" / "plans"
-        if not plans.exists():
-            return (0, 0)
-        best_ns = 0
-        count = 0
-        for p in plans.glob("*.md"):
-            if p.name == "plan-template.md":
-                continue
-            try:
-                st = p.stat()
-            except OSError:
-                continue
-            count += 1
-            best_ns = max(best_ns, int(st.st_mtime_ns))
-        return (count, best_ns)
+        return _dir_fingerprint(
+            self.root / "docs" / "plans", "*.md", skip={"plan-template.md"}
+        )
 
     def _prompts_fingerprint(self) -> tuple[int, int]:
-        prompts = self.root / "docs" / "prompts"
-        if not prompts.exists():
-            return (0, 0)
-        best_ns = 0
-        count = 0
-        for p in prompts.glob("*.md"):
-            try:
-                st = p.stat()
-            except OSError:
-                continue
-            count += 1
-            best_ns = max(best_ns, int(st.st_mtime_ns))
-        return (count, best_ns)
+        return _dir_fingerprint(self.root / "docs" / "prompts", "*.md")
 
     def get_prompt_text_cached(self, shortcut: str) -> Optional[str]:
         """Return prompt body like ``get_prompt``, using an mtime-keyed per-process cache."""
@@ -554,13 +852,26 @@ def _response(
     next_tools: list[str] | None = None,
     usage: str = "",
 ) -> dict[str, Any]:
-    return {
+    """Build the standard MCP response envelope.
+
+    Accepted ``status`` values:
+    - ``"ok"``       — operation succeeded.
+    - ``"error"``    — operation failed; ``isError: True`` is also set so that
+                       MCP protocol-level clients see the correct error signal.
+    - ``"dry_run"``  — mutating tool was called with ``mode='dry_run'``; no
+                       writes were performed.  Callers should treat this like
+                       ``"ok"`` but not assume side effects occurred.
+    """
+    envelope: dict[str, Any] = {
         "status": status,
         "data": data or {},
         "diagnostics": diagnostics or [],
         "next_tools": next_tools or [],
         "usage": usage,
     }
+    if status == "error":
+        envelope["isError"] = True
+    return envelope
 
 
 def _registered_mcp_tool_names(mcp: Any) -> set[str]:
@@ -576,9 +887,16 @@ def _registered_mcp_tool_names(mcp: Any) -> set[str]:
 
 
 def _ensure_no_extra_args(tool_name: str, kwargs: dict[str, Any]) -> Optional[dict[str, Any]]:
-    """If MCP passed unsupported keyword arguments, return a structured error envelope."""
-    if not kwargs:
+    """If MCP passed unsupported keyword arguments, return a structured error envelope.
+
+    FastMCP generates a schema entry named ``kwargs`` from ``**kwargs`` in the function
+    signature and may forward it back to the handler as a named argument.  Strip that
+    self-referential key before checking for genuine extras.
+    """
+    real_extras = {k: v for k, v in kwargs.items() if k != "kwargs"}
+    if not real_extras:
         return None
+    kwargs = real_extras
     return _response(
         "error",
         {"tool": tool_name, "rejected_arguments": sorted(kwargs.keys())},
@@ -660,6 +978,9 @@ def _help_catalog() -> dict[str, Any]:
             "wave_validate",
             "wave_garden",
             "wave_sync_surfaces",
+            "wave_index_health",
+            "wave_index_build",
+            "wave_audit",
         ],
         "compatibility_tools": [
             "wave_new_feature",
@@ -688,11 +1009,14 @@ def _help_catalog() -> dict[str, Any]:
                 "usage": "wave_change_create(kind='feat', slug='my-feature', mode='dry_run')",
             },
             "inspect_wave": {
-                "recommended_chain": ["wave_current", "wave_list_waves", "wave_get_change"],
-                "rationale": "Inspect current wave state before opening specific change documents.",
+                "recommended_chain": ["wave_audit", "wave_current", "wave_list_waves", "wave_get_change"],
+                "rationale": (
+                    "Start with wave_audit for a combined wave + lint + index health snapshot. "
+                    "Follow up with wave_current or wave_get_change for detail."
+                ),
                 "fallback_tools": ["wave_list_plans"],
-                "next_step": "Read current wave state first.",
-                "usage": "wave_current()",
+                "next_step": "Run wave_audit for a full readiness snapshot.",
+                "usage": "wave_audit()",
             },
             "start_wave": {
                 "recommended_chain": ["wave_create_wave", "wave_add_change", "wave_prepare"],
@@ -726,8 +1050,19 @@ def _help_catalog() -> dict[str, Any]:
                 "recommended_chain": ["wave_validate", "wave_garden", "wave_sync_surfaces"],
                 "rationale": "Land on validation first, then run focused maintenance tools.",
                 "fallback_tools": ["wave_current"],
-                "next_step": "Validate the repo first.",
-                "usage": "wave_validate()",
+                "next_step": "Validate the repo first, then run garden and sync with mode='run'.",
+                "usage": "wave_garden(mode='run')",
+            },
+            "refresh_semantic_index": {
+                "recommended_chain": ["wave_index_health", "wave_index_build"],
+                "rationale": (
+                    "Check layer health first. wave_index_build(mode='update') runs an incremental index "
+                    "update (hash-based). Use wave_index_build(mode='rebuild') for a full rebuild of the "
+                    "selected content."
+                ),
+                "fallback_tools": ["wave_help"],
+                "next_step": "Call wave_index_health if you need stale/missing diagnostics before reindexing.",
+                "usage": "wave_index_build(content='docs', mode='update')",
             },
         },
     }
@@ -781,26 +1116,51 @@ def wave_help_response(goal: str = "") -> dict[str, Any]:
 # Framework operation helpers (direct import)
 # ---------------------------------------------------------------------------
 
-def _load_script(name: str):
+_script_cache: dict[str, Any] = {}
+"""Module-level cache for scripts loaded via _load_script.
+
+Keyed by a namespaced string (e.g. ``_wavefoundry_indexer``) so the cache
+entries do not collide with public ``sys.modules`` names. Each module is
+executed at most once per process — subsequent calls return the cached object.
+If hot-reload is needed during development, call ``_script_cache.clear()``.
+"""
+
+
+def _load_script(name: str) -> Any:
+    """Load a sibling script as a module, executing it at most once per process.
+
+    Uses a private ``_script_cache`` dict keyed by a namespaced name so that
+    the loaded module does not pollute public ``sys.modules`` and is not
+    re-executed on repeated calls.
+    """
     import importlib.util
 
+    cache_key = f"_wavefoundry_{name}"
+    if cache_key in _script_cache:
+        return _script_cache[cache_key]
     spec = importlib.util.spec_from_file_location(
-        name, Path(__file__).resolve().parent / f"{name}.py"
+        cache_key, Path(__file__).resolve().parent / f"{name}.py"
     )
     mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
     spec.loader.exec_module(mod)
+    _script_cache[cache_key] = mod
     return mod
 
 
 def run_validate(root: Path) -> dict:
-    """Run docs_lint and return structured pass/fail."""
+    """Run docs_lint and return structured pass/fail.
+
+    ``PROJECT_ROOT`` is forwarded explicitly so the subprocess lints the
+    correct tree even when the caller's environment already has ``PROJECT_ROOT``
+    set to a different path (e.g. in multi-project MCP setups).
+    """
     import subprocess
     script = Path(__file__).resolve().parent / "docs_lint.py"
     result = subprocess.run(
         [sys.executable, str(script)],
         capture_output=True, text=True,
         cwd=str(root),
+        env={**os.environ, "PROJECT_ROOT": str(root)},
     )
     lines = (result.stdout + result.stderr).strip().splitlines()
     errors = [l for l in lines if l.startswith("ERROR:")]
@@ -853,8 +1213,168 @@ def run_sync_surfaces(root: Path) -> dict:
     }
 
 
-def docs_search_response(index: WaveIndex, query: str, kind: str = "") -> dict[str, Any]:
+def _index_dir_for_layer(root: Path, layer: str) -> Path:
+    if layer == "project":
+        return root / ".wavefoundry" / "index"
+    if layer == "framework":
+        return root / ".wavefoundry" / "framework" / "index"
+    raise ValueError(f"Unsupported layer '{layer}'.")
+
+
+def _read_index_rebuild_stats(root: Path, layer: str) -> dict[str, Any]:
+    index_dir = _index_dir_for_layer(root, layer)
+    meta_path = index_dir / "meta.json"
+    docs_path = index_dir / "docs.json"
+    code_path = index_dir / "code.json"
+
+    meta: dict[str, Any] = {}
+    docs_chunks: list[Any] = []
+    code_chunks: list[Any] = []
+
+    if meta_path.is_file():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            meta = {}
+    if docs_path.is_file():
+        try:
+            docs_chunks = json.loads(docs_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            docs_chunks = []
+    if code_path.is_file():
+        try:
+            code_chunks = json.loads(code_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            code_chunks = []
+
+    return {
+        "files_total": len(meta.get("file_hashes", {})),
+        "doc_chunks": len(docs_chunks),
+        "code_chunks": len(code_chunks),
+        "available_content": list(meta.get("content", [])),
+        "built_at": meta.get("built_at", ""),
+    }
+
+
+def _extract_rebuild_runtime_stats(output: str) -> dict[str, Any]:
+    stats: dict[str, Any] = {}
+    if "build_index: index is up to date" in output:
+        stats["files_indexed"] = 0
+        stats["up_to_date"] = True
+        return stats
+
+    done_matches = list(re.finditer(
+        r"build_index: done — (?P<files>\d+) files indexed, "
+        r"(?P<doc_chunks>\d+) doc chunks, (?P<code_chunks>\d+) code chunks",
+        output,
+    ))
+    if done_matches:
+        last_done = done_matches[-1]
+        stats["files_indexed"] = int(last_done.group("files"))
+        stats["doc_chunks"] = int(last_done.group("doc_chunks"))
+        stats["code_chunks"] = int(last_done.group("code_chunks"))
+        stats["up_to_date"] = False
+        if len(done_matches) > 1:
+            stats["pass_stats"] = [
+                {
+                    "files_indexed": int(match.group("files")),
+                    "doc_chunks": int(match.group("doc_chunks")),
+                    "code_chunks": int(match.group("code_chunks")),
+                }
+                for match in done_matches
+            ]
+
+    incremental_matches = list(re.finditer(
+        r"build_index: incremental \w+ rebuild — (?P<changed>\d+) changed, (?P<removed>\d+) removed",
+        output,
+    ))
+    if incremental_matches:
+        last_incremental = incremental_matches[-1]
+        stats["changed_files"] = int(last_incremental.group("changed"))
+        stats["removed_files"] = int(last_incremental.group("removed"))
+
+    full_matches = list(re.finditer(r"build_index: full \w+ rebuild — (?P<files>\d+) files", output))
+    if full_matches:
+        stats["rebuild_scope"] = "full"
+        stats.setdefault("files_indexed", int(full_matches[-1].group("files")))
+    elif incremental_matches:
+        stats["rebuild_scope"] = "incremental"
+
+    return stats
+
+
+def run_index_rebuild(
+    root: Path,
+    *,
+    content: str = "docs",
+    full: bool = False,
+    layer: str = "project",
+) -> dict:
+    """Run indexer.py (or setup_index.py for project ``content=all``) synchronously.
+
+    When ``full`` is false (the default), the indexer performs an **incremental update**
+    (hash-based: changed files only). When ``full`` is true, it forces a **full rebuild**
+    of the selected content for that layer. Exposed as MCP ``wave_index_build`` with ``mode='update'|'rebuild'``.
+    """
+    import subprocess
+    if content not in {"docs", "code", "all"}:
+        raise ValueError(f"Unsupported content '{content}'.")
+    if layer not in {"project", "framework"}:
+        raise ValueError(f"Unsupported layer '{layer}'.")
+    if layer == "framework" and content != "docs":
+        raise ValueError("Framework index rebuild only supports content 'docs'.")
+    scripts_dir = Path(__file__).resolve().parent
+    include_prefixes = _workflow_project_include_prefixes(root) if layer == "project" else {"docs": (), "code": ()}
+
+    if layer == "project" and content == "all":
+        script = scripts_dir / "setup_index.py"
+        cmd = [sys.executable, str(script), "--root", str(root), "--include-code", "--verbose"]
+    else:
+        script = scripts_dir / "indexer.py"
+        cmd = [sys.executable, str(script), "--root", str(root), "--content", content, "--verbose"]
+    if layer == "framework":
+        cmd.extend([
+            "--index-dir", ".wavefoundry/framework/index",
+            "--include-prefix", ".wavefoundry/framework",
+            "--no-ignore-files",
+        ])
+    elif layer == "project" and content in {"docs", "code"}:
+        configured_prefixes = include_prefixes["docs"] if content == "docs" else include_prefixes["code"]
+        for prefix in configured_prefixes:
+            cmd.extend(["--project-include-prefix", prefix])
+    if full:
+        cmd.append("--full")
+    result = subprocess.run(
+        cmd,
+        capture_output=True, text=True,
+        cwd=str(root),
+        env={**os.environ, "PROJECT_ROOT": str(root)},
+    )
+    output = result.stdout + result.stderr
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    stats: dict[str, Any] = {}
+    if result.returncode == 0:
+        stats = _read_index_rebuild_stats(root, layer)
+        stats.update(_extract_rebuild_runtime_stats(output))
+        if stats.get("pass_stats") and not stats.get("up_to_date"):
+            stats["files_indexed"] = stats.get("files_total", stats.get("files_indexed", 0))
+    mode_label = "rebuild" if full else "update"
+    return {
+        "passed": result.returncode == 0,
+        "content": content,
+        "full": full,
+        "mode": mode_label,
+        "index_scope": "full_rebuild" if full else "incremental_update",
+        "layer": layer,
+        "stats": stats,
+        "output": output,
+        "summary": lines[-1] if lines else "",
+    }
+
+
+def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: int = 5) -> dict[str, Any]:
     k = (kind or "").strip().lower()
+    n = max(1, min(int(limit), 20))  # clamp to [1, 20]
     if k and k not in DOCS_SEARCH_KINDS:
         allowed = ", ".join(sorted(DOCS_SEARCH_KINDS))
         return _response(
@@ -871,35 +1391,63 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "") -> dict[s
             next_tools=["wave_help"],
             usage=f"docs_search(query={query!r}, kind='doc')",
         )
+    diagnostics: list[dict[str, Any]] = []
+    search_mode = "semantic"
+    results: list[dict[str, Any]] = []
+    fallback_reason = ""
     try:
-        results = index.search_docs(query, kind=k or None)
-    except IndexNotReadyError as exc:
-        return _response(
-            "error",
-            {"query": query, "kind": k or None, "results": []},
-            diagnostics=[
-                _diagnostic(
-                    "index_not_ready",
-                    str(exc),
-                    recovery_tools=["wave_help"],
-                    recovery_usage="python3 .wavefoundry/framework/scripts/setup_index.py --root .",
-                )
-            ],
-            next_tools=["wave_help"],
-            usage="wave_help(goal='search_docs')",
+        # Attempt semantic search; exception handlers below switch to lexical fallback.
+        results = index.search_docs(query, kind=k or None, top_n=n)
+    except SemanticModelUnavailableOfflineError as exc:
+        search_mode = "lexical_fallback"
+        fallback_reason = "semantic_model_unavailable_offline"
+        diagnostics.append(
+            _diagnostic(
+                "semantic_model_unavailable_offline",
+                str(exc),
+                recovery_tools=["wave_help"],
+                recovery_usage="python3 .wavefoundry/framework/scripts/setup_index.py --root .",
+            )
         )
+        results = index.search_docs_lexical(query, kind=k or None, top_n=n)
+    except IndexNotReadyError as exc:
+        search_mode = "lexical_fallback"
+        fallback_reason = "index_not_ready"
+        diagnostics.append(
+            _diagnostic(
+                "index_not_ready",
+                str(exc),
+                recovery_tools=["wave_help"],
+                recovery_usage="python3 .wavefoundry/framework/scripts/setup_index.py --root .",
+            )
+        )
+        try:
+            results = index.search_docs_lexical(query, kind=k or None, top_n=n)
+        except Exception:
+            results = []
     if not results:
-        return _response(
-            "ok",
-            {"query": query, "kind": k or None, "results": []},
-            diagnostics=[
+        if search_mode == "lexical_fallback":
+            diagnostics.append(
+                _diagnostic(
+                    "no_results",
+                    f"No document results found for query '{query}' in lexical fallback mode.",
+                    recovery_tools=["wave_help"],
+                    recovery_usage="wave_help(goal='search_docs')",
+                )
+            )
+        else:
+            diagnostics.append(
                 _diagnostic(
                     "no_results",
                     f"No document results found for query '{query}'.",
                     recovery_tools=["wave_help"],
                     recovery_usage="wave_help(goal='search_docs')",
                 )
-            ],
+            )
+        return _response(
+            "ok",
+            {"query": query, "kind": k, "search_mode": search_mode, "results": []},
+            diagnostics=diagnostics,
             next_tools=["wave_help"],
             usage=f"docs_search(query={query!r})",
         )
@@ -907,17 +1455,35 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "") -> dict[s
         "ok",
         {
             "query": query,
-            "kind": k or None,
+            "kind": k,
+            "search_mode": search_mode,
             "results": [_search_result("doc", result) for result in results],
         },
+        diagnostics=diagnostics,
         next_tools=["seed_get", "wave_get_prompt"],
         usage=f"seed_get(name={results[0]['path']!r})" if results[0].get("kind") == "seed" else "",
     )
 
 
-def code_search_response(index: WaveIndex, query: str, language: str = "") -> dict[str, Any]:
+def code_search_response(index: WaveIndex, query: str, language: str = "", limit: int = 5) -> dict[str, Any]:
+    n = max(1, min(int(limit), 20))  # clamp to [1, 20]
     try:
-        results = index.search_code(query, language=language or None)
+        results = index.search_code(query, language=language or None, top_n=n)
+    except SemanticModelUnavailableOfflineError as exc:
+        return _response(
+            "error",
+            {"query": query, "language": language or None, "results": []},
+            diagnostics=[
+                _diagnostic(
+                    "semantic_model_unavailable_offline",
+                    str(exc),
+                    recovery_tools=["wave_help"],
+                    recovery_usage="python3 .wavefoundry/framework/scripts/setup_index.py --root . --include-code",
+                )
+            ],
+            next_tools=["wave_help"],
+            usage="wave_help(goal='search_code')",
+        )
     except IndexNotReadyError as exc:
         return _response(
             "error",
@@ -1035,24 +1601,30 @@ def wave_current_response(root: Path, cache: Optional[McpRepoCache] = None) -> d
     )
 
 
-def wave_list_waves_response(root: Path, cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
-    waves = cache.list_waves_cached() if cache else list_waves(root)
+def wave_list_waves_response(root: Path, limit: int = 50, cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
+    n = max(1, min(int(limit), 200))  # clamp to [1, 200]
+    all_waves = cache.list_waves_cached() if cache else list_waves(root)
+    has_more = len(all_waves) > n
+    waves = all_waves[:n]
     return _response(
         "ok",
-        {"waves": waves},
+        {"waves": waves, "total": len(all_waves), "has_more": has_more},
         diagnostics=[] if waves else [_diagnostic("no_waves", "No waves found.")],
         next_tools=["wave_current"] if waves else ["wave_list_plans"],
         usage="wave_current()" if waves else "wave_list_plans()",
     )
 
 
-def wave_list_plans_response(root: Path, cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
-    plans = cache.list_plans_cached() if cache else list_plans(root)
+def wave_list_plans_response(root: Path, limit: int = 50, cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
+    n = max(1, min(int(limit), 200))  # clamp to [1, 200]
+    all_plans = cache.list_plans_cached() if cache else list_plans(root)
+    has_more = len(all_plans) > n
+    plans = all_plans[:n]
     return _response(
         "ok",
-        {"plans": plans},
+        {"plans": plans, "total": len(all_plans), "has_more": has_more},
         diagnostics=[] if plans else [_diagnostic("no_plans", "No plan docs found.")],
-        next_tools=["wave_help"] if plans else ["wave_help"],
+        next_tools=["wave_change_create", "wave_current"] if plans else ["wave_help"],
         usage="wave_help(goal='plan_feature')",
     )
 
@@ -1455,6 +2027,149 @@ def _resolve_unique_change_doc(root: Path, change_id: str) -> tuple[Optional[dic
     return matches[0], None
 
 
+def _wave_change_doc_path(root: Path, wave_md: Path, change_id: str) -> Path:
+    return wave_md.parent / f"{change_id}.md"
+
+
+def _plan_change_doc_path(root: Path, change_id: str) -> Path:
+    return root / "docs" / "plans" / f"{change_id}.md"
+
+
+def _repo_rel(root: Path, path: Path) -> str:
+    return str(path.relative_to(root)).replace("\\", "/")
+
+
+def _background_refresh_state_path(root: Path, layer: str) -> Path:
+    if layer == "framework":
+        return root / ".wavefoundry" / "framework" / "index" / "background-refresh.json"
+    return root / ".wavefoundry" / "index" / "background-refresh.json"
+
+
+def _indexable_refresh_path(rel_path: str) -> bool:
+    normalized = rel_path.replace("\\", "/")
+    if not normalized:
+        return False
+    if normalized.startswith(".wavefoundry/index/") or normalized.startswith(".wavefoundry/framework/index/"):
+        return False
+    skip_suffixes = {
+        ".pyc", ".npy", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+        ".ico", ".woff", ".woff2", ".ttf", ".eot", ".zip",
+    }
+    return Path(normalized).suffix.lower() not in skip_suffixes
+
+
+def _pid_is_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _load_background_refresh_state(state_path: Path) -> dict[str, Any]:
+    if not state_path.exists():
+        return {}
+    try:
+        loaded = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _background_refresh_active(state_path: Path) -> bool:
+    state = _load_background_refresh_state(state_path)
+    pid = state.get("pid")
+    started_at = state.get("started_at")
+    if isinstance(pid, int) and _pid_is_running(pid):
+        return True
+    if isinstance(started_at, (int, float)):
+        import time
+        if (time.time() - float(started_at)) < BACKGROUND_INDEX_REFRESH_THROTTLE_SECONDS:
+            return True
+    return False
+
+
+def _start_background_index_refresh(root: Path, layer: str) -> bool:
+    if layer not in {"project", "framework"}:
+        return False
+    state_path = _background_refresh_state_path(root, layer)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    if _background_refresh_active(state_path):
+        return False
+    indexer = root / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
+    if not indexer.exists():
+        return False
+    import subprocess
+    cmd = [sys.executable, str(indexer), "--root", str(root)]
+    if layer == "framework":
+        cmd.extend([
+            "--content",
+            "docs",
+            "--index-dir",
+            str(root / ".wavefoundry" / "framework" / "index"),
+            "--include-prefix",
+            ".wavefoundry/framework",
+            "--no-ignore-files",
+        ])
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        cwd=str(root),
+        start_new_session=True,
+    )
+    import time
+    state_path.write_text(
+        json.dumps({"pid": proc.pid, "started_at": time.time(), "layer": layer}),
+        encoding="utf-8",
+    )
+    return True
+
+
+def _trigger_background_index_refresh_for_paths(root: Path, paths: Iterable[str | Path]) -> dict[str, bool]:
+    normalized_paths: list[str] = []
+    for path in paths:
+        if isinstance(path, Path):
+            normalized = _repo_rel(root, path)
+        else:
+            normalized = str(path).replace("\\", "/")
+            while normalized.startswith("./"):
+                normalized = normalized[2:]
+        if normalized:
+            normalized_paths.append(normalized)
+    project_needed = any(_indexable_refresh_path(path) and path.startswith("docs/") for path in normalized_paths)
+    framework_needed = any(_indexable_refresh_path(path) and path.startswith(".wavefoundry/framework/") for path in normalized_paths)
+    return {
+        "project": _start_background_index_refresh(root, "project") if project_needed else False,
+        "framework": _start_background_index_refresh(root, "framework") if framework_needed else False,
+    }
+
+
+def _change_location_state(root: Path, wave_md: Path, change_id: str) -> dict[str, Any]:
+    staged = _plan_change_doc_path(root, change_id)
+    wave_path = _wave_change_doc_path(root, wave_md, change_id)
+    return {
+        "staged_path": staged,
+        "wave_path": wave_path,
+        "staged_exists": staged.exists(),
+        "wave_exists": wave_path.exists(),
+    }
+
+
+def _move_change_doc(source: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source.rename(target)
+
+
+def _change_block_pattern(change_id: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"\n?Change ID:\s+`{re.escape(change_id)}`\n(?:Previous Change Status:\s+`[^`]+`\n)?Change Status:\s+`[^`]+`\n?",
+        re.MULTILINE,
+    )
+
+
 def _missing_required_change_sections(change_text: str) -> list[str]:
     required_headers = [
         "## Rationale",
@@ -1550,6 +2265,8 @@ def wave_create_wave_response(root: Path, slug: str, mode: str = "dry_run", cach
         )
     if cache and result.get("created"):
         cache.invalidate()
+    if result.get("created"):
+        _trigger_background_index_refresh_for_paths(root, [result["path"]])
     diagnostics: list[dict[str, Any]] = []
     if result["exists"] and not result["created"]:
         diagnostics.append(_diagnostic("already_exists", f"Wave already exists at {result['path']}.", recovery_tools=["wave_current"]))
@@ -1594,12 +2311,89 @@ def wave_add_change_response(
             usage="wave_list_plans()",
         )
     canonical_change_id = str(change_matches[0]["change_id"])
+    source_path = root / str(change_matches[0]["path"])
+    target_path = _wave_change_doc_path(root, wave_md, canonical_change_id)
     text = wave_md.read_text(encoding="utf-8")
     existing = _extract_change_ids_from_wave_text(text)
+    location = _change_location_state(root, wave_md, canonical_change_id)
+    if source_path.parent.name != wave_md.parent.name and "docs/waves/" in str(change_matches[0]["path"]).replace("\\", "/") and source_path != target_path:
+        return _response(
+            "error",
+            {"wave_id": wave_id, "change_id": canonical_change_id, "mode": mode_s},
+            diagnostics=[
+                _diagnostic(
+                    "change_already_in_other_wave",
+                    f"Change '{canonical_change_id}' already lives in another wave folder at {_repo_rel(root, source_path)}.",
+                    recovery_tools=["wave_current", "wave_get_change"],
+                    recovery_usage=f"wave_get_change(change_id={canonical_change_id!r})",
+                )
+            ],
+            next_tools=["wave_current", "wave_get_change"],
+            usage=f"wave_get_change(change_id={canonical_change_id!r})",
+        )
     if canonical_change_id in existing:
-        return _response("ok", {"wave_id": wave_id, "change_id": canonical_change_id, "mode": mode_s, "updated": False}, diagnostics=[_diagnostic("already_admitted", f"Change '{canonical_change_id}' is already admitted.")], next_tools=["wave_current"], usage="wave_current()")
+        diagnostics = [_diagnostic("already_admitted", f"Change '{canonical_change_id}' is already admitted.")]
+        if location["staged_exists"] and location["wave_exists"]:
+            diagnostics.append(
+                _diagnostic(
+                    "duplicate_change_doc_locations",
+                    f"Change '{canonical_change_id}' exists in both {_repo_rel(root, location['staged_path'])} and {_repo_rel(root, location['wave_path'])}.",
+                    recovery_tools=["wave_prepare", "wave_get_change"],
+                    recovery_usage=f"wave_prepare(wave_id={wave_md.parent.name!r}, mode='create')",
+                )
+            )
+            return _response("error", {"wave_id": wave_id, "change_id": canonical_change_id, "mode": mode_s, "updated": False}, diagnostics=diagnostics, next_tools=["wave_prepare", "wave_get_change"], usage=f"wave_prepare(wave_id={wave_md.parent.name!r}, mode='create')")
+        return _response(
+            "ok",
+            {
+                "wave_id": wave_id,
+                "change_id": canonical_change_id,
+                "mode": mode_s,
+                "updated": False,
+                "relocated": location["wave_exists"],
+                "path": _repo_rel(root, location["wave_path"]) if location["wave_exists"] else _repo_rel(root, source_path),
+            },
+            diagnostics=diagnostics,
+            next_tools=["wave_current"],
+            usage="wave_current()",
+        )
     insert = f"\nChange ID: `{canonical_change_id}`\nChange Status: `planned`\n"
+    relocated = source_path == target_path
     if mode_s == "create":
+        if target_path.exists() and source_path != target_path:
+            return _response(
+                "error",
+                {"wave_id": wave_id, "change_id": canonical_change_id, "mode": mode_s},
+                diagnostics=[
+                    _diagnostic(
+                        "duplicate_change_doc_locations",
+                        f"Target wave doc already exists at {_repo_rel(root, target_path)} while source remains at {_repo_rel(root, source_path)}.",
+                        recovery_tools=["wave_prepare", "wave_get_change"],
+                        recovery_usage=f"wave_prepare(wave_id={wave_md.parent.name!r}, mode='create')",
+                    )
+                ],
+                next_tools=["wave_prepare", "wave_get_change"],
+                usage=f"wave_prepare(wave_id={wave_md.parent.name!r}, mode='create')",
+            )
+        if source_path != target_path:
+            try:
+                _move_change_doc(source_path, target_path)
+            except OSError as exc:
+                return _response(
+                    "error",
+                    {"wave_id": wave_id, "change_id": canonical_change_id, "mode": mode_s},
+                    diagnostics=[
+                        _diagnostic(
+                            "change_relocation_failed",
+                            f"Failed to relocate change doc to {_repo_rel(root, target_path)}: {exc}",
+                            recovery_tools=["wave_get_change"],
+                            recovery_usage=f"wave_get_change(change_id={canonical_change_id!r})",
+                        )
+                    ],
+                    next_tools=["wave_get_change"],
+                    usage=f"wave_get_change(change_id={canonical_change_id!r})",
+                )
+            relocated = True
         if "## Dependencies" in text:
             text = text.replace("## Dependencies", insert + "\n## Dependencies", 1)
         else:
@@ -1607,7 +2401,21 @@ def wave_add_change_response(
         wave_md.write_text(text, encoding="utf-8")
         if cache:
             cache.invalidate()
-    return _response("dry_run" if mode_s == "dry_run" else "ok", {"wave_id": wave_id, "change_id": canonical_change_id, "mode": mode_s, "updated": mode_s == "create"}, next_tools=["wave_current", "wave_get_change"], usage=f"wave_get_change(change_id={canonical_change_id!r})")
+        _trigger_background_index_refresh_for_paths(root, [wave_md, target_path])
+    return _response(
+        "dry_run" if mode_s == "dry_run" else "ok",
+        {
+            "wave_id": wave_id,
+            "change_id": canonical_change_id,
+            "mode": mode_s,
+            "updated": mode_s == "create",
+            "relocated": relocated,
+            "source_path": _repo_rel(root, source_path),
+            "target_path": _repo_rel(root, target_path),
+        },
+        next_tools=["wave_current", "wave_get_change"],
+        usage=f"wave_get_change(change_id={canonical_change_id!r})",
+    )
 
 
 def wave_remove_change_response(
@@ -1624,17 +2432,69 @@ def wave_remove_change_response(
     if wave_md is None:
         return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wave_list_waves"], recovery_usage="wave_list_waves()")], next_tools=["wave_list_waves"], usage="wave_list_waves()")
     text = wave_md.read_text(encoding="utf-8")
-    target = re.compile(rf"\n?Change ID:\s+`{re.escape(change_id)}`\n(?:Previous Change Status:\s+`[^`]+`\n)?Change Status:\s+`[^`]+`\n?", re.MULTILINE)
+    target = _change_block_pattern(change_id)
     if not target.search(text):
         return _response("ok", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s, "updated": False}, diagnostics=[_diagnostic("not_admitted", f"Change '{change_id}' is not admitted to wave.")], next_tools=["wave_current"], usage="wave_current()")
+    location = _change_location_state(root, wave_md, change_id)
+    if location["staged_exists"] and location["wave_exists"]:
+        return _response(
+            "error",
+            {"wave_id": wave_id, "change_id": change_id, "mode": mode_s, "updated": False},
+            diagnostics=[
+                _diagnostic(
+                    "duplicate_change_doc_locations",
+                    f"Change '{change_id}' exists in both {_repo_rel(root, location['staged_path'])} and {_repo_rel(root, location['wave_path'])}.",
+                    recovery_tools=["wave_prepare", "wave_get_change"],
+                    recovery_usage=f"wave_prepare(wave_id={wave_md.parent.name!r}, mode='create')",
+                )
+            ],
+            next_tools=["wave_prepare", "wave_get_change"],
+            usage=f"wave_prepare(wave_id={wave_md.parent.name!r}, mode='create')",
+        )
     if mode_s == "create":
         text = target.sub("\n", text, count=1)
+        if location["wave_exists"]:
+            try:
+                _move_change_doc(location["wave_path"], location["staged_path"])
+            except OSError as exc:
+                return _response(
+                    "error",
+                    {"wave_id": wave_id, "change_id": change_id, "mode": mode_s, "updated": False},
+                    diagnostics=[
+                        _diagnostic(
+                            "change_relocation_failed",
+                            f"Failed to move change doc back to {_repo_rel(root, location['staged_path'])}: {exc}",
+                            recovery_tools=["wave_get_change"],
+                            recovery_usage=f"wave_get_change(change_id={change_id!r})",
+                        )
+                    ],
+                    next_tools=["wave_get_change"],
+                    usage=f"wave_get_change(change_id={change_id!r})",
+                )
         wave_md.write_text(text, encoding="utf-8")
         if cache:
             cache.invalidate()
-    return _response("dry_run" if mode_s == "dry_run" else "ok", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s, "updated": mode_s == "create"}, next_tools=["wave_current"], usage="wave_current()")
+        _trigger_background_index_refresh_for_paths(root, [wave_md, location["staged_path"]])
+    return _response(
+        "dry_run" if mode_s == "dry_run" else "ok",
+        {
+            "wave_id": wave_id,
+            "change_id": change_id,
+            "mode": mode_s,
+            "updated": mode_s == "create",
+            "source_path": _repo_rel(root, location["wave_path"]),
+            "target_path": _repo_rel(root, location["staged_path"]),
+        },
+        next_tools=["wave_current"],
+        usage="wave_current()",
+    )
 
-def _lifecycle_module():
+def _lifecycle_module() -> Any:
+    """Return the cached ``lifecycle_id`` module.
+
+    Thin wrapper around ``_load_script`` so that tests can mock this single
+    call site instead of patching the lower-level loader.
+    """
     return _load_script("lifecycle_id")
 
 
@@ -1760,6 +2620,8 @@ def wave_change_create_response(
         )
     if cache and result.get("created"):
         cache.invalidate()
+    if result.get("created"):
+        _trigger_background_index_refresh_for_paths(root, [result["path"]])
     return _response(
         status,
         {
@@ -1774,6 +2636,206 @@ def wave_change_create_response(
         diagnostics=diagnostics,
         next_tools=["wave_get_change", "wave_validate"],
         usage=f"wave_get_change(change_id={result['id']!r})",
+    )
+
+
+def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
+    """Return structured health status for each index layer (project + framework).
+
+    Runs file-hash comparison against meta.json for each layer and reports
+    missing, stale, or ready state.  Intended as an explicit diagnostic tool;
+    does not run on the search hot path.
+    """
+    try:
+        health = index.docs_health()
+    except Exception as exc:
+        return _response(
+            "error",
+            {"layers": {}},
+            diagnostics=[
+                _diagnostic(
+                    "index_health_error",
+                    f"Could not compute index health: {exc}",
+                    recovery_tools=["wave_help"],
+                    recovery_usage="python3 .wavefoundry/framework/scripts/setup_index.py --root .",
+                )
+            ],
+            next_tools=["wave_help"],
+            usage="wave_index_health()",
+        )
+
+    diagnostics: list[dict[str, Any]] = []
+    for layer in health.get("missing_layers", []):
+        diagnostics.append(
+            _diagnostic(
+                "index_missing",
+                f"Index layer missing: {layer}. Run: python3 .wavefoundry/framework/scripts/setup_index.py --root .",
+                recovery_tools=["wave_help"],
+                recovery_usage="python3 .wavefoundry/framework/scripts/setup_index.py --root .",
+            )
+        )
+    for layer in health.get("stale_layers", []):
+        diagnostics.append(
+            _diagnostic(
+                "index_stale",
+                f"Index layer stale: {layer}. Run: python3 .wavefoundry/framework/scripts/setup_index.py --root . --full",
+                recovery_tools=["wave_help"],
+                recovery_usage="python3 .wavefoundry/framework/scripts/setup_index.py --root . --full",
+            )
+        )
+    overview = health.get("readiness_overview")
+    if overview == "degraded":
+        diagnostics.append(
+            _diagnostic(
+                "index_degraded",
+                "Index metadata is present but merged semantic chunks did not load; search may fall back to lexical retrieval.",
+                recovery_tools=["wave_help", "wave_index_build"],
+                recovery_usage="python3 .wavefoundry/framework/scripts/setup_index.py --root .",
+            )
+        )
+    elif overview == "absent":
+        diagnostics.append(
+            _diagnostic(
+                "index_absent",
+                "No index metadata found under project or framework index dirs (nothing to search semantically yet).",
+                recovery_tools=["wave_help"],
+                recovery_usage="python3 .wavefoundry/framework/scripts/setup_index.py --root .",
+            )
+        )
+
+    # Always return "ok" when health data was successfully computed — agents
+    # read ``readiness_overview`` and ``diagnostics`` to decide whether to
+    # reindex.  Reserve ``status: "error"`` for the except branch above (i.e.
+    # when the health check itself crashed, not when the index is merely absent
+    # or stale).
+    semantic_ready = health.get("semantic_ready")
+    return _response(
+        "ok",
+        health,
+        diagnostics=diagnostics,
+        next_tools=["docs_search"] if semantic_ready else ["wave_index_build"],
+        usage="docs_search(query='...')" if semantic_ready else "wave_index_build(content='docs', mode='update')",
+    )
+
+
+def wave_audit_response(
+    root: Path,
+    wave_id: str = "",
+    index: Optional[WaveIndex] = None,
+    cache: Optional[McpRepoCache] = None,
+) -> dict[str, Any]:
+    """Aggregate read-only audit: wave state + docs validation + index health.
+
+    Returns a single ``data`` payload with three sub-objects (``wave``,
+    ``validation``, ``index``) and a top-level ``ready`` boolean that is
+    ``True`` only when all three sub-checks pass:
+    - wave is active or planned
+    - docs-lint reports zero failures
+    - ``semantic_ready`` is ``True`` in the index health report
+
+    Safe to call at any time; does not trigger writes or reindexes.
+    """
+    # --- Wave sub-check ---
+    wave_data: dict[str, Any] = {}
+    wave_ok = False
+    if wave_id:
+        waves = cache.list_waves_cached() if cache else list_waves(root)
+        wid = wave_id.strip().lower()
+        matched = next(
+            (w for w in waves if w["id"].lower().startswith(wid) or wid in w["id"].lower()),
+            None,
+        )
+        if matched:
+            next_action = "implement_wave" if matched["status"] == "active" else "prepare_wave"
+            wave_data = {**matched, "next_action": next_action}
+            wave_ok = matched["status"] in ("active", "planned")
+        else:
+            wave_data = {"id": wave_id, "status": "not_found"}
+    else:
+        wave = current_wave(root, cache=cache)
+        if wave:
+            next_action = "implement_wave" if wave["status"] == "active" else "prepare_wave"
+            wave_data = {**wave, "next_action": next_action}
+            wave_ok = True
+        # wave_data stays {}; wave_ok stays False when no active wave
+
+    # --- Validation sub-check ---
+    try:
+        val_result = run_validate(root)
+        lint_ok = val_result["passed"]
+    except Exception as exc:  # pragma: no cover
+        val_result = {"passed": False, "errors": [str(exc)], "warnings": []}
+        lint_ok = False
+
+    # --- Index health sub-check ---
+    index_data: dict[str, Any] = {}
+    index_ok = False
+    if index is not None:
+        try:
+            index_data = index.docs_health()
+            index_ok = bool(index_data.get("semantic_ready"))
+        except Exception as exc:  # pragma: no cover
+            index_data = {"error": str(exc), "semantic_ready": False}
+    else:
+        index_data = {"semantic_ready": False}
+
+    # --- ready ---
+    ready = wave_ok and lint_ok and index_ok
+
+    # --- diagnostics ---
+    diagnostics: list[dict[str, Any]] = []
+    if not wave_ok:
+        diagnostics.append(
+            _diagnostic(
+                "no_active_wave",
+                (
+                    f"Wave not found: {wave_id}"
+                    if wave_id
+                    else "No active or planned wave found."
+                ),
+                recovery_tools=["wave_list_waves"],
+                recovery_usage="wave_list_waves()",
+            )
+        )
+    if not lint_ok:
+        for err in val_result.get("errors", []):
+            diagnostics.append(_diagnostic("docs_lint_error", err, recovery_tools=["wave_validate"]))
+    if not index_ok:
+        overview = index_data.get("readiness_overview", "absent")
+        diagnostics.append(
+            _diagnostic(
+                "index_not_ready",
+                (
+                    f"Semantic index is not ready (readiness_overview: {overview!r}). "
+                    "Call wave_index_build to recover."
+                ),
+                recovery_tools=["wave_index_build"],
+                recovery_usage="wave_index_build(content='docs', mode='update')",
+            )
+        )
+
+    # --- next_tools ---
+    next_tools: list[str] = []
+    if not lint_ok:
+        next_tools.append("wave_validate")
+    if not index_ok:
+        next_tools.append("wave_index_build")
+    if not wave_ok:
+        next_tools.append("wave_current")
+    if not next_tools:
+        next_tools = ["wave_current"]
+
+    return _response(
+        "ok",
+        {
+            "ready": ready,
+            "wave": wave_data,
+            "validation": val_result,
+            "index": index_data,
+        },
+        diagnostics=diagnostics,
+        next_tools=next_tools,
+        usage=next_tools[0] + "()" if next_tools else "wave_current()",
     )
 
 
@@ -1796,7 +2858,20 @@ def wave_validate_response(root: Path) -> dict[str, Any]:
     )
 
 
-def wave_garden_response(root: Path, cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
+def wave_garden_response(root: Path, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
+    if (mode or "").strip().lower() == "dry_run":
+        return _response(
+            "ok",
+            {"mode": "dry_run", "skipped": True},
+            diagnostics=[_diagnostic(
+                "dry_run",
+                "Pass mode='run' to execute the docs gardener.",
+                recovery_tools=[],
+                recovery_usage="wave_garden(mode='run')",
+            )],
+            next_tools=["wave_garden"],
+            usage="wave_garden(mode='run')",
+        )
     result = run_garden(root)
     status = "ok" if result["passed"] else "error"
     diagnostics = [] if result["passed"] else [
@@ -1809,6 +2884,8 @@ def wave_garden_response(root: Path, cache: Optional[McpRepoCache] = None) -> di
     ]
     if cache and result["passed"]:
         cache.invalidate()
+    if result["passed"] and result.get("files_updated", 0):
+        _trigger_background_index_refresh_for_paths(root, ["docs/"])
     return _response(
         status,
         result,
@@ -1818,7 +2895,20 @@ def wave_garden_response(root: Path, cache: Optional[McpRepoCache] = None) -> di
     )
 
 
-def wave_sync_surfaces_response(root: Path, cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
+def wave_sync_surfaces_response(root: Path, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
+    if (mode or "").strip().lower() == "dry_run":
+        return _response(
+            "ok",
+            {"mode": "dry_run", "skipped": True},
+            diagnostics=[_diagnostic(
+                "dry_run",
+                "Pass mode='run' to execute render_platform_surfaces.",
+                recovery_tools=[],
+                recovery_usage="wave_sync_surfaces(mode='run')",
+            )],
+            next_tools=["wave_sync_surfaces"],
+            usage="wave_sync_surfaces(mode='run')",
+        )
     result = run_sync_surfaces(root)
     status = "ok" if result["passed"] else "error"
     diagnostics = [] if result["passed"] else [
@@ -1840,6 +2930,79 @@ def wave_sync_surfaces_response(root: Path, cache: Optional[McpRepoCache] = None
     )
 
 
+def wave_index_build_response(
+    root: Path,
+    *,
+    content: str = "docs",
+    mode: str = "update",
+    layer: str = "project",
+    cache: Optional[McpRepoCache] = None,
+) -> dict[str, Any]:
+    content_s = (content or "").strip().lower()
+    layer_s = (layer or "").strip().lower()
+    mode_s = (mode or "").strip().lower()
+    if mode_s not in {"update", "rebuild"}:
+        return _response(
+            "error",
+            {"content": content, "mode": mode, "layer": layer},
+            diagnostics=[
+                _diagnostic(
+                    "invalid_arguments",
+                    f"Unsupported mode {mode!r}. Use 'update' (incremental) or 'rebuild' (full).",
+                    recovery_tools=["wave_help"],
+                    recovery_usage="wave_help(goal='refresh_semantic_index')",
+                )
+            ],
+            next_tools=["wave_help"],
+            usage="wave_help(goal='refresh_semantic_index')",
+        )
+    full = mode_s == "rebuild"
+    try:
+        result = run_index_rebuild(root, content=content_s, full=full, layer=layer_s)
+    except ValueError as exc:
+        return _response(
+            "error",
+            {"content": content, "mode": mode_s, "layer": layer},
+            diagnostics=[
+                _diagnostic(
+                    "invalid_arguments",
+                    str(exc),
+                    recovery_tools=["wave_help"],
+                    recovery_usage="wave_help(goal='maintain_framework')",
+                )
+            ],
+            next_tools=["wave_help"],
+            usage="wave_help(goal='maintain_framework')",
+        )
+    status = "ok" if result["passed"] else "error"
+    recovery_usage = "python3 .wavefoundry/framework/scripts/setup_index.py --root ."
+    if layer_s == "framework":
+        recovery_usage = (
+            "python3 .wavefoundry/framework/scripts/indexer.py --root . --content docs "
+            "--index-dir .wavefoundry/framework/index --include-prefix .wavefoundry/framework "
+            "--no-ignore-files"
+        )
+    elif content_s == "all":
+        recovery_usage = "python3 .wavefoundry/framework/scripts/setup_index.py --root . --include-code"
+    diagnostics = [] if result["passed"] else [
+        _diagnostic(
+            "index_rebuild_failed",
+            result["output"].strip() or "index rebuild failed",
+            recovery_tools=["wave_index_health", "wave_help"],
+            recovery_usage=recovery_usage,
+        )
+    ]
+    if cache and result["passed"]:
+        cache.invalidate()
+    return _response(
+        status,
+        result,
+        diagnostics=diagnostics,
+        next_tools=["wave_index_health", "docs_search"] if result["passed"] else ["wave_index_health", "wave_help"],
+        usage="docs_search(query='...')" if result["passed"] else "python3 .wavefoundry/framework/scripts/setup_index.py --root .",
+    )
+
+
 def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
     if mode_s not in {"dry_run", "create"}:
@@ -1847,22 +3010,80 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
     wave_md = _find_wave_md(root, wave_id)
     if wave_md is None:
         return _response("error", {"wave_id": wave_id, "mode": mode_s}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wave_list_waves"], recovery_usage="wave_list_waves()")], next_tools=["wave_list_waves"], usage="wave_list_waves()")
-    garden_result = run_garden(root)
-    lint_result = run_validate(root)
     text = wave_md.read_text(encoding="utf-8")
     change_ids = _extract_change_ids_from_wave_text(text)
     diagnostics: list[dict[str, Any]] = []
-    if not garden_result["passed"]:
-        diagnostics.append(_diagnostic("docs_gardener_failed", "docs_gardener failed during prepare.", recovery_tools=["wave_garden", "wave_validate"], recovery_usage="wave_garden()"))
+    repairs_needed = 0
+    repaired = 0
+    updated = False
     if not change_ids:
         diagnostics.append(_diagnostic("no_admitted_changes", "Wave has no admitted changes."))
     for admitted_change in change_ids:
-        change_doc, change_diag = _resolve_unique_change_doc(root, admitted_change)
-        if change_diag is not None:
-            diagnostics.append(change_diag)
+        location = _change_location_state(root, wave_md, admitted_change)
+        change_path: Optional[Path] = None
+        if location["staged_exists"] and location["wave_exists"]:
+            diagnostics.append(
+                _diagnostic(
+                    "duplicate_change_doc_locations",
+                    f"Admitted change '{admitted_change}' exists in both {_repo_rel(root, location['staged_path'])} and {_repo_rel(root, location['wave_path'])}.",
+                    recovery_tools=["wave_get_change"],
+                    recovery_usage=f"wave_get_change(change_id={admitted_change!r})",
+                )
+            )
             continue
-        assert change_doc is not None
-        missing_headers = _missing_required_change_sections(str(change_doc.get("content") or ""))
+        if location["wave_exists"]:
+            change_path = location["wave_path"]
+        elif location["staged_exists"]:
+            repairs_needed += 1
+            if mode_s == "create":
+                try:
+                    _move_change_doc(location["staged_path"], location["wave_path"])
+                except OSError as exc:
+                    diagnostics.append(
+                        _diagnostic(
+                            "change_relocation_failed",
+                            f"Failed to relocate admitted change '{admitted_change}' during prepare: {exc}",
+                            recovery_tools=["wave_get_change"],
+                            recovery_usage=f"wave_get_change(change_id={admitted_change!r})",
+                        )
+                    )
+                    continue
+                repaired += 1
+                updated = True
+                change_path = location["wave_path"]
+            else:
+                diagnostics.append(
+                    _diagnostic(
+                        "change_doc_not_relocated",
+                        f"Admitted change '{admitted_change}' is still staged at {_repo_rel(root, location['staged_path'])}; prepare must relocate it to {_repo_rel(root, location['wave_path'])}.",
+                        recovery_tools=["wave_prepare"],
+                        recovery_usage=f"wave_prepare(wave_id={wave_md.parent.name!r}, mode='create')",
+                    )
+                )
+                continue
+        else:
+            diagnostics.append(
+                _diagnostic(
+                    "change_not_found",
+                    f"Admitted change '{admitted_change}' was not found in {_repo_rel(root, location['staged_path'])} or {_repo_rel(root, location['wave_path'])}.",
+                    recovery_tools=["wave_get_change", "wave_list_plans"],
+                    recovery_usage=f"wave_get_change(change_id={admitted_change!r})",
+                )
+            )
+            continue
+        try:
+            change_text = change_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            diagnostics.append(
+                _diagnostic(
+                    "change_doc_unreadable",
+                    f"Could not read admitted change '{admitted_change}' at {_repo_rel(root, change_path)}: {exc}",
+                    recovery_tools=["wave_get_change"],
+                    recovery_usage=f"wave_get_change(change_id={admitted_change!r})",
+                )
+            )
+            continue
+        missing_headers = _missing_required_change_sections(change_text)
         if missing_headers:
             diagnostics.append(
                 _diagnostic(
@@ -1872,20 +3093,33 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
                     recovery_usage=f"wave_get_change(change_id={admitted_change!r})",
                 )
             )
-    if not lint_result["passed"]:
+    # Garden and lint only run on create — dry-run must stay read-only.
+    garden_passed = True
+    lint_passed = True
+    if mode_s == "create":
+        garden_result = run_garden(root)
+        garden_passed = garden_result["passed"]
+        if not garden_passed:
+            diagnostics.append(_diagnostic("docs_gardener_failed", "docs_gardener failed during prepare.", recovery_tools=["wave_garden", "wave_validate"], recovery_usage="wave_garden(mode='run')"))
+    lint_result = run_validate(root)
+    lint_passed = lint_result["passed"]
+    if not lint_passed:
         diagnostics.extend(_diagnostic("docs_lint_error", err, recovery_tools=["wave_validate"]) for err in lint_result["errors"])
     if diagnostics:
-        return _response("error", {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_result["passed"], "garden_passed": garden_result["passed"]}, diagnostics=diagnostics, next_tools=["wave_validate", "wave_current"], usage="wave_validate()")
-    updated = False
+        return _response("error", {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "repairs_needed": repairs_needed, "repaired": repaired}, diagnostics=diagnostics, next_tools=["wave_validate", "wave_current"], usage="wave_validate()")
     if mode_s == "create":
         status_match = _STATUS_PATTERN.search(text)
         if status_match and status_match.group(1) != "active":
             text = text[:status_match.start(1)] + "active" + text[status_match.end(1):]
             wave_md.write_text(text, encoding="utf-8")
             updated = True
-            if cache:
-                cache.invalidate()
-    return _response("dry_run" if mode_s == "dry_run" else "ok", {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": True, "garden_passed": True, "updated": updated}, next_tools=["wave_current"], usage="wave_current()")
+        if cache and updated:
+            cache.invalidate()
+        _trigger_background_index_refresh_for_paths(
+            root,
+            [wave_md, *(_wave_change_doc_path(root, wave_md, change_id) for change_id in change_ids)],
+        )
+    return _response("dry_run" if mode_s == "dry_run" else "ok", {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired}, next_tools=["wave_current"], usage="wave_current()")
 
 
 def wave_pause_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
@@ -1903,6 +3137,7 @@ def wave_pause_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
         handoff.write_text(_merge_pause_into_session_handoff(prior, wave_id), encoding="utf-8")
         if cache:
             cache.invalidate()
+        _trigger_background_index_refresh_for_paths(root, [handoff])
     return _response("dry_run" if mode_s == "dry_run" else "ok", {"wave_id": wave_id, "mode": mode_s, "path": rel, "written": mode_s == "create"}, next_tools=["wave_current"], usage="wave_current()")
 
 
@@ -1910,6 +3145,7 @@ def wave_review_response(root: Path, wave_id: str) -> dict[str, Any]:
     wave_md = _find_wave_md(root, wave_id)
     if wave_md is None:
         return _response("error", {"wave_id": wave_id}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wave_list_waves"], recovery_usage="wave_list_waves()")], next_tools=["wave_list_waves"], usage="wave_list_waves()")
+    _trigger_background_index_refresh_for_paths(root, [wave_md])
     lint_result = run_validate(root)
     wave_text = wave_md.read_text(encoding="utf-8")
     required_lanes = _extract_required_review_lanes(wave_text)
@@ -1942,15 +3178,19 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
     wave_md = _find_wave_md(root, wave_id)
     if wave_md is None:
         return _response("error", {"wave_id": wave_id}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wave_list_waves"], recovery_usage="wave_list_waves()")], next_tools=["wave_list_waves"], usage="wave_list_waves()")
-    garden_result = run_garden(root)
+    # Garden only runs on create — dry-run must stay read-only.
+    garden_passed = True
+    if mode_s == "create":
+        garden_result = run_garden(root)
+        garden_passed = garden_result["passed"]
     lint_result = run_validate(root)
     text = wave_md.read_text(encoding="utf-8")
     statuses = [status.lower() for status in _CHANGE_STATUS_PATTERN.findall(text)]
     open_statuses = {"stub", "planned", "ready", "active"}
     unresolved = [s for s in statuses if s in open_statuses]
     diagnostics: list[dict[str, Any]] = []
-    if not garden_result["passed"]:
-        diagnostics.append(_diagnostic("docs_gardener_failed", "docs_gardener failed during close.", recovery_tools=["wave_garden", "wave_validate"], recovery_usage="wave_garden()"))
+    if not garden_passed:
+        diagnostics.append(_diagnostic("docs_gardener_failed", "docs_gardener failed during close.", recovery_tools=["wave_garden", "wave_validate"], recovery_usage="wave_garden(mode='run')"))
     if unresolved:
         diagnostics.append(_diagnostic("open_changes_remaining", f"Wave has unresolved change statuses: {', '.join(sorted(set(unresolved)))}.", recovery_tools=["wave_current"], recovery_usage="wave_current()"))
     required_lanes = _extract_required_review_lanes(text)
@@ -1989,7 +3229,7 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
     if not lint_result["passed"]:
         diagnostics.extend([_diagnostic("docs_lint_error", err, recovery_tools=["wave_validate"]) for err in lint_result["errors"]])
     if diagnostics:
-        return _response("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_result["passed"]}, diagnostics=diagnostics, next_tools=["wave_validate", "wave_current"], usage="wave_validate()")
+        return _response("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed}, diagnostics=diagnostics, next_tools=["wave_validate", "wave_current"], usage="wave_validate()")
     updated = False
     archive_rel = ""
     handoff_rel = ""
@@ -2027,6 +3267,10 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
                 handoff_rel = str(handoff.relative_to(root)).replace("\\", "/")
             if cache:
                 cache.invalidate()
+            refresh_paths: list[str | Path] = [wave_md, archive_file]
+            if handoff_rel:
+                refresh_paths.append(handoff)
+            _trigger_background_index_refresh_for_paths(root, refresh_paths)
     return _response(
         "dry_run" if mode_s == "dry_run" else "ok",
         {"wave_id": wave_id, "mode": mode_s, "updated": updated, "archive_path": archive_rel, "handoff_path": handoff_rel},
@@ -2098,13 +3342,21 @@ See `docs/agents/session-handoff.md` for current session state.
 def build_server(root: Path):
     from mcp.server.fastmcp import FastMCP
 
-    mcp = FastMCP("wavefoundry")
+    mcp = FastMCP("wavefoundry_mcp")
     index = WaveIndex(root)
     cache = McpRepoCache(root, index=index)
 
+    # Tool annotation constants — passed to @mcp.tool(annotations={...}).
+    # All handlers also accept **kwargs so FastMCP's auto-generated "kwargs"
+    # schema parameter is captured and rejected via _ensure_no_extra_args rather
+    # than causing an unexpected-argument error at the Python call boundary.
+    _READONLY_TOOL = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
+    _MUTATING_TOOL = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}
+    _DESTRUCTIVE_TOOL = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False}
+
     # --- Search and retrieval ---
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READONLY_TOOL)
     def wave_help(goal: str = "", **kwargs: Any) -> dict[str, Any]:
         """Return a structured MCP workflow catalogue or a goal-specific recommended chain.
 
@@ -2116,33 +3368,40 @@ def build_server(root: Path):
             return bad
         return wave_help_response(goal)
 
-    @mcp.tool()
-    def docs_search(query: str, kind: str = "", **kwargs: Any) -> dict[str, Any]:
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def docs_search(
+        query: str,
+        kind: Literal["", "doc", "seed", "architecture", "prompt"] = "",
+        limit: int = 5,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         """Semantic search over docs, architecture, prompts, and seed chunks.
 
         Args:
             query: Natural language search query.
             kind: Optional filter — one of: doc, seed, architecture, prompt.
+            limit: Maximum results to return (1–20, default 5).
         """
         bad = _ensure_no_extra_args("docs_search", kwargs)
         if bad is not None:
             return bad
-        return docs_search_response(index, query, kind)
+        return docs_search_response(index, query, kind, limit=limit)
 
-    @mcp.tool()
-    def code_search(query: str, language: str = "", **kwargs: Any) -> dict[str, Any]:
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_search(query: str, language: str = "", limit: int = 5, **kwargs: Any) -> dict[str, Any]:
         """Semantic search over source code chunks.
 
         Args:
             query: Natural language or code description to search for.
             language: Optional filter — e.g. python, javascript, go.
+            limit: Maximum results to return (1–20, default 5).
         """
         bad = _ensure_no_extra_args("code_search", kwargs)
         if bad is not None:
             return bad
-        return code_search_response(index, query, language)
+        return code_search_response(index, query, language, limit=limit)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READONLY_TOOL)
     def seed_get(name: str, **kwargs: Any) -> dict[str, Any]:
         """Retrieve a framework seed prompt by name or partial slug.
 
@@ -2156,7 +3415,7 @@ def build_server(root: Path):
 
     # --- Wave inspection ---
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READONLY_TOOL)
     def wave_current(**kwargs: Any) -> dict[str, Any]:
         """Return the active wave ID, lifecycle status, and admitted changes."""
         bad = _ensure_no_extra_args("wave_current", kwargs)
@@ -2164,23 +3423,31 @@ def build_server(root: Path):
             return bad
         return wave_current_response(root, cache)
 
-    @mcp.tool()
-    def wave_list_waves(**kwargs: Any) -> dict[str, Any]:
-        """List all waves with their ID, status, and change count."""
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def wave_list_waves(limit: int = 50, **kwargs: Any) -> dict[str, Any]:
+        """List all waves with their ID, status, and change count.
+
+        Args:
+            limit: Maximum waves to return (1–200, default 50). Check ``has_more`` for truncation.
+        """
         bad = _ensure_no_extra_args("wave_list_waves", kwargs)
         if bad is not None:
             return bad
-        return wave_list_waves_response(root, cache)
+        return wave_list_waves_response(root, limit=limit, cache=cache)
 
-    @mcp.tool()
-    def wave_list_plans(**kwargs: Any) -> dict[str, Any]:
-        """List pending plan/change docs in docs/plans."""
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def wave_list_plans(limit: int = 50, **kwargs: Any) -> dict[str, Any]:
+        """List pending plan/change docs in docs/plans.
+
+        Args:
+            limit: Maximum plans to return (1–200, default 50). Check ``has_more`` for truncation.
+        """
         bad = _ensure_no_extra_args("wave_list_plans", kwargs)
         if bad is not None:
             return bad
-        return wave_list_plans_response(root, cache)
+        return wave_list_plans_response(root, limit=limit, cache=cache)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READONLY_TOOL)
     def wave_get_change(change_id: str, **kwargs: Any) -> dict[str, Any]:
         """Return the full text of a change doc by ID prefix.
 
@@ -2192,7 +3459,7 @@ def build_server(root: Path):
             return bad
         return wave_get_change_response(root, change_id)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READONLY_TOOL)
     def wave_get_prompt(shortcut: str, **kwargs: Any) -> dict[str, Any]:
         """Return the full rendered prompt for a Wave Framework shortcut phrase.
 
@@ -2204,7 +3471,7 @@ def build_server(root: Path):
             return bad
         return wave_get_prompt_response(root, shortcut, cache)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READONLY_TOOL)
     def wave_map(address: str, **kwargs: Any) -> dict[str, Any]:
         """Resolve a doc:/code:/seed: anchor to repo path, trust label, excerpt, and index match flag.
 
@@ -2216,7 +3483,7 @@ def build_server(root: Path):
             return bad
         return wave_map_response(root, address, index)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_create_wave(slug: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Create a wave record under docs/waves using a lifecycle wave ID.
 
@@ -2229,7 +3496,7 @@ def build_server(root: Path):
             return bad
         return wave_create_wave_response(root, slug, mode=mode, cache=cache)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_add_change(wave_id: str, change_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Admit a change into a wave's Changes section.
 
@@ -2243,41 +3510,66 @@ def build_server(root: Path):
             return bad
         return wave_add_change_response(root, wave_id, change_id, mode=mode, cache=cache)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_remove_change(wave_id: str, change_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
-        """Remove an admitted change from a wave's Changes section."""
+        """Remove an admitted change from a wave's Changes section.
+
+        Args:
+            wave_id: Wave ID or unique prefix.
+            change_id: Change ID or unique prefix to remove.
+            mode: Either "dry_run" or "create".
+        """
         bad = _ensure_no_extra_args("wave_remove_change", kwargs)
         if bad is not None:
             return bad
         return wave_remove_change_response(root, wave_id, change_id, mode=mode, cache=cache)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_prepare(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
-        """Transactional prepare check: validates docs and confirms wave has admitted changes."""
+        """Transactional prepare check: validates docs and confirms wave has admitted changes.
+
+        Args:
+            wave_id: Wave ID or unique prefix.
+            mode: Either "dry_run" (validate only) or "create" (write Prepared checkpoint).
+        """
         bad = _ensure_no_extra_args("wave_prepare", kwargs)
         if bad is not None:
             return bad
         return wave_prepare_response(root, wave_id, mode=mode, cache=cache)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_pause(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
-        """Write or preview a session handoff entry for an active wave."""
+        """Write or preview a session handoff entry for an active wave.
+
+        Args:
+            wave_id: Wave ID or unique prefix.
+            mode: Either "dry_run" (preview only) or "create" (write handoff entry).
+        """
         bad = _ensure_no_extra_args("wave_pause", kwargs)
         if bad is not None:
             return bad
         return wave_pause_response(root, wave_id, mode=mode, cache=cache)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READONLY_TOOL)
     def wave_review(wave_id: str, **kwargs: Any) -> dict[str, Any]:
-        """Run review readiness checks for a wave and return structured lane summary."""
+        """Run review readiness checks for a wave and return structured lane summary.
+
+        Args:
+            wave_id: Wave ID or unique prefix.
+        """
         bad = _ensure_no_extra_args("wave_review", kwargs)
         if bad is not None:
             return bad
         return wave_review_response(root, wave_id)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_DESTRUCTIVE_TOOL)
     def wave_close(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
-        """Dry-run or close a wave after validation passes."""
+        """Dry-run or close a wave after validation passes.
+
+        Args:
+            wave_id: Wave ID or unique prefix.
+            mode: Either "dry_run" (validate only) or "create" (write Closed checkpoint).
+        """
         bad = _ensure_no_extra_args("wave_close", kwargs)
         if bad is not None:
             return bad
@@ -2288,9 +3580,12 @@ def build_server(root: Path):
     def _new_change_response(kind: str, slug: str) -> dict[str, Any]:
         return wave_change_create_response(root, kind, slug, mode="create", cache=cache)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_change_create(kind: str, slug: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Create or dry-run a scaffolded change doc using a lifecycle kind enum.
+
+        Prefer ``wave_new_*`` convenience tools when the kind is known. Use this tool
+        when constructing the kind dynamically or to dry-run before committing.
 
         Args:
             kind: One of bug, feat, enh, change, doc, debt, ref, task, maint, ops.
@@ -2302,9 +3597,12 @@ def build_server(root: Path):
             return bad
         return wave_change_create_response(root, kind, slug, mode=mode, cache=cache)
 
-    @mcp.tool()
+    # wave_new_* convenience wrappers always write (mode="create"). Use wave_change_create
+    # with mode="dry_run" when you need to preview before writing.
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_new_feature(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded feature change doc. Returns the ID and path.
+        """Create a scaffolded feature change doc (kind=feat). Returns the ID and path.
 
         Args:
             slug: Kebab-case slug, e.g. "my-new-feature".
@@ -2314,9 +3612,9 @@ def build_server(root: Path):
             return bad
         return _new_change_response("feat", slug)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_new_bug(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded bug change doc. Returns the ID and path.
+        """Create a scaffolded bug change doc (kind=bug). Returns the ID and path.
 
         Args:
             slug: Kebab-case slug, e.g. "login-redirect-broken".
@@ -2326,9 +3624,9 @@ def build_server(root: Path):
             return bad
         return _new_change_response("bug", slug)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_new_enhancement(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded enhancement change doc. Returns the ID and path.
+        """Create a scaffolded enhancement change doc (kind=enh). Returns the ID and path.
 
         Args:
             slug: Kebab-case slug, e.g. "improve-search-ranking".
@@ -2338,9 +3636,9 @@ def build_server(root: Path):
             return bad
         return _new_change_response("enh", slug)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_new_refactor(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded refactor change doc. Returns the ID and path.
+        """Create a scaffolded refactor change doc (kind=ref). Returns the ID and path.
 
         Args:
             slug: Kebab-case slug, e.g. "extract-auth-module".
@@ -2350,9 +3648,9 @@ def build_server(root: Path):
             return bad
         return _new_change_response("ref", slug)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_new_change(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded general change doc. Returns the ID and path.
+        """Create a scaffolded general change doc (kind=change). Returns the ID and path.
 
         Args:
             slug: Kebab-case slug, e.g. "update-release-process".
@@ -2362,9 +3660,9 @@ def build_server(root: Path):
             return bad
         return _new_change_response("change", slug)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_new_documentation(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded documentation change doc. Returns the ID and path.
+        """Create a scaffolded documentation change doc (kind=doc). Returns the ID and path.
 
         Args:
             slug: Kebab-case slug, e.g. "document-install-flow".
@@ -2374,9 +3672,9 @@ def build_server(root: Path):
             return bad
         return _new_change_response("doc", slug)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_new_tech_debt(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded technical debt change doc. Returns the ID and path.
+        """Create a scaffolded technical debt change doc (kind=debt). Returns the ID and path.
 
         Args:
             slug: Kebab-case slug, e.g. "reduce-indexer-coupling".
@@ -2386,9 +3684,9 @@ def build_server(root: Path):
             return bad
         return _new_change_response("debt", slug)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_new_task(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded task change doc. Returns the ID and path.
+        """Create a scaffolded task change doc (kind=task). Returns the ID and path.
 
         Args:
             slug: Kebab-case slug, e.g. "refresh-fixtures".
@@ -2398,9 +3696,9 @@ def build_server(root: Path):
             return bad
         return _new_change_response("task", slug)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_new_maintenance(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded maintenance change doc. Returns the ID and path.
+        """Create a scaffolded maintenance change doc (kind=maint). Returns the ID and path.
 
         Args:
             slug: Kebab-case slug, e.g. "rotate-generated-surfaces".
@@ -2410,9 +3708,9 @@ def build_server(root: Path):
             return bad
         return _new_change_response("maint", slug)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_new_operations(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded operations change doc. Returns the ID and path.
+        """Create a scaffolded operations change doc (kind=ops). Returns the ID and path.
 
         Args:
             slug: Kebab-case slug, e.g. "update-release-checklist".
@@ -2424,7 +3722,65 @@ def build_server(root: Path):
 
     # --- Framework operations ---
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def wave_index_health(**kwargs: Any) -> dict[str, Any]:
+        """Check the semantic index health for each layer (project + framework).
+
+        Returns per-layer ``readiness`` (``missing`` / ``stale`` / ``current`` / ``idle``),
+        aggregate ``readiness_overview`` (``incomplete`` / ``needs_update`` / ``degraded`` /
+        ``absent`` / ``ready``), ``compatible_chunks``, ``stale_layers``, ``missing_layers``,
+        and ``semantic_ready``. Use this to diagnose index issues explicitly rather than
+        inferring them from degraded docs_search results.
+
+        If ``readiness_overview`` is not ``ready``, call ``wave_index_build`` to rebuild
+        the missing or stale layer (e.g. ``wave_index_build(content='docs', mode='update')``).
+        """
+        bad = _ensure_no_extra_args("wave_index_health", kwargs)
+        if bad is not None:
+            return bad
+        return wave_index_health_response(index)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def wave_audit(wave_id: str = "", **kwargs: Any) -> dict[str, Any]:
+        """Aggregate read-only audit: wave state + docs validation + index health.
+
+        Returns ``data.ready`` (``true`` only when wave is active/planned, docs-lint
+        passes, and ``semantic_ready`` is ``true``), plus three sub-objects:
+        ``wave`` (current wave record), ``validation`` (lint pass/fail + errors),
+        and ``index`` (semantic index health summary).
+
+        Use this as the preferred landing tool after any mutation or uncertainty.
+        When any sub-check fails, ``next_tools`` lists the specific recovery tool
+        to call (``wave_validate``, ``wave_index_build``, or ``wave_current``).
+
+        Args:
+            wave_id: Optional wave ID prefix to audit a specific wave. Defaults to
+                the currently active or planned wave.
+        """
+        bad = _ensure_no_extra_args("wave_audit", kwargs)
+        if bad is not None:
+            return bad
+        return wave_audit_response(root, wave_id=wave_id, index=index, cache=cache)
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_index_build(content: str = "docs", mode: str = "update", layer: str = "project", **kwargs: Any) -> dict[str, Any]:
+        """Run a synchronous semantic index **build** for the current repo root.
+
+        Use ``mode='update'`` (default) for an incremental hash-based refresh of changed files.
+        Use ``mode='rebuild'`` to force a full rebuild of the selected ``content`` for ``layer``.
+        Successful responses include ``mode``, ``index_scope``, and runtime ``stats``.
+
+        Args:
+            content: One of `docs`, `code`, or `all`.
+            mode: `update` (incremental) or `rebuild` (full).
+            layer: `project` for the repo-local index or `framework` for packaged framework docs/seeds.
+        """
+        bad = _ensure_no_extra_args("wave_index_build", kwargs)
+        if bad is not None:
+            return bad
+        return wave_index_build_response(root, content=content, mode=mode, layer=layer, cache=cache)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
     def wave_validate(**kwargs: Any) -> dict[str, Any]:
         """Run docs_lint against the project. Returns structured pass/fail with errors."""
         bad = _ensure_no_extra_args("wave_validate", kwargs)
@@ -2432,21 +3788,29 @@ def build_server(root: Path):
             return bad
         return wave_validate_response(root)
 
-    @mcp.tool()
-    def wave_garden(**kwargs: Any) -> dict[str, Any]:
-        """Run docs_gardener to update Last verified dates. Returns summary."""
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_garden(mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
+        """Run docs_gardener to update Last verified dates. Returns summary.
+
+        Args:
+            mode: Either "dry_run" (preview, no writes) or "run" (execute gardener).
+        """
         bad = _ensure_no_extra_args("wave_garden", kwargs)
         if bad is not None:
             return bad
-        return wave_garden_response(root, cache)
+        return wave_garden_response(root, mode=mode, cache=cache)
 
-    @mcp.tool()
-    def wave_sync_surfaces(**kwargs: Any) -> dict[str, Any]:
-        """Run render_platform_surfaces to regenerate .claude/, .cursor/ hook configs."""
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_sync_surfaces(mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
+        """Run render_platform_surfaces to regenerate .claude/, .cursor/ hook configs.
+
+        Args:
+            mode: Either "dry_run" (preview, no writes) or "run" (execute renderer).
+        """
         bad = _ensure_no_extra_args("wave_sync_surfaces", kwargs)
         if bad is not None:
             return bad
-        return wave_sync_surfaces_response(root, cache)
+        return wave_sync_surfaces_response(root, mode=mode, cache=cache)
 
     tool_names = _registered_mcp_tool_names(mcp)
     violations = first_party_tool_names_violating_prefix(tool_names)

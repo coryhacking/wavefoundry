@@ -1,31 +1,4 @@
 {
-  "schema_version": "1.0",
-  "seed_framework_source": ".wavefoundry/framework",
-  "framework_revision": "2026-04-29a",
-  "generated_at": "2026-04-29",
-  "generated_artifacts": [
-    "docs/prompts/prompt-surface-manifest.json",
-    "docs/agents/session-handoff.md",
-    "docs/waves/",
-    "docs/agents/journals/",
-    "docs/agents/personas/"
-  ],
-  "public_prompt_surface": [
-    { "shortcut": "Init wave framework", "doc": "docs/prompts/install-wavefoundry.md" },
-    { "shortcut": "Upgrade wave framework", "doc": "docs/prompts/upgrade-wavefoundry.md" },
-    { "shortcut": "Plan feature", "doc": "docs/prompts/plan-feature.md" },
-    { "shortcut": "Create wave", "doc": "docs/prompts/create-wave.md" },
-    { "shortcut": "Add change to wave", "doc": "docs/prompts/add-change-to-wave.md" },
-    { "shortcut": "Remove change from wave", "doc": "docs/prompts/remove-change-from-wave.md" },
-    { "shortcut": "Prepare wave", "doc": "docs/prompts/prepare-wave.md" },
-    { "shortcut": "Implement wave", "doc": "docs/prompts/implement-wave.md" },
-    { "shortcut": "Implement feature", "doc": "docs/prompts/implement-feature.md" },
-    { "shortcut": "Pause wave", "doc": "docs/prompts/pause-wave.md" },
-    { "shortcut": "Review wave", "doc": "docs/prompts/review-wave.md" },
-    { "shortcut": "Close wave", "doc": "docs/prompts/close-wave.md" },
-    { "shortcut": "Finalize feature", "doc": "docs/prompts/finalize-feature.md" },
-    { "shortcut": "Interrogate this plan", "doc": "docs/prompts/interrogate-plan.md" }
-  ],
   "enabled_internal_features": [
     "agent_journals",
     "project_personas",
@@ -33,11 +6,81 @@
     "wave_lifecycle",
     "platform_hooks"
   ],
+  "framework_revision": "2026-04-29a",
+  "generated_artifacts": [
+    "docs/prompts/prompt-surface-manifest.json",
+    "docs/agents/session-handoff.md",
+    "docs/waves/",
+    "docs/agents/journals/",
+    "docs/agents/personas/"
+  ],
+  "generated_at": "2026-04-29",
   "generated_personas": [
     "docs/agents/personas/framework-operator.md",
     "docs/agents/personas/wave-coordinator.md"
   ],
   "journal_root": "docs/agents/journals/",
-  "wave_root": "docs/waves/",
-  "upgrade_merge_notes": "Preserve repo-grown adaptations in docs/prompts/ during upgrade; do not overwrite project-specific guidance."
+  "last_gardened_at": "2026-04-30",
+  "public_prompt_surface": [
+    {
+      "doc": "docs/prompts/install-wavefoundry.md",
+      "shortcut": "Init wave framework"
+    },
+    {
+      "doc": "docs/prompts/upgrade-wavefoundry.md",
+      "shortcut": "Upgrade wave framework"
+    },
+    {
+      "doc": "docs/prompts/plan-feature.md",
+      "shortcut": "Plan feature"
+    },
+    {
+      "doc": "docs/prompts/create-wave.md",
+      "shortcut": "Create wave"
+    },
+    {
+      "doc": "docs/prompts/add-change-to-wave.md",
+      "shortcut": "Add change to wave"
+    },
+    {
+      "doc": "docs/prompts/remove-change-from-wave.md",
+      "shortcut": "Remove change from wave"
+    },
+    {
+      "doc": "docs/prompts/prepare-wave.md",
+      "shortcut": "Prepare wave"
+    },
+    {
+      "doc": "docs/prompts/implement-wave.md",
+      "shortcut": "Implement wave"
+    },
+    {
+      "doc": "docs/prompts/implement-feature.md",
+      "shortcut": "Implement feature"
+    },
+    {
+      "doc": "docs/prompts/pause-wave.md",
+      "shortcut": "Pause wave"
+    },
+    {
+      "doc": "docs/prompts/review-wave.md",
+      "shortcut": "Review wave"
+    },
+    {
+      "doc": "docs/prompts/close-wave.md",
+      "shortcut": "Close wave"
+    },
+    {
+      "doc": "docs/prompts/finalize-feature.md",
+      "shortcut": "Finalize feature"
+    },
+    {
+      "doc": "docs/prompts/interrogate-plan.md",
+      "shortcut": "Interrogate this plan"
+    }
+  ],
+  "schema_version": "1.0",
+  "seed_framework_source": ".wavefoundry/framework",
+  "upgrade_merge_notes": "Preserve repo-grown adaptations in docs/prompts/ during upgrade; do not overwrite project-specific guidance.",
+  "wave_root": "docs/waves/"
 }

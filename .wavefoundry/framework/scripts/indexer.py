@@ -200,17 +200,49 @@ def _filter_project_index_excludes(
     files: list[Path],
     root: Path,
     include_prefixes: tuple[str, ...],
+    *,
+    project_include_prefixes: tuple[str, ...] = (),
 ) -> list[Path]:
     """Exclude framework source from the default project-local index layer."""
     if include_prefixes:
         return files
+    normalized_includes = tuple(
+        prefix.strip("/").replace("\\", "/")
+        for prefix in project_include_prefixes
+        if prefix.strip()
+    )
+
+    def _allowed_by_project_include_prefixes(rel_path: str) -> bool:
+        return any(rel_path == prefix or rel_path.startswith(prefix + "/") for prefix in normalized_includes)
+
     return [
         path for path in files
-        if not any(
+        if _allowed_by_project_include_prefixes(str(path.relative_to(root)).replace("\\", "/"))
+        or not any(
             str(path.relative_to(root)).replace("\\", "/").startswith(prefix)
             for prefix in PROJECT_INDEX_EXCLUDE_PREFIXES
         )
     ]
+
+
+def _normalize_prefixes(prefixes: tuple[str, ...]) -> tuple[str, ...]:
+    normalized: list[str] = []
+    for raw in prefixes:
+        token = raw.strip().replace("\\", "/").strip("/")
+        if token and token not in normalized:
+            normalized.append(token)
+    return tuple(normalized)
+
+
+def _content_project_include_prefixes(
+    content: str,
+    configured_prefixes: tuple[str, ...],
+) -> tuple[str, ...]:
+    if not configured_prefixes:
+        return ()
+    if content not in CONTENT_CHOICES:
+        return ()
+    return _normalize_prefixes(configured_prefixes)
 
 
 def _is_generated_code_path(rel_path: str) -> bool:
@@ -381,22 +413,6 @@ def _is_docs_kind(kind: str) -> bool:
     return kind in ("doc", "seed")
 
 
-def _build_chunks_for_file(rel_path: str, content: str) -> tuple[list[dict], list[dict]]:
-    """Return (doc_chunks, code_chunks) for a single file."""
-    # Import chunker from sibling scripts directory
-    import importlib.util
-    chunker_path = Path(__file__).resolve().parent / "chunker.py"
-    spec = importlib.util.spec_from_file_location("chunker", chunker_path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules.setdefault("chunker", mod)
-    spec.loader.exec_module(mod)
-
-    raw = mod.chunk_file(content, rel_path)
-    doc_chunks = [c.to_dict() for c in raw if _is_docs_kind(c.kind)]
-    code_chunks = [c.to_dict() for c in raw if not _is_docs_kind(c.kind)]
-    return doc_chunks, code_chunks
-
-
 # We cache the chunker module after first load
 _chunker_mod = None
 
@@ -435,6 +451,7 @@ def build_index(
     respect_ignore: bool = True,
     include_tests: bool = False,
     include_generated: bool = False,
+    project_include_prefixes: tuple[str, ...] = (),
     verbose: bool = False,
 ) -> dict:
     index_dir = index_dir or (root / INDEX_DIR_NAME)
@@ -451,6 +468,7 @@ def build_index(
             respect_ignore=respect_ignore,
             include_tests=include_tests,
             include_generated=include_generated,
+            project_include_prefixes=project_include_prefixes,
             verbose=verbose,
         )
 
@@ -465,6 +483,7 @@ def _build_index_locked(
     respect_ignore: bool = True,
     include_tests: bool = False,
     include_generated: bool = False,
+    project_include_prefixes: tuple[str, ...] = (),
     verbose: bool = False,
 ) -> dict:
     """Build or incrementally update the index at root/.wavefoundry/index/.
@@ -516,7 +535,14 @@ def _build_index_locked(
     files = walk_repo(root, respect_ignore=respect_ignore)
     files = [path for path in files if not _is_relative_to(path, index_dir)]
     files = _filter_by_prefixes(files, root, include_prefixes)
-    files = _filter_project_index_excludes(files, root, include_prefixes)
+    content_for_filter = "all" if build_docs and build_code else ("docs" if build_docs else "code")
+    resolved_project_includes = _content_project_include_prefixes(content_for_filter, project_include_prefixes)
+    files = _filter_project_index_excludes(
+        files,
+        root,
+        include_prefixes,
+        project_include_prefixes=resolved_project_includes,
+    )
     files_for_content = files
     if build_code and not build_docs:
         files_for_content = _filter_code_files(
@@ -613,10 +639,10 @@ def _build_index_locked(
     for file_path in files_to_index:
         rel = str(file_path.relative_to(root)).replace("\\", "/")
         try:
-            content = file_path.read_text(encoding="utf-8", errors="replace")
+            source_text = file_path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        dc, cc = _chunks_for_file(rel, content)
+        dc, cc = _chunks_for_file(rel, source_text)
         if build_docs:
             new_doc_chunks.extend(dc)
         if build_code:
@@ -774,6 +800,16 @@ def watch_index(root: Path, verbose: bool = False) -> None:
 # ---------------------------------------------------------------------------
 
 def _discover_root() -> Path:
+    """Walk up from CWD to find the repo root anchored by ``workflow-config.json``.
+
+    Intentional differences from the copies in other scripts:
+    - No ``override`` parameter (callers use ``--root`` CLI arg instead).
+    - Never returns ``None`` — falls back to CWD.
+
+    Cross-reference: ``server._discover_root``, ``lifecycle_id.discover_repo_root``,
+    ``render_platform_surfaces.discover_repo_root``, ``docs_gardener.project_root``.
+    A future consolidation task should unify these into a shared utility.
+    """
     for env_key in ("PROJECT_ROOT", "REPO_ROOT"):
         raw = os.environ.get(env_key)
         if raw:
@@ -795,7 +831,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--content",
         choices=CONTENT_CHOICES,
         default="docs",
-        help="Content type to index (default: docs). Use code as a separate pass to avoid loading both models.",
+        help=(
+            "Content type to index (default: docs). "
+            "`all` builds docs and code in one pass (used by setup_index.py --include-code). "
+            "`code` indexes code only."
+        ),
     )
     parser.add_argument("--index-dir", type=Path, default=None, help="Index output directory (default: <root>/.wavefoundry/index)")
     parser.add_argument(
@@ -811,6 +851,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--include-tests", action="store_true", help="Include target test files in semantic code indexing")
     parser.add_argument("--include-generated", action="store_true", help="Include generated platform hook files in semantic code indexing")
+    parser.add_argument(
+        "--project-include-prefix",
+        action="append",
+        default=[],
+        help=(
+            "Allow this repo-relative prefix to bypass default project index excludes "
+            "(repeatable; applies to content=code)."
+        ),
+    )
     parser.add_argument("--watch", action="store_true", help="Watch for file changes and rebuild incrementally (requires watchdog)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Print progress")
     return parser.parse_args(argv)
@@ -833,6 +882,7 @@ def main(argv: list[str] | None = None) -> int:
         respect_ignore=not args.no_ignore_files,
         include_tests=args.include_tests,
         include_generated=args.include_generated,
+        project_include_prefixes=tuple(args.project_include_prefix),
         verbose=args.verbose,
     )
     return 0

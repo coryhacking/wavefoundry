@@ -11,4 +11,4 @@ Thin pointer. Read `AGENTS.md` first.
 
 - Stage gate before any code edit: change doc → wave admission → Prepare wave
 - Never commit without explicit operator instruction
-- Do not edit `.wavefoundry/framework/seeds/*.prompt.md` unless `.aiignore` line is temporarily commented out
+- Do not edit `.wavefoundry/framework/seeds/*.prompt.md` without `seed_edit_allowed` in `.wavefoundry/guard-overrides.json` and an admitted change doc per `AGENTS.md`

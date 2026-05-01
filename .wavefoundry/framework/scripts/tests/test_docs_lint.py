@@ -640,6 +640,79 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertIn("python bytecode cache should not be checked in", result.stderr)
 
 
+class CheckPycacheTests(unittest.TestCase):
+    """Unit tests for ``check_pycache`` — tracked vs untracked ``__pycache__`` under framework scripts."""
+
+    def setUp(self) -> None:
+        import sys
+
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        from wave_lint_lib.core_validators import check_pycache
+
+        self._check_pycache = check_pycache
+        self._root = Path(tempfile.mkdtemp(prefix="wave-check-pycache-"))
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self._root)
+
+    def _scripts_pycache(self) -> Path:
+        d = self._root / ".wavefoundry" / "framework" / "scripts" / "__pycache__"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "fixture.pyc").write_bytes(b"x")
+        return d
+
+    def _init_git(self) -> None:
+        (self._root / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+        scripts = self._root / ".wavefoundry" / "framework" / "scripts"
+        scripts.mkdir(parents=True, exist_ok=True)
+        (scripts / "holder.txt").write_text("keep\n", encoding="utf-8")
+        subprocess.run(["git", "init"], cwd=self._root, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "docs-lint-pycache-test@example.com"],
+            cwd=self._root,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "docs-lint pycache test"],
+            cwd=self._root,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(["git", "add", "-A"], cwd=self._root, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=self._root, check=True, capture_output=True)
+
+    def test_pycache_on_disk_without_git_fails(self) -> None:
+        self._scripts_pycache()
+        errors = self._check_pycache(self._root)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("__pycache__", errors[0])
+
+    def test_git_repo_without_on_disk_pycache_passes_without_invoking_classify(self) -> None:
+        """Filesystem has no ``__pycache__`` under framework scripts, so git is not consulted."""
+        self._init_git()
+        self.assertEqual(self._check_pycache(self._root), [])
+
+    def test_pycache_untracked_passes_in_git_repo(self) -> None:
+        self._init_git()
+        self._scripts_pycache()
+        self.assertEqual(self._check_pycache(self._root), [])
+
+    def test_pycache_tracked_fails_in_git_repo(self) -> None:
+        self._init_git()
+        pycache = self._scripts_pycache()
+        subprocess.run(
+            ["git", "add", "-f", str(pycache / "fixture.pyc")],
+            cwd=self._root,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(["git", "commit", "-m", "track pyc"], cwd=self._root, check=True, capture_output=True)
+        errors = self._check_pycache(self._root)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("__pycache__", errors[0])
+
+
 class LinkValidatorUnitTests(unittest.TestCase):
     """Unit tests for check_markdown_links — exercises the function directly."""
 

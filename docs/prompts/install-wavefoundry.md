@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-04-30
 
 Shortcut: **`Init wave framework`** | Legacy: **`Init wave context`**
 
@@ -26,6 +26,42 @@ See `.wavefoundry/framework/seeds/010-install-wavefoundry.prompt.md` for the com
 ## Git Commits
 
 **Operator-owned.** Agent hands off diff + suggested message. Operator commits.
+
+## MCP / Wavefoundry Server
+
+After installing Wave Framework, enable the local MCP server in your agent host so tools like `wave_help`, `docs_search`, and `wave_audit` are available.
+
+**Step 1 — Build the semantic index:**
+
+```bash
+python3 .wavefoundry/framework/scripts/setup_index.py
+```
+
+**Step 2 — Register the server in your host:**
+
+| Host | Registration surface | What to do |
+|------|----------------------|------------|
+| **Claude Code** | `.mcp.json` (auto-generated) | Run `render_platform_surfaces --platform claude`. Open the project — Claude Code discovers `.mcp.json` automatically. |
+| **Cursor** | `.cursor/mcp.json` (auto-generated) | Run `render_platform_surfaces --platform cursor`. Enable under **Cursor → Settings → MCP** if not auto-loaded. |
+| **Junie** | `.junie/mcp/mcp.json` (auto-generated) | Run `render_platform_surfaces --platform junie`. Junie discovers this on project open. |
+| **GitHub Copilot** | VS Code MCP settings | Open **VS Code → Settings → MCP servers** and add the stdio entry below. |
+| **Codex / Air / other** | Host UI | Add the stdio entry below via your host's MCP attachment UI. See your host's MCP documentation. |
+
+**Copy-ready stdio entry** (replace `<repo>` with the absolute path to this repository):
+
+```json
+{
+  "command": "python3",
+  "args": [
+    ".wavefoundry/framework/scripts/server.py",
+    "--root", "<repo>"
+  ]
+}
+```
+
+See `AGENTS.md → MCP / Wavefoundry server — enabling per host` for the full matrix with UI paths and vendor links.
+
+**Docs validation (agents):** After MCP is enabled, use **`wave_validate`** and **`wave_garden`** for the docs gate instead of shelling out to `.wavefoundry/bin/docs-lint` / `.wavefoundry/bin/docs-gardener`. Use the bin launchers only when MCP is not attached (CI, hooks, bare terminal).
 
 ## Aliases
 

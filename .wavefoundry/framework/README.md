@@ -155,7 +155,7 @@ After planting this pack into another project's repository and running init or u
 - refreshable artifacts in topical homes such as `docs/prompts/prompt-surface-manifest.json`, `docs/waves/`, `docs/agents/journals/`, and `docs/agents/session-handoff.md`
 - `docs/agents/personas/`
 - root agent entry files and thin platform-native pointers when enabled
-- root wrappers for `./docs-lint` and `./docs-gardener`
+- `.wavefoundry/bin/docs-lint` and `.wavefoundry/bin/docs-gardener` launchers (no repo-root shims in this repository)
 
 Seeded docs should live in the topical folder that matches their role under `docs/`, including refreshable artifacts. Make regeneration expectations explicit in the topical artifact docs and surrounding canonical docs instead of routing checked-in outputs through `docs/generated/`.
 
