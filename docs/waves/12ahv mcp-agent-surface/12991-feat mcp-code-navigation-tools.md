@@ -1,11 +1,11 @@
 # MCP Code Navigation Tools
 
 Change ID: `12991-feat mcp-code-navigation-tools`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
+Status: complete
 Last verified: 2026-04-29
-Wave: TBD
+Wave: `12ahv mcp-agent-surface`
 
 ## Rationale
 
@@ -120,6 +120,7 @@ Wavefoundry's MCP server has semantic docs/code search, but it does not yet expo
 | Date       | Update                                                                        | Evidence                                             |
 | ---------- | ----------------------------------------------------------------------------- | ---------------------------------------------------- |
 | 2026-04-29 | Planned MCP code-navigation tools covering exact navigation and symbol lookup | `docs/plans/12991-feat mcp-code-navigation-tools.md` |
+| 2026-05-01 | Implementation complete (both milestones). Exact navigation: `code_list_files`, `code_read`, `code_keyword_search` with root-safety, ignore-rule reuse, and line-numbered output. Symbol navigation: `code_definition` (Python AST), `code_references` (Python text-based), both with explicit unsupported-language responses and `code_keyword_search` fallback hints. 25 navigation tests added. `test_all_tools_registered` updated. AGENTS.md three-layer table added. Architecture docs (current-state.md, data-and-control-flow.md) updated. 369 tests pass. docs-lint clean. | `python3 .wavefoundry/framework/scripts/run_tests.py` → 369 OK; `.wavefoundry/bin/docs-lint` → ok |
 
 
 ## Decision Log

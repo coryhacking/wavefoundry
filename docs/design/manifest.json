@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0.0",
+  "extractionVersion": "1.0.0",
+  "extractedAt": null,
+  "canonicalRoot": "docs/design",
+  "sourceStrategy": "repo-evidence-only",
+  "evidenceTypes": [],
+  "artifactCounts": {},
+  "modes": [
+    "light",
+    "dark"
+  ],
+  "validationSummary": {
+    "passed": 0,
+    "failed": 0
+  }
+}

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-30
+Last verified: 2026-05-01
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
@@ -28,6 +28,17 @@ Record a readiness verdict in the wave record `## Review checkpoints` (e.g., `Pr
 - All required review lanes are confirmed
 - AC priority is recorded on each change doc
 - Product-owner acknowledgment is recorded (when applicable)
+
+## Single-Active-Wave Rule
+
+Only one wave may be `active` at a time. `wave_prepare` enforces this: when another wave is already `active`, it returns an `another_wave_active` error diagnostic with `wave_pause` as the recovery tool. To context-switch between waves:
+
+1. `wave_pause(wave_id='<current-active>', mode='create')` — transitions the current active wave from `active` to `paused` and records a session-handoff entry.
+2. `wave_prepare(wave_id='<target>', mode='create')` — promotes the target wave to `active`. Works for `planned → active` (normal prepare) and `paused → active` (resume).
+
+**Resume semantics:** a paused wave is resumed by re-running `wave_prepare` on it. The single-active-wave guard still applies — resume is blocked if any other wave is currently `active`.
+
+The `wave_current` tool returns `data.waves[]` with all non-closed waves: active first (0 or 1), then planned, then paused. Each entry's `next_action` tells you what to do: `implement_wave` (active), `prepare_wave` (planned), or `resume_wave` (paused). The `resume_wave` label is a hint; the underlying transition is still `wave_prepare` on the paused wave.
 
 ## Wavefoundry-Specific Review Lane Selection
 

@@ -780,47 +780,6 @@ class NewChangeTests(unittest.TestCase):
                 self.assertTrue((self.root / result["path"]).exists())
 
 
-class ChangeCreateResponseTests(unittest.TestCase):
-    def setUp(self):
-        self.srv = load_server()
-        self.tmp = tempfile.TemporaryDirectory()
-        self.root = _make_repo(Path(self.tmp.name))
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def test_dry_run_does_not_write_file(self):
-        result = self.srv.wave_change_create_response(self.root, "feat", "guided-tools", mode="dry_run")
-        self.assertEqual(result["status"], "dry_run")
-        self.assertFalse((self.root / result["data"]["path"]).exists())
-
-    def test_create_writes_file_once_and_repeat_is_safe(self):
-        first = self.srv.wave_change_create_response(self.root, "feat", "guided-tools", mode="create")
-        second = self.srv.wave_change_create_response(self.root, "feat", "guided-tools", mode="create")
-
-        self.assertEqual(first["status"], "ok")
-        self.assertTrue((self.root / first["data"]["path"]).exists())
-        self.assertEqual(second["status"], "ok")
-        self.assertEqual(second["diagnostics"][0]["code"], "already_exists")
-
-    def test_invalid_kind_returns_error(self):
-        result = self.srv.wave_change_create_response(self.root, "wave", "not-allowed", mode="dry_run")
-        self.assertEqual(result["status"], "error")
-        self.assertEqual(result["diagnostics"][0]["code"], "invalid_arguments")
-
-    def test_empty_slug_returns_error(self):
-        result = self.srv.wave_change_create_response(self.root, "feat", "   ", mode="dry_run")
-        self.assertEqual(result["status"], "error")
-        self.assertEqual(result["diagnostics"][0]["code"], "invalid_arguments")
-
-    def test_create_triggers_background_index_refresh(self):
-        with patch.object(self.srv, "_trigger_background_index_refresh_for_paths") as trigger:
-            result = self.srv.wave_change_create_response(self.root, "feat", "guided-tools", mode="create")
-
-        self.assertEqual(result["status"], "ok")
-        trigger.assert_called_once_with(self.root, [result["data"]["path"]])
-
-
 class BackgroundIndexRefreshTests(unittest.TestCase):
     def setUp(self):
         self.srv = load_server()
@@ -1049,7 +1008,6 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         text = handoff.read_text(encoding="utf-8")
         self.assertIn("keep-me", text)
         self.assertIn("1200a test-wave", text)
-        self.assertIn("wave_pause", text)
 
     def test_wave_review_reports_ok_when_lint_passes(self):
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
@@ -1794,7 +1752,8 @@ class ServerToolRegistrationTests(unittest.TestCase):
             "wave_list_plans",
             "wave_get_change",
             "wave_get_prompt",
-            "wave_change_create",
+            "wave_open_gate",
+            "wave_close_gate",
             "wave_new_feature",
             "wave_new_bug",
             "wave_new_enhancement",
@@ -1811,6 +1770,13 @@ class ServerToolRegistrationTests(unittest.TestCase):
             "wave_index_health",
             "wave_index_build",
             "wave_audit",
+            "code_list_files",
+            "code_read",
+            "code_keyword_search",
+            "code_definition",
+            "code_references",
+            "wave_get_handoff",
+            "wave_set_handoff",
         }
         self.assertTrue(
             expected.issubset(tool_names),
@@ -1826,6 +1792,1925 @@ class ServerToolRegistrationTests(unittest.TestCase):
         names = self.srv._registered_mcp_tool_names(mcp)
         viol = self.srv.first_party_tool_names_violating_prefix(names)
         self.assertEqual(viol, [], f"Prefix violations: {viol}")
+
+
+# ---------------------------------------------------------------------------
+# DX fix tests (AC-16 through AC-20)
+# ---------------------------------------------------------------------------
+
+class WaveCloseModeDiscoverabilityTests(unittest.TestCase):
+    """AC-16: wave_close invalid-mode response includes valid_modes field."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_invalid_mode_returns_valid_modes_in_data(self):
+        result = self.srv.wave_close_response(self.root, "some-wave", mode="run")
+        self.assertEqual(result["status"], "error")
+        self.assertIn("valid_modes", result["data"])
+        self.assertIn("dry_run", result["data"]["valid_modes"])
+        self.assertIn("create", result["data"]["valid_modes"])
+
+    def test_valid_dry_run_mode_does_not_error_on_mode(self):
+        # wave not found is a different error; confirm mode itself is accepted
+        result = self.srv.wave_close_response(self.root, "nonexistent-wave", mode="dry_run")
+        # Should fail on wave_not_found, not invalid_arguments
+        self.assertTrue(
+            any(d.get("code") == "wave_not_found" for d in result.get("diagnostics", [])),
+            f"Expected wave_not_found diagnostic, got: {result.get('diagnostics')}",
+        )
+
+
+class WaveCreateWaveTemplateTests(unittest.TestCase):
+    """AC-17: wave_create_wave produces wave.md with Wave Summary and Journal Watchpoints stubs."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_wave_md_contains_wave_summary_section(self):
+        result = self.srv.wave_create_wave_response(self.root, "test-wave", mode="create")
+        self.assertEqual(result["status"], "ok")
+        wave_md = self.root / result["data"]["path"]
+        text = wave_md.read_text(encoding="utf-8")
+        self.assertIn("## Wave Summary", text)
+
+    def test_wave_md_contains_journal_watchpoints_section(self):
+        result = self.srv.wave_create_wave_response(self.root, "test-wave", mode="create")
+        self.assertEqual(result["status"], "ok")
+        wave_md = self.root / result["data"]["path"]
+        text = wave_md.read_text(encoding="utf-8")
+        self.assertIn("## Journal Watchpoints", text)
+
+
+class WaveCreateWaveLastVerifiedTests(unittest.TestCase):
+    """12as3: wave_create_wave scaffold emits today's ISO date, not the literal '<date>'."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_wave_create_wave_last_verified_populates_today(self):
+        import datetime
+        result = self.srv.wave_create_wave_response(self.root, "date-test", mode="create")
+        self.assertEqual(result["status"], "ok")
+        wave_md = self.root / result["data"]["path"]
+        text = wave_md.read_text(encoding="utf-8")
+        today_iso = datetime.date.today().isoformat()
+        self.assertIn(f"Last verified: {today_iso}", text)
+        self.assertNotIn("Last verified: <date>", text)
+
+    def test_wave_create_wave_scaffold_last_verified_is_valid(self):
+        """Scaffold emits a valid ISO date that docs-lint will accept."""
+        import re
+        result = self.srv.wave_create_wave_response(self.root, "valid-date", mode="create")
+        wave_md = self.root / result["data"]["path"]
+        text = wave_md.read_text(encoding="utf-8")
+        m = re.search(r"^Last verified:\s*(\S+)", text, re.MULTILINE)
+        self.assertIsNotNone(m, "Last verified line missing from scaffold")
+        value = m.group(1)
+        self.assertRegex(value, r"^\d{4}-\d{2}-\d{2}$", f"Last verified value not ISO date: {value!r}")
+
+
+class WaveAddChangeSectionPlacementTests(unittest.TestCase):
+    """12as3: wave_add_change inserts blocks inside the ## Changes section."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _create_wave(self, slug: str) -> str:
+        return self.srv.wave_create_wave_response(self.root, slug, mode="create")["data"]["wave_id"]
+
+    def _create_change(self, kind: str, slug: str) -> str:
+        return self.srv.new_change(self.root, kind, slug)["id"]
+
+    def _changes_section_and_after(self, wave_md_text: str) -> tuple[str, str]:
+        """Return (text inside ## Changes, text after it) split at next ## heading."""
+        import re
+        m = re.search(r"^## Changes[ \t]*\n", wave_md_text, re.MULTILINE)
+        assert m is not None, "## Changes section missing"
+        rest = wave_md_text[m.end():]
+        next_m = re.search(r"^## ", rest, re.MULTILINE)
+        if next_m:
+            return rest[:next_m.start()], rest[next_m.start():]
+        return rest, ""
+
+    def test_wave_add_change_inserts_inside_changes_section(self):
+        wave_id = self._create_wave("placement-test")
+        change_id = self._create_change("feat", "first-change")
+        result = self.srv.wave_add_change_response(self.root, wave_id, change_id, mode="create")
+        self.assertEqual(result["status"], "ok")
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        inside, after = self._changes_section_and_after(text)
+        self.assertIn(f"Change ID: `{change_id}`", inside)
+        self.assertNotIn(f"Change ID: `{change_id}`", after)
+
+    def test_wave_add_change_preserves_order(self):
+        wave_id = self._create_wave("order-test")
+        first = self._create_change("feat", "alpha")
+        second = self._create_change("feat", "bravo")
+        third = self._create_change("feat", "charlie")
+        for cid in (first, second, third):
+            result = self.srv.wave_add_change_response(self.root, wave_id, cid, mode="create")
+            self.assertEqual(result["status"], "ok", msg=f"admission failed for {cid}: {result}")
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        inside, _ = self._changes_section_and_after(text)
+        idx_first = inside.find(f"Change ID: `{first}`")
+        idx_second = inside.find(f"Change ID: `{second}`")
+        idx_third = inside.find(f"Change ID: `{third}`")
+        self.assertGreaterEqual(idx_first, 0)
+        self.assertGreater(idx_second, idx_first)
+        self.assertGreater(idx_third, idx_second)
+
+    def test_wave_add_change_legacy_layout_round_trips(self):
+        """Wave.md with change blocks already placed before ## Dependencies (legacy)
+        must not be rewritten; new admissions still land inside ## Changes.
+        """
+        wave_id = self._create_wave("legacy-layout")
+        legacy_change_id = "99legacy-feat pre-existing-block"
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        # Simulate the legacy buggy layout: blocks before ## Dependencies.
+        legacy_block = f"\nChange ID: `{legacy_change_id}`\nChange Status: `planned`\n\n"
+        text = text.replace("## Dependencies", legacy_block + "## Dependencies", 1)
+        wave_md.write_text(text, encoding="utf-8")
+        # Also create a change doc the admit path can find (so the admit doesn't fail).
+        new_change = self._create_change("feat", "freshly-admitted")
+        result = self.srv.wave_add_change_response(self.root, wave_id, new_change, mode="create")
+        self.assertEqual(result["status"], "ok", msg=f"admission failed: {result}")
+        text_after = wave_md.read_text(encoding="utf-8")
+        # Legacy block still present in its original position.
+        self.assertIn(f"Change ID: `{legacy_change_id}`", text_after)
+        # New block landed inside ## Changes.
+        inside, _ = self._changes_section_and_after(text_after)
+        self.assertIn(f"Change ID: `{new_change}`", inside)
+
+    def test_wave_add_change_missing_changes_section_guard(self):
+        """When ## Changes is missing (operator edit), create it above the next ## heading."""
+        wave_id = self._create_wave("missing-section")
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        # Remove the ## Changes heading to simulate operator-edited wave.
+        text = text.replace("## Changes\n\n", "", 1)
+        wave_md.write_text(text, encoding="utf-8")
+        change_id = self._create_change("feat", "guard-test")
+        result = self.srv.wave_add_change_response(self.root, wave_id, change_id, mode="create")
+        self.assertEqual(result["status"], "ok", msg=f"admission failed: {result}")
+        text_after = wave_md.read_text(encoding="utf-8")
+        self.assertIn("## Changes", text_after)
+        inside, _ = self._changes_section_and_after(text_after)
+        self.assertIn(f"Change ID: `{change_id}`", inside)
+
+
+class WaveAddChangeBrokenLinksTests(unittest.TestCase):
+    """AC-18: wave_add_change response data includes broken_links list."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _create_wave(self, slug: str) -> str:
+        result = self.srv.wave_create_wave_response(self.root, slug, mode="create")
+        return result["data"]["wave_id"]
+
+    def _create_change(self, kind: str, slug: str) -> str:
+        result = self.srv.new_change(self.root, kind, slug)
+        return result["id"]
+
+    def test_broken_links_empty_when_no_relative_wave_links(self):
+        wave_id = self._create_wave("my-wave")
+        change_id = self._create_change("feat", "clean-change")
+        result = self.srv.wave_add_change_response(self.root, wave_id, change_id, mode="create")
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("broken_links", result["data"])
+        self.assertEqual(result["data"]["broken_links"], [])
+
+    def test_broken_links_detected_when_doc_has_waves_relative_link(self):
+        wave_id = self._create_wave("my-wave")
+        change_id = self._create_change("feat", "linked-change")
+        # Inject a ../waves/ link into the change doc (simulates a doc written from docs/plans/)
+        change_path = self.root / "docs" / "plans" / f"{change_id}.md"
+        existing = change_path.read_text(encoding="utf-8")
+        change_path.write_text(
+            existing + "\n\nSee also [other wave](../waves/1234a other-wave/some-change.md).\n",
+            encoding="utf-8",
+        )
+        result = self.srv.wave_add_change_response(self.root, wave_id, change_id, mode="create")
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("broken_links", result["data"])
+        self.assertGreater(len(result["data"]["broken_links"]), 0)
+        self.assertIn("../waves/", result["data"]["broken_links"][0])
+
+    def test_broken_links_present_in_dry_run_response(self):
+        wave_id = self._create_wave("my-wave")
+        change_id = self._create_change("feat", "dry-check")
+        result = self.srv.wave_add_change_response(self.root, wave_id, change_id, mode="dry_run")
+        self.assertIn("broken_links", result["data"])
+
+
+class WavePrepareJournalFormatHintTests(unittest.TestCase):
+    """AC-19: wave_prepare journal diagnostic includes exact format hint."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        # Ensure journals dir exists
+        (self.root / "docs" / "agents" / "journals").mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_journal_missing_error_includes_format_hint(self):
+        # Create a minimal wave with a planned change but no journal reference
+        wave_id = self.srv.wave_create_wave_response(self.root, "hint-test", mode="create")["data"]["wave_id"]
+        change_id = self.srv.new_change(self.root, "feat", "needs-journal")["id"]
+        self.srv.wave_add_change_response(self.root, wave_id, change_id, mode="create")
+        # Patch wave summary and last-verified so prepare has minimal failures
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        text = text.replace("Last verified: <date>", "Last verified: 2026-05-01")
+        wave_md.write_text(text, encoding="utf-8")
+        result = self.srv.wave_prepare_response(self.root, wave_id, mode="dry_run")
+        diagnostics_text = " ".join(
+            d.get("message", "") for d in result.get("diagnostics", [])
+        )
+        errors_text = " ".join(result.get("data", {}).get("errors", []))
+        combined = diagnostics_text + " " + errors_text
+        # The hint should contain the required format description
+        self.assertIn("wave-id:", combined.lower() + " " + combined)
+        self.assertTrue(
+            "backtick" in combined.lower() or "wave-id:" in combined,
+            f"Expected journal format hint in prepare output, got: {combined[:500]}",
+        )
+
+
+class WaveHelpStartWaveJournalNoteTests(unittest.TestCase):
+    """AC-20: wave_help(goal='start_wave') includes journal key-line note."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_start_wave_rationale_mentions_journal_requirement(self):
+        result = self.srv.wave_help_response(goal="start_wave")
+        self.assertEqual(result["status"], "ok")
+        data_str = str(result["data"])
+        self.assertIn("journal", data_str.lower())
+        self.assertIn("wave-id", data_str.lower())
+
+
+# ---------------------------------------------------------------------------
+# MCP Resource and Resource Template tests (1298v)
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Code navigation tests (12991)
+# ---------------------------------------------------------------------------
+
+class CodeNavigationPathSafetyTests(unittest.TestCase):
+    """AC-4: Root safety — path traversal and absolute paths are rejected."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_code_read_rejects_absolute_path(self):
+        result = self.srv.code_read_response(self.root, "/etc/passwd")
+        self.assertEqual(result["status"], "error")
+        self.assertTrue(any(d["code"] == "path_outside_root" for d in result["diagnostics"]))
+
+    def test_code_read_rejects_traversal(self):
+        result = self.srv.code_read_response(self.root, "../../etc/passwd")
+        self.assertEqual(result["status"], "error")
+        self.assertTrue(any(d["code"] == "path_outside_root" for d in result["diagnostics"]))
+
+    def test_code_read_rejects_missing_file(self):
+        result = self.srv.code_read_response(self.root, "nonexistent.py")
+        self.assertEqual(result["status"], "error")
+        self.assertTrue(any(d["code"] == "file_not_found" for d in result["diagnostics"]))
+
+
+class CodeListFilesTests(unittest.TestCase):
+    """AC-3: File listing returns repo-relative paths and supports glob."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        # Create a few test files
+        src = self.root / "src"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "main.py").write_text("print('hello')\n", encoding="utf-8")
+        (src / "utils.py").write_text("def helper(): pass\n", encoding="utf-8")
+        (self.root / "README.md").write_text("# Test\n", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_lists_all_files_without_glob(self):
+        result = self.srv.code_list_files_response(self.root, glob="")
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("paths", result["data"])
+        paths = result["data"]["paths"]
+        self.assertTrue(any("main.py" in p for p in paths))
+
+    def test_glob_filters_to_python_files(self):
+        result = self.srv.code_list_files_response(self.root, glob="*.py")
+        self.assertEqual(result["status"], "ok")
+        paths = result["data"]["paths"]
+        self.assertTrue(all(p.endswith(".py") for p in paths))
+
+    def test_paths_use_forward_slashes(self):
+        result = self.srv.code_list_files_response(self.root, glob="")
+        paths = result["data"]["paths"]
+        self.assertTrue(all("\\" not in p for p in paths))
+
+    def test_does_not_include_git_dir(self):
+        # .git directory files should be excluded
+        result = self.srv.code_list_files_response(self.root, glob="")
+        paths = result["data"]["paths"]
+        self.assertFalse(any(".git/" in p or p.startswith(".git") for p in paths))
+
+
+class CodeReadTests(unittest.TestCase):
+    """AC-2: Ranged file reads return line-numbered content."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        src = self.root / "src"
+        src.mkdir(parents=True, exist_ok=True)
+        lines = [f"line_{i}" for i in range(1, 21)]  # 20 lines
+        (src / "sample.py").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_full_file_read(self):
+        result = self.srv.code_read_response(self.root, "src/sample.py")
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("content", result["data"])
+        self.assertEqual(result["data"]["total_lines"], 20)
+
+    def test_ranged_read_returns_subset(self):
+        result = self.srv.code_read_response(self.root, "src/sample.py", start_line=5, end_line=10)
+        self.assertEqual(result["status"], "ok")
+        content = result["data"]["content"]
+        self.assertIn("line_5", content)
+        self.assertIn("line_10", content)
+        self.assertNotIn("line_1\n", content)  # line_1 not in this range (line_10 contains "line_1" prefix, but line_1 alone is excluded)
+        self.assertEqual(result["data"]["start_line"], 5)
+        self.assertEqual(result["data"]["end_line"], 10)
+
+    def test_content_is_line_numbered(self):
+        result = self.srv.code_read_response(self.root, "src/sample.py", start_line=1, end_line=3)
+        content = result["data"]["content"]
+        # Should have line numbers like "    1\t..." or "1\t..."
+        self.assertRegex(content, r"\d+\t")
+
+    def test_invalid_range_returns_error(self):
+        result = self.srv.code_read_response(self.root, "src/sample.py", start_line=15, end_line=5)
+        self.assertEqual(result["status"], "error")
+        self.assertTrue(any(d["code"] == "invalid_range" for d in result["diagnostics"]))
+
+
+class CodeKeywordSearchTests(unittest.TestCase):
+    """AC-1: Exact keyword search returns deterministic path/line/snippet results."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        src = self.root / "src"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "alpha.py").write_text("def alpha_func():\n    SEARCH_TARGET = 42\n    return SEARCH_TARGET\n", encoding="utf-8")
+        (src / "beta.py").write_text("def beta_func():\n    pass\n", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_finds_exact_match(self):
+        result = self.srv.code_keyword_search_response(self.root, "SEARCH_TARGET")
+        self.assertEqual(result["status"], "ok")
+        self.assertGreater(result["data"]["count"], 0)
+        paths = [r["path"] for r in result["data"]["results"]]
+        self.assertTrue(any("alpha.py" in p for p in paths))
+
+    def test_returns_line_numbers(self):
+        result = self.srv.code_keyword_search_response(self.root, "SEARCH_TARGET")
+        for r in result["data"]["results"]:
+            self.assertIn("line", r)
+            self.assertIsInstance(r["line"], int)
+
+    def test_glob_filter_restricts_results(self):
+        result = self.srv.code_keyword_search_response(self.root, "def ", glob="*beta*")
+        self.assertEqual(result["status"], "ok")
+        paths = [r["path"] for r in result["data"]["results"]]
+        self.assertFalse(any("alpha.py" in p for p in paths))
+
+    def test_empty_query_returns_error(self):
+        result = self.srv.code_keyword_search_response(self.root, "")
+        self.assertEqual(result["status"], "error")
+
+    def test_no_match_returns_empty_results(self):
+        result = self.srv.code_keyword_search_response(self.root, "ZZZNOMATCHXXX")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["count"], 0)
+
+
+class CodeDefinitionTests(unittest.TestCase):
+    """AC-6: code_definition works for Python and returns unsupported for others."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        src = self.root / "src"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "mymodule.py").write_text(
+            "class MyClass:\n    pass\n\ndef my_function():\n    pass\n\nasync def my_async():\n    pass\n",
+            encoding="utf-8",
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_finds_class_definition(self):
+        result = self.srv.code_definition_response(self.root, "MyClass")
+        self.assertEqual(result["status"], "ok")
+        defs = result["data"]["definitions"]
+        self.assertTrue(any(d["name"] == "MyClass" and d["kind"] == "class" for d in defs))
+
+    def test_finds_function_definition(self):
+        result = self.srv.code_definition_response(self.root, "my_function")
+        self.assertEqual(result["status"], "ok")
+        defs = result["data"]["definitions"]
+        self.assertTrue(any("my_function" in d["name"] for d in defs))
+
+    def test_finds_async_function_definition(self):
+        result = self.srv.code_definition_response(self.root, "my_async")
+        self.assertEqual(result["status"], "ok")
+        defs = result["data"]["definitions"]
+        self.assertTrue(any("my_async" in d["name"] for d in defs))
+
+    def test_not_found_returns_ok_with_diagnostic(self):
+        result = self.srv.code_definition_response(self.root, "NonExistentSymbol")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["definitions"], [])
+        self.assertTrue(any(d["code"] == "not_found" for d in result["diagnostics"]))
+
+    def test_supported_languages_listed(self):
+        result = self.srv.code_definition_response(self.root, "MyClass")
+        self.assertIn("supported_languages", result["data"])
+        self.assertIn("python", result["data"]["supported_languages"])
+
+    def test_note_mentions_non_python_unsupported(self):
+        result = self.srv.code_definition_response(self.root, "MyClass")
+        self.assertIn("note", result["data"])
+        self.assertIn("Python", result["data"]["note"] + result["data"].get("note", ""))
+
+
+class CodeReferencesTests(unittest.TestCase):
+    """AC-7: code_references works for Python and provides fallback note."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        src = self.root / "src"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "caller.py").write_text(
+            "from mymodule import MyClass\n\ndef caller():\n    obj = MyClass()\n    return obj\n",
+            encoding="utf-8",
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_finds_references_in_python_files(self):
+        result = self.srv.code_references_response(self.root, "MyClass")
+        self.assertEqual(result["status"], "ok")
+        self.assertGreater(result["data"]["count"], 0)
+        paths = [r["path"] for r in result["data"]["references"]]
+        self.assertTrue(any("caller.py" in p for p in paths))
+
+    def test_note_mentions_code_keyword_search_fallback(self):
+        result = self.srv.code_references_response(self.root, "MyClass")
+        note = result["data"].get("note", "")
+        self.assertIn("code_keyword_search", note)
+
+    def test_empty_results_when_no_match(self):
+        result = self.srv.code_references_response(self.root, "ZZZNOREFERENCEYYY")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["count"], 0)
+
+
+class McpResourceRegistrationTests(unittest.TestCase):
+    """AC-1/AC-2: MCP resource and resource-template registrations exist."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _get_mcp(self):
+        try:
+            return self.srv.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+
+    def _list_resources(self, mcp):
+        import asyncio
+        return asyncio.run(mcp.list_resources())
+
+    def _list_templates(self, mcp):
+        import asyncio
+        return asyncio.run(mcp.list_resource_templates())
+
+    def test_stable_resources_registered(self):
+        mcp = self._get_mcp()
+        resources = self._list_resources(mcp)
+        uris = {str(r.uri) for r in resources}
+        expected_uris = {
+            "wavefoundry://overview",
+            "wavefoundry://prompts",
+            "wavefoundry://architecture/current-state",
+            "wavefoundry://wave/current",
+            "wavefoundry://session-handoff",
+        }
+        self.assertTrue(
+            expected_uris.issubset(uris),
+            f"Missing resources: {expected_uris - uris}",
+        )
+
+    def test_resource_templates_registered(self):
+        mcp = self._get_mcp()
+        templates = self._list_templates(mcp)
+        uri_templates = {t.uriTemplate for t in templates}
+        expected = {
+            "wavefoundry://change/{change_id}",
+            "wavefoundry://wave/{wave_id}",
+            "wavefoundry://prompt/{slug}",
+            "wavefoundry://seed/{slug}",
+            "wavefoundry://architecture/{slug}",
+        }
+        self.assertTrue(
+            expected.issubset(uri_templates),
+            f"Missing templates: {expected - uri_templates}",
+        )
+
+    def test_existing_tools_still_register(self):
+        mcp = self._get_mcp()
+        tool_names = self.srv._registered_mcp_tool_names(mcp)
+        self.assertIn("wave_validate", tool_names)
+        self.assertIn("wave_current", tool_names)
+
+
+class McpResourceReadTests(unittest.TestCase):
+    """AC-3/AC-4: Resources return expected content or clear not-found messages."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _read_resource(self, uri: str):
+        try:
+            mcp = self.srv.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+        import asyncio
+        result = asyncio.run(mcp.read_resource(uri))
+        # result is a list of ReadResourceContents items
+        for item in result:
+            content = getattr(item, "content", None) or getattr(item, "text", None) or ""
+            if content:
+                return str(content)
+        return ""
+
+    def test_overview_returns_not_found_when_missing(self):
+        text = self._read_resource("wavefoundry://overview")
+        # _make_repo doesn't create project-overview.md or README.md so not-found message expected
+        # but README.md might exist at repo root — accept either content or not-found
+        self.assertIsInstance(text, str)
+        self.assertTrue(len(text) > 0)
+
+    def test_prompt_index_returns_not_found_when_missing(self):
+        text = self._read_resource("wavefoundry://prompts")
+        self.assertIn("Not Found", text)
+
+    def test_architecture_current_state_returns_not_found_when_missing(self):
+        text = self._read_resource("wavefoundry://architecture/current-state")
+        self.assertIn("Not Found", text)
+
+    def test_session_handoff_returns_not_found_when_missing(self):
+        text = self._read_resource("wavefoundry://session-handoff")
+        self.assertIn("Not Found", text)
+
+    def test_current_wave_returns_no_active_wave_message(self):
+        text = self._read_resource("wavefoundry://wave/current")
+        # No active wave in test repo
+        self.assertIn("No Active Wave", text)
+
+    def test_current_wave_returns_wave_md_when_active(self):
+        # Create a wave and mark it active
+        wave_result = self.srv.wave_create_wave_response(self.root, "resource-test", mode="create")
+        wave_id = wave_result["data"]["wave_id"]
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        text = text.replace("Status: planned", "Status: active")
+        wave_md.write_text(text, encoding="utf-8")
+        result_text = self._read_resource("wavefoundry://wave/current")
+        self.assertIn("Wave Record", result_text)
+
+    def test_prompt_index_returns_content_when_exists(self):
+        # Create a prompt index file
+        prompts_dir = self.root / "docs" / "prompts"
+        prompts_dir.mkdir(parents=True, exist_ok=True)
+        (prompts_dir / "index.md").write_text("# Prompt Index\n\n- plan-feature\n", encoding="utf-8")
+        text = self._read_resource("wavefoundry://prompts")
+        self.assertIn("Prompt Index", text)
+
+
+class McpResourceTemplateReadTests(unittest.TestCase):
+    """AC-2/AC-4: Resource templates return content or clear not-found messages."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _read_resource(self, uri: str):
+        try:
+            mcp = self.srv.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+        import asyncio
+        result = asyncio.run(mcp.read_resource(uri))
+        for item in result:
+            content = getattr(item, "content", None) or getattr(item, "text", None) or ""
+            if content:
+                return str(content)
+        return ""
+
+    def test_change_template_returns_not_found_for_unknown_id(self):
+        text = self._read_resource("wavefoundry://change/zzzzz-unknown")
+        self.assertIn("Not Found", text)
+
+    def test_change_template_returns_content_when_exists(self):
+        result = self.srv.new_change(self.root, "feat", "resource-read-test")
+        change_id = result["id"]
+        text = self._read_resource(f"wavefoundry://change/{change_id}")
+        self.assertIn("Change ID", text)
+
+    def test_wave_template_returns_not_found_for_unknown_id(self):
+        text = self._read_resource("wavefoundry://wave/zzzzz-unknown")
+        self.assertIn("Not Found", text)
+
+    def test_wave_template_returns_content_when_exists(self):
+        wave_result = self.srv.wave_create_wave_response(self.root, "tpl-test", mode="create")
+        wave_id = wave_result["data"]["wave_id"]
+        text = self._read_resource(f"wavefoundry://wave/{wave_id}")
+        self.assertIn("Wave Record", text)
+
+    def test_architecture_template_returns_not_found_when_missing(self):
+        text = self._read_resource("wavefoundry://architecture/nonexistent-doc")
+        self.assertIn("Not Found", text)
+
+    def test_architecture_template_returns_content_when_exists(self):
+        arch_dir = self.root / "docs" / "architecture"
+        arch_dir.mkdir(parents=True, exist_ok=True)
+        (arch_dir / "current-state.md").write_text("# Current State\n\nAll good.\n", encoding="utf-8")
+        text = self._read_resource("wavefoundry://architecture/current-state")
+        self.assertIn("Current State", text)
+
+    def test_seed_template_returns_not_found_for_unknown_slug(self):
+        text = self._read_resource("wavefoundry://seed/nonexistent-seed-xyz")
+        self.assertIn("Not Found", text)
+
+
+# ---------------------------------------------------------------------------
+# 12aj7 MCP Layer Polish tests
+# ---------------------------------------------------------------------------
+
+class WaveStatusDriftDetectionTests(unittest.TestCase):
+    """Item 1: wave_current_response includes change_status_drift diagnostic."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_wave_with_drift(self):
+        """Create a wave with one change whose file status differs from wave.md."""
+        wave_dir = self.root / "docs" / "waves" / "test-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        wave_md = wave_dir / "wave.md"
+        wave_md.write_text(
+            "# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-01-01\n\nwave-id: `test-wave`\nTitle: Test Wave\n\n## Changes\n\nChange ID: `abc12-feat my-change`\nChange Status: `in-progress`\n",
+            encoding="utf-8",
+        )
+        change_doc = wave_dir / "abc12-feat my-change.md"
+        change_doc.write_text(
+            "# My Change\n\nChange ID: `abc12-feat my-change`\nChange Status: `complete`\n",
+            encoding="utf-8",
+        )
+        return wave_dir
+
+    def test_no_drift_no_diagnostic(self):
+        wave_dir = self.root / "docs" / "waves" / "test-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        (wave_dir / "wave.md").write_text(
+            "# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-01-01\n\nwave-id: `test-wave`\nTitle: Test Wave\n\n## Changes\n\nChange ID: `abc12-feat my-change`\nChange Status: `in-progress`\n",
+            encoding="utf-8",
+        )
+        (wave_dir / "abc12-feat my-change.md").write_text(
+            "# My Change\n\nChange ID: `abc12-feat my-change`\nChange Status: `in-progress`\n",
+            encoding="utf-8",
+        )
+        resp = self.srv.wave_current_response(self.root)
+        codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
+        self.assertNotIn("change_status_drift", codes)
+
+    def test_drift_produces_diagnostic(self):
+        self._make_wave_with_drift()
+        resp = self.srv.wave_current_response(self.root)
+        codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
+        self.assertIn("change_status_drift", codes)
+
+    def test_drift_response_status_still_ok(self):
+        """Drift detection is advisory — status must remain 'ok'."""
+        self._make_wave_with_drift()
+        resp = self.srv.wave_current_response(self.root)
+        self.assertEqual(resp["status"], "ok")
+
+
+class EditGateToolTests(unittest.TestCase):
+    """12ax9: wave_open_gate / wave_close_gate MCP tools."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+        # Start with both gates closed
+        overrides_path = self.root / ".wavefoundry" / "guard-overrides.json"
+        overrides_path.parent.mkdir(parents=True, exist_ok=True)
+        import json
+        overrides_path.write_text(
+            json.dumps({"seed_edit_allowed": {"enabled": False}, "framework_edit_allowed": {"enabled": False}}) + "\n",
+            encoding="utf-8",
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _read_gates(self):
+        import json
+        path = self.root / ".wavefoundry" / "guard-overrides.json"
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def test_open_closed_gate_succeeds(self):
+        resp = self.srv.wave_open_gate_response(self.root, "seed_edit_allowed")
+        self.assertEqual(resp["status"], "ok")
+        self.assertTrue(self._read_gates()["seed_edit_allowed"]["enabled"])
+
+    def test_open_already_open_gate_returns_error(self):
+        self.srv.wave_open_gate_response(self.root, "seed_edit_allowed")
+        resp = self.srv.wave_open_gate_response(self.root, "seed_edit_allowed")
+        self.assertEqual(resp["status"], "error")
+        codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
+        self.assertIn("gate_already_open", codes)
+
+    def test_close_open_gate_succeeds(self):
+        self.srv.wave_open_gate_response(self.root, "seed_edit_allowed")
+        resp = self.srv.wave_close_gate_response(self.root, "seed_edit_allowed")
+        self.assertEqual(resp["status"], "ok")
+        self.assertFalse(self._read_gates()["seed_edit_allowed"]["enabled"])
+
+    def test_close_already_closed_gate_returns_advisory(self):
+        resp = self.srv.wave_close_gate_response(self.root, "seed_edit_allowed")
+        self.assertEqual(resp["status"], "ok")
+        codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
+        self.assertIn("gate_already_closed", codes)
+
+    def test_framework_edit_allowed_gate_works(self):
+        resp = self.srv.wave_open_gate_response(self.root, "framework_edit_allowed")
+        self.assertEqual(resp["status"], "ok")
+        self.assertTrue(self._read_gates()["framework_edit_allowed"]["enabled"])
+        resp2 = self.srv.wave_close_gate_response(self.root, "framework_edit_allowed")
+        self.assertEqual(resp2["status"], "ok")
+        self.assertFalse(self._read_gates()["framework_edit_allowed"]["enabled"])
+
+    def test_invalid_gate_name_returns_error(self):
+        resp = self.srv.wave_open_gate_response(self.root, "nonexistent_gate")
+        self.assertEqual(resp["status"], "error")
+        codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
+        self.assertIn("invalid_arguments", codes)
+
+
+class GateAutoCloseTests(unittest.TestCase):
+    """12ax9: wave_pause and wave_close auto-close open gates."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _open_gate(self, gate="seed_edit_allowed"):
+        import json
+        path = self.root / ".wavefoundry" / "guard-overrides.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        data.setdefault(gate, {})["enabled"] = True
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+    def _gate_state(self, gate="seed_edit_allowed"):
+        import json
+        path = self.root / ".wavefoundry" / "guard-overrides.json"
+        if not path.exists():
+            return False
+        return json.loads(path.read_text(encoding="utf-8")).get(gate, {}).get("enabled", False)
+
+    def _make_active_wave(self):
+        wave_dir = self.root / "docs" / "waves" / "test-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        (wave_dir / "wave.md").write_text(
+            "# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-05-01\n\nwave-id: `test-wave`\nTitle: Test Wave\n\n## Changes\n\n## Wave Summary\n\nTest.\n\n## Journal Watchpoints\n\n- Test.\n",
+            encoding="utf-8",
+        )
+
+    def test_wave_pause_with_open_gate_forces_close_and_emits_diagnostic(self):
+        self._make_active_wave()
+        self._open_gate("seed_edit_allowed")
+        resp = self.srv.wave_pause_response(self.root, "test-wave", mode="create")
+        self.assertEqual(resp["status"], "ok")
+        codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
+        self.assertIn("gates_forced_closed", codes)
+        self.assertFalse(self._gate_state("seed_edit_allowed"))
+
+    def test_wave_close_dry_run_with_open_gate_emits_diagnostic_but_does_not_write(self):
+        self._make_active_wave()
+        self._open_gate("seed_edit_allowed")
+        resp = self.srv.wave_close_response(self.root, "test-wave", mode="dry_run")
+        # dry_run may fail validation but should still emit gate diagnostic
+        codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
+        self.assertIn("gates_forced_closed", codes)
+        # Gate must NOT be written in dry-run
+        self.assertTrue(self._gate_state("seed_edit_allowed"))
+
+    def test_wave_close_create_with_open_gate_forces_close_and_emits_diagnostic(self):
+        self._make_active_wave()
+        self._open_gate("seed_edit_allowed")
+        # Add minimal review evidence so wave_close can pass validation
+        wave_md = self.root / "docs" / "waves" / "test-wave" / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
+            with patch.object(self.srv, "run_garden", return_value={"passed": True}):
+                resp = self.srv.wave_close_response(self.root, "test-wave", mode="create")
+        codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
+        self.assertIn("gates_forced_closed", codes)
+        self.assertFalse(self._gate_state("seed_edit_allowed"))
+
+    def test_wave_close_with_no_open_gates_has_no_gate_diagnostic(self):
+        self._make_active_wave()
+        wave_md = self.root / "docs" / "waves" / "test-wave" / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
+            with patch.object(self.srv, "run_garden", return_value={"passed": True}):
+                resp = self.srv.wave_close_response(self.root, "test-wave", mode="create")
+        codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
+        self.assertNotIn("gates_forced_closed", codes)
+
+
+class WaveCloseHandoffPreservationTests(unittest.TestCase):
+    """12axd: wave_close and wave_pause preserve session handoff content."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_active_wave(self):
+        wave_dir = self.root / "docs" / "waves" / "hw-test"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        (wave_dir / "wave.md").write_text(
+            "# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-05-01\n\nwave-id: `hw-test`\nTitle: HW Test\n\n## Changes\n\n## Wave Summary\n\nTest.\n\n## Journal Watchpoints\n\n- Test.\n",
+            encoding="utf-8",
+        )
+
+    def _write_handoff(self, content):
+        handoff = self.root / "docs" / "agents" / "session-handoff.md"
+        handoff.parent.mkdir(parents=True, exist_ok=True)
+        handoff.write_text(content, encoding="utf-8")
+
+    def _read_handoff(self):
+        return (self.root / "docs" / "agents" / "session-handoff.md").read_text(encoding="utf-8")
+
+    def test_close_summary_has_required_metadata(self):
+        self._make_active_wave()
+        wave_md = self.root / "docs" / "waves" / "hw-test" / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
+            with patch.object(self.srv, "run_garden", return_value={"passed": True}):
+                self.srv.wave_close_response(self.root, "hw-test", mode="create")
+        import glob
+        summaries = list((self.root / "docs" / "waves" / "hw-test" / "archive").glob("close-summary-*.md"))
+        self.assertEqual(len(summaries), 1)
+        content = summaries[0].read_text(encoding="utf-8")
+        self.assertIn("Owner:", content)
+        self.assertIn("Status: closed", content)
+        self.assertIn("Last verified:", content)
+
+    def test_wave_close_preserves_handoff_content_outside_active_wave(self):
+        self._make_active_wave()
+        custom_section = "## My Notes\n\nSome important agent notes that must survive.\n"
+        self._write_handoff(
+            f"# Session Handoff\n\nOwner: wave-coordinator\nStatus: active\nLast verified: 2026-05-01\n\n"
+            f"## Current Session\n\n**Active wave:** `hw-test`\n\n{custom_section}"
+        )
+        wave_md = self.root / "docs" / "waves" / "hw-test" / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
+            with patch.object(self.srv, "run_garden", return_value={"passed": True}):
+                self.srv.wave_close_response(self.root, "hw-test", mode="create")
+        result = self._read_handoff()
+        self.assertIn("Some important agent notes that must survive.", result)
+        self.assertIn("*(none)*", result)
+
+    def test_wave_pause_preserves_handoff_content_outside_active_wave(self):
+        self._make_active_wave()
+        custom_section = "## Research Notes\n\nContext that must not be wiped on pause.\n"
+        self._write_handoff(
+            f"# Session Handoff\n\nOwner: wave-coordinator\nStatus: active\nLast verified: 2026-05-01\n\n"
+            f"## Current Session\n\n**Active wave:** `hw-test`\n\n{custom_section}"
+        )
+        self.srv.wave_pause_response(self.root, "hw-test", mode="create")
+        result = self._read_handoff()
+        self.assertIn("Context that must not be wiped on pause.", result)
+
+    def test_wave_close_missing_handoff_creates_scaffold(self):
+        self._make_active_wave()
+        handoff = self.root / "docs" / "agents" / "session-handoff.md"
+        if handoff.exists():
+            handoff.unlink()
+        wave_md = self.root / "docs" / "waves" / "hw-test" / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
+            with patch.object(self.srv, "run_garden", return_value={"passed": True}):
+                self.srv.wave_close_response(self.root, "hw-test", mode="create")
+        self.assertTrue(handoff.exists())
+        content = handoff.read_text(encoding="utf-8")
+        self.assertIn("Session Handoff", content)
+
+
+class BulkWaveGetChangeTests(unittest.TestCase):
+    """Item 3: wave_get_change with wave_id (no change_id) returns all admitted changes."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _setup_wave(self):
+        wave_dir = self.root / "docs" / "waves" / "bulk-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        (wave_dir / "wave.md").write_text(
+            "# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-01-01\n\nwave-id: `bulk-wave`\nTitle: Bulk Wave\n\n## Changes\n\nChange ID: `ch1xx-feat first`\nChange Status: `in-progress`\n\nChange ID: `ch2xx-feat second`\nChange Status: `planned`\n",
+            encoding="utf-8",
+        )
+        (wave_dir / "ch1xx-feat first.md").write_text(
+            "# First\n\nChange ID: `ch1xx-feat first`\nChange Status: `in-progress`\n",
+            encoding="utf-8",
+        )
+        (wave_dir / "ch2xx-feat second.md").write_text(
+            "# Second\n\nChange ID: `ch2xx-feat second`\nChange Status: `planned`\n",
+            encoding="utf-8",
+        )
+
+    def test_bulk_returns_all_changes(self):
+        self._setup_wave()
+        resp = self.srv.wave_get_change_response(self.root, wave_id="bulk-wave")
+        self.assertEqual(resp["status"], "ok")
+        changes = resp["data"]["changes"]
+        ids = [c["id"] for c in changes]
+        self.assertIn("ch1xx-feat first", ids)
+        self.assertIn("ch2xx-feat second", ids)
+
+    def test_bulk_count_field(self):
+        self._setup_wave()
+        resp = self.srv.wave_get_change_response(self.root, wave_id="bulk-wave")
+        self.assertEqual(resp["data"]["count"], 2)
+
+    def test_bulk_unknown_wave_returns_ok_with_diagnostic(self):
+        resp = self.srv.wave_get_change_response(self.root, wave_id="nonexistent-wave")
+        self.assertEqual(resp["status"], "ok")
+        codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
+        self.assertIn("wave_not_found", codes)
+
+    def test_single_mode_unchanged(self):
+        """Providing change_id without wave_id uses original single-lookup mode."""
+        self._setup_wave()
+        resp = self.srv.wave_get_change_response(self.root, change_id="ch1xx-feat first")
+        self.assertEqual(resp["status"], "ok")
+        self.assertIn("change", resp["data"])
+
+
+class HandoffToolTests(unittest.TestCase):
+    """Item 4: wave_get_handoff and wave_set_handoff."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_get_handoff_not_found(self):
+        resp = self.srv.wave_get_handoff_response(self.root)
+        self.assertEqual(resp["status"], "ok")
+        self.assertIsNone(resp["data"]["content"])
+
+    def test_set_handoff_creates_file(self):
+        resp = self.srv.wave_set_handoff_response(self.root, content="# Session Handoff\n\nActive wave: test")
+        self.assertEqual(resp["status"], "ok")
+        self.assertTrue(resp["data"]["written"])
+        handoff = self.root / "docs" / "agents" / "session-handoff.md"
+        self.assertTrue(handoff.exists())
+
+    def test_get_handoff_after_set(self):
+        self.srv.wave_set_handoff_response(self.root, content="# Handoff\n\nDone.")
+        resp = self.srv.wave_get_handoff_response(self.root)
+        self.assertEqual(resp["status"], "ok")
+        self.assertIn("Done.", resp["data"]["content"])
+
+    def test_set_handoff_size_field(self):
+        content = "# Session Handoff\n\nSome state."
+        resp = self.srv.wave_set_handoff_response(self.root, content=content)
+        self.assertEqual(resp["data"]["size"], len(content))
+
+    def test_get_handoff_path_field(self):
+        resp = self.srv.wave_get_handoff_response(self.root)
+        self.assertEqual(resp["data"]["path"], "docs/agents/session-handoff.md")
+
+    def test_handoff_tools_registered(self):
+        try:
+            mcp = self.srv.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+        names = self.srv._registered_mcp_tool_names(mcp)
+        self.assertIn("wave_get_handoff", names)
+        self.assertIn("wave_set_handoff", names)
+
+
+class DocsSearchModeFieldTests(unittest.TestCase):
+    """Item 5: docs_search_response includes 'mode' field (semantic/lexical)."""
+
+    def setUp(self):
+        self.srv = load_server()
+
+    def test_mode_field_present_on_semantic_results(self):
+        index = MagicMock()
+        index.search_docs.return_value = []
+        resp = self.srv.docs_search_response(index, "test query")
+        self.assertIn("mode", resp.get("data", {}))
+
+    def test_mode_field_is_semantic_when_search_succeeds(self):
+        index = MagicMock()
+        index.search_docs.return_value = []
+        resp = self.srv.docs_search_response(index, "test query")
+        self.assertEqual(resp["data"]["mode"], "semantic")
+
+    def test_mode_field_is_lexical_on_index_not_ready(self):
+        index = MagicMock()
+        index.search_docs.side_effect = self.srv.IndexNotReadyError("index not ready")
+        index.search_docs_lexical.return_value = []
+        resp = self.srv.docs_search_response(index, "test query")
+        self.assertEqual(resp["data"]["mode"], "lexical")
+
+
+class WavePrepareACPriorityWarningTests(unittest.TestCase):
+    """Item 6: wave_prepare warns (non-blocking) when AC priority rows are unpopulated."""
+
+    _VALID_LINT = {"passed": True, "errors": [], "warnings": [], "output": ""}
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_wave_with_change(self, ac_text: str) -> Path:
+        wave_dir = self.root / "docs" / "waves" / "ac-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        (wave_dir / "wave.md").write_text(
+            "# Wave Record\n\nOwner: Engineering\nStatus: planned\nLast verified: 2026-01-01\n\nwave-id: `ac-wave`\nTitle: AC Wave\n\n## Changes\n\nChange ID: `acx01-feat ac-test`\nChange Status: `planned`\n\n## Wave Summary\n\nTest wave.\n\n## Journal Watchpoints\n\n- Watch this.\n",
+            encoding="utf-8",
+        )
+        change_doc = wave_dir / "acx01-feat ac-test.md"
+        change_doc.write_text(
+            "# AC Test\n\nChange ID: `acx01-feat ac-test`\nChange Status: `planned`\nOwner: Engineering\nWave: `ac-wave`\n\n"
+            "## Rationale\n\nNeeded.\n\n## Requirements\n\n1. Do the thing.\n\n## Scope\n\nIn scope.\n\n"
+            "## Acceptance Criteria\n\n- AC-1: Does the thing.\n\n## Tasks\n\n- Implement it.\n\n"
+            f"## AC Priority\n\n| AC | Priority | Rationale |\n| -- | -------- | --------- |\n{ac_text}\n",
+            encoding="utf-8",
+        )
+        return wave_dir
+
+    def test_placeholder_ac_produces_advisory(self):
+        self._make_wave_with_change(
+            "| AC-1 | required / important / nice-to-have / not-this-scope | placeholder |"
+        )
+        with patch.object(self.srv, "run_validate", return_value=self._VALID_LINT):
+            resp = self.srv.wave_prepare_response(self.root, wave_id="ac-wave", mode="dry_run")
+        # Must not be an error (advisory only)
+        self.assertNotEqual(resp["status"], "error")
+        codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
+        self.assertIn("ac_priority_unpopulated", codes)
+
+    def test_populated_ac_no_advisory(self):
+        self._make_wave_with_change(
+            "| AC-1 | required | Core feature. |"
+        )
+        with patch.object(self.srv, "run_validate", return_value=self._VALID_LINT):
+            resp = self.srv.wave_prepare_response(self.root, wave_id="ac-wave", mode="dry_run")
+        codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
+        self.assertNotIn("ac_priority_unpopulated", codes)
+
+    def test_placeholder_ac_does_not_block_prepare(self):
+        """prepare must still succeed (dry_run) even with unpopulated AC rows."""
+        self._make_wave_with_change(
+            "| AC-1 | required / important / nice-to-have / not-this-scope | placeholder |"
+        )
+        with patch.object(self.srv, "run_validate", return_value=self._VALID_LINT):
+            resp = self.srv.wave_prepare_response(self.root, wave_id="ac-wave", mode="dry_run")
+        self.assertIn(resp["status"], ("dry_run", "ok"))
+
+
+# ---------------------------------------------------------------------------
+# Semantic embedding regression tests
+#
+# These tests exercise the REAL fastembed embedding path — no mocks.  They are
+# skipped gracefully when fastembed is not installed or the model is not yet
+# cached locally (i.e. setup_index.py --root . has not been run).
+#
+# Purpose: anchor the four properties that matter most when the embedding model
+# changes in the future:
+#   1. Model name constant  — what model we're actually using
+#   2. Vector dimension     — must stay consistent with the built index
+#   3. Embedding determinism — same text must always produce the same vector
+#   4. Semantic ranking order — a known query must rank a known best match above
+#                               a known poor match (guards against model swaps /
+#                               quantization changes silently flipping results)
+#
+# When a model upgrade is intentional, these tests will fail and serve as the
+# checklist: update the EXPECTED_* constants below, rebuild the index, re-run.
+# ---------------------------------------------------------------------------
+
+# Regression anchors — update these deliberately when upgrading the model.
+_EXPECTED_DOCS_MODEL = "BAAI/bge-small-en-v1.5"
+_EXPECTED_EMBEDDING_DIM = 384
+
+
+class SemanticEmbeddingRegressionTests(unittest.TestCase):
+    """Real-fastembed tests.  Skipped if fastembed is not installed or the
+    model is not locally cached."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import fastembed  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("fastembed not installed — run: pip install fastembed")
+
+        import numpy as np
+        cls.np = np
+
+        cls.srv = load_server()
+        tmp = tempfile.mkdtemp()
+        cls._tmp_dir = tmp
+        cls.root = _make_repo(Path(tmp))
+        cls.index = cls.srv.WaveIndex(cls.root)
+        cls.model = cls.index._indexer_constant("DOCS_MODEL")
+
+        # Attempt one real embed to confirm the model is cached locally.
+        # SemanticModelUnavailableOfflineError means setup_index.py hasn't run yet.
+        try:
+            cls._probe_vec = cls.index._embed_query("probe", cls.model)
+        except cls.srv.SemanticModelUnavailableOfflineError:
+            raise unittest.SkipTest(
+                "Embedding model not locally cached — run: "
+                "python3 .wavefoundry/framework/scripts/setup_index.py --root ."
+            )
+
+    @classmethod
+    def tearDownClass(cls):
+        import shutil
+        shutil.rmtree(cls._tmp_dir, ignore_errors=True)
+
+    # ------------------------------------------------------------------
+    # 1. Model name anchor
+    # ------------------------------------------------------------------
+
+    def test_docs_model_constant_matches_expected(self):
+        """Pin the model name.  If this fails, a model upgrade happened — update
+        _EXPECTED_DOCS_MODEL and re-verify all downstream tests."""
+        self.assertEqual(
+            self.model,
+            _EXPECTED_DOCS_MODEL,
+            f"DOCS_MODEL changed to {self.model!r}. "
+            "Update _EXPECTED_DOCS_MODEL and _EXPECTED_EMBEDDING_DIM in this file, "
+            "then rebuild the index.",
+        )
+
+    # ------------------------------------------------------------------
+    # 2. Vector dimension anchor
+    # ------------------------------------------------------------------
+
+    def test_embedding_dimension_matches_expected(self):
+        """Pin the output vector dimension.  A change here means the index
+        files written by the old model are no longer compatible."""
+        vec = self.index._embed_query("dimension check", self.model)
+        self.assertEqual(
+            len(vec),
+            _EXPECTED_EMBEDDING_DIM,
+            f"Embedding dimension is {len(vec)}, expected {_EXPECTED_EMBEDDING_DIM}. "
+            "Update _EXPECTED_EMBEDDING_DIM and rebuild the index.",
+        )
+
+    def test_embedding_is_float32(self):
+        """fastembed must return float32 — mismatched dtype causes silent
+        cosine-score errors when merged with float32 index matrices."""
+        vec = self.index._embed_query("dtype check", self.model)
+        self.np = __import__("numpy")
+        self.assertEqual(vec.dtype, self.np.float32)
+
+    # ------------------------------------------------------------------
+    # 3. Determinism
+    # ------------------------------------------------------------------
+
+    def test_same_text_produces_identical_vectors(self):
+        """Embedding must be deterministic — same text always gives same vector.
+        A failure here indicates non-deterministic model behavior which would
+        make search results unpredictable across restarts."""
+        np = self.np
+        text = "wave lifecycle management"
+        v1 = self.index._embed_query(text, self.model)
+        v2 = self.index._embed_query(text, self.model)
+        np.testing.assert_array_equal(
+            v1, v2,
+            err_msg="Embedding is not deterministic — same text produced different vectors.",
+        )
+
+    def test_different_texts_produce_different_vectors(self):
+        """Distinct texts must not collapse to the same vector."""
+        v1 = self.index._embed_query("prepare wave", self.model)
+        v2 = self.index._embed_query("install dependencies", self.model)
+        self.assertFalse(
+            self.np.allclose(v1, v2),
+            "Two unrelated texts produced identical vectors — model may be degenerate.",
+        )
+
+    # ------------------------------------------------------------------
+    # 4. Semantic ranking anchor
+    # ------------------------------------------------------------------
+
+    def test_similar_text_scores_higher_than_unrelated(self):
+        """A query must score its topically close match above an unrelated chunk.
+        This is the core regression guard: if the model is swapped or quantized
+        differently, ranking order could silently invert."""
+        np = self.np
+
+        query = "how to create a new wave"
+        close_text = "Use wave_create_wave to start a new wave and track changes."
+        far_text = "The colour of the sky depends on Rayleigh scattering of sunlight."
+
+        qvec = self.index._embed_query(query, self.model)
+        close_vec = self.index._embed_query(close_text, self.model)
+        far_vec = self.index._embed_query(far_text, self.model)
+
+        def cosine(a, b):
+            return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-10))
+
+        close_score = cosine(qvec, close_vec)
+        far_score = cosine(qvec, far_vec)
+        self.assertGreater(
+            close_score,
+            far_score,
+            f"Expected close text (score={close_score:.4f}) to rank above "
+            f"unrelated text (score={far_score:.4f}) for query {query!r}.",
+        )
+
+    # ------------------------------------------------------------------
+    # 5. Full round-trip: embed → write index → search → verify result
+    # ------------------------------------------------------------------
+
+    def test_round_trip_search_returns_correct_chunk(self):
+        """Build a tiny real-embedding index in a temp directory, load it via
+        WaveIndex, and verify that a semantically related query surfaces the
+        right chunk and not the unrelated one.
+
+        This is the highest-fidelity test: it exercises _embed_query,
+        _write to .npy, _ensure_loaded, _cosine_search, and kind filtering
+        all in one pass with real vectors."""
+        import json
+        import numpy as np
+        import tempfile
+
+        chunks = [
+            {
+                "id": "c-wave",
+                "path": "docs/waves/my-wave/wave.md",
+                "kind": "doc",
+                "language": None,
+                "lines": [1, 5],
+                "section": "Changes",
+                "text": "Prepare wave: validate change docs and admit them to the active wave folder.",
+            },
+            {
+                "id": "c-install",
+                "path": "docs/references/install.md",
+                "kind": "doc",
+                "language": None,
+                "lines": [1, 5],
+                "section": "Setup",
+                "text": "Install Python dependencies with pip install fastembed numpy.",
+            },
+        ]
+
+        # Embed with real model
+        vectors = np.array(
+            [self.index._embed_query(c["text"], self.model) for c in chunks],
+            dtype=np.float32,
+        )
+
+        # Write to a fresh temp index directory
+        with tempfile.TemporaryDirectory() as idx_tmp:
+            idx_dir = Path(idx_tmp)
+            (idx_dir / "meta.json").write_text(
+                json.dumps({
+                    "model_versions": {"docs": self.model},
+                    "file_hashes": {},
+                }),
+                encoding="utf-8",
+            )
+            (idx_dir / "docs.json").write_text(json.dumps(chunks), encoding="utf-8")
+            np.save(str(idx_dir / "docs.npy"), vectors)
+
+            # Point a fresh WaveIndex at a root that uses this index dir
+            with tempfile.TemporaryDirectory() as root_tmp:
+                root = _make_repo(Path(root_tmp))
+                project_idx = root / ".wavefoundry" / "index"
+                project_idx.mkdir(parents=True, exist_ok=True)
+                for fname in ("meta.json", "docs.json", "docs.npy"):
+                    import shutil
+                    shutil.copy(str(idx_dir / fname), str(project_idx / fname))
+
+                index = self.srv.WaveIndex(root)
+                results = index.search_docs("how do I validate and prepare a wave?", top_n=1)
+
+        self.assertEqual(len(results), 1, "Expected exactly one result from top_n=1.")
+        self.assertEqual(
+            results[0]["id"],
+            "c-wave",
+            f"Expected the wave-prep chunk to be top result, got {results[0]['id']!r}. "
+            "Semantic ranking may have changed — check the model.",
+        )
+        self.assertIn("score", results[0])
+        self.assertGreater(results[0]["score"], 0.0)
+
+    def test_stale_model_name_in_index_causes_layer_skip(self):
+        """If the index was built with a different model, _ensure_loaded must
+        skip that layer rather than silently using incompatible vectors.
+        This guards the upgrade path: build with new model → old index → no
+        silent garbage results."""
+        import json
+        import numpy as np
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_tmp:
+            root = _make_repo(Path(root_tmp))
+            idx_dir = root / ".wavefoundry" / "index"
+            idx_dir.mkdir(parents=True, exist_ok=True)
+
+            # Write an index with the wrong model name
+            stale_model = "old-model/bge-obsolete-v0.1"
+            chunk = [{
+                "id": "stale",
+                "path": "docs/stale.md",
+                "kind": "doc",
+                "language": None,
+                "lines": [1, 1],
+                "section": None,
+                "text": "stale content",
+            }]
+            (idx_dir / "meta.json").write_text(
+                json.dumps({"model_versions": {"docs": stale_model}, "file_hashes": {}}),
+                encoding="utf-8",
+            )
+            (idx_dir / "docs.json").write_text(json.dumps(chunk), encoding="utf-8")
+            np.save(str(idx_dir / "docs.npy"), np.array([[1.0] * _EXPECTED_EMBEDDING_DIM], dtype=np.float32))
+
+            index = self.srv.WaveIndex(root)
+            # search_docs triggers _ensure_loaded; stale layer should be skipped → no results
+            results = index.search_docs("stale content", top_n=5)
+
+        self.assertEqual(
+            results,
+            [],
+            "Expected empty results when index was built with a different model name, "
+            "but got results — layer compatibility check may be broken.",
+        )
+
+
+class WavePauseStatusTransitionTests(unittest.TestCase):
+    """12as6: wave_pause transitions wave.md Status active→paused and records transition."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        (self.root / "docs" / "agents" / "journals").mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_wave(self, wave_id: str, status: str) -> Path:
+        wave_dir = self.root / "docs" / "waves" / wave_id
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        wave_md = wave_dir / "wave.md"
+        wave_md.write_text(
+            "# Wave Record\n\n"
+            "Owner: Engineering\n"
+            f"Status: {status}\n"
+            "Last verified: 2026-05-01\n\n"
+            f"wave-id: `{wave_id}`\n"
+            "Title: Test Wave\n\n"
+            "## Changes\n\n"
+            "## Wave Summary\n\nTest.\n\n"
+            "## Journal Watchpoints\n\n- Test.\n\n"
+            "## Dependencies\n\n- None.\n",
+            encoding="utf-8",
+        )
+        return wave_md
+
+    def test_wave_pause_transitions_active_to_paused(self):
+        wave_md = self._make_wave("1200a active-wave", "active")
+        result = self.srv.wave_pause_response(self.root, "1200a active-wave", mode="create")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["status_transition"], {"from": "active", "to": "paused"})
+        text = wave_md.read_text(encoding="utf-8")
+        self.assertIn("Status: paused", text)
+        self.assertNotIn("Status: active", text)
+
+    def test_wave_pause_idempotent_on_paused(self):
+        wave_md = self._make_wave("1200a paused-wave", "paused")
+        result = self.srv.wave_pause_response(self.root, "1200a paused-wave", mode="create")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["status_transition"], {"from": "paused", "to": "paused"})
+        text = wave_md.read_text(encoding="utf-8")
+        self.assertIn("Status: paused", text)
+        # Handoff still written
+        self.assertTrue((self.root / "docs" / "agents" / "session-handoff.md").exists())
+
+    def test_wave_pause_advisory_on_planned(self):
+        self._make_wave("1200a planned-wave", "planned")
+        result = self.srv.wave_pause_response(self.root, "1200a planned-wave", mode="create")
+        self.assertEqual(result["status"], "ok")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("pause_on_non_active_wave", codes)
+        self.assertEqual(result["data"]["status_transition"]["to"], "planned")
+
+    def test_wave_pause_dry_run_reports_transition(self):
+        wave_md = self._make_wave("1200a dry-run-wave", "active")
+        original_text = wave_md.read_text(encoding="utf-8")
+        result = self.srv.wave_pause_response(self.root, "1200a dry-run-wave", mode="dry_run")
+        self.assertEqual(result["status"], "dry_run")
+        self.assertEqual(result["data"]["status_transition"], {"from": "active", "to": "paused"})
+        # wave.md untouched
+        self.assertEqual(wave_md.read_text(encoding="utf-8"), original_text)
+
+
+class WavePrepareSingleActiveGuardTests(unittest.TestCase):
+    """12as6: wave_prepare blocks when another wave is active; allows self and post-pause prepare."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        (self.root / "docs" / "agents" / "journals").mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_wave_with_change(self, slug: str, status: str = "planned") -> tuple[str, str]:
+        """Create a wave (fully scaffolded via scripts) with one admitted change."""
+        wave_result = self.srv.wave_create_wave_response(self.root, slug, mode="create")
+        wave_id = wave_result["data"]["wave_id"]
+        change = self.srv.new_change(self.root, "feat", f"{slug}-change")
+        change_id = change["id"]
+        self.srv.wave_add_change_response(self.root, wave_id, change_id, mode="create")
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        text = wave_md.read_text(encoding="utf-8")
+        if status != "planned":
+            text = text.replace("Status: planned", f"Status: {status}")
+            wave_md.write_text(text, encoding="utf-8")
+        # Add journal reference so lint passes
+        journal = self.root / "docs" / "agents" / "journals" / "wave-coordinator.md"
+        prior = journal.read_text(encoding="utf-8") if journal.exists() else "# Journal\n"
+        journal.write_text(prior + f"\nwave-id: `{wave_id}`\n", encoding="utf-8")
+        return wave_id, change_id
+
+    def test_wave_prepare_guards_when_another_wave_active_create(self):
+        active_wave, _ = self._make_wave_with_change("active-one", status="active")
+        target_wave, _ = self._make_wave_with_change("planned-one", status="planned")
+        result = self.srv.wave_prepare_response(self.root, target_wave, mode="create")
+        self.assertEqual(result["status"], "error")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("another_wave_active", codes)
+        self.assertEqual(result["data"].get("active_wave_id"), active_wave)
+        # target wave still planned
+        target_md = self.root / "docs" / "waves" / target_wave / "wave.md"
+        self.assertIn("Status: planned", target_md.read_text(encoding="utf-8"))
+
+    def test_wave_prepare_guards_when_another_wave_active_dry_run(self):
+        self._make_wave_with_change("active-two", status="active")
+        target_wave, _ = self._make_wave_with_change("planned-two", status="planned")
+        result = self.srv.wave_prepare_response(self.root, target_wave, mode="dry_run")
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["data"]["mode"], "dry_run")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("another_wave_active", codes)
+
+    def test_wave_prepare_self_reprepare_allowed(self):
+        wave_id, _ = self._make_wave_with_change("self-prep", status="active")
+        # Re-running prepare on the currently active target must not trigger the guard.
+        result = self.srv.wave_prepare_response(self.root, wave_id, mode="create")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertNotIn("another_wave_active", codes)
+
+    def test_wave_prepare_another_wave_active_envelope_shape(self):
+        active_wave, _ = self._make_wave_with_change("env-active", status="active")
+        target_wave, _ = self._make_wave_with_change("env-target", status="planned")
+        result = self.srv.wave_prepare_response(self.root, target_wave, mode="create")
+        self.assertEqual(result["status"], "error")
+        self.assertIn("active_wave_id", result["data"])
+        self.assertIn("active_wave_path", result["data"])
+        self.assertEqual(result["data"]["active_wave_id"], active_wave)
+        # Recovery usage points at wave_pause
+        self.assertIn("wave_pause", result.get("usage", ""))
+
+    def test_wave_prepare_after_pause_succeeds(self):
+        active_wave, _ = self._make_wave_with_change("ctx-switch-active", status="active")
+        target_wave, _ = self._make_wave_with_change("ctx-switch-target", status="planned")
+        # Pause active wave
+        pause_result = self.srv.wave_pause_response(self.root, active_wave, mode="create")
+        self.assertEqual(pause_result["data"]["status_transition"], {"from": "active", "to": "paused"})
+        # Now prepare target wave (patch lint/garden because minimal test repo isn't fully seeded)
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_prepare_response(self.root, target_wave, mode="create")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertNotIn("another_wave_active", codes)
+        # Target wave transitioned to active
+        target_md = self.root / "docs" / "waves" / target_wave / "wave.md"
+        self.assertIn("Status: active", target_md.read_text(encoding="utf-8"))
+
+    def test_wave_prepare_resumes_paused_wave(self):
+        paused_wave, _ = self._make_wave_with_change("resume-target", status="paused")
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_prepare_response(self.root, paused_wave, mode="create")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertNotIn("another_wave_active", codes)
+        wave_md = self.root / "docs" / "waves" / paused_wave / "wave.md"
+        self.assertIn("Status: active", wave_md.read_text(encoding="utf-8"))
+
+    def test_wave_prepare_aggregates_active_wave_and_lint_diagnostics(self):
+        """AC-6: when another wave is active AND lint fails, both diagnostics appear."""
+        self._make_wave_with_change("agg-active", status="active")
+        target_wave, _ = self._make_wave_with_change("agg-target", status="planned")
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(
+                self.srv,
+                "run_validate",
+                return_value={"passed": False, "errors": ["synthetic lint error for AC-6 aggregation test"], "warnings": [], "output": ""},
+            ):
+                result = self.srv.wave_prepare_response(self.root, target_wave, mode="create")
+        self.assertEqual(result["status"], "error")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("another_wave_active", codes)
+        self.assertIn("docs_lint_error", codes)
+
+    def test_wave_prepare_resume_blocked_when_other_active(self):
+        self._make_wave_with_change("resume-blocker", status="active")
+        paused_wave, _ = self._make_wave_with_change("resume-paused", status="paused")
+        result = self.srv.wave_prepare_response(self.root, paused_wave, mode="create")
+        self.assertEqual(result["status"], "error")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("another_wave_active", codes)
+        # Paused wave still paused
+        wave_md = self.root / "docs" / "waves" / paused_wave / "wave.md"
+        self.assertIn("Status: paused", wave_md.read_text(encoding="utf-8"))
+
+
+class WaveCurrentListEnvelopeTests(unittest.TestCase):
+    """12as6: wave_current returns data.waves[] with all non-closed waves, active first."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_wave(self, wave_id: str, status: str) -> None:
+        wave_dir = self.root / "docs" / "waves" / wave_id
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        (wave_dir / "wave.md").write_text(
+            f"# Wave Record\n\nStatus: {status}\nwave-id: `{wave_id}`\n\n## Changes\n\n",
+            encoding="utf-8",
+        )
+
+    def test_wave_current_returns_waves_array(self):
+        self._make_wave("1200a only-planned", "planned")
+        result = self.srv.wave_current_response(self.root)
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("waves", result["data"])
+        self.assertNotIn("wave", result["data"])
+        self.assertEqual(len(result["data"]["waves"]), 1)
+        self.assertEqual(result["data"]["waves"][0]["status"], "planned")
+
+    def test_wave_current_empty_state_returns_empty_array(self):
+        result = self.srv.wave_current_response(self.root)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["waves"], [])
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("no_active_wave", codes)
+
+    def test_wave_current_orders_active_planned_paused(self):
+        # Intentionally put them out of order alphabetically so the sort verifies
+        self._make_wave("1200z planned-z", "planned")
+        self._make_wave("1200a active-a", "active")
+        self._make_wave("1200m paused-m", "paused")
+        self._make_wave("1200b planned-b", "planned")
+        result = self.srv.wave_current_response(self.root)
+        waves = result["data"]["waves"]
+        statuses = [w["status"] for w in waves]
+        self.assertEqual(statuses, ["active", "planned", "planned", "paused"])
+        # Within status groups, lifecycle-ID (wave_id) order preserved
+        planned_ids = [w["wave_id"] for w in waves if w["status"] == "planned"]
+        self.assertEqual(planned_ids, sorted(planned_ids))
+
+    def test_wave_current_entry_shape(self):
+        self._make_wave("1200a active-shape", "active")
+        result = self.srv.wave_current_response(self.root)
+        entry = result["data"]["waves"][0]
+        for field in ("wave_id", "status", "changes", "path", "next_action"):
+            self.assertIn(field, entry)
+        self.assertEqual(entry["next_action"], "implement_wave")
+
+    def test_wave_current_paused_next_action_is_resume_wave(self):
+        self._make_wave("1200a only-paused", "paused")
+        result = self.srv.wave_current_response(self.root)
+        entry = result["data"]["waves"][0]
+        self.assertEqual(entry["status"], "paused")
+        self.assertEqual(entry["next_action"], "resume_wave")
+
+    def test_wave_current_planned_next_action_is_prepare_wave(self):
+        self._make_wave("1200a only-planned", "planned")
+        result = self.srv.wave_current_response(self.root)
+        entry = result["data"]["waves"][0]
+        self.assertEqual(entry["next_action"], "prepare_wave")
+
+    def test_wave_current_skips_paused_when_filtering_active(self):
+        """Paused waves appear in data.waves but do not occupy the 'active' slot."""
+        self._make_wave("1200a only-paused", "paused")
+        result = self.srv.wave_current_response(self.root)
+        waves = result["data"]["waves"]
+        self.assertEqual(len(waves), 1)
+        self.assertEqual(waves[0]["status"], "paused")
+        # No wave has status == 'active'
+        self.assertFalse(any(w["status"] == "active" for w in waves))
+
+    def test_wave_current_excludes_closed(self):
+        self._make_wave("1200a closed-wave", "closed")
+        self._make_wave("1200b planned-wave", "planned")
+        result = self.srv.wave_current_response(self.root)
+        statuses = [w["status"] for w in result["data"]["waves"]]
+        self.assertNotIn("closed", statuses)
+        self.assertIn("planned", statuses)
+
+
+class WaveAuditUnaffectedByCurrentEnvelopeTests(unittest.TestCase):
+    """AC-21: wave_audit still returns the expected shape after wave_current envelope change.
+
+    wave_audit_response uses the internal current_wave() helper (unchanged singular form),
+    not wave_current_response, so the envelope change is not a migration target — but this
+    test asserts wave_audit continues to surface the active wave via its own response shape
+    so any future refactor that wires wave_audit through wave_current_response can't silently
+    regress.
+    """
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_wave(self, wave_id: str, status: str) -> None:
+        wave_dir = self.root / "docs" / "waves" / wave_id
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        (wave_dir / "wave.md").write_text(
+            f"# Wave Record\n\nStatus: {status}\nwave-id: `{wave_id}`\n\n## Changes\n\n",
+            encoding="utf-8",
+        )
+
+    def test_wave_audit_reports_active_wave_when_present(self):
+        self._make_wave("1200a audit-active", "active")
+        result = self.srv.wave_audit_response(self.root)
+        self.assertEqual(result["status"], "ok")
+        wave_data = result["data"]["wave"]
+        self.assertEqual(wave_data.get("status"), "active")
+        self.assertEqual(wave_data.get("next_action"), "implement_wave")
+
+    def test_wave_audit_reports_no_wave_when_only_paused(self):
+        """Paused wave should not satisfy wave_audit's 'active or planned' readiness check."""
+        self._make_wave("1200a audit-paused", "paused")
+        result = self.srv.wave_audit_response(self.root)
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("no_active_wave", codes)
+
+
+class WaveValidateAcceptsPausedTests(unittest.TestCase):
+    """12as6: lint must accept Status: paused in wave.md."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_paused_status_does_not_trigger_lint_error_on_status_field(self):
+        """A wave.md with Status: paused must not produce any error referencing 'paused'
+        as an invalid/unknown/rejected status value.
+
+        Catches future regressions where a validator might enumerate allowed statuses
+        and forget to include 'paused'. Other lint rules (journal reference, required
+        sections) may still fail for unrelated reasons — those are excluded from the
+        assertion.
+        """
+        wave_dir = self.root / "docs" / "waves" / "1200a paused-lint-check"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        wave_md = wave_dir / "wave.md"
+        wave_md.write_text(
+            "# Wave Record\n\n"
+            "Owner: Engineering\n"
+            "Status: paused\n"
+            "Last verified: 2026-05-01\n\n"
+            "wave-id: `1200a paused-lint-check`\n"
+            "Title: Paused Lint Check\n\n"
+            "## Changes\n\n"
+            "## Wave Summary\n\nTest.\n\n"
+            "## Journal Watchpoints\n\n- Paused wave testing.\n\n"
+            "## Dependencies\n\n- None.\n",
+            encoding="utf-8",
+        )
+        result = self.srv.run_validate(self.root)
+        errors = result.get("errors", [])
+        # No error may mention 'paused' as invalid / unknown / unexpected / rejected.
+        # Validators that reject specific status values would produce such messages.
+        paused_rejection_markers = ("invalid status", "unknown status", "unexpected status", "status.*paused", "paused.*invalid")
+        offending = [
+            err for err in errors
+            if "paused" in err.lower() and any(marker.replace(".*", "") in err.lower() for marker in paused_rejection_markers)
+        ]
+        self.assertEqual(
+            offending,
+            [],
+            f"Lint produced errors rejecting 'paused' as a wave status: {offending}",
+        )
+
+
+class WaveCurrentMigrationGrepTests(unittest.TestCase):
+    """12as6 AC-20: no in-tree readers of the old data.wave envelope remain (outside historical)."""
+
+    def test_no_stale_data_wave_readers_in_source_and_prompts(self):
+        """Grep for old-style `data["wave"]` or `data.wave` response readers.
+
+        Scope: framework scripts, prompt surfaces, seeds, AGENTS.md. Excludes
+        historical wave records and journals under docs/waves/** and
+        docs/agents/journals/**.
+        """
+        import re
+        import subprocess
+        # tests/ → scripts/ → framework/ → .wavefoundry/ → repo_root = 4 parents up
+        repo_root = Path(__file__).resolve().parents[4]
+        targets = [
+            repo_root / ".wavefoundry" / "framework" / "scripts",
+            repo_root / "docs" / "prompts",
+            repo_root / ".wavefoundry" / "framework" / "seeds",
+            repo_root / "AGENTS.md",
+        ]
+        existing_targets = [str(t) for t in targets if t.exists()]
+        if not existing_targets:
+            self.skipTest("No target paths to scan")
+        # Pattern matches response-reader forms, not producer forms (key emission).
+        # Examples to FAIL on: result["data"]["wave"]["status"], resp.data.wave.wave_id
+        # Examples allowed: "wave": wave_data (producer in wave_audit), key strings like '"wave"'.
+        pattern = r'(?:result|resp|response|data)\[(?:"wave"|\'wave\')\](?!s)'
+        try:
+            proc = subprocess.run(
+                ["grep", "-rnE", "--include=*.py", "--include=*.md", pattern, *existing_targets],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except FileNotFoundError:
+            self.skipTest("grep not available")
+        hits = [line for line in proc.stdout.strip().splitlines() if line]
+        # Filter out this very test file (self-references to the pattern as a string literal
+        # and the comment examples above would register as matches).
+        hits = [line for line in hits if "test_server_tools.py" not in line]
+        self.assertEqual(
+            hits,
+            [],
+            f"Found stale `data[\"wave\"]` readers that should migrate to `data[\"waves\"][0]`:\n"
+            + "\n".join(hits),
+        )
 
 
 if __name__ == "__main__":

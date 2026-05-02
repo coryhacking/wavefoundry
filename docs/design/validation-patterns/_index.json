@@ -1,0 +1,9 @@
+{
+  "patterns": [
+    "required-field",
+    "format-validation",
+    "async-validation",
+    "error-display",
+    "success-confirmation"
+  ]
+}

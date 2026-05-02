@@ -7,6 +7,9 @@ from pathlib import Path
 from .context import build_context
 from .constants import AUDIT_DEFAULT_REPORT
 from .core_validators import check_prompt_surface_manifest, check_pycache, check_required_files, check_workflow_config
+from .design_system_validators import check_design_system
+from .design_system_governance_validators import check_design_governance
+from .design_system_surface_validators import check_design_surface
 from .helpers import iter_linkable_docs, iter_markdown_docs, write_if_changed
 from .link_validators import check_markdown_links
 from .metadata_validators import check_metadata
@@ -84,6 +87,15 @@ def main() -> int:
     failures.extend(check_persona_docs(root))
     failures.extend(check_cross_artifact_consistency(root))
     warnings.extend(check_migration_edges(root))
+    ds_failures, ds_warnings = check_design_system(root)
+    failures.extend(ds_failures)
+    warnings.extend(ds_warnings)
+    gov_failures, gov_warnings = check_design_governance(root)
+    failures.extend(gov_failures)
+    warnings.extend(gov_warnings)
+    surface_failures, surface_warnings = check_design_surface(root)
+    failures.extend(surface_failures)
+    warnings.extend(surface_warnings)
 
     for path in iter_markdown_docs(root):
         failures.extend(check_metadata(root, path))

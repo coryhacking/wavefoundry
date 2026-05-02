@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-30
+Last verified: 2026-05-01
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -14,7 +14,7 @@ Wavefoundry exposes framework-aware operations through a local MCP stdio server 
 agents can inspect project state, search indexed content, create change documents,
 and run framework maintenance without rediscovering shell commands every session.
 
-**Agent default:** Prefer **`wave_validate`**, **`wave_garden`**, and **`wave_audit`** for docs validation, metadata refresh, and combined health checks instead of invoking **`.wavefoundry/bin/docs-lint`** / **`.wavefoundry/bin/docs-gardener`** from a shell. Reserve the bin launchers for hooks, CI, and hosts where MCP is not attached.
+**Agent default:** Prefer `**wave_validate`**, `**wave_garden**`, and `**wave_audit**` for docs validation, metadata refresh, and combined health checks instead of invoking `**.wavefoundry/bin/docs-lint**` / `**.wavefoundry/bin/docs-gardener**` from a shell. Reserve the bin launchers for hooks, CI, and hosts where MCP is not attached.
 
 The MCP surface is a product contract. Tool names, argument semantics, response
 shape, safety metadata, and retry behavior must be planned and reviewed before
@@ -56,20 +56,20 @@ agents toward the core path.
 Initial core set:
 
 
-| Core verb            | Purpose                                                       |
-| -------------------- | ------------------------------------------------------------- |
-| `wave_help`          | Discover supported workflows and recommended chains           |
-| `wave_current`       | Inspect active wave state                                     |
-| `wave_map`           | Resolve `doc:` / `code:` / `seed:` anchors to paths and excerpts |
-| `docs_search`        | Search project and framework documentation                    |
-| `code_search`        | Search indexed code chunks when code embeddings are available |
-| `seed_get`           | Retrieve canonical seed prompt content                        |
-| `wave_change_create` | Create or dry-run a change document using a `kind` enum       |
-| `wave_validate`      | Run docs validation and return structured results             |
-| `wave_garden`        | Run docs gardening and report changed files                   |
-| `wave_sync_surfaces` | Regenerate agent/platform surfaces                            |
-| `wave_index_health`  | Check semantic index health and surface stale/missing layers  |
-| `wave_index_build` | Run a synchronous index build: **`mode='update'`** (incremental) or **`mode='rebuild'`** (full) |
+| Core verb            | Purpose                                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| `wave_help`          | Discover supported workflows and recommended chains                                             |
+| `wave_current`       | Inspect active wave state                                                                       |
+| `wave_map`           | Resolve `doc:` / `code:` / `seed:` anchors to paths and excerpts                                |
+| `docs_search`        | Search project and framework documentation                                                      |
+| `code_search`        | Search indexed code chunks when code embeddings are available                                   |
+| `seed_get`           | Retrieve canonical seed prompt content                                                          |
+| `wave_change_create` | Create or dry-run a change document using a `kind` enum                                         |
+| `wave_validate`      | Run docs validation and return structured results                                               |
+| `wave_garden`        | Run docs gardening and report changed files                                                     |
+| `wave_sync_surfaces` | Regenerate agent/platform surfaces                                                              |
+| `wave_index_health`  | Check semantic index health and surface stale/missing layers                                    |
+| `wave_index_build`   | Run a synchronous index build: `**mode='update'**` (incremental) or `**mode='rebuild'**` (full) |
 
 
 Specialized tools, including `wave_new_feature` and related change-kind wrappers,
@@ -185,16 +185,16 @@ recovery tool rather than silently duplicating work.
 - Optional `limit`: number of results to return, default `5`, clamped `[1, 20]`.
 - Query-time embedding must run offline-only once the local model cache exists.
 - When the semantic model cache is unavailable or the index is not ready, the tool must
-  degrade to lexical fallback instead of crashing. The hot-path diagnostic code for
-  those conditions is `semantic_model_unavailable_offline` or `index_not_ready`.
+degrade to lexical fallback instead of crashing. The hot-path diagnostic code for
+those conditions is `semantic_model_unavailable_offline` or `index_not_ready`.
 - `index_missing` and `index_stale` diagnostics are not emitted by `docs_search`; call
-  `wave_index_health` explicitly to check whether an index layer is stale or absent
-  before deciding whether to rerun `setup_index.py`.
+`wave_index_health` explicitly to check whether an index layer is stale or absent
+before deciding whether to rerun `setup_index.py`.
 - `kind` is returned as an empty string `""` in the response (not `null`) when no filter
-  is applied.
+is applied.
 - Returns path, section, score, excerpt, trust label, stable result ID, and the
-  active `search_mode` (`semantic`, `lexical_fallback`, or other future explicit mode)
-  once envelope migration is complete.
+active `search_mode` (`semantic`, `lexical_fallback`, or other future explicit mode)
+once envelope migration is complete.
 
 `code_search(query: str, language: str = "", limit: int = 5)`
 
@@ -221,14 +221,14 @@ action when known.
 - Lists known waves with ID, status, and change count.
 - Optional `limit`: max waves to return, default `50`, clamped `[1, 200]`.
 - Response `data` includes `waves` (truncated list), `total` (untruncated count), and
-  `has_more` (boolean indicating whether results were truncated).
+`has_more` (boolean indicating whether results were truncated).
 
 `wave_list_plans(limit: int = 50)`
 
 - Lists pending change docs under `docs/plans/`.
 - Optional `limit`: max plans to return, default `50`, clamped `[1, 200]`.
 - Response `data` includes `plans` (truncated list), `total` (untruncated count), and
-  `has_more` (boolean indicating whether results were truncated).
+`has_more` (boolean indicating whether results were truncated).
 
 `wave_get_change(change_id: str)`
 
@@ -242,9 +242,9 @@ action when known.
 `wave_map(address: str)`
 
 - Parses a `doc:`, `code:`, or `seed:` anchor (as returned in `result_id` fields),
-  normalizes the path under the configured repository root, and returns trust label,
-  `file_exists`, optional index match, and a short excerpt for follow-up validation or
-  reads.
+normalizes the path under the configured repository root, and returns trust label,
+`file_exists`, optional index match, and a short excerpt for follow-up validation or
+reads.
 
 ### Lifecycle Mutations
 
@@ -257,7 +257,7 @@ action when known.
 
 - Admits a planned change into the wave's `## Changes` section.
 - In apply/create mode, relocates the active change doc from `docs/plans/` into
-  `docs/waves/<wave-id>/`.
+`docs/waves/<wave-id>/`.
 - Repeated calls must be safe when the doc is already relocated to the target wave.
 - Must reject duplicate staged + wave copies or a doc found in another wave folder.
 - On successful apply/create writes, requests a background docs-index refresh without relying on editor hooks.
@@ -266,7 +266,7 @@ action when known.
 
 - Removes an admitted change from the wave.
 - In apply/create mode, moves the active change doc back to `docs/plans/` when the
-  change remains active outside the wave.
+change remains active outside the wave.
 - Must reject duplicate staged + wave copies rather than silently picking one.
 - On successful apply/create writes, requests a background docs-index refresh without relying on editor hooks.
 
@@ -274,7 +274,7 @@ action when known.
 
 - Validates that every admitted change doc is wave-owned.
 - Repairs staged-only admitted docs by moving them into `docs/waves/<wave-id>/`
-  during apply/create mode.
+during apply/create mode.
 - Must reject duplicate staged + wave copies and report whether repairs were needed.
 - Requires admitted changes and passing docs validation before reporting a clean readiness verdict.
 - On apply/create, requests a background docs-index refresh for the wave record and admitted change docs after repair/status updates complete.
@@ -342,29 +342,29 @@ a later deprecation plan removes or hides them.
 
 - Returns the semantic index health for each layer (project docs and framework docs).
 - Each layer object includes `readiness`: `missing` (sources exist but index artifacts absent),
-  `stale` (hash drift vs `meta.json`), `current` (metadata and `docs.json` present and not stale),
-  or `idle` (no tracked sources for that layer).
+`stale` (hash drift vs `meta.json`), `current` (metadata and `docs.json` present and not stale),
+or `idle` (no tracked sources for that layer).
 - Top-level `readiness_overview` summarizes the whole index: `incomplete` (any missing layer),
-  `needs_update` (any stale layer), `degraded` (metadata present but merged chunks did not load),
-  `absent` (no layer has index metadata), or `ready` (aligned with `semantic_ready` true).
+`needs_update` (any stale layer), `degraded` (metadata present but merged chunks did not load),
+`absent` (no layer has index metadata), or `ready` (aligned with `semantic_ready` true).
 - Also reports `stale_layers`, `missing_layers`, `compatible_chunks`, and `semantic_ready`
-  (backward-compatible boolean).
+(backward-compatible boolean).
 - Uses stable diagnostic codes `index_stale`, `index_missing`, `index_degraded`, and `index_absent`.
 - Read-only and safe to call at any time. Does not trigger a reindex.
 - **Status semantics**: the response envelope always uses `status: "ok"` when the health check
-  itself succeeds — even when `readiness_overview` is `absent`, `stale`, or `incomplete`.
-  `status: "error"` is reserved for health-check failures (e.g. unexpected exceptions).
-  Agents must read `readiness_overview` and `semantic_ready` to decide whether a reindex is needed,
-  not rely on `status` to signal index absence.
+itself succeeds — even when `readiness_overview` is `absent`, `stale`, or `incomplete`.
+`status: "error"` is reserved for health-check failures (e.g. unexpected exceptions).
+Agents must read `readiness_overview` and `semantic_ready` to decide whether a reindex is needed,
+not rely on `status` to signal index absence.
 - Recovery: call `wave_index_build(content='docs', mode='update')` (preferred MCP path) or rerun
-  `python3 .wavefoundry/framework/scripts/setup_index.py --root .` when `index_stale`,
-  `index_missing`, `index_degraded`, or `index_absent` is reported.
+`python3 .wavefoundry/framework/scripts/setup_index.py --root .` when `index_stale`,
+`index_missing`, `index_degraded`, or `index_absent` is reported.
 
 `wave_index_build(content: str = "docs", mode: str = "update", layer: str = "project")`
 
 - Runs the semantic indexer **synchronously** for the current repo root.
-- **`mode='update'`** (default): incremental hash-based refresh of changed files only.
-- **`mode='rebuild'`**: forces a **full rebuild** of the selected `content` for that `layer`.
+- `**mode='update'`** (default): incremental hash-based refresh of changed files only.
+- `**mode='rebuild'**`: forces a **full rebuild** of the selected `content` for that `layer`.
 - Response `data` includes `mode`, `index_scope` (`incremental_update` vs `full_rebuild`), and a boolean `full` mirror of the requested scope for tooling that still keys off flags. `stats.rebuild_scope` from indexer log parsing may additionally report `incremental` vs `full` for the work that actually ran.
 - `content` must be one of `docs`, `code`, or `all`.
 - `layer` must be `project` or `framework`.
@@ -375,7 +375,7 @@ a later deprecation plan removes or hides them.
 - Project-layer rebuilds must honor any repo-local `docs/workflow-config.json` `indexing.project_include_prefixes` policy so additional opted-in roots are rebuilt consistently through MCP, not just through `setup_index.py`.
 - On success, the current MCP process must invalidate its loaded index state so subsequent search calls use the rebuilt files.
 - Recovery: rerun `python3 .wavefoundry/framework/scripts/setup_index.py --root .`
-  for the project layer, or rerun the framework-targeted `indexer.py` command if a framework-layer rebuild fails because dependencies or cached models are not ready.
+for the project layer, or rerun the framework-targeted `indexer.py` command if a framework-layer rebuild fails because dependencies or cached models are not ready.
 
 ### Audit
 
@@ -389,8 +389,8 @@ a later deprecation plan removes or hides them.
   - `validation` — docs-lint result (`passed`, `errors`, `warnings`).
   - `index` — semantic index health summary (`semantic_ready`, `readiness_overview`, etc.).
 - `next_tools` lists specific **recovery** tools for each failing sub-check:
-  `wave_validate` (lint failure), `wave_index_build` (index not ready), `wave_current` (no wave / wave not found when using `wave_id`).
-- When **every** sub-check passes (`data.ready` is `true`), there is no recovery action; **`next_tools` defaults to `["wave_current"]`** as a harmless read-only **navigation** hint (same default as an empty recovery list in the server). Clients may treat it as optional.
+`wave_validate` (lint failure), `wave_index_build` (index not ready), `wave_current` (no wave / wave not found when using `wave_id`).
+- When **every** sub-check passes (`data.ready` is `true`), there is no recovery action; `**next_tools` defaults to `["wave_current"]`** as a harmless read-only **navigation** hint (same default as an empty recovery list in the server). Clients may treat it as optional.
 - Read-only; does not trigger writes, reindexes, or background refreshes.
 - Preferred landing point after any mutation or agent uncertainty.
 - Annotated `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false`.
@@ -514,3 +514,4 @@ are now applied to all tools. Whether annotations are consistently consumed acro
 Claude, Cursor, Copilot, Codex, Junie, and other MCP clients remains to be validated;
 correctness of the hints in `server.py` is no longer an open question.
 - ~~Whether a dedicated `wave_audit` tool should be added in this wave or deferred~~ **Resolved:** `wave_audit` is shipped; it aggregates `wave_current`-class wave state, `wave_validate` output, and index health (`semantic_ready`) in one read-only call. Lifecycle mutation tools remain separate; agents use `wave_audit` as the preferred post-mutation landing check.
+

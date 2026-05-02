@@ -1,11 +1,11 @@
 # MCP Resource Template Surface
 
 Change ID: `1298v-feat mcp-resource-template-surface`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
+Status: complete
 Last verified: 2026-04-29
-Wave: TBD
+Wave: `12ahv mcp-agent-surface`
 
 ## Rationale
 
@@ -114,6 +114,7 @@ Wavefoundry's MCP server currently exposes useful callable tools, but its MCP re
 | Date       | Update                                          | Evidence                                                 |
 | ---------- | ----------------------------------------------- | -------------------------------------------------------- |
 | 2026-04-29 | Planned MCP resource/template follow-up feature | `docs/plans/1298v-feat mcp-resource-template-surface.md` |
+| 2026-05-01 | Implementation complete. 5 stable resources (`wavefoundry://overview`, `wavefoundry://prompts`, `wavefoundry://architecture/current-state`, `wavefoundry://wave/current`, `wavefoundry://session-handoff`) and 5 resource templates (`change/{id}`, `wave/{id}`, `prompt/{slug}`, `seed/{slug}`, `architecture/{slug}`) registered in server.py. 17 new resource/template tests added. AGENTS.md updated with resources-vs-tools guidance. Architecture docs (current-state.md, data-and-control-flow.md) updated with Path 6b read path and MCP topology diagram. 344 tests pass. docs-lint clean. | `python3 .wavefoundry/framework/scripts/run_tests.py` → 344 OK; `.wavefoundry/bin/docs-lint` → ok |
 
 
 ## Decision Log

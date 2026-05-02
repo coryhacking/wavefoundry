@@ -33,6 +33,8 @@ SEED_PATH_MARKERS = (
     ".wavefoundry\\framework\\seeds\\",
 )
 
+DESIGN_JSON_MARKER = "docs/design/"
+
 
 def _normalize_path(path: str) -> str:
     """Return path with forward slashes on all platforms."""
@@ -357,12 +359,46 @@ def chunk_line_window(
 # Top-level dispatcher
 # ---------------------------------------------------------------------------
 
+def _chunk_design_json(source: str, path: str) -> list[Chunk]:
+    """Chunk a docs/design/**/*.json file as doc-kind chunks via the markdown chunker.
+
+    Falls back to line-window chunking when the source is not valid JSON so a
+    malformed file never raises and still produces searchable chunks.
+    """
+    import json as _json
+    try:
+        _json.loads(source)
+    except (ValueError, TypeError):
+        return chunk_line_window(source, path, language="json")
+
+    # Render the JSON as indented text and treat it like a markdown doc section
+    # so it is indexed as kind="doc" and findable via docs_search.
+    try:
+        pretty = _json.dumps(_json.loads(source), indent=2, ensure_ascii=False)
+    except Exception:
+        return chunk_line_window(source, path, language="json")
+
+    lines = pretty.splitlines()
+    if not lines:
+        return []
+    return [Chunk(
+        id=f"{path}#root",
+        path=path,
+        kind="doc",
+        language="json",
+        lines=(1, len(lines)),
+        section=None,
+        text=pretty,
+    )]
+
+
 def chunk_file(source: str, path: str) -> list[Chunk]:
     """Dispatch to the appropriate chunker based on file path and extension."""
     normalized = _normalize_path(path)
     suffix = PurePosixPath(normalized).suffix.lower()
 
     is_seed = any(marker in normalized for marker in SEED_PATH_MARKERS)
+    is_design_json = suffix == ".json" and DESIGN_JSON_MARKER in normalized
 
     if suffix in PYTHON_EXTENSIONS:
         return split_large_code_chunks(chunk_python(source, normalized))
@@ -370,6 +406,9 @@ def chunk_file(source: str, path: str) -> list[Chunk]:
     if suffix in MARKDOWN_EXTENSIONS:
         kind = "seed" if is_seed else "doc"
         return chunk_markdown(source, normalized, kind_override=kind)
+
+    if is_design_json:
+        return _chunk_design_json(source, normalized)
 
     if suffix in CODE_EXTENSIONS:
         return chunk_line_window(source, normalized, language=suffix.lstrip(".") or None)

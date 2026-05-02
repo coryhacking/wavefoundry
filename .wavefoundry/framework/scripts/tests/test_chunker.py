@@ -314,5 +314,53 @@ class ChunkFileDispatchTests(unittest.TestCase):
             self.assertNotIn("\\", c.id)
 
 
+class DesignJsonChunkerTests(unittest.TestCase):
+    """Tests for docs/design/**/*.json routing to doc-kind chunks (AC-10)."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def test_valid_token_file_produces_doc_chunks(self):
+        source = '{"color": {"primary": {"500": {"$value": "#2563EB", "$type": "color"}}}}'
+        chunks = self.chunker.chunk_file(source, "docs/design/tokens/primitives.tokens.json")
+        self.assertTrue(len(chunks) >= 1)
+        self.assertTrue(all(c.kind == "doc" for c in chunks))
+
+    def test_valid_token_file_language_is_json(self):
+        source = '{"spacing": {"4": {"$value": "16px", "$type": "dimension"}}}'
+        chunks = self.chunker.chunk_file(source, "docs/design/tokens/semantic.tokens.json")
+        self.assertTrue(all(c.language == "json" for c in chunks))
+
+    def test_malformed_json_falls_back_and_does_not_crash(self):
+        source = '{"broken": '
+        chunks = self.chunker.chunk_file(source, "docs/design/tokens/primitives.tokens.json")
+        self.assertIsInstance(chunks, list)
+        self.assertTrue(len(chunks) >= 1)
+
+    def test_malformed_json_fallback_kind_is_code(self):
+        # Fallback is line-window which uses kind="code"
+        source = '{"broken": '
+        chunks = self.chunker.chunk_file(source, "docs/design/tokens/primitives.tokens.json")
+        self.assertTrue(all(c.kind == "code" for c in chunks))
+
+    def test_non_design_json_unchanged_routing(self):
+        # A JSON file outside docs/design/ must still use the code/line-window path
+        source = '{"key": "value"}'
+        chunks = self.chunker.chunk_file(source, "src/config/settings.json")
+        self.assertTrue(all(c.kind == "code" for c in chunks))
+
+    def test_nested_design_path_is_routed(self):
+        source = '{"z": {"modal": {"$value": 1400, "$type": "number"}}}'
+        chunks = self.chunker.chunk_file(
+            source, "docs/design/tokens/modes/light.tokens.json"
+        )
+        self.assertTrue(all(c.kind == "doc" for c in chunks))
+
+    def test_manifest_json_in_design_is_doc(self):
+        source = '{"schemaVersion": "1.0.0", "canonicalRoot": "docs/design"}'
+        chunks = self.chunker.chunk_file(source, "docs/design/manifest.json")
+        self.assertTrue(all(c.kind == "doc" for c in chunks))
+
+
 if __name__ == "__main__":
     unittest.main()

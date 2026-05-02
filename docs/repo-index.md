@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-05-01
 
 ## Repository Summary
 
@@ -12,13 +12,17 @@ Wavefoundry is the canonical home for the Wave Framework and its future local MC
 
 ## Top-Level Modules and Roots
 
-| Path | Role | Notes |
-|------|------|-------|
-| `.wavefoundry/framework/seeds/` | Canonical Wave Framework seed prompts and overview docs | 37 files, numbered 001–250 |
-| `.wavefoundry/framework/scripts/` | Framework tooling: lint, gardener, lifecycle ID, packaging, rendering, tests | Python 3.13 |
-| `.wavefoundry/framework/README.md` | Canonical framework map: prompt numbering, public commands, factor model, seeding overview | |
-| `.wavefoundry/framework/VERSION` | Current framework version (`2026-04-28a`) | Updated by `build_pack.py` |
-| `docs/` | Wavefoundry self-hosted project operating surface (this tree, seeded by Wave Framework init) | |
+
+| Path                               | Role                                                                                         | Notes                      |
+| ---------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------- |
+| `.wavefoundry/framework/seeds/`    | Canonical Wave Framework seed prompts and overview docs                                      | 37 files, numbered 001–250 |
+| `.wavefoundry/framework/scripts/`  | Framework tooling: lint, gardener, lifecycle ID, packaging, rendering, tests                 | Python 3.13                |
+| `.wavefoundry/framework/README.md` | Canonical framework map: prompt numbering, public commands, factor model, seeding overview   |                            |
+| `.wavefoundry/framework/VERSION`   | Current framework version (`2026-04-28a`)                                                    | Updated by `build_pack.py` |
+| `docs/`                            | Wavefoundry self-hosted project operating surface (this tree, seeded by Wave Framework init) |                            |
+| `docs/design/`                     | Design-system extraction contract hub (seeded by wave `12as1`; machine-readable token/spec tree + operator-owned `design-language.md`) | Seeded; not yet populated |
+| `docs/architecture/design-system.md` | Design-system architecture hub: extraction philosophy, regeneration semantics, semantic index relationship | Seeded by wave `12as1` |
+
 
 No shipped product implementation sources exist yet. The MCP Python package (`src/wavefoundry/`) is planned but not scaffolded.
 
@@ -32,53 +36,63 @@ No shipped product implementation sources exist yet. The MCP Python package (`sr
 
 ## IDE and Toolchain Signals
 
-| Category | Signal | Source |
-|----------|--------|--------|
-| Python version | 3.13 | `.venv/pyvenv.cfg` |
-| Virtual environment | `.venv/` at repo root | `.venv/pyvenv.cfg` |
-| No CI/CD pipeline | No `.github/workflows/` | None detected |
-| No build manifest yet | `pyproject.toml` planned | Not present |
+
+| Category              | Signal                   | Source             |
+| --------------------- | ------------------------ | ------------------ |
+| Python version        | 3.13                     | `.venv/pyvenv.cfg` |
+| Virtual environment   | `.venv/` at repo root    | `.venv/pyvenv.cfg` |
+| No CI/CD pipeline     | No `.github/workflows/`  | None detected      |
+| No build manifest yet | `pyproject.toml` planned | Not present        |
+
 
 ## Framework Script Inventory
 
-| Script | Purpose |
-|--------|---------|
-| `.wavefoundry/framework/scripts/lifecycle_id.py` | Generate wave and change IDs using configured epoch |
-| `.wavefoundry/framework/scripts/docs_lint.py` | Validate Wave Framework docs gate (metadata, manifest, prompt surface) |
-| `.wavefoundry/framework/scripts/docs_gardener.py` | Refresh metadata timestamps and surface drift candidates |
-| `.wavefoundry/framework/scripts/build_pack.py` | Package framework into dated `.zip` distribution |
+
+| Script                                                       | Purpose                                                                   |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| `.wavefoundry/framework/scripts/lifecycle_id.py`             | Generate wave and change IDs using configured epoch                       |
+| `.wavefoundry/framework/scripts/docs_lint.py`                | Validate Wave Framework docs gate (metadata, manifest, prompt surface)    |
+| `.wavefoundry/framework/scripts/docs_gardener.py`            | Refresh metadata timestamps and surface drift candidates                  |
+| `.wavefoundry/framework/scripts/build_pack.py`               | Package framework into dated `.zip` distribution                          |
 | `.wavefoundry/framework/scripts/render_platform_surfaces.py` | Render platform hook/config surfaces (.claude/, .cursor/, .github/hooks/) |
-| `.wavefoundry/framework/scripts/run_tests.py` | Run framework script tests without bytecode |
-| `.wavefoundry/framework/scripts/tests/` | Unit and fixture tests for docs_lint and build_pack |
-| `.wavefoundry/framework/scripts/wave_lint_lib/` | Library modules for docs_lint: validators, context, helpers |
+| `.wavefoundry/framework/scripts/run_tests.py`                | Run framework script tests without bytecode                               |
+| `.wavefoundry/framework/scripts/tests/`                      | Unit and fixture tests for docs_lint and build_pack                       |
+| `.wavefoundry/framework/scripts/wave_lint_lib/`              | Library modules for docs_lint: validators, context, helpers               |
+
 
 ## Architecture Handoff for seed-060
 
 ### Deployable Units
 
-| Unit | Kind | Build/Run Entrypoint | Notes |
-|------|------|----------------------|-------|
-| Framework scripts | CLI tools | `python3 .wavefoundry/framework/scripts/<script>.py` | Run directly from repo root |
+
+| Unit               | Kind                 | Build/Run Entrypoint                                   | Notes                                     |
+| ------------------ | -------------------- | ------------------------------------------------------ | ----------------------------------------- |
+| Framework scripts  | CLI tools            | `python3 .wavefoundry/framework/scripts/<script>.py`   | Run directly from repo root               |
 | Wave Framework zip | Distribution archive | `python3 .wavefoundry/framework/scripts/build_pack.py` | Produces `wavefoundry-<date><letter>.zip` |
-| Future MCP server | stdio daemon | `src/wavefoundry/server.py` (planned) | Not yet scaffolded |
+| Future MCP server  | stdio daemon         | `src/wavefoundry/server.py` (planned)                  | Not yet scaffolded                        |
+
 
 ### Inter-Unit Edges
 
-| Edge | Kind | Parties | Notes |
-|------|------|---------|-------|
-| `build_pack.py` → `.wavefoundry/framework/VERSION` | file write | packager → VERSION file | Stamps VERSION on each build |
-| `lifecycle_id.py` → `docs/workflow-config.json` | file read | script → config | Reads `lifecycle_id_policy` for epoch |
-| `docs_lint.py` → `docs/` tree | file read | linter → docs | Validates prompt surface and manifest |
-| `render_platform_surfaces.py` → `.claude/`, `.cursor/`, `.github/hooks/` | file write | renderer → hook dirs | Materializes hook entrypoints |
-| Future MCP server → target repository | file read | tool → configured root | Reads target repo docs/code; no writes without explicit mutation tool |
+
+| Edge                                                                     | Kind       | Parties                 | Notes                                                                 |
+| ------------------------------------------------------------------------ | ---------- | ----------------------- | --------------------------------------------------------------------- |
+| `build_pack.py` → `.wavefoundry/framework/VERSION`                       | file write | packager → VERSION file | Stamps VERSION on each build                                          |
+| `lifecycle_id.py` → `docs/workflow-config.json`                          | file read  | script → config         | Reads `lifecycle_id_policy` for epoch                                 |
+| `docs_lint.py` → `docs/` tree                                            | file read  | linter → docs           | Validates prompt surface and manifest                                 |
+| `render_platform_surfaces.py` → `.claude/`, `.cursor/`, `.github/hooks/` | file write | renderer → hook dirs    | Materializes hook entrypoints                                         |
+| Future MCP server → target repository                                    | file read  | tool → configured root  | Reads target repo docs/code; no writes without explicit mutation tool |
+
 
 ### Ownership of Shared State
 
-| State | Owner | Path | Notes |
-|-------|-------|------|-------|
-| Framework VERSION | build_pack.py | `.wavefoundry/framework/VERSION` | Updated at each packaging run |
-| Workflow config | project docs | `docs/workflow-config.json` | Lifecycle epoch, wave settings |
-| Prompt surface manifest | docs_lint / seed-100 | `docs/prompts/prompt-surface-manifest.json` | Refreshable |
+
+| State                   | Owner                | Path                                        | Notes                          |
+| ----------------------- | -------------------- | ------------------------------------------- | ------------------------------ |
+| Framework VERSION       | build_pack.py        | `.wavefoundry/framework/VERSION`            | Updated at each packaging run  |
+| Workflow config         | project docs         | `docs/workflow-config.json`                 | Lifecycle epoch, wave settings |
+| Prompt surface manifest | docs_lint / seed-100 | `docs/prompts/prompt-surface-manifest.json` | Refreshable                    |
+
 
 ### Sensitivity
 
@@ -88,12 +102,14 @@ No shipped product implementation sources exist yet. The MCP Python package (`sr
 
 ### Concurrency / Single-Lane Hints
 
-| Area | Concurrency Safety |
-|------|-------------------|
-| `.wavefoundry/framework/seeds/` | Safe for parallel read; single-lane for framework seed edits (protected surface) |
-| `docs/` | Single-lane for broad framework-maintenance edits per framework plan gate |
+
+| Area                              | Concurrency Safety                                                                         |
+| --------------------------------- | ------------------------------------------------------------------------------------------ |
+| `.wavefoundry/framework/seeds/`   | Safe for parallel read; single-lane for framework seed edits (protected surface)           |
+| `docs/`                           | Single-lane for broad framework-maintenance edits per framework plan gate                  |
 | `.wavefoundry/framework/scripts/` | Generally safe for parallel; `build_pack.py` writes VERSION (single-lane during packaging) |
-| Future MCP tools | Read-only tools: safe for concurrency; mutation tools: serialize per target root |
+| Future MCP tools                  | Read-only tools: safe for concurrency; mutation tools: serialize per target root           |
+
 
 ## Open Questions / Weak Evidence
 
@@ -104,7 +120,8 @@ No shipped product implementation sources exist yet. The MCP Python package (`sr
 
 ## Persona Candidate Evidence
 
-| Candidate | Evidence | Related Factors |
-|-----------|---------|-----------------|
-| `wave-coordinator` | Framework is used by developers running waves; wave coordinator is a distinct operating mode described extensively in the framework seeds | — |
-| `framework-operator` | Users who install, upgrade, and operate the Wave Framework in their own repositories; documented in seed-010 operator summary | — |
+
+| Candidate            | Evidence                                                                                                                                  | Related Factors |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `wave-coordinator`   | Framework is used by developers running waves; wave coordinator is a distinct operating mode described extensively in the framework seeds | —               |
+| `framework-operator` | Users who install, upgrade, and operate the Wave Framework in their own repositories; documented in seed-010 operator summary             | —               |

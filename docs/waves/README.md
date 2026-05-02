@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-30
+Last verified: 2026-05-01
 
 Wave records for Wavefoundry delivery work. Each wave is a bounded, reviewable container for one or more admitted changes.
 
 ## Wave Lifecycle
 
-`planned` → `active` → `completed` | `superseded` (wave records may use **`Status: closed`** for a completed delivery — same meaning as **completed** for the index in this repo)
+`planned` → `active` → `completed` | `superseded` (wave records may use `**Status: closed**` for a completed delivery — same meaning as **completed** for the index in this repo)
 
 ## Active Waves
 

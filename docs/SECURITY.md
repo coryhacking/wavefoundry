@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-05-01
 
 ## Security Posture
 
@@ -10,21 +10,25 @@ Wavefoundry is local developer tooling with no network exposure in current scrip
 
 ## Current Security Controls
 
-| Control | Mechanism |
-|---------|----------|
-| Seed protection | Pre-edit hook checks `.wavefoundry/guard-overrides.json`; blocks edits to seed prompts without explicit approval |
-| Framework plan gate | Pre-edit hook requires `framework_edit_allowed` flag for broad framework-maintenance edits |
-| Guard-overrides file gitignored | `.wavefoundry/guard-overrides.json` is never committed; approval state stays local |
-| Distribution zip gitignored | `wavefoundry-*.zip` is never committed; distribution is local-only |
-| No secrets in seeds or scripts | Framework scripts and seed prompts contain no credentials, API keys, or PII |
+
+| Control                         | Mechanism                                                                                                        |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Seed protection                 | Pre-edit hook checks `.wavefoundry/guard-overrides.json`; blocks edits to seed prompts without explicit approval |
+| Framework plan gate             | Pre-edit hook requires `framework_edit_allowed` flag for broad framework-maintenance edits                       |
+| Guard-overrides file gitignored | `.wavefoundry/guard-overrides.json` is never committed; approval state stays local                               |
+| Distribution zip gitignored     | `wavefoundry-*.zip` is never committed; distribution is local-only                                               |
+| No secrets in seeds or scripts  | Framework scripts and seed prompts contain no credentials, API keys, or PII                                      |
+
 
 ## Future Security Concerns (MCP Server)
 
-| Concern | Mitigation Plan |
-|---------|----------------|
-| Allowed-roots escape | Explicit path validation before every file read/write in MCP tools |
-| Mutation without approval | Mutation tools must show diff + require explicit confirmation |
-| Localhost-only binding | No external network exposure for MVP; auth layer required before any remote binding |
+
+| Concern                   | Mitigation Plan                                                                     |
+| ------------------------- | ----------------------------------------------------------------------------------- |
+| Allowed-roots escape      | Explicit path validation before every file read/write in MCP tools                  |
+| Mutation without approval | Mutation tools must show diff + require explicit confirmation                       |
+| Localhost-only binding    | No external network exposure for MVP; auth layer required before any remote binding |
+
 
 ## Threat Model Reference
 

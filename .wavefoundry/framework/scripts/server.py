@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import datetime
 import functools
 import json
 import os
@@ -423,6 +424,26 @@ class WaveIndex:
         }
         self._loaded = True
 
+    # ------------------------------------------------------------------
+    # Embedding model
+    #
+    # Current model: BAAI/bge-small-en-v1.5  (384-d float32)
+    # Defined in:    indexer.py  DOCS_MODEL / CODE_MODEL constants
+    # Upgrade doc:   docs/architecture/embedding-model.md
+    #
+    # To upgrade the model:
+    #   1. Change DOCS_MODEL / CODE_MODEL in indexer.py
+    #   2. Update _EXPECTED_DOCS_MODEL / _EXPECTED_EMBEDDING_DIM in
+    #      SemanticEmbeddingRegressionTests (test_server_tools.py)
+    #   3. Delete .wavefoundry/index/ and rebuild:
+    #        python3 .wavefoundry/framework/scripts/setup_index.py --root . --include-code
+    #   4. Run tests — all SemanticEmbeddingRegressionTests must pass
+    #
+    # Skip/fallback contract:
+    #   - fastembed not installed          → IndexNotReadyError
+    #   - model not locally cached         → SemanticModelUnavailableOfflineError
+    #   - Both are caught by docs_search   → lexical fallback, mode="lexical" in response
+    # ------------------------------------------------------------------
     def _get_embedder(self, model_name: str):
         try:
             from fastembed import TextEmbedding
@@ -796,6 +817,31 @@ def current_wave(root: Path, cache: Optional[McpRepoCache] = None) -> Optional[d
     return None
 
 
+def _find_other_active_wave(
+    root: Path,
+    target_wave_path: Path,
+    cache: Optional[McpRepoCache] = None,
+) -> Optional[dict]:
+    """Return the first active wave whose path is not ``target_wave_path``.
+
+    Used by the single-active-wave guard in ``wave_prepare``. Returns ``None``
+    when no other wave is active (the target may itself be active and still
+    allow self-prepare).
+    """
+    waves = cache.list_waves_cached() if cache else list_waves(root)
+    target_resolved = target_wave_path.resolve()
+    for wave in waves:
+        if wave["status"] != "active":
+            continue
+        wave_md_path = Path(wave["path"])
+        if not wave_md_path.is_absolute():
+            wave_md_path = root / wave_md_path
+        if wave_md_path.resolve() == target_resolved:
+            continue
+        return wave
+    return None
+
+
 def get_change(root: Path, change_id_prefix: str) -> Optional[str]:
     prefix = change_id_prefix.strip().lower()
     search_dirs = [
@@ -974,7 +1020,6 @@ def _help_catalog() -> dict[str, Any]:
             "docs_search",
             "code_search",
             "seed_get",
-            "wave_change_create",
             "wave_validate",
             "wave_garden",
             "wave_sync_surfaces",
@@ -1002,11 +1047,11 @@ def _help_catalog() -> dict[str, Any]:
         },
         "workflows": {
             "plan_feature": {
-                "recommended_chain": ["wave_change_create", "wave_get_change", "wave_validate"],
-                "rationale": "Create or preview the change doc, inspect it, then validate docs state.",
-                "fallback_tools": ["wave_new_feature"],
-                "next_step": "Create or dry-run the change document first.",
-                "usage": "wave_change_create(kind='feat', slug='my-feature', mode='dry_run')",
+                "recommended_chain": ["wave_new_feature", "wave_get_change", "wave_validate"],
+                "rationale": "Create the change doc with the kind-specific tool, inspect it, then validate docs state.",
+                "fallback_tools": ["wave_new_bug", "wave_new_enhancement", "wave_new_maintenance"],
+                "next_step": "Create the change document with the appropriate wave_new_<kind> tool first.",
+                "usage": "wave_new_feature(slug='my-feature')",
             },
             "inspect_wave": {
                 "recommended_chain": ["wave_audit", "wave_current", "wave_list_waves", "wave_get_change"],
@@ -1020,7 +1065,12 @@ def _help_catalog() -> dict[str, Any]:
             },
             "start_wave": {
                 "recommended_chain": ["wave_create_wave", "wave_add_change", "wave_prepare"],
-                "rationale": "Create the wave, admit planned changes, then run transactional prepare checks.",
+                "rationale": (
+                    "Create the wave, admit planned changes, then run transactional prepare checks. "
+                    "Before wave_prepare will pass, a journal artifact under docs/agents/journals/ "
+                    "must contain a line in the exact form: wave-id: `<wave-id>` "
+                    "(the key alone on its own line, wave ID in backticks, no trailing content after the closing backtick)."
+                ),
                 "fallback_tools": ["wave_help"],
                 "next_step": "Create the wave in dry_run first.",
                 "usage": "wave_create_wave(slug='mcp-lifecycle', mode='dry_run')",
@@ -1444,18 +1494,21 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
                     recovery_usage="wave_help(goal='search_docs')",
                 )
             )
+        _mode = "lexical" if search_mode != "semantic" else "semantic"
         return _response(
             "ok",
-            {"query": query, "kind": k, "search_mode": search_mode, "results": []},
+            {"query": query, "kind": k, "mode": _mode, "search_mode": search_mode, "results": []},
             diagnostics=diagnostics,
             next_tools=["wave_help"],
             usage=f"docs_search(query={query!r})",
         )
+    _mode = "lexical" if search_mode != "semantic" else "semantic"
     return _response(
         "ok",
         {
             "query": query,
             "kind": k,
+            "mode": _mode,
             "search_mode": search_mode,
             "results": [_search_result("doc", result) for result in results],
         },
@@ -1575,16 +1628,69 @@ def seed_get_response(index: WaveIndex, name: str) -> dict[str, Any]:
     )
 
 
+def _detect_wave_status_drift(root: Path, wave: dict) -> list[dict[str, Any]]:
+    """Compare wave.md change statuses against actual change doc files.
+
+    Returns a list of drift entries: ``{"change_id": ..., "wave_md_status": ..., "file_status": ...}``
+    for any change whose status differs between wave.md and its change doc file.
+    """
+    drifts: list[dict[str, Any]] = []
+    wave_md_path = Path(wave["path"])
+    wave_dir = wave_md_path.parent
+    for change in wave.get("changes", []):
+        cid = change["id"]
+        wave_md_status = change["status"]
+        # Search for the change doc in the wave folder
+        for p in sorted(wave_dir.rglob("*.md")):
+            if p.name == "wave.md":
+                continue
+            if cid.lower() in p.stem.lower():
+                try:
+                    text = p.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                m = _CHANGE_STATUS_PATTERN.search(text)
+                if m:
+                    file_status = m.group(1)
+                    if file_status.strip().lower() != wave_md_status.strip().lower():
+                        drifts.append({
+                            "change_id": cid,
+                            "wave_md_status": wave_md_status,
+                            "file_status": file_status,
+                        })
+                break
+    return drifts
+
+
+_WAVE_CURRENT_NEXT_ACTION = {
+    "active": "implement_wave",
+    "planned": "prepare_wave",
+    "paused": "resume_wave",
+}
+
+
+def _wave_current_sort_key(wave: dict) -> tuple[int, str]:
+    """Sort key: active (0), planned (1), paused (2), other (3); then by wave_id."""
+    priority = {"active": 0, "planned": 1, "paused": 2}
+    return (priority.get(wave["status"], 3), wave.get("wave_id", ""))
+
+
 def wave_current_response(root: Path, cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
-    wave = current_wave(root, cache=cache)
-    if wave is None:
+    all_waves = cache.list_waves_cached() if cache else list_waves(root)
+    open_waves = [w for w in all_waves if w["status"] != "closed"]
+    open_waves.sort(key=_wave_current_sort_key)
+    entries = [
+        {**w, "next_action": _WAVE_CURRENT_NEXT_ACTION.get(w["status"], "prepare_wave")}
+        for w in open_waves
+    ]
+    if not entries:
         return _response(
             "ok",
-            {"wave": None},
+            {"waves": []},
             diagnostics=[
                 _diagnostic(
                     "no_active_wave",
-                    "No active or planned wave found.",
+                    "No active, planned, or paused wave found.",
                     recovery_tools=["wave_list_waves"],
                     recovery_usage="wave_list_waves()",
                 )
@@ -1592,12 +1698,33 @@ def wave_current_response(root: Path, cache: Optional[McpRepoCache] = None) -> d
             next_tools=["wave_list_waves", "wave_list_plans"],
             usage="wave_list_waves()",
         )
-    next_action = "implement_wave" if wave["status"] == "active" else "prepare_wave"
+    # Drift detection only runs against the active wave (if present) — that's the only
+    # wave where in-flight Change Status drift is meaningful.
+    diagnostics: list[dict[str, Any]] = []
+    active_entry = entries[0] if entries[0]["status"] == "active" else None
+    if active_entry is not None:
+        try:
+            drifts = _detect_wave_status_drift(root, active_entry)
+            if drifts:
+                drift_summary = "; ".join(f"{d['change_id']}: wave.md={d['wave_md_status']!r} vs file={d['file_status']!r}" for d in drifts)
+                diagnostics.append(
+                    _diagnostic(
+                        "change_status_drift",
+                        f"Change status drift detected — wave.md and change doc files disagree for: {drift_summary}. Update wave.md Change Status fields to match the actual change docs.",
+                        recovery_tools=["wave_get_change", "wave_validate"],
+                        recovery_usage=f"wave_get_change(change_id={drifts[0]['change_id']!r})",
+                    )
+                )
+        except Exception:
+            pass  # Drift detection is advisory; never let it block the response
+    first_entry = entries[0]
+    usage = f"wave_get_change(change_id={first_entry['changes'][0]['id']!r})" if first_entry.get("changes") else ""
     return _response(
         "ok",
-        {"wave": {**wave, "next_action": next_action}},
+        {"waves": entries},
+        diagnostics=diagnostics,
         next_tools=["wave_get_change"],
-        usage=f"wave_get_change(change_id={wave['changes'][0]['id']!r})" if wave["changes"] else "",
+        usage=usage,
     )
 
 
@@ -1624,21 +1751,86 @@ def wave_list_plans_response(root: Path, limit: int = 50, cache: Optional[McpRep
         "ok",
         {"plans": plans, "total": len(all_plans), "has_more": has_more},
         diagnostics=[] if plans else [_diagnostic("no_plans", "No plan docs found.")],
-        next_tools=["wave_change_create", "wave_current"] if plans else ["wave_help"],
+        next_tools=["wave_new_feature", "wave_current"] if plans else ["wave_help"],
         usage="wave_help(goal='plan_feature')",
     )
 
 
-def wave_get_change_response(root: Path, change_id: str) -> dict[str, Any]:
-    text = get_change(root, change_id)
+def wave_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -> dict[str, Any]:
+    """Look up a single change doc by ID, or return all changes for a wave.
+
+    When ``wave_id`` is provided and ``change_id`` is omitted (or empty), returns all
+    admitted change docs for that wave in ``data.changes``, each with ``id``, ``status``,
+    ``path``, and ``content``.  Content per change is capped at 300 lines to avoid
+    overly large responses for waves with many large change docs.
+    """
+    wave_id_s = (wave_id or "").strip()
+    change_id_s = (change_id or "").strip()
+
+    # Bulk mode: wave_id provided, no specific change_id
+    if wave_id_s and not change_id_s:
+        wave_md = _find_wave_md(root, wave_id_s)
+        if wave_md is None:
+            return _response(
+                "ok",
+                {"wave_id": wave_id_s, "changes": []},
+                diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id_s}'.", recovery_tools=["wave_list_waves"], recovery_usage="wave_list_waves()")],
+                next_tools=["wave_list_waves"],
+                usage="wave_list_waves()",
+            )
+        wave_text = wave_md.read_text(encoding="utf-8")
+        admitted_ids = _extract_change_ids_from_wave_text(wave_text)
+        changes: list[dict[str, Any]] = []
+        wave_dir = wave_md.parent
+        _MAX_CONTENT_LINES = 300
+        for cid in admitted_ids:
+            # Prefer wave folder; fall back to docs/plans
+            doc_path: Optional[Path] = None
+            for p in sorted(wave_dir.rglob("*.md")):
+                if p.name != "wave.md" and cid.lower() in p.stem.lower():
+                    doc_path = p
+                    break
+            if doc_path is None:
+                doc_path_candidate = root / "docs" / "plans" / f"{cid}.md"
+                if doc_path_candidate.exists():
+                    doc_path = doc_path_candidate
+            if doc_path is not None and doc_path.exists():
+                try:
+                    content_lines = doc_path.read_text(encoding="utf-8").splitlines()
+                except OSError:
+                    content_lines = []
+                truncated = len(content_lines) > _MAX_CONTENT_LINES
+                content = "\n".join(content_lines[:_MAX_CONTENT_LINES])
+                if truncated:
+                    content += f"\n\n[... truncated at {_MAX_CONTENT_LINES} lines. Use code_read(path=...) for the full file.]"
+                # Extract change status from doc
+                doc_status_m = _CHANGE_STATUS_PATTERN.search(content)
+                doc_status = doc_status_m.group(1) if doc_status_m else "unknown"
+                changes.append({
+                    "id": cid,
+                    "status": doc_status,
+                    "path": _repo_rel(root, doc_path),
+                    "content": content,
+                })
+            else:
+                changes.append({"id": cid, "status": "unknown", "path": None, "content": None})
+        return _response(
+            "ok",
+            {"wave_id": wave_id_s, "count": len(changes), "changes": changes},
+            next_tools=["wave_validate", "wave_current"],
+            usage="wave_validate()",
+        )
+
+    # Single lookup mode (original behavior)
+    text = get_change(root, change_id_s)
     if text is None:
         return _response(
             "ok",
-            {"change_id": change_id, "change": None},
+            {"change_id": change_id_s, "change": None},
             diagnostics=[
                 _diagnostic(
                     "change_not_found",
-                    f"No change doc found matching '{change_id}'.",
+                    f"No change doc found matching '{change_id_s}'.",
                     recovery_tools=["wave_list_plans", "wave_current"],
                     recovery_usage="wave_list_plans()",
                 )
@@ -1649,7 +1841,7 @@ def wave_get_change_response(root: Path, change_id: str) -> dict[str, Any]:
     return _response(
         "ok",
         {
-            "change_id": change_id,
+            "change_id": change_id_s,
             "change": {
                 "content": text,
                 "trust_label": TRUSTED_PROJECT_METADATA,
@@ -1970,51 +2162,63 @@ def _review_evidence_has_any_signoff_line(wave_text: str) -> bool:
     return False
 
 
-def _merge_pause_into_session_handoff(existing: str, wave_id: str) -> str:
-    """Update or append ``## Current Session`` without discarding other handoff sections."""
-    session_header = "## Current Session"
-    new_body = (
-        f"**Active wave:** `{wave_id}`\n"
-        "**Last completed action:** wave_pause via MCP tool.\n"
-    )
+def _update_handoff_wave_ref(existing: str, wave_id: Optional[str]) -> str:
+    """Surgically update the Active wave reference and Last verified in session-handoff.md.
+
+    Only the ``**Active wave:**`` line and the ``Last verified:`` metadata field are
+    updated.  All other content is preserved unchanged.  If the file is empty or the
+    ``**Active wave:**`` pattern is absent, a minimal valid scaffold is written instead.
+
+    Args:
+        existing: Current file content (empty string when the file does not exist).
+        wave_id: Wave ID to mark as active, or None to clear (renders as ``*(none)*``).
+    """
+    active_ref = f"`{wave_id}`" if wave_id else "*(none)*"
+    today = datetime.date.today().isoformat()
+
     if not existing.strip():
+        status = "active" if wave_id else "idle"
         return (
             "# Session Handoff\n\n"
             "Owner: wave-coordinator\n"
-            "Status: active\n\n"
-            f"{session_header}\n\n"
-            f"{new_body}"
+            f"Status: {status}\n"
+            f"Last verified: {today}\n\n"
+            "## Current Session\n\n"
+            f"**Active wave:** {active_ref}\n"
         )
+
     lines = existing.splitlines(keepends=True)
+    found_active = False
     out: list[str] = []
-    i = 0
-    found = False
-    while i < len(lines):
-        line = lines[i]
-        if line.strip() == session_header:
-            found = True
-            out.append(line if line.endswith("\n") else line + "\n")
-            i += 1
-            while i < len(lines) and not lines[i].startswith("## "):
-                i += 1
-            if out and not out[-1].endswith("\n"):
-                out[-1] += "\n"
-            if not out[-1].endswith("\n\n"):
-                out.append("\n")
-            out.append(new_body)
-            if not new_body.endswith("\n"):
-                out.append("\n")
-            continue
-        out.append(lines[i])
-        i += 1
-    if not found:
-        if out and not (out[-1].endswith("\n")):
-            out[-1] += "\n"
-        if out and not out[-1].endswith("\n\n"):
-            out.append("\n")
-        out.append(session_header)
-        out.append("\n\n")
-        out.append(new_body)
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("**Active wave:**"):
+            out.append(f"**Active wave:** {active_ref}\n")
+            found_active = True
+        elif stripped.startswith("Last verified:"):
+            out.append(f"Last verified: {today}\n")
+        else:
+            out.append(line)
+
+    if not found_active:
+        # Active wave line absent — insert it under ## Current Session if that section
+        # exists, preserving all other content.  Only fall back to a minimal scaffold
+        # if the file has no Current Session section at all.
+        result = "".join(out)
+        if "## Current Session" in result:
+            result = re.sub(
+                r"(## Current Session\s*\n+)",
+                rf"\1**Active wave:** {active_ref}\n",
+                result,
+                count=1,
+            )
+            return result
+        # No Current Session section — append one.
+        if not result.endswith("\n"):
+            result += "\n"
+        result += f"\n## Current Session\n\n**Active wave:** {active_ref}\n"
+        return result
+
     return "".join(out)
 
 
@@ -2163,6 +2367,25 @@ def _move_change_doc(source: Path, target: Path) -> None:
     source.rename(target)
 
 
+_MARKDOWN_LINK_PATTERN = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
+
+
+def _broken_relative_links_after_relocation(doc_text: str) -> list[str]:
+    """Return relative markdown link targets that used ``../waves/`` anchoring.
+
+    When a change doc is relocated from ``docs/plans/`` to a wave folder the
+    relative path depth changes.  Links written as ``../waves/<something>`` were
+    valid from ``docs/plans/`` but become invalid from the wave folder (which is
+    already *inside* ``docs/waves/``).  This helper returns each such link target
+    so callers can surface them to the agent as ``broken_links``.
+    """
+    broken: list[str] = []
+    for _text, href in _MARKDOWN_LINK_PATTERN.findall(doc_text):
+        if href.startswith("../waves/"):
+            broken.append(href)
+    return broken
+
+
 def _change_block_pattern(change_id: str) -> re.Pattern[str]:
     return re.compile(
         rf"\n?Change ID:\s+`{re.escape(change_id)}`\n(?:Previous Change Status:\s+`[^`]+`\n)?Change Status:\s+`[^`]+`\n?",
@@ -2235,15 +2458,20 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
     if exists:
         return {"wave_id": wave_id, "path": rel_path, "mode": mode_s, "created": False, "exists": True}
     wave_dir.mkdir(parents=True, exist_ok=True)
+    today_iso = datetime.date.today().isoformat()
     wave_md.write_text(
         (
             "# Wave Record\n\n"
             "Owner: Engineering\n"
             "Status: planned\n"
-            "Last verified: <date>\n\n"
+            f"Last verified: {today_iso}\n\n"
             f"wave-id: `{wave_id}`\n"
             f"Title: {slug_s.replace('-', ' ').title()}\n\n"
             "## Changes\n\n"
+            "## Wave Summary\n\n"
+            "<Describe the purpose and scope of this wave in 1–3 sentences.>\n\n"
+            "## Journal Watchpoints\n\n"
+            "- <Add any coordination notes, sequencing constraints, or guard requirements here.>\n\n"
             "## Dependencies\n\n"
             "- No external wave dependencies.\n"
         ),
@@ -2277,6 +2505,37 @@ def wave_create_wave_response(root: Path, slug: str, mode: str = "dry_run", cach
         next_tools=["wave_list_waves", "wave_current"],
         usage="wave_current()",
     )
+
+
+def _insert_change_block_into_changes_section(text: str, change_id: str) -> str:
+    """Append a ``Change ID:`` block inside the ``## Changes`` section.
+
+    The block is inserted after any existing change blocks in the section, before
+    the next ``## `` heading (or end-of-file). When ``## Changes`` is missing
+    (e.g., on operator-edited waves), the section is created just before the
+    first existing ``## `` heading, or appended to the end of the file if none
+    exist. Admission order is preserved by tail-appending within the section.
+    """
+    block = f"Change ID: `{change_id}`\nChange Status: `planned`\n"
+    changes_match = re.search(r"^## Changes[ \t]*\n", text, re.MULTILINE)
+    if changes_match is None:
+        next_heading = re.search(r"^## ", text, re.MULTILINE)
+        section = "## Changes\n\n" + block + "\n"
+        if next_heading is None:
+            if text and not text.endswith("\n"):
+                text += "\n"
+            return text + "\n" + section
+        return text[:next_heading.start()] + section + text[next_heading.start():]
+    section_start = changes_match.end()
+    next_heading = re.search(r"^## ", text[section_start:], re.MULTILINE)
+    section_end = section_start + next_heading.start() if next_heading else len(text)
+    section_body = text[section_start:section_end]
+    body_stripped = section_body.rstrip()
+    if body_stripped:
+        new_section = body_stripped + "\n\n" + block + "\n"
+    else:
+        new_section = "\n" + block + "\n"
+    return text[:section_start] + new_section + text[section_end:]
 
 
 def wave_add_change_response(
@@ -2357,7 +2616,6 @@ def wave_add_change_response(
             next_tools=["wave_current"],
             usage="wave_current()",
         )
-    insert = f"\nChange ID: `{canonical_change_id}`\nChange Status: `planned`\n"
     relocated = source_path == target_path
     if mode_s == "create":
         if target_path.exists() and source_path != target_path:
@@ -2394,14 +2652,17 @@ def wave_add_change_response(
                     usage=f"wave_get_change(change_id={canonical_change_id!r})",
                 )
             relocated = True
-        if "## Dependencies" in text:
-            text = text.replace("## Dependencies", insert + "\n## Dependencies", 1)
-        else:
-            text += "\n## Dependencies\n" + insert
+        text = _insert_change_block_into_changes_section(text, canonical_change_id)
         wave_md.write_text(text, encoding="utf-8")
         if cache:
             cache.invalidate()
         _trigger_background_index_refresh_for_paths(root, [wave_md, target_path])
+    # Detect broken relative links regardless of mode (dry-run reads source, create reads target).
+    _doc_check_path = target_path if (mode_s == "create" and target_path.exists()) else source_path
+    broken_links: list[str] = []
+    if _doc_check_path.exists():
+        _doc_text = _doc_check_path.read_text(encoding="utf-8")
+        broken_links = _broken_relative_links_after_relocation(_doc_text)
     return _response(
         "dry_run" if mode_s == "dry_run" else "ok",
         {
@@ -2412,6 +2673,7 @@ def wave_add_change_response(
             "relocated": relocated,
             "source_path": _repo_rel(root, source_path),
             "target_path": _repo_rel(root, target_path),
+            "broken_links": broken_links,
         },
         next_tools=["wave_current", "wave_get_change"],
         usage=f"wave_get_change(change_id={canonical_change_id!r})",
@@ -2562,7 +2824,7 @@ def change_create(root: Path, kind: str, slug: str, mode: str = "create") -> dic
     }
 
 
-def wave_change_create_response(
+def _change_create_response(
     root: Path,
     kind: str,
     slug: str,
@@ -2636,6 +2898,171 @@ def wave_change_create_response(
         diagnostics=diagnostics,
         next_tools=["wave_get_change", "wave_validate"],
         usage=f"wave_get_change(change_id={result['id']!r})",
+    )
+
+
+_VALID_GATES = {"seed_edit_allowed", "framework_edit_allowed"}
+
+
+def _read_guard_overrides(root: Path) -> dict[str, Any]:
+    """Read .wavefoundry/guard-overrides.json; return empty dict on missing/malformed."""
+    path = root / ".wavefoundry" / "guard-overrides.json"
+    if not path.exists():
+        return {}
+    try:
+        import json as _json
+        return _json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _write_guard_overrides(root: Path, data: dict[str, Any]) -> None:
+    """Write data to .wavefoundry/guard-overrides.json."""
+    import json as _json
+    path = root / ".wavefoundry" / "guard-overrides.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def _force_gates_closed(root: Path, mode: str) -> list[dict[str, Any]]:
+    """Close all edit gates and return a diagnostic listing which were open.
+
+    In dry-run mode the gate file is not written; the diagnostic is still returned
+    so callers can report what would have been closed.
+
+    Args:
+        root: Repository root.
+        mode: ``"create"`` to write the gate file; any other value is a dry-run.
+    """
+    overrides = _read_guard_overrides(root)
+    open_gates = [g for g in _VALID_GATES if overrides.get(g, {}).get("enabled", False)]
+    if not open_gates:
+        return []
+    if mode == "create":
+        for gate in _VALID_GATES:
+            overrides.setdefault(gate, {})["enabled"] = False
+        _write_guard_overrides(root, overrides)
+    return [
+        _diagnostic(
+            "gates_forced_closed",
+            f"The following edit gate(s) were open and have been {'closed' if mode == 'create' else 'detected (dry-run — not closed)' }: {', '.join(sorted(open_gates))}. "
+            "Use wave_open_gate / wave_close_gate to manage gates explicitly.",
+            recovery_tools=["wave_close_gate"],
+            recovery_usage="wave_close_gate(gate='seed_edit_allowed')",
+        )
+    ]
+
+
+def wave_open_gate_response(root: Path, gate: str) -> dict[str, Any]:
+    """Open an edit gate, enabling the corresponding guard in guard-overrides.json."""
+    gate_s = (gate or "").strip()
+    if gate_s not in _VALID_GATES:
+        return _response(
+            "error",
+            {"gate": gate_s, "valid_gates": sorted(_VALID_GATES)},
+            diagnostics=[_diagnostic("invalid_arguments", f"Unknown gate '{gate_s}'. Valid gates: {sorted(_VALID_GATES)}.")],
+            next_tools=["wave_open_gate"],
+            usage=f"wave_open_gate(gate='seed_edit_allowed')",
+        )
+    overrides = _read_guard_overrides(root)
+    if overrides.get(gate_s, {}).get("enabled", False):
+        return _response(
+            "error",
+            {"gate": gate_s, "enabled": True},
+            diagnostics=[_diagnostic(
+                "gate_already_open",
+                f"Gate '{gate_s}' is already open. Close it with wave_close_gate before opening again.",
+                recovery_tools=["wave_close_gate"],
+                recovery_usage=f"wave_close_gate(gate={gate_s!r})",
+            )],
+            next_tools=["wave_close_gate"],
+            usage=f"wave_close_gate(gate={gate_s!r})",
+        )
+    overrides.setdefault(gate_s, {})["enabled"] = True
+    _write_guard_overrides(root, overrides)
+    return _response(
+        "ok",
+        {"gate": gate_s, "enabled": True},
+        next_tools=["wave_close_gate"],
+        usage=f"wave_close_gate(gate={gate_s!r})",
+    )
+
+
+def wave_close_gate_response(root: Path, gate: str) -> dict[str, Any]:
+    """Close an edit gate, disabling the corresponding guard in guard-overrides.json."""
+    gate_s = (gate or "").strip()
+    if gate_s not in _VALID_GATES:
+        return _response(
+            "error",
+            {"gate": gate_s, "valid_gates": sorted(_VALID_GATES)},
+            diagnostics=[_diagnostic("invalid_arguments", f"Unknown gate '{gate_s}'. Valid gates: {sorted(_VALID_GATES)}.")],
+            next_tools=["wave_close_gate"],
+            usage=f"wave_close_gate(gate='seed_edit_allowed')",
+        )
+    overrides = _read_guard_overrides(root)
+    already_closed = not overrides.get(gate_s, {}).get("enabled", False)
+    overrides.setdefault(gate_s, {})["enabled"] = False
+    _write_guard_overrides(root, overrides)
+    diagnostics: list[dict[str, Any]] = []
+    if already_closed:
+        diagnostics.append(_diagnostic(
+            "gate_already_closed",
+            f"Gate '{gate_s}' was already closed — no change made.",
+        ))
+    return _response(
+        "ok",
+        {"gate": gate_s, "enabled": False},
+        diagnostics=diagnostics if diagnostics else None,
+        next_tools=["wave_open_gate"],
+        usage=f"wave_open_gate(gate={gate_s!r})",
+    )
+
+
+def wave_get_handoff_response(root: Path) -> dict[str, Any]:
+    """Read docs/agents/session-handoff.md and return its content and mtime."""
+    handoff_path = root / "docs" / "agents" / "session-handoff.md"
+    if not handoff_path.exists():
+        return _response(
+            "ok",
+            {"path": "docs/agents/session-handoff.md", "content": None, "mtime": None},
+            diagnostics=[
+                _diagnostic(
+                    "handoff_not_found",
+                    "docs/agents/session-handoff.md does not exist. Use wave_set_handoff to create it.",
+                    recovery_tools=["wave_current"],
+                    recovery_usage="wave_current()",
+                )
+            ],
+            next_tools=["wave_set_handoff", "wave_current"],
+            usage="wave_set_handoff(content='# Session Handoff\\n\\n...')",
+        )
+    try:
+        content = handoff_path.read_text(encoding="utf-8")
+        mtime = handoff_path.stat().st_mtime
+    except OSError as exc:
+        return _response("error", {"path": "docs/agents/session-handoff.md"}, diagnostics=[_diagnostic("read_error", str(exc))], next_tools=["wave_current"], usage="wave_current()")
+    return _response(
+        "ok",
+        {"path": "docs/agents/session-handoff.md", "content": content, "mtime": mtime},
+        next_tools=["wave_set_handoff", "wave_current"],
+        usage="wave_current()",
+    )
+
+
+def wave_set_handoff_response(root: Path, content: str, cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
+    """Write content to docs/agents/session-handoff.md, creating the file if absent."""
+    handoff_path = root / "docs" / "agents" / "session-handoff.md"
+    try:
+        handoff_path.parent.mkdir(parents=True, exist_ok=True)
+        handoff_path.write_text(content, encoding="utf-8")
+    except OSError as exc:
+        return _response("error", {"path": "docs/agents/session-handoff.md"}, diagnostics=[_diagnostic("write_error", str(exc))], next_tools=["wave_current"], usage="wave_current()")
+    _trigger_background_index_refresh_for_paths(root, ["docs/agents/session-handoff.md"])
+    return _response(
+        "ok",
+        {"path": "docs/agents/session-handoff.md", "written": True, "size": len(content)},
+        next_tools=["wave_get_handoff", "wave_current"],
+        usage="wave_get_handoff()",
     )
 
 
@@ -3013,6 +3440,7 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
     text = wave_md.read_text(encoding="utf-8")
     change_ids = _extract_change_ids_from_wave_text(text)
     diagnostics: list[dict[str, Any]] = []
+    _ac_advisories: list[dict[str, Any]] = []
     repairs_needed = 0
     repaired = 0
     updated = False
@@ -3093,6 +3521,21 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
                     recovery_usage=f"wave_get_change(change_id={admitted_change!r})",
                 )
             )
+        # AC priority advisory (non-blocking): warn if every AC row still has unpopulated placeholder text
+        _AC_PLACEHOLDER = "required / important / nice-to-have / not-this-scope"
+        if "## AC Priority" in change_text:
+            ac_section_start = change_text.find("## AC Priority")
+            ac_section = change_text[ac_section_start:]
+            ac_rows = [line for line in ac_section.splitlines() if line.strip().startswith("| AC-")]
+            if ac_rows and all(_AC_PLACEHOLDER in row for row in ac_rows):
+                _ac_advisories.append(
+                    _diagnostic(
+                        "ac_priority_unpopulated",
+                        f"Change '{admitted_change}' AC priority table still contains only placeholder text. Fill in priority values (required / important / nice-to-have / not-this-scope) for each AC row before closing the wave.",
+                        recovery_tools=["wave_get_change"],
+                        recovery_usage=f"wave_get_change(change_id={admitted_change!r})",
+                    )
+                )
     # Garden and lint only run on create — dry-run must stay read-only.
     garden_passed = True
     lint_passed = True
@@ -3105,8 +3548,30 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
     lint_passed = lint_result["passed"]
     if not lint_passed:
         diagnostics.extend(_diagnostic("docs_lint_error", err, recovery_tools=["wave_validate"]) for err in lint_result["errors"])
+    # Single-active-wave guard: block prepare when another wave is already active.
+    # Keyed on "is any other wave active?" — self-transitions (active→active or paused→active
+    # on the target wave) are not blocked by this check.
+    other_active = _find_other_active_wave(root, wave_md, cache=cache)
+    guard_data: dict[str, Any] = {}
+    if other_active is not None:
+        guard_data = {
+            "active_wave_id": other_active["wave_id"],
+            "active_wave_path": _repo_rel(root, Path(other_active["path"])),
+        }
+        diagnostics.append(
+            _diagnostic(
+                "another_wave_active",
+                f"Wave {other_active['wave_id']!r} is already active. Pause it before preparing {wave_id!r}.",
+                recovery_tools=["wave_pause", "wave_current"],
+                recovery_usage=f"wave_pause(wave_id={other_active['wave_id']!r}, mode='create')",
+            )
+        )
     if diagnostics:
-        return _response("error", {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "repairs_needed": repairs_needed, "repaired": repaired}, diagnostics=diagnostics, next_tools=["wave_validate", "wave_current"], usage="wave_validate()")
+        error_data = {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "repairs_needed": repairs_needed, "repaired": repaired}
+        error_data.update(guard_data)
+        next_tools_list = ["wave_pause", "wave_current"] if other_active is not None else ["wave_validate", "wave_current"]
+        usage_hint = f"wave_pause(wave_id={other_active['wave_id']!r}, mode='create')" if other_active is not None else "wave_validate()"
+        return _response("error", error_data, diagnostics=diagnostics, next_tools=next_tools_list, usage=usage_hint)
     if mode_s == "create":
         status_match = _STATUS_PATTERN.search(text)
         if status_match and status_match.group(1) != "active":
@@ -3119,7 +3584,7 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
             root,
             [wave_md, *(_wave_change_doc_path(root, wave_md, change_id) for change_id in change_ids)],
         )
-    return _response("dry_run" if mode_s == "dry_run" else "ok", {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired}, next_tools=["wave_current"], usage="wave_current()")
+    return _response("dry_run" if mode_s == "dry_run" else "ok", {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired}, diagnostics=_ac_advisories if _ac_advisories else None, next_tools=["wave_current"], usage="wave_current()")
 
 
 def wave_pause_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
@@ -3131,14 +3596,51 @@ def wave_pause_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
         return _response("error", {"wave_id": wave_id, "mode": mode_s}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wave_list_waves"], recovery_usage="wave_list_waves()")], next_tools=["wave_list_waves"], usage="wave_list_waves()")
     handoff = root / "docs" / "agents" / "session-handoff.md"
     rel = str(handoff.relative_to(root)).replace("\\", "/")
+    # Compute the wave-status transition. Only active → paused writes; other states are no-ops.
+    wave_text = wave_md.read_text(encoding="utf-8")
+    status_match = _STATUS_PATTERN.search(wave_text)
+    current_status = status_match.group(1) if status_match else ""
+    if current_status == "active":
+        status_transition = {"from": "active", "to": "paused"}
+    elif current_status == "paused":
+        status_transition = {"from": "paused", "to": "paused"}
+    else:
+        status_transition = {"from": current_status, "to": current_status}
+    diagnostics: list[dict[str, Any]] = []
+    if current_status not in ("active", "paused"):
+        diagnostics.append(
+            _diagnostic(
+                "pause_on_non_active_wave",
+                f"Wave '{wave_id}' is not active (status: {current_status!r}). Handoff entry was written but wave status was not changed.",
+                recovery_tools=["wave_current"],
+                recovery_usage="wave_current()",
+            )
+        )
+    diagnostics.extend(_force_gates_closed(root, mode_s))
     if mode_s == "create":
+        # Transition wave status first, then write the handoff entry.
+        if status_transition["from"] == "active" and status_transition["to"] == "paused":
+            new_text = wave_text[:status_match.start(1)] + "paused" + wave_text[status_match.end(1):]
+            wave_md.write_text(new_text, encoding="utf-8")
         handoff.parent.mkdir(parents=True, exist_ok=True)
         prior = handoff.read_text(encoding="utf-8") if handoff.exists() else ""
-        handoff.write_text(_merge_pause_into_session_handoff(prior, wave_id), encoding="utf-8")
+        handoff.write_text(_update_handoff_wave_ref(prior, wave_id), encoding="utf-8")
         if cache:
             cache.invalidate()
-        _trigger_background_index_refresh_for_paths(root, [handoff])
-    return _response("dry_run" if mode_s == "dry_run" else "ok", {"wave_id": wave_id, "mode": mode_s, "path": rel, "written": mode_s == "create"}, next_tools=["wave_current"], usage="wave_current()")
+        _trigger_background_index_refresh_for_paths(root, [handoff, wave_md])
+    return _response(
+        "dry_run" if mode_s == "dry_run" else "ok",
+        {
+            "wave_id": wave_id,
+            "mode": mode_s,
+            "path": rel,
+            "written": mode_s == "create",
+            "status_transition": status_transition,
+        },
+        diagnostics=diagnostics if diagnostics else None,
+        next_tools=["wave_current"],
+        usage="wave_current()",
+    )
 
 
 def wave_review_response(root: Path, wave_id: str) -> dict[str, Any]:
@@ -3173,8 +3675,9 @@ def wave_review_response(root: Path, wave_id: str) -> dict[str, Any]:
 
 def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
+    _WAVE_CLOSE_VALID_MODES = ["dry_run", "create"]
     if mode_s not in {"dry_run", "create"}:
-        return _response("error", {"wave_id": wave_id, "mode": mode}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'.")], next_tools=["wave_help"], usage="wave_help()")
+        return _response("error", {"wave_id": wave_id, "mode": mode, "valid_modes": _WAVE_CLOSE_VALID_MODES}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'. Valid modes: {_WAVE_CLOSE_VALID_MODES}.")], next_tools=["wave_help"], usage="wave_help()")
     wave_md = _find_wave_md(root, wave_id)
     if wave_md is None:
         return _response("error", {"wave_id": wave_id}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wave_list_waves"], recovery_usage="wave_list_waves()")], next_tools=["wave_list_waves"], usage="wave_list_waves()")
@@ -3228,8 +3731,11 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
             )
     if not lint_result["passed"]:
         diagnostics.extend([_diagnostic("docs_lint_error", err, recovery_tools=["wave_validate"]) for err in lint_result["errors"]])
+    # Gate close runs unconditionally so open gates are always reported (and closed in
+    # create mode) even when other diagnostics cause an early return.
+    gate_diagnostics = _force_gates_closed(root, mode_s)
     if diagnostics:
-        return _response("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed}, diagnostics=diagnostics, next_tools=["wave_validate", "wave_current"], usage="wave_validate()")
+        return _response("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed}, diagnostics=diagnostics + gate_diagnostics, next_tools=["wave_validate", "wave_current"], usage="wave_validate()")
     updated = False
     archive_rel = ""
     handoff_rel = ""
@@ -3246,9 +3752,14 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
             archive_dir = wave_md.parent / "archive"
             archive_dir.mkdir(parents=True, exist_ok=True)
             archive_file = archive_dir / f"close-summary-{time.strftime('%Y%m%d')}.md"
+            owner_match = re.search(r"^Owner:\s*(.+)$", text, re.MULTILINE)
+            wave_owner = owner_match.group(1).strip() if owner_match else "Engineering"
             archive_file.write_text(
                 (
                     f"# Wave Close Summary\n\n"
+                    f"Owner: {wave_owner}\n"
+                    f"Status: closed\n"
+                    f"Last verified: {time.strftime('%Y-%m-%d')}\n"
                     f"Wave: `{wave_id}`\n"
                     f"Closed At: {time.strftime('%Y-%m-%d')}\n\n"
                     f"## Change Statuses\n\n"
@@ -3259,12 +3770,10 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
             )
             archive_rel = str(archive_file.relative_to(root)).replace("\\", "/")
             handoff = root / "docs" / "agents" / "session-handoff.md"
-            if handoff.exists():
-                handoff.write_text(
-                    "# Session Handoff\n\nOwner: wave-coordinator\nStatus: idle\n\n## Current Session\n\n**Active wave:** *(none)*\n",
-                    encoding="utf-8",
-                )
-                handoff_rel = str(handoff.relative_to(root)).replace("\\", "/")
+            handoff.parent.mkdir(parents=True, exist_ok=True)
+            prior = handoff.read_text(encoding="utf-8") if handoff.exists() else ""
+            handoff.write_text(_update_handoff_wave_ref(prior, None), encoding="utf-8")
+            handoff_rel = str(handoff.relative_to(root)).replace("\\", "/")
             if cache:
                 cache.invalidate()
             refresh_paths: list[str | Path] = [wave_md, archive_file]
@@ -3274,6 +3783,7 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
     return _response(
         "dry_run" if mode_s == "dry_run" else "ok",
         {"wave_id": wave_id, "mode": mode_s, "updated": updated, "archive_path": archive_rel, "handoff_path": handoff_rel},
+        diagnostics=gate_diagnostics if gate_diagnostics else None,
         next_tools=["wave_current"],
         usage="wave_current()",
     )
@@ -3333,6 +3843,241 @@ Wave: TBD
 
 See `docs/agents/session-handoff.md` for current session state.
 """
+
+
+# ---------------------------------------------------------------------------
+# Code navigation helpers (exact search, file listing, ranged reads, symbol nav)
+# ---------------------------------------------------------------------------
+
+def _resolve_repo_path(root: Path, user_path: str) -> Optional[Path]:
+    """Resolve *user_path* to an absolute path that is guaranteed to be inside *root*.
+
+    Returns ``None`` if the path escapes the root (path traversal attempt) or if
+    it is absolute (only repo-relative paths are accepted).  The returned path is
+    not guaranteed to exist — callers must check.
+    """
+    # Reject absolute paths immediately
+    if user_path.startswith("/") or (len(user_path) > 1 and user_path[1] == ":"):
+        return None
+    try:
+        resolved = (root / user_path).resolve()
+        root_resolved = root.resolve()
+        resolved.relative_to(root_resolved)  # raises ValueError if outside root
+        return resolved
+    except (ValueError, OSError):
+        return None
+
+
+def _indexer_module():
+    """Import the indexer module from the framework scripts directory."""
+    import importlib.util
+    indexer_path = Path(__file__).parent / "indexer.py"
+    spec = importlib.util.spec_from_file_location("indexer", indexer_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load indexer from {indexer_path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[arg-type]
+    return mod
+
+
+def _walk_repo_for_navigation(root: Path) -> list[Path]:
+    """Return navigable files respecting indexer ignore/exclusion rules."""
+    try:
+        indexer = _indexer_module()
+        return indexer.walk_repo(root)
+    except Exception:
+        # Fallback: simple glob without ignore support
+        result = []
+        for p in sorted(root.rglob("*")):
+            if p.is_file() and ".git" not in p.parts:
+                result.append(p)
+        return result
+
+
+def code_list_files_response(root: Path, glob: str = "") -> dict[str, Any]:
+    """List repository files with optional glob filter."""
+    try:
+        all_files = _walk_repo_for_navigation(root)
+    except Exception as exc:
+        return _response("error", {"glob": glob}, diagnostics=[_diagnostic("navigation_error", f"File listing failed: {exc}")], next_tools=["wave_help"], usage="wave_help()")
+
+    root_r = root.resolve()
+    if glob:
+        import fnmatch
+        paths = [
+            str(p.resolve().relative_to(root_r)).replace("\\", "/")
+            for p in all_files
+            if fnmatch.fnmatch(str(p.resolve().relative_to(root_r)).replace("\\", "/"), glob)
+            or fnmatch.fnmatch(p.name, glob)
+        ]
+    else:
+        paths = [str(p.resolve().relative_to(root_r)).replace("\\", "/") for p in all_files]
+
+    return _response("ok", {"glob": glob, "count": len(paths), "paths": paths}, next_tools=["code_read", "code_keyword_search"], usage="code_read(path='...', start_line=1, end_line=50)")
+
+
+def code_read_response(root: Path, path: str, start_line: Optional[int] = None, end_line: Optional[int] = None) -> dict[str, Any]:
+    """Read a file with optional line range, returning line-numbered content."""
+    resolved = _resolve_repo_path(root, path)
+    if resolved is None:
+        return _response("error", {"path": path}, diagnostics=[_diagnostic("path_outside_root", f"Path '{path}' is outside the repository root or uses an absolute path. Use a repo-relative path.", recovery_tools=["code_list_files"], recovery_usage="code_list_files()")], next_tools=["code_list_files"], usage="code_list_files()")
+    if not resolved.exists():
+        return _response("error", {"path": path}, diagnostics=[_diagnostic("file_not_found", f"File '{path}' does not exist.", recovery_tools=["code_list_files"], recovery_usage="code_list_files()")], next_tools=["code_list_files"], usage="code_list_files()")
+    if not resolved.is_file():
+        return _response("error", {"path": path}, diagnostics=[_diagnostic("not_a_file", f"'{path}' is a directory, not a file.", recovery_tools=["code_list_files"], recovery_usage=f"code_list_files(glob='{path}/**')")], next_tools=["code_list_files"], usage="code_list_files()")
+    try:
+        raw = resolved.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return _response("error", {"path": path}, diagnostics=[_diagnostic("read_error", f"Could not read '{path}': {exc}")], next_tools=["code_list_files"], usage="code_list_files()")
+
+    lines = raw.splitlines()
+    total = len(lines)
+    lo = max(1, start_line) if start_line is not None else 1
+    hi = min(total, end_line) if end_line is not None else total
+    if lo > hi:
+        return _response("error", {"path": path, "start_line": start_line, "end_line": end_line}, diagnostics=[_diagnostic("invalid_range", f"start_line ({lo}) is greater than end_line ({hi}) for file with {total} lines.")], next_tools=["code_read"], usage=f"code_read(path={path!r})")
+    selected = lines[lo - 1:hi]
+    numbered = "\n".join(f"{i + lo:5d}\t{line}" for i, line in enumerate(selected))
+    return _response("ok", {"path": path, "start_line": lo, "end_line": hi, "total_lines": total, "content": numbered}, next_tools=["code_keyword_search", "code_definition"], usage=f"code_keyword_search(query='...', glob='*.py')")
+
+
+def code_keyword_search_response(root: Path, query: str, glob: str = "") -> dict[str, Any]:
+    """Search repository files for an exact keyword/substring, returning path/line/snippet results."""
+    if not query.strip():
+        return _response("error", {"query": query}, diagnostics=[_diagnostic("invalid_arguments", "Search query must be a non-empty string.")], next_tools=["code_list_files"], usage="code_list_files()")
+    try:
+        all_files = _walk_repo_for_navigation(root)
+    except Exception as exc:
+        return _response("error", {"query": query}, diagnostics=[_diagnostic("navigation_error", f"File walk failed: {exc}")], next_tools=["wave_help"], usage="wave_help()")
+
+    root_r = root.resolve()
+    if glob:
+        import fnmatch
+        all_files = [
+            p for p in all_files
+            if fnmatch.fnmatch(str(p.resolve().relative_to(root_r)).replace("\\", "/"), glob)
+            or fnmatch.fnmatch(p.name, glob)
+        ]
+
+    results: list[dict[str, Any]] = []
+    for p in all_files:
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if query in line:
+                results.append({"path": rel, "line": lineno, "snippet": line.rstrip()})
+
+    return _response("ok", {"query": query, "glob": glob, "count": len(results), "results": results}, next_tools=["code_read"], usage="code_read(path='...', start_line=N, end_line=N+20)")
+
+
+# ---------------------------------------------------------------------------
+# Symbol navigation helpers (milestone 2 — Python AST, unsupported for others)
+# ---------------------------------------------------------------------------
+
+_SUPPORTED_DEFINITION_LANGS = {"python"}
+_SUPPORTED_REFERENCE_LANGS = {"python"}
+
+
+def _detect_language(path: str) -> str:
+    ext = Path(path).suffix.lower()
+    lang_map = {
+        ".py": "python", ".js": "javascript", ".ts": "typescript",
+        ".jsx": "javascript", ".tsx": "typescript",
+        ".go": "go", ".rs": "rust", ".java": "java", ".rb": "ruby",
+        ".cs": "csharp", ".cpp": "cpp", ".c": "c", ".h": "c",
+    }
+    return lang_map.get(ext, "unknown")
+
+
+def _python_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
+    """Find function/class definitions matching *symbol* in Python files via AST."""
+    import ast as _ast
+    results: list[dict[str, Any]] = []
+    root_r = root.resolve()
+    for p in _walk_repo_for_navigation(root):
+        if p.suffix.lower() != ".py":
+            continue
+        try:
+            source = p.read_text(encoding="utf-8", errors="replace")
+            tree = _ast.parse(source, filename=str(p))
+        except (SyntaxError, OSError):
+            continue
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+        for node in _ast.walk(tree):
+            name = None
+            if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)):
+                name = node.name
+            if name and (name == symbol or symbol in name):
+                results.append({
+                    "path": rel,
+                    "line": node.lineno,
+                    "kind": type(node).__name__.lower().replace("asyncfunctiondef", "async_function").replace("functiondef", "function").replace("classdef", "class"),
+                    "name": name,
+                })
+    return results
+
+
+def _python_references(root: Path, symbol: str) -> list[dict[str, Any]]:
+    """Find references to *symbol* in Python files via text search (lightweight)."""
+    results: list[dict[str, Any]] = []
+    root_r = root.resolve()
+    for p in _walk_repo_for_navigation(root):
+        if p.suffix.lower() != ".py":
+            continue
+        try:
+            source = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+        for lineno, line in enumerate(source.splitlines(), 1):
+            if symbol in line:
+                results.append({"path": rel, "line": lineno, "snippet": line.rstrip()})
+    return results
+
+
+def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[str, Any]:
+    """Find definition(s) for a symbol (Python AST) or return unsupported for other languages."""
+    symbol = symbol_or_path_position.strip()
+    if not symbol:
+        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("invalid_arguments", "Symbol must be a non-empty string.")], next_tools=["code_keyword_search"], usage="code_keyword_search(query='MyClass')")
+    try:
+        definitions = _python_definitions(root, symbol)
+    except Exception as exc:
+        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Definition search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
+    if not definitions:
+        return _response(
+            "ok",
+            {"symbol": symbol, "language": "python", "definitions": [], "supported_languages": list(_SUPPORTED_DEFINITION_LANGS)},
+            diagnostics=[_diagnostic("not_found", f"No Python definition found for '{symbol}'. Use code_keyword_search for text-based fallback.", recovery_tools=["code_keyword_search"], recovery_usage=f"code_keyword_search(query={symbol!r})")],
+            next_tools=["code_keyword_search"],
+            usage=f"code_keyword_search(query={symbol!r})",
+        )
+    return _response(
+        "ok",
+        {"symbol": symbol, "language": "python", "definitions": definitions, "supported_languages": list(_SUPPORTED_DEFINITION_LANGS), "note": "Non-Python languages are not supported. Use code_keyword_search for text-based lookup in those files."},
+        next_tools=["code_read"],
+        usage=f"code_read(path={definitions[0]['path']!r}, start_line={definitions[0]['line']}, end_line={definitions[0]['line'] + 20})",
+    )
+
+
+def code_references_response(root: Path, symbol_or_path_position: str) -> dict[str, Any]:
+    """Find references to a symbol in Python files, or return unsupported for other languages."""
+    symbol = symbol_or_path_position.strip()
+    if not symbol:
+        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("invalid_arguments", "Symbol must be a non-empty string.")], next_tools=["code_keyword_search"], usage="code_keyword_search(query='my_func')")
+    try:
+        refs = _python_references(root, symbol)
+    except Exception as exc:
+        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Reference search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
+    return _response(
+        "ok",
+        {"symbol": symbol, "language": "python", "count": len(refs), "references": refs, "supported_languages": list(_SUPPORTED_REFERENCE_LANGS), "note": "Reference search uses text matching for Python. Non-Python languages fall back to code_keyword_search."},
+        next_tools=["code_read"],
+        usage=f"code_read(path='...', start_line=N, end_line=N+20)" if refs else f"code_keyword_search(query={symbol!r})",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3437,7 +4182,9 @@ def build_server(root: Path):
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_list_plans(limit: int = 50, **kwargs: Any) -> dict[str, Any]:
-        """List pending plan/change docs in docs/plans.
+        """List pending plan/change docs in docs/plans that have not yet been admitted to a wave.
+
+        Use this to answer "what changes are planned but not in a wave?" before reaching for ls or grep.
 
         Args:
             limit: Maximum plans to return (1–200, default 50). Check ``has_more`` for truncation.
@@ -3448,16 +4195,25 @@ def build_server(root: Path):
         return wave_list_plans_response(root, limit=limit, cache=cache)
 
     @mcp.tool(annotations=_READONLY_TOOL)
-    def wave_get_change(change_id: str, **kwargs: Any) -> dict[str, Any]:
-        """Return the full text of a change doc by ID prefix.
+    def wave_get_change(change_id: str = "", wave_id: str = "", **kwargs: Any) -> dict[str, Any]:
+        """Return a change doc by ID, or all change docs for a wave in bulk.
+
+        **Single lookup (default):** provide ``change_id`` to return one change doc.
+
+        **Bulk mode:** provide ``wave_id`` without ``change_id`` to return all admitted
+        change docs for that wave in ``data.changes``, each with ``id``, ``status``,
+        ``path``, and ``content``. Content is capped at 300 lines per doc.
 
         Args:
-            change_id: Change ID or prefix, e.g. "12926" or "12926-feat".
+            change_id: Change ID or prefix for single lookup, e.g. "12926" or "12926-feat".
+                       Omit or leave empty to use bulk mode with wave_id.
+            wave_id: Wave ID or prefix for bulk mode, e.g. "12ahv". Returns all
+                     admitted changes for this wave when change_id is not provided.
         """
         bad = _ensure_no_extra_args("wave_get_change", kwargs)
         if bad is not None:
             return bad
-        return wave_get_change_response(root, change_id)
+        return wave_get_change_response(root, change_id=change_id, wave_id=wave_id)
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_get_prompt(shortcut: str, **kwargs: Any) -> dict[str, Any]:
@@ -3470,6 +4226,67 @@ def build_server(root: Path):
         if bad is not None:
             return bad
         return wave_get_prompt_response(root, shortcut, cache)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def wave_get_handoff(**kwargs: Any) -> dict[str, Any]:
+        """Read the session handoff document (docs/agents/session-handoff.md).
+
+        Returns the document content and last-modified timestamp.
+        Returns a structured not-found response when the file is absent.
+        """
+        bad = _ensure_no_extra_args("wave_get_handoff", kwargs)
+        if bad is not None:
+            return bad
+        return wave_get_handoff_response(root)
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_set_handoff(content: str, **kwargs: Any) -> dict[str, Any]:
+        """Write the session handoff document (docs/agents/session-handoff.md).
+
+        Creates or overwrites docs/agents/session-handoff.md with the provided content.
+        Triggers a background docs-index refresh after writing.
+
+        Args:
+            content: Full markdown content to write as the new handoff document.
+        """
+        bad = _ensure_no_extra_args("wave_set_handoff", kwargs)
+        if bad is not None:
+            return bad
+        return wave_set_handoff_response(root, content, cache=cache)
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_open_gate(gate: str, **kwargs: Any) -> dict[str, Any]:
+        """Open an edit gate in .wavefoundry/guard-overrides.json.
+
+        Sets the named guard to enabled so framework or seed edits are permitted.
+        Returns an error if the gate is already open — close it first to avoid
+        silent double-opens (which indicate a bug or forgotten close).
+
+        Every open must be paired with a matching wave_close_gate call.
+        wave_pause and wave_close automatically close all open gates.
+
+        Args:
+            gate: Gate to open. One of: ``seed_edit_allowed``, ``framework_edit_allowed``.
+        """
+        bad = _ensure_no_extra_args("wave_open_gate", kwargs)
+        if bad is not None:
+            return bad
+        return wave_open_gate_response(root, gate)
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_close_gate(gate: str, **kwargs: Any) -> dict[str, Any]:
+        """Close an edit gate in .wavefoundry/guard-overrides.json.
+
+        Sets the named guard to disabled. Returns an advisory diagnostic (not an
+        error) if the gate was already closed — double-close is harmless.
+
+        Args:
+            gate: Gate to close. One of: ``seed_edit_allowed``, ``framework_edit_allowed``.
+        """
+        bad = _ensure_no_extra_args("wave_close_gate", kwargs)
+        if bad is not None:
+            return bad
+        return wave_close_gate_response(root, gate)
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_map(address: str, **kwargs: Any) -> dict[str, Any]:
@@ -3568,7 +4385,10 @@ def build_server(root: Path):
 
         Args:
             wave_id: Wave ID or unique prefix.
-            mode: Either "dry_run" (validate only) or "create" (write Closed checkpoint).
+            mode: Valid values are "dry_run" (validate only, no writes) or "create"
+                (alias "apply") to write the Closed status checkpoint. Passing any
+                other value returns an error with a "valid_modes" field in the response
+                data listing the accepted values.
         """
         bad = _ensure_no_extra_args("wave_close", kwargs)
         if bad is not None:
@@ -3578,27 +4398,7 @@ def build_server(root: Path):
     # --- Change creation ---
 
     def _new_change_response(kind: str, slug: str) -> dict[str, Any]:
-        return wave_change_create_response(root, kind, slug, mode="create", cache=cache)
-
-    @mcp.tool(annotations=_MUTATING_TOOL)
-    def wave_change_create(kind: str, slug: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
-        """Create or dry-run a scaffolded change doc using a lifecycle kind enum.
-
-        Prefer ``wave_new_*`` convenience tools when the kind is known. Use this tool
-        when constructing the kind dynamically or to dry-run before committing.
-
-        Args:
-            kind: One of bug, feat, enh, change, doc, debt, ref, task, maint, ops.
-            slug: Kebab-case slug, e.g. "my-new-feature".
-            mode: Either "dry_run" or "create".
-        """
-        bad = _ensure_no_extra_args("wave_change_create", kwargs)
-        if bad is not None:
-            return bad
-        return wave_change_create_response(root, kind, slug, mode=mode, cache=cache)
-
-    # wave_new_* convenience wrappers always write (mode="create"). Use wave_change_create
-    # with mode="dry_run" when you need to preview before writing.
+        return _change_create_response(root, kind, slug, mode="create", cache=cache)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_new_feature(slug: str, **kwargs: Any) -> dict[str, Any]:
@@ -3811,6 +4611,251 @@ def build_server(root: Path):
         if bad is not None:
             return bad
         return wave_sync_surfaces_response(root, mode=mode, cache=cache)
+
+    # --- Code navigation tools ---
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_list_files(glob: str = "", **kwargs: Any) -> dict[str, Any]:
+        """List repository-relative file paths, optionally filtered by a glob pattern.
+
+        Respects the same ignore/exclusion rules as the semantic index (gitignore,
+        aiignore, hardcoded excludes for .git, caches, binaries, generated indexes).
+
+        Args:
+            glob: Optional glob pattern to filter results, e.g. "**/*.py" or "*.md".
+                  Matches against full repo-relative paths and file names.
+        """
+        bad = _ensure_no_extra_args("code_list_files", kwargs)
+        if bad is not None:
+            return bad
+        return code_list_files_response(root, glob=glob)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_read(path: str, start_line: Optional[int] = None, end_line: Optional[int] = None, **kwargs: Any) -> dict[str, Any]:
+        """Read a file at a repo-relative path, returning line-numbered content.
+
+        Rejects absolute paths and paths that escape the repository root.
+        Use code_list_files to discover valid paths.
+
+        Args:
+            path: Repo-relative path to the file, e.g. "src/main.py".
+            start_line: First line to include (1-indexed, inclusive). Defaults to 1.
+            end_line: Last line to include (1-indexed, inclusive). Defaults to end of file.
+        """
+        bad = _ensure_no_extra_args("code_read", kwargs)
+        if bad is not None:
+            return bad
+        return code_read_response(root, path, start_line=start_line, end_line=end_line)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_keyword_search(query: str, glob: str = "", **kwargs: Any) -> dict[str, Any]:
+        """Search repository files for an exact keyword or substring.
+
+        Returns deterministic path/line/snippet results for each match.
+        Respects the same ignore/exclusion rules as the semantic index.
+        Complements docs_search (semantic) and code_search (semantic code)
+        with exact, deterministic text matching.
+
+        Args:
+            query: Exact text to search for (substring match).
+            glob: Optional glob to restrict the search, e.g. "**/*.py" or "*.md".
+        """
+        bad = _ensure_no_extra_args("code_keyword_search", kwargs)
+        if bad is not None:
+            return bad
+        return code_keyword_search_response(root, query, glob=glob)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_definition(symbol_or_path_position: str, **kwargs: Any) -> dict[str, Any]:
+        """Find definition(s) for a symbol name.
+
+        Supported languages: Python (AST-based, finds function/class/async-function definitions).
+        Unsupported languages: returns a clear "unsupported" note with a code_keyword_search fallback.
+
+        Args:
+            symbol_or_path_position: Symbol name to look up (e.g. "MyClass", "process_wave").
+                                     Exact or partial match against Python AST node names.
+        """
+        bad = _ensure_no_extra_args("code_definition", kwargs)
+        if bad is not None:
+            return bad
+        return code_definition_response(root, symbol_or_path_position)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_references(symbol_or_path_position: str, **kwargs: Any) -> dict[str, Any]:
+        """Find references to a symbol in source files.
+
+        Supported languages: Python (text-based matching in .py files).
+        For other languages use code_keyword_search directly.
+
+        Args:
+            symbol_or_path_position: Symbol name to find references for (e.g. "wave_close_response").
+                                     Text-based search in Python files.
+        """
+        bad = _ensure_no_extra_args("code_references", kwargs)
+        if bad is not None:
+            return bad
+        return code_references_response(root, symbol_or_path_position)
+
+    # --- Read-only MCP Resources ---
+    # These expose stable context as MCP resources rather than tool calls.
+    # Agents should prefer resources for read-only context discovery and
+    # fall back to the equivalent tools when they need structured envelopes.
+
+    def _read_doc_or_not_found(path: Path, label: str) -> str:
+        """Read a markdown doc and return its text, or a clear not-found message."""
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+        return f"# Not Found\n\n`{label}` does not exist at `{_repo_rel(root, path)}`.\n"
+
+    @mcp.resource(
+        "wavefoundry://overview",
+        name="project_overview",
+        description="Project overview and orientation doc (docs/references/project-overview.md).",
+        mime_type="text/markdown",
+    )
+    def resource_project_overview() -> str:
+        """Return the project overview document."""
+        candidates = [
+            root / "docs" / "references" / "project-overview.md",
+            root / "docs" / "README.md",
+            root / "README.md",
+        ]
+        for c in candidates:
+            if c.exists():
+                return c.read_text(encoding="utf-8")
+        return "# Not Found\n\nNo project overview document found in docs/references/project-overview.md or docs/README.md.\n"
+
+    @mcp.resource(
+        "wavefoundry://prompts",
+        name="prompt_index",
+        description="Public agent command catalogue (docs/prompts/index.md).",
+        mime_type="text/markdown",
+    )
+    def resource_prompt_index() -> str:
+        """Return the prompt/command index."""
+        return _read_doc_or_not_found(root / "docs" / "prompts" / "index.md", "docs/prompts/index.md")
+
+    @mcp.resource(
+        "wavefoundry://architecture/current-state",
+        name="architecture_current_state",
+        description="Architecture current-state summary (docs/architecture/current-state.md).",
+        mime_type="text/markdown",
+    )
+    def resource_architecture_current_state() -> str:
+        """Return the architecture current-state document."""
+        return _read_doc_or_not_found(root / "docs" / "architecture" / "current-state.md", "docs/architecture/current-state.md")
+
+    @mcp.resource(
+        "wavefoundry://wave/current",
+        name="current_wave",
+        description="Current active wave record. Equivalent to calling wave_current() but returned as markdown text.",
+        mime_type="text/markdown",
+    )
+    def resource_current_wave() -> str:
+        """Return the current active wave.md as markdown text."""
+        wave_info = current_wave(root, cache=cache)
+        if wave_info is None:
+            return "# No Active Wave\n\nNo active wave found. Use `wave_create_wave` to start one.\n"
+        wave_path = root / wave_info["path"]
+        if wave_path.exists():
+            return wave_path.read_text(encoding="utf-8")
+        return f"# Wave Not Found\n\nWave record path `{wave_info['path']}` does not exist on disk.\n"
+
+    @mcp.resource(
+        "wavefoundry://session-handoff",
+        name="session_handoff",
+        description="Current session handoff state (docs/agents/session-handoff.md).",
+        mime_type="text/markdown",
+    )
+    def resource_session_handoff() -> str:
+        """Return the session handoff document."""
+        return _read_doc_or_not_found(root / "docs" / "agents" / "session-handoff.md", "docs/agents/session-handoff.md")
+
+    # --- Read-only MCP Resource Templates ---
+    # Parameterized reads for change docs, waves, prompts, seeds, and architecture docs.
+
+    @mcp.resource(
+        "wavefoundry://change/{change_id}",
+        name="change_doc",
+        description="Read a change doc by ID or prefix. Returns the raw markdown content.",
+        mime_type="text/markdown",
+    )
+    def resource_change(change_id: str) -> str:
+        """Return the change doc matching the given ID or prefix."""
+        text = get_change(root, change_id)
+        if text is None:
+            return f"# Not Found\n\nNo change doc found matching `{change_id}`. Use `wave_get_change(change_id=...)` for structured lookup.\n"
+        return text
+
+    @mcp.resource(
+        "wavefoundry://wave/{wave_id}",
+        name="wave_doc",
+        description="Read a wave record (wave.md) by ID or prefix. Returns the raw markdown content.",
+        mime_type="text/markdown",
+    )
+    def resource_wave(wave_id: str) -> str:
+        """Return the wave.md for the given wave ID or prefix."""
+        wave_md = _find_wave_md(root, wave_id)
+        if wave_md is None:
+            return f"# Not Found\n\nNo wave found matching `{wave_id}`. Use `wave_list_waves()` to see available waves.\n"
+        return wave_md.read_text(encoding="utf-8")
+
+    @mcp.resource(
+        "wavefoundry://prompt/{slug}",
+        name="prompt_doc",
+        description="Read a prompt doc by slug or shortcut. Returns the raw markdown content.",
+        mime_type="text/markdown",
+    )
+    def resource_prompt(slug: str) -> str:
+        """Return the prompt document matching the given slug."""
+        text = get_prompt(root, slug)
+        if text is None:
+            return f"# Not Found\n\nNo prompt found matching `{slug}`. Use `wave_get_prompt(shortcut=...)` for structured lookup.\n"
+        return text
+
+    @mcp.resource(
+        "wavefoundry://seed/{slug}",
+        name="seed_doc",
+        description="Read a seed doc by slug or name. Returns the raw markdown content.",
+        mime_type="text/markdown",
+    )
+    def resource_seed(slug: str) -> str:
+        """Return the seed document matching the given slug."""
+        try:
+            chunk = index.get_seed(slug)
+        except Exception:
+            chunk = None
+        if chunk is None:
+            # Fall back to filesystem scan of framework seeds
+            seeds_dir = root / ".wavefoundry" / "framework" / "seeds"
+            if seeds_dir.exists():
+                slug_lower = slug.lower().strip()
+                for p in sorted(seeds_dir.glob("*.md")):
+                    if slug_lower in p.stem.lower():
+                        return p.read_text(encoding="utf-8")
+            return f"# Not Found\n\nNo seed found matching `{slug}`. Use `seed_get(name=...)` for structured lookup.\n"
+        # chunk has a "path" and likely "text" or we read from path
+        seed_path = root / chunk["path"] if not str(chunk.get("path", "")).startswith("/") else Path(chunk["path"])
+        if seed_path.exists():
+            return seed_path.read_text(encoding="utf-8")
+        return chunk.get("text", f"# Not Found\n\nSeed `{slug}` index entry exists but file not readable.\n")
+
+    @mcp.resource(
+        "wavefoundry://architecture/{slug}",
+        name="architecture_doc",
+        description="Read an architecture doc by slug (e.g. 'domain-map', 'data-and-control-flow'). Returns the raw markdown content.",
+        mime_type="text/markdown",
+    )
+    def resource_architecture(slug: str) -> str:
+        """Return the architecture document matching the given slug."""
+        arch_dir = root / "docs" / "architecture"
+        if arch_dir.exists():
+            slug_lower = slug.lower().strip()
+            for p in sorted(arch_dir.glob("*.md")):
+                if slug_lower in p.stem.lower():
+                    return p.read_text(encoding="utf-8")
+        return f"# Not Found\n\nNo architecture doc found matching `{slug}` in docs/architecture/.\n"
 
     tool_names = _registered_mcp_tool_names(mcp)
     violations = first_party_tool_names_violating_prefix(tool_names)

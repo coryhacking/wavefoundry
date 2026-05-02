@@ -2,27 +2,31 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-05-01
 
 ## Current Quality Posture
 
 **Overall:** Early-stage framework tooling with solid validation infrastructure. No production code yet.
 
-| Dimension | Score | Notes |
-|-----------|-------|-------|
-| Test coverage | Medium | Unit tests for docs_lint and build_pack; no CI; manual execution |
-| Documentation | High | Comprehensive seed prompts; self-hosted Wave Framework surface installed |
-| Correctness | High | Framework scripts are well-defined; docs_lint enforces correctness gates |
-| Maintainability | High | Clean separation: seeds / scripts / docs |
-| Security | High | Local-only; no secrets; guard mechanism for seed protection |
+
+| Dimension       | Score  | Notes                                                                    |
+| --------------- | ------ | ------------------------------------------------------------------------ |
+| Test coverage   | Medium | Unit tests for docs_lint and build_pack; no CI; manual execution         |
+| Documentation   | High   | Comprehensive seed prompts; self-hosted Wave Framework surface installed |
+| Correctness     | High   | Framework scripts are well-defined; docs_lint enforces correctness gates |
+| Maintainability | High   | Clean separation: seeds / scripts / docs                                 |
+| Security        | High   | Local-only; no secrets; guard mechanism for seed protection              |
+
 
 ## Quality Risks
 
-| Risk | Severity | Notes |
-|------|---------|-------|
-| No CI/CD | Medium | Tests not automatically run on every change; human must run manually |
-| Insufficient implementation history for pattern catalog | Low | `code_patterns` has `insufficient_history`; revisit when MCP src/ added |
-| MCP tool contracts not yet specified | Medium | `docs/specs/mcp-tool-surface.md` missing; see `docs/missing-docs.md` |
+
+| Risk                                                    | Severity | Notes                                                                   |
+| ------------------------------------------------------- | -------- | ----------------------------------------------------------------------- |
+| No CI/CD                                                | Medium   | Tests not automatically run on every change; human must run manually    |
+| Insufficient implementation history for pattern catalog | Low      | `code_patterns` has `insufficient_history`; revisit when MCP src/ added |
+| MCP tool contracts not yet specified                    | Medium   | `docs/specs/mcp-tool-surface.md` missing; see `docs/missing-docs.md`    |
+
 
 ## Review-Sensitive Surfaces
 

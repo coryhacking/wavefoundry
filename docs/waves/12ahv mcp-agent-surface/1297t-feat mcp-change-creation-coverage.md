@@ -1,11 +1,11 @@
 # MCP-First Routing for Change Creation, Validation, and Gardening
 
 Change ID: `1297t-feat mcp-change-creation-coverage`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
+Status: complete
 Last verified: 2026-04-29
-Wave: TBD
+Wave: `12ahv mcp-agent-surface`
 
 ## Environment note (Wavefoundry self-host)
 
@@ -21,7 +21,7 @@ Three related gaps motivate this change. All three are about replacing direct sc
 
 **3. Validation and gardening instructions still route through shell entrypoints (historically `./docs-lint` / `./docs-gardener`; now `.wavefoundry/bin/docs-lint` / `.wavefoundry/bin/docs-gardener` in this repo) instead of MCP first.** The MCP server already exposes `wave_validate` (wraps `docs_lint.py`) and `wave_garden` (wraps `docs_gardener.py`) as structured tools, but instruction sites across `docs/prompts/`, `docs/prompts/agents/`, `AGENTS.md`, `CLAUDE.md`, and `docs/contributing/build-and-verification.md` may still tell agents to invoke the CLI launchers directly. Output parsing, exit-code handling, and error surfacing all become per-agent responsibilities under the script path; the MCP tools return structured pass/fail with extracted errors. Symmetric reasoning to the change-creation case: the **bin** launchers remain for hooks, CI, and operator CLI, but the agent default should be MCP.
 
-**Wave creation is deliberately excluded from this change.** The lifecycle mutation tools (`wave_create`, `wave_add_change`, etc.) were explicitly deferred from the foundation feature (see [12926-feat wavefoundry-mcp-index](../waves/1293d mcp-server-foundation/12926-feat wavefoundry-mcp-index.md), Requirement 14) and have not been planned. Until that follow-on lands, `lifecycle_id.py --kind wave` remains the canonical path for wave-folder ID generation and seed/prompt references to it must remain intact. Full retirement of script invocation depends on that follow-on. The post-edit hook in `.claude/hooks/post-edit.py` and the Cursor `.cursor/hooks/after-file-edit.py` continue to invoke **`.wavefoundry/bin/docs-lint`** directly (not MCP) because hooks are not MCP clients; only **agent-facing instructions** are rerouted.
+**Wave creation is deliberately excluded from this change.** The lifecycle mutation tools (`wave_create`, `wave_add_change`, etc.) were explicitly deferred from the foundation feature (see [12926-feat wavefoundry-mcp-index](../1293d mcp-server-foundation/12926-feat wavefoundry-mcp-index.md), Requirement 14) and have not been planned. Until that follow-on lands, `lifecycle_id.py --kind wave` remains the canonical path for wave-folder ID generation and seed/prompt references to it must remain intact. Full retirement of script invocation depends on that follow-on. The post-edit hook in `.claude/hooks/post-edit.py` and the Cursor `.cursor/hooks/after-file-edit.py` continue to invoke **`.wavefoundry/bin/docs-lint`** directly (not MCP) because hooks are not MCP clients; only **agent-facing instructions** are rerouted.
 
 ## Requirements
 
@@ -33,12 +33,17 @@ Three related gaps motivate this change. All three are about replacing direct sc
 6. `docs/prompts/plan-feature.md` and `docs/prompts/agents/plan-feature.md` are updated to instruct agents to call the MCP `wave_new_<kind>` tool first, with the script invocation listed as a CLI fallback only.
 7. `docs/plans/plan-template.md` updates the "generate with..." comment to reference the MCP tool first; the CLI command remains as a parenthetical fallback.
 8. `.wavefoundry/framework/seeds/170-plan-feature.prompt.md` and `.wavefoundry/framework/seeds/040-docs-structure-bootstrap.prompt.md` are updated identically. Editing seeds requires `seed_edit_allowed.enabled: true` in `.wavefoundry/guard-overrides.json` for the duration of the edit and reset afterward.
-9. The MCP foundation change doc ([12926-feat](../waves/1293d mcp-server-foundation/12926-feat wavefoundry-mcp-index.md)) Requirement 13 currently names only four creation tools; this change does not edit that closed-wave artifact, but the new tools satisfy the broader intent.
+9. The MCP foundation change doc ([12926-feat](../1293d mcp-server-foundation/12926-feat wavefoundry-mcp-index.md)) Requirement 13 currently names only four creation tools; this change does not edit that closed-wave artifact, but the new tools satisfy the broader intent.
 10. `lifecycle_id.py` itself is not edited. The script remains the canonical ID source called by the MCP tools and the only available path for wave-folder ID generation until lifecycle mutation tools land.
 11. Agent-facing instruction sites that still tell agents to run the docs gate via shell first are updated to instruct calling MCP `wave_validate` and `wave_garden` first, with **`.wavefoundry/bin/docs-lint`** / **`.wavefoundry/bin/docs-gardener`** (or legacy repo-root shims, when present in a target repo) listed as labeled CLI fallbacks. The full inventory: `docs/prompts/implement-wave.md`, `docs/prompts/close-wave.md`, `docs/prompts/upgrade-wavefoundry.md`, `docs/prompts/implement-feature.md`, `docs/prompts/agents/upgrade-wave-context.md`, `docs/prompts/agents/implement-wave.md`, `docs/prompts/agents/close-wave.md`, `docs/prompts/agents/implement-feature.md`, `docs/contributing/build-and-verification.md`, and `AGENTS.md` "What Wavefoundry Owns" / MCP Server sections.
 12. `CLAUDE.md` "Docs Gate" section describes that the post-edit hook runs **`.wavefoundry/bin/docs-lint`** (not MCP); this is purely descriptive of what happens automatically and is not an agent instruction.
 13. The seed `.wavefoundry/framework/seeds/030-inventory-and-map.prompt.md` and any other seed under `.wavefoundry/framework/seeds/` that names `docs_lint.py` or `docs_gardener.py` as an agent step is updated to instruct MCP-first routing; descriptive references (i.e., naming the script as a project artifact rather than a step to execute) are left intact. Seed edits are gated by `seed_edit_allowed.enabled: true` in `.wavefoundry/guard-overrides.json`.
 14. The **Python** implementations `docs_lint.py` and `docs_gardener.py` under `.wavefoundry/framework/scripts/` remain the backends MCP tools delegate to. **`.wavefoundry/bin/`** launchers remain the canonical non-MCP CLI entrypoints in this repository (repo-root `./docs-lint` / `./docs-gardener` shims are optional in other targets and are not required here). This change is about routing in agent-facing instructions and seed text, not removing the backends.
+15. **`wave_close` mode discoverability:** `wave_close`'s docstring `Args:` block lists valid mode values (`"dry_run"` and `"create"` / alias `"apply"`). The invalid-mode error response includes a `"valid_modes"` field in its `data` dict so the caller sees the options without reading source.
+16. **`wave_create_wave` complete template:** The wave.md template generated by `wave_create_wave` includes stub sections for `## Wave Summary` and `## Journal Watchpoints` (with placeholder text) so `wave_prepare` passes on the first attempt without manual patching.
+17. **`wave_add_change` relative-link check:** After relocating a change doc from `docs/plans/` to the wave folder, `wave_add_change` scans the doc for relative markdown links that were valid from `docs/plans/` but will be broken from the new location (`../waves/…` patterns) and includes a `broken_links` list in the response `data` so the caller knows what to fix.
+18. **`wave_prepare` journal-format hint:** When the `active wave … must be referenced by at least one journal artifact` lint failure fires, the diagnostic's `message` includes the exact line format required — a `wave-id` key with the wave ID in backticks, alone on its own line, with no trailing content after the closing backtick.
+19. **`wave_help` start_wave journal note:** The `start_wave` workflow entry's `rationale` or `next_step` text notes that a `wave-id` key line (wave ID in backticks, standalone) must be added to a journal artifact before `wave_prepare` will pass the journal-reference check.
 
 ## Scope
 
@@ -51,10 +56,11 @@ Three related gaps motivate this change. All three are about replacing direct sc
 - Documentation updates: `AGENTS.md`, `docs/prompts/plan-feature.md`, `docs/prompts/agents/plan-feature.md`, `docs/plans/plan-template.md`
 - Routing of validation/gardening instructions through MCP across the prompt sites listed in Requirement 11
 - Seed updates: `.wavefoundry/framework/seeds/170-plan-feature.prompt.md`, `.wavefoundry/framework/seeds/040-docs-structure-bootstrap.prompt.md`, plus any seed under `.wavefoundry/framework/seeds/` that names `docs_lint.py`/`docs_gardener.py` as an agent step (per Requirement 13)
+- DX improvements to `wave_close`, `wave_create_wave`, `wave_add_change`, `wave_prepare`, and `wave_help` (Requirements 15–19): mode discoverability, complete wave.md template, broken-link detection on admit, journal-format hint in prepare errors, and start_wave workflow note
 
 **Out of scope:**
 
-- Any wave lifecycle mutation tooling (`wave_create`, `wave_add_change`, `wave_remove_change`, `wave_prepare`, `wave_pause`, `wave_review`, `wave_close`) — deferred per the foundation feature
+- New wave lifecycle *capabilities* (`wave_create` returning a full lifecycle object, `wave_remove_change`, `wave_pause`, `wave_review`, `wave_close` functional expansion) — deferred per the foundation feature; Requirements 15–19 are DX/error-message improvements only, not new capabilities
 - Removing `lifecycle_id.py` references from seeds/prompts that pertain to wave-folder ID generation (`--kind wave`) — depends on lifecycle mutation tools follow-on
 - Removing `lifecycle_id.py` itself — it remains the canonical generator called internally by MCP
 - Renaming existing tools (`wave_new_feature` etc. stay as-is for backwards compatibility)
@@ -80,6 +86,11 @@ Three related gaps motivate this change. All three are about replacing direct sc
 - AC-13: `docs/contributing/build-and-verification.md` retains the **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`** shell snippets as authoritative *operator/CI* guidance, alongside an MCP-first agent guidance section that names the tools.
 - AC-14: A grep over `docs/prompts/`, `docs/prompts/agents/`, and `AGENTS.md` shows no stale instruction that tells agents to use **only** repo-root `./docs-lint` or `./docs-gardener` as the primary path where `bin/` is the contract (fallback labeling is OK). Descriptive mentions ("the docs-lint validator checks…") are not affected.
 - AC-15: Hook-driven invocations of **`.wavefoundry/bin/docs-lint`** (post-edit hook in `.claude/hooks/`, `.cursor/hooks/`) remain subprocess-based and verified still passing via `python3 .wavefoundry/framework/scripts/run_tests.py`.
+- AC-16: `wave_close` docstring `Args:` block lists `"dry_run"` and `"create"` (alias `"apply"`) as valid modes; passing an invalid mode returns a response whose `data` dict contains `"valid_modes": ["dry_run", "create"]`.
+- AC-17: `wave_create_wave` in `"create"` mode produces a `wave.md` that contains `## Wave Summary` and `## Journal Watchpoints` stub sections, allowing `wave_prepare` to pass the section-presence lint checks without manual edits.
+- AC-18: `wave_add_change` response `data` includes a `"broken_links"` list (empty when none found); when the relocated doc contains relative links that were valid from `docs/plans/` but are invalid from the wave folder (matching `../waves/` prefix), those links are listed.
+- AC-19: When `wave_prepare` emits the `active wave … must be referenced by at least one journal artifact` diagnostic, the `message` text describes the required format: the `wave-id` key with the wave ID in backticks, alone on a line, no trailing content after the closing backtick.
+- AC-20: `wave_help(goal="start_wave")` response includes a note (in `rationale` or `next_step`) that a `wave-id` key line (wave ID in backticks, standalone) must exist in a journal artifact before `wave_prepare` passes.
 
 ## Tasks
 
@@ -90,7 +101,7 @@ Three related gaps motivate this change. All three are about replacing direct sc
 - Run `python3 .wavefoundry/framework/scripts/run_tests.py` and confirm all tests pass.
 - Update `AGENTS.md` "MCP Server" available tools list.
 - Update `docs/prompts/plan-feature.md` and `docs/prompts/agents/plan-feature.md` step ordering: MCP first, script second.
-- Update `docs/plans/plan-template.md` `Change ID:` annotation.
+- Update `docs/plans/plan-template.md` change-ID annotation.
 - Set `.wavefoundry/guard-overrides.json` `seed_edit_allowed.enabled: true`.
 - Update `.wavefoundry/framework/seeds/170-plan-feature.prompt.md` to mention MCP `wave_new_<kind>` tools as primary and script as fallback for the change-ID step. Preserve `--kind wave` script invocation language for wave-folder ID generation.
 - Update `.wavefoundry/framework/seeds/040-docs-structure-bootstrap.prompt.md` similarly.
@@ -103,6 +114,13 @@ Three related gaps motivate this change. All three are about replacing direct sc
 - Run MCP **`wave_validate`** (preferred) or **`.wavefoundry/bin/docs-lint`** (CLI only) and confirm pass.
 - Run grep verification per AC-14 and record output.
 - Update this change doc Progress Log with task completion timestamps and evidence.
+- **DX fixes (Requirements 15–19):**
+- Update `wave_close` docstring to list valid modes; add `"valid_modes"` to the invalid-mode error response data.
+- Update `wave_create_wave` wave.md template to include `## Wave Summary` and `## Journal Watchpoints` stub sections.
+- Update `wave_add_change` to scan the relocated doc for `../waves/` relative links and populate `broken_links` in the response.
+- Update the `active wave … must be referenced` diagnostic message in `wave_lint_lib/wave_validators.py` to include the exact required format.
+- Update `_help_catalog()` `start_wave` workflow entry to note the journal key-line requirement (per AC-20).
+- Add tests covering AC-16 through AC-20.
 
 ## Agent Execution Graph
 
@@ -131,18 +149,28 @@ N/A — this change adds tools to an existing module along an established patter
 (Populated at Prepare wave.)
 
 
-| AC    | Priority                                             | Rationale |
-| ----- | ---------------------------------------------------- | --------- |
-| AC-1  | required / important / nice-to-have / not-this-scope |           |
-| AC-2  | required / important / nice-to-have / not-this-scope |           |
-| AC-3  | required / important / nice-to-have / not-this-scope |           |
-| AC-4  | required / important / nice-to-have / not-this-scope |           |
-| AC-5  | required / important / nice-to-have / not-this-scope |           |
-| AC-6  | required / important / nice-to-have / not-this-scope |           |
-| AC-7  | required / important / nice-to-have / not-this-scope |           |
-| AC-8  | required / important / nice-to-have / not-this-scope |           |
-| AC-9  | required / important / nice-to-have / not-this-scope |           |
-| AC-10 | required / important / nice-to-have / not-this-scope |           |
+| AC    | Priority        | Rationale |
+| ----- | --------------- | --------- |
+| AC-1  | required        | Core feature deliverable — all 10 kinds must be reachable via MCP |
+| AC-2  | required        | Each tool must behave correctly end-to-end, not just register |
+| AC-3  | required        | Test suite is the verification gate |
+| AC-4  | required        | AGENTS.md is the primary agent reference |
+| AC-5  | required        | Prompt routing drives actual agent behavior |
+| AC-6  | required        | Seeds are the canonical source for framework-distributed agent instructions |
+| AC-7  | required        | Lint and validate gate confirms no regressions |
+| AC-8  | required        | Guard restore is a safety property, not cosmetic |
+| AC-9  | required        | Cold-load safety gates every server deployment |
+| AC-10 | required        | Full kind coverage is the core requirement of this change |
+| AC-11 | required        | MCP-first routing across all prompt surfaces |
+| AC-12 | required        | Garden routing parity with validate routing |
+| AC-13 | important       | Build-and-verification.md keeps operator/CI guidance intact |
+| AC-14 | important       | Grep verification provides audit evidence for routing completeness |
+| AC-15 | required        | Hook-driven lint must keep working regardless of agent routing changes |
+| AC-16 | important       | Mode discoverability improves error recovery DX |
+| AC-17 | important       | Complete wave.md template prevents avoidable prepare failures |
+| AC-18 | nice-to-have    | Broken-link detection is informational; callers can check manually |
+| AC-19 | important       | Journal-format hint eliminates a common prepare failure with no obvious fix |
+| AC-20 | important       | start_wave journal note closes the journal key-line discovery gap |
 
 
 ## Progress Log
@@ -151,6 +179,9 @@ N/A — this change adds tools to an existing module along an established patter
 | Date       | Update         | Evidence                 |
 | ---------- | -------------- | ------------------------ |
 | 2026-04-29 | Plan authored. | This conversation thread |
+| 2026-05-01 | Admitted to wave `12ahv mcp-agent-surface`. Added Requirements 15–19 and AC-16–20 covering `wave_close` mode discoverability, `wave_create_wave` complete template, `wave_add_change` broken-link detection, `wave_prepare` journal-format hint, and `wave_help` start_wave note. | Operator session |
+| 2026-05-01 | Implementation complete. All 10 `wave_new_*` tools verified registered in server.py and test_all_tools_registered. DX fixes AC-16–20 implemented: `valid_modes` in wave_close error response, Wave Summary + Journal Watchpoints stubs in wave_create_wave template, `broken_links` in wave_add_change response, journal format hint in wave_validators.py diagnostic, start_wave journal note in wave_help catalog. 327 tests pass. docs-lint clean. AC-14 grep confirms no stale root-launcher instructions. Seeds (170, 040) and all Req-11 prompt files verified MCP-first. | `python3 .wavefoundry/framework/scripts/run_tests.py` → 327 OK; `.wavefoundry/bin/docs-lint` → ok |
+| 2026-05-01 | Review confirmed complete. AC priority table populated. `seed_edit_allowed` guard restored to `false` (had been left `true` after seed edits). All ACs verified against implementation. 539 tests pass. | `python3 .wavefoundry/framework/scripts/run_tests.py` → 539 OK; `cat .wavefoundry/guard-overrides.json` → seed_edit_allowed: false |
 
 
 ## Decision Log

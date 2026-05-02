@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-30
+Last verified: 2026-05-01
 
 ## Test Tiers
 
@@ -10,8 +10,20 @@ Last verified: 2026-04-30
 |------|-------|----------|--------|
 | Framework script unit tests | `docs_lint.py`, `build_pack.py` behavior | `.wavefoundry/framework/scripts/tests/` | `python3 .wavefoundry/framework/scripts/run_tests.py` |
 | Fixture-based integration | Docs-lint against fixture repos | `.wavefoundry/framework/scripts/tests/fixtures/` | Same runner |
+| Semantic embedding regression | Real fastembed path, model name/dim/determinism/ranking anchors — **skipped** when fastembed is not installed or model not cached | `SemanticEmbeddingRegressionTests` in `test_server_tools.py` | Same runner |
 | Manual docs gate | MCP **`wave_validate`** succeeds, **or** `.wavefoundry/bin/docs-lint` passes | MCP / repo root | `wave_validate` / `.wavefoundry/bin/docs-lint` |
 | Manual gardener | MCP **`wave_garden`**, **or** `.wavefoundry/bin/docs-gardener` | MCP / repo root | `wave_garden` / `.wavefoundry/bin/docs-gardener` |
+
+### Semantic Embedding Regression Tier
+
+These tests exercise the real `fastembed` embedding path — no mocks. They pin four properties as regression anchors so that a future model upgrade fails loudly rather than silently:
+
+- **Model name** — `DOCS_MODEL == "BAAI/bge-small-en-v1.5"`
+- **Dimension** — output vector length == 384
+- **Determinism** — same text always produces the same vector
+- **Ranking order** — a semantically close query ranks its best match above an unrelated chunk
+
+When a model upgrade is intentional, update the two constants at the top of `SemanticEmbeddingRegressionTests` and follow the checklist in `docs/architecture/embedding-model.md`.
 
 ## Test File Locations
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-30
+Last verified: 2026-05-01
 
 ## Primary Control Paths
 
@@ -76,15 +76,29 @@ Last verified: 2026-04-30
 2. **Discovery tool** (`wave_help`): returns a structured catalogue of core verbs, compatibility tools, workflows, recommended chains, and exact next-call usage hints
 3. **Search tools** (`docs_search`, `code_search`, `seed_get`): load project index from `.wavefoundry/index/` and packaged framework index from `.wavefoundry/framework/index/`; `docs_search` embeds queries in offline-only mode and falls back to lexical search with structured diagnostics when the index is not ready or the semantic model is unavailable offline; staleness detection is left to background reindex hooks rather than running a per-query repo walk
 4. **Anchor tool** (`wave_map`): resolves `doc:` / `code:` / `seed:` addresses against the repo root (shared containment rules with future file-navigation tools) and returns trust metadata plus excerpts
-5. **Inspection tools** (`wave_current`, `wave_list_waves`, `wave_list_plans`, `wave_get_change`, `wave_get_prompt`): read `docs/waves/`, `docs/plans/`, and `docs/prompts/` via regex parsing and return structured data plus recovery hints (with per-process caching for wave/plan lists and prompt resolution keyed by prompt file mtimes)
-6. **Creation tools** (`wave_change_create` and `wave_new_*` wrappers): import `lifecycle_id.py` directly, generate change ID, dry-run or scaffold docs in `docs/plans/`, and return repeat-safe diagnostics when the artifact already exists
-7. **Lifecycle mutation tools** (`wave_add_change`, `wave_remove_change`, `wave_prepare`): update the wave record and keep admitted change docs in the wave folder; add-change relocates immediately, remove-change moves active docs back to `docs/plans/`, and prepare validates or repairs placement drift; successful write paths request a detached background docs-index refresh so non-hook clients do not depend on editor hooks for search freshness
-8. **Review and closure tools** (`wave_review`, `wave_close`, `wave_pause`, `wave_change_create`, `wave_garden`): review remains read-first but now opportunistically requests a detached background docs refresh, while write paths trigger one after successful mutations; duplicate refreshes are throttled with repo-local runtime state so repeated MCP calls do not spawn an unbounded queue
+5. **Inspection tools** (`wave_current`, `wave_list_waves`, `wave_list_plans`, `wave_get_change`, `wave_get_prompt`): read `docs/waves/`, `docs/plans/`, and `docs/prompts/` via regex parsing and return structured data plus recovery hints (with per-process caching for wave/plan lists and prompt resolution keyed by prompt file mtimes); `wave_current` returns all non-closed waves as `data.waves[]` (ordered active → planned → paused, with per-entry `next_action` — `implement_wave` / `prepare_wave` / `resume_wave`) and runs advisory drift detection against the active wave only; `wave_get_change(wave_id=...)` supports bulk mode returning all admitted changes for a wave in one call; `docs_search` responses include a `mode` field (`"semantic"` or `"lexical"`) for fallback transparency
+5b. **Session handoff tools** (`wave_get_handoff`, `wave_set_handoff`): read and write `docs/agents/session-handoff.md` for cross-session state continuity; `wave_set_handoff` triggers a background docs-index refresh after successful writes
+6. **Code navigation tools — exact layer** (`code_list_files`, `code_read`, `code_keyword_search`): walk repo files using indexer's ignore/exclusion rules, perform substring search or ranged file reads; all paths validated against repo root to prevent traversal; return deterministic path/line/snippet results
+6b. **Code navigation tools — symbol layer** (`code_definition`, `code_references`): Python AST-based definition/reference search; non-Python returns explicit unsupported response with `code_keyword_search` fallback hint
+7. **Creation tools** (`wave_new_*` convenience tools and `wave_change_create` [deprecated]): import `lifecycle_id.py` directly, generate change ID, dry-run or scaffold docs in `docs/plans/`, and return repeat-safe diagnostics when the artifact already exists; `wave_change_create` returns a `deprecated_tool` diagnostic on every call — prefer `wave_new_<kind>` for all new usage
+7. **Lifecycle mutation tools** (`wave_add_change`, `wave_remove_change`, `wave_prepare`): update the wave record and keep admitted change docs in the wave folder; add-change relocates immediately and inserts the new `Change ID:` block inside the wave's `## Changes` section (tail-append, preserving admission order), remove-change moves active docs back to `docs/plans/`, and prepare validates or repairs placement drift; `wave_prepare` enforces the single-active-wave invariant by returning an `another_wave_active` diagnostic (with `wave_pause` recovery) when any other wave is already `active`; successful write paths request a detached background docs-index refresh so non-hook clients do not depend on editor hooks for search freshness
+8. **Review and closure tools** (`wave_review`, `wave_close`, `wave_pause`, `wave_change_create`, `wave_garden`): review remains read-first but now opportunistically requests a detached background docs refresh, while write paths trigger one after successful mutations; `wave_pause` transitions the target wave from `active` to `paused` (idempotent on paused, advisory on other states) in addition to writing the session-handoff entry, so the paused wave drops out of `wave_current`'s active slot and frees the single-active-wave invariant for a different wave; duplicate refreshes are throttled with repo-local runtime state so repeated MCP calls do not spawn an unbounded queue
 9. **Explicit index maintenance tools** (`wave_index_health`, `wave_index_build`): `wave_index_health` reports stale/missing layer status without touching the hot search path; `wave_index_build` runs `setup_index.py` (project `content=all`, docs+code) or `indexer.py` (project `content=docs|code`, or framework-layer docs) synchronously for deterministic index builds (`mode='update'` vs `mode='rebuild'`), returns structured statistics, and invalidates the in-process loaded index state afterward
 8. **Operations tools** (`wave_validate`, `wave_garden`, `wave_sync_surfaces`): invoke `docs_lint.py`, `docs_gardener.py`, `render_platform_surfaces.py` as subprocesses and return structured pass/fail
 
-**State read:** `.wavefoundry/index/`, `.wavefoundry/framework/index/`, `docs/waves/`, `docs/plans/`, `docs/prompts/`
-**State written:** `docs/plans/`, `docs/waves/`, `docs/` metadata (garden tool)
+### Path 6b: MCP Resource and Resource-Template Reads
+
+1. MCP client requests a **resource** or **resource template** URI via the MCP resources protocol
+2. **Stable resources** (`wavefoundry://overview`, `wavefoundry://prompts`, `wavefoundry://architecture/current-state`, `wavefoundry://wave/current`, `wavefoundry://session-handoff`): read the corresponding file(s) from `docs/` and return raw markdown text; missing files return a structured `# Not Found` markdown message
+3. **Resource templates** (`wavefoundry://change/{change_id}`, `wavefoundry://wave/{wave_id}`, `wavefoundry://prompt/{slug}`, `wavefoundry://seed/{slug}`, `wavefoundry://architecture/{slug}`): parameterized reads of the matching doc in `docs/` or `.wavefoundry/framework/seeds/`; matched by name prefix; unknown identifiers return `# Not Found`
+4. All resource reads are **strictly read-only** — no writes, no side effects, no background refresh requests. Use tools when a structured response envelope (`diagnostics`, `next_tools`, `usage`) is needed.
+
+**State read:** `docs/`, `.wavefoundry/framework/seeds/`
+**State written:** none
+**Transport:** stdio (FastMCP MCP resources protocol)
+
+**State read (Path 6):** `.wavefoundry/index/`, `.wavefoundry/framework/index/`, `docs/waves/`, `docs/plans/`, `docs/prompts/`, `docs/agents/session-handoff.md`
+**State written (Path 6):** `docs/plans/`, `docs/waves/`, `docs/agents/session-handoff.md` (handoff tools), `docs/` metadata (garden tool)
 **Transport:** stdio (FastMCP)
 
 ## State Ownership
@@ -102,3 +116,4 @@ Last verified: 2026-04-30
 | Wave records `docs/waves/<id>/wave.md` | wave-coordinator | wave inspection tools | wave lifecycle commands |
 | Change docs `docs/plans/<id>.md` | Engineering | wave_get_change | wave_new_* tools, operator, wave_remove_change |
 | Change docs `docs/waves/<wave-id>/<id>.md` | Active wave | wave_get_change, wave lifecycle tools | wave_add_change, wave_prepare |
+| Session handoff `docs/agents/session-handoff.md` | Active session | wave_get_handoff, MCP resource `wavefoundry://session-handoff` | wave_set_handoff |

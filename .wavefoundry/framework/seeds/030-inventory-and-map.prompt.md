@@ -42,6 +42,30 @@ Tasks:
      detected_methodology:  [string]              # list (never a single string); e.g. ["tailwind"], ["css-modules", "sass"], ["swiftui"]
    ```
 
+   **Extended scan: pattern and product-class signals.** After recording the `design_evidence` schema above, scan for the following signal groups and record results under `design_system.pattern_signals` and `design_system.product_class_signals` in `docs/repo-profile.json`. These outputs inform which Split B subtrees (`patterns/`, `state-patterns/`, `validation-patterns/`, `content/`) and Split C subtrees (`platforms/`, conditional product-class extensions) to seed during the extraction contract step (`seed-040` task 14).
+
+   **Pattern signals** (record each as `true`/`false` with evidence path):
+   - `has_navigation_patterns` — nav/sidebar/drawer/breadcrumb/shell component files
+   - `has_feedback_patterns` — toast/snackbar/notification/alert/banner component files
+   - `has_data_patterns` — table/list/grid/pagination/sort/filter component or hook files
+   - `has_trust_patterns` — auth/login/signin/mfa/oauth UI components or flows
+   - `has_chart_patterns` — chart/graph/d3/recharts/chart-js/victory/data-vis imports or components
+   - `has_a11y_artifacts` — a11y/accessibility/contrast config, audit files, or linter rules
+   - `has_motion` — animation/transition/framer-motion/react-spring imports or CSS keyframes
+   - `has_responsive_tokens` — breakpoints/responsive/grid design tokens or utility files
+   - `has_form_validation` — forms/validation/schema/zod/yup/valibot imports or validation hooks
+   - `has_state_patterns` — loading/empty/error/success/skeleton component or state files
+
+   **Product-class signals** (record each as `true`/`false` with evidence path):
+   - `is_multi_platform` — `*.xcodeproj`, `android/`, `App.xaml`, `Package.swift`, `electron/main.*`, `tauri.conf.*`, or React Native `ios/`/`android/` subdirectories
+   - `has_marketing_surface` — `marketing/`, `landing/`, `www/` top-level directories
+   - `has_email_templates` — `emails/`, `templates/*.mjml`, `templates/*.html.erb`, or mjml/react-email imports
+   - `has_print_surface` — `print/`, `pdf/`, or CSS `@page` rules in source files
+   - `has_offline_support` — service worker registration, `workbox.*` imports, background-sync libraries
+   - `has_notification_patterns` — push notification libraries (web-push, firebase-messaging, OneSignal, Expo notifications) or rich notification component files
+
+   When a signal is present, include a concise evidence reference (file path or import). When no evidence is found for a group, record `false` rather than omitting the key.
+
 8. **Brownfield pattern catalog** — When the repository has existing implementation history (source files with multiple prior implementations to learn from), scan a representative cross-section of the codebase and catalog dominant patterns under `code_patterns` in `docs/repo-profile.json`. Consumed by `seed-020` pattern-detection obligations at implementation time. At minimum, document:
 
    - **Naming conventions** — variable, function / method, type, file, and module naming style per primary language (e.g., `camelCase` functions, `PascalCase` types, `kebab-case` files).

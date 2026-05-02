@@ -147,6 +147,8 @@ Preserve the personal-override carve-out (the framework tree can be tracked, but
 
 Seeded **`AGENTS.md`**, **`CLAUDE.md`**, thin pointers, and **`docs/prompts/*`** must instruct **agents** to prefer MCP **`wave_validate`** (docs lint results), **`wave_garden`** (metadata gardening; follow the tool `mode` contract), and **`wave_audit`** (combined wave + validation + index readout) over shelling out to **`.wavefoundry/bin/docs-lint`** / **`.wavefoundry/bin/docs-gardener`**. Treat the **bin** launchers as **CLI / hook / CI** fallbacks when MCP is not attached. Hooks below **cannot** call MCP and therefore still invoke **`.wavefoundry/bin/docs-lint`** — that does not change MCP-first agent guidance.
 
+This MCP-first principle extends beyond docs validation to **all wave and plan state queries**: before reaching for `ls`, `grep`, or filesystem tools to answer any question about wave state, plans, or change docs, agents must check the MCP tool list first. `wave_list_plans` (pending changes not yet admitted to a wave), `wave_list_waves`, `wave_current`, and `wave_get_change` return structured answers directly. Seeded `AGENTS.md` must include this guidance in its MCP or docs-gate section.
+
 ### Shared hook purposes (apply on every host per its pre/post capability)
 
 - **Seed protection** — block (or warn+halt where pre-write is unavailable) edits to `*.prompt.md` files under `.wavefoundry/framework/` unless `.wavefoundry/guard-overrides.json` sets `seed_edit_allowed.enabled` to `true`. Use the repo-global override file only for intentional seed edits, then remove it or set the flag back to `false`.
@@ -286,6 +288,19 @@ Add a `## Cleanup and Destructive Operations` section to `AGENTS.md` when the re
 > **Destructive operations outside the repo:** Before overwriting or replacing an installed artifact outside the repository (for example, an app bundle in `/Applications`), confirm the target, verify a rollback path exists, and build to a staging location first. A distribution build that clobbers a working installation without a backup is not recoverable from the repository alone.
 >
 > **Legacy cleanup scoping:** When asked to clean up legacy content, default to removing only the explicitly named deprecated artifacts. Do not expand scope to adjacent historical records, prior wave archives, or references in closed-wave docs without explicit instruction.
+
+## Design-System Extraction Guidance in AGENTS.md
+
+When `docs/design/` exists in the target repository (or when `seed-040` task 14 has been applied), add the following guidance to the `AGENTS.md` **Docs Map** or equivalent section so agents can locate the extraction contract:
+
+> **`docs/design/`** — machine-readable design system extraction contract (tokens, component specs, gap log, source map). Distinct from `docs/design/design-language.md`, which is the operator-owned narrative design document.
+>
+> - Regeneration regenerates JSON/spec trees (e.g. `manifest.json`, `tokens/`, `components/`). It **never** rewrites `design-language.md` or `index.md` body content.
+> - `docs/design/AGENTS.md` contains agent rules for this subtree — check it before building UI components or writing hard-coded values.
+> - `docs/design/.design-system/proposed-additions.md` is the escape valve for new component proposals before they are formally added.
+> - **Split B subtrees** (`patterns/`, `state-patterns/`, `validation-patterns/`, `content/`, `skills/`) — extend the core contract with pattern guidance, state definitions, validation conventions, voice/tone, and agent-facing skills. Consult these when implementing UI patterns, form validation, content copy, or building new agent design tasks. Present only when Split B has been applied.
+
+This entry must be present whenever `docs/design/` is seeded or detected. Keep it concise and route to `docs/design/AGENTS.md` for the full agent rules rather than duplicating them.
 
 Guardrails:
 

@@ -11,8 +11,8 @@ Thin pointer. Read `AGENTS.md` first for the full agent operating surface.
 
 ## Key Guardrails
 
-- Before editing framework seeds: set `.wavefoundry/guard-overrides.json` `seed_edit_allowed.enabled: true`; restore after editing
-- Before broad framework-maintenance edits: set `framework_edit_allowed.enabled: true`; restore after
+- Before editing framework seeds: call `wave_open_gate(gate="seed_edit_allowed")`; call `wave_close_gate(gate="seed_edit_allowed")` immediately after. CLI fallback: `.wavefoundry/bin/gate open seed_edit_allowed`
+- Before broad framework-maintenance edits: call `wave_open_gate(gate="framework_edit_allowed")`; restore with `wave_close_gate(gate="framework_edit_allowed")` after. CLI fallback: `.wavefoundry/bin/gate open framework_edit_allowed`
 - Never run `git commit` unless the operator explicitly requests it in the current session
 - Stage gate applies before any code edit: change doc → wave admission → Prepare wave
 

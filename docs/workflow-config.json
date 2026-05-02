@@ -78,6 +78,6 @@
     "require_architecture_reviewer_for_cross_boundary_changes": true,
     "require_docs_contract_reviewer_for_spec_changes": true
   },
-  "design_review_triggers": [],
+  "design_review_triggers": ["token-file-change", "manifest-change", "spec-json-change"],
   "require_design_review_for_ui_surface_changes": false
 }

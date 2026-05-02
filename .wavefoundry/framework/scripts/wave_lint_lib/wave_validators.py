@@ -735,6 +735,9 @@ def check_cross_artifact_consistency(root: Path) -> list[str]:
         if active_records and wave_id not in journal_wave_refs:
             failures.append(
                 f"{record.path}: active wave `{wave_id}` must be referenced by at least one journal artifact"
+                f" — add exactly this line to a file under docs/agents/journals/:"
+                f" wave-id: `{wave_id}`"
+                f" (the wave-id key must be alone on its line with no trailing content after the closing backtick)"
             )
 
     failures.extend(
