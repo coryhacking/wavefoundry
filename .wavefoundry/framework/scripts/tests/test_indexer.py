@@ -301,6 +301,22 @@ class HashTests(unittest.TestCase):
         h2 = self.bi._sha256(p)
         self.assertNotEqual(h1, h2)
 
+    def test_build_file_hashes_returns_rel_path_to_hex(self):
+        (self.root / "a.py").write_text("hello\n", encoding="utf-8")
+        (self.root / "sub").mkdir()
+        (self.root / "sub" / "b.md").write_text("world\n", encoding="utf-8")
+        files = [self.root / "a.py", self.root / "sub" / "b.md"]
+        result = self.bi._build_file_hashes(files, self.root)
+        self.assertEqual(set(result.keys()), {"a.py", "sub/b.md"})
+        for v in result.values():
+            self.assertRegex(v, r"^[0-9a-f]{64}$")
+
+    def test_build_file_hashes_consistent_with_sha256(self):
+        p = self.root / "c.py"
+        p.write_text("data\n", encoding="utf-8")
+        result = self.bi._build_file_hashes([p], self.root)
+        self.assertEqual(result["c.py"], self.bi._sha256(p))
+
 
 class IncrementalBuildTests(unittest.TestCase):
     def setUp(self):

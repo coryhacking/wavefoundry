@@ -198,6 +198,11 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _build_file_hashes(files: list[Path], root: Path) -> dict[str, str]:
+    """Return {relative_path: sha256_hex} for every file in *files*."""
+    return {str(f.relative_to(root)).replace("\\", "/"): _sha256(f) for f in files}
+
+
 def _stat_entry(path: Path) -> tuple[float, int, int]:
     """Return (mtime, size, inode) for a file.
 

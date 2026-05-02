@@ -3711,5 +3711,46 @@ class WaveCurrentMigrationGrepTests(unittest.TestCase):
         )
 
 
+class IndexerContractTests(unittest.TestCase):
+    """Verify that every indexer function called dynamically from server.py exists.
+
+    server.py loads indexer.py at runtime via _load_script and calls functions by
+    name. A missing function raises AttributeError only when the code path is
+    exercised — these tests catch the mismatch statically so it surfaces in CI
+    rather than in a live project.
+    """
+
+    def setUp(self):
+        INDEXER_PATH = SCRIPTS_ROOT / "indexer.py"
+        spec = importlib.util.spec_from_file_location("indexer_contract", INDEXER_PATH)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        self.idx = mod
+
+    def _assert_callable(self, name: str) -> None:
+        self.assertTrue(
+            callable(getattr(self.idx, name, None)),
+            f"indexer.py is missing callable '{name}' — server.py calls it via _load_script",
+        )
+
+    def test_walk_repo_exists(self):
+        self._assert_callable("walk_repo")
+
+    def test_is_relative_to_exists(self):
+        self._assert_callable("_is_relative_to")
+
+    def test_filter_project_index_excludes_exists(self):
+        self._assert_callable("_filter_project_index_excludes")
+
+    def test_filter_by_prefixes_exists(self):
+        self._assert_callable("_filter_by_prefixes")
+
+    def test_build_file_hashes_exists(self):
+        self._assert_callable("_build_file_hashes")
+
+    def test_chunks_for_file_exists(self):
+        self._assert_callable("_chunks_for_file")
+
+
 if __name__ == "__main__":
     unittest.main()
