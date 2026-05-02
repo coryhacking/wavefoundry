@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-05-02
 
 Actor: implementer
 Schema version: 1.0
@@ -21,14 +21,14 @@ Last distilled: 2026-04-28
 - **Medium:** A tool or environment failure causes significant lost time — journal the failure mode so future sessions know the recovery path.
 - **Low:** `__pycache__` appears in `git status` — the post-Bash hook may have failed; investigate `.claude/hooks/pycache-cleanup.py`.
 
-## Recent Captures
-
-- None at init. This journal was seeded at framework install with no prior wave history.
-
 ## Distillation
 
 - **Framework edit guard pattern:** To edit protected framework files, set `framework_edit_allowed: true` in `.wavefoundry/guard-overrides.json` (gitignored). Remove the override after the implementation session ends. The guard is not a shortcut to skip — it is the authorized bypass path.
 - **Run tests before handoff:** `python3 .wavefoundry/framework/scripts/run_tests.py` must pass before signaling implementation complete. Do not rely on type checking or docs-lint alone.
+
+## Active Signals
+
+- None. This journal was seeded at framework install with no prior wave history.
 
 ## Promotion Evidence
 

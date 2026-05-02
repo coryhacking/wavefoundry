@@ -12,7 +12,7 @@ Tasks:
    - `docs/architecture/`
    - `docs/architecture/decisions/`
    - `docs/contributing/`
-   - `docs/design/`
+   - `docs/design-system/`
    - `docs/plans/`
    - `docs/specs/`
    - `docs/references/`
@@ -44,7 +44,7 @@ Tasks:
     - `## Risks` — risk and mitigation list
     - do NOT include a `## Spec Refs` section pointing at a separate `docs/specs/changes/` package
 12. Ensure `docs/architecture/decisions/template.md` exists as a copy-paste skeleton for new `DEC-*` decision records, with sections aligned to `docs/architecture/decisions/README.md`; link the template from README when README is seeded or refreshed.
-13. Seed `docs/design/design-language.md` when `docs/repo-profile.json` `design_system.design_evidence.detected` is `true`. The file must use the following stack-neutral canonical structure:
+13. Seed `docs/design-system/design-language.md` when `docs/repo-profile.json` `design_system.design_evidence.detected` is `true`. The file must use the following stack-neutral canonical structure:
    - **Title and metadata** — `# Design Language` header; `Owner:`, `Status:`, `Last verified:` metadata fields
    - **Overview** — one-paragraph project design philosophy statement; note the HIG fallback rule: when the project design language is silent on a decision, the platform's authoritative standard governs (Apple HIG for macOS/iOS, Material Design for Android, Material Design 3 for Flutter, for web: WCAG 2.1 AA + the detected component library's own design principles when a library is detected, or the project's own Component Patterns conventions documented in this file when no library is detected; platform-specific accessibility guidelines otherwise); intentional departures from the platform standard must be documented in the Platform/Framework Conventions section with explicit rationale
    - **Color Palette** — semantic color tokens grouped by role (primary, surface, state, accent, status); reference token files if `has_design_tokens` is `true`; for each color, include name, hex/RGB/semantic value, and usage context
@@ -60,15 +60,15 @@ Tasks:
    - **Document Maintenance** — when to update this file, who owns it, how it relates to `docs/repo-profile.json` `design_system` block
    When seeding, populate each section from the `design_evidence` output produced by `seed-030` and from direct inspection of the detected `ui_roots` source files. Record discovered values rather than generic placeholders wherever evidence exists. When evidence is absent for a section, write `TBD` with a one-line note explaining where to find the information.
    When `has_storybook` is `true`, add a cross-reference from the Component Patterns section to the Storybook catalog path and do not enumerate individual component specifications inline — the Storybook catalog is the single source of truth for component details; design-language.md documents design intent and token usage, not implementation details.
-   Ensure `docs/design/index.md` exists and lists `design-language.md` with its status and purpose. Update `docs/README.md` to include a `docs/design/` row referencing "design language system" in its purpose field when `docs/design/design-language.md` is seeded.
-   When seeding `docs/design/design-language.md`, also ensure `docs/workflow-config.json` includes a `design_review_triggers` list (with at least: `ui-surface-change`, `new-color-token`, `new-component-pattern`, `typography-change`, `hig-departure`) and a `require_design_review_for_ui_surface_changes: true` flag so the trigger contract is machine-readable without opening the design doc. When `docs/workflow-config.json` does not yet exist, these fields will be added during the `010` workflow-config seeding step; record them as required additions in the current assumptions of the active wave or session handoff so they are not forgotten.
-14. **Design-system extraction contract.** Seed the machine-readable extraction contract under `docs/design/` as part of any install or upgrade that touches `docs/design/`. This is distinct from the narrative `design-language.md` (task 13): that file is operator-owned narrative; the extraction contract is a machine-readable surface agents read during UI implementation. The extraction contract must coexist with `design-language.md` — never overwrite its body.
+   Ensure `docs/design-system/index.md` exists and lists `design-language.md` with its status and purpose. Update `docs/README.md` to include a `docs/design-system/` row referencing "design language system" in its purpose field when `docs/design-system/design-language.md` is seeded.
+   When seeding `docs/design-system/design-language.md`, also ensure `docs/workflow-config.json` includes a `design_review_triggers` list (with at least: `ui-surface-change`, `new-color-token`, `new-component-pattern`, `typography-change`, `hig-departure`) and a `require_design_review_for_ui_surface_changes: true` flag so the trigger contract is machine-readable without opening the design doc. When `docs/workflow-config.json` does not yet exist, these fields will be added during the `010` workflow-config seeding step; record them as required additions in the current assumptions of the active wave or session handoff so they are not forgotten.
+14. **Design-system extraction contract.** Seed the machine-readable extraction contract under `docs/design-system/` as part of any install or upgrade that touches `docs/design-system/`. This is distinct from the narrative `design-language.md` (task 13): that file is operator-owned narrative; the extraction contract is a machine-readable surface agents read during UI implementation. The extraction contract must coexist with `design-language.md` — never overwrite its body.
 
-    **Role of `DESIGN.md`:** `docs/design/DESIGN.md` is the agent-optimized Google Labs DESIGN.md distillation — under 400 lines, YAML front-matter holds token references, markdown body holds rationale distilled for agents. It is regeneratable. `design-language.md` is the operator-owned narrative and is never regenerated.
+    **Role of `DESIGN.md`:** `docs/design-system/DESIGN.md` is the agent-optimized Google Labs DESIGN.md distillation — under 400 lines, YAML front-matter holds token references, markdown body holds rationale distilled for agents. It is regeneratable. `design-language.md` is the operator-owned narrative and is never regenerated.
 
     **Core tree (create these paths during install/upgrade when absent; never overwrite if present):**
     ```text
-    docs/design/
+    docs/design-system/
     ├── README.md                        # human entry; explains extraction tree and Storybook exclusion
     ├── DESIGN.md                        # agent-optimized distillation (regeneratable); NOT design-language.md
     ├── AGENTS.md                        # agent contract (see content rules below)
@@ -107,15 +107,14 @@ Tasks:
     ├── accessibility/
     │   ├── contrast-report.json
     │   └── README.md
-    └── .design-system/
-        ├── version.json
-        ├── source-map.json
-        └── proposed-additions.md       # agent escape valve for new component proposals
+    ├── version.json
+    ├── source-map.json
+    └── proposed-additions.md           # agent escape valve for new component proposals
     ```
 
     **Token naming convention (mandatory).** All token names must follow the `{category}.{subcategory}.{scale}.{variant}` dot-path schema (e.g. `color.primary.500`, `color.action.primary.background`, `spacing.4`, `radius.button`). First segment must start with a letter; numeric-only scale segments are allowed (e.g. `.500`, `.4`). When a source name must be normalized, record both in `source-map.json` under `normalizedFrom`.
 
-    **`manifest.json` core schema.** Required fields: `schemaVersion` (semver string, e.g. `"1.0.0"`), `extractionVersion`, `extractedAt` (ISO-8601), `canonicalRoot` (must equal `"docs/design"`), `sourceStrategy` (enum: `figma-extract`, `repo-evidence-only`, `visual-bootstrap`, `hybrid`), `evidenceTypes` (array), `artifactCounts`, `modes` (must include `"light"` and `"dark"`), `validationSummary`. Reserved for Split C (accept but not require): `targetSurfaces`, `platformStandards`, `deprecations`.
+    **`manifest.json` core schema.** Required fields: `schemaVersion` (semver string, e.g. `"1.0.0"`), `extractionVersion`, `extractedAt` (ISO-8601), `canonicalRoot` (must equal `"docs/design-system"`), `sourceStrategy` (enum: `figma-extract`, `repo-evidence-only`, `visual-bootstrap`, `hybrid`), `evidenceTypes` (array), `artifactCounts`, `modes` (must include `"light"` and `"dark"`), `validationSummary`. Reserved for Split C (accept but not require): `targetSurfaces`, `platformStandards`, `deprecations`.
 
     **Component `spec.json` schema.** Identity fields (required): `id`, `name`, `category`, `status`, `description`, `figma`, `codeConnect`, `anatomy`, `variants`, `props`, `slots`, `tokens`, `doNotUse`, `preferOver`. Behavioral fields (reserved for Split B; emit as `null`): `states`, `responsive`, `motion`, `accessibility`, `content`. Never omit behavioral fields — Split B populates them additively.
 
@@ -130,40 +129,40 @@ Tasks:
     - **Phase 1 — strict extraction.** Record the real state of evidence. Every missing value becomes a `null` plus a `gaps.md` entry. No invented values; no best-practice substitutions. Low-confidence inferences are flagged. The output of Phase 1 is an honest extraction skeleton.
     - **Phase 2 — guided remediation.** Each `gaps.md` entry may include: (a) a *source-first fix* describing where the missing value could be found or authored (e.g. "Figma library — define primary color token"); (b) a *best-practice bootstrap option*, clearly labeled `proposed-from-best-practices`, that an operator can choose to adopt; (c) a *validation target* (WCAG AA contrast, 4.5:1 minimum for body text) when a gap has a testable quality bar; (d) a *dark-mode quality target* when the gap affects a token that has both light and dark variants.
 
-    **Proposal guard.** Proposals from Phase 2 must never be silently merged into `semantic.tokens.json` or `components/_index.json`. They live in `gaps.md` or `docs/design/.design-system/proposed-additions.md` until an operator explicitly promotes them. The `source-map.json` entry for any promoted item must record `confidence: low` until the operator raises it after verification.
+    **Proposal guard.** Proposals from Phase 2 must never be silently merged into `semantic.tokens.json` or `components/_index.json`. They live in `gaps.md` or `docs/design-system/proposed-additions.md` until an operator explicitly promotes them. The `source-map.json` entry for any promoted item must record `confidence: low` until the operator raises it after verification.
 
-    **`AGENTS.md` content contract.** The seeded `docs/design/AGENTS.md` must contain — not just exist:
-    - Before building any UI component: check `components/_index.json`; use existing; if no match, append to `.design-system/proposed-additions.md`.
+    **`AGENTS.md` content contract.** The seeded `docs/design-system/AGENTS.md` must contain — not just exist:
+    - Before building any UI component: check `components/_index.json`; use existing; if no match, append to `proposed-additions.md`.
     - Before writing any hard-coded value: reference semantic tokens only; never primitives, raw hex, raw px, raw z-index, raw duration.
     - Token naming follows dot-path convention.
     - Under 200 lines. Mark which sections Split B will extend (microcopy, icon lookup).
 
-    **`docs/design/README.md` must state** that Storybook-specific outputs (`stories.meta.json`, MDX catalogs) are not part of this contract and are opt-in follow-ups.
+    **`docs/design-system/README.md` must state** that Storybook-specific outputs (`stories.meta.json`, MDX catalogs) are not part of this contract and are opt-in follow-ups.
 
     **`exports/README.md` must state** that the subdirectory contents are generated by a token-build pipeline (plan `12atj-feat design-token-build-pipeline`) and must not be hand-edited. Subdirectories are stubs until the pipeline is configured.
 
     **Coexistence rules (idempotent, apply on both install and upgrade):**
-    - Append a cross-link row to `docs/design/index.md` listing new extraction artifacts with status `generated` — only when the row is not already present.
-    - Add a `> See extracted contract: docs/design/manifest.json` pointer at the top of `design-language.md` when it does not already exist.
-    - Never rewrite `design-language.md` or `docs/design/index.md` body content.
+    - Append a cross-link row to `docs/design-system/index.md` listing new extraction artifacts with status `generated` — only when the row is not already present.
+    - Add a `> See extracted contract: docs/design-system/manifest.json` pointer at the top of `design-language.md` when it does not already exist.
+    - Never rewrite `design-language.md` or `docs/design-system/index.md` body content.
 
     **Rollback / clean re-extract path** (document in `docs/architecture/design-system.md` and in seed guidance):
-    - Move existing `docs/design/<subtree>` to `docs/design/.backup/<ISO-date>/` before re-extracting.
+    - Move existing `docs/design-system/<subtree>` to `docs/design-system/.backup/<ISO-date>/` before re-extracting.
     - Never auto-delete operator artifacts; always create the backup first.
     - Diff against the backup for operator review.
     - Write a `meta`-category gap entry when a backup is created.
     - Document backup cleanup guidance (backups are not auto-deleted; operators remove when satisfied).
 
-    **`docs/workflow-config.json` extension.** When `design_review_triggers` is already present (seeded by task 13 for `design-language.md` changes), extend it to also include `token-file-change`, `manifest-change`, `spec-json-change` so that agent writes to `docs/design/**` trigger the same design-review gate.
+    **`docs/workflow-config.json` extension.** When `design_review_triggers` is already present (seeded by task 13 for `design-language.md` changes), extend it to also include `token-file-change`, `manifest-change`, `spec-json-change` so that agent writes to `docs/design-system/**` trigger the same design-review gate.
 
-    **Architecture doc.** Seed `docs/architecture/design-system.md` describing: extraction philosophy (machine-readable vs narrative), where `design-language.md` fits, when extraction regenerates vs operator edits, relationship between `docs/design/` and the semantic index, token-build pipeline stub and follow-on plan, rollback path, backup cleanup. Cross-link from `docs/ARCHITECTURE.md` and from `docs/design/index.md`.
+    **Architecture doc.** Seed `docs/architecture/design-system.md` describing: extraction philosophy (machine-readable vs narrative), where `design-language.md` fits, when extraction regenerates vs operator edits, relationship between `docs/design-system/` and the semantic index, token-build pipeline stub and follow-on plan, rollback path, backup cleanup. Cross-link from `docs/ARCHITECTURE.md` and from `docs/design-system/index.md`.
 
-    **Storybook exclusion statement** must appear in both `seed-040` guidance and in the generated `docs/design/README.md`.
+    **Storybook exclusion statement** must appear in both `seed-040` guidance and in the generated `docs/design-system/README.md`.
 
     **Split B — pattern and surface depth (wave `12arn-enh design-system-pattern-and-surface-depth`).** Adds the following to the core tree. Create these paths when the Split B wave is admitted and implemented; all are merge-safe stubs:
 
     ```text
-    docs/design/
+    docs/design-system/
     ├── patterns/
     │   ├── navigation/   _index.json + README.md
     │   ├── feedback/     _index.json + README.md
@@ -202,7 +201,7 @@ Tasks:
     **Split C — bootstrap and governance (wave `12arn-enh design-system-bootstrap-and-governance`).** Adds the following to the core tree:
 
     ```text
-    docs/design/
+    docs/design-system/
     └── platforms/   README.md + per-surface subdirectories
     ```
 
@@ -210,7 +209,7 @@ Tasks:
 
     **`manifest.json` Split C fields:** `targetSurfaces` (required; infer from `docs/repo-profile.json` ui_roots + native folder inspection; unknown surfaces → gaps); `platformStandards[]` (required per declared surface; fields: `surface`, `standard`, `referenceVersion` (required — freeform string for HIG drift tracking), `departures`); `deprecations` (optional array of `{kind, id, supersededBy?, sunset?, reason}`); `productClasses` (records not-applicable classes explicitly).
 
-    **No-design-system bootstrap path (Split C):** when inventory finds no coherent design-system source, collect substitute evidence (screenshots, brand PDFs, reference URLs) under `docs/design/images/raw/` or referenced in `manifest.json.provenance`. Emit the standard skeleton with all semantic files as explicit `null`. Non-normative proposals appear in `gaps.md` or an appendix, clearly tagged `proposed-from-best-practices`. Never merge proposals into `semantic.tokens.json` without explicit operator promotion. `docs/design/README.md` must state that visual-bootstrap outputs require human sign-off before implementation waves treat tokens as normative.
+    **No-design-system bootstrap path (Split C):** when inventory finds no coherent design-system source, collect substitute evidence (screenshots, brand PDFs, reference URLs) under `docs/design-system/images/raw/` or referenced in `manifest.json.provenance`. Emit the standard skeleton with all semantic files as explicit `null`. Non-normative proposals appear in `gaps.md` or an appendix, clearly tagged `proposed-from-best-practices`. Never merge proposals into `semantic.tokens.json` without explicit operator promotion. `docs/design-system/README.md` must state that visual-bootstrap outputs require human sign-off before implementation waves treat tokens as normative.
 
     **Bootstrap evidence confidence:** all items from `visual-bootstrap` sources default to `low` confidence in `source-map.json`. Low-confidence items require a `gaps.md` entry. To present bootstrap items as higher-trust, the operator must add an acknowledgment line in `manifest.json.provenance.acknowledgments`.
 
@@ -252,9 +251,9 @@ Required target-repo outputs:
 - execution-plan and refreshable-artifact anchor files
 - canonical homes for project-specific workflow, review, verification, and operational procedure docs
 - `docs/contributing/build-and-verification.md` including **Git commits** (operator-owned policy per task 17) and **Wave framework pack upgrade verification** when the repository vendors the wave-context framework pack (task 17)
-- `docs/design/design-language.md` seeded from `design_evidence` when `docs/repo-profile.json` `design_system.design_evidence.detected` is `true` (task 13)
-- `docs/design/index.md` listing design artifacts with status and purpose (task 13)
-- `docs/design/` extraction contract tree (task 14): `manifest.json`, `AGENTS.md`, `DESIGN.md`, `gaps.md`, `VALIDATION.md`, `README.md`, token files, exports stubs + README, component index, foundations, accessibility, `.design-system/` meta files
+- `docs/design-system/design-language.md` seeded from `design_evidence` when `docs/repo-profile.json` `design_system.design_evidence.detected` is `true` (task 13)
+- `docs/design-system/index.md` listing design artifacts with status and purpose (task 13)
+- `docs/design-system/` extraction contract tree (task 14): `manifest.json`, `AGENTS.md`, `DESIGN.md`, `gaps.md`, `VALIDATION.md`, `README.md`, token files, exports stubs + README, component index, foundations, accessibility, `docs/design-system/` meta files
 - `docs/architecture/design-system.md` hub doc (task 14)
 
 Guardrails:

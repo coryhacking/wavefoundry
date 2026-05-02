@@ -20,7 +20,7 @@ _MANIFEST_STUB = {
     "schemaVersion": "1.0.0",
     "extractionVersion": "1.0.0",
     "extractedAt": None,
-    "canonicalRoot": "docs/design",
+    "canonicalRoot": "docs/design-system",
     "sourceStrategy": "repo-evidence-only",
     "evidenceTypes": [],
     "artifactCounts": {},
@@ -52,7 +52,7 @@ _EXPORTS_README_BODY = (
     "- `json/` — Flat resolved token map (`tokens.json`)\n\n"
     "## Generating outputs\n\n"
     "Run the token-build pipeline configured in "
-    "`.design-system/build.config.json` (see plan `12atj-feat design-token-build-pipeline`).\n"
+    "`docs/design-system/build.config.json` (see plan `12atj-feat design-token-build-pipeline`).\n"
     "The contents of these subdirectories are **out of scope** for wave `12as1 design-system-extraction`.\n"
 )
 
@@ -94,9 +94,9 @@ _REQUIRED_FILES: list[tuple[str, str | dict | None]] = [
     ("foundations/motion.md", None),
     ("accessibility/contrast-report.json", {"checks": []}),
     ("accessibility/README.md", None),
-    (".design-system/version.json", {"schemaVersion": "1.0.0"}),
-    (".design-system/source-map.json", []),
-    (".design-system/proposed-additions.md", None),
+    ("version.json", {"schemaVersion": "1.0.0"}),
+    ("source-map.json", []),
+    ("proposed-additions.md", None),
 ]
 
 _DYNAMIC_MD: dict[str, tuple[str, str]] = {
@@ -112,14 +112,14 @@ _DYNAMIC_MD: dict[str, tuple[str, str]] = {
     "foundations/elevation.md":  ("Elevation", ""),
     "foundations/motion.md":     ("Motion", ""),
     "accessibility/README.md":   ("Accessibility", ""),
-    ".design-system/proposed-additions.md": ("Proposed Additions", ""),
+    "proposed-additions.md": ("Proposed Additions", ""),
 }
 
 _AGENTS_MD_BODY = """\
 ## Before building any UI component
 1. Check `components/_index.json` — use an existing component if one matches.
 2. Never create a duplicate component without checking the index first.
-3. If no match exists, append a proposal to `.design-system/proposed-additions.md`.
+3. If no match exists, append a proposal to `proposed-additions.md`.
 
 ## Before writing any hard-coded value
 1. Check `tokens/semantic.tokens.json` for the appropriate semantic token.
@@ -196,12 +196,12 @@ def _backfill(design_root: Path, existing_manifest: dict | None = None, today: s
 # ---------------------------------------------------------------------------
 
 class InstallBackfillTests(unittest.TestCase):
-    """AC-7: install creates all required paths when docs/design/ is absent."""
+    """AC-7: install creates all required paths when docs/design-system/ is absent."""
 
     def test_backfill_creates_all_required_paths(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
-            design_root = root / "docs" / "design"
+            design_root = root / "docs" / "design-system"
             design_root.mkdir(parents=True)
             _backfill(design_root)
             for rel, _ in _REQUIRED_FILES:
@@ -215,7 +215,7 @@ class InstallBackfillTests(unittest.TestCase):
     def test_backfill_does_not_overwrite_existing_files(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
-            design_root = root / "docs" / "design"
+            design_root = root / "docs" / "design-system"
             design_root.mkdir(parents=True)
 
             # Pre-create gaps.md with operator content
@@ -232,7 +232,7 @@ class InstallBackfillTests(unittest.TestCase):
     def test_backfill_design_language_md_is_never_touched(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
-            design_root = root / "docs" / "design"
+            design_root = root / "docs" / "design-system"
             design_root.mkdir(parents=True)
 
             original = "# Design Language\n\nOperator-owned narrative.\n"
@@ -246,7 +246,7 @@ class InstallBackfillTests(unittest.TestCase):
     def test_exports_subdirs_exist_after_backfill(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
-            design_root = root / "docs" / "design"
+            design_root = root / "docs" / "design-system"
             design_root.mkdir(parents=True)
             _backfill(design_root)
             for subdir in ("css", "tailwind", "ts", "json"):
@@ -255,7 +255,7 @@ class InstallBackfillTests(unittest.TestCase):
     def test_exports_readme_mentions_pipeline(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
-            design_root = root / "docs" / "design"
+            design_root = root / "docs" / "design-system"
             design_root.mkdir(parents=True)
             _backfill(design_root)
             readme = (design_root / "exports" / "README.md").read_text(encoding="utf-8")
@@ -264,7 +264,7 @@ class InstallBackfillTests(unittest.TestCase):
     def test_manifest_json_has_required_fields(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
-            design_root = root / "docs" / "design"
+            design_root = root / "docs" / "design-system"
             design_root.mkdir(parents=True)
             _backfill(design_root)
             data = json.loads((design_root / "manifest.json").read_text(encoding="utf-8"))
@@ -274,7 +274,7 @@ class InstallBackfillTests(unittest.TestCase):
     def test_agents_md_contains_required_rules(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
-            design_root = root / "docs" / "design"
+            design_root = root / "docs" / "design-system"
             design_root.mkdir(parents=True)
             _backfill(design_root)
             content = (design_root / "AGENTS.md").read_text(encoding="utf-8")
@@ -290,13 +290,13 @@ class UpgradeBackfillTests(unittest.TestCase):
     def test_upgrade_adds_missing_manifest_fields(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
-            design_root = root / "docs" / "design"
+            design_root = root / "docs" / "design-system"
             design_root.mkdir(parents=True)
 
             # Create a stale manifest missing several fields
             stale = {
                 "schemaVersion": "0.9.0",
-                "canonicalRoot": "docs/design",
+                "canonicalRoot": "docs/design-system",
             }
             manifest_path = design_root / "manifest.json"
             manifest_path.write_text(json.dumps(stale), encoding="utf-8")
@@ -312,10 +312,10 @@ class UpgradeBackfillTests(unittest.TestCase):
     def test_upgrade_appends_meta_gap_when_fields_added(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
-            design_root = root / "docs" / "design"
+            design_root = root / "docs" / "design-system"
             design_root.mkdir(parents=True)
 
-            stale = {"schemaVersion": "0.9.0", "canonicalRoot": "docs/design"}
+            stale = {"schemaVersion": "0.9.0", "canonicalRoot": "docs/design-system"}
             manifest_path = design_root / "manifest.json"
             manifest_path.write_text(json.dumps(stale), encoding="utf-8")
             gaps_path = design_root / "gaps.md"
@@ -329,10 +329,10 @@ class UpgradeBackfillTests(unittest.TestCase):
     def test_upgrade_does_not_overwrite_existing_fields(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
-            design_root = root / "docs" / "design"
+            design_root = root / "docs" / "design-system"
             design_root.mkdir(parents=True)
 
-            existing = dict(_MANIFEST_STUB, canonicalRoot="docs/design", schemaVersion="1.0.0")
+            existing = dict(_MANIFEST_STUB, canonicalRoot="docs/design-system", schemaVersion="1.0.0")
             manifest_path = design_root / "manifest.json"
             manifest_path.write_text(json.dumps(existing), encoding="utf-8")
             gaps_path = design_root / "gaps.md"
@@ -341,7 +341,7 @@ class UpgradeBackfillTests(unittest.TestCase):
             _backfill(design_root, existing_manifest=existing)
 
             data = json.loads(manifest_path.read_text(encoding="utf-8"))
-            self.assertEqual(data["canonicalRoot"], "docs/design")
+            self.assertEqual(data["canonicalRoot"], "docs/design-system")
             self.assertEqual(data["schemaVersion"], "1.0.0")
 
 

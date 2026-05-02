@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-01
+Last verified: 2026-05-02
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -64,7 +64,7 @@ Initial core set:
 | `docs_search`        | Search project and framework documentation                                                      |
 | `code_search`        | Search indexed code chunks when code embeddings are available                                   |
 | `seed_get`           | Retrieve canonical seed prompt content                                                          |
-| `wave_change_create` | Create or dry-run a change document using a `kind` enum                                         |
+| `wave_new_<kind>`    | Create a change document of the specified kind (feat, bug, enh, ref, doc, debt, task, maint, ops, change) |
 | `wave_validate`      | Run docs validation and return structured results                                               |
 | `wave_garden`        | Run docs gardening and report changed files                                                     |
 | `wave_sync_surfaces` | Regenerate agent/platform surfaces                                                              |
@@ -72,8 +72,7 @@ Initial core set:
 | `wave_index_build`   | Run a synchronous index build: `**mode='update'**` (incremental) or `**mode='rebuild'**` (full) |
 
 
-Specialized tools, including `wave_new_feature` and related change-kind wrappers,
-are compatibility tools unless a later plan promotes them to core verbs.
+The `wave_new_<kind>` family covers all ten change kinds. Use the kind-specific tool that matches the change; `wave_new_change` is the general fallback.
 
 ## Discovery Tool
 
@@ -296,29 +295,20 @@ during apply/create mode.
 
 ### Change Creation
 
-`wave_change_create(kind: str, slug: str, mode: str = "dry_run")`
+Ten kind-specific tools, each scaffolding a change doc and returning its ID and path:
 
-- Consolidated core tool for change document creation.
-- `kind` must be one of: `bug`, `feat`, `enh`, `change`, `doc`, `debt`, `ref`,
-`task`, `maint`, `ops`.
-- `mode` must follow the mutating tool contract.
-- On apply/create writes, requests a background docs-index refresh for the new change doc without relying on editor hooks.
+- `wave_new_feature(slug)` — net-new capability
+- `wave_new_bug(slug)` — defect fix
+- `wave_new_enhancement(slug)` — improvement to existing functionality
+- `wave_new_refactor(slug)` — structural change with no behavior change
+- `wave_new_documentation(slug)` — docs-only change
+- `wave_new_tech_debt(slug)` — technical debt cleanup
+- `wave_new_task(slug)` — one-off task with no ongoing code artifact
+- `wave_new_maintenance(slug)` — routine upkeep
+- `wave_new_operations(slug)` — operational or process change
+- `wave_new_change(slug)` — general fallback when no specific kind fits
 
-Compatibility wrappers:
-
-- `wave_new_feature(slug)`
-- `wave_new_bug(slug)`
-- `wave_new_enhancement(slug)`
-- `wave_new_refactor(slug)`
-- `wave_new_change(slug)`
-- `wave_new_documentation(slug)`
-- `wave_new_tech_debt(slug)`
-- `wave_new_task(slug)`
-- `wave_new_maintenance(slug)`
-- `wave_new_operations(slug)`
-
-Wrappers delegate to `wave_change_create` and preserve existing behavior until
-a later deprecation plan removes or hides them.
+All tools: on apply/create, request a background docs-index refresh for the new change doc.
 
 ### Framework Operations
 
@@ -395,18 +385,35 @@ for the project layer, or rerun the framework-targeted `indexer.py` command if a
 - Preferred landing point after any mutation or agent uncertainty.
 - Annotated `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false`.
 
-## Planned Navigation Tools
+## Navigation Tools
 
-Future codebase navigation tools must follow this spec:
+All navigation tools are shipped. Path containment and allowed-root validation
+is enforced; structured diagnostics are returned for rejected paths.
 
-- `code_keyword_search`
-- `code_read`
-- `code_list_files`
-- `code_definition`
-- `code_references`
+- `code_keyword_search` — exact substring search, always available, no index required
+- `code_read` — read a file by repo-relative path with optional line range
+- `code_list_files` — list repo files with optional glob filter
+- `code_definition` — AST-based symbol definition lookup (Python only; falls back to `code_keyword_search` for other languages)
+- `code_references` — symbol reference search in Python files (text-based; use `code_keyword_search` for other languages)
 
-Before generic file reads are exposed, the server must enforce allowed-root
-validation and return structured diagnostics for rejected paths.
+## Tool Selection Guide
+
+Use this table to select the right tool for a query type.
+
+| Query type | Recommended tool | Fallback |
+| --- | --- | --- |
+| Search docs/arch/prompts/seeds by concept or intent | `docs_search` | `code_keyword_search` with glob `*.md` |
+| Search code by concept, behavior, or intent | `code_search` | `code_keyword_search` |
+| Search for exact token, symbol name, or string | `code_keyword_search` | — |
+| Look up where a Python function/class is defined | `code_definition` | `code_keyword_search` |
+| Find all call sites for a Python symbol | `code_references` | `code_keyword_search` |
+| Fetch a seed prompt by name | `seed_get` | `docs_search` with `kind=seed` |
+| Navigate from a search result anchor to a file | `wave_map` | `code_read` with the path directly |
+| Check current wave and admitted changes | `wave_current` | `wave_list_waves` |
+| Browse or discover all waves | `wave_list_waves` | — |
+| Combined health check after a mutation | `wave_audit` | `wave_validate` + `wave_index_health` |
+| Lint-only targeted check | `wave_validate` | `wave_audit` (`data.validation` contains the same lint result) |
+| Check semantic index layer readiness | `wave_index_health` | `wave_audit` (`data.index` contains the same health summary) |
 
 ## Anchors And Addresses
 

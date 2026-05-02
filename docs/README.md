@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-01
+Last verified: 2026-05-02
 
 This folder is Wavefoundry's self-hosted Wave Framework project operating surface. Framework seed prompts and reusable framework reference material live under `.wavefoundry/framework/seeds/`. Project-local docs (plans, waves, architecture notes, agent roles, journals) live here.
 
@@ -30,7 +30,7 @@ This folder is Wavefoundry's self-hosted Wave Framework project operating surfac
 | Journals | `docs/agents/journals/` | Episodic memory for roles/personas |
 | References | `docs/references/` | Project context memory, roles, tech debt |
 | Quality | `docs/QUALITY_SCORE.md`, `docs/RELIABILITY.md`, `docs/SECURITY.md` | Quality posture |
-| Design system | `docs/design/` | Machine-readable extraction contract + operator-owned narrative design language (`design-language.md`) |
+| Design system | `docs/design-system/` | Machine-readable extraction contract + operator-owned narrative design language (`design-language.md`) |
 
 ## Near-Term Docs To Add
 

@@ -965,7 +965,7 @@ Use this checklist when intentionally editing the wave framework or repo-local w
 
 ## Verification sequence
 
-1. `python3 -B .wavefoundry/framework/scripts/run_tests.py`
+1. Run framework tests when the test suite is present (development installs only — not included in distribution packs): `python3 -B .wavefoundry/framework/scripts/run_tests.py` (skip if `run_tests.py` does not exist)
 2. `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py`
 3. `.wavefoundry/bin/docs-gardener`
 4. `.wavefoundry/bin/docs-lint`

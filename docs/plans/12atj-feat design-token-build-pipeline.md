@@ -4,7 +4,7 @@ Change ID: `12atj-feat design-token-build-pipeline`
 Change Status: `planned`
 Owner: Engineering
 Status: planned
-Last verified: 2026-05-01
+Last verified: 2026-05-02
 Wave: TBD
 
 ## Rationale
@@ -15,7 +15,7 @@ This change depends on `12akr-enh design-system-directory-structure-extraction` 
 
 ## Requirements
 
-1. **Tool-agnostic config contract.** The pipeline must be driven by a config file at `docs/design/.design-system/build.config.json` that declares: `tool` (enum: `style-dictionary`, `token-pipeline`, `custom`), `version`, `targets` (array of `{ format, outputDir, options }`). When `tool: "custom"`, a `command` field holds the shell invocation. This keeps the build contract machine-readable without hard-coding one tool.
+1. **Tool-agnostic config contract.** The pipeline must be driven by a config file at `docs/design/build.config.json` that declares: `tool` (enum: `style-dictionary`, `token-pipeline`, `custom`), `version`, `targets` (array of `{ format, outputDir, options }`). When `tool: "custom"`, a `command` field holds the shell invocation. This keeps the build contract machine-readable without hard-coding one tool.
 2. **Default targets.** When `target` includes `css`, the pipeline emits CSS custom properties to `docs/design/exports/css/tokens.css` covering all semantic tokens and mode overrides. When `target` includes `tailwind`, it emits a Tailwind v3/v4-compatible `docs/design/exports/tailwind/theme.config.js` (or `.ts`). When `target` includes `ts`, it emits typed token constants to `docs/design/exports/ts/tokens.ts`. When `target` includes `json`, it emits a flat resolved token map to `docs/design/exports/json/tokens.json`.
 3. **Mode-aware outputs.** CSS output must emit a base (light) rule-set plus a `@media (prefers-color-scheme: dark)` / `[data-theme="dark"]` override block. TypeScript output must export per-mode token maps. Tailwind output must include dark-mode variants where dark tokens differ from light.
 4. **Idempotent and diff-friendly.** Re-running the pipeline on an unchanged token source must produce byte-identical output (modulo timestamp comments). Generated files must carry a `/* generated — do not edit directly */` header comment so operators know not to hand-edit them. No random ordering in output.
@@ -70,7 +70,7 @@ This change depends on `12akr-enh design-system-directory-structure-extraction` 
 - `seed-040` — document `build.config.json` schema; describe the four default targets; note that `exports/` contents are generated and must not be hand-edited.
 - `seed-050` — extend AGENTS guidance with token reference syntax for each target format.
 - `docs/design/bin/build-tokens` — wrapper script; reads `build.config.json`; invokes tool; reports errors.
-- `docs/design/.design-system/build.config.json` seed stub — emitted by install/upgrade when absent.
+- `docs/design/build.config.json` seed stub — emitted by install/upgrade when absent.
 - `manifest.json` stale-exports logic — add `exportsGenerated`, `exportsStale`, `exportsAt` fields; update after successful build.
 - `wave_lint_lib` — add stale-exports validator; register in lint CLI.
 - `docs/design/AGENTS.md` — extend with token reference patterns and `bin/build-tokens` instruction.

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-05-02
 
 Actor: planner
 Schema version: 1.0
@@ -20,14 +20,14 @@ Last distilled: 2026-04-28
 - **Medium:** A new architectural constraint discovered during planning affects the Affected architecture docs section — surface before admission.
 - **Low:** Operator provides a scope directive that changes the planning approach mid-session — record the directive and the rationale.
 
-## Recent Captures
-
-- None at init. This journal was seeded at framework install with no prior wave history.
-
 ## Distillation
 
 - **code_patterns is not yet authoritative:** `docs/repo-profile.json` `code_patterns` status is `insufficient_history`. When planning changes to `.wavefoundry/framework/scripts/`, detect patterns by reading the existing scripts directly rather than relying on the profile field.
 - **MCP spec is a prerequisite for MCP implementation:** Any wave touching MCP tool contracts requires `docs/specs/mcp-tool-surface.md` to exist before Prepare wave can pass. If this file is missing, record it as a Level 3 blocker in the change doc Risks section.
+
+## Active Signals
+
+- None. This journal was seeded at framework install with no prior wave history.
 
 ## Promotion Evidence
 

@@ -291,16 +291,16 @@ Add a `## Cleanup and Destructive Operations` section to `AGENTS.md` when the re
 
 ## Design-System Extraction Guidance in AGENTS.md
 
-When `docs/design/` exists in the target repository (or when `seed-040` task 14 has been applied), add the following guidance to the `AGENTS.md` **Docs Map** or equivalent section so agents can locate the extraction contract:
+When `docs/design-system/` exists in the target repository (or when `seed-040` task 14 has been applied), add the following guidance to the `AGENTS.md` **Docs Map** or equivalent section so agents can locate the extraction contract:
 
-> **`docs/design/`** — machine-readable design system extraction contract (tokens, component specs, gap log, source map). Distinct from `docs/design/design-language.md`, which is the operator-owned narrative design document.
+> **`docs/design-system/`** — machine-readable design system extraction contract (tokens, component specs, gap log, source map). Distinct from `docs/design-system/design-language.md`, which is the operator-owned narrative design document.
 >
 > - Regeneration regenerates JSON/spec trees (e.g. `manifest.json`, `tokens/`, `components/`). It **never** rewrites `design-language.md` or `index.md` body content.
-> - `docs/design/AGENTS.md` contains agent rules for this subtree — check it before building UI components or writing hard-coded values.
-> - `docs/design/.design-system/proposed-additions.md` is the escape valve for new component proposals before they are formally added.
+> - `docs/design-system/AGENTS.md` contains agent rules for this subtree — check it before building UI components or writing hard-coded values.
+> - `docs/design-system/proposed-additions.md` is the escape valve for new component proposals before they are formally added.
 > - **Split B subtrees** (`patterns/`, `state-patterns/`, `validation-patterns/`, `content/`, `skills/`) — extend the core contract with pattern guidance, state definitions, validation conventions, voice/tone, and agent-facing skills. Consult these when implementing UI patterns, form validation, content copy, or building new agent design tasks. Present only when Split B has been applied.
 
-This entry must be present whenever `docs/design/` is seeded or detected. Keep it concise and route to `docs/design/AGENTS.md` for the full agent rules rather than duplicating them.
+This entry must be present whenever `docs/design-system/` is seeded or detected. Keep it concise and route to `docs/design-system/AGENTS.md` for the full agent rules rather than duplicating them.
 
 Guardrails:
 

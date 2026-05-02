@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-01
+Last verified: 2026-05-02
 
 ## Repository Summary
 
@@ -20,7 +20,7 @@ Wavefoundry is the canonical home for the Wave Framework and its future local MC
 | `.wavefoundry/framework/README.md` | Canonical framework map: prompt numbering, public commands, factor model, seeding overview   |                            |
 | `.wavefoundry/framework/VERSION`   | Current framework version (`2026-04-28a`)                                                    | Updated by `build_pack.py` |
 | `docs/`                            | Wavefoundry self-hosted project operating surface (this tree, seeded by Wave Framework init) |                            |
-| `docs/design/`                     | Design-system extraction contract hub (seeded by wave `12as1`; machine-readable token/spec tree + operator-owned `design-language.md`) | Seeded; not yet populated |
+| `docs/design-system/`                     | Design-system extraction contract hub (seeded by wave `12as1`; machine-readable token/spec tree + operator-owned `design-language.md`) | Seeded; not yet populated |
 | `docs/architecture/design-system.md` | Design-system architecture hub: extraction philosophy, regeneration semantics, semantic index relationship | Seeded by wave `12as1` |
 
 

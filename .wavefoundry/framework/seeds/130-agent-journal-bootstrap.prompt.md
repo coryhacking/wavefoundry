@@ -17,14 +17,15 @@ Required journal semantics:
 - purpose and scope
 - operating identity (stance, priorities, judgment style, success criteria, memory responsibilities)
 - salience triggers (what this actor must stop and journal before context is lost)
-- recent captures (minimal immediate entries)
-- durable lessons (recurring patterns worth acting on)
+- distillation (synthesized bullets — the durable, authoritative view of this actor's operating memory)
+- active signals (minimal immediate entries awaiting distillation — see filter gate below)
 - active watchpoints and cautions (risks still present; retire when risk no longer exists)
 - incidents or episodic memories (specific events, review findings, rework loops, tool failures, or invalidated assumptions)
-- distillation (synthesized bullets from recent captures and incidents)
 - promotion queue / promotion evidence (what should move to canonical docs or repo memory, and what was promoted where)
 - retirement / supersession notes (what no longer applies and why)
 - sensitivity and governance notes for checked-in memory
+
+**Section order matters.** Operating Identity and Distillation come before Active Signals. The durable identity of an actor is the primary purpose of a journal; recent activity is secondary. A reader should encounter what defines this actor before they encounter what happened lately.
 
 Active Watchpoints example format (every bullet must contain one of the required keywords):
 
@@ -39,11 +40,13 @@ Capture trigger rule:
 
 Write immediately when the signal is important to the actor's future operation and could be lost by compaction, restart, or handoff. Routine successful execution still does not produce journal entries.
 
+**Filter gate:** Before writing any entry, ask: *"Would this still matter to a new agent inheriting this role with no access to git history?"* If no — skip it. Wave IDs, change IDs, "wave X closed", test-pass counts, and routine success notes almost never pass this test. That information belongs in git and wave docs.
+
 Use this hot-path threshold:
 
 - **Critical:** write before continuing when the signal is compaction-sensitive, operator-directed, safety/security/release-sensitive, trust-risking, or required to avoid imminent wrong work.
 - **High:** write before the next lifecycle transition, handoff, subdelegation, or review request.
-- **Medium:** queue in Recent Captures, `session-handoff.md`, or the active wave record for close-time distillation.
+- **Medium:** queue in Active Signals, `session-handoff.md`, or the active wave record for close-time distillation.
 - **Low:** skip unless it recurs or becomes useful during closure review.
 
 Entry triggers include: role/persona operating-identity clarification; operator directive affecting engineering workflow; review cycle that caused rework; hard-to-discover constraint; invalidated assumption; tool/environment failure causing meaningful delay; recurring anti-pattern; sensitive governance edge; confidence shift; trust-risk; or a memory-worthy observation from the actor's perspective.

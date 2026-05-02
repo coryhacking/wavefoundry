@@ -72,7 +72,7 @@ _RE_C_INCLUDE = re.compile(r"^\s*#\s*(?:include|import)\b")
 _RE_SWIFT_IMPORT = re.compile(r"^\s*import\s+\w")
 _RE_OBJC_IMPORT = re.compile(r"^\s*#\s*import\b")
 
-DESIGN_JSON_MARKER = "docs/design/"
+DESIGN_JSON_MARKER = "docs/design-system/"
 
 
 def _normalize_path(path: str) -> str:
@@ -2220,7 +2220,7 @@ def chunk_xml(source: str, path: str) -> list[Chunk]:
 # ---------------------------------------------------------------------------
 
 def _chunk_design_json(source: str, path: str) -> list[Chunk]:
-    """Chunk a docs/design/**/*.json file as doc-kind chunks via the markdown chunker.
+    """Chunk a docs/design-system/**/*.json file as doc-kind chunks via the markdown chunker.
 
     Falls back to line-window chunking when the source is not valid JSON so a
     malformed file never raises and still produces searchable chunks.

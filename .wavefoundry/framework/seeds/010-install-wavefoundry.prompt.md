@@ -60,70 +60,70 @@ Execution flow:
 5. Create agent entry files and native role surfaces using `seed-050`.
 6. Run `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` immediately after step 5 so tracked platform hook/config surfaces are materialized before verification.
 7. Map architecture, boundaries, trust/data seams, integration contracts, build seams, hotspots, and safe wave partitions using `seed-060` (see that prompt’s required outputs under `docs/architecture/` and `docs/ARCHITECTURE.md` hub).
-8. Seed design language artifacts when `design_evidence.detected` is `true` in `docs/repo-profile.json` (populated by step 2 / `030`): create `docs/design/design-language.md` using the canonical structure defined in `seed-040` task 13; ensure `docs/design/index.md` exists; update `docs/README.md` `docs/design/` row to include "design language system". When `design_evidence.detected` is `false` (CLI-only, no UI roots found), create `docs/design/index.md` with a stub noting no UI surface was detected and skip seeding `design-language.md`.
+8. Seed design language artifacts when `design_evidence.detected` is `true` in `docs/repo-profile.json` (populated by step 2 / `030`): create `docs/design-system/design-language.md` using the canonical structure defined in `seed-040` task 13; ensure `docs/design-system/index.md` exists; update `docs/README.md` `docs/design-system/` row to include "design language system". When `design_evidence.detected` is `false` (CLI-only, no UI roots found), create `docs/design-system/index.md` with a stub noting no UI surface was detected and skip seeding `design-language.md`.
 
    **Design-system extraction contract backfill (always run, regardless of `design_evidence.detected`).** After step 8, run the following merge-safe backfill. For each path, create it with an empty placeholder only when it does not already exist — never delete or overwrite existing operator files. Completing this step means all boxes below are checked:
 
    ```
-   - [ ] docs/design/README.md
-   - [ ] docs/design/DESIGN.md
-   - [ ] docs/design/AGENTS.md         (see content contract in seed-040 task 14)
-   - [ ] docs/design/manifest.json     (stub: sourceStrategy "repo-evidence-only", empty artifactCounts)
-   - [ ] docs/design/VALIDATION.md
-   - [ ] docs/design/gaps.md           (stub header + empty category sections + summary counts)
-   - [ ] docs/design/tokens/primitives.tokens.json
-   - [ ] docs/design/tokens/semantic.tokens.json
-   - [ ] docs/design/tokens/components.tokens.json
-   - [ ] docs/design/tokens/modes/light.tokens.json
-   - [ ] docs/design/tokens/modes/dark.tokens.json
-   - [ ] docs/design/tokens/README.md
-   - [ ] docs/design/exports/README.md (explain subdirs + link to plan 12atj-feat design-token-build-pipeline)
-   - [ ] docs/design/exports/css/
-   - [ ] docs/design/exports/tailwind/
-   - [ ] docs/design/exports/ts/
-   - [ ] docs/design/exports/json/
-   - [ ] docs/design/components/_index.json
-   - [ ] docs/design/foundations/color.md
-   - [ ] docs/design/foundations/typography.md
-   - [ ] docs/design/foundations/spacing.md
-   - [ ] docs/design/foundations/radius.md
-   - [ ] docs/design/foundations/elevation.md
-   - [ ] docs/design/foundations/motion.md
-   - [ ] docs/design/accessibility/contrast-report.json
-   - [ ] docs/design/accessibility/README.md
-   - [ ] docs/design/.design-system/version.json
-   - [ ] docs/design/.design-system/source-map.json
-   - [ ] docs/design/.design-system/proposed-additions.md
+   - [ ] docs/design-system/README.md
+   - [ ] docs/design-system/DESIGN.md
+   - [ ] docs/design-system/AGENTS.md         (see content contract in seed-040 task 14)
+   - [ ] docs/design-system/manifest.json     (stub: sourceStrategy "repo-evidence-only", empty artifactCounts)
+   - [ ] docs/design-system/VALIDATION.md
+   - [ ] docs/design-system/gaps.md           (stub header + empty category sections + summary counts)
+   - [ ] docs/design-system/tokens/primitives.tokens.json
+   - [ ] docs/design-system/tokens/semantic.tokens.json
+   - [ ] docs/design-system/tokens/components.tokens.json
+   - [ ] docs/design-system/tokens/modes/light.tokens.json
+   - [ ] docs/design-system/tokens/modes/dark.tokens.json
+   - [ ] docs/design-system/tokens/README.md
+   - [ ] docs/design-system/exports/README.md (explain subdirs + link to plan 12atj-feat design-token-build-pipeline)
+   - [ ] docs/design-system/exports/css/
+   - [ ] docs/design-system/exports/tailwind/
+   - [ ] docs/design-system/exports/ts/
+   - [ ] docs/design-system/exports/json/
+   - [ ] docs/design-system/components/_index.json
+   - [ ] docs/design-system/foundations/color.md
+   - [ ] docs/design-system/foundations/typography.md
+   - [ ] docs/design-system/foundations/spacing.md
+   - [ ] docs/design-system/foundations/radius.md
+   - [ ] docs/design-system/foundations/elevation.md
+   - [ ] docs/design-system/foundations/motion.md
+   - [ ] docs/design-system/accessibility/contrast-report.json
+   - [ ] docs/design-system/accessibility/README.md
+   - [ ] docs/design-system/version.json
+   - [ ] docs/design-system/source-map.json
+   - [ ] docs/design-system/proposed-additions.md
    ```
 
    **Split B paths** (create when wave `12arn-enh design-system-pattern-and-surface-depth` is admitted; same merge-safe rule):
    ```
-   - [ ] docs/design/patterns/navigation/_index.json + README.md
-   - [ ] docs/design/patterns/feedback/_index.json + README.md
-   - [ ] docs/design/patterns/data/_index.json + README.md
-   - [ ] docs/design/patterns/trust/_index.json + README.md
-   - [ ] docs/design/state-patterns/_index.json + README.md + {loading,empty,error,success}/_index.json + README.md
-   - [ ] docs/design/validation-patterns/_index.json + README.md + five .md files
-   - [ ] docs/design/content/README.md + voice.md + microcopy.json + formatting.md + i18n.md + rtl-layout.md + locale-formats.md + brand-legal.md
-   - [ ] docs/design/foundations/{shell,density,responsive,grid,z-index,iconography,data-visualization,media-motion}.md
-   - [ ] docs/design/accessibility/{focus,keyboard,screen-reader}.md
-   - [ ] docs/design/tokens/{borders,focus,z-index,motion}.tokens.json
-   - [ ] docs/design/icons/_index.json + README.md + svg/
-   - [ ] docs/design/illustrations/_index.json + README.md
-   - [ ] docs/design/logos/_index.json + README.md
-   - [ ] docs/design/images/_index.json + README.md + REVIEW.md + raw/
-   - [ ] docs/design/skills/README.md + nine SKILL.md files
+   - [ ] docs/design-system/patterns/navigation/_index.json + README.md
+   - [ ] docs/design-system/patterns/feedback/_index.json + README.md
+   - [ ] docs/design-system/patterns/data/_index.json + README.md
+   - [ ] docs/design-system/patterns/trust/_index.json + README.md
+   - [ ] docs/design-system/state-patterns/_index.json + README.md + {loading,empty,error,success}/_index.json + README.md
+   - [ ] docs/design-system/validation-patterns/_index.json + README.md + five .md files
+   - [ ] docs/design-system/content/README.md + voice.md + microcopy.json + formatting.md + i18n.md + rtl-layout.md + locale-formats.md + brand-legal.md
+   - [ ] docs/design-system/foundations/{shell,density,responsive,grid,z-index,iconography,data-visualization,media-motion}.md
+   - [ ] docs/design-system/accessibility/{focus,keyboard,screen-reader}.md
+   - [ ] docs/design-system/tokens/{borders,focus,z-index,motion}.tokens.json
+   - [ ] docs/design-system/icons/_index.json + README.md + svg/
+   - [ ] docs/design-system/illustrations/_index.json + README.md
+   - [ ] docs/design-system/logos/_index.json + README.md
+   - [ ] docs/design-system/images/_index.json + README.md + REVIEW.md + raw/
+   - [ ] docs/design-system/skills/README.md + nine SKILL.md files
    ```
 
    **Split C paths** (create when wave `12arn-enh design-system-bootstrap-and-governance` is admitted):
    ```
-   - [ ] docs/design/platforms/README.md
+   - [ ] docs/design-system/platforms/README.md
    ```
    Also extend `manifest.json` with: `targetSurfaces` (infer from `docs/repo-profile.json` ui_roots; unknown → gap), `platformStandards[]` per surface (with `referenceVersion` required), `deprecations` (optional). See `seed-040` task 14 Split C section for full field shapes.
 
    After backfill, apply coexistence rules (idempotent):
-   - Append a cross-link row to `docs/design/index.md` for extraction artifacts (status: `generated`) — only if not already present.
-   - Add `> See extracted contract: docs/design/manifest.json` at the top of `design-language.md` — only if that pointer does not already exist and `design-language.md` is present.
+   - Append a cross-link row to `docs/design-system/index.md` for extraction artifacts (status: `generated`) — only if not already present.
+   - Add `> See extracted contract: docs/design-system/manifest.json` at the top of `design-language.md` — only if that pointer does not already exist and `design-language.md` is present.
 9. Establish quality, reliability, security, performance, and debt posture using `seed-070`.
 10. Create docs gate and related mechanics using `seed-080` and `seed-090`.
 11. Generate the repo-local prompt surface using `seed-100`.

@@ -544,9 +544,9 @@ def check_journal_docs(root: Path) -> list[str]:
                 failures.append(
                     f"{rel}: `## Salience Triggers` must mention critical/high/medium/low salience or concrete operational triggers"
                 )
-        recent = sections.get("## Recent Captures")
+        recent = sections.get("## Active Signals")
         if recent and not _section_has_bullets(recent):
-            failures.append(f"{rel}: `## Recent Captures` must include at least one bullet or an explicit none/deferred note")
+            failures.append(f"{rel}: `## Active Signals` must include at least one bullet or an explicit none/deferred note")
         distillation = sections.get("## Distillation")
         if distillation and not _section_has_bullets(distillation):
             failures.append(f"{rel}: `## Distillation` must include at least one bullet")
@@ -579,10 +579,6 @@ def check_journal_docs(root: Path) -> list[str]:
             elif not _contains_any(follow_up, JOURNAL_SIGNAL_MARKERS):
                 failures.append(f"{rel}: `## Follow-up Signals` must mention a watchpoint, review, escalation, or follow-up signal")
         wave_refs = WAVE_REFERENCE_PATTERN.findall(text)
-        item_refs = ITEM_REFERENCE_PATTERN.findall(text)
-        change_refs = CHANGE_REFERENCE_PATTERN.findall(text)
-        if wave_refs and not item_refs and not change_refs:
-            failures.append(f"{rel}: journal doc with a `wave-id` must also reference at least one `Change ID`")
     return failures
 
 

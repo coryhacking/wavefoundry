@@ -4,7 +4,7 @@ Owner: Engineering
 Status: stub
 Last verified: 2026-05-01
 
-Entry index for the `docs/design/` tree. Lists all design system artifacts with their status and purpose.
+Entry index for the `docs/design-system/` tree. Lists all design system artifacts with their status and purpose.
 
 ## Narrative Design Language
 
@@ -28,7 +28,7 @@ The following artifacts are seeded by the Wave Framework (wave `12as1 design-sys
 | `components/` | stub | Component specs (`spec.json`) and supporting docs |
 | `foundations/` | stub | Foundation docs: color, typography, spacing, radius, elevation, motion |
 | `accessibility/` | stub | Accessibility: contrast report, guidelines |
-| `.design-system/` | stub | Version, source map, proposed additions |
+| `docs/design-system/` | stub | Version, source map, proposed additions |
 
 ## Cross-Links
 

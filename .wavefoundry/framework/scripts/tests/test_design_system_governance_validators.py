@@ -10,7 +10,7 @@ from pathlib import Path
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from wave_lint_lib.design_system_governance_validators import check_design_governance
+from wave_lint_lib.design_system_governance_validators import check_design_governance, _infer_target_surfaces
 
 
 # ---------------------------------------------------------------------------
@@ -28,21 +28,21 @@ def _write_text(path: Path, text: str) -> None:
 
 
 def _make_design_root(tmp: Path) -> Path:
-    """Create a minimal valid docs/design/ tree for governance tests."""
-    d = tmp / "docs" / "design"
+    """Create a minimal valid docs/design-system/ tree for governance tests."""
+    d = tmp / "docs" / "design-system"
 
     _write_json(
         d / "manifest.json",
         {
             "schemaVersion": "1.0.0",
-            "canonicalRoot": "docs/design",
+            "canonicalRoot": "docs/design-system",
             "sourceStrategy": "repo-evidence-only",
             "targetSurfaces": ["web"],
         },
     )
     _write_json(d / "components" / "_index.json", {"components": []})
     _write_json(d / "tokens" / "semantic.tokens.json", {})
-    _write_json(d / ".design-system" / "source-map.json", [])
+    _write_json(d / "source-map.json", [])
 
     return d
 
@@ -55,7 +55,7 @@ class NoManifestTests(unittest.TestCase):
     def test_skips_when_missing(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
-            (root / "docs" / "design").mkdir(parents=True, exist_ok=True)
+            (root / "docs" / "design-system").mkdir(parents=True, exist_ok=True)
             failures, warnings = check_design_governance(root)
             self.assertEqual(failures, [])
             self.assertEqual(warnings, [])
@@ -71,7 +71,7 @@ class SourceStrategyEnumTests(unittest.TestCase):
             root = Path(t)
             _make_design_root(root)
             for strategy in ("figma-extract", "repo-evidence-only", "visual-bootstrap", "hybrid"):
-                manifest_path = root / "docs" / "design" / "manifest.json"
+                manifest_path = root / "docs" / "design-system" / "manifest.json"
                 data = json.loads(manifest_path.read_text())
                 data["sourceStrategy"] = strategy
                 _write_json(manifest_path, data)
@@ -89,7 +89,7 @@ class SourceStrategyEnumTests(unittest.TestCase):
                 d / "manifest.json",
                 {
                     "schemaVersion": "1.0.0",
-                    "canonicalRoot": "docs/design",
+                    "canonicalRoot": "docs/design-system",
                     "sourceStrategy": "magic-bootstrap",
                     "targetSurfaces": ["web"],
                 },
@@ -109,7 +109,7 @@ class SourceStrategyEnumTests(unittest.TestCase):
                 d / "manifest.json",
                 {
                     "schemaVersion": "1.0.0",
-                    "canonicalRoot": "docs/design",
+                    "canonicalRoot": "docs/design-system",
                     "targetSurfaces": ["web"],
                 },
             )
@@ -145,7 +145,7 @@ class TargetSurfacesTests(unittest.TestCase):
                 d / "manifest.json",
                 {
                     "schemaVersion": "1.0.0",
-                    "canonicalRoot": "docs/design",
+                    "canonicalRoot": "docs/design-system",
                     "sourceStrategy": "repo-evidence-only",
                     "targetSurfaces": [],
                 },
@@ -165,7 +165,7 @@ class TargetSurfacesTests(unittest.TestCase):
                 d / "manifest.json",
                 {
                     "schemaVersion": "1.0.0",
-                    "canonicalRoot": "docs/design",
+                    "canonicalRoot": "docs/design-system",
                     "sourceStrategy": "repo-evidence-only",
                 },
             )
@@ -175,6 +175,87 @@ class TargetSurfacesTests(unittest.TestCase):
                 any("targetSurfaces missing" in w for w in warnings),
                 f"Expected targetSurfaces missing warning, got: {warnings}",
             )
+
+
+# ---------------------------------------------------------------------------
+# _infer_target_surfaces unit tests
+# ---------------------------------------------------------------------------
+
+class InferTargetSurfacesTests(unittest.TestCase):
+    def test_empty_repo_returns_empty(self):
+        with tempfile.TemporaryDirectory() as t:
+            surfaces = _infer_target_surfaces(Path(t))
+            self.assertEqual(surfaces, [])
+
+    def test_ios_dir_detected(self):
+        with tempfile.TemporaryDirectory() as t:
+            (Path(t) / "ios").mkdir()
+            surfaces = _infer_target_surfaces(Path(t))
+            self.assertIn("ios", surfaces)
+
+    def test_android_dir_detected(self):
+        with tempfile.TemporaryDirectory() as t:
+            (Path(t) / "android").mkdir()
+            surfaces = _infer_target_surfaces(Path(t))
+            self.assertIn("android", surfaces)
+
+    def test_package_json_detects_web(self):
+        with tempfile.TemporaryDirectory() as t:
+            (Path(t) / "package.json").write_text("{}", encoding="utf-8")
+            surfaces = _infer_target_surfaces(Path(t))
+            self.assertIn("web", surfaces)
+
+    def test_repo_profile_ui_roots_ios_segment(self):
+        # ui_roots with an "ios" path segment → "ios" detected.
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            profile = {"design_system": {"design_evidence": {"ui_roots": ["MyApp/ios/Views"]}}}
+            (root / "docs").mkdir()
+            (root / "docs" / "repo-profile.json").write_text(
+                json.dumps(profile), encoding="utf-8"
+            )
+            surfaces = _infer_target_surfaces(root)
+            self.assertIn("ios", surfaces)
+
+    def test_lib_segment_does_not_falsely_detect_flutter(self):
+        # A path like "stdlib/utils" must NOT infer "flutter" — only exact "lib" segment.
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            profile = {"design_system": {"design_evidence": {"ui_roots": ["src/stdlib/utils"]}}}
+            (root / "docs").mkdir()
+            (root / "docs" / "repo-profile.json").write_text(
+                json.dumps(profile), encoding="utf-8"
+            )
+            surfaces = _infer_target_surfaces(root)
+            self.assertNotIn("flutter", surfaces)
+
+    def test_lib_exact_segment_detects_flutter(self):
+        # A path with exact "lib" segment → "flutter" detected.
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            profile = {"design_system": {"design_evidence": {"ui_roots": ["lib/src/main.dart"]}}}
+            (root / "docs").mkdir()
+            (root / "docs" / "repo-profile.json").write_text(
+                json.dumps(profile), encoding="utf-8"
+            )
+            surfaces = _infer_target_surfaces(root)
+            self.assertIn("flutter", surfaces)
+
+    def test_missing_surfaces_warning_includes_suggestion(self):
+        # When targetSurfaces is missing and a surface is detectable, the
+        # warning should include the detected surface name.
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            d = root / "docs" / "design-system"
+            d.mkdir(parents=True)
+            _write_json(
+                d / "manifest.json",
+                {"schemaVersion": "1.0.0", "canonicalRoot": "docs/design-system",
+                 "sourceStrategy": "repo-evidence-only"},
+            )
+            (root / "ios").mkdir()
+            _, warnings = check_design_governance(root)
+            self.assertTrue(any("ios" in w for w in warnings), warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +271,7 @@ class PlatformStandardsRefVersionTests(unittest.TestCase):
                 d / "manifest.json",
                 {
                     "schemaVersion": "1.0.0",
-                    "canonicalRoot": "docs/design",
+                    "canonicalRoot": "docs/design-system",
                     "sourceStrategy": "repo-evidence-only",
                     "targetSurfaces": ["web", "ios"],
                     "platformStandards": [
@@ -214,7 +295,7 @@ class PlatformStandardsRefVersionTests(unittest.TestCase):
                 d / "manifest.json",
                 {
                     "schemaVersion": "1.0.0",
-                    "canonicalRoot": "docs/design",
+                    "canonicalRoot": "docs/design-system",
                     "sourceStrategy": "repo-evidence-only",
                     "targetSurfaces": ["web", "ios"],
                     "platformStandards": [
@@ -248,7 +329,7 @@ class PlatformStandardsRefVersionTests(unittest.TestCase):
                 d / "manifest.json",
                 {
                     "schemaVersion": "1.0.0",
-                    "canonicalRoot": "docs/design",
+                    "canonicalRoot": "docs/design-system",
                     "sourceStrategy": "repo-evidence-only",
                     "targetSurfaces": ["web"],
                     "platformStandards": [
@@ -277,14 +358,14 @@ class VisualBootstrapProposalGuardTests(unittest.TestCase):
                 d / "manifest.json",
                 {
                     "schemaVersion": "1.0.0",
-                    "canonicalRoot": "docs/design",
+                    "canonicalRoot": "docs/design-system",
                     "sourceStrategy": "visual-bootstrap",
                     "targetSurfaces": ["web"],
                 },
             )
             # source-map has entries but none are proposed
             _write_json(
-                d / ".design-system" / "source-map.json",
+                d / "source-map.json",
                 [{"id": "color", "confidence": "high"}],
             )
             # semantic has the same key but source-map entry is not proposed
@@ -304,13 +385,13 @@ class VisualBootstrapProposalGuardTests(unittest.TestCase):
                 d / "manifest.json",
                 {
                     "schemaVersion": "1.0.0",
-                    "canonicalRoot": "docs/design",
+                    "canonicalRoot": "docs/design-system",
                     "sourceStrategy": "visual-bootstrap",
                     "targetSurfaces": ["web"],
                 },
             )
             _write_json(
-                d / ".design-system" / "source-map.json",
+                d / "source-map.json",
                 [
                     {
                         "id": "spacing",
@@ -338,13 +419,13 @@ class VisualBootstrapProposalGuardTests(unittest.TestCase):
                 d / "manifest.json",
                 {
                     "schemaVersion": "1.0.0",
-                    "canonicalRoot": "docs/design",
+                    "canonicalRoot": "docs/design-system",
                     "sourceStrategy": "visual-bootstrap",
                     "targetSurfaces": ["web"],
                 },
             )
             _write_json(
-                d / ".design-system" / "source-map.json",
+                d / "source-map.json",
                 [
                     {
                         "id": "radius",
@@ -380,13 +461,13 @@ class VisualBootstrapProposalGuardTests(unittest.TestCase):
                 d / "manifest.json",
                 {
                     "schemaVersion": "1.0.0",
-                    "canonicalRoot": "docs/design",
+                    "canonicalRoot": "docs/design-system",
                     "sourceStrategy": "visual-bootstrap",
                     "targetSurfaces": ["web"],
                 },
             )
             _write_json(
-                d / ".design-system" / "source-map.json",
+                d / "source-map.json",
                 [{"id": "color", "confidence": "proposed"}],
             )
             # Empty semantic tokens → check is skipped
@@ -503,20 +584,20 @@ class PlatformStandardsOverridesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
             d = _make_design_root(root)
-            overrides_file = root / "docs" / "design" / "platforms" / "ios.json"
+            overrides_file = root / "docs" / "design-system" / "platforms" / "ios.json"
             _write_json(overrides_file, {})
             _write_json(
                 d / "manifest.json",
                 {
                     "schemaVersion": "1.0.0",
-                    "canonicalRoot": "docs/design",
+                    "canonicalRoot": "docs/design-system",
                     "sourceStrategy": "repo-evidence-only",
                     "targetSurfaces": ["web", "ios"],
                     "platformStandards": [
                         {
                             "surface": "ios",
                             "referenceVersion": "HIG-2024",
-                            "overrides": "docs/design/platforms/ios.json",
+                            "overrides": "docs/design-system/platforms/ios.json",
                         }
                     ],
                 },
@@ -536,14 +617,14 @@ class PlatformStandardsOverridesTests(unittest.TestCase):
                 d / "manifest.json",
                 {
                     "schemaVersion": "1.0.0",
-                    "canonicalRoot": "docs/design",
+                    "canonicalRoot": "docs/design-system",
                     "sourceStrategy": "repo-evidence-only",
                     "targetSurfaces": ["web", "android"],
                     "platformStandards": [
                         {
                             "surface": "android",
                             "referenceVersion": "MD3",
-                            "overrides": "docs/design/platforms/android.json",
+                            "overrides": "docs/design-system/platforms/android.json",
                         }
                     ],
                 },
@@ -552,7 +633,7 @@ class PlatformStandardsOverridesTests(unittest.TestCase):
             failures, _ = check_design_governance(root)
             self.assertTrue(
                 any(
-                    "android" in f and "docs/design/platforms/android.json" in f
+                    "android" in f and "docs/design-system/platforms/android.json" in f
                     for f in failures
                 ),
                 f"Expected overrides path failure, got: {failures}",
@@ -578,7 +659,7 @@ class PlatformStandardsOverridesTests(unittest.TestCase):
                 d / "manifest.json",
                 {
                     "schemaVersion": "1.0.0",
-                    "canonicalRoot": "docs/design",
+                    "canonicalRoot": "docs/design-system",
                     "sourceStrategy": "repo-evidence-only",
                     "targetSurfaces": ["web"],
                     "platformStandards": [

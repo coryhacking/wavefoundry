@@ -21,7 +21,7 @@ _VALID_MANIFEST = {
     "schemaVersion": "1.0.0",
     "extractionVersion": "1",
     "extractedAt": "2026-05-01T00:00:00Z",
-    "canonicalRoot": "docs/design",
+    "canonicalRoot": "docs/design-system",
     "sourceStrategy": "repo-evidence-only",
     "evidenceTypes": [],
     "artifactCounts": {},
@@ -97,8 +97,8 @@ def _write_text(path: Path, text: str) -> None:
 
 
 def _make_design_root(tmp: Path) -> Path:
-    """Create a minimal valid docs/design/ tree."""
-    d = tmp / "docs" / "design"
+    """Create a minimal valid docs/design-system/ tree."""
+    d = tmp / "docs" / "design-system"
 
     _write_text(d / "README.md", "# Design\n")
     _write_text(d / "DESIGN.md", "# DESIGN\n")
@@ -131,15 +131,15 @@ def _make_design_root(tmp: Path) -> Path:
     _write_json(d / "accessibility" / "contrast-report.json", {"checks": []})
     _write_text(d / "accessibility" / "README.md", "# A11y\n")
 
-    _write_json(d / ".design-system" / "version.json", {"schemaVersion": "1.0.0"})
-    _write_json(d / ".design-system" / "source-map.json", [])
-    _write_text(d / ".design-system" / "proposed-additions.md", "# Proposals\n")
+    _write_json(d / "version.json", {"schemaVersion": "1.0.0"})
+    _write_json(d / "source-map.json", [])
+    _write_text(d / "proposed-additions.md", "# Proposals\n")
 
     return d
 
 
 # ---------------------------------------------------------------------------
-# No docs/design/ → no-op
+# No docs/design-system/ → no-op
 # ---------------------------------------------------------------------------
 
 class NoDesignRootTests(unittest.TestCase):
@@ -164,19 +164,22 @@ class RequiredPathTests(unittest.TestCase):
             failures, _ = check_design_system(root)
             self.assertEqual(failures, [])
 
-    def test_missing_manifest_fails(self):
+    def test_missing_manifest_emits_bootstrap_warning(self):
+        # docs/design-system/ without manifest.json is a valid pre-extraction state;
+        # should warn with a guidance message, not fail.
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
             _make_design_root(root)
-            (root / "docs" / "design" / "manifest.json").unlink()
-            failures, _ = check_design_system(root)
-            self.assertTrue(any("manifest.json" in f for f in failures))
+            (root / "docs" / "design-system" / "manifest.json").unlink()
+            failures, warnings = check_design_system(root)
+            self.assertEqual(failures, [])
+            self.assertTrue(any("extraction contract not yet bootstrapped" in w for w in warnings))
 
     def test_missing_gaps_md_fails(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
             _make_design_root(root)
-            (root / "docs" / "design" / "gaps.md").unlink()
+            (root / "docs" / "design-system" / "gaps.md").unlink()
             failures, _ = check_design_system(root)
             self.assertTrue(any("gaps.md" in f for f in failures))
 
@@ -184,7 +187,7 @@ class RequiredPathTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
             _make_design_root(root)
-            (root / "docs" / "design" / "tokens" / "primitives.tokens.json").unlink()
+            (root / "docs" / "design-system" / "tokens" / "primitives.tokens.json").unlink()
             failures, _ = check_design_system(root)
             self.assertTrue(any("primitives.tokens.json" in f for f in failures))
 
@@ -192,9 +195,83 @@ class RequiredPathTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
             _make_design_root(root)
-            (root / "docs" / "design" / ".design-system" / "proposed-additions.md").unlink()
+            (root / "docs" / "design-system" / "proposed-additions.md").unlink()
             failures, _ = check_design_system(root)
             self.assertTrue(any("proposed-additions.md" in f for f in failures))
+
+    def _strip_subtrees(self, root: Path) -> None:
+        """Remove all optional subtree dirs from a full design root."""
+        import shutil
+        d = root / "docs" / "design-system"
+        for sub in ("tokens", "exports", "foundations", "accessibility", "components"):
+            p = d / sub
+            if p.is_dir():
+                shutil.rmtree(p)
+
+    def test_no_subtrees_no_subtree_failures(self):
+        # A bootstrapped manifest with none of the optional subtrees should
+        # produce zero subtree-related failures.
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            _make_design_root(root)
+            self._strip_subtrees(root)
+            failures, _ = check_design_system(root)
+            subtree_keys = ("tokens/", "exports/", "foundations/", "accessibility/", "components/")
+            subtree_failures = [f for f in failures if any(k in f for k in subtree_keys)]
+            self.assertEqual(subtree_failures, [], subtree_failures)
+
+    def test_tokens_subtree_present_but_missing_child_fails(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            _make_design_root(root)
+            (root / "docs" / "design-system" / "tokens" / "primitives.tokens.json").unlink()
+            failures, _ = check_design_system(root)
+            self.assertTrue(any("primitives.tokens.json" in f for f in failures))
+
+    def test_exports_subtree_present_but_missing_child_fails(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            _make_design_root(root)
+            import shutil
+            shutil.rmtree(root / "docs" / "design-system" / "exports" / "css")
+            failures, _ = check_design_system(root)
+            self.assertTrue(any("exports/css" in f for f in failures))
+
+    def test_foundations_subtree_present_but_missing_child_fails(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            _make_design_root(root)
+            (root / "docs" / "design-system" / "foundations" / "color.md").unlink()
+            failures, _ = check_design_system(root)
+            self.assertTrue(any("foundations/color.md" in f for f in failures))
+
+    def test_accessibility_subtree_present_but_missing_child_fails(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            _make_design_root(root)
+            (root / "docs" / "design-system" / "accessibility" / "contrast-report.json").unlink()
+            failures, _ = check_design_system(root)
+            self.assertTrue(any("accessibility/contrast-report.json" in f for f in failures))
+
+    def test_components_subtree_present_requires_index(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            _make_design_root(root)
+            (root / "docs" / "design-system" / "components" / "_index.json").unlink()
+            failures, _ = check_design_system(root)
+            self.assertTrue(any("components/_index.json" in f for f in failures))
+
+    def test_subtree_dir_as_file_does_not_trigger_subtree_checks(self):
+        # If "tokens" is a file (not a dir), subtree checks must not fire.
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            _make_design_root(root)
+            self._strip_subtrees(root)
+            # Write "tokens" as a regular file, not a directory
+            _write_text(root / "docs" / "design-system" / "tokens", "not a dir\n")
+            failures, _ = check_design_system(root)
+            token_failures = [f for f in failures if "tokens/" in f]
+            self.assertEqual(token_failures, [], token_failures)
 
 
 # ---------------------------------------------------------------------------
@@ -207,16 +284,17 @@ class ManifestTests(unittest.TestCase):
             root = Path(t)
             _make_design_root(root)
             bad = dict(_VALID_MANIFEST, canonicalRoot="design")
-            _write_json(root / "docs" / "design" / "manifest.json", bad)
+            _write_json(root / "docs" / "design-system" / "manifest.json", bad)
             failures, _ = check_design_system(root)
             self.assertTrue(any("canonicalRoot" in f for f in failures))
+            self.assertTrue(any("docs/design-system" in f for f in failures))
 
     def test_missing_schema_version_fails(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
             _make_design_root(root)
             bad = {k: v for k, v in _VALID_MANIFEST.items() if k != "schemaVersion"}
-            _write_json(root / "docs" / "design" / "manifest.json", bad)
+            _write_json(root / "docs" / "design-system" / "manifest.json", bad)
             failures, _ = check_design_system(root)
             self.assertTrue(any("schemaVersion" in f for f in failures))
 
@@ -225,7 +303,7 @@ class ManifestTests(unittest.TestCase):
             root = Path(t)
             _make_design_root(root)
             bad = dict(_VALID_MANIFEST, sourceStrategy="magic")
-            _write_json(root / "docs" / "design" / "manifest.json", bad)
+            _write_json(root / "docs" / "design-system" / "manifest.json", bad)
             failures, _ = check_design_system(root)
             self.assertTrue(any("sourceStrategy" in f for f in failures))
 
@@ -246,7 +324,7 @@ class GapsSummaryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
             _make_design_root(root)
-            _write_text(root / "docs" / "design" / "gaps.md", "# Gaps\n\nNo summary here.\n")
+            _write_text(root / "docs" / "design-system" / "gaps.md", "# Gaps\n\nNo summary here.\n")
             failures, _ = check_design_system(root)
             self.assertTrue(any("gaps.md" in f for f in failures))
 
@@ -312,7 +390,7 @@ class TokenNamingTests(unittest.TestCase):
             _make_design_root(root)
             bad_tokens = {"Color/Primary/500": {"$value": "#2563EB", "$type": "color"}}
             _write_json(
-                root / "docs" / "design" / "tokens" / "primitives.tokens.json",
+                root / "docs" / "design-system" / "tokens" / "primitives.tokens.json",
                 bad_tokens,
             )
             failures, _ = check_design_system(root)
@@ -343,7 +421,7 @@ class BrokenTokenRefTests(unittest.TestCase):
                 }
             }
             _write_json(
-                root / "docs" / "design" / "tokens" / "semantic.tokens.json",
+                root / "docs" / "design-system" / "tokens" / "semantic.tokens.json",
                 bad_semantic,
             )
             failures, _ = check_design_system(root)
@@ -374,7 +452,7 @@ class OrphanPrimitiveTests(unittest.TestCase):
                 }
             }
             _write_json(
-                root / "docs" / "design" / "tokens" / "primitives.tokens.json",
+                root / "docs" / "design-system" / "tokens" / "primitives.tokens.json",
                 extra_primitives,
             )
             _, warnings = check_design_system(root)
@@ -397,7 +475,7 @@ class OrphanPrimitiveTests(unittest.TestCase):
                 }
             }
             _write_json(
-                root / "docs" / "design" / "tokens" / "primitives.tokens.json",
+                root / "docs" / "design-system" / "tokens" / "primitives.tokens.json",
                 flagged_primitives,
             )
             _, warnings = check_design_system(root)
@@ -420,8 +498,8 @@ class ModePairityTests(unittest.TestCase):
                 }
             }
             dark = {"color": {"primary": {"500": {"$value": "#000", "$type": "color"}}}}
-            _write_json(root / "docs" / "design" / "tokens" / "modes" / "light.tokens.json", light)
-            _write_json(root / "docs" / "design" / "tokens" / "modes" / "dark.tokens.json", dark)
+            _write_json(root / "docs" / "design-system" / "tokens" / "modes" / "light.tokens.json", light)
+            _write_json(root / "docs" / "design-system" / "tokens" / "modes" / "dark.tokens.json", dark)
             failures, _ = check_design_system(root)
             self.assertTrue(any("dark.tokens.json" in f and "extra" in f for f in failures))
 
@@ -436,8 +514,8 @@ class ModePairityTests(unittest.TestCase):
                     "extra": {"100": {"$value": "#111", "$type": "color"}},
                 }
             }
-            _write_json(root / "docs" / "design" / "tokens" / "modes" / "light.tokens.json", light)
-            _write_json(root / "docs" / "design" / "tokens" / "modes" / "dark.tokens.json", dark)
+            _write_json(root / "docs" / "design-system" / "tokens" / "modes" / "light.tokens.json", light)
+            _write_json(root / "docs" / "design-system" / "tokens" / "modes" / "dark.tokens.json", dark)
             failures, _ = check_design_system(root)
             self.assertTrue(any("light.tokens.json" in f and "extra" in f for f in failures))
 

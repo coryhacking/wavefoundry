@@ -20,13 +20,13 @@ Change ID: `00058-bug fixture-core`
 - Critical/high: operator directives, compaction-sensitive blockers, review routing drift, and regression-prone wave-contract changes.
 - Medium: follow-up review or migration watchpoints that affect later wave execution.
 
-## Recent Captures
-
-- No active capture beyond the fixture wave reference above.
-
 ## Distillation
 
 - Preserve low-noise behavior.
+
+## Active Signals
+
+- No active capture beyond the fixture wave reference above.
 
 ## Active Watchpoints
 

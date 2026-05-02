@@ -2,7 +2,7 @@
   "schemaVersion": "1.0.0",
   "extractionVersion": "1.0.0",
   "extractedAt": null,
-  "canonicalRoot": "docs/design",
+  "canonicalRoot": "docs/design-system",
   "sourceStrategy": "repo-evidence-only",
   "evidenceTypes": [],
   "artifactCounts": {},

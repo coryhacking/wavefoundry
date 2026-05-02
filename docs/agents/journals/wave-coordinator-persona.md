@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-05-02
 
 Actor: wave-coordinator (persona)
 Schema version: 1.0
@@ -20,14 +20,14 @@ Last distilled: 2026-04-28
 - **Medium:** A shortcut phrase change creates confusion between similar-sounding commands — test phrase distinctiveness before accepting.
 - **Low:** AC priority category definitions are unclear — coordinator cannot confidently record required vs. recommended ACs at Prepare wave.
 
-## Recent Captures
-
-- None at init. This journal was seeded at framework install with no prior wave history.
-
 ## Distillation
 
 - **Shortcut phrase surface must stay in sync:** The coordinator learns shortcut phrases from `AGENTS.md`. The prompt docs live in `docs/prompts/`. If these diverge, the coordinator will invoke the wrong prompt. Any shortcut phrase name change must update both surfaces atomically.
 - **Prepare wave is not optional:** Any change to the lifecycle that softens the Prepare wave requirement (makes it conditional, adds an override path, or makes the stage gate ambiguous) must be reviewed against this persona. Skipping Prepare wave produces an unreviewed implementation.
+
+## Active Signals
+
+- None. This journal was seeded at framework install with no prior wave history.
 
 ## Promotion Evidence
 

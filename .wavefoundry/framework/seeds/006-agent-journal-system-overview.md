@@ -16,6 +16,24 @@ They help the framework:
 - surface durable guidance that may need promotion into canonical docs or workflow memory
 - avoid repeating the same local discovery every wave
 
+## The Activity-Log Anti-Pattern
+
+The most common journal failure is the **activity log**: entries that record what shipped, what wave closed, or what change was completed. These entries look like operating memory but carry no signal for the future.
+
+**Disqualified — activity log entry:**
+> `2026-05-01 — Wave 12as7 closed. Delivered 12as3 (scaffold bug fix) and 12as6 (single-active-wave guard). 429 tests pass.`
+
+This is git history. A new agent inheriting the role 3 months later gains nothing from it.
+
+**Qualifying — genuine journal entry:**
+> `High salience — wave_current envelope changed from data.wave (single) to data.waves[] (list). Every call site must read data.waves[]; the old key no longer exists. Easy to miss during upgrade.`
+
+This is a hard-to-rediscover constraint that would cost future agents real time without the warning.
+
+**The filter gate:** Before writing any entry, ask: *"Would this still matter to a new agent inheriting this role with no access to git history?"* If no — skip it.
+
+Wave IDs, change IDs, "wave X closed", "N tests pass", and routine success notes almost never pass this test. The information belongs in git and wave docs, not journals.
+
 ## Shared Model
 
 - **Immediate capture is allowed:** agents and coordinators may stop and journal any time a durable operating-memory signal appears. Closure is a distillation/reconciliation point, not the only write point.

@@ -27,7 +27,7 @@ Packaging is not upgrade/adoption.
 Run this from the Wavefoundry repository root:
 
 ```bash
-python3 framework/scripts/build_pack.py
+python3 .wavefoundry/framework/scripts/build_pack.py
 ```
 
 ## Required Packaging Order
@@ -41,11 +41,11 @@ Before the final zip build:
 3. Run framework script tests:
 
 ```bash
-python3 -B framework/scripts/run_tests.py
+python3 -B .wavefoundry/framework/scripts/run_tests.py
 ```
 
-4. Run `python3 framework/scripts/build_pack.py` once to stamp `framework/VERSION`, rebuild `framework/index/`, and create the zip.
-5. If the computed revision changes between planning and packaging, rebuild so the zip filename and `framework/VERSION` match.
+4. Run `python3 .wavefoundry/framework/scripts/build_pack.py` once to stamp `.wavefoundry/framework/VERSION`, rebuild `.wavefoundry/framework/index/`, and create the zip.
+5. If the computed revision changes between planning and packaging, rebuild so the zip filename and `.wavefoundry/framework/VERSION` match.
 6. After packaging and verification, hand off the diff plus a suggested commit message unless the operator explicitly instructs you to finalize the commit in the current request after reviewing that scope.
 
 ## What It Produces
@@ -58,7 +58,7 @@ wavefoundry-YYYY-MM-DDx.zip
 
 `YYYY-MM-DD` is today's local calendar date in ISO format unless you pass `--date`. `x` is a lowercase letter suffix. The script scans the output directory for existing `wavefoundry-<same-date><letter>.zip` files and picks the letter after the highest suffix already present. It does not backfill lower gaps.
 
-Immediately before building the archive, the script writes `framework/VERSION` to a single line `<YYYY-MM-DD><letter>`, the same string embedded in the zip filename between `wavefoundry-` and `.zip`. It also rebuilds `framework/index/`, a packaged semantic index for the canonical framework docs and seeds, so target repositories do not need to re-embed the framework corpus after install or upgrade.
+Immediately before building the archive, the script writes `.wavefoundry/framework/VERSION` to a single line `<YYYY-MM-DD><letter>`, the same string embedded in the zip filename between `wavefoundry-` and `.zip`. It also rebuilds `.wavefoundry/framework/index/`, a packaged semantic index for the canonical framework docs and seeds, so target repositories do not need to re-embed the framework corpus after install or upgrade.
 
 ## Options
 
@@ -66,32 +66,32 @@ Immediately before building the archive, the script writes `framework/VERSION` t
 | --- | --- |
 | `--output <dir>` | Write the zip to `<dir>` instead of the repository root. The directory must already exist. |
 | `--date <YYYY-MM-DD>` | Use this date instead of today for the filename, `VERSION` stamp, and suffix scan. Use this for tests or exceptional re-builds only; normal packaging should rely on today's date. |
-| `--skip-framework-index` | Skip rebuilding `framework/index/`. Use only for emergency packaging when index dependencies are unavailable and the operator accepts that target repositories will rebuild framework search locally. |
+| `--skip-framework-index` | Skip rebuilding `.wavefoundry/framework/index/`. Use only for emergency packaging when index dependencies are unavailable and the operator accepts that target repositories will rebuild framework search locally. |
 
 ## Examples
 
 ```bash
 # Default: write to repo root with today's date
-python3 framework/scripts/build_pack.py
+python3 .wavefoundry/framework/scripts/build_pack.py
 
 # Write to a staging directory
-python3 framework/scripts/build_pack.py --output ~/Desktop
+python3 .wavefoundry/framework/scripts/build_pack.py --output ~/Desktop
 
 # Build under a specific date, for example to re-issue a named release
-python3 framework/scripts/build_pack.py --date 2026-04-10
+python3 .wavefoundry/framework/scripts/build_pack.py --date 2026-04-10
 ```
 
 ## Zip Layout
 
-Every entry inside the zip begins with `framework/`, so extracting with:
+Every entry inside the zip begins with `.wavefoundry/framework/`, so extracting with:
 
 ```bash
-unzip -o wavefoundry-YYYY-MM-DDx.zip -d <wavefoundry-root>
+unzip -o wavefoundry-YYYY-MM-DDx.zip -d <repo-root>
 ```
 
-restores files to the canonical source layout.
+restores files to `.wavefoundry/framework/` inside the target repository root.
 
-In target repositories, do not extract this zip directly to the repository root as the final installed layout. Old-layout migration bridges should stage the archive's `framework/` tree under `.wavefoundry/framework/`, then read `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md` for post-unpack migration instructions.
+In target repositories, run the **Upgrade wave framework** prompt after unpacking to apply post-unpack reconciliation steps.
 
 ## Excluded From The Zip
 
@@ -101,7 +101,9 @@ In target repositories, do not extract this zip directly to the repository root 
 - `.DS_Store` files
 - `scripts/tests/tmp/` directories
 
-`framework/index/` is intentionally included when present. It is generated during packaging and tied to the packaged framework version.
+`.wavefoundry/framework/index/` is intentionally included when present. It is generated during packaging and tied to the packaged framework version.
+
+`.wavefoundry/framework/MANIFEST` is always included. It lists every file delivered by the pack (one path per line, relative to `.wavefoundry/framework/`). The upgrade workflow saves the old MANIFEST before `unzip` and then runs `prune_framework.py --old-manifest` to delete files that were in the old pack but absent from the new one. Only pack-delivered files are ever pruned — user-created files (locally regenerated indexes, local overrides) are never listed in any MANIFEST and are never touched.
 
 ## When To Use
 

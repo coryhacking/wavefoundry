@@ -1,6 +1,6 @@
 """Design-system surface-depth validators (Split B, Requirement 13).
 
-Runs only when docs/design/ exists in the target repo. Validates:
+Runs only when docs/design-system/ exists in the target repo. Validates:
 1. WCAG contrast check (contrast-report.json)
 2. Extended mode parity (borders/focus/z-index/motion token files vs light/dark modes)
 3. Reduced-motion check (motion tokens require media-motion.md)
@@ -79,7 +79,7 @@ def _check_wcag_contrast(design_root: Path, root: Path) -> tuple[list[str], list
         # Empty stub — skip silently
         return failures, warnings
 
-    rel = "docs/design/accessibility/contrast-report.json"
+    rel = "docs/design-system/accessibility/contrast-report.json"
     for entry in checks:
         if not isinstance(entry, dict):
             continue
@@ -132,7 +132,7 @@ def _check_extended_mode_parity(design_root: Path, root: Path) -> tuple[list[str
         if not ext_keys:
             continue
 
-        file_label = f"docs/design/{rel_file}"
+        file_label = f"docs/design-system/{rel_file}"
 
         for key in sorted(ext_keys):
             if light_keys is not None and key not in light_keys:
@@ -183,8 +183,8 @@ def _check_reduced_motion(design_root: Path, root: Path) -> tuple[list[str], lis
     media_motion_path = design_root / "foundations" / "media-motion.md"
     if not media_motion_path.exists():
         failures.append(
-            "docs/design/tokens/motion.tokens.json: non-null motion tokens present but "
-            "docs/design/foundations/media-motion.md missing "
+            "docs/design-system/tokens/motion.tokens.json: non-null motion tokens present but "
+            "docs/design-system/foundations/media-motion.md missing "
             "(reduced-motion fallback guidance required)"
         )
 
@@ -224,7 +224,7 @@ def _check_icon_sanity(design_root: Path, root: Path) -> tuple[list[str], list[s
     if not isinstance(icons, list) or len(icons) == 0:
         return failures, warnings
 
-    rel = "docs/design/icons/_index.json"
+    rel = "docs/design-system/icons/_index.json"
 
     for entry in icons:
         if not isinstance(entry, dict):
@@ -299,7 +299,7 @@ def _check_keyboard_pattern(design_root: Path, root: Path) -> tuple[list[str], l
     keyboard_md = design_root / "accessibility" / "keyboard.md"
     if not keyboard_md.exists():
         failures.append(
-            f"docs/design/accessibility/keyboard.md: required because component "
+            f"docs/design-system/accessibility/keyboard.md: required because component "
             f"'{triggering_component}' declares keyboard interactions"
         )
 
@@ -330,7 +330,7 @@ def _check_state_coverage(design_root: Path, root: Path) -> tuple[list[str], lis
 
         # Get component id for the message
         comp_id = spec.get("id") or spec_path.parent.name
-        rel_spec = f"docs/design/components/{comp_id}/spec.json"
+        rel_spec = f"docs/design-system/components/{comp_id}/spec.json"
 
         for ref in states:
             if not isinstance(ref, str):
@@ -351,9 +351,9 @@ def _check_state_coverage(design_root: Path, root: Path) -> tuple[list[str], lis
 def check_design_surface(root: Path) -> tuple[list[str], list[str]]:
     """Return (failures, warnings) for design-system surface-depth validators.
 
-    Only runs when docs/design/ exists; returns empty lists otherwise.
+    Only runs when docs/design-system/ exists; returns empty lists otherwise.
     """
-    design_root = root / "docs" / "design"
+    design_root = root / "docs" / "design-system"
     if not design_root.exists():
         return [], []
 

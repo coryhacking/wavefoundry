@@ -8,7 +8,7 @@ Last verified: 2026-05-01
 ## Before building any UI component
 1. Check `components/_index.json` — use an existing component if one matches.
 2. Never create a duplicate component without checking the index first.
-3. If no match exists, append a proposal to `.design-system/proposed-additions.md`.
+3. If no match exists, append a proposal to `proposed-additions.md`.
 
 ## Before writing any hard-coded value
 1. Check `tokens/semantic.tokens.json` for the appropriate semantic token.

@@ -67,7 +67,7 @@ class BuildPackTests(unittest.TestCase):
         self.assertEqual(path.name, "wavefoundry-2099-12-01a.zip")
         self.assertEqual((fw / "VERSION").read_text(encoding="utf-8"), "2099-12-01a\n")
         with zipfile.ZipFile(path) as zf:
-            member = "framework/VERSION"
+            member = ".wavefoundry/framework/VERSION"
             self.assertIn(member, zf.namelist())
             self.assertEqual(zf.read(member).decode(), "2099-12-01a\n")
 
@@ -92,7 +92,7 @@ class BuildPackTests(unittest.TestCase):
 
         mocked.assert_called_once_with(fw, verbose=False)
         with zipfile.ZipFile(path) as zf:
-            self.assertIn("framework/index/meta.json", zf.namelist())
+            self.assertIn(".wavefoundry/framework/index/meta.json", zf.namelist())
 
     def test_framework_index_uses_repo_relative_paths_when_under_wavefoundry(self):
         repo = self.tmp / "repo"
@@ -150,7 +150,7 @@ class BuildPackTests(unittest.TestCase):
         path = self._build()
         for name in self._zip_names(path):
             self.assertTrue(
-                name.startswith("framework/"),
+                name.startswith(".wavefoundry/framework/"),
                 f"Entry does not start with expected prefix: {name}",
             )
 
@@ -238,6 +238,54 @@ class BuildPackTests(unittest.TestCase):
         second = build_pack.build_zip(self.tmp, "2099-03-15", write_version=False)
         self.assertTrue(first.name.endswith("a.zip"), first.name)
         self.assertTrue(second.name.endswith("b.zip"), second.name)
+
+    # ------------------------------------------------------------------
+    # MANIFEST
+    # ------------------------------------------------------------------
+
+    def test_manifest_written_to_framework_dir(self):
+        fw = self.tmp / "mini-fw"
+        fw.mkdir(parents=True)
+        (fw / "seed.md").write_text("seed", encoding="utf-8")
+        build_pack.build_zip(self.tmp, "2099-11-01", framework_dir=fw, write_version=False)
+        self.assertTrue((fw / "MANIFEST").exists())
+
+    def test_manifest_included_in_zip(self):
+        fw = self.tmp / "mini-fw"
+        fw.mkdir(parents=True)
+        (fw / "seed.md").write_text("seed", encoding="utf-8")
+        path = build_pack.build_zip(self.tmp, "2099-11-02", framework_dir=fw, write_version=False)
+        with zipfile.ZipFile(path) as zf:
+            self.assertIn(".wavefoundry/framework/MANIFEST", zf.namelist())
+
+    def test_manifest_lists_all_packed_files(self):
+        fw = self.tmp / "mini-fw"
+        fw.mkdir(parents=True)
+        (fw / "a.md").write_text("a", encoding="utf-8")
+        (fw / "b.txt").write_text("b", encoding="utf-8")
+        path = build_pack.build_zip(self.tmp, "2099-11-03", framework_dir=fw, write_version=False)
+        with zipfile.ZipFile(path) as zf:
+            manifest_text = zf.read(".wavefoundry/framework/MANIFEST").decode()
+        entries = {line for line in manifest_text.splitlines() if line.strip()}
+        self.assertIn("a.md", entries)
+        self.assertIn("b.txt", entries)
+        self.assertIn("MANIFEST", entries)
+
+    def test_manifest_does_not_list_excluded_files(self):
+        fw = self.tmp / "mini-fw"
+        fw.mkdir(parents=True)
+        scripts_dir = fw / "scripts"
+        scripts_dir.mkdir(parents=True)
+        tests_dir = scripts_dir / "tests"
+        tests_dir.mkdir(parents=True)
+        (tests_dir / "test_foo.py").write_text("x", encoding="utf-8")
+        (scripts_dir / "run_tests.py").write_text("x", encoding="utf-8")
+        path = build_pack.build_zip(self.tmp, "2099-11-04", framework_dir=fw, write_version=False)
+        with zipfile.ZipFile(path) as zf:
+            manifest_text = zf.read(".wavefoundry/framework/MANIFEST").decode()
+        entries = {line for line in manifest_text.splitlines() if line.strip()}
+        self.assertNotIn("scripts/run_tests.py", entries)
+        self.assertFalse(any("tests/" in e for e in entries))
 
 
 if __name__ == "__main__":

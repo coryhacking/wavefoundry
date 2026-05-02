@@ -28,9 +28,9 @@ def _write_text(path: Path, text: str) -> None:
 
 
 def _make_design_root(tmp: str) -> Path:
-    """Create docs/design/ with minimal stubs so validators don't trip on missing core paths."""
+    """Create docs/design-system/ with minimal stubs so validators don't trip on missing core paths."""
     root = Path(tmp)
-    d = root / "docs" / "design"
+    d = root / "docs" / "design-system"
 
     # Mode token files (empty stubs)
     _write_json(d / "tokens" / "modes" / "light.tokens.json", {})
@@ -120,7 +120,7 @@ class WcagContrastTests(unittest.TestCase):
             )
 
     def test_wcag_contrast_skips_when_file_missing(self):
-        """No docs/design/ directory → empty result."""
+        """No docs/design-system/ directory → empty result."""
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
             (root / "docs").mkdir()
@@ -188,7 +188,7 @@ class ExtendedModeParityTests(unittest.TestCase):
             )
 
     def test_extended_mode_parity_skips_when_file_missing(self):
-        """No docs/design/ → empty result."""
+        """No docs/design-system/ → empty result."""
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
             (root / "docs").mkdir()
@@ -270,7 +270,7 @@ class ReducedMotionTests(unittest.TestCase):
             )
 
     def test_reduced_motion_skips_when_file_missing(self):
-        """No docs/design/ → empty result."""
+        """No docs/design-system/ → empty result."""
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
             (root / "docs").mkdir()
@@ -352,7 +352,7 @@ class IconSanityTests(unittest.TestCase):
             )
 
     def test_icon_sanity_skips_when_file_missing(self):
-        """No docs/design/ → empty result."""
+        """No docs/design-system/ → empty result."""
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
             (root / "docs").mkdir()
@@ -467,7 +467,7 @@ class KeyboardPatternTests(unittest.TestCase):
             )
 
     def test_keyboard_pattern_skips_when_file_missing(self):
-        """No docs/design/ → empty result."""
+        """No docs/design-system/ → empty result."""
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
             (root / "docs").mkdir()
@@ -552,7 +552,7 @@ class StateCoverageTests(unittest.TestCase):
             )
 
     def test_state_coverage_skips_when_file_missing(self):
-        """No docs/design/ → empty result."""
+        """No docs/design-system/ → empty result."""
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
             (root / "docs").mkdir()
@@ -598,7 +598,7 @@ class StateCoverageTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# No docs/design/ → no-op for all validators
+# No docs/design-system/ → no-op for all validators
 # ---------------------------------------------------------------------------
 
 class NoDesignRootTests(unittest.TestCase):

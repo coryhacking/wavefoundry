@@ -16,5 +16,5 @@ This directory contains generated token outputs (CSS custom properties, Tailwind
 
 ## Generating outputs
 
-Run the token-build pipeline configured in `.design-system/build.config.json` (see plan `12atj-feat design-token-build-pipeline`).
+Run the token-build pipeline configured in `docs/design-system/build.config.json` (see plan `12atj-feat design-token-build-pipeline`).
 The contents of these subdirectories are **out of scope** for wave `12as1 design-system-extraction`.

@@ -1,6 +1,6 @@
 """Design-system extraction contract validators.
 
-Runs only when docs/design/ exists in the target repo. Validates:
+Runs only when docs/design-system/ exists in the target repo. Validates:
 - Required-path presence (core tree from 12akr)
 - manifest.json required fields and canonicalRoot
 - gaps.md header with summary counts
@@ -20,38 +20,58 @@ from pathlib import Path
 from .helpers import relative_to_root
 
 # ---------------------------------------------------------------------------
-# Required paths (relative to docs/design/)
+# Required paths (relative to docs/design-system/)
 # ---------------------------------------------------------------------------
 
+# Always required once manifest.json exists (bootstrapped extraction contract).
 _REQUIRED_PATHS = [
     "README.md",
     "DESIGN.md",
     "AGENTS.md",
-    "manifest.json",
     "VALIDATION.md",
     "gaps.md",
+    "version.json",
+    "source-map.json",
+    "proposed-additions.md",
+]
+
+# Required only when the tokens subtree has been seeded (primitives.tokens.json present).
+_REQUIRED_TOKEN_PATHS = [
     "tokens/primitives.tokens.json",
     "tokens/semantic.tokens.json",
     "tokens/modes/light.tokens.json",
     "tokens/modes/dark.tokens.json",
     "tokens/README.md",
+]
+
+# Required only when the exports subtree has been seeded (exports/README.md present).
+_REQUIRED_EXPORT_PATHS = [
     "exports/README.md",
     "exports/css",
     "exports/tailwind",
     "exports/ts",
     "exports/json",
-    "components/_index.json",
+]
+
+# Required only when the foundations subtree has been seeded (any foundations/*.md present).
+_REQUIRED_FOUNDATION_PATHS = [
     "foundations/color.md",
     "foundations/typography.md",
     "foundations/spacing.md",
     "foundations/radius.md",
     "foundations/elevation.md",
     "foundations/motion.md",
+]
+
+# Required only when the accessibility subtree has been seeded (accessibility/README.md present).
+_REQUIRED_ACCESSIBILITY_PATHS = [
     "accessibility/contrast-report.json",
     "accessibility/README.md",
-    ".design-system/version.json",
-    ".design-system/source-map.json",
-    ".design-system/proposed-additions.md",
+]
+
+# Required only when the components subtree has been seeded (components/ dir present).
+_REQUIRED_COMPONENTS_PATHS = [
+    "components/_index.json",
 ]
 
 _MANIFEST_REQUIRED_FIELDS = {
@@ -126,9 +146,9 @@ def _collect_alias_refs(obj: object) -> set[str]:
 def check_design_system(root: Path) -> tuple[list[str], list[str]]:
     """Return (failures, warnings) for the design-system extraction contract.
 
-    Only runs when docs/design/ exists; returns empty lists otherwise.
+    Only runs when docs/design-system/ exists; returns empty lists otherwise.
     """
-    design_root = root / "docs" / "design"
+    design_root = root / "docs" / "design-system"
     if not design_root.exists():
         return [], []
 
@@ -138,11 +158,51 @@ def check_design_system(root: Path) -> tuple[list[str], list[str]]:
 
     # ------------------------------------------------------------------
     # 1. Required path presence
+    # manifest.json signals the extraction contract has been bootstrapped.
+    # Without it, only narrative docs (design-language.md, index.md, etc.)
+    # are expected — emit a guidance warning, not failures.
+    # Subtree path groups (tokens, exports, foundations, accessibility) are
+    # only enforced when the subtree has been partially seeded, so a project
+    # that hasn't run the full extraction contract yet doesn't get flooded.
     # ------------------------------------------------------------------
-    for rel in _REQUIRED_PATHS:
-        p = design_root / rel
-        if not p.exists():
-            failures.append(f"docs/design/{rel}: required path missing")
+    manifest_exists = (design_root / "manifest.json").exists()
+    hint = "(run seed-040 task 14 or seed-160 step 8 to regenerate)"
+    if not manifest_exists:
+        warnings.append(
+            "docs/design-system/: extraction contract not yet bootstrapped — "
+            "run seed-040 task 14 (or seed-010 step 8 / seed-160 step 8 during upgrade) "
+            "to generate manifest.json and the full extraction tree"
+        )
+    else:
+        for rel in _REQUIRED_PATHS:
+            if not (design_root / rel).exists():
+                failures.append(f"docs/design-system/{rel}: required path missing {hint}")
+
+        # Subtree groups: only enforce when the subtree directory is present.
+        if (design_root / "tokens").is_dir():
+            for rel in _REQUIRED_TOKEN_PATHS:
+                if not (design_root / rel).exists():
+                    failures.append(f"docs/design-system/{rel}: required path missing {hint}")
+
+        if (design_root / "exports").is_dir():
+            for rel in _REQUIRED_EXPORT_PATHS:
+                if not (design_root / rel).exists():
+                    failures.append(f"docs/design-system/{rel}: required path missing {hint}")
+
+        if (design_root / "foundations").is_dir():
+            for rel in _REQUIRED_FOUNDATION_PATHS:
+                if not (design_root / rel).exists():
+                    failures.append(f"docs/design-system/{rel}: required path missing {hint}")
+
+        if (design_root / "accessibility").is_dir():
+            for rel in _REQUIRED_ACCESSIBILITY_PATHS:
+                if not (design_root / rel).exists():
+                    failures.append(f"docs/design-system/{rel}: required path missing {hint}")
+
+        if (design_root / "components").is_dir():
+            for rel in _REQUIRED_COMPONENTS_PATHS:
+                if not (design_root / rel).exists():
+                    failures.append(f"docs/design-system/{rel}: required path missing {hint}")
 
     # ------------------------------------------------------------------
     # 2. manifest.json required fields and canonicalRoot
@@ -151,20 +211,20 @@ def check_design_system(root: Path) -> tuple[list[str], list[str]]:
     if manifest_path.exists():
         data, err = _load_json(manifest_path)
         if err:
-            failures.append(f"docs/design/manifest.json: invalid JSON — {err}")
+            failures.append(f"docs/design-system/manifest.json: invalid JSON — {err}")
         elif isinstance(data, dict):
             missing = _MANIFEST_REQUIRED_FIELDS - data.keys()
             for f in sorted(missing):
-                failures.append(f"docs/design/manifest.json: required field `{f}` missing")
+                failures.append(f"docs/design-system/manifest.json: required field `{f}` missing")
             canonical = data.get("canonicalRoot")
-            if canonical is not None and canonical != "docs/design":
+            if canonical is not None and canonical != "docs/design-system":
                 failures.append(
-                    f"docs/design/manifest.json: canonicalRoot must be 'docs/design', got '{canonical}'"
+                    f"docs/design-system/manifest.json: canonicalRoot must be 'docs/design-system', got '{canonical}'"
                 )
             strategy = data.get("sourceStrategy")
             if strategy is not None and strategy not in _SOURCE_STRATEGY_VALUES:
                 failures.append(
-                    f"docs/design/manifest.json: sourceStrategy '{strategy}' not in allowed enum "
+                    f"docs/design-system/manifest.json: sourceStrategy '{strategy}' not in allowed enum "
                     f"{sorted(_SOURCE_STRATEGY_VALUES)}"
                 )
 
@@ -176,7 +236,7 @@ def check_design_system(root: Path) -> tuple[list[str], list[str]]:
         text = gaps_path.read_text(encoding="utf-8", errors="replace")
         if not _GAPS_SUMMARY_RE.search(text):
             failures.append(
-                "docs/design/gaps.md: missing severity summary lines "
+                "docs/design-system/gaps.md: missing severity summary lines "
                 "(expected '- Critical:', '- Important:', '- Nice-to-have:' near top)"
             )
 
@@ -231,7 +291,7 @@ def check_design_system(root: Path) -> tuple[list[str], list[str]]:
             for ref in sorted(alias_refs):
                 if ref not in primitive_keys:
                     failures.append(
-                        f"docs/design/tokens/semantic.tokens.json: broken alias reference "
+                        f"docs/design-system/tokens/semantic.tokens.json: broken alias reference "
                         f"'{{{ref}}}' — key not found in primitives.tokens.json"
                     )
 
@@ -246,10 +306,9 @@ def check_design_system(root: Path) -> tuple[list[str], list[str]]:
             all_refs = _collect_alias_refs(semantic)
             for key in sorted(primitive_keys):
                 if key not in all_refs:
-                    raw, _ = _load_json(primitives_path)
-                    # Check for primitive-only extension flag
+                    # Check for primitive-only extension flag (reuse already-loaded primitives)
                     parts = key.split(".")
-                    node = raw
+                    node = primitives
                     for part in parts:
                         if isinstance(node, dict):
                             node = node.get(part)
@@ -259,7 +318,7 @@ def check_design_system(root: Path) -> tuple[list[str], list[str]]:
                     ext = node.get("$extensions", {}) if isinstance(node, dict) else {}
                     if not ext.get("primitive-only"):
                         warnings.append(
-                            f"docs/design/tokens/primitives.tokens.json: orphan primitive '{key}' "
+                            f"docs/design-system/tokens/primitives.tokens.json: orphan primitive '{key}' "
                             "not referenced by any semantic token "
                             "(add \"$extensions\": {{\"primitive-only\": true}} to suppress)"
                         )
@@ -277,12 +336,12 @@ def check_design_system(root: Path) -> tuple[list[str], list[str]]:
             dark_keys = _flatten_token_keys(dark)
             for k in sorted(light_keys - dark_keys):
                 failures.append(
-                    f"docs/design/tokens/modes/dark.tokens.json: key '{k}' present in "
+                    f"docs/design-system/tokens/modes/dark.tokens.json: key '{k}' present in "
                     "light.tokens.json but missing"
                 )
             for k in sorted(dark_keys - light_keys):
                 failures.append(
-                    f"docs/design/tokens/modes/light.tokens.json: key '{k}' present in "
+                    f"docs/design-system/tokens/modes/light.tokens.json: key '{k}' present in "
                     "dark.tokens.json but missing"
                 )
 
@@ -293,7 +352,7 @@ def check_design_system(root: Path) -> tuple[list[str], list[str]]:
     if index_path.exists() and (design_root / "components").exists():
         index_data, err = _load_json(index_path)
         if err:
-            failures.append(f"docs/design/components/_index.json: invalid JSON — {err}")
+            failures.append(f"docs/design-system/components/_index.json: invalid JSON — {err}")
         else:
             # Collect component folder names (skip _index.json itself)
             comp_dir = design_root / "components"
@@ -319,12 +378,12 @@ def check_design_system(root: Path) -> tuple[list[str], list[str]]:
 
             for name in sorted(on_disk - indexed):
                 failures.append(
-                    f"docs/design/components/{name}/: folder exists but has no entry "
+                    f"docs/design-system/components/{name}/: folder exists but has no entry "
                     "in components/_index.json"
                 )
             for name in sorted(indexed - on_disk):
                 failures.append(
-                    f"docs/design/components/_index.json: entry '{name}' has no "
+                    f"docs/design-system/components/_index.json: entry '{name}' has no "
                     "corresponding folder on disk"
                 )
 

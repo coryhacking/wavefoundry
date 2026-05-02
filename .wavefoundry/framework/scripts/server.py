@@ -4098,7 +4098,11 @@ def build_server(root: Path):
         limit: int = 5,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Semantic search over docs, architecture, prompts, and seed chunks.
+        """Semantic search over docs, architecture, prompts, seed chunks, and framework seeds at .wavefoundry/framework/seeds/.
+
+        Prefer when: searching by concept, intent, or natural language across project and framework documentation.
+        Use code_keyword_search instead when the exact text is known.
+        Degrades to lexical fallback when the semantic model or index is unavailable.
 
         Args:
             query: Natural language search query.
@@ -4112,7 +4116,12 @@ def build_server(root: Path):
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_search(query: str, language: str = "", limit: int = 5, **kwargs: Any) -> dict[str, Any]:
-        """Semantic search over source code chunks.
+        """Semantic search over indexed source code chunks. Requires a built code index (wave_index_build content='code').
+
+        Prefer when: searching for code by concept, behavior, or intent (e.g. "function that parses wave IDs").
+        Use code_keyword_search instead when the exact token or pattern is known — it is always available and deterministic.
+        When the code index is absent: returns status='error' with a diagnostic and empty results — does not crash.
+        Example query style: "validate that a change doc has required sections" not "JOURNAL_REQUIRED_SECTIONS".
 
         Args:
             query: Natural language or code description to search for.
@@ -4128,6 +4137,8 @@ def build_server(root: Path):
     def seed_get(name: str, **kwargs: Any) -> dict[str, Any]:
         """Retrieve a framework seed prompt by name or partial slug.
 
+        Prefer when: you know the seed name or number. Use docs_search instead when searching for seed content by concept.
+
         Args:
             name: Seed name or partial slug, e.g. "plan-feature" or "020-run-contract".
         """
@@ -4140,7 +4151,11 @@ def build_server(root: Path):
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_current(**kwargs: Any) -> dict[str, Any]:
-        """Return the active wave ID, lifecycle status, and admitted changes."""
+        """Return the active wave ID, lifecycle status, and admitted changes.
+
+        Prefer when: you need current working context (what wave am I on, what changes are admitted).
+        Use wave_list_waves instead when discovering or browsing across all waves.
+        """
         bad = _ensure_no_extra_args("wave_current", kwargs)
         if bad is not None:
             return bad
@@ -4270,6 +4285,9 @@ def build_server(root: Path):
     def wave_map(address: str, **kwargs: Any) -> dict[str, Any]:
         """Resolve a doc:/code:/seed: anchor to repo path, trust label, excerpt, and index match flag.
 
+        Prefer when: navigating from a search result anchor to the actual file, or verifying that a reference is indexed.
+        Anchors appear in result_id fields returned by docs_search and code_search.
+
         Args:
             address: Stable anchor from search results, e.g. doc:docs/README.md#intro or code:src/a.py:L10-L20.
         """
@@ -4323,6 +4341,8 @@ def build_server(root: Path):
     def wave_prepare(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Transactional prepare check: validates docs and confirms wave has admitted changes.
 
+        Call after all changes are admitted and docs validation passes — this is the required stage gate before implementation begins.
+
         Args:
             wave_id: Wave ID or unique prefix.
             mode: Either "dry_run" (validate only) or "create" (write Prepared checkpoint).
@@ -4335,6 +4355,9 @@ def build_server(root: Path):
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_pause(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Write or preview a session handoff entry for an active wave.
+
+        Call at session end when work is incomplete and must resume in a later session.
+        Captures current state so the next session can pick up without re-discovering context.
 
         Args:
             wave_id: Wave ID or unique prefix.
@@ -4382,6 +4405,8 @@ def build_server(root: Path):
     def wave_new_feature(slug: str, **kwargs: Any) -> dict[str, Any]:
         """Create a scaffolded feature change doc (kind=feat). Returns the ID and path.
 
+        Use for: net-new capability with user-visible behavior that did not exist before.
+
         Args:
             slug: Kebab-case slug, e.g. "my-new-feature".
         """
@@ -4393,6 +4418,8 @@ def build_server(root: Path):
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_new_bug(slug: str, **kwargs: Any) -> dict[str, Any]:
         """Create a scaffolded bug change doc (kind=bug). Returns the ID and path.
+
+        Use for: fixing a defect in existing behavior (something that worked and is now broken, or never worked as intended).
 
         Args:
             slug: Kebab-case slug, e.g. "login-redirect-broken".
@@ -4406,6 +4433,8 @@ def build_server(root: Path):
     def wave_new_enhancement(slug: str, **kwargs: Any) -> dict[str, Any]:
         """Create a scaffolded enhancement change doc (kind=enh). Returns the ID and path.
 
+        Use for: improving or extending existing functionality (making something that works better or more capable).
+
         Args:
             slug: Kebab-case slug, e.g. "improve-search-ranking".
         """
@@ -4417,6 +4446,8 @@ def build_server(root: Path):
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_new_refactor(slug: str, **kwargs: Any) -> dict[str, Any]:
         """Create a scaffolded refactor change doc (kind=ref). Returns the ID and path.
+
+        Use for: code structure changes with no user-visible behavior change (rename, extract, reorganize).
 
         Args:
             slug: Kebab-case slug, e.g. "extract-auth-module".
@@ -4430,6 +4461,8 @@ def build_server(root: Path):
     def wave_new_change(slug: str, **kwargs: Any) -> dict[str, Any]:
         """Create a scaffolded general change doc (kind=change). Returns the ID and path.
 
+        Use for: changes that don't fit a more specific kind. Prefer feat, bug, enh, ref, doc, debt, task, maint, or ops first.
+
         Args:
             slug: Kebab-case slug, e.g. "update-release-process".
         """
@@ -4441,6 +4474,8 @@ def build_server(root: Path):
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_new_documentation(slug: str, **kwargs: Any) -> dict[str, Any]:
         """Create a scaffolded documentation change doc (kind=doc). Returns the ID and path.
+
+        Use for: docs-only changes — new or updated docs, specs, seeds, or prompts with no code changes.
 
         Args:
             slug: Kebab-case slug, e.g. "document-install-flow".
@@ -4454,6 +4489,8 @@ def build_server(root: Path):
     def wave_new_tech_debt(slug: str, **kwargs: Any) -> dict[str, Any]:
         """Create a scaffolded technical debt change doc (kind=debt). Returns the ID and path.
 
+        Use for: cleanup of known technical debt — removing workarounds, paying down accumulated shortcuts.
+
         Args:
             slug: Kebab-case slug, e.g. "reduce-indexer-coupling".
         """
@@ -4465,6 +4502,8 @@ def build_server(root: Path):
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_new_task(slug: str, **kwargs: Any) -> dict[str, Any]:
         """Create a scaffolded task change doc (kind=task). Returns the ID and path.
+
+        Use for: one-off tasks with no ongoing code artifact (e.g. fixture refresh, data migration, one-time audit).
 
         Args:
             slug: Kebab-case slug, e.g. "refresh-fixtures".
@@ -4478,6 +4517,8 @@ def build_server(root: Path):
     def wave_new_maintenance(slug: str, **kwargs: Any) -> dict[str, Any]:
         """Create a scaffolded maintenance change doc (kind=maint). Returns the ID and path.
 
+        Use for: routine upkeep with no new behavior — rotating generated surfaces, version bumps, dependency updates.
+
         Args:
             slug: Kebab-case slug, e.g. "rotate-generated-surfaces".
         """
@@ -4489,6 +4530,8 @@ def build_server(root: Path):
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_new_operations(slug: str, **kwargs: Any) -> dict[str, Any]:
         """Create a scaffolded operations change doc (kind=ops). Returns the ID and path.
+
+        Use for: operational or process changes — release checklists, runbooks, deployment procedures.
 
         Args:
             slug: Kebab-case slug, e.g. "update-release-checklist".
@@ -4560,7 +4603,10 @@ def build_server(root: Path):
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_validate(**kwargs: Any) -> dict[str, Any]:
-        """Run docs_lint against the project. Returns structured pass/fail with errors."""
+        """Run docs_lint against the project. Returns structured pass/fail with errors.
+
+        Use for targeted lint-only checks. Prefer wave_audit for a combined wave state + lint + index health snapshot.
+        """
         bad = _ensure_no_extra_args("wave_validate", kwargs)
         if bad is not None:
             return bad
@@ -4629,10 +4675,10 @@ def build_server(root: Path):
     def code_keyword_search(query: str, glob: str = "", **kwargs: Any) -> dict[str, Any]:
         """Search repository files for an exact keyword or substring.
 
+        Prefer when: the exact token, symbol name, or string pattern is known. Always available — no index required.
+        Use docs_search or code_search instead when searching by concept or intent rather than exact text.
         Returns deterministic path/line/snippet results for each match.
         Respects the same ignore/exclusion rules as the semantic index.
-        Complements docs_search (semantic) and code_search (semantic code)
-        with exact, deterministic text matching.
 
         Args:
             query: Exact text to search for (substring match).
@@ -4645,10 +4691,13 @@ def build_server(root: Path):
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_definition(symbol_or_path_position: str, **kwargs: Any) -> dict[str, Any]:
-        """Find definition(s) for a symbol name.
+        """Find definition(s) for a symbol name by searching all Python files via AST.
+
+        Prefer when: looking up where a Python function or class is defined by name.
+        For non-Python symbols, use code_keyword_search directly — this tool searches only .py files.
+        If no Python definition is found, the response includes a code_keyword_search fallback recommendation.
 
         Supported languages: Python (AST-based, finds function/class/async-function definitions).
-        Unsupported languages: returns a clear "unsupported" note with a code_keyword_search fallback.
 
         Args:
             symbol_or_path_position: Symbol name to look up (e.g. "MyClass", "process_wave").
@@ -4661,10 +4710,12 @@ def build_server(root: Path):
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_references(symbol_or_path_position: str, **kwargs: Any) -> dict[str, Any]:
-        """Find references to a symbol in source files.
+        """Find references to a symbol by searching all Python .py files via text matching.
+
+        Prefer when: tracing all call sites for a known Python symbol — more targeted than code_keyword_search.
+        For non-Python symbols, use code_keyword_search directly — this tool searches only .py files.
 
         Supported languages: Python (text-based matching in .py files).
-        For other languages use code_keyword_search directly.
 
         Args:
             symbol_or_path_position: Symbol name to find references for (e.g. "wave_close_response").

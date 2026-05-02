@@ -102,8 +102,9 @@ def should_exclude(rel_path: str, name: str) -> bool:
     return False
 
 
-def collect_files(framework_dir: Path):
-    """Yield (abs_path, zip_arcname) for every file under framework_dir."""
+def collect_files(framework_dir: Path) -> list[tuple[Path, str]]:
+    """Return [(abs_path, zip_arcname)] for every file under framework_dir."""
+    entries: list[tuple[Path, str]] = []
     for dirpath, dirnames, filenames in os.walk(framework_dir):
         dirpath = Path(dirpath)
         # Compute path relative to framework_dir using forward slashes.
@@ -126,7 +127,25 @@ def collect_files(framework_dir: Path):
             # arcname preserves the full path from repo root so that
             # `unzip -o zip -d <repo-root>` restores the correct layout.
             arcname = FRAMEWORK_REL + ("/" + rel_file if rel_file else "")
-            yield abs_path, arcname
+            entries.append((abs_path, arcname))
+    return entries
+
+
+def write_manifest(framework_dir: Path, entries: list[tuple[Path, str]]) -> Path:
+    """Write MANIFEST listing all packed paths (relative to framework root).
+
+    The manifest is written to disk so it can be saved before the next upgrade
+    and used to prune files that were pack-delivered in the old version but
+    absent from the new one.  MANIFEST always lists itself.
+    """
+    prefix = FRAMEWORK_REL + "/"
+    rel_paths = sorted({
+        *(arcname[len(prefix):] for _, arcname in entries if arcname.startswith(prefix)),
+        "MANIFEST",
+    })
+    manifest_path = framework_dir / "MANIFEST"
+    manifest_path.write_text("\n".join(rel_paths) + "\n", encoding="utf-8")
+    return manifest_path
 
 
 def write_pack_version(framework_dir: Path, date_str: str, suffix: str) -> None:
@@ -186,8 +205,16 @@ def build_zip(
     if prebuild_index:
         build_framework_index(fw, verbose=verbose)
 
+    entries = collect_files(fw)
+    # Write MANIFEST (always lists itself) before zipping so it is included.
+    manifest_path = write_manifest(fw, entries)
+    # Add MANIFEST to entries explicitly since it was just written.
+    manifest_arcname = FRAMEWORK_REL + "/MANIFEST"
+    if not any(a == manifest_arcname for _, a in entries):
+        entries.append((manifest_path, manifest_arcname))
+
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for abs_path, arcname in collect_files(fw):
+        for abs_path, arcname in entries:
             zf.write(abs_path, arcname)
 
     return zip_path

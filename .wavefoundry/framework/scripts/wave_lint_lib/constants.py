@@ -75,7 +75,7 @@ WAVE_REQUIRED_SECTIONS = (
 JOURNAL_REQUIRED_SECTIONS = (
     "## Operating Identity",
     "## Salience Triggers",
-    "## Recent Captures",
+    "## Active Signals",
     "## Distillation",
     "## Promotion Evidence",
     "## Retirement And Supersession",
@@ -146,7 +146,7 @@ ALLOWED_ITEM_STATUS_TRANSITIONS = {
     "superseded": {"superseded"},
 }
 
-TERMINAL_CHANGE_STATUSES = ("complete", "completed", "deferred", "moved", "superseded")
+TERMINAL_CHANGE_STATUSES = ("complete", "completed", "done", "deferred", "moved", "superseded")
 PROGRESSABLE_CHANGE_STATUSES = ("ready", "active", "review", "complete", "completed")
 ALLOWED_CHANGE_STATUS_TRANSITIONS = {
     "planned": {"planned", "ready", "active", "blocked", "deferred", "moved", "retry", "superseded", "complete", "completed"},

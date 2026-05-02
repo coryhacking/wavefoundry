@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-05-02
 
 Actor: framework-operator (persona)
 Schema version: 1.0
@@ -20,14 +20,14 @@ Last distilled: 2026-04-28
 - **Medium:** A change breaks the generated operator summary or makes it incomplete — the summary is a first-class deliverable.
 - **Low:** Docs-lint failure after upgrade has an unclear fix path — the operator needs a clear error message pointing to `framework_revision` alignment.
 
-## Recent Captures
-
-- None at init. This journal was seeded at framework install with no prior operator interaction history.
-
 ## Distillation
 
 - **Operator summary is a first-class deliverable:** The operator does not read seed prompts. The init output is the primary orientation artifact. Any change to seed-010 that reduces information density of the operator summary is a breaking change from the operator's perspective.
 - **Upgrade overwrites risk:** Operator-customized prompt docs in `docs/prompts/` may be overwritten during upgrade if the upgrade seed does not distinguish framework-owned from operator-owned files. This risk is tracked in `docs/references/tech-debt-tracker.md` (DEBT-03 / DEBT-04).
+
+## Active Signals
+
+- None. This journal was seeded at framework install with no prior operator interaction history.
 
 ## Promotion Evidence
 
@@ -45,19 +45,6 @@ Last distilled: 2026-04-28
 - Operator-specific configuration details (e.g., epoch values from operator installations): do not record in this shared journal — these belong in the operator's own project journal.
 - Review: distill at install-wave or upgrade-wave closure; promote recurring operator pain points to `docs/references/project-context-memory.md`.
 - Delete retired entries after one wave cycle.
-
-## Active Waves
-
-wave-id: `1293d mcp-server-foundation`
-
-Change ID: `12926-feat wavefoundry-mcp-index`
-Advisory review: MCP server ships as part of standard install/upgrade. Ensure the
-install experience surfaces the one-time model download (~162MB total), that
-`.wavefoundry/index/` is gitignored by default, and that MCP server registration in
-`.claude/settings.json` does not overwrite operator customizations.
-
-Change ID: `1293b-feat mcp-wave-lifecycle`
-Stub only; full planning deferred until `12926` is stable.
 
 ## Active Watchpoints
 
