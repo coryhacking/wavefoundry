@@ -40,7 +40,7 @@ EXCLUDED_DIRS = {"__pycache__", ".pytest_cache"}
 # vendor the pack have no use for them and seeds must not instruct them to run tests.
 EXCLUDED_REL_PATHS = {"scripts/tests/tmp", "scripts/tests", "scripts/run_tests.py"}
 
-FRAMEWORK_REL = "framework"
+FRAMEWORK_REL = ".wavefoundry/framework"
 ZIP_PREFIX = "wavefoundry-"
 SUFFIX_LETTERS = "abcdefghijklmnopqrstuvwxyz"
 
