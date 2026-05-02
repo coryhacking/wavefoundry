@@ -145,13 +145,7 @@ If all checks pass, continue with activation steps 5-9 above.
 
 After staging, and again after activation if activation occurs:
 
-1. Run framework script tests from the migrated target when they are vendored:
-
-```bash
-python3 -B .wavefoundry/framework/scripts/run_tests.py
-```
-
-2. Run project docs validation (**agents with MCP:** **`wave_garden`** then **`wave_validate`**; **CLI / CI:**):
+1. Run project docs validation (**agents with MCP:** **`wave_garden`** then **`wave_validate`**; **CLI / CI:**):
 
 ```bash
 .wavefoundry/bin/docs-gardener

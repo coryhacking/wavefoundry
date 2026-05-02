@@ -1,11 +1,11 @@
 # Markdown Chunker Heading Hierarchy
 
 Change ID: `12avx-enh markdown-chunker-heading-hierarchy`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
-Last verified: 2026-05-01
-Wave: TBD
+Status: complete
+Last verified: 2026-05-02
+Wave: `12axj chunker-and-pack-improvements`
 
 ## Rationale
 
@@ -102,24 +102,22 @@ Otherwise N/A — confined to `chunker.py`, `indexer.py`, and their tests; no mo
 
 ## AC Priority
 
-(Populated at Prepare wave.)
-
 | AC | Priority | Rationale |
 | --- | --- | --- |
-| AC-1 | | |
-| AC-2 | | |
-| AC-3 | | |
-| AC-4 | | |
-| AC-5 | | |
-| AC-6 | | |
-| AC-7 | | |
-| AC-8 | | |
-| AC-9 | | |
-| AC-10 | | |
-| AC-11 | | |
-| AC-12 | | |
-| AC-13 | | |
-| AC-14 | | |
+| AC-1 | required | Core deliverable — breadcrumb in prose chunk text is the primary embedding quality improvement |
+| AC-2 | required | Fenced code chunks need breadcrumb too; omitting them would be inconsistent |
+| AC-3 | required | No-H1 fallback ensures no regression for files without a title |
+| AC-4 | required | H3 splitting is the second core deliverable; oversized sections must break |
+| AC-5 | required | Sub-chunk breadcrumb is required for H3 split to deliver retrieval value |
+| AC-6 | required | Threshold boundary correctness — at-threshold must not split |
+| AC-7 | required | Line-window fallback with breadcrumb handles sections without H3 but above threshold |
+| AC-8 | required | Fenced code in H3 sub-sections must carry full breadcrumb |
+| AC-9 | required | Preamble chunks must be unaffected — regression guard |
+| AC-10 | nice-to-have | Seed files are secondary corpus; breadcrumb is valuable but lower priority than doc files |
+| AC-11 | required | New ID scheme must be stable and consistent for indexer alignment |
+| AC-12 | required | CHUNKER_VERSION rebuild signal is required for correct incremental indexing |
+| AC-13 | required | Existing tests must pass; stale assertions must be updated |
+| AC-14 | required | New tests are the verification gate for all new behaviors |
 
 ## Progress Log
 

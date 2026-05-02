@@ -42,7 +42,15 @@ SOURCE_CODE_EXTENSIONS = {
     ".cs", ".rb", ".php", ".sh", ".bash", ".zsh", ".fish",
     ".yaml", ".yml", ".toml", ".json", ".jsonc",
     ".html", ".css", ".scss", ".sass",
+    ".xml", ".graphql", ".gql", ".proto", ".sql",
 }
+
+# Extensionless filenames treated as documentation (routed to chunk_plain_text in chunker).
+# Keep in sync with chunker.py:DOCS_EXTENSIONLESS_NAMES.
+DOCS_EXTENSIONLESS_NAMES = {"README", "LICENSE", "CHANGELOG", "CONTRIBUTING", "NOTICE"}
+
+# Plain-text extensions indexed as documentation (not code).
+DOCS_TEXT_EXTENSIONS = {".txt"}
 GENERATED_CODE_PREFIXES = (
     ".claude/hooks/",
     ".cursor/hooks/",
@@ -80,6 +88,11 @@ BINARY_EXTENSIONS = {
     ".npy", ".npz", ".pkl", ".parquet", ".h5", ".hdf5",
     ".db", ".sqlite", ".lock",
 }
+
+# Dot-directories that are always excluded from the walk.
+# The blanket rule (name starts with ".") handles new tools automatically;
+# only paths under .wavefoundry/ are permitted through the dot-dir filter.
+_DOT_DIR_ALLOWLIST_PREFIX = ".wavefoundry/"
 
 # ---------------------------------------------------------------------------
 # Ignore file parsing
@@ -139,13 +152,31 @@ def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
         if any(rel_str.startswith(prefix) for prefix in HARDCODED_EXCLUDE_PREFIXES):
             continue
 
-        # Check hardcoded dir-name excludes against every path component
         parts = rel_str.split("/")
+
+        # Blanket dot-dir exclusion: skip any path component that starts with "."
+        # unless the entire prefix starts with the .wavefoundry allowlist.
+        if not rel_str.startswith(_DOT_DIR_ALLOWLIST_PREFIX):
+            if any(part.startswith(".") for part in parts[:-1]):
+                continue
+
+        # Check remaining hardcoded dir-name excludes (non-dot dirs like node_modules)
         if any(part in HARDCODED_EXCLUDE_DIRS for part in parts):
+            continue
+
+        filename = parts[-1]
+
+        # Exclude .env files (secrets risk) — matches .env, .env.local, .env.production, etc.
+        if filename == ".env" or filename.startswith(".env."):
             continue
 
         # Binary extensions
         if path.suffix.lower() in BINARY_EXTENSIONS:
+            continue
+
+        # Allow extensionless docs files (README, LICENSE, etc.) before extension check
+        if not path.suffix and filename in DOCS_EXTENSIONLESS_NAMES:
+            result.append(path)
             continue
 
         # .gitignore / .aiignore
@@ -158,7 +189,7 @@ def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
 
 
 # ---------------------------------------------------------------------------
-# Hashing
+# Hashing and stat-cache change detection
 # ---------------------------------------------------------------------------
 
 def _sha256(path: Path) -> str:
@@ -167,11 +198,66 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def _build_file_hashes(files: list[Path], root: Path) -> dict[str, str]:
-    return {
-        str(f.relative_to(root)).replace("\\", "/"): _sha256(f)
-        for f in files
-    }
+def _stat_entry(path: Path) -> tuple[float, int, int]:
+    """Return (mtime, size, inode) for a file.
+
+    inode is 0 on Windows/FAT where st_ino is unsupported; callers treat 0 as
+    "don't use inode in cache comparison".
+    """
+    st = path.stat()
+    return (st.st_mtime, st.st_size, st.st_ino)
+
+
+def _stat_matches(old: dict, mtime: float, size: int, inode: int) -> bool:
+    """True if stored stat entry matches current stat — no read needed."""
+    if old.get("mtime") != mtime or old.get("size") != size:
+        return False
+    # If inodes are available on this filesystem, also check inode
+    old_ino = old.get("inode", 0)
+    if inode and old_ino and inode != old_ino:
+        return False
+    return True
+
+
+def _detect_changes(
+    files: list[Path],
+    root: Path,
+    old_meta: dict[str, dict],
+) -> tuple[dict[str, dict], set[str], set[str]]:
+    """Return (current_file_meta, changed_paths, removed_paths).
+
+    Uses mtime+size+inode as a cheap pre-filter: only files whose stat differs
+    from stored values are read and hashed. Files that pass the stat check are
+    treated as unchanged without any file I/O.
+
+    old_meta maps rel_path -> {"hash": str, "mtime": float, "size": int, "inode": int}.
+    """
+    current: dict[str, dict] = {}
+    changed: set[str] = set()
+
+    for f in files:
+        rel = str(f.relative_to(root)).replace("\\", "/")
+        mtime, size, inode = _stat_entry(f)
+        old = old_meta.get(rel)
+
+        # Cache hit: stat matches — skip read entirely
+        if old is not None and isinstance(old, dict) and _stat_matches(old, mtime, size, inode):
+            current[rel] = old
+            continue
+
+        # Cache miss: read and hash
+        digest = _sha256(f)
+        entry: dict = {"hash": digest, "mtime": mtime, "size": size, "inode": inode}
+        current[rel] = entry
+
+        # Changed if hash differs from stored (or no prior entry)
+        old_hash = old.get("hash") if old is not None else None
+        if old_hash != digest:
+            changed.add(rel)
+
+    removed = set(old_meta.keys()) - set(current.keys())
+    return current, changed, removed
+
 
 
 def _is_relative_to(path: Path, parent: Path) -> bool:
@@ -506,8 +592,10 @@ def _build_index_locked(
     build_docs = content in ("docs", "all")
     build_code = content in ("code", "all")
     meta = {} if full else _load_meta(index_dir)
-    old_hashes: dict[str, str] = meta.get("file_hashes", {})
+    old_file_meta: dict[str, dict] = meta.get("file_meta", {})
     old_model_versions: dict[str, str] = meta.get("model_versions", {})
+    old_chunker_version: str = meta.get("chunker_version", "")
+    current_chunker_version: str = getattr(_get_chunker(), "CHUNKER_VERSION", "")
 
     # Force a selected-content rebuild if models changed or selected index files are absent.
     model_changed = False
@@ -521,15 +609,17 @@ def _build_index_locked(
         model_changed = model_changed or not (index_dir / CODE_JSON).exists()
         if (index_dir / CODE_JSON).exists() and _load_chunks(index_dir, CODE_JSON):
             model_changed = model_changed or not (index_dir / CODE_NPY).exists()
-    if model_changed:
-        if not full and old_model_versions:
+    chunker_changed = current_chunker_version and old_chunker_version != current_chunker_version
+    if model_changed or chunker_changed:
+        if not full and (old_model_versions or old_chunker_version):
+            reason = "chunker version changed" if chunker_changed else "model version changed or index missing"
             print(
-                f"build_index: selected {content} index missing or model version changed — "
+                f"build_index: selected {content} index missing or {reason} — "
                 "performing full rebuild",
                 flush=True,
             )
         full = True
-        old_hashes = {}
+        old_file_meta = {}
 
     # Walk repo
     files = walk_repo(root, respect_ignore=respect_ignore)
@@ -551,11 +641,19 @@ def _build_index_locked(
             include_tests=include_tests,
             include_generated=include_generated,
         )
-    current_hashes = _build_file_hashes(files, root)
-
-    # Determine changed and removed files
-    changed = {p for p, h in current_hashes.items() if old_hashes.get(p) != h}
-    removed = set(old_hashes.keys()) - set(current_hashes.keys())
+    if full:
+        # Full rebuild: hash everything, populate stat cache for future incremental updates
+        current_file_meta = {}
+        for f in files:
+            rel = str(f.relative_to(root)).replace("\\", "/")
+            mtime, size, inode = _stat_entry(f)
+            digest = _sha256(f)
+            current_file_meta[rel] = {"hash": digest, "mtime": mtime, "size": size, "inode": inode}
+        changed = set(current_file_meta.keys())
+        removed: set[str] = set()
+    else:
+        # Incremental: use stat cache — only read files with changed mtime/size/inode
+        current_file_meta, changed, removed = _detect_changes(files, root, old_file_meta)
     stale = changed | removed
 
     if not full and not stale:
@@ -733,8 +831,9 @@ def _build_index_locked(
     new_meta = {
         "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "model_versions": new_model_versions,
+        "chunker_version": current_chunker_version,
         "content": sorted(available_content),
-        "file_hashes": current_hashes,
+        "file_meta": current_file_meta,
     }
     _save_meta(index_dir, new_meta)
 

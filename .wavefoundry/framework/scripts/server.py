@@ -3737,38 +3737,16 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
     if diagnostics:
         return _response("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed}, diagnostics=diagnostics + gate_diagnostics, next_tools=["wave_validate", "wave_current"], usage="wave_validate()")
     updated = False
-    archive_rel = ""
     handoff_rel = ""
     if mode_s == "create":
         status_match = _STATUS_PATTERN.search(text)
         if status_match and status_match.group(1) != "closed":
+            import time
             text = text[:status_match.start(1)] + "closed" + text[status_match.end(1):]
             if "Completed At:" not in text:
-                import time
                 text = text.replace("## Wave Summary", f"Completed At: {time.strftime('%Y-%m-%d')}\n\n## Wave Summary", 1)
             wave_md.write_text(text, encoding="utf-8")
             updated = True
-            import time
-            archive_dir = wave_md.parent / "archive"
-            archive_dir.mkdir(parents=True, exist_ok=True)
-            archive_file = archive_dir / f"close-summary-{time.strftime('%Y%m%d')}.md"
-            owner_match = re.search(r"^Owner:\s*(.+)$", text, re.MULTILINE)
-            wave_owner = owner_match.group(1).strip() if owner_match else "Engineering"
-            archive_file.write_text(
-                (
-                    f"# Wave Close Summary\n\n"
-                    f"Owner: {wave_owner}\n"
-                    f"Status: closed\n"
-                    f"Last verified: {time.strftime('%Y-%m-%d')}\n"
-                    f"Wave: `{wave_id}`\n"
-                    f"Closed At: {time.strftime('%Y-%m-%d')}\n\n"
-                    f"## Change Statuses\n\n"
-                    + "\n".join(f"- `{cid}`" for cid in _extract_change_ids_from_wave_text(text))
-                    + "\n"
-                ),
-                encoding="utf-8",
-            )
-            archive_rel = str(archive_file.relative_to(root)).replace("\\", "/")
             handoff = root / "docs" / "agents" / "session-handoff.md"
             handoff.parent.mkdir(parents=True, exist_ok=True)
             prior = handoff.read_text(encoding="utf-8") if handoff.exists() else ""
@@ -3776,13 +3754,13 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
             handoff_rel = str(handoff.relative_to(root)).replace("\\", "/")
             if cache:
                 cache.invalidate()
-            refresh_paths: list[str | Path] = [wave_md, archive_file]
+            refresh_paths: list[str | Path] = [wave_md]
             if handoff_rel:
                 refresh_paths.append(handoff)
             _trigger_background_index_refresh_for_paths(root, refresh_paths)
     return _response(
         "dry_run" if mode_s == "dry_run" else "ok",
-        {"wave_id": wave_id, "mode": mode_s, "updated": updated, "archive_path": archive_rel, "handoff_path": handoff_rel},
+        {"wave_id": wave_id, "mode": mode_s, "updated": updated, "handoff_path": handoff_rel},
         diagnostics=gate_diagnostics if gate_diagnostics else None,
         next_tools=["wave_current"],
         usage="wave_current()",

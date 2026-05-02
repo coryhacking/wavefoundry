@@ -125,12 +125,79 @@ class FileWalkerTests(unittest.TestCase):
         files = self.bi.walk_repo(self.root)
         self.assertFalse(any(".wavefoundry/index" in str(f).replace("\\", "/") for f in files))
 
-    def test_returns_paths_with_forward_slashes_in_hashes(self):
+    def test_returns_paths_with_forward_slashes(self):
         _make_repo(self.root, {"src/sub/foo.py": "x = 1\n"})
         files = self.bi.walk_repo(self.root)
-        hashes = self.bi._build_file_hashes(files, self.root)
-        for key in hashes:
-            self.assertNotIn("\\", key)
+        for f in files:
+            rel = str(f.relative_to(self.root)).replace("\\", "/")
+            self.assertNotIn("\\", rel)
+
+    def test_excludes_dot_dirs_blanket(self):
+        """All dot-prefix dirs except .wavefoundry are excluded, at any depth."""
+        _make_repo(self.root, {"src/foo.py": "x = 1\n"})
+        for dot_dir in (".idea", ".vscode", ".cursor", ".claude", ".codex", ".github"):
+            d = self.root / dot_dir
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "settings.json").write_text("{}", encoding="utf-8")
+        # Also test nested: a dot-dir inside a non-dot dir
+        nested = self.root / "src" / ".idea"
+        nested.mkdir(parents=True, exist_ok=True)
+        (nested / "workspace.xml").write_text("<project/>", encoding="utf-8")
+        files = self.bi.walk_repo(self.root)
+        rel_strs = {str(f.relative_to(self.root)).replace("\\", "/") for f in files}
+        for dot_dir in (".idea", ".vscode", ".cursor", ".claude", ".codex", ".github"):
+            self.assertFalse(
+                any(s.startswith(dot_dir + "/") for s in rel_strs),
+                f"{dot_dir} should be excluded",
+            )
+        self.assertNotIn("src/.idea/workspace.xml", rel_strs, "nested .idea should be excluded")
+
+    def test_wavefoundry_dir_still_walked(self):
+        """Files under .wavefoundry/ are not excluded by the blanket dot-dir rule."""
+        _make_repo(self.root, {
+            "src/foo.py": "x = 1\n",
+            ".wavefoundry/config.json": '{"ok": true}\n',
+        })
+        files = self.bi.walk_repo(self.root)
+        rel_strs = {str(f.relative_to(self.root)).replace("\\", "/") for f in files}
+        self.assertIn(".wavefoundry/config.json", rel_strs)
+
+    def test_excludes_env_files(self):
+        """.env and .env.* files are excluded (secrets risk)."""
+        _make_repo(self.root, {"src/foo.py": "x = 1\n"})
+        (self.root / ".env").write_text("SECRET=abc\n", encoding="utf-8")
+        (self.root / ".env.local").write_text("LOCAL=xyz\n", encoding="utf-8")
+        (self.root / ".env.production").write_text("PROD=123\n", encoding="utf-8")
+        files = self.bi.walk_repo(self.root)
+        names = {f.name for f in files}
+        self.assertNotIn(".env", names)
+        self.assertNotIn(".env.local", names)
+        self.assertNotIn(".env.production", names)
+
+    def test_includes_txt_files(self):
+        """.txt files pass through the walker."""
+        _make_repo(self.root, {
+            "src/foo.py": "x = 1\n",
+            "docs/notes.txt": "Some notes.\n",
+        })
+        files = self.bi.walk_repo(self.root)
+        names = {f.name for f in files}
+        self.assertIn("notes.txt", names)
+
+    def test_includes_extensionless_readme(self):
+        """README and other extensionless docs filenames pass through the walker."""
+        _make_repo(self.root, {"src/foo.py": "x = 1\n"})
+        for name in ("README", "LICENSE", "CHANGELOG", "CONTRIBUTING", "NOTICE"):
+            (self.root / name).write_text(f"# {name}\n", encoding="utf-8")
+        files = self.bi.walk_repo(self.root)
+        names = {f.name for f in files}
+        for name in ("README", "LICENSE", "CHANGELOG", "CONTRIBUTING", "NOTICE"):
+            self.assertIn(name, names, f"{name} should be included")
+
+    def test_new_code_extensions_in_source_set(self):
+        """AC-7: .xml, .graphql, .gql, .proto, .sql are in SOURCE_CODE_EXTENSIONS."""
+        for ext in (".xml", ".graphql", ".gql", ".proto", ".sql"):
+            self.assertIn(ext, self.bi.SOURCE_CODE_EXTENSIONS, f"{ext} missing from SOURCE_CODE_EXTENSIONS")
 
 
 class CodeFileFilterTests(unittest.TestCase):
@@ -169,11 +236,15 @@ class CodeFileFilterTests(unittest.TestCase):
         self.assertNotIn("notes.txt", paths)
 
     def test_code_filter_can_include_tests_and_generated_files(self):
+        # .claude/ is excluded by the blanket dot-dir walker rule, so generated
+        # files under .claude/ never reach _filter_code_files regardless of include_generated.
         _make_repo(self.root, {
             "src/foo.py": "def f(): pass\n",
             "tests/test_foo.py": "def test_f(): pass\n",
-            ".claude/hooks/post-edit.py": "def hook(): pass\n",
+            "generated/output.py": "def gen(): pass\n",
         })
+        # write generated/output.py with a generated-code prefix pattern via a non-dot dir
+        (self.root / "generated" / "output.py").write_text("def gen(): pass\n", encoding="utf-8")
 
         files = self.bi.walk_repo(self.root)
         filtered = self.bi._filter_code_files(
@@ -186,7 +257,6 @@ class CodeFileFilterTests(unittest.TestCase):
 
         self.assertIn("src/foo.py", paths)
         self.assertIn("tests/test_foo.py", paths)
-        self.assertIn(".claude/hooks/post-edit.py", paths)
 
     def test_code_filter_always_excludes_framework_internal_tests(self):
         _make_repo(self.root, {
@@ -284,12 +354,25 @@ class IncrementalBuildTests(unittest.TestCase):
 
         self.assertEqual(result["files_indexed"], 1)
 
-    def test_meta_records_file_hashes(self):
+    def test_meta_records_file_meta(self):
         _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
         self._run_build(full=True)
         meta = json.loads((self.root / ".wavefoundry" / "index" / "meta.json").read_text())
-        self.assertIn("file_hashes", meta)
-        self.assertIn("src/foo.py", meta["file_hashes"])
+        self.assertIn("file_meta", meta)
+        self.assertIn("src/foo.py", meta["file_meta"])
+        self.assertNotIn("file_hashes", meta)
+
+    def test_meta_records_file_meta_with_stat_fields(self):
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        self._run_build(full=True)
+        meta = json.loads((self.root / ".wavefoundry" / "index" / "meta.json").read_text())
+        self.assertIn("file_meta", meta)
+        entry = meta["file_meta"].get("src/foo.py")
+        self.assertIsNotNone(entry)
+        self.assertIn("hash", entry)
+        self.assertIn("mtime", entry)
+        self.assertIn("size", entry)
+        self.assertIn("inode", entry)
 
     def test_meta_records_model_versions(self):
         _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
@@ -370,8 +453,8 @@ class IncrementalBuildTests(unittest.TestCase):
             )
 
         meta = json.loads((index_dir / "meta.json").read_text())
-        self.assertIn("framework/seeds/example.md", meta["file_hashes"])
-        self.assertNotIn("framework/index/stale.json", meta["file_hashes"])
+        self.assertIn("framework/seeds/example.md", meta["file_meta"])
+        self.assertNotIn("framework/index/stale.json", meta["file_meta"])
 
     def test_default_project_index_excludes_framework_source(self):
         _make_repo(self.root, {
@@ -386,8 +469,8 @@ class IncrementalBuildTests(unittest.TestCase):
         index_dir = self.root / ".wavefoundry" / "index"
         meta = json.loads((index_dir / "meta.json").read_text())
         chunks = json.loads((index_dir / "docs.json").read_text())
-        self.assertIn("docs/guide.md", meta["file_hashes"])
-        self.assertNotIn(".wavefoundry/framework/README.md", meta["file_hashes"])
+        self.assertIn("docs/guide.md", meta["file_meta"])
+        self.assertNotIn(".wavefoundry/framework/README.md", meta["file_meta"])
         self.assertFalse(any(c["path"].startswith(".wavefoundry/framework/") for c in chunks))
 
     def test_explicit_framework_index_can_include_framework_source(self):
@@ -411,7 +494,7 @@ class IncrementalBuildTests(unittest.TestCase):
 
         meta = json.loads((index_dir / "meta.json").read_text())
         chunks = json.loads((index_dir / "docs.json").read_text())
-        self.assertIn(".wavefoundry/framework/README.md", meta["file_hashes"])
+        self.assertIn(".wavefoundry/framework/README.md", meta["file_meta"])
         self.assertTrue(any(c["path"] == ".wavefoundry/framework/README.md" for c in chunks))
 
     def test_project_docs_index_can_opt_in_excluded_prefixes(self):
@@ -433,7 +516,7 @@ class IncrementalBuildTests(unittest.TestCase):
         index_dir = self.root / ".wavefoundry" / "index"
         meta = json.loads((index_dir / "meta.json").read_text())
         chunks = json.loads((index_dir / "docs.json").read_text())
-        self.assertIn(".wavefoundry/framework/README.md", meta["file_hashes"])
+        self.assertIn(".wavefoundry/framework/README.md", meta["file_meta"])
         self.assertTrue(any(c["path"] == ".wavefoundry/framework/README.md" for c in chunks))
 
     def test_project_code_index_can_opt_in_excluded_prefixes(self):
@@ -457,9 +540,87 @@ class IncrementalBuildTests(unittest.TestCase):
         index_dir = self.root / ".wavefoundry" / "index"
         meta = json.loads((index_dir / "meta.json").read_text())
         code_chunks = json.loads((index_dir / "code.json").read_text())
-        self.assertIn(".wavefoundry/framework/scripts/server.py", meta["file_hashes"])
+        self.assertIn(".wavefoundry/framework/scripts/server.py", meta["file_meta"])
         self.assertTrue(any(c["path"] == ".wavefoundry/framework/scripts/server.py" for c in code_chunks))
-        self.assertIn("vendor/docs/custom.py", meta["file_hashes"])
+        self.assertIn("vendor/docs/custom.py", meta["file_meta"])
+
+
+class StatCacheTests(unittest.TestCase):
+    """12b1a: stat+inode cache pre-filter for incremental change detection."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _run_build(self, full: bool = False) -> dict:
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            return self.bi.build_index(self.root, full=full, content="all", verbose=False)
+
+    def test_stat_cache_hit_skips_hash_on_clean_pass(self):
+        """On a clean incremental pass, _sha256 must not be called for any file."""
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        self._run_build(full=True)
+        with patch.object(self.bi, "_sha256", wraps=self.bi._sha256) as mock_hash:
+            result = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        self.assertTrue(result["up_to_date"])
+        mock_hash.assert_not_called()
+
+    def test_stat_cache_miss_on_content_change(self):
+        """A file whose content changes is detected and re-chunked."""
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        self._run_build(full=True)
+        (self.root / "src" / "foo.py").write_text("def f(): return 42\n", encoding="utf-8")
+        result = self._run_build(full=False)
+        self.assertFalse(result["up_to_date"])
+        self.assertEqual(result["files_indexed"], 1)
+
+    def test_same_content_same_mtime_not_rechunked(self):
+        """A file written with identical content and restored mtime is not re-chunked."""
+        p = self.root / "src" / "foo.py"
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        self._run_build(full=True)
+        # Capture original mtime
+        original_mtime = p.stat().st_mtime
+        # Overwrite with identical content, restore mtime
+        p.write_text("def f(): pass\n", encoding="utf-8")
+        import os
+        os.utime(p, (original_mtime, original_mtime))
+        result = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        self.assertTrue(result["up_to_date"])
+
+    def test_missing_file_meta_treated_as_empty(self):
+        """An index with no file_meta is treated as empty — all files re-hashed."""
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        index_dir = self.root / ".wavefoundry" / "index"
+        index_dir.mkdir(parents=True, exist_ok=True)
+        (index_dir / "meta.json").write_text(
+            json.dumps({
+                "model_versions": {"docs": self.bi.DOCS_MODEL, "code": self.bi.CODE_MODEL},
+                "chunker_version": "",
+            }),
+            encoding="utf-8",
+        )
+        result = self._run_build(full=False)
+        meta = json.loads((index_dir / "meta.json").read_text())
+        self.assertIn("file_meta", meta)
+        entry = meta["file_meta"].get("src/foo.py")
+        self.assertIsNotNone(entry)
+        self.assertIn("mtime", entry)
+
+    def test_full_rebuild_bypasses_stat_cache(self):
+        """Full rebuild re-hashes all files regardless of cached stat."""
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        self._run_build(full=True)
+        with patch.object(self.bi, "_sha256", wraps=self.bi._sha256) as mock_hash:
+            result = self._run_build(full=True)
+        self.assertFalse(result["up_to_date"])
+        mock_hash.assert_called()
 
 
 class ModelVersionChangeTests(unittest.TestCase):
@@ -479,7 +640,7 @@ class ModelVersionChangeTests(unittest.TestCase):
         (index_dir / "meta.json").write_text(
             json.dumps({
                 "model_versions": {"docs": "old-model", "code": "old-model"},
-                "file_hashes": {},
+                "file_meta": {},
             }),
             encoding="utf-8",
         )

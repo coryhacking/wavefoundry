@@ -108,7 +108,7 @@ Implementation details to preserve:
 
 This rule must be present in `AGENTS.md` and any other agent entry files where a "development rules" or "workflow notes" section is appropriate. Add it once in a shared location rather than repeating it in every thin pointer file:
 
-> Prefer running tests without writing bytecode: `.wavefoundry/framework/scripts/run_tests.py`, or `python3 -B -m unittest …` (see `AGENTS.md` **Framework Script Hygiene**). If anything still created caches, delete `__pycache__` under that tree:
+> The framework test suite (`scripts/tests/`, `scripts/run_tests.py`) is a development-only artifact that lives in the Wavefoundry source repository and is **not included in the distribution pack**. Downstream repositories that vendor the pack do not have these files and must not attempt to run them. If anything created `__pycache__` caches, delete them:
 > ```
 > find .wavefoundry/framework/scripts -type d -name '__pycache__' -prune -exec rm -rf {} \;
 > ```
@@ -154,7 +154,7 @@ This MCP-first principle extends beyond docs validation to **all wave and plan s
 - **Seed protection** — block (or warn+halt where pre-write is unavailable) edits to `*.prompt.md` files under `.wavefoundry/framework/` unless `.wavefoundry/guard-overrides.json` sets `seed_edit_allowed.enabled` to `true`. Use the repo-global override file only for intentional seed edits, then remove it or set the flag back to `false`.
 - **Framework plan gate** — block (or warn+halt) broad framework-maintenance edits to `.wavefoundry/framework/`, `docs/prompts/`, `AGENTS.md`, and tracked hook configs unless `.wavefoundry/guard-overrides.json` sets `framework_edit_allowed.enabled` to `true` after the operator reviews the file-level patch plan.
 - **`docs-lint` hook** — run **`.wavefoundry/bin/docs-lint`** after any Edit/Write to files under `docs/`, failing the hook when the docs gate fails (subprocess hook path; not MCP).
-- **pycache cleanup** (Claude Code only) — remove `__pycache__` directories after framework test runs.
+- **pycache cleanup** (Claude Code only) — remove `__pycache__` directories after framework script runs.
 
 ### Per-platform capability matrix
 
@@ -190,7 +190,7 @@ Seed or update `.claude/settings.json` with the hooks below. **Merge with any ex
 Generated entrypoints (three variants each: `.py`, POSIX launcher, `.cmd`):
 - `.claude/hooks/pre-edit` — seed protection + framework plan gate
 - `.claude/hooks/post-edit` — `docs-lint`
-- `.claude/hooks/pycache-cleanup` — `__pycache__` cleanup after framework test runs
+- `.claude/hooks/pycache-cleanup` — `__pycache__` cleanup after framework script runs
 - `.claude/hooks/simulate-hooks` — local test harness for the above
 
 `.gitignore` tracks `.claude/skills/` and `.claude/hooks/` (for reusable operator skills and generated hook entrypoints). `.claude/settings.json` is a committed project-level file and must not be gitignored; `.claude/settings.local.json` is a personal override and should be gitignored.

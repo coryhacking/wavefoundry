@@ -36,7 +36,9 @@ from typing import Optional
 EXCLUDED_NAMES = {".DS_Store"}
 EXCLUDED_DIRS = {"__pycache__", ".pytest_cache"}
 # Excluded path suffix relative to the framework root (forward-slash separated).
-EXCLUDED_REL_PATHS = {"scripts/tests/tmp"}
+# Tests and the test runner are development-only artifacts; downstream repos that
+# vendor the pack have no use for them and seeds must not instruct them to run tests.
+EXCLUDED_REL_PATHS = {"scripts/tests/tmp", "scripts/tests", "scripts/run_tests.py"}
 
 FRAMEWORK_REL = "framework"
 ZIP_PREFIX = "wavefoundry-"

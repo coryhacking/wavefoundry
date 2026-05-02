@@ -163,9 +163,13 @@ class BuildPackTests(unittest.TestCase):
         self.assertTrue(
             any(n.endswith("render_platform_surfaces.py") for n in names), names[:5]
         )
-        self.assertTrue(
-            any(n.endswith("run_tests.py") for n in names), names[:5]
-        )
+
+    def test_tests_excluded_from_pack(self):
+        # Test suite is a development-only artifact; must not ship in the distribution zip.
+        path = self._build()
+        for name in self._zip_names(path):
+            self.assertNotIn("scripts/tests/", name, name)
+            self.assertFalse(name.endswith("run_tests.py"), name)
 
     def test_pycache_excluded(self):
         path = self._build()

@@ -1100,7 +1100,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="create")
         self.assertEqual(result["status"], "ok")
         self.assertIn("Status: closed", wave_md.read_text(encoding="utf-8"))
-        self.assertTrue(result["data"]["archive_path"])
+        self.assertNotIn("archive_path", result["data"])
 
     def test_wave_close_dry_run_fails_when_participants_missing_lane_in_evidence(self):
         wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
@@ -2764,7 +2764,7 @@ class WaveCloseHandoffPreservationTests(unittest.TestCase):
     def _read_handoff(self):
         return (self.root / "docs" / "agents" / "session-handoff.md").read_text(encoding="utf-8")
 
-    def test_close_summary_has_required_metadata(self):
+    def test_close_updates_wave_md_status(self):
         self._make_active_wave()
         wave_md = self.root / "docs" / "waves" / "hw-test" / "wave.md"
         text = wave_md.read_text(encoding="utf-8")
@@ -2772,13 +2772,11 @@ class WaveCloseHandoffPreservationTests(unittest.TestCase):
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
             with patch.object(self.srv, "run_garden", return_value={"passed": True}):
                 self.srv.wave_close_response(self.root, "hw-test", mode="create")
-        import glob
-        summaries = list((self.root / "docs" / "waves" / "hw-test" / "archive").glob("close-summary-*.md"))
-        self.assertEqual(len(summaries), 1)
-        content = summaries[0].read_text(encoding="utf-8")
-        self.assertIn("Owner:", content)
+        content = wave_md.read_text(encoding="utf-8")
         self.assertIn("Status: closed", content)
-        self.assertIn("Last verified:", content)
+        self.assertIn("Completed At:", content)
+        # No archive folder should be created
+        self.assertFalse((self.root / "docs" / "waves" / "hw-test" / "archive").exists())
 
     def test_wave_close_preserves_handoff_content_outside_active_wave(self):
         self._make_active_wave()

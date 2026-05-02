@@ -1,11 +1,11 @@
 # Exclude Tests From Framework Pack
 
 Change ID: `12avt-enh exclude-tests-from-framework-pack`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
-Last verified: 2026-05-01
-Wave: TBD
+Status: complete
+Last verified: 2026-05-02
+Wave: `12axj chunker-and-pack-improvements`
 
 ## Rationale
 

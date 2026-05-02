@@ -6,6 +6,7 @@
   "sourceStrategy": "repo-evidence-only",
   "evidenceTypes": [],
   "artifactCounts": {},
+  "targetSurfaces": ["cli", "agent"],
   "modes": [
     "light",
     "dark"

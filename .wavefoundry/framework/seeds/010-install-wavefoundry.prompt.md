@@ -174,7 +174,7 @@ Include the following topics in plain language:
 5. **Documentation setup and quality gates**
    - How to navigate docs: start with `docs/README.md`, `docs/references/project-overview.md`, and `docs/prompts/index.md`.
    - After init, run project verification from `docs/contributing/build-and-verification.md` (includes docs gate): **prefer MCP `wave_garden` (if needed) then `wave_validate`**; **CLI fallback** when MCP is not attached: **`.wavefoundry/bin/docs-gardener`** and **`.wavefoundry/bin/docs-lint`** (launchers under `.wavefoundry/bin/` pointing at `.wavefoundry/framework/scripts/`).
-   - Framework script hygiene for Python tests under the pack (prefer `python3 -B` or `run_tests.py` per `AGENTS.md` **Framework Script Hygiene** when present).
+   - Framework script hygiene: `__pycache__` cleanup after framework script runs (the test suite is a development-only artifact in the Wavefoundry source repo and is not included in the distribution pack).
 
 6. **Important configuration**
    - **`docs/workflow-config.json`**: lifecycle mode, `lifecycle_id_policy` (epoch and optional offset for `lifecycle_id.py`), `wave_execution` (readiness before implement, auto-run when missing), `review_policies`, `factor_review_policy`, `persona_review_policy`, memory and prompt-generation settings—this is the primary machine- and human-readable policy knob for waves and reviews.

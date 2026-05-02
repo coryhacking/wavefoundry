@@ -1,11 +1,11 @@
 # Structure-Aware Code Chunker
 
 Change ID: `12aw5-enh structure-aware-code-chunker`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
-Last verified: 2026-05-01
-Wave: TBD
+Status: complete
+Last verified: 2026-05-02
+Wave: `12axj chunker-and-pack-improvements`
 
 ## Rationale
 
@@ -152,34 +152,32 @@ Otherwise N/A — confined to `chunker.py` and its tests; no module boundaries, 
 
 ## AC Priority
 
-(Populated at Prepare wave.)
-
 | AC | Priority | Rationale |
 | --- | --- | --- |
-| AC-1 | | |
-| AC-2 | | |
-| AC-3 | | |
-| AC-4 | | |
-| AC-5 | | |
-| AC-6 | | |
-| AC-7 | | |
-| AC-8 | | |
-| AC-9 | | |
-| AC-10 | | |
-| AC-11 | | |
-| AC-12 | | |
-| AC-13 | | |
-| AC-14 | | |
-| AC-15 | | |
-| AC-16 | | |
-| AC-17 | | |
-| AC-18 | | |
-| AC-19 | | |
-| AC-20 | | |
-| AC-21 | | |
-| AC-22 | | |
-| AC-23 | | |
-| AC-24 | | |
+| AC-1 | required | Core Java chunker — breadcrumb in code chunks is the primary deliverable |
+| AC-2 | required | Javadoc extraction; doc chunks are the primary prose search target |
+| AC-3 | required | Annotation names in doc chunk are required for annotation-based search |
+| AC-4 | required | Annotation verbatim in code chunk for behavioral accuracy |
+| AC-5 | required | Multiline annotation correctness — regex cannot match balanced parens |
+| AC-6 | required | Python decorator fix is a blocking correctness bug |
+| AC-7 | required | Python breadcrumb is a required parity fix with new language chunkers |
+| AC-8 | nice-to-have | C# Obsolete string arg extraction — useful but low-frequency edge case |
+| AC-9 | required | Fallback with file-stem breadcrumb — no crash on unrecognised code |
+| AC-10 | required | HTML landmark chunking — HTML currently gets no structural signal |
+| AC-11 | required | HTML line-window fallback when no landmarks present |
+| AC-12 | required | split_large_code_chunks applied — no oversized chunks in index |
+| AC-13 | required | Chunk ID conventions must be consistent and correct |
+| AC-14 | required | CHUNKER_VERSION increment — required for index rebuild signal |
+| AC-15 | required | Go receiver method breadcrumb and adjacent-comment doc chunk |
+| AC-16 | required | Rust impl-block method breadcrumb |
+| AC-17 | nice-to-have | Shell heuristic doc chunk — useful signal but inference-based |
+| AC-18 | nice-to-have | PowerShell comment-based help extraction |
+| AC-19 | nice-to-have | Scala class/method chunking — Scaladoc reuses Java logic |
+| AC-20 | nice-to-have | SQL DDL-boundary chunking |
+| AC-21 | nice-to-have | Jupyter cell routing and cell-indexed IDs |
+| AC-22 | nice-to-have | XML/JSP landmark chunking |
+| AC-23 | required | All pre-existing tests pass with updated assertions |
+| AC-24 | required | New tests cover all required-priority ACs at minimum |
 
 ## Progress Log
 
