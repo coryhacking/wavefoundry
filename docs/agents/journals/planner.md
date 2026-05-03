@@ -27,7 +27,10 @@ Last distilled: 2026-04-28
 
 ## Active Signals
 
-- None. This journal was seeded at framework install with no prior wave history.
+wave-id: `12br9 code-search-language-filter`
+
+- Language filter fix and extension normalization are implemented and tested (734 tests passing). Index rebuild needed after close to reindex existing code chunks with correct language tags.
+- Embedding evaluation plan (`1297p-feat`) admitted to this wave for tracking; implementation deferred pending benchmark harness.
 
 ## Promotion Evidence
 

@@ -884,6 +884,30 @@ class JsTsChunkerTests(unittest.TestCase):
         for c in chunks:
             self.assertLessEqual(len(c.text), 4000, f"chunk too large: {c.id}")
 
+    def test_tsx_chunks_have_typescript_language(self):
+        source = "export function App() { return null; }\n"
+        chunks = self.chunker.chunk_js_ts(source, "src/App.tsx")
+        self.assertTrue(len(chunks) >= 1)
+        self.assertTrue(all(c.language == "typescript" for c in chunks))
+
+    def test_ts_chunks_have_typescript_language(self):
+        source = "function greet(name: string): string { return name; }\n"
+        chunks = self.chunker.chunk_js_ts(source, "src/greet.ts")
+        self.assertTrue(len(chunks) >= 1)
+        self.assertTrue(all(c.language == "typescript" for c in chunks))
+
+    def test_js_chunks_have_javascript_language(self):
+        source = "function greet(name) { return name; }\n"
+        chunks = self.chunker.chunk_js_ts(source, "src/greet.js")
+        self.assertTrue(len(chunks) >= 1)
+        self.assertTrue(all(c.language == "javascript" for c in chunks))
+
+    def test_jsx_chunks_have_javascript_language(self):
+        source = "function App() { return null; }\n"
+        chunks = self.chunker.chunk_js_ts(source, "src/App.jsx")
+        self.assertTrue(len(chunks) >= 1)
+        self.assertTrue(all(c.language == "javascript" for c in chunks))
+
 
 class HtmlChunkerTests(unittest.TestCase):
     """12aw5: HTML landmark chunker."""
@@ -1112,6 +1136,30 @@ class ShellChunkerTests(unittest.TestCase):
         self.assertIn("[inferred from comments]", doc[0].text)
         self.assertIn("Deploy the app", doc[0].text)
 
+    def test_sh_chunks_have_shell_language(self):
+        source = "deploy() {\n    echo deploying\n}\n"
+        chunks = self.chunker.chunk_shell(source, "scripts/deploy.sh")
+        self.assertTrue(len(chunks) >= 1)
+        self.assertTrue(all(c.language == "shell" for c in chunks))
+
+    def test_bash_chunks_have_shell_language(self):
+        source = "deploy() {\n    echo deploying\n}\n"
+        chunks = self.chunker.chunk_shell(source, "scripts/deploy.bash")
+        self.assertTrue(len(chunks) >= 1)
+        self.assertTrue(all(c.language == "shell" for c in chunks))
+
+    def test_zsh_chunks_have_shell_language(self):
+        source = "deploy() {\n    echo deploying\n}\n"
+        chunks = self.chunker.chunk_shell(source, "scripts/deploy.zsh")
+        self.assertTrue(len(chunks) >= 1)
+        self.assertTrue(all(c.language == "shell" for c in chunks))
+
+    def test_fish_chunks_have_fish_language(self):
+        source = "function deploy\n    echo deploying\nend\n"
+        chunks = self.chunker.chunk_shell(source, "scripts/deploy.fish")
+        self.assertTrue(len(chunks) >= 1)
+        self.assertTrue(all(c.language == "fish" for c in chunks))
+
 
 class SqlChunkerTests(unittest.TestCase):
     """12aw5: SQL DDL-boundary chunker."""
@@ -1223,6 +1271,30 @@ class CCppChunkerTests(unittest.TestCase):
         self.assertGreater(sum(1 for c in chunks if c.kind == "code"), 1, "split should have occurred")
         for c in chunks:
             self.assertLessEqual(len(c.text), 4000, f"chunk too large: {c.id}")
+
+    def test_cpp_chunks_have_cpp_language(self):
+        source = "int add(int a, int b) { return a + b; }\n"
+        chunks = self.chunker.chunk_c_cpp(source, "src/math.cpp")
+        self.assertTrue(len(chunks) >= 1)
+        self.assertTrue(all(c.language == "cpp" for c in chunks))
+
+    def test_hpp_chunks_have_cpp_language(self):
+        source = "int add(int a, int b) { return a + b; }\n"
+        chunks = self.chunker.chunk_c_cpp(source, "src/math.hpp")
+        self.assertTrue(len(chunks) >= 1)
+        self.assertTrue(all(c.language == "cpp" for c in chunks))
+
+    def test_c_chunks_have_c_language(self):
+        source = "int add(int a, int b) { return a + b; }\n"
+        chunks = self.chunker.chunk_c_cpp(source, "src/math.c")
+        self.assertTrue(len(chunks) >= 1)
+        self.assertTrue(all(c.language == "c" for c in chunks))
+
+    def test_h_chunks_have_c_language(self):
+        source = "int add(int a, int b);\n"
+        chunks = self.chunker.chunk_c_cpp(source, "src/math.h")
+        self.assertTrue(len(chunks) >= 1)
+        self.assertTrue(all(c.language == "c" for c in chunks))
 
 
 class XmlChunkerTests(unittest.TestCase):

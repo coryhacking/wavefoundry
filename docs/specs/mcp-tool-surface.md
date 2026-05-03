@@ -198,7 +198,7 @@ once envelope migration is complete.
 `code_search(query: str, language: str = "", limit: int = 5)`
 
 - Semantic search over indexed source code chunks.
-- Optional `language`: implementation language identifier, such as `python`.
+- Optional `language`: category name, canonical language name, or raw file extension (with or without leading dot) — all accepted. e.g. `"typescript"`, `"tsx"`, and `".tsx"` are all equivalent single-language filters. Category filters expand to a set of languages and return `language_resolved` (the expanded language list) and `language_extensions` (all covered extensions). Single-language filters return `language_extensions` only; `language_resolved` is absent. Categories: `java` (java, kotlin, scala, groovy), `web` (typescript, javascript, html, css, scss), `systems` (c, cpp, rust, go), `script` (python, ruby, shell, fish), `data` (sql), `sparksql` (sql alias for SparkSQL queries), `dotnet` (csharp). Canonical names and their extensions: `typescript` (.ts, .tsx), `javascript` (.js, .jsx, .mjs, .cjs), `python` (.py), `go` (.go), `rust` (.rs), `java` (.java), `kotlin` (.kt, .kts), `scala` (.scala), `groovy` (.groovy), `ruby` (.rb), `csharp` (.cs), `cpp` (.cpp, .hpp), `c` (.c, .h), `shell` (.sh, .bash, .zsh), `fish` (.fish), `sql` (.sql), `xml` (.xml), `html` (.html, .htm), `css` (.css), `scss` (.scss), `swift` (.swift), `json` (.json, .jsonc), `toml` (.toml), `yaml` (.yaml, .yml). Use `wave_help(goal='search_code')` to rediscover this list at runtime.
 - Optional `limit`: number of results to return, default `5`, clamped `[1, 20]`.
 - Returns path, line range, score, excerpt, trust label, and a stable result ID
 once envelope migration is complete.
@@ -414,6 +414,40 @@ Use this table to select the right tool for a query type.
 | Combined health check after a mutation | `wave_audit` | `wave_validate` + `wave_index_health` |
 | Lint-only targeted check | `wave_validate` | `wave_audit` (`data.validation` contains the same lint result) |
 | Check semantic index layer readiness | `wave_index_health` | `wave_audit` (`data.index` contains the same health summary) |
+
+### When to use `code_search` — and which `language` form to pass
+
+**Use `code_search` (no language filter) when:**
+- The query spans the whole codebase and you don't know or care which language the answer is in.
+- Example: `code_search(query="retry logic with exponential backoff")`
+
+**Use `code_search` with a language category when:**
+- You know the answer is in a family of related languages but not a specific one.
+- The codebase mixes languages in the same area (e.g. a web frontend with both `.ts` and `.tsx` files, or a data pipeline with both `.sql` and SparkSQL in `.scala`).
+- You want broader recall without drowning results with unrelated languages.
+- Examples:
+  - `code_search(query="form validation", language="web")` — TypeScript, JavaScript, HTML, CSS, SCSS
+  - `code_search(query="dependency injection", language="java")` — Java, Kotlin, Scala, Groovy
+  - `code_search(query="SELECT with window functions", language="data")` — SQL only
+  - `code_search(query="deployment script", language="script")` — Python, Ruby, shell scripts
+  - `code_search(query="pointer arithmetic", language="systems")` — C, C++, Rust, Go
+
+**Use `code_search` with a canonical language name or extension when:**
+- You know exactly which language the answer is in.
+- You want to eliminate noise from similar patterns in other languages.
+- Examples:
+  - `code_search(query="parse wave IDs from string", language="python")`
+  - `code_search(query="React component with loading state", language="tsx")`
+  - `code_search(query="CREATE TABLE migration", language="sql")`
+
+**Use `code_keyword_search` instead of `code_search` when:**
+- You know the exact function name, variable, import path, or string literal.
+- The semantic index is unavailable (`wave_index_health` reports not ready).
+- You need deterministic, exhaustive results (semantic search scores by relevance, not completeness).
+
+**Use `docs_search` instead of `code_search` when:**
+- The answer is in a markdown spec, architecture doc, prompt, or seed — not in source code.
+- The query is about *why* something works the way it does, not *how* it is implemented.
 
 ## Anchors And Addresses
 

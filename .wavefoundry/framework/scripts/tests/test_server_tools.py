@@ -718,6 +718,218 @@ class GuidedContractTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# code_search language normalization
+# ---------------------------------------------------------------------------
+
+class CodeSearchLanguageNormalizationTests(unittest.TestCase):
+    def setUp(self):
+        self.srv = load_server()
+
+    def _index_with_results(self, results):
+        index = MagicMock()
+        index.search_code.return_value = results
+        return index
+
+    def _fake_result(self):
+        return [{
+            "id": "src/App.tsx::render",
+            "path": "src/App.tsx",
+            "kind": "code",
+            "language": "typescript",
+            "section": "App > render",
+            "lines": [10, 20],
+            "text": "render() {}",
+            "score": 0.9,
+        }]
+
+    def test_canonical_language_name_passes_through(self):
+        index = self._index_with_results(self._fake_result())
+        result = self.srv.code_search_response(index, "render", "typescript")
+        self.assertEqual(result["data"]["language"], "typescript")
+        index.search_code.assert_called_once_with("render", language="typescript", top_n=5)
+
+    def test_raw_extension_without_dot_is_normalized(self):
+        index = self._index_with_results(self._fake_result())
+        result = self.srv.code_search_response(index, "render", "tsx")
+        self.assertEqual(result["data"]["language"], "typescript")
+        index.search_code.assert_called_once_with("render", language="typescript", top_n=5)
+
+    def test_raw_extension_with_dot_is_normalized(self):
+        index = self._index_with_results(self._fake_result())
+        result = self.srv.code_search_response(index, "render", ".tsx")
+        self.assertEqual(result["data"]["language"], "typescript")
+        index.search_code.assert_called_once_with("render", language="typescript", top_n=5)
+
+    def test_js_extension_normalizes_to_javascript(self):
+        index = self._index_with_results(self._fake_result())
+        result = self.srv.code_search_response(index, "fetch", "js")
+        self.assertEqual(result["data"]["language"], "javascript")
+        index.search_code.assert_called_once_with("fetch", language="javascript", top_n=5)
+
+    def test_ts_extension_normalizes_to_typescript(self):
+        index = self._index_with_results(self._fake_result())
+        result = self.srv.code_search_response(index, "parse", "ts")
+        self.assertEqual(result["data"]["language"], "typescript")
+
+    def test_sh_extension_normalizes_to_shell(self):
+        index = self._index_with_results(self._fake_result())
+        result = self.srv.code_search_response(index, "build", "sh")
+        self.assertEqual(result["data"]["language"], "shell")
+
+    def test_language_extensions_returned_for_canonical_name(self):
+        index = self._index_with_results(self._fake_result())
+        result = self.srv.code_search_response(index, "render", "typescript")
+        self.assertEqual(sorted(result["data"]["language_extensions"]), ["ts", "tsx"])
+
+    def test_language_extensions_returned_when_extension_passed(self):
+        index = self._index_with_results(self._fake_result())
+        result = self.srv.code_search_response(index, "render", "tsx")
+        self.assertEqual(sorted(result["data"]["language_extensions"]), ["ts", "tsx"])
+
+    def test_language_extensions_none_when_no_filter(self):
+        index = self._index_with_results(self._fake_result())
+        result = self.srv.code_search_response(index, "render", "")
+        self.assertIsNone(result["data"]["language_extensions"])
+
+    def test_language_extensions_in_no_results_response(self):
+        index = self._index_with_results([])
+        result = self.srv.code_search_response(index, "render", "tsx")
+        self.assertEqual(result["data"]["language"], "typescript")
+        self.assertEqual(sorted(result["data"]["language_extensions"]), ["ts", "tsx"])
+
+    def test_language_extensions_in_index_not_ready_response(self):
+        index = MagicMock()
+        index.search_code.side_effect = self.srv.IndexNotReadyError("missing")
+        result = self.srv.code_search_response(index, "render", "tsx")
+        self.assertEqual(result["data"]["language"], "typescript")
+        self.assertEqual(sorted(result["data"]["language_extensions"]), ["ts", "tsx"])
+
+    def test_unknown_extension_left_unchanged(self):
+        index = self._index_with_results(self._fake_result())
+        result = self.srv.code_search_response(index, "render", "lua")
+        self.assertEqual(result["data"]["language"], "lua")
+        self.assertIsNone(result["data"]["language_extensions"])
+
+    def test_server_and_chunker_ext_maps_agree(self):
+        # Ensure _EXT_TO_LANG in server.py and _EXT_TO_LANGUAGE in chunker.py
+        # map each shared extension to the same canonical language name.
+        chunker_mod = sys.modules.get("chunker")
+        if chunker_mod is None:
+            chunker_path = SCRIPTS_ROOT / "chunker.py"
+            chunker_spec = importlib.util.spec_from_file_location("chunker", chunker_path)
+            chunker_mod = importlib.util.module_from_spec(chunker_spec)
+            sys.modules["chunker"] = chunker_mod
+            chunker_spec.loader.exec_module(chunker_mod)
+
+        server_map = self.srv._EXT_TO_LANG
+        chunker_map = chunker_mod._EXT_TO_LANGUAGE
+
+        mismatches = []
+        for ext, server_lang in server_map.items():
+            if ext in chunker_map and chunker_map[ext] != server_lang:
+                mismatches.append(
+                    f"{ext}: server={server_lang!r} chunker={chunker_map[ext]!r}"
+                )
+        self.assertEqual(
+            mismatches, [],
+            "Extension→language mismatch between server._EXT_TO_LANG and chunker._EXT_TO_LANGUAGE:\n"
+            + "\n".join(mismatches),
+        )
+
+
+# ---------------------------------------------------------------------------
+# code_search language categories
+# ---------------------------------------------------------------------------
+
+class CodeSearchLanguageCategoryTests(unittest.TestCase):
+    def setUp(self):
+        self.srv = load_server()
+
+    def _index_with_results(self, results):
+        index = MagicMock()
+        index.search_code.return_value = results
+        return index
+
+    def _fake_result(self, language="typescript"):
+        return {
+            "id": f"src/App.{language}::render",
+            "path": f"src/App.{language}",
+            "kind": "code",
+            "language": language,
+            "section": "App > render",
+            "lines": [10, 20],
+            "text": "render() {}",
+            "score": 0.9,
+        }
+
+    def test_category_expands_to_language_resolved(self):
+        index = self._index_with_results([self._fake_result("typescript")])
+        result = self.srv.code_search_response(index, "render", "web")
+        self.assertEqual(result["data"]["language"], "web")
+        self.assertIn("typescript", result["data"]["language_resolved"])
+        self.assertIn("javascript", result["data"]["language_resolved"])
+
+    def test_category_filters_results_to_member_languages(self):
+        # Returns unfiltered results; post-filter keeps only category members.
+        all_results = [self._fake_result("typescript"), self._fake_result("python")]
+        index = self._index_with_results(all_results)
+        result = self.srv.code_search_response(index, "render", "web")
+        langs = [r["language"] for r in result["data"]["results"]]
+        self.assertIn("typescript", langs)
+        self.assertNotIn("python", langs)
+
+    def test_category_language_extensions_covers_all_members(self):
+        index = self._index_with_results([self._fake_result("typescript")])
+        result = self.srv.code_search_response(index, "render", "web")
+        exts = result["data"]["language_extensions"]
+        self.assertIn("ts", exts)
+        self.assertIn("tsx", exts)
+        self.assertIn("js", exts)
+
+    def test_java_category_includes_kotlin_scala_groovy(self):
+        index = self._index_with_results([self._fake_result("java")])
+        result = self.srv.code_search_response(index, "parse", "java")
+        resolved = result["data"]["language_resolved"]
+        self.assertIn("kotlin", resolved)
+        self.assertIn("scala", resolved)
+        self.assertIn("groovy", resolved)
+        self.assertIn("java", resolved)
+
+    def test_sparksql_resolves_to_sql(self):
+        index = self._index_with_results([self._fake_result("sql")])
+        result = self.srv.code_search_response(index, "select", "sparksql")
+        self.assertEqual(result["data"]["language_resolved"], ["sql"])
+        self.assertIn("sql", result["data"]["language_extensions"])
+
+    def test_data_category_resolves_to_sql(self):
+        index = self._index_with_results([self._fake_result("sql")])
+        result = self.srv.code_search_response(index, "schema", "data")
+        self.assertEqual(result["data"]["language_resolved"], ["sql"])
+
+    def test_non_category_has_no_language_resolved(self):
+        index = self._index_with_results([self._fake_result("typescript")])
+        result = self.srv.code_search_response(index, "render", "typescript")
+        self.assertNotIn("language_resolved", result["data"])
+
+    def test_category_no_results_still_has_language_resolved(self):
+        index = self._index_with_results([])
+        result = self.srv.code_search_response(index, "render", "web")
+        self.assertIn("language_resolved", result["data"])
+        self.assertIsNotNone(result["data"]["language_extensions"])
+
+    def test_all_category_languages_have_extensions(self):
+        # Every language in every category must have at least one extension in _LANG_TO_EXTS.
+        categories = self.srv._LANG_CATEGORIES
+        lang_to_exts = self.srv._LANG_TO_EXTS
+        missing = []
+        for cat, langs in categories.items():
+            for lang in langs:
+                if not lang_to_exts.get(lang):
+                    missing.append(f"{cat}.{lang}")
+        self.assertEqual(missing, [], f"Languages in categories with no known extensions: {missing}")
+
+
+# ---------------------------------------------------------------------------
 # new_change
 # ---------------------------------------------------------------------------
 

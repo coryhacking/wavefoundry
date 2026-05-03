@@ -46,6 +46,24 @@ CODE_EXTENSIONS = {
 SWIFT_EXTENSIONS = {".swift"}
 OBJC_EXTENSIONS = {".m", ".mm"}
 
+# Maps raw file extensions to canonical language names used in chunk metadata.
+# Ensures code_search(language=...) filters match stored chunk language values.
+_EXT_TO_LANGUAGE: dict[str, str] = {
+    ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
+    ".ts": "typescript", ".tsx": "typescript",
+    ".c": "c", ".h": "c",
+    ".cpp": "cpp", ".hpp": "cpp",
+    ".sh": "shell", ".bash": "shell", ".zsh": "shell",
+    ".fish": "fish",
+}
+
+
+def _ext_language(ext: str) -> str:
+    """Return canonical language name for a file extension (with or without leading dot)."""
+    key = ext if ext.startswith(".") else f".{ext}"
+    return _EXT_TO_LANGUAGE.get(key, ext.lstrip("."))
+
+
 SEED_PATH_MARKERS = (
     ".wavefoundry/framework/seeds/",
     ".wavefoundry\\framework\\seeds\\",
@@ -1103,7 +1121,8 @@ _JSDOC_RE = re.compile(r"/\*\*.*?\*/", re.DOTALL)
 
 def chunk_js_ts(source: str, path: str) -> list[Chunk]:
     stem = _file_stem(path)
-    ext = PurePosixPath(path).suffix.lower().lstrip(".")
+    ext = PurePosixPath(path).suffix.lower()
+    lang = _ext_language(ext)
     lines = source.splitlines()
     chunks: list[Chunk] = []
 
@@ -1115,7 +1134,7 @@ def chunk_js_ts(source: str, path: str) -> list[Chunk]:
             id=f"{path}::__imports__",
             path=path,
             kind="code",
-            language=ext,
+            language=lang,
             lines=(1, len(import_lines)),
             section=breadcrumb,
             text=f"{breadcrumb}\n\n" + "\n".join(import_lines),
@@ -1142,7 +1161,7 @@ def chunk_js_ts(source: str, path: str) -> list[Chunk]:
                         id=f"{path}::{current_class}.__doc__",
                         path=path,
                         kind="doc",
-                        language=ext,
+                        language=lang,
                         lines=(max(1, i), i + 1),
                         section=breadcrumb,
                         text=f"{breadcrumb}\n\n{doc_text}",
@@ -1171,7 +1190,7 @@ def chunk_js_ts(source: str, path: str) -> list[Chunk]:
                         id=f"{path}::{qname}.__doc__",
                         path=path,
                         kind="doc",
-                        language=ext,
+                        language=lang,
                         lines=(max(1, i), i + 1),
                         section=breadcrumb,
                         text=f"{breadcrumb}\n\n{doc_text}",
@@ -1180,7 +1199,7 @@ def chunk_js_ts(source: str, path: str) -> list[Chunk]:
                     id=f"{path}::{qname}",
                     path=path,
                     kind="code",
-                    language=ext,
+                    language=lang,
                     lines=(i + 1, j),
                     section=breadcrumb,
                     text=code_text,
@@ -1209,7 +1228,7 @@ def chunk_js_ts(source: str, path: str) -> list[Chunk]:
                             id=f"{path}::{qname}.__doc__",
                             path=path,
                             kind="doc",
-                            language=ext,
+                            language=lang,
                             lines=(max(1, i), i + 1),
                             section=breadcrumb,
                             text=f"{breadcrumb}\n\n{doc_text}",
@@ -1218,7 +1237,7 @@ def chunk_js_ts(source: str, path: str) -> list[Chunk]:
                         id=f"{path}::{qname}",
                         path=path,
                         kind="code",
-                        language=ext,
+                        language=lang,
                         lines=(i + 1, j),
                         section=breadcrumb,
                         text="\n".join(body_lines),
@@ -1228,10 +1247,10 @@ def chunk_js_ts(source: str, path: str) -> list[Chunk]:
 
             i += 1
     except Exception:
-        return _fallback_with_stem(source, path, ext)
+        return _fallback_with_stem(source, path, lang)
 
     if not chunks:
-        return _fallback_with_stem(source, path, ext)
+        return _fallback_with_stem(source, path, lang)
     return split_large_code_chunks(chunks)
 
 
@@ -1248,7 +1267,8 @@ _CDOC_RE = re.compile(r"(?:/\*\*.*?\*/|(?:[ \t]*///[^\n]*\n)+)", re.DOTALL)
 
 
 def chunk_c_cpp(source: str, path: str) -> list[Chunk]:
-    ext = PurePosixPath(path).suffix.lower().lstrip(".")
+    ext = PurePosixPath(path).suffix.lower()
+    lang = _ext_language(ext)
     stem = _file_stem(path)
     lines = source.splitlines()
     chunks: list[Chunk] = []
@@ -1261,7 +1281,7 @@ def chunk_c_cpp(source: str, path: str) -> list[Chunk]:
             id=f"{path}::__imports__",
             path=path,
             kind="code",
-            language=ext,
+            language=lang,
             lines=(1, len(import_lines)),
             section=breadcrumb,
             text=f"{breadcrumb}\n\n" + "\n".join(import_lines),
@@ -1290,7 +1310,7 @@ def chunk_c_cpp(source: str, path: str) -> list[Chunk]:
                     id=f"{path}::{current_class}.__decl__",
                     path=path,
                     kind="code",
-                    language=ext,
+                    language=lang,
                     lines=(i + 1, i + 1),
                     section=breadcrumb,
                     text=f"{breadcrumb}\n\n{decl_text}",
@@ -1320,7 +1340,7 @@ def chunk_c_cpp(source: str, path: str) -> list[Chunk]:
                         id=f"{path}::{qname}.__doc__",
                         path=path,
                         kind="doc",
-                        language=ext,
+                        language=lang,
                         lines=(max(1, i), i + 1),
                         section=breadcrumb,
                         text=f"{breadcrumb}\n\n{doc_text}",
@@ -1329,7 +1349,7 @@ def chunk_c_cpp(source: str, path: str) -> list[Chunk]:
                     id=f"{path}::{qname}",
                     path=path,
                     kind="code",
-                    language=ext,
+                    language=lang,
                     lines=(i + 1, j),
                     section=breadcrumb,
                     text=code_text,
@@ -1338,10 +1358,10 @@ def chunk_c_cpp(source: str, path: str) -> list[Chunk]:
                 continue
             i += 1
     except Exception:
-        return _fallback_with_stem(source, path, ext)
+        return _fallback_with_stem(source, path, lang)
 
     if not chunks:
-        return _fallback_with_stem(source, path, ext)
+        return _fallback_with_stem(source, path, lang)
     return split_large_code_chunks(chunks)
 
 
@@ -1738,11 +1758,12 @@ _FISH_FUNC_RE = re.compile(r"^function\s+(\w+)", re.MULTILINE)
 
 
 def chunk_shell(source: str, path: str) -> list[Chunk]:
-    ext = PurePosixPath(path).suffix.lower().lstrip(".")
+    ext = PurePosixPath(path).suffix.lower()
+    lang = _ext_language(ext) if ext else "shell"
     stem = _file_stem(path)
     lines = source.splitlines()
     chunks: list[Chunk] = []
-    is_fish = ext == "fish"
+    is_fish = lang == "fish"
 
     # Build comment blocks: map line_index -> comment text for heuristic doc chunks
     comment_before: dict[int, str] = {}
@@ -1820,7 +1841,7 @@ def chunk_shell(source: str, path: str) -> list[Chunk]:
                             id=f"{path}::{func_name}.__doc__",
                             path=path,
                             kind="doc",
-                            language=ext or "sh",
+                            language=lang,
                             lines=(max(1, i), i + 1),
                             section=breadcrumb,
                             text=f"{breadcrumb}\n\n[inferred from comments]\n{doc}",
@@ -1829,7 +1850,7 @@ def chunk_shell(source: str, path: str) -> list[Chunk]:
                         id=f"{path}::{func_name}",
                         path=path,
                         kind="code",
-                        language=ext or "sh",
+                        language=lang,
                         lines=(i + 1, j),
                         section=breadcrumb,
                         text="\n".join(body_lines),
@@ -1838,10 +1859,10 @@ def chunk_shell(source: str, path: str) -> list[Chunk]:
                 else:
                     i += 1
     except Exception:
-        return _fallback_with_stem(source, path, ext or "sh")
+        return _fallback_with_stem(source, path, lang)
 
     if not chunks:
-        return _fallback_with_stem(source, path, ext or "sh")
+        return _fallback_with_stem(source, path, lang)
     return split_large_code_chunks(chunks)
 
 
@@ -2314,7 +2335,7 @@ def chunk_file(source: str, path: str) -> list[Chunk]:
         return chunk_xml(source, normalized)
 
     if suffix in CODE_EXTENSIONS:
-        return chunk_line_window(source, normalized, language=suffix.lstrip(".") or None,
+        return chunk_line_window(source, normalized, language=_ext_language(suffix) or None,
                                  section=_file_stem(normalized))
 
     # Unknown type — line window with file-stem breadcrumb

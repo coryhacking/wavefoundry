@@ -1091,10 +1091,15 @@ def _help_catalog() -> dict[str, Any]:
             },
             "search_code": {
                 "recommended_chain": ["code_search", "wave_help"],
-                "rationale": "Search indexed code chunks when code embeddings exist; fall back to guidance when they do not.",
-                "fallback_tools": ["docs_search"],
-                "next_step": "Run semantic code search.",
-                "usage": "code_search(query='build semantic index', language='python')",
+                "rationale": (
+                    "Search indexed code chunks when code embeddings exist; fall back to guidance when they do not. "
+                    "The language filter accepts category names (java, web, systems, script, data, sparksql, dotnet), "
+                    "canonical language names (python, typescript, go, rust, ...), or raw extensions (tsx, .tsx). "
+                    "Category searches return language_resolved listing the expanded language set."
+                ),
+                "fallback_tools": ["code_keyword_search"],
+                "next_step": "Run semantic code search. Omit language to search all languages, or use a category for broad filtering.",
+                "usage": "code_search(query='handle authentication errors', language='web')",
             },
             "maintain_framework": {
                 "recommended_chain": ["wave_validate", "wave_garden", "wave_sync_surfaces"],
@@ -1520,12 +1525,48 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
 
 def code_search_response(index: WaveIndex, query: str, language: str = "", limit: int = 5) -> dict[str, Any]:
     n = max(1, min(int(limit), 20))  # clamp to [1, 20]
+
+    # Resolve language input → either a category (set of langs) or a single canonical name.
+    category_langs: Optional[frozenset] = None
+    if language:
+        if language in _LANG_CATEGORIES:
+            # Category match — expand to set of canonical language names.
+            category_langs = _LANG_CATEGORIES[language]
+        else:
+            # Try extension normalization (e.g. "tsx" or ".tsx" → "typescript").
+            norm = language.lstrip(".")
+            as_ext = f".{norm}"
+            if as_ext in _EXT_TO_LANG:
+                language = _EXT_TO_LANG[as_ext]
+
+    # Build response metadata fields.
+    if category_langs is not None:
+        lang_resolved: Optional[list[str]] = sorted(category_langs)
+        lang_exts: Optional[list[str]] = sorted({
+            ext for lang in category_langs for ext in _LANG_TO_EXTS.get(lang, [])
+        })
+    else:
+        lang_resolved = None
+        lang_exts = _LANG_TO_EXTS.get(language) if language else None
+
+    def _data(results: list) -> dict:
+        d: dict[str, Any] = {"query": query, "language": language or None, "results": results}
+        if lang_resolved is not None:
+            d["language_resolved"] = lang_resolved
+        d["language_extensions"] = lang_exts
+        return d
+
     try:
-        results = index.search_code(query, language=language or None, top_n=n)
+        if category_langs is not None:
+            # Fetch unfiltered results then post-filter to the category set.
+            raw = index.search_code(query, language=None, top_n=n * len(category_langs))
+            results = [r for r in raw if r.get("language") in category_langs][:n]
+        else:
+            results = index.search_code(query, language=language or None, top_n=n)
     except SemanticModelUnavailableOfflineError as exc:
         return _response(
             "error",
-            {"query": query, "language": language or None, "results": []},
+            _data([]),
             diagnostics=[
                 _diagnostic(
                     "semantic_model_unavailable_offline",
@@ -1540,7 +1581,7 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
     except IndexNotReadyError as exc:
         return _response(
             "error",
-            {"query": query, "language": language or None, "results": []},
+            _data([]),
             diagnostics=[
                 _diagnostic(
                     "index_not_ready",
@@ -1555,7 +1596,7 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
     if not results:
         return _response(
             "ok",
-            {"query": query, "language": language or None, "results": []},
+            _data([]),
             diagnostics=[
                 _diagnostic(
                     "no_results",
@@ -1569,11 +1610,7 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
         )
     return _response(
         "ok",
-        {
-            "query": query,
-            "language": language or None,
-            "results": [_search_result("code", result) for result in results],
-        },
+        _data([_search_result("code", result) for result in results]),
         next_tools=["wave_help"],
         usage=f"code_search(query={query!r}, language={language!r})" if language else "",
     )
@@ -3959,15 +3996,44 @@ _SUPPORTED_DEFINITION_LANGS = {"python"}
 _SUPPORTED_REFERENCE_LANGS = {"python"}
 
 
+_EXT_TO_LANG: dict[str, str] = {
+    ".py": "python", ".js": "javascript", ".ts": "typescript",
+    ".jsx": "javascript", ".tsx": "typescript", ".mjs": "javascript", ".cjs": "javascript",
+    ".go": "go", ".rs": "rust", ".java": "java", ".rb": "ruby",
+    ".cs": "csharp", ".cpp": "cpp", ".hpp": "cpp", ".c": "c", ".h": "c",
+    ".sh": "shell", ".bash": "shell", ".zsh": "shell", ".fish": "fish",
+    ".kt": "kotlin", ".kts": "kotlin", ".groovy": "groovy", ".scala": "scala",
+    ".css": "css", ".scss": "scss",
+    ".sql": "sql", ".xml": "xml",
+    ".html": "html", ".htm": "html",
+    ".swift": "swift",
+    ".json": "json", ".jsonc": "json",
+    ".toml": "toml", ".yaml": "yaml", ".yml": "yaml",
+}
+
+# Reverse map: language name → sorted list of extensions (without leading dot).
+_LANG_TO_EXTS: dict[str, list[str]] = {}
+for _ext, _lang in _EXT_TO_LANG.items():
+    _LANG_TO_EXTS.setdefault(_lang, []).append(_ext.lstrip("."))
+_LANG_TO_EXTS = {k: sorted(v) for k, v in _LANG_TO_EXTS.items()}
+
+# Category map: category name → frozenset of canonical language names.
+# Categories are intent-based groupings; a language may appear in multiple categories.
+# "java" covers the JVM family; "sparksql" is an alias for sql (SparkSQL is SQL syntax).
+_LANG_CATEGORIES: dict[str, frozenset] = {
+    "java":     frozenset({"java", "kotlin", "scala", "groovy"}),
+    "web":      frozenset({"typescript", "javascript", "html", "css", "scss"}),
+    "systems":  frozenset({"c", "cpp", "rust", "go"}),
+    "data":     frozenset({"sql"}),
+    "sparksql": frozenset({"sql"}),
+    "dotnet":   frozenset({"csharp"}),
+    "script":   frozenset({"python", "ruby", "shell", "fish"}),
+}
+
+
 def _detect_language(path: str) -> str:
     ext = Path(path).suffix.lower()
-    lang_map = {
-        ".py": "python", ".js": "javascript", ".ts": "typescript",
-        ".jsx": "javascript", ".tsx": "typescript",
-        ".go": "go", ".rs": "rust", ".java": "java", ".rb": "ruby",
-        ".cs": "csharp", ".cpp": "cpp", ".c": "c", ".h": "c",
-    }
-    return lang_map.get(ext, "unknown")
+    return _EXT_TO_LANG.get(ext, "unknown")
 
 
 def _python_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
@@ -4118,14 +4184,22 @@ def build_server(root: Path):
     def code_search(query: str, language: str = "", limit: int = 5, **kwargs: Any) -> dict[str, Any]:
         """Semantic search over indexed source code chunks. Requires a built code index (wave_index_build content='code').
 
-        Prefer when: searching for code by concept, behavior, or intent (e.g. "function that parses wave IDs").
-        Use code_keyword_search instead when the exact token or pattern is known — it is always available and deterministic.
-        When the code index is absent: returns status='error' with a diagnostic and empty results — does not crash.
-        Example query style: "validate that a change doc has required sections" not "JOURNAL_REQUIRED_SECTIONS".
+        Prefer when: searching for code by concept, behavior, or intent (e.g. "React component with loading state").
+        Use code_keyword_search instead when the exact token, symbol, or string is known — always available, deterministic.
+        Use docs_search instead when the answer is in a spec, architecture doc, or prompt rather than source code.
+        When the code index is absent: returns status='error' with a diagnostic — does not crash.
+
+        Choosing a language filter:
+        - No filter: query spans the whole codebase. Best when you don't know which language has the answer.
+        - Category: use when the answer could be in any language of a family, or the codebase mixes them.
+          Categories: java (java/kotlin/scala/groovy), web (typescript/javascript/html/css/scss),
+          systems (c/cpp/rust/go), script (python/ruby/shell/fish), data (sql), sparksql (sql alias), dotnet (csharp).
+          Category responses include language_resolved (expanded language list) and language_extensions.
+        - Canonical name or extension: use when you know the exact language. e.g. "python", "typescript", "tsx", ".tsx".
 
         Args:
-            query: Natural language or code description to search for.
-            language: Optional filter — e.g. python, javascript, go.
+            query: Natural language description of the code behavior or concept to find.
+            language: Optional — category name, canonical language name, or raw extension (with or without dot).
             limit: Maximum results to return (1–20, default 5).
         """
         bad = _ensure_no_extra_args("code_search", kwargs)
