@@ -1,0 +1,272 @@
+{
+  "_comment": "Ground-truth retrieval set for embedding model evaluation. Each entry has a natural-language query and the expected file paths that should appear in top-5 results. Code-intent queries are marked 'code', docs-intent queries 'docs', cross-cutting queries 'cross'.",
+  "queries": [
+    {
+      "id": "c01",
+      "kind": "code",
+      "query": "normalize a file extension to a canonical language name",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/chunker.py",
+        ".wavefoundry/framework/scripts/server.py"
+      ]
+    },
+    {
+      "id": "c02",
+      "kind": "code",
+      "query": "detect changes in files by comparing hashes from previous index",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/indexer.py"
+      ]
+    },
+    {
+      "id": "c03",
+      "kind": "code",
+      "query": "load an ONNX embedding model and select execution provider",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/indexer.py"
+      ]
+    },
+    {
+      "id": "c04",
+      "kind": "code",
+      "query": "cosine similarity search over a vector matrix",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/server.py"
+      ]
+    },
+    {
+      "id": "c05",
+      "kind": "code",
+      "query": "chunk a TypeScript or JavaScript file into function and class boundaries",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/chunker.py"
+      ]
+    },
+    {
+      "id": "c06",
+      "kind": "code",
+      "query": "split a large code chunk that exceeds the character limit",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/chunker.py"
+      ]
+    },
+    {
+      "id": "c07",
+      "kind": "code",
+      "query": "parse wave ID from a lifecycle identifier string",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/server.py"
+      ]
+    },
+    {
+      "id": "c08",
+      "kind": "code",
+      "query": "validate that a change document has required sections",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/server.py"
+      ]
+    },
+    {
+      "id": "c09",
+      "kind": "code",
+      "query": "acquire and release a file lock with stale lock detection",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/indexer.py"
+      ]
+    },
+    {
+      "id": "c10",
+      "kind": "code",
+      "query": "filter search results by language field",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/server.py"
+      ]
+    },
+    {
+      "id": "c11",
+      "kind": "code",
+      "query": "build a reverse map from language names to file extensions",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/server.py"
+      ]
+    },
+    {
+      "id": "c12",
+      "kind": "code",
+      "query": "watch filesystem for file changes and trigger reindex",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/indexer.py"
+      ]
+    },
+    {
+      "id": "c13",
+      "kind": "code",
+      "query": "extract fenced code blocks from markdown sections",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/chunker.py"
+      ]
+    },
+    {
+      "id": "c14",
+      "kind": "code",
+      "query": "relocate a change document from plans directory into a wave folder",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/server.py"
+      ]
+    },
+    {
+      "id": "c15",
+      "kind": "code",
+      "query": "embed a batch of text chunks and store as float32 numpy array",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/indexer.py"
+      ]
+    },
+    {
+      "id": "c16",
+      "kind": "code",
+      "query": "run docs lint validation and return structured pass fail result",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/server.py"
+      ]
+    },
+    {
+      "id": "c17",
+      "kind": "code",
+      "query": "resolve a seed prompt by name or partial slug",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/server.py"
+      ]
+    },
+    {
+      "id": "d01",
+      "kind": "docs",
+      "query": "when should I use an alert versus a notification",
+      "expected_paths": [
+        "docs/design-system"
+      ]
+    },
+    {
+      "id": "d02",
+      "kind": "docs",
+      "query": "how does the wave lifecycle work from planned to closed",
+      "expected_paths": [
+        "docs/architecture",
+        "docs/waves"
+      ]
+    },
+    {
+      "id": "d03",
+      "kind": "docs",
+      "query": "what is the stage gate and when does it apply",
+      "expected_paths": [
+        "AGENTS.md",
+        "docs"
+      ]
+    },
+    {
+      "id": "d04",
+      "kind": "docs",
+      "query": "how to prepare a wave before implementation begins",
+      "expected_paths": [
+        "docs/prompts",
+        "docs/specs/mcp-tool-surface.md"
+      ]
+    },
+    {
+      "id": "d05",
+      "kind": "docs",
+      "query": "what MCP tools are available for searching code",
+      "expected_paths": [
+        "docs/specs/mcp-tool-surface.md"
+      ]
+    },
+    {
+      "id": "d06",
+      "kind": "docs",
+      "query": "embedding model used for semantic search and its limitations",
+      "expected_paths": [
+        "docs/architecture",
+        "docs/waves/12br9 code-search-language-filter"
+      ]
+    },
+    {
+      "id": "d07",
+      "kind": "docs",
+      "query": "how does incremental indexing detect which files changed",
+      "expected_paths": [
+        "docs/architecture",
+        "docs/waves"
+      ]
+    },
+    {
+      "id": "d08",
+      "kind": "docs",
+      "query": "trust labels for search results and what untrusted project content means",
+      "expected_paths": [
+        "docs/specs/mcp-tool-surface.md"
+      ]
+    },
+    {
+      "id": "d09",
+      "kind": "docs",
+      "query": "contributing guide for running framework tests",
+      "expected_paths": [
+        "docs/contributing/build-and-verification.md"
+      ]
+    },
+    {
+      "id": "d10",
+      "kind": "docs",
+      "query": "response envelope format for MCP tools",
+      "expected_paths": [
+        "docs/specs/mcp-tool-surface.md"
+      ]
+    },
+    {
+      "id": "x01",
+      "kind": "cross",
+      "query": "language filter for code search and which extensions are supported",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/server.py",
+        "docs/specs/mcp-tool-surface.md"
+      ]
+    },
+    {
+      "id": "x02",
+      "kind": "cross",
+      "query": "chunker version and how model changes trigger a full rebuild",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/indexer.py",
+        "docs/architecture"
+      ]
+    },
+    {
+      "id": "x03",
+      "kind": "cross",
+      "query": "wave audit tool combining validation and index health",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/server.py",
+        "docs/specs/mcp-tool-surface.md"
+      ]
+    },
+    {
+      "id": "x04",
+      "kind": "cross",
+      "query": "how code chunks are stored and retrieved for semantic search",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/indexer.py",
+        "docs/architecture"
+      ]
+    },
+    {
+      "id": "x05",
+      "kind": "cross",
+      "query": "seed prompt retrieval by name and how seeds differ from docs",
+      "expected_paths": [
+        ".wavefoundry/framework/scripts/server.py",
+        "docs/specs/mcp-tool-surface.md"
+      ]
+    }
+  ]
+}

@@ -1,10 +1,10 @@
 # Code Search Language Filter Mismatch
 
 Change ID: `12br9-bug code-search-language-filter-mismatch`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-05-02
+Status: implemented
+Last verified: 2026-05-03
 Wave: `12br9 code-search-language-filter`
 
 ## Rationale

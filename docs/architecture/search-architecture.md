@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-01
+Last verified: 2026-05-03
 
 ## The Problem
 
@@ -47,7 +47,7 @@ The MCP server runs embedded inside the IDE process. Network calls during agent 
 This is the constraint that shapes everything about Layer 1:
 - The model is pre-cached by `setup_index.py` (explicit setup step, network allowed)
 - All queries use `local_files_only=True` and `HF_HUB_OFFLINE=1`
-- The model choice (`BAAI/bge-small-en-v1.5`) was driven in part by reliable offline support in fastembed
+- The model choice (`BAAI/bge-base-en-v1.5`) was driven in part by reliable offline support in fastembed
 - When the model is unavailable, the system falls back to lexical search rather than failing
 
 See `docs/architecture/embedding-model.md` for the model choice rationale.

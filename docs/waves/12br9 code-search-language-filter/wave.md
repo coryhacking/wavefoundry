@@ -1,8 +1,8 @@
 # Wave Record
 
 Owner: Engineering
-Status: active
-Last verified: 2026-05-02
+Status: closed
+Last verified: 2026-05-03
 
 wave-id: `12br9 code-search-language-filter`
 Title: Code Search Language Filter
@@ -10,16 +10,18 @@ Title: Code Search Language Filter
 ## Changes
 
 Change ID: `12br9-bug code-search-language-filter-mismatch`
-Change Status: `planned`
+Change Status: `implemented`
 
 Change ID: `12br9-enh code-search-language-extension-normalization`
-Change Status: `planned`
+Change Status: `implemented`
 
 Change ID: `1297p-feat embedding-model-ane-eval`
-Change Status: `planned`
+Change Status: `implemented`
 
 Change ID: `12bre-enh code-search-language-categories`
-Change Status: `planned`
+Change Status: `implemented`
+
+Completed At: 2026-05-03
 
 ## Wave Summary
 
@@ -29,6 +31,10 @@ Fixes the code search language filter — chunkers were storing raw file extensi
 
 - Index rebuild required after this wave ships — existing indexes have stale language tags in code chunks.
 - The embedding evaluation plan (`1297p-feat`) is admitted for tracking only; implementation is deferred until the benchmark harness is in place.
+
+## Review Evidence
+
+- Code and architecture review completed 2026-05-03 by Cory Hacking. All findings addressed: chunker ext map completed, cross-map consistency test fixed, CoreML provider removed, sorted batching, bge-base adopted, ADR authored, arch docs updated, index rebuilt. 742 tests passing.
 
 ## Dependencies
 

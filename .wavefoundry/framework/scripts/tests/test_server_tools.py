@@ -826,9 +826,11 @@ class CodeSearchLanguageNormalizationTests(unittest.TestCase):
 
         mismatches = []
         for ext, server_lang in server_map.items():
-            if ext in chunker_map and chunker_map[ext] != server_lang:
+            # What would _ext_language() return for this extension?
+            chunker_result = chunker_map.get(ext, ext.lstrip("."))
+            if chunker_result != server_lang:
                 mismatches.append(
-                    f"{ext}: server={server_lang!r} chunker={chunker_map[ext]!r}"
+                    f"{ext}: server={server_lang!r} chunker={chunker_result!r}"
                 )
         self.assertEqual(
             mismatches, [],
@@ -3246,8 +3248,8 @@ class WavePrepareACPriorityWarningTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 # Regression anchors — update these deliberately when upgrading the model.
-_EXPECTED_DOCS_MODEL = "BAAI/bge-small-en-v1.5"
-_EXPECTED_EMBEDDING_DIM = 384
+_EXPECTED_DOCS_MODEL = "BAAI/bge-base-en-v1.5"
+_EXPECTED_EMBEDDING_DIM = 768
 
 
 class SemanticEmbeddingRegressionTests(unittest.TestCase):

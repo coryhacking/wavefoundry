@@ -20,7 +20,7 @@
     "docs/agents/personas/wave-coordinator.md"
   ],
   "journal_root": "docs/agents/journals/",
-  "last_gardened_at": "2026-05-02",
+  "last_gardened_at": "2026-05-03",
   "public_prompt_surface": [
     {
       "doc": "docs/prompts/install-wavefoundry.md",

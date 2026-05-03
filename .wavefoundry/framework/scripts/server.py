@@ -427,7 +427,7 @@ class WaveIndex:
     # ------------------------------------------------------------------
     # Embedding model
     #
-    # Current model: BAAI/bge-small-en-v1.5  (384-d float32)
+    # Current model: BAAI/bge-base-en-v1.5  (768-d float32)
     # Defined in:    indexer.py  DOCS_MODEL / CODE_MODEL constants
     # Upgrade doc:   docs/architecture/embedding-model.md
     #

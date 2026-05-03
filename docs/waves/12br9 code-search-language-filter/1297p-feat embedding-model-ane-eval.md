@@ -1,11 +1,11 @@
 # Embedding Model Evaluation and ANE Acceleration
 
 Change ID: `1297p-feat embedding-model-ane-eval`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-04-29
-Wave: TBD
+Status: implemented
+Last verified: 2026-05-03
+Wave: `12br9 code-search-language-filter`
 
 ## Rationale
 
@@ -102,30 +102,28 @@ If no candidate meets the speedup threshold *and* quality gate, the recommendati
 
 **Phase 1 — Methodology (no code changes to runtime):**
 
-- Author retrieval ground-truth set (≥20 query/expected pairs sampled from this repo).
-- Build benchmark harness skeleton with the three workloads and the ground-truth scorer.
-- Measure baseline (`bge-small-en-v1.5` ONNX INT8) on this repo and record numbers.
-- Compute 512-token truncation rate on this repo's chunks (informs whether long-context is needed).
+- [x] Author retrieval ground-truth set (32 query/expected pairs: 17 code-intent, 10 docs-intent, 5 cross-cutting).
+- [x] Build benchmark harness at `.wavefoundry/framework/scripts/benchmarks/embed_bench.py`.
+- [x] Measure baseline (`bge-small-en-v1.5` ONNX INT8): 81.2% overall, 88.2% code, 15 chunks/s, 85s full rebuild.
+- [x] Compute 512-token truncation rate: 1.7% — long-context model not justified.
 
-**Phase 2 — Conversion + measurement:**
+**Phase 2 — Measurement (Core ML path eliminated; ONNX candidates only):**
 
-- Write `convert_to_coreml.py` producing FP16 and palettized variants of `bge-small-en-v1.5`.
-- Validate tokenizer parity with standalone `tokenizers`.
-- Measure all candidates from Requirement 5 against the harness.
-- Produce JSON benchmark report and a human-readable comparison table.
+- [x] Investigated CoreML EP: proven no-op for INT8 ONNX (same perf as CPU); FP32 models (nomic, gte-base) ran 2–3× *slower* with CoreML due to ANE/CPU fragmentation. CoreML EP removed from `_onnx_providers()`.
+- [x] Discovered padding waste as real throughput bottleneck: naive batching 15 chunks/s, sorted batching 36 chunks/s (2.4× improvement).
+- [x] Fixed `_embed_texts` to sort globally and pass `batch_size=256` explicitly; fixed `_embed_chunks` outer loop that was batching at 16/64 (defeating global sort).
+- [x] Fixed benchmark harness to reuse corpus vectors from full rebuild for retrieval quality (eliminated second full embed pass).
+- [x] Measured `bge-base-en-v1.5`: 90.6% overall, 100% code, 90% docs, 280s full rebuild, 11.1 chunks/s.
+- [x] Evaluated jina-v2-base-code (no INT8 fastembed export, FP32 too slow), nomic-embed-text-v1.5-Q (fastembed registry broken — quantized file absent from HF snapshot), nomic-embed-code (28GB 7B model, disqualified). All eliminated.
 
-**Phase 3 — Decision and integration (only if criteria are met):**
+**Phase 3 — Decision and integration:**
 
-- Author `docs/architecture/decisions/embedding-model-and-format.md` with the chosen path and rejected alternatives.
-- Extend `_get_embedder()` to load Core ML when available, fall back to ONNX otherwise.
-- Extend `meta.json` schema to record `format` and force rebuild on format change.
-- Add `setup_index.py --convert-coreml` opt-in command.
-- Update tests: format selection, fallback behavior, conversion idempotency, tokenizer parity.
-- Update documentation per AC-10.
-
-**Phase 4 — Defer or close:**
-
-- If decision is "no change", close this change with the benchmark report archived as the decision evidence and the harness retained for future re-evaluation.
+- [x] Decision: adopt `bge-base-en-v1.5` for both DOCS_MODEL and CODE_MODEL.
+- [x] Updated `DOCS_MODEL` and `CODE_MODEL` constants in `indexer.py`.
+- [x] Updated regression test constants (`_EXPECTED_DOCS_MODEL`, `_EXPECTED_EMBEDDING_DIM`) in `test_server_tools.py`.
+- [x] Author `docs/architecture/decisions/embedding-model-and-format.md` ADR.
+- [x] Update architecture docs that name `bge-small-en-v1.5` (current-state.md, data-and-control-flow.md, search-architecture.md, embedding-model.md).
+- [x] Rebuild index (required: bge-base produces 768d vectors vs bge-small's 384d; indexer model-change detection will force full rebuild).
 
 ## Agent Execution Graph
 
@@ -181,6 +179,7 @@ If no candidate meets the speedup threshold *and* quality gate, the recommendati
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
 | 2026-04-29 | Plan authored. Baseline numbers captured this session: bge-small ONNX INT8 1.36s for 64×150tok docs, 4.09s for 64×450tok docs; CoreML EP via ONNX statistically equal to CPU; nomic-Q registry entry broken (missing file in HF snapshot); jina-v2-small 24.5s for 64×450tok (disqualifying). | This conversation thread |
 | 2026-05-02 | Code search quality identified as a third motivation. `bge-small` has no code-specific training; semantic code search queries against TypeScript/Python return poor results structurally, not just due to the language filter bug fixed this session. Added `jinaai/jina-embeddings-v2-base-code` and `bge-base` to candidate matrix; expanded ground-truth set requirement to skew toward code-intent queries; added code-intent retrieval improvement threshold (≥15%) to decision criteria; added split-model architecture as an evaluation question. | Language filter bug fix session |
+| 2026-05-03 | Phase 1 complete: ground-truth set (32 queries) and benchmark harness authored. Baseline measured: bge-small 81.2% overall / 88.2% code / 85s rebuild. CoreML EP investigated thoroughly: proven no-op for INT8 (ANE can't run INT8 ops), 2–3× slower for FP32 (ANE/CPU fragmentation). CoreML EP removed from `_onnx_providers()`. Padding waste identified as real bottleneck: sorted batching gives 2.4× throughput improvement; inner batch loop (16/64) was defeating global sort — fixed. Benchmark harness fixed to reuse corpus vectors. bge-base measured: 90.6% / 100% code / 90% docs / 280s. jina FP32 too slow (no INT8 export), nomic-Q registry broken, nomic-embed-code disqualified (28GB). Decision: adopt `bge-base-en-v1.5` for both models. Constants updated, tests updated. | bench_report_final.json |
 
 
 ## Decision Log
@@ -192,6 +191,7 @@ If no candidate meets the speedup threshold *and* quality gate, the recommendati
 | 2026-04-29 | Cross-platform constraint: Core ML is an optional acceleration layer, never a replacement             | Wavefoundry must work on Linux x86_64 and arm64. Apple-only paths cannot be the primary code path.                                 | Make MLX/Core ML the default and ship a separate Linux build (rejected: doubles the maintenance surface)                                                                      |
 | 2026-04-29 | Static embeddings (`model2vec` etc.) included as upper-bound speed reference, not a primary candidate | Likely too lossy for semantic queries against prose docs, but useful as a sanity ceiling for what's achievable.                    | Exclude entirely (rejected: leaves a question unanswered)                                                                                                                     |
 | 2026-05-02 | Code-specific models added to candidate matrix; split-model architecture added as open evaluation question | `bge-small` has no code training; semantic code search quality is a known gap independent of acceleration. `jina-v2-base-code` is the primary candidate for code; `bge-base` added as a general-purpose upper bound. Split-model architecture (separate models for docs vs code) not decided either way — the harness will inform it. | Add code-specific model immediately without measurement (rejected: need the harness to make a defensible decision) |
+| 2026-05-03 | Adopt `bge-base-en-v1.5` for both DOCS_MODEL and CODE_MODEL | Quality improvement is decisive: 100% code retrieval accuracy vs 88.2% for bge-small; 90.6% overall vs 81.2%. Rebuild time 280s vs 85s is acceptable — full rebuilds are cold-start only; incremental updates (633ms/5 chunks) remain fast. Split-model architecture not adopted: bge-base already achieves 90% docs accuracy, comparable to its code performance, so a separate docs model adds complexity without benefit. Core ML path deferred: requires coremltools + torch install, custom inference path, tokenizer parity validation — significant effort with uncertain ANE utilization given dynamic shapes. | Stay on bge-small (rejected: 12pp code quality gap is significant); jina-v2-base-code as code model (rejected: no INT8 fastembed export, FP32 too slow); Core ML conversion (rejected: prerequisite complexity exceeds benefit given CPU performance is already acceptable) |
 
 
 ## Risks

@@ -49,12 +49,30 @@ OBJC_EXTENSIONS = {".m", ".mm"}
 # Maps raw file extensions to canonical language names used in chunk metadata.
 # Ensures code_search(language=...) filters match stored chunk language values.
 _EXT_TO_LANGUAGE: dict[str, str] = {
+    ".py": "python",
     ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
     ".ts": "typescript", ".tsx": "typescript",
-    ".c": "c", ".h": "c",
+    ".go": "go",
+    ".rs": "rust",
+    ".java": "java",
+    ".rb": "ruby",
+    ".cs": "csharp",
     ".cpp": "cpp", ".hpp": "cpp",
+    ".c": "c", ".h": "c",
     ".sh": "shell", ".bash": "shell", ".zsh": "shell",
     ".fish": "fish",
+    ".kt": "kotlin", ".kts": "kotlin",
+    ".groovy": "groovy",
+    ".scala": "scala",
+    ".css": "css",
+    ".scss": "scss",
+    ".sql": "sql",
+    ".xml": "xml",
+    ".html": "html", ".htm": "html",
+    ".swift": "swift",
+    ".json": "json", ".jsonc": "json",
+    ".toml": "toml",
+    ".yml": "yaml", ".yaml": "yaml",
 }
 
 

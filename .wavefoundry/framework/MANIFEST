@@ -4,6 +4,11 @@ VERSION
 index/docs.json
 index/docs.npy
 index/meta.json
+scripts/benchmarks/bench_report.json
+scripts/benchmarks/bench_report_final.json
+scripts/benchmarks/bench_report_sorted.json
+scripts/benchmarks/embed_bench.py
+scripts/benchmarks/retrieval_eval.json
 scripts/build_pack.py
 scripts/chunker.py
 scripts/docs_gardener.py

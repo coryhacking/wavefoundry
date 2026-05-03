@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-01
+Last verified: 2026-05-03
 
 ## Runtime Topology
 
@@ -69,7 +69,7 @@ setup_index.py --root .
   ├── or with --include-code: indexer.py --root . --content all  (single subprocess, docs + code)
   ├── walk_repo()      →  respects .gitignore, .aiignore, hardcoded excludes
   ├── chunker.py       →  chunk_python / chunk_markdown / chunk_line_window
-  ├── fastembed        →  BAAI/bge-small-en-v1.5 (docs/seeds and optional code)
+  ├── fastembed        →  BAAI/bge-base-en-v1.5 (docs/seeds and optional code)
   └── .wavefoundry/index/
         ├── docs.npy / docs.json
         ├── code.npy / code.json

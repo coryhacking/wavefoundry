@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-02
+Last verified: 2026-05-03
 
 ## Primary Control Paths
 
@@ -61,7 +61,7 @@ Last verified: 2026-05-02
 5. `walk_repo()` yields all non-excluded files (respects `.gitignore`, `.aiignore`, binary exclusions)
 6. `chunker.py` dispatches each file: Python → AST-based; Markdown → header-split; others → line-window
 7. Chunks classified as `code`, `doc`, or `seed` based on kind and path
-8. `fastembed` embeds docs/seeds by default using `BAAI/bge-small-en-v1.5`; optional semantic code embeddings use the same lightweight model, and the code pass skips framework internal tests plus non-source/test/generated files unless `--include-tests` or `--include-generated` is passed
+8. `fastembed` embeds docs/seeds by default using `BAAI/bge-base-en-v1.5`; optional semantic code embeddings use the same model, and the code pass skips framework internal tests plus non-source/test/generated files unless `--include-tests` or `--include-generated` is passed
 9. Project code indexing excludes `.wavefoundry/framework/` by default; repos can explicitly opt in additional excluded paths with `docs/workflow-config.json` -> `indexing.project_include_prefixes` (`docs` and `code` lists, consumed by `setup_index.py` and forwarded to `indexer.py --project-include-prefix`)
 10. Project index written to `.wavefoundry/index/` and packaged framework index written to `.wavefoundry/framework/index/` (docs.npy, docs.json, code.npy, code.json, meta.json)
 11. Subsequent runs are incremental: only files whose SHA-256 changed are re-chunked and re-embedded

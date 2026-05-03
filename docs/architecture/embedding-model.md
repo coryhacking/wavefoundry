@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-01
+Last verified: 2026-05-03
 
 ## What This Document Covers
 
@@ -22,31 +22,30 @@ The trade-off is operational complexity: the model must be cached locally before
 
 | Constant | Value | Dimension | Defined in |
 |----------|-------|-----------|------------|
-| `DOCS_MODEL` | `BAAI/bge-small-en-v1.5` | 384 | `indexer.py` |
-| `CODE_MODEL` | `BAAI/bge-small-en-v1.5` | 384 | `indexer.py` |
+| `DOCS_MODEL` | `BAAI/bge-base-en-v1.5` | 768 | `indexer.py` |
+| `CODE_MODEL` | `BAAI/bge-base-en-v1.5` | 768 | `indexer.py` |
 
 Both constants currently point to the same model. They are intentionally separate to allow independent upgrades — docs search and code search have different quality/size trade-offs and may diverge in the future.
 
-### Why BAAI/bge-small-en-v1.5
+### Why BAAI/bge-base-en-v1.5
 
-**Size and latency.** At 384 dimensions, the model weighs ~33 MB on disk. The MCP server loads on demand inside the IDE process; a model that takes several seconds to cold-start would make every first query feel broken. The 768-d `bge-base` is ~130 MB and roughly 2–3× slower to load; `bge-large` (1024-d, ~600 MB) is out of the question for an embedded tool server. The size of the stored `.npy` index also scales with dimension: a 10,000-chunk docs corpus at 384-d is ~15 MB; at 1536-d it would be ~60 MB. Neither is large in absolute terms, but the ratio matters for incremental rebuild speed.
+**Measured retrieval quality.** A benchmark evaluation in wave `12br9` against a 32-query ground-truth set drawn from this repository showed `bge-base` at 90.6% top-3 accuracy overall (100% code-intent, 90% docs-intent) vs `bge-small` at 81.2% (88.2% code, 80% docs). The 12pp improvement on code-intent queries was the deciding factor — `bge-small` has no code-specific training and structurally underperforms on code retrieval queries.
 
-**The corpus is small and domain-specific.** Wavefoundry's indexed corpus is a few hundred to a few thousand doc chunks — wave records, architecture docs, prompts, seeds. A large general-purpose retrieval model is over-fit for this problem. The retrieval task is "find the right change doc or prompt" not "find a relevant passage in all of English Wikipedia." Small models trained on general English text handle short structured documents like these well.
+**fastembed offline compatibility.** The critical operational constraint is `local_files_only=True`. `bge-base-en-v1.5` is a first-class entry in fastembed's curated offline model list (served from `qdrant/bge-base-en-v1.5-onnx-q`).
 
-**fastembed offline compatibility.** The critical operational constraint is `local_files_only=True`. Not every model in the HuggingFace ecosystem behaves correctly under this flag; some silently fall back to network calls, others raise obscure errors. `fastembed` explicitly bundles and validates a curated list of models for offline use, and `bge-small-en-v1.5` is one of the first-class entries on that list. This was the deciding constraint — a nominally better model that requires network access at query time is not acceptable.
+**Full rebuild time is acceptable.** With sorted-batch embedding (chunks sorted by length before batching to minimise padding waste), a full rebuild of this repository's ~3,100-chunk corpus takes ~280s at 11 chunks/s. Incremental updates (633ms for 5 chunks) are fast for day-to-day use. Full rebuilds only occur on first setup or forced re-index.
 
-**MTEB retrieval benchmarks.** On the MTEB English retrieval benchmark, `bge-small-en-v1.5` scores around 51–52 NDCG@10 — comparable to models 3–4× its size from 2022–2023. The `bge` family from BAAI specifically optimized for the retrieval task rather than general language modeling, which is why the quality-to-size ratio is favorable. For the Wavefoundry use case the absolute score doesn't matter much; what matters is that semantically related chunks rank above unrelated ones, which this model does reliably on English technical prose.
+**Alternatives evaluated (wave 12br9 benchmark):**
 
-**Alternatives considered at the time of adoption:**
+| Model | Dim | Code acc | Overall acc | Full rebuild | Reason not chosen |
+|-------|-----|----------|-------------|-------------|-------------------|
+| `BAAI/bge-small-en-v1.5` | 384 | 88.2% | 81.2% | 85s | Replaced — code quality gap |
+| `jinaai/jina-embeddings-v2-base-code` | 768 | — | — | — | No INT8 fastembed export; FP32 too slow |
+| `nomic-embed-text-v1.5` | 768 | — | — | — | FP32 only; fastembed INT8 registry broken |
+| `nomic-embed-code` | 3584 | — | — | — | 28 GB 7B-parameter model; disqualified |
+| `text-embedding-ada-002` (OpenAI) | 1536 | — | — | API only | Requires network; unacceptable for offline-first |
 
-| Model | Dim | Approx size | Reason not chosen |
-|-------|-----|-------------|-------------------|
-| `BAAI/bge-base-en-v1.5` | 768 | ~130 MB | 4× larger for marginal retrieval gain on short structured docs |
-| `sentence-transformers/all-MiniLM-L6-v2` | 384 | ~22 MB | Similar size but lower retrieval quality than bge-small; not in fastembed's first-class offline list at adoption time |
-| `text-embedding-ada-002` (OpenAI) | 1536 | API only | Requires network on every query; unacceptable for offline-first operation |
-| `nomic-embed-text-v1.5` | 768 | ~270 MB | Higher quality but too large for the use case at the time |
-
-The model is not special or irreplaceable. If a future model provides meaningfully better retrieval quality at similar or smaller size and maintains fastembed + offline compatibility, upgrading is the right call. The regression tests exist specifically to make that upgrade safe and auditable.
+The model is not special or irreplaceable. The regression tests exist to make future upgrades safe and auditable.
 
 ---
 
@@ -56,7 +55,7 @@ The model is not special or irreplaceable. If a future model provides meaningful
 
 1. `walk_repo()` yields all non-excluded files (respects `.gitignore`, `.aiignore`, hardcoded excludes)
 2. `chunker.py` splits each file into chunks — Python files via AST, Markdown via header splits, others via line windows
-3. `fastembed.TextEmbedding` embeds each chunk's text in batches (batch size 64 for docs, 16 for code)
+3. `fastembed.TextEmbedding` embeds each chunk's text — chunks are globally sorted by length before batching (minimises padding waste), fastembed batches internally at 256
 4. The resulting float32 matrix and chunk metadata are saved as:
    - `.wavefoundry/index/docs.npy` — float32 matrix, shape `[n_chunks, dim]`
    - `.wavefoundry/index/docs.json` — list of chunk dicts, row-parallel with `.npy`
@@ -91,8 +90,8 @@ The purpose of these tests is to make model changes fail loudly rather than sile
 
 | Test | What it pins | Why it matters |
 |------|-------------|----------------|
-| `test_docs_model_constant_matches_expected` | `DOCS_MODEL == "BAAI/bge-small-en-v1.5"` | Records which model is intentionally in use; fails loudly on an unannounced change |
-| `test_embedding_dimension_matches_expected` | output dim == 384 | A dimension change invalidates all stored `.npy` files and the merged-layer logic |
+| `test_docs_model_constant_matches_expected` | `DOCS_MODEL == "BAAI/bge-base-en-v1.5"` | Records which model is intentionally in use; fails loudly on an unannounced change |
+| `test_embedding_dimension_matches_expected` | output dim == 768 | A dimension change invalidates all stored `.npy` files and the merged-layer logic |
 | `test_embedding_is_float32` | dtype is `float32` | The cosine math and `.npy` format assume float32; a dtype mismatch produces wrong scores silently |
 | `test_same_text_produces_identical_vectors` | embedding is deterministic | Non-deterministic embeddings make search results unpredictable across restarts |
 | `test_different_texts_produce_different_vectors` | model is not degenerate | All-same-output models pass every other test but return identical scores for every query |
@@ -105,8 +104,8 @@ The purpose of these tests is to make model changes fail loudly rather than sile
 Two constants at the top of `SemanticEmbeddingRegressionTests` are the single update point for a model upgrade:
 
 ```python
-_EXPECTED_DOCS_MODEL = "BAAI/bge-small-en-v1.5"
-_EXPECTED_EMBEDDING_DIM = 384
+_EXPECTED_DOCS_MODEL = "BAAI/bge-base-en-v1.5"
+_EXPECTED_EMBEDDING_DIM = 768
 ```
 
 When these are updated, all 8 tests should pass against the new model before the index is rebuilt.

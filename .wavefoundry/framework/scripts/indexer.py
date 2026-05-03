@@ -28,12 +28,8 @@ META_JSON = "meta.json"
 LOCK_DIR_NAME = ".build.lock"
 LOCK_STALE_SECONDS = 60 * 60
 
-DOCS_MODEL = "BAAI/bge-small-en-v1.5"
-# Use one small local model for both docs and code by default. The specialized
-# code model was much slower and more memory hungry for this lightweight tool.
-CODE_MODEL = DOCS_MODEL
-DOC_EMBED_BATCH_SIZE = 64
-CODE_EMBED_BATCH_SIZE = 16
+DOCS_MODEL = "BAAI/bge-base-en-v1.5"
+CODE_MODEL = "BAAI/bge-base-en-v1.5"
 CONTENT_CHOICES = ("docs", "code", "all")
 SOURCE_CODE_EXTENSIONS = {
     ".py",
@@ -457,15 +453,15 @@ def _index_lock(index_dir: Path):
 
 def _onnx_providers() -> list[str]:
     """Return the best available ONNX Runtime execution providers for this machine."""
-    import platform
     try:
         import onnxruntime as _ort
         available = set(_ort.get_available_providers())
     except Exception:
         return ["CPUExecutionProvider"]
-    if platform.system() == "Darwin" and platform.machine() == "arm64":
-        if "CoreMLExecutionProvider" in available:
-            return ["CoreMLExecutionProvider", "CPUExecutionProvider"]
+    # CoreMLExecutionProvider is intentionally excluded: it is a no-op for INT8
+    # ONNX models (ANE can't run INT8 ops) and actively hurts FP32 models by
+    # fragmenting execution across ANE/CPU boundaries. Revisit when a proper
+    # coremltools-converted .mlpackage is available.
     if "CUDAExecutionProvider" in available:
         return ["CUDAExecutionProvider", "CPUExecutionProvider"]
     return ["CPUExecutionProvider"]
@@ -485,10 +481,20 @@ def _get_embedder(model_name: str):
     return TextEmbedding(model_name=model_name, providers=_onnx_providers())
 
 
-def _embed_texts(embedder, texts: list[str]) -> "np.ndarray":
+def _embed_texts(embedder, texts: list[str], batch_size: int = 256) -> "np.ndarray":
     """Embed a list of texts and return as a float32 numpy array (n, dim)."""
     import numpy as _np
-    return _np.array(list(embedder.embed(texts)), dtype=_np.float32)
+    # Sort by length so each batch has similar-length sequences, minimising
+    # padding waste (ONNX pads every sequence in a batch to the longest).
+    order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
+    inverse = [0] * len(order)
+    for new_pos, old_pos in enumerate(order):
+        inverse[old_pos] = new_pos
+    sorted_vecs = _np.array(
+        list(embedder.embed([texts[i] for i in order], batch_size=batch_size)),
+        dtype=_np.float32,
+    )
+    return sorted_vecs[inverse]
 
 
 def _progress(verbose: bool, message: str) -> None:
@@ -774,22 +780,25 @@ def _build_index_locked(
             return None
         total = len(chunks)
         _progress(verbose, f"build_index: embedding {total} {label} chunks")
-        batch_size = CODE_EMBED_BATCH_SIZE if label == "code" else DOC_EMBED_BATCH_SIZE
-        batches: list["np.ndarray"] = []
-        for start in range(0, total, batch_size):
-            batch = chunks[start:start + batch_size]
-            end = min(start + batch_size, total)
-            _progress(verbose, f"build_index: embedding {label} chunks {start + 1}-{end}/{total}")
-            batch_start = time.monotonic()
-            texts = [c["text"] for c in batch]
-            batches.append(_embed_texts(embedder, texts))
-            _progress(
-                verbose,
-                f"build_index: embedded {end}/{total} {label} chunks "
-                f"in {time.monotonic() - batch_start:.1f}s",
-            )
-        _progress(verbose, f"build_index: embedded {len(chunks)} {label} chunks")
-        return np.concatenate(batches, axis=0)
+        # Sort globally so padding waste is minimised across the full corpus.
+        # fastembed handles internal batching at 256 across the full sorted list.
+        texts = [c["text"] for c in chunks]
+        order = sorted(range(total), key=lambda i: len(texts[i]))
+        inverse = [0] * total
+        for new_pos, old_pos in enumerate(order):
+            inverse[old_pos] = new_pos
+        sorted_texts = [texts[i] for i in order]
+
+        import numpy as _np
+        _progress(verbose, f"build_index: embedding {label} chunks 1-{total}/{total}")
+        t_start = time.monotonic()
+        sorted_result = _embed_texts(embedder, sorted_texts)
+        _progress(
+            verbose,
+            f"build_index: embedded {total} {label} chunks "
+            f"in {time.monotonic() - t_start:.1f}s",
+        )
+        return sorted_result[inverse]
 
     new_doc_vecs = _embed_chunks("doc", new_doc_chunks, docs_embedder) if build_docs else None
     new_code_vecs = _embed_chunks("code", new_code_chunks, code_embedder) if build_code else None

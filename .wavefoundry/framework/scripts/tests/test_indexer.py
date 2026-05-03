@@ -25,7 +25,7 @@ def _make_embedder_mock(dim: int = 4):
     """Return a mock embedder whose .embed() yields zero vectors of given dimension."""
     import numpy as np
 
-    def fake_embed(texts):
+    def fake_embed(texts, batch_size=256):
         for _ in texts:
             yield np.zeros(dim, dtype=np.float32)
 
@@ -672,33 +672,28 @@ class OnnxProviderSelectionTests(unittest.TestCase):
     def setUp(self):
         self.mod = load_build_index()
 
-    def _providers(self, system: str, machine: str, available: list[str]) -> list[str]:
-        with patch("platform.system", return_value=system), \
-             patch("platform.machine", return_value=machine), \
-             patch("onnxruntime.get_available_providers", return_value=available):
+    def _providers(self, available: list[str]) -> list[str]:
+        with patch("onnxruntime.get_available_providers", return_value=available):
             return self.mod._onnx_providers()
 
-    def test_apple_silicon_prefers_coreml(self):
-        providers = self._providers("Darwin", "arm64", ["CoreMLExecutionProvider", "CPUExecutionProvider"])
-        self.assertEqual(providers[0], "CoreMLExecutionProvider")
+    def test_coreml_not_used_on_apple_silicon(self):
+        # CoreML is excluded: no-op for INT8 models, actively hurts FP32 models.
+        providers = self._providers(["CoreMLExecutionProvider", "CPUExecutionProvider"])
+        self.assertNotIn("CoreMLExecutionProvider", providers)
         self.assertIn("CPUExecutionProvider", providers)
 
-    def test_apple_silicon_falls_back_to_cpu_without_coreml(self):
-        providers = self._providers("Darwin", "arm64", ["CPUExecutionProvider"])
-        self.assertEqual(providers, ["CPUExecutionProvider"])
-
-    def test_cuda_used_on_non_apple(self):
-        providers = self._providers("Linux", "x86_64", ["CUDAExecutionProvider", "CPUExecutionProvider"])
+    def test_cuda_preferred_when_available(self):
+        providers = self._providers(["CUDAExecutionProvider", "CPUExecutionProvider"])
         self.assertEqual(providers[0], "CUDAExecutionProvider")
         self.assertIn("CPUExecutionProvider", providers)
 
     def test_cpu_only_fallback(self):
-        providers = self._providers("Linux", "x86_64", ["CPUExecutionProvider"])
+        providers = self._providers(["CPUExecutionProvider"])
         self.assertEqual(providers, ["CPUExecutionProvider"])
 
-    def test_coreml_not_used_on_intel_mac(self):
-        providers = self._providers("Darwin", "x86_64", ["CoreMLExecutionProvider", "CPUExecutionProvider"])
-        self.assertEqual(providers, ["CPUExecutionProvider"])
+    def test_cuda_preferred_when_both_cuda_and_coreml_available(self):
+        providers = self._providers(["CoreMLExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"])
+        self.assertEqual(providers[0], "CUDAExecutionProvider")
 
     def test_onnxruntime_import_error_returns_cpu(self):
         with patch.dict("sys.modules", {"onnxruntime": None}):

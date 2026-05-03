@@ -1,10 +1,10 @@
 # Code Search Language Extension Normalization
 
 Change ID: `12br9-enh code-search-language-extension-normalization`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-05-02
+Status: implemented
+Last verified: 2026-05-03
 Wave: `12br9 code-search-language-filter`
 
 ## Rationale
