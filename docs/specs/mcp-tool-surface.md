@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-02
+Last verified: 2026-05-03
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -437,8 +437,10 @@ Use this table to select the right tool for a query type.
 - You want to eliminate noise from similar patterns in other languages.
 - Examples:
   - `code_search(query="parse wave IDs from string", language="python")`
-  - `code_search(query="React component with loading state", language="tsx")`
+  - `code_search(query="React component with loading state", language="typescript")` — covers both `.ts` and `.tsx` files; passing `"tsx"` or `".tsx"` is equivalent (all normalize to `"typescript"`)
   - `code_search(query="CREATE TABLE migration", language="sql")`
+
+> **React / TypeScript note:** `.tsx` and `.ts` files are indexed under the same canonical label `"typescript"`. There is no separate `tsx` language in the index. `language="tsx"`, `language=".tsx"`, and `language="typescript"` are all equivalent single-language filters. Use `language="web"` to include JavaScript, HTML, CSS, and SCSS alongside TypeScript.
 
 **Use `code_keyword_search` instead of `code_search` when:**
 - You know the exact function name, variable, import path, or string literal.

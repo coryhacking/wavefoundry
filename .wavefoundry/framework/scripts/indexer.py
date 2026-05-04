@@ -75,14 +75,47 @@ PROJECT_INDEX_EXCLUDE_PREFIXES = (
     ".wavefoundry/framework/",
 )
 
-BINARY_EXTENSIONS = {
-    ".pyc", ".pyo", ".so", ".dylib", ".dll", ".exe", ".bin",
-    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".ico", ".svg",
-    ".pdf", ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
-    ".mp3", ".mp4", ".wav", ".ogg", ".avi", ".mov",
-    ".woff", ".woff2", ".ttf", ".eot",
+BINARY_EXTENSIONS = frozenset({
+    # Compiled / native
+    ".pyc", ".pyo", ".so", ".dylib", ".dll", ".exe", ".bin", ".a", ".o", ".elf",
+    # Archives
+    ".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar",
+    # Office / presentation
+    ".pdf", ".pptx", ".docx", ".xlsx", ".xls", ".ppt", ".doc",
+    # Images
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".ico", ".webp", ".tiff", ".tif",
+    # Vector / design — SVG excluded from code index (no code semantics)
+    ".svg", ".eps", ".ai", ".sketch", ".acorn",
+    # Fonts
+    ".ttf", ".otf", ".woff", ".woff2", ".eot",
+    # Media
+    ".mp3", ".mp4", ".wav", ".ogg", ".avi", ".mov", ".mkv", ".flv",
+    # Data / ML artifacts
     ".npy", ".npz", ".pkl", ".parquet", ".h5", ".hdf5",
+    # Databases / locks
     ".db", ".sqlite", ".lock",
+    # Installers / packages
+    ".dmg", ".pkg", ".msi", ".deb", ".rpm",
+})
+
+# Exact filenames excluded regardless of extension (generated/machine-written files).
+HARDCODED_EXCLUDE_FILENAMES = frozenset({
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+})
+
+# Extensions for machine-generated files that are valid text but have no code semantics.
+_GENERATED_EXCLUDE_EXTENSIONS = frozenset({
+    ".snap",        # Vitest / Jest snapshot files
+    ".excalidraw",  # Excalidraw diagram JSON
+})
+
+# All extensions we treat as known text — no null-byte sniff needed.
+_KNOWN_TEXT_EXTENSIONS = frozenset(SOURCE_CODE_EXTENSIONS) | {
+    ".md", ".markdown",
+    ".txt",
+    ".graphql", ".gql", ".proto",
 }
 
 # Dot-directories that are always excluded from the walk.
@@ -161,19 +194,37 @@ def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
             continue
 
         filename = parts[-1]
+        suffix = path.suffix.lower()
 
         # Exclude .env files (secrets risk) — matches .env, .env.local, .env.production, etc.
         if filename == ".env" or filename.startswith(".env."):
             continue
 
+        # Exact-filename exclusions (generated lock files)
+        if filename in HARDCODED_EXCLUDE_FILENAMES:
+            continue
+
         # Binary extensions
-        if path.suffix.lower() in BINARY_EXTENSIONS:
+        if suffix in BINARY_EXTENSIONS:
+            continue
+
+        # Generated-file extension exclusions (snapshots, diagrams)
+        if suffix in _GENERATED_EXCLUDE_EXTENSIONS:
             continue
 
         # Allow extensionless docs files (README, LICENSE, etc.) before extension check
         if not path.suffix and filename in DOCS_EXTENSIONLESS_NAMES:
             result.append(path)
             continue
+
+        # Null-byte sniff for files with unrecognized extensions
+        if suffix and suffix not in _KNOWN_TEXT_EXTENSIONS:
+            try:
+                chunk = path.read_bytes()[:8192]
+                if b"\x00" in chunk:
+                    continue
+            except OSError:
+                continue
 
         # .gitignore / .aiignore
         if _matches_ignore(rel_str, ignore_patterns):
@@ -605,24 +656,38 @@ def _build_index_locked(
     meta = {} if full else _load_meta(index_dir)
     old_file_meta: dict[str, dict] = meta.get("file_meta", {})
     old_model_versions: dict[str, str] = meta.get("model_versions", {})
-    old_chunker_version: str = meta.get("chunker_version", "")
+    # chunker_versions tracks per-content-layer chunker version so that a
+    # docs-only update does not falsely stamp the code layer as current.
+    old_chunker_versions: dict[str, str] = meta.get("chunker_versions", {})
+    # Legacy: scalar chunker_version written by older builds — treat as applying
+    # to both layers if the new per-layer key is absent.
+    _legacy_cv: str = meta.get("chunker_version", "")
+    if not old_chunker_versions and _legacy_cv:
+        old_chunker_versions = {"docs": _legacy_cv, "code": _legacy_cv}
     current_chunker_version: str = getattr(_get_chunker(), "CHUNKER_VERSION", "")
 
-    # Force a selected-content rebuild if models changed or selected index files are absent.
+    # Force a selected-content rebuild if models changed, chunker changed for
+    # this content layer, or selected index files are absent.
     model_changed = False
+    chunker_changed = False
     if build_docs:
         model_changed = model_changed or old_model_versions.get("docs") != DOCS_MODEL
         model_changed = model_changed or not (index_dir / DOCS_JSON).exists()
         if (index_dir / DOCS_JSON).exists() and _load_chunks(index_dir, DOCS_JSON):
             model_changed = model_changed or not (index_dir / DOCS_NPY).exists()
+        chunker_changed = chunker_changed or (
+            current_chunker_version and old_chunker_versions.get("docs") != current_chunker_version
+        )
     if build_code:
         model_changed = model_changed or old_model_versions.get("code") != CODE_MODEL
         model_changed = model_changed or not (index_dir / CODE_JSON).exists()
         if (index_dir / CODE_JSON).exists() and _load_chunks(index_dir, CODE_JSON):
             model_changed = model_changed or not (index_dir / CODE_NPY).exists()
-    chunker_changed = current_chunker_version and old_chunker_version != current_chunker_version
+        chunker_changed = chunker_changed or (
+            current_chunker_version and old_chunker_versions.get("code") != current_chunker_version
+        )
     if model_changed or chunker_changed:
-        if not full and (old_model_versions or old_chunker_version):
+        if not full and (old_model_versions or old_chunker_versions):
             reason = "chunker version changed" if chunker_changed else "model version changed or index missing"
             print(
                 f"build_index: selected {content} index missing or {reason} — "
@@ -837,6 +902,11 @@ def _build_index_locked(
         new_model_versions["docs"] = DOCS_MODEL
     if build_code:
         new_model_versions["code"] = CODE_MODEL
+    new_chunker_versions = dict(old_chunker_versions)
+    if build_docs and current_chunker_version:
+        new_chunker_versions["docs"] = current_chunker_version
+    if build_code and current_chunker_version:
+        new_chunker_versions["code"] = current_chunker_version
     available_content = set(meta.get("content", []))
     if build_docs:
         available_content.add("docs")
@@ -845,7 +915,7 @@ def _build_index_locked(
     new_meta = {
         "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "model_versions": new_model_versions,
-        "chunker_version": current_chunker_version,
+        "chunker_versions": new_chunker_versions,
         "content": sorted(available_content),
         "file_meta": current_file_meta,
     }

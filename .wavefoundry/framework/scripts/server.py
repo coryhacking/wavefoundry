@@ -1095,6 +1095,9 @@ def _help_catalog() -> dict[str, Any]:
                     "Search indexed code chunks when code embeddings exist; fall back to guidance when they do not. "
                     "The language filter accepts category names (java, web, systems, script, data, sparksql, dotnet), "
                     "canonical language names (python, typescript, go, rust, ...), or raw extensions (tsx, .tsx). "
+                    "Raw extensions normalize to their canonical name: tsx/.tsx → typescript, js/.js → javascript. "
+                    ".tsx and .ts files are both indexed as language='typescript' — passing tsx or typescript is equivalent. "
+                    "Use language='web' to include TypeScript, JavaScript, HTML, CSS, and SCSS in one filter. "
                     "Category searches return language_resolved listing the expanded language set."
                 ),
                 "fallback_tools": ["code_keyword_search"],
@@ -4196,6 +4199,8 @@ def build_server(root: Path):
           systems (c/cpp/rust/go), script (python/ruby/shell/fish), data (sql), sparksql (sql alias), dotnet (csharp).
           Category responses include language_resolved (expanded language list) and language_extensions.
         - Canonical name or extension: use when you know the exact language. e.g. "python", "typescript", "tsx", ".tsx".
+          Note: .tsx and .ts files are both indexed as language="typescript" — tsx/.tsx normalizes to typescript.
+          Use "web" (category) if you want TypeScript + JavaScript + HTML + CSS + SCSS together.
 
         Args:
             query: Natural language description of the code behavior or concept to find.

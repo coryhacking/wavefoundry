@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-02
+Last verified: 2026-05-03
 
 Actor: implementer
 Schema version: 1.0
@@ -28,7 +28,11 @@ Last distilled: 2026-04-28
 
 ## Active Signals
 
-- None. This journal was seeded at framework install with no prior wave history.
+wave-id: `12c7n indexer-noise-exclusion`
+- Binary files, lock files, and snapshot files generating index noise; line-window cap at 60 lines; TS export const truncation; micro-chunk merging. See wave for details.
+
+wave-id: `12c86 tree-sitter-chunker`
+- Replace regex chunkers with tree-sitter AST chunking. Depends on 12c7n. Verify grammar package version compatibility before starting.
 
 ## Promotion Evidence
 

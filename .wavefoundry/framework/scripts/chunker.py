@@ -12,12 +12,17 @@ from typing import Optional
 
 sys.dont_write_bytecode = True
 
-CHUNKER_VERSION = "10"
+CHUNKER_VERSION = "11"
 
 # Lines per window and overlap for the line-window fallback chunker.
-WINDOW_SIZE = 60
+WINDOW_SIZE = 120
 WINDOW_OVERLAP = 10
 MAX_CODE_CHUNK_CHARS = 4000
+
+# Minimum chunk size for structured chunkers.  Sub-minimum chunks are merged
+# into their predecessor.  Imports chunks are exempt.  Reused by tree-sitter
+# wave (12c86).
+CHUNK_MIN_LINES = 2
 
 # Character threshold above which a ## section is re-split at ### boundaries.
 H3_SPLIT_THRESHOLD_CHARS = 2000
@@ -256,7 +261,7 @@ def chunk_python(source: str, path: str) -> list[Chunk]:
     for node in ast.iter_child_nodes(tree):
         _visit(node)
 
-    return chunks
+    return _merge_small_chunks(chunks)
 
 
 def split_large_code_chunks(chunks: list[Chunk], max_chars: int = MAX_CODE_CHUNK_CHARS) -> list[Chunk]:
@@ -552,6 +557,38 @@ def chunk_markdown(
 # Line-window fallback chunker
 # ---------------------------------------------------------------------------
 
+_TOP_LEVEL_BOUNDARY_RE = re.compile(
+    r"^(?:def |class |function |async function |export (?:default )?(?:function|class)|@)"
+)
+
+MIN_CHUNK_LINES = 10  # minimum for line-window chunks (prevents tiny orphan tails)
+
+
+def _find_break_point(lines: list[str], window_start: int, window_end: int) -> int:
+    """Return the best break index within the last 20% of the window.
+
+    Prefers blank lines first, then lines at column 0 (top-level boundaries).
+    Returns window_end (the hard cap) if no preferred break is found.
+    The returned value is the exclusive end index (slice end).
+    """
+    lookback_start = window_end - max(1, (window_end - window_start) // 5)
+    # Ensure minimum chunk size
+    min_end = window_start + MIN_CHUNK_LINES
+
+    # First pass: blank line
+    for j in range(window_end - 1, max(lookback_start, min_end) - 1, -1):
+        if j < len(lines) and lines[j].strip() == "":
+            return j  # break before this blank line (exclusive end)
+
+    # Second pass: top-level boundary (column 0, non-blank)
+    for j in range(window_end - 1, max(lookback_start, min_end) - 1, -1):
+        if j < len(lines) and lines[j] and not lines[j][0].isspace():
+            if _TOP_LEVEL_BOUNDARY_RE.match(lines[j]):
+                return j
+
+    return window_end
+
+
 def chunk_line_window(
     source: str,
     path: str,
@@ -560,17 +597,23 @@ def chunk_line_window(
     overlap: int = WINDOW_OVERLAP,
     section: Optional[str] = None,
 ) -> list[Chunk]:
-    """Chunk any text into overlapping line windows."""
+    """Chunk any text into line windows, preferring logical break points."""
     path = _normalize_path(path)
     lines = source.splitlines()
     if not lines:
         return []
 
     chunks: list[Chunk] = []
-    step = max(1, window - overlap)
     i = 0
     while i < len(lines):
-        end = min(i + window, len(lines))
+        hard_end = min(i + window, len(lines))
+        # Only look for a smarter break if we haven't reached end of file
+        if hard_end < len(lines):
+            end = _find_break_point(lines, i, hard_end)
+        else:
+            end = hard_end
+        end = max(end, i + 1)  # always advance at least one line
+
         start_line = i + 1
         end_line = end
         text = "\n".join(lines[i:end])
@@ -587,7 +630,9 @@ def chunk_line_window(
         ))
         if end >= len(lines):
             break
-        i += step
+        # Advance to next window; no overlap for line-window (overlap=0 when called
+        # by structured chunkers that already hit fallback)
+        i = end
 
     return chunks
 
@@ -735,6 +780,55 @@ def _fallback_with_stem(source: str, path: str, lang: str) -> list[Chunk]:
     """Line-window fallback with depth-1 file-stem breadcrumb (AC-9)."""
     stem = _file_stem(path)
     return chunk_line_window(source, path, language=lang, section=stem)
+
+
+def _merge_small_chunks(chunks: list[Chunk]) -> list[Chunk]:
+    """Merge sub-minimum code chunks into their preceding code chunk.
+
+    Only code-kind chunks participate in merging.  Doc chunks and imports
+    chunks are always emitted as-is.  If the only chunk is sub-minimum, it is
+    returned as-is.
+    """
+    if len(chunks) <= 1:
+        return chunks
+
+    result: list[Chunk] = []
+    for chunk in chunks:
+        is_imports = chunk.section is not None and chunk.section.endswith("> imports")
+        is_doc = chunk.kind == "doc"
+        line_count = chunk.lines[1] - chunk.lines[0] + 1
+
+        # Find last code chunk in result as merge target (skip imports chunks)
+        last_code_idx = next(
+            (
+                idx for idx in range(len(result) - 1, -1, -1)
+                if result[idx].kind == "code"
+                and not (result[idx].section is not None and result[idx].section.endswith("> imports"))
+            ),
+            None,
+        )
+
+        if (
+            not is_imports
+            and not is_doc
+            and chunk.kind == "code"
+            and line_count < CHUNK_MIN_LINES
+            and last_code_idx is not None
+        ):
+            prev = result[last_code_idx]
+            merged_text = prev.text + "\n" + chunk.text
+            result[last_code_idx] = Chunk(
+                id=prev.id,
+                path=prev.path,
+                kind=prev.kind,
+                language=prev.language,
+                lines=(prev.lines[0], chunk.lines[1]),
+                section=prev.section,
+                text=merged_text,
+            )
+        else:
+            result.append(chunk)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -913,7 +1007,7 @@ def _chunk_java_like(source: str, path: str, lang: str, *, has_namespace: bool =
 
     if not chunks:
         return _fallback_with_stem(source, path, lang)
-    return split_large_code_chunks(chunks)
+    return split_large_code_chunks(_merge_small_chunks(chunks))
 
 
 def chunk_java(source: str, path: str) -> list[Chunk]:
@@ -1117,7 +1211,7 @@ def chunk_csharp(source: str, path: str) -> list[Chunk]:
 
     if not chunks:
         return _fallback_with_stem(source, path, "csharp")
-    return split_large_code_chunks(chunks)
+    return split_large_code_chunks(_merge_small_chunks(chunks))
 
 
 # ---------------------------------------------------------------------------
@@ -1131,6 +1225,9 @@ _JS_FUNC_RE = re.compile(
 _JS_ARROW_RE = re.compile(
     r"^\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?\(", re.MULTILINE
 )
+# Top-level export const declarations at column 0: export const Foo = ...
+# (styled-components, plain constants, enum-like objects, etc.)
+_JS_EXPORT_CONST_RE = re.compile(r"^export\s+const\s+(\w+)\s*[:=]")
 _JS_METHOD_RE = re.compile(
     r"^\s*(?:static\s+)?(?:async\s+)?(?:get\s+|set\s+)?(\w+)\s*\(", re.MULTILINE
 )
@@ -1225,6 +1322,47 @@ def chunk_js_ts(source: str, path: str) -> list[Chunk]:
                 i = j
                 continue
 
+            # Top-level export const declarations at column 0 (styled-components, etc.)
+            if not current_class:
+                ecm = _JS_EXPORT_CONST_RE.match(line)
+                if ecm:
+                    const_name = ecm.group(1)
+                    breadcrumb = f"{stem} > {const_name}"
+                    body_lines = [line]
+                    # Collect until next top-level `export const` at column 0 or EOF
+                    j = i + 1
+                    while j < len(lines):
+                        if _JS_EXPORT_CONST_RE.match(lines[j]):
+                            break
+                        # Also stop at top-level class/function declarations
+                        if _JS_CLASS_RE.match(lines[j]) or _JS_FUNC_RE.match(lines[j]):
+                            break
+                        body_lines.append(lines[j])
+                        j += 1
+                    code_text = "\n".join(body_lines)
+                    doc_text = next((doc_ends[k] for k in range(i, i - 3, -1) if k in doc_ends), None)
+                    if doc_text:
+                        chunks.append(Chunk(
+                            id=f"{path}::{const_name}.__doc__",
+                            path=path,
+                            kind="doc",
+                            language=lang,
+                            lines=(max(1, i), i + 1),
+                            section=breadcrumb,
+                            text=f"{breadcrumb}\n\n{doc_text}",
+                        ))
+                    chunks.append(Chunk(
+                        id=f"{path}::{const_name}",
+                        path=path,
+                        kind="code",
+                        language=lang,
+                        lines=(i + 1, j),
+                        section=breadcrumb,
+                        text=code_text,
+                    ))
+                    i = j
+                    continue
+
             if current_class:
                 mm = _JS_METHOD_RE.match(line)
                 if mm and mm.group(1) not in {"if", "for", "while", "switch", "catch", "constructor"}:
@@ -1269,7 +1407,7 @@ def chunk_js_ts(source: str, path: str) -> list[Chunk]:
 
     if not chunks:
         return _fallback_with_stem(source, path, lang)
-    return split_large_code_chunks(chunks)
+    return split_large_code_chunks(_merge_small_chunks(chunks))
 
 
 # ---------------------------------------------------------------------------
@@ -1380,7 +1518,7 @@ def chunk_c_cpp(source: str, path: str) -> list[Chunk]:
 
     if not chunks:
         return _fallback_with_stem(source, path, lang)
-    return split_large_code_chunks(chunks)
+    return split_large_code_chunks(_merge_small_chunks(chunks))
 
 
 # ---------------------------------------------------------------------------
@@ -1604,7 +1742,7 @@ def chunk_go(source: str, path: str) -> list[Chunk]:
 
     if not chunks:
         return _fallback_with_stem(source, path, "go")
-    return split_large_code_chunks(chunks)
+    return split_large_code_chunks(_merge_small_chunks(chunks))
 
 
 # ---------------------------------------------------------------------------
@@ -1764,7 +1902,7 @@ def chunk_rust(source: str, path: str) -> list[Chunk]:
 
     if not chunks:
         return _fallback_with_stem(source, path, "rust")
-    return split_large_code_chunks(chunks)
+    return split_large_code_chunks(_merge_small_chunks(chunks))
 
 
 # ---------------------------------------------------------------------------
@@ -1881,7 +2019,7 @@ def chunk_shell(source: str, path: str) -> list[Chunk]:
 
     if not chunks:
         return _fallback_with_stem(source, path, lang)
-    return split_large_code_chunks(chunks)
+    return split_large_code_chunks(_merge_small_chunks(chunks))
 
 
 # ---------------------------------------------------------------------------
@@ -2077,7 +2215,7 @@ def chunk_swift(source: str, path: str) -> list[Chunk]:
 
     if not chunks:
         return _fallback_with_stem(source, path, "swift")
-    return split_large_code_chunks(chunks)
+    return split_large_code_chunks(_merge_small_chunks(chunks))
 
 
 # ---------------------------------------------------------------------------
@@ -2185,7 +2323,7 @@ def chunk_objc(source: str, path: str) -> list[Chunk]:
 
     if not chunks:
         return _fallback_with_stem(source, path, "objc")
-    return split_large_code_chunks(chunks)
+    return split_large_code_chunks(_merge_small_chunks(chunks))
 
 
 # ---------------------------------------------------------------------------

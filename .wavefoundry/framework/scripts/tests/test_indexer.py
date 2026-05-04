@@ -99,6 +99,61 @@ class FileWalkerTests(unittest.TestCase):
         self.assertNotIn("image.png", names)
         self.assertNotIn("data.npy", names)
 
+    def test_excludes_elf_and_office_binaries(self):
+        # AC-1 (12c7n-bug binary-files-indexed-as-text): ELF, EPS, PPTX excluded
+        _make_repo(self.root, {"src/app.py": "x = 1\n"})
+        (self.root / "src" / "app").write_bytes(b"\x7fELF\x02\x01\x01")
+        (self.root / "src" / "slide.pptx").write_bytes(b"PK\x03\x04")
+        (self.root / "src" / "logo.eps").write_bytes(b"%!PS-Adobe-3.0 EPSF-3.0\n")
+        (self.root / "src" / "icon.png").write_bytes(b"\x89PNG\r\n")
+        (self.root / "src" / "diagram.svg").write_bytes(b"<svg></svg>")
+        files = self.bi.walk_repo(self.root)
+        names = {f.name for f in files}
+        self.assertIn("app.py", names)
+        self.assertNotIn("slide.pptx", names)
+        self.assertNotIn("logo.eps", names)
+        self.assertNotIn("icon.png", names)
+        self.assertNotIn("diagram.svg", names)
+
+    def test_excludes_null_byte_unknown_extension(self):
+        # AC-3 (12c7n-bug binary-files-indexed-as-text): null-byte sniff for unknown extensions
+        _make_repo(self.root, {"src/foo.py": "x = 1\n"})
+        # Use .myext — not in any known binary or text list
+        (self.root / "src" / "data.myext").write_bytes(b"\x00\x01\x02binary data here")
+        (self.root / "src" / "config.myext").write_text("key=value\n", encoding="utf-8")
+        files = self.bi.walk_repo(self.root)
+        names = {f.name for f in files}
+        self.assertNotIn("data.myext", names)
+        self.assertIn("config.myext", names)
+
+    def test_excludes_lock_files(self):
+        # AC-1..AC-3 (12c7n-bug generated-lock-files-indexed): lock files excluded
+        _make_repo(self.root, {
+            "package.json": '{"name":"app"}',
+            "src/index.ts": "export {};",
+        })
+        (self.root / "package-lock.json").write_text('{"lockfileVersion":3}', encoding="utf-8")
+        (self.root / "yarn.lock").write_text("# yarn lockfile\n", encoding="utf-8")
+        (self.root / "pnpm-lock.yaml").write_text("lockfileVersion: '6.0'\n", encoding="utf-8")
+        files = self.bi.walk_repo(self.root)
+        names = {f.name for f in files}
+        self.assertNotIn("package-lock.json", names)
+        self.assertNotIn("yarn.lock", names)
+        self.assertNotIn("pnpm-lock.yaml", names)
+        self.assertIn("package.json", names)
+
+    def test_excludes_snap_and_excalidraw(self):
+        # AC-4, AC-5 (12c7n-bug generated-lock-files-indexed): snapshots and diagrams excluded
+        _make_repo(self.root, {"src/foo.ts": "export {};", "src/bar.json": "{}"}),
+        (self.root / "src" / "Component.test.ts.snap").write_text("{}", encoding="utf-8")
+        (self.root / "src" / "diagram.excalidraw").write_text("{}", encoding="utf-8")
+        files = self.bi.walk_repo(self.root)
+        names = {f.name for f in files}
+        self.assertNotIn("Component.test.ts.snap", names)
+        self.assertNotIn("diagram.excalidraw", names)
+        self.assertIn("foo.ts", names)
+        self.assertIn("bar.json", names)
+
     def test_respects_gitignore(self):
         _make_repo(self.root, {
             "src/foo.py": "x = 1\n",
@@ -666,6 +721,66 @@ class ModelVersionChangeTests(unittest.TestCase):
             result = self.bi.build_index(self.root, full=False, content="all", verbose=False)
         self.assertFalse(result["up_to_date"])
         self.assertGreater(result["files_indexed"], 0)
+
+    def test_chunker_version_change_per_layer_triggers_rebuild(self):
+        """A docs-only update must not stamp the code layer as current (regression guard)."""
+        _make_repo(self.root, {"src/foo.md": "## Guide\n\nContent.\n"})
+        index_dir = self.root / ".wavefoundry" / "index"
+        index_dir.mkdir(parents=True, exist_ok=True)
+        current_cv = self.bi._get_chunker().CHUNKER_VERSION
+        # Simulate: code layer was built with an old chunker; docs layer is current
+        (index_dir / "meta.json").write_text(
+            json.dumps({
+                "model_versions": {
+                    "docs": self.bi.DOCS_MODEL,
+                    "code": self.bi.CODE_MODEL,
+                },
+                "chunker_versions": {
+                    "docs": current_cv,
+                    "code": "old-chunker-version",
+                },
+                "content": ["docs", "code"],
+                "file_meta": {},
+            }),
+            encoding="utf-8",
+        )
+        # A code-only update must detect the stale chunker and force a full rebuild
+        docs_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
+            result = self.bi.build_index(self.root, full=False, content="code", verbose=False)
+        self.assertFalse(result.get("up_to_date", False))
+        # After the build, the code layer must record the current chunker version
+        meta = json.loads((index_dir / "meta.json").read_text())
+        self.assertEqual(meta["chunker_versions"]["code"], current_cv)
+
+    def test_legacy_chunker_version_scalar_migrated(self):
+        """Old meta with scalar chunker_version is treated as applying to both layers."""
+        _make_repo(self.root, {"src/foo.md": "## Guide\n\nContent.\n"})
+        index_dir = self.root / ".wavefoundry" / "index"
+        index_dir.mkdir(parents=True, exist_ok=True)
+        current_cv = self.bi._get_chunker().CHUNKER_VERSION
+        # Legacy format: single scalar, not per-layer
+        (index_dir / "meta.json").write_text(
+            json.dumps({
+                "model_versions": {
+                    "docs": self.bi.DOCS_MODEL,
+                    "code": self.bi.CODE_MODEL,
+                },
+                "chunker_version": "old-chunker",
+                "content": ["docs", "code"],
+                "file_meta": {},
+            }),
+            encoding="utf-8",
+        )
+        docs_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
+            result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
+        # Must trigger a rebuild since old-chunker != current
+        self.assertFalse(result.get("up_to_date", False))
+        # New meta must use chunker_versions dict, not scalar
+        meta = json.loads((index_dir / "meta.json").read_text())
+        self.assertIn("chunker_versions", meta)
+        self.assertEqual(meta["chunker_versions"]["docs"], current_cv)
 
 
 class OnnxProviderSelectionTests(unittest.TestCase):

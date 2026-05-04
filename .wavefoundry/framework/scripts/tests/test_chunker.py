@@ -1622,10 +1622,14 @@ class ObjcChunkerTests(unittest.TestCase):
     def test_objc_multiple_implementations(self):
         source = textwrap.dedent("""\
             @implementation Foo
-            - (void)doFoo {}
+            - (void)doFoo {
+                NSLog(@"foo");
+            }
             @end
             @implementation Bar
-            - (void)doBar {}
+            - (void)doBar {
+                NSLog(@"bar");
+            }
             @end
         """)
         chunks = self.chunker.chunk_objc(source, "src/Multi.m")
@@ -1724,6 +1728,180 @@ class PlainTextChunkerTests(unittest.TestCase):
         source = "A plain text file.\n"
         chunks = self.chunker.chunk_file(source, "notes.txt")
         self.assertTrue(all(c.kind == "doc" for c in chunks))
+
+
+class LineWindowBoundaryTests(unittest.TestCase):
+    """12c7n-enh line-window-chunker-boundary-improvement: blank-line and dedent-to-zero breaks."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def test_default_window_is_120(self):
+        # AC-3: cap raised to 120 lines
+        self.assertEqual(self.chunker.WINDOW_SIZE, 120)
+
+    def test_blank_line_break_in_last_20_percent(self):
+        # AC-1: blank line within last 20% of window causes break there
+        # Window=120, last 20% = lines 96-120. Put blank at line 100 (0-indexed 99).
+        lines = [f"code line {i}" for i in range(1, 130)]
+        lines[99] = ""  # blank line at position 100 (1-indexed)
+        source = "\n".join(lines)
+        chunks = self.chunker.chunk_line_window(source, "src/big.py", language="python")
+        # First chunk must end at or before line 100 (the blank), not at line 120
+        self.assertLess(chunks[0].lines[1], 120)
+
+    def test_dedent_to_zero_break(self):
+        # AC-2: a top-level `def` keyword at column 0 in last 20% causes break before it
+        lines = ["    body line " + str(i) for i in range(1, 115)]
+        lines[108] = "def top_level():"  # column 0, top-level boundary
+        source = "\n".join(lines)
+        chunks = self.chunker.chunk_line_window(source, "src/big.py", language="python")
+        self.assertLess(chunks[0].lines[1], 120)
+
+    def test_lines_field_is_accurate(self):
+        # AC-5: lines tuple reflects actual line range
+        source = "\n".join(f"line {i}" for i in range(1, 50))
+        chunks = self.chunker.chunk_line_window(source, "src/small.py", language="python")
+        for chunk in chunks:
+            actual_line_count = chunk.text.count("\n") + 1
+            self.assertEqual(chunk.lines[1] - chunk.lines[0] + 1, actual_line_count)
+
+
+class ExportConstChunkerTests(unittest.TestCase):
+    """12c7r-bug ts-export-const-body-truncated: export const declarations indexed."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def test_export_const_after_imports_is_indexed(self):
+        # AC-1: file with import block + export const declarations produces full coverage
+        source = textwrap.dedent("""\
+            import React from 'react';
+            import styled from 'styled-components';
+            import { theme } from './theme';
+
+            export const Button = styled.button`
+              background: ${theme.primary};
+              color: white;
+              padding: 8px 16px;
+            `;
+
+            export const IconButton = styled.button`
+              background: transparent;
+              border: none;
+              cursor: pointer;
+            `;
+        """)
+        chunks = self.chunker.chunk_js_ts(source, "src/Button.tsx")
+        ids = [c.id for c in chunks]
+        # Must have chunks covering Button and IconButton declarations
+        button_chunks = [c for c in chunks if "Button" in c.id and c.kind == "code"]
+        icon_chunks = [c for c in chunks if "IconButton" in c.id and c.kind == "code"]
+        self.assertTrue(len(button_chunks) >= 1, f"Button chunk missing; ids={ids}")
+        self.assertTrue(len(icon_chunks) >= 1, f"IconButton chunk missing; ids={ids}")
+
+    def test_export_const_section_contains_name(self):
+        # AC-2: section contains the const name
+        source = textwrap.dedent("""\
+            import React from 'react';
+
+            export const MyComponent = () => {
+              const x = 1;
+              const y = 2;
+              return x + y;
+            };
+        """)
+        chunks = self.chunker.chunk_js_ts(source, "src/MyComponent.tsx")
+        code = [c for c in chunks if "MyComponent" in c.id and c.kind == "code"]
+        self.assertTrue(len(code) >= 1)
+        self.assertIn("MyComponent", code[0].section)
+
+    def test_existing_class_and_function_still_work(self):
+        # AC-3: non-regression — class methods and function declarations still produce chunks
+        source = textwrap.dedent("""\
+            import React from 'react';
+
+            class AppComponent extends React.Component {
+                render() {
+                    return null;
+                }
+            }
+
+            function helper(x) {
+                const result = x * 2;
+                return result;
+            }
+        """)
+        chunks = self.chunker.chunk_js_ts(source, "src/App.js")
+        ids = [c.id for c in chunks]
+        self.assertTrue(any("render" in i for i in ids), f"render method missing; ids={ids}")
+        self.assertTrue(any("helper" in i for i in ids), f"helper fn missing; ids={ids}")
+
+
+class MergeSmallChunksTests(unittest.TestCase):
+    """12c86-enh chunker-minimum-chunk-size: sub-minimum chunk merging."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def test_chunk_min_lines_constant_defined(self):
+        # AC-4: CHUNK_MIN_LINES defined at module level
+        self.assertIsInstance(self.chunker.CHUNK_MIN_LINES, int)
+        self.assertGreaterEqual(self.chunker.CHUNK_MIN_LINES, 1)
+
+    def test_single_chunk_below_minimum_emitted_as_is(self):
+        # AC-2: single sub-minimum chunk not discarded
+        source = "def f():\n    pass\n"
+        chunks = self.chunker.chunk_python(source, "src/f.py")
+        # Should emit at least one chunk even though it's tiny
+        self.assertTrue(len(chunks) >= 1)
+        # All text should be present somewhere
+        combined = " ".join(c.text for c in chunks)
+        self.assertIn("def f", combined)
+
+    def test_imports_chunk_below_minimum_not_merged(self):
+        # AC-3: imports chunk exempt from minimum even when short
+        source = textwrap.dedent("""\
+            import React from 'react';
+
+            export const App = () => {
+                const x = 1;
+                const y = 2;
+                return x + y;
+            };
+        """)
+        chunks = self.chunker.chunk_js_ts(source, "src/App.tsx")
+        imports = [c for c in chunks if c.id.endswith("::__imports__")]
+        self.assertEqual(len(imports), 1, "imports chunk must be present even if short")
+
+    def test_merge_small_chunks_helper_merges_into_predecessor(self):
+        # AC-1: _merge_small_chunks merges sub-minimum (1-line) into predecessor
+        Chunk = self.chunker.Chunk
+        min_lines = self.chunker.CHUNK_MIN_LINES
+        chunks = [
+            Chunk(id="f::A", path="f.py", kind="code", language="python",
+                  lines=(1, 10), section="A", text="big chunk"),
+            # A chunk that is exactly 1 line (always below any reasonable minimum)
+            Chunk(id="f::B", path="f.py", kind="code", language="python",
+                  lines=(11, 11), section="B", text="super(scope, id)"),
+        ]
+        result = self.chunker._merge_small_chunks(chunks)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].id, "f::A")
+        self.assertIn("super(scope, id)", result[0].text)
+        self.assertEqual(result[0].lines[1], 11)
+
+    def test_merge_small_chunks_keeps_doc_chunks(self):
+        # Doc chunks are never merged
+        Chunk = self.chunker.Chunk
+        chunks = [
+            Chunk(id="f::A", path="f.py", kind="code", language="python",
+                  lines=(1, 10), section="A", text="big chunk"),
+            Chunk(id="f::A.__doc__", path="f.py", kind="doc", language="python",
+                  lines=(1, 2), section="A", text="docstring"),
+        ]
+        result = self.chunker._merge_small_chunks(chunks)
+        self.assertEqual(len(result), 2)
 
 
 if __name__ == "__main__":
