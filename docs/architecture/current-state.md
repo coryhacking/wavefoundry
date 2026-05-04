@@ -62,18 +62,18 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
 
 ```
 setup_index.py --root .
-  ├── dependency check → fastembed, numpy, mcp[cli] in current Python
+  ├── dependency check → fastembed, numpy, mcp[cli], tree-sitter + grammar packages in current Python
   ├── prewarm docs/code embedding models in local cache
   ├── verify cached models in offline-only mode
   ├── indexer.py --root . --content docs   (default; docs/seeds only)
   ├── or with --include-code: indexer.py --root . --content all  (single subprocess, docs + code)
-  ├── walk_repo()      →  respects .gitignore, .aiignore, hardcoded excludes
-  ├── chunker.py       →  chunk_python / chunk_markdown / chunk_line_window
+  ├── walk_repo()      →  respects .gitignore, .aiignore, hardcoded excludes; WALKER_VERSION triggers full rebuild on filter changes
+  ├── chunker.py       →  chunk_python (AST) / chunk_markdown / tree-sitter chunkers for JS/TS/Go/Rust/Java/C/C++/C#/Bash/Kotlin / chunk_line_window fallback
   ├── fastembed        →  BAAI/bge-base-en-v1.5 (docs/seeds and optional code)
   └── .wavefoundry/index/
         ├── docs.npy / docs.json
         ├── code.npy / code.json
-        └── meta.json  (file hashes, model versions for incremental rebuild)
+        └── meta.json  (file hashes, model/chunker/walker versions for incremental rebuild)
 
 build_pack.py
   ├── stamps .wavefoundry/framework/VERSION

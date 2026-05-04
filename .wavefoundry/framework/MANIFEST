@@ -13,6 +13,7 @@ scripts/build_pack.py
 scripts/chunker.py
 scripts/docs_gardener.py
 scripts/docs_lint.py
+scripts/eval_chunker.py
 scripts/indexer.py
 scripts/lifecycle_id.py
 scripts/prune_framework.py

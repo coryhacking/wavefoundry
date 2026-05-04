@@ -3966,5 +3966,228 @@ class IndexerContractTests(unittest.TestCase):
         self._assert_callable("_chunks_for_file")
 
 
+class LayerHealthFileMetaTests(unittest.TestCase):
+    """_layer_health reads hashes from file_meta (indexer format), not legacy file_hashes."""
+
+    def setUp(self):
+        self.server = load_server()
+        self._td = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._td.name)
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def _make_repo(self, root: Path) -> Path:
+        (root / "docs").mkdir(parents=True, exist_ok=True)
+        (root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+        return root
+
+    def _hash(self, path: Path) -> str:
+        import hashlib
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def _file_meta_for_root(self, root: Path) -> dict:
+        """Build a file_meta dict covering all files under root that the walker would pick up."""
+        import hashlib
+        result = {}
+        for f in root.rglob("*"):
+            if f.is_file() and ".wavefoundry" not in f.parts:
+                rel = str(f.relative_to(root)).replace("\\", "/")
+                content = f.read_bytes()
+                result[rel] = {"hash": hashlib.sha256(content).hexdigest(), "mtime": 0.0, "size": len(content), "inode": 0}
+        return result
+
+    def test_file_meta_key_produces_no_stale_paths_when_hashes_match(self):
+        """Health check using file_meta format reports no stale paths when content unchanged."""
+        root = self._make_repo(self.tmp)
+        (root / "docs" / "guide.md").write_text("# Guide\n\nHello.\n", encoding="utf-8")
+
+        idx_dir = root / ".wavefoundry" / "index"
+        idx_dir.mkdir(parents=True, exist_ok=True)
+
+        meta = {
+            "built_at": "2026-01-01T00:00:00Z",
+            "content": ["docs"],
+            "model_versions": {"docs": "BAAI/bge-base-en-v1.5"},
+            "chunker_versions": {"docs": "13"},
+            "walker_version": "3",
+            "file_meta": self._file_meta_for_root(root),
+        }
+        (idx_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        (idx_dir / "docs.json").write_text("[]", encoding="utf-8")
+
+        wave_idx = self.server.WaveIndex(root)
+        wave_idx._loaded = True
+        wave_idx._meta = {"project": meta, "framework": {}}
+
+        health = wave_idx._layer_health("project")
+        self.assertEqual(health["stale_paths"], [], msg="file_meta hashes matched — should be no stale paths")
+
+    def test_legacy_file_hashes_key_still_works(self):
+        """Health check falls back to file_hashes key for older index formats."""
+        root = self._make_repo(self.tmp)
+        (root / "docs" / "guide.md").write_text("# Guide\n\nHello.\n", encoding="utf-8")
+
+        idx_dir = root / ".wavefoundry" / "index"
+        idx_dir.mkdir(parents=True, exist_ok=True)
+
+        # Build file_hashes (legacy flat format) covering all walked files
+        import hashlib
+        file_hashes = {}
+        for f in root.rglob("*"):
+            if f.is_file() and ".wavefoundry" not in f.parts:
+                rel = str(f.relative_to(root)).replace("\\", "/")
+                file_hashes[rel] = hashlib.sha256(f.read_bytes()).hexdigest()
+
+        meta = {
+            "built_at": "2026-01-01T00:00:00Z",
+            "content": ["docs"],
+            "model_versions": {"docs": "BAAI/bge-base-en-v1.5"},
+            "chunker_versions": {"docs": "13"},
+            "walker_version": "3",
+            "file_hashes": file_hashes,
+        }
+        (idx_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        (idx_dir / "docs.json").write_text("[]", encoding="utf-8")
+
+        wave_idx = self.server.WaveIndex(root)
+        wave_idx._loaded = True
+        wave_idx._meta = {"project": meta, "framework": {}}
+
+        health = wave_idx._layer_health("project")
+        self.assertEqual(health["stale_paths"], [], msg="file_hashes fallback — should be no stale paths")
+
+
+class BackgroundRefreshActiveTests(unittest.TestCase):
+    """_background_refresh_active correctly guards against duplicate indexer spawns."""
+
+    def setUp(self):
+        self.server = load_server()
+        self._td = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._td.name)
+        self.state_path = self.tmp / "background-refresh.json"
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def _write_state(self, pid: int, started_at: float) -> None:
+        import json as _json
+        self.state_path.write_text(
+            _json.dumps({"pid": pid, "started_at": started_at, "layer": "project"}),
+            encoding="utf-8",
+        )
+
+    def test_returns_false_when_no_state_and_no_lock(self):
+        self.assertFalse(self.server._background_refresh_active(self.state_path))
+
+    def test_returns_true_when_lock_dir_exists_and_fresh(self):
+        lock_dir = self.tmp / ".build.lock"
+        lock_dir.mkdir()
+        self.assertTrue(self.server._background_refresh_active(self.state_path))
+
+    def test_returns_false_when_lock_dir_stale(self):
+        import os, time as _time
+        lock_dir = self.tmp / ".build.lock"
+        lock_dir.mkdir()
+        # Backdate the mtime beyond the stale threshold
+        stale_mtime = _time.time() - self.server.BACKGROUND_INDEX_LOCK_STALE_SECONDS - 10
+        os.utime(lock_dir, (stale_mtime, stale_mtime))
+        self.assertFalse(self.server._background_refresh_active(self.state_path))
+
+    def test_returns_true_when_pid_running(self):
+        import os
+        self._write_state(pid=os.getpid(), started_at=0.0)
+        self.assertTrue(self.server._background_refresh_active(self.state_path))
+
+    def test_returns_false_when_pid_dead_and_throttle_expired(self):
+        import time as _time
+        self._write_state(pid=999999999, started_at=_time.time() - 300)
+        self.assertFalse(self.server._background_refresh_active(self.state_path))
+
+    def test_returns_true_within_throttle_window_even_if_pid_dead(self):
+        import time as _time
+        self._write_state(pid=999999999, started_at=_time.time())
+        self.assertTrue(self.server._background_refresh_active(self.state_path))
+
+    def test_lock_dir_takes_precedence_over_dead_pid_expired_throttle(self):
+        """Lock dir present = active, even when state file shows a dead PID past throttle."""
+        import time as _time
+        self._write_state(pid=999999999, started_at=_time.time() - 300)
+        lock_dir = self.tmp / ".build.lock"
+        lock_dir.mkdir()
+        self.assertTrue(self.server._background_refresh_active(self.state_path))
+
+
+class WaveIndexAutoReloadTests(unittest.TestCase):
+    """WaveIndex._ensure_loaded reloads when built_at changes on disk."""
+
+    def setUp(self):
+        self.server = load_server()
+        self._td = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._td.name)
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def _make_index(self, index_dir: Path, built_at: str) -> None:
+        index_dir.mkdir(parents=True, exist_ok=True)
+        (index_dir / "meta.json").write_text(
+            json.dumps({"built_at": built_at, "content": [], "model_versions": {}, "chunker_versions": {}}),
+            encoding="utf-8",
+        )
+
+    def test_ensure_loaded_reloads_when_project_built_at_changes(self):
+        """_ensure_loaded re-reads index when project meta.json built_at changes."""
+        root = self.tmp
+        project_idx = root / ".wavefoundry" / "index"
+        framework_idx = root / ".wavefoundry" / "framework" / "index"
+        self._make_index(project_idx, "2026-01-01T00:00:00Z")
+        self._make_index(framework_idx, "2026-01-01T00:00:00Z")
+
+        idx = self.server.WaveIndex(root)
+        idx._loaded = True
+        idx._loaded_built_at = {"project": "2026-01-01T00:00:00Z", "framework": "2026-01-01T00:00:00Z"}
+
+        # Simulate a rebuild by writing a newer built_at
+        self._make_index(project_idx, "2026-02-01T00:00:00Z")
+
+        # _ensure_loaded detects the change, reloads, and stamps the new built_at
+        idx._ensure_loaded()
+        self.assertEqual(idx._loaded_built_at["project"], "2026-02-01T00:00:00Z")
+
+    def test_ensure_loaded_reloads_when_framework_built_at_changes(self):
+        """_ensure_loaded re-reads index when framework meta.json built_at changes."""
+        root = self.tmp
+        project_idx = root / ".wavefoundry" / "index"
+        framework_idx = root / ".wavefoundry" / "framework" / "index"
+        self._make_index(project_idx, "2026-01-01T00:00:00Z")
+        self._make_index(framework_idx, "2026-01-01T00:00:00Z")
+
+        idx = self.server.WaveIndex(root)
+        idx._loaded = True
+        idx._loaded_built_at = {"project": "2026-01-01T00:00:00Z", "framework": "2026-01-01T00:00:00Z"}
+
+        self._make_index(framework_idx, "2026-02-01T00:00:00Z")
+
+        idx._ensure_loaded()
+        self.assertEqual(idx._loaded_built_at["framework"], "2026-02-01T00:00:00Z")
+
+    def test_ensure_loaded_does_not_reload_when_built_at_unchanged(self):
+        """_ensure_loaded skips reload when built_at is unchanged on disk."""
+        root = self.tmp
+        project_idx = root / ".wavefoundry" / "index"
+        framework_idx = root / ".wavefoundry" / "framework" / "index"
+        self._make_index(project_idx, "2026-01-01T00:00:00Z")
+        self._make_index(framework_idx, "2026-01-01T00:00:00Z")
+
+        idx = self.server.WaveIndex(root)
+        idx._loaded = True
+        idx._loaded_built_at = {"project": "2026-01-01T00:00:00Z", "framework": "2026-01-01T00:00:00Z"}
+
+        # No changes — should remain loaded
+        idx._ensure_loaded()
+        self.assertTrue(idx._loaded)
+
+
 if __name__ == "__main__":
     unittest.main()

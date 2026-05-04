@@ -73,6 +73,10 @@ module-level singleton. If ``server.py`` is ever re-executed in the same
 process, a new object will be created and old cache entries will be treated as
 misses — acceptable because the cache is process-scoped."""
 BACKGROUND_INDEX_REFRESH_THROTTLE_SECONDS = 15.0
+# How long a .build.lock directory is trusted before being considered stale.
+# Both this value and indexer.LOCK_STALE_SECONDS encode "max time a build can run
+# before its lock is declared stale." Change them together if that assumption changes.
+BACKGROUND_INDEX_LOCK_STALE_SECONDS = 60 * 60
 
 
 def _index_layer_readiness(layer: dict[str, Any]) -> str:
@@ -124,6 +128,7 @@ class WaveIndex:
         self._code_embedder = None
         self._meta: dict = {}
         self._loaded = False
+        self._loaded_built_at: dict[str, str] = {}  # layer -> built_at stamp when last loaded
 
     def _indexer_module(self):
         return _load_script("indexer")
@@ -158,13 +163,31 @@ class WaveIndex:
         if not isinstance(meta, dict):
             meta = {}
         current_hashes = self._layer_current_hashes(layer)
-        old_hashes = meta.get("file_hashes", {}) if isinstance(meta.get("file_hashes", {}), dict) else {}
-        stale_paths = sorted(
-            {
-                path for path, digest in current_hashes.items()
-                if old_hashes.get(path) != digest
-            } | (set(old_hashes.keys()) - set(current_hashes.keys()))
+        # Indexer writes file_meta (hash + mtime + size + inode per file); health checker
+        # extracts just the hash for comparison.  Fall back to legacy file_hashes key.
+        raw_file_meta = meta.get("file_meta", {})
+        if isinstance(raw_file_meta, dict) and raw_file_meta:
+            old_hashes = {
+                path: entry["hash"]
+                for path, entry in raw_file_meta.items()
+                if isinstance(entry, dict) and "hash" in entry
+            }
+        else:
+            raw_file_hashes = meta.get("file_hashes", {})
+            old_hashes = raw_file_hashes if isinstance(raw_file_hashes, dict) else {}
+        modified_paths = sorted(
+            path for path, digest in current_hashes.items()
+            if path in old_hashes and old_hashes[path] != digest
         )
+        added_paths = sorted(
+            path for path in current_hashes
+            if path not in old_hashes
+        )
+        removed_paths = sorted(
+            path for path in old_hashes
+            if path not in current_hashes
+        )
+        stale_paths = sorted(set(modified_paths) | set(added_paths) | set(removed_paths))
         docs_present = docs_json_path.exists()
         meta_present = meta_path.exists()
         return {
@@ -174,6 +197,10 @@ class WaveIndex:
             "docs_present": docs_present,
             "has_sources": bool(current_hashes),
             "stale_paths": stale_paths,
+            "stale_paths_count": len(stale_paths),
+            "modified_paths_count": len(modified_paths),
+            "added_paths_count": len(added_paths),
+            "removed_paths_count": len(removed_paths),
             "current_hash_count": len(current_hashes),
         }
 
@@ -299,7 +326,21 @@ class WaveIndex:
         ranked.sort(key=lambda chunk: (-float(chunk["score"]), str(chunk.get("path") or ""), str(chunk.get("section") or "")))
         return ranked[:top_n]
 
+    def _index_built_at(self, index_dir: Path) -> str:
+        meta_path = index_dir / "meta.json"
+        try:
+            return json.loads(meta_path.read_text(encoding="utf-8")).get("built_at", "")
+        except (OSError, json.JSONDecodeError):
+            return ""
+
     def _ensure_loaded(self) -> None:
+        if self._loaded:
+            # Invalidate if either index has been rebuilt since we last loaded.
+            project_built_at = self._index_built_at(self.index_dir)
+            framework_built_at = self._index_built_at(self.framework_index_dir)
+            if (project_built_at != self._loaded_built_at.get("project", "")
+                    or framework_built_at != self._loaded_built_at.get("framework", "")):
+                self._loaded = False
         if self._loaded:
             return
         try:
@@ -421,6 +462,10 @@ class WaveIndex:
         self._meta = {
             "project": project_meta,
             "framework": framework_meta,
+        }
+        self._loaded_built_at = {
+            "project": project_meta.get("built_at", ""),
+            "framework": framework_meta.get("built_at", ""),
         }
         self._loaded = True
 
@@ -1306,7 +1351,7 @@ def _read_index_rebuild_stats(root: Path, layer: str) -> dict[str, Any]:
             code_chunks = []
 
     return {
-        "files_total": len(meta.get("file_hashes", {})),
+        "files_total": len(meta.get("file_meta") or meta.get("file_hashes") or {}),
         "doc_chunks": len(docs_chunks),
         "code_chunks": len(code_chunks),
         "available_content": list(meta.get("content", [])),
@@ -2322,12 +2367,33 @@ def _load_background_refresh_state(state_path: Path) -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {}
 
 
+def _index_lock_dir_for_state_path(state_path: Path) -> Path:
+    """Return the .build.lock directory that corresponds to a background-refresh state file."""
+    return state_path.parent / ".build.lock"
+
+
 def _background_refresh_active(state_path: Path) -> bool:
+    # Primary guard: if the indexer's file-system build lock exists and is not stale, a
+    # build is actively running — regardless of what the state file says.  This handles
+    # the case where the state file's PID has already exited (process finished) but a
+    # newly-spawned indexer from a subsequent trigger is currently holding the lock.
+    lock_dir = _index_lock_dir_for_state_path(state_path)
+    if lock_dir.exists():
+        try:
+            import time as _time
+            age = _time.time() - lock_dir.stat().st_mtime
+        except OSError:
+            age = 0
+        if age < BACKGROUND_INDEX_LOCK_STALE_SECONDS:
+            return True
+
     state = _load_background_refresh_state(state_path)
     pid = state.get("pid")
     started_at = state.get("started_at")
     if isinstance(pid, int) and _pid_is_running(pid):
         return True
+    # Short throttle covers the brief window between Popen() and the indexer acquiring
+    # its build lock (~1-2 seconds on a cold start).
     if isinstance(started_at, (int, float)):
         import time
         if (time.time() - float(started_at)) < BACKGROUND_INDEX_REFRESH_THROTTLE_SECONDS:

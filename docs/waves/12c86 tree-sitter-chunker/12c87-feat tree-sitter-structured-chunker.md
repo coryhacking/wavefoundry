@@ -1,9 +1,9 @@
 # Tree-Sitter Structured Chunker
 
 Change ID: `12c87-feat tree-sitter-structured-chunker`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
+Status: implemented
 Last verified: 2026-05-03
 Wave: `12c86 tree-sitter-chunker`
 
@@ -15,7 +15,7 @@ The wave `12c7n` fixes patch the most visible regressions. Tree-sitter is the st
 
 ## Requirements
 
-1. **Dependency**: `tree-sitter~=0.24` plus `tree-sitter-{language}` packages for TypeScript, JavaScript, Go, Rust, Java, C, C++, C# (csharp), and Bash must be added to `setup_index.py` `REQUIRED_IMPORTS` and installation guidance. Verify ABI compatibility for each grammar package before implementation.
+1. **Dependency**: `tree-sitter>=0.24,<0.26` plus `tree-sitter-{language}` packages for TypeScript, JavaScript, Go, Rust, Java, C, C++, C# (csharp), and Bash must be added to `setup_index.py` `REQUIRED_IMPORTS` and installation guidance. ABI verified 2026-05-03: resolves to tree-sitter 0.25.2 with all grammar packages, no conflicts.
 2. **Language coverage**: tree-sitter chunkers must cover: TypeScript (`.ts`, `.tsx`), JavaScript (`.js`, `.jsx`, `.mjs`, `.cjs`), Go, Rust, Java, Kotlin (if grammar available), C, C++, C#, Bash/Shell. Python retains its existing `ast`-based chunker. Swift and ObjC retain regex fallback until `tree-sitter-swift` ≥ 1.0.
 3. **Chunking strategy** (following Continue.dev's approach): extract top-level symbol nodes — function definitions, class declarations, method definitions, interface/struct/type declarations, `export const` at column 0. Group contiguous import/require/use declarations into a single imports chunk. Emit one chunk per top-level or class-member symbol.
 4. **Minimum chunk size**: reuse `CHUNK_MIN_LINES` and `_merge_small_chunks()` from wave `12c7n` (`chunker.py`). Sub-minimum chunks are merged into their predecessor.
@@ -62,18 +62,18 @@ The wave `12c7n` fixes patch the most visible regressions. Tree-sitter is the st
 ## Tasks
 
 **Pre-implementation gate:**
-- [ ] Verify ABI compatibility: install `tree-sitter~=0.24` alongside each grammar package; confirm no version resolution errors
-- [ ] Confirm `nomic-embed-text-v1.5-Q` and `jina-v2-base-code` INT8 status unchanged (no better fastembed option available)
+- [x] Verify ABI compatibility: `tree-sitter>=0.24,<0.26` resolves to 0.25.2 with all grammar packages; no conflicts (2026-05-03)
+- [x] Confirm `nomic-embed-text-v1.5-Q` and `jina-v2-base-code` INT8 status unchanged — no better fastembed option; decision recorded in Decision Log
 
 **Implementation:**
-- [ ] Add `tree-sitter` and grammar packages to `setup_index.py` dependency checks and install instructions
-- [ ] Implement tree-sitter chunker dispatch helper (`_ts_chunker(language, source, path)`)
-- [ ] Implement JS/TS tree-sitter chunker (replaces `chunk_js_ts` for TS/JS/TSX/JSX)
-- [ ] Implement Go, Rust, Java, C/C++, C#, Bash tree-sitter chunkers
-- [ ] Implement minimum/maximum chunk size post-processing (reuse `CHUNK_MIN_LINES`, `_merge_small_chunks`)
-- [ ] Update `chunk_file` dispatch to prefer tree-sitter, fall back to regex
-- [ ] Add per-language tests (at minimum one representative file per language)
-- [ ] Update `docs/architecture/embedding-model.md` and `current-state.md` to note tree-sitter dependency
+- [x] Add `tree-sitter` and grammar packages to `setup_index.py` dependency checks and install instructions
+- [x] Implement tree-sitter chunker dispatch helper (`_ts_chunker(language, source, path)`)
+- [x] Implement JS/TS tree-sitter chunker (replaces `chunk_js_ts` for TS/JS/TSX/JSX)
+- [x] Implement Go, Rust, Java, C/C++, C#, Bash, Kotlin tree-sitter chunkers
+- [x] Implement minimum/maximum chunk size post-processing (reuse `CHUNK_MIN_LINES`, `_merge_small_chunks`)
+- [x] Update `chunk_file` dispatch to prefer tree-sitter, fall back to regex/line-window
+- [x] Add per-language tests (at minimum one representative file per language)
+- [x] Update `docs/architecture/embedding-model.md` and `current-state.md` to note tree-sitter dependency
 
 ## Agent Execution Graph
 
@@ -129,6 +129,7 @@ The wave `12c7n` fixes patch the most visible regressions. Tree-sitter is the st
 | 2026-05-03 | Keep Python `ast` chunker, do not replace with tree-sitter-python | Python AST chunker already produces accurate function/class boundaries; tree-sitter-python adds no marginal quality | tree-sitter-python (rejected: no quality improvement, adds dependency) |
 | 2026-05-03 | Keep Swift/ObjC on regex fallback | `tree-sitter-swift` 0.0.1 is pre-1.0 and unreliable | tree-sitter-swift (deferred until ≥ 1.0) |
 | 2026-05-03 | No embedding model change | `bge-base-en-v1.5` INT8 remains best fastembed offline option. `SFR-Embedding-Code-400M_R` (CoIR 61.9) has no official INT8 ONNX. `Qwen3-Embedding-0.6B` hardcodes batch_size=1. Revisit when a code-specific INT8 ONNX model outperforms bge-base on the ground truth set. | nomic-Q (fragile on macOS), jina-v2-code (FP32 only in fastembed), Qwen3 (batch=1 throughput blocker) |
+| 2026-05-03 | Kotlin tree-sitter chunker implemented in this wave | `tree-sitter-kotlin` 1.1.0 available on PyPI. Per product decision: all tree-sitter language coverage ships together — no deferrals. `chunk_kotlin_treesitter` added; `KOTLIN_EXTENSIONS` carved out of `CODE_EXTENSIONS` in `chunk_file` dispatch; fallback to `chunk_line_window` when grammar absent. | tree-sitter-kotlin deferral (rejected: all tree-sitter coverage ships in this wave) |
 
 ## Risks
 

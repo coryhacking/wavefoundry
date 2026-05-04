@@ -191,6 +191,16 @@ class FileWalkerTests(unittest.TestCase):
         files = self.bi.walk_repo(self.root)
         self.assertFalse(any(".wavefoundry/index" in str(f).replace("\\", "/") for f in files))
 
+    def test_excludes_wavefoundry_framework_index(self):
+        """framework/index/ (pre-built pack index) must never be walked into the project index."""
+        _make_repo(self.root, {"src/foo.py": "x = 1\n"})
+        fw_idx = self.root / ".wavefoundry" / "framework" / "index"
+        fw_idx.mkdir(parents=True, exist_ok=True)
+        (fw_idx / "docs.json").write_text("[]", encoding="utf-8")
+        files = self.bi.walk_repo(self.root)
+        paths = [str(f.relative_to(self.root)).replace("\\", "/") for f in files]
+        self.assertFalse(any(p.startswith(".wavefoundry/framework/index/") for p in paths))
+
     def test_returns_paths_with_forward_slashes(self):
         _make_repo(self.root, {"src/sub/foo.py": "x = 1\n"})
         files = self.bi.walk_repo(self.root)

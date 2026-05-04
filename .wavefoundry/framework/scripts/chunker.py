@@ -3,16 +3,146 @@
 from __future__ import annotations
 
 import ast
+import logging
 import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Optional
 
+_log = logging.getLogger(__name__)
+
 
 sys.dont_write_bytecode = True
 
-CHUNKER_VERSION = "11"
+# ---------------------------------------------------------------------------
+# Tree-sitter lazy loader — optional; falls back to regex chunkers if absent
+# ---------------------------------------------------------------------------
+try:
+    from tree_sitter import Language, Parser as _TSParser
+    _TS_AVAILABLE = True
+except ImportError:
+    _TS_AVAILABLE = False
+    Language = None  # type: ignore
+    _TSParser = None  # type: ignore
+
+
+def _ts_language(module_name: str, lang_fn: str):
+    """Load a tree-sitter Language, returning None if the grammar is unavailable."""
+    if not _TS_AVAILABLE:
+        return None
+    try:
+        mod = __import__(module_name, fromlist=[lang_fn])
+        return Language(getattr(mod, lang_fn)())
+    except Exception:
+        return None
+
+
+# Lazily populated grammar Language objects — None until first call or if grammar not installed
+_TS_LANGS: dict[str, Optional[object]] = {}
+# Lazily populated Parser objects cached per language key for indexer throughput
+_TS_PARSERS: dict[str, Optional[object]] = {}
+# Tracks language keys for which a grammar-miss warning has already been emitted this process
+_TS_WARNED: set[str] = set()
+
+
+def _get_ts_lang(key: str):
+    if key in _TS_LANGS:
+        return _TS_LANGS[key]
+    # tree-sitter >=0.24 grammar packages expose `.language` (callable, no-arg).
+    # tree_sitter_typescript is the exception: exposes language_typescript / language_tsx.
+    mapping = {
+        "typescript": ("tree_sitter_typescript", "language_typescript"),
+        "javascript": ("tree_sitter_javascript", "language"),
+        "go": ("tree_sitter_go", "language"),
+        "rust": ("tree_sitter_rust", "language"),
+        "java": ("tree_sitter_java", "language"),
+        "c": ("tree_sitter_c", "language"),
+        "cpp": ("tree_sitter_cpp", "language"),
+        "csharp": ("tree_sitter_c_sharp", "language"),
+        "bash": ("tree_sitter_bash", "language"),
+        "kotlin": ("tree_sitter_kotlin", "language"),
+    }
+    if key not in mapping:
+        _TS_LANGS[key] = None
+        return None
+    mod_name, fn_name = mapping[key]
+    lang = _ts_language(mod_name, fn_name)
+    _TS_LANGS[key] = lang
+    return lang
+
+
+def _get_ts_parser(lang_key: str):
+    """Return a cached Parser for lang_key, creating it on first use."""
+    if lang_key in _TS_PARSERS:
+        return _TS_PARSERS[lang_key]
+    lang = _get_ts_lang(lang_key)
+    if lang is None:
+        _TS_PARSERS[lang_key] = None
+        return None
+    try:
+        parser = _TSParser(lang)
+        _TS_PARSERS[lang_key] = parser
+        return parser
+    except Exception:
+        _TS_PARSERS[lang_key] = None
+        return None
+
+
+def _ts_parse(lang_key: str, source: str):
+    """Parse source with tree-sitter. Returns tree or None on failure/unavailability.
+    Logs a warning on first miss so operators know which language fell back to regex.
+    """
+    parser = _get_ts_parser(lang_key)
+    if parser is None:
+        if lang_key not in _TS_WARNED:
+            _TS_WARNED.add(lang_key)
+            if not _TS_AVAILABLE:
+                _log.debug("tree-sitter not installed; using regex chunker for %s", lang_key)
+            else:
+                _log.warning(
+                    "tree-sitter grammar for %s not installed; falling back to regex chunker",
+                    lang_key,
+                )
+        return None
+    try:
+        return parser.parse(source.encode("utf-8", errors="replace"))
+    except Exception as exc:
+        _log.warning("tree-sitter parse error for %s (%s); falling back to regex chunker", lang_key, exc)
+        return None
+
+
+def _ts_node_lines(node) -> tuple[int, int]:
+    """Return 1-based (start_line, end_line) for a tree-sitter node."""
+    return (node.start_point[0] + 1, node.end_point[0] + 1)
+
+
+def _ts_node_text(node, source_lines: list[str]) -> str:
+    start = node.start_point[0]
+    end = node.end_point[0]
+    return "\n".join(source_lines[start:end + 1])
+
+
+def _ts_collapse_body(text: str, max_lines: int = 150) -> str:
+    """If text exceeds max_lines, collapse body to signature + '{ ... }' + last line.
+
+    For languages without braces (e.g. a Rust fn declaration ending in ';'), keeps
+    the first max_lines lines so the signature is always preserved.
+    """
+    lines = text.splitlines()
+    if len(lines) <= max_lines:
+        return text
+    # Find opening brace line; collapse body around it
+    for i, line in enumerate(lines):
+        if "{" in line:
+            sig = "\n".join(lines[:i + 1])
+            last = lines[-1].strip()
+            return f"{sig}\n    // ... {len(lines) - i - 2} lines ...\n{last}"
+    # No brace found (declarations ending in ';', etc.) — keep the first max_lines
+    return "\n".join(lines[:max_lines])
+
+
+CHUNKER_VERSION = "13"
 
 # Lines per window and overlap for the line-window fallback chunker.
 WINDOW_SIZE = 120
@@ -41,8 +171,9 @@ RUST_EXTENSIONS = {".rs"}
 SHELL_EXTENSIONS = {".sh", ".bash", ".zsh", ".fish"}
 SQL_EXTENSIONS = {".sql"}
 XML_EXTENSIONS = {".xml", ".jsp", ".xsd", ".xsl", ".xslt", ".svg"}
+KOTLIN_EXTENSIONS = {".kt", ".kts"}
 CODE_EXTENSIONS = {
-    ".kt", ".swift", ".rb", ".php",
+    ".rb", ".php",
     ".yaml", ".yml", ".toml", ".json", ".jsonc",
     ".css", ".scss", ".sass",
     ".ps1", ".psm1",
@@ -782,12 +913,37 @@ def _fallback_with_stem(source: str, path: str, lang: str) -> list[Chunk]:
     return chunk_line_window(source, path, language=lang, section=stem)
 
 
-def _merge_small_chunks(chunks: list[Chunk]) -> list[Chunk]:
+def _parent_scope(section: Optional[str]) -> Optional[str]:
+    """Return the parent scope prefix from a breadcrumb section string.
+
+    E.g. "myfile > MyClass.render" → "myfile > MyClass"
+         "myfile > topLevelFn"     → None  (top-level, no parent)
+    """
+    if not section:
+        return None
+    # breadcrumb format: "stem > [ClassName.]symbolName"
+    # The parent scope is everything before the last dot in the symbol part.
+    parts = section.split(" > ", 1)
+    if len(parts) < 2:
+        return None
+    symbol = parts[1]
+    dot = symbol.rfind(".")
+    if dot == -1:
+        return None  # top-level symbol — no parent scope
+    return f"{parts[0]} > {symbol[:dot]}"
+
+
+def _merge_small_chunks(chunks: list[Chunk], scoped: bool = False) -> list[Chunk]:
     """Merge sub-minimum code chunks into their preceding code chunk.
 
     Only code-kind chunks participate in merging.  Doc chunks and imports
     chunks are always emitted as-is.  If the only chunk is sub-minimum, it is
     returned as-is.
+
+    When ``scoped=True`` (used by tree-sitter chunkers), a sub-minimum chunk is
+    only merged into its predecessor if both share the same parent scope
+    (same class/impl/interface).  This prevents a 1-line method in one class
+    from merging into a method in a different class.
     """
     if len(chunks) <= 1:
         return chunks
@@ -808,12 +964,21 @@ def _merge_small_chunks(chunks: list[Chunk]) -> list[Chunk]:
             None,
         )
 
+        # When scoped, only merge if predecessor shares the same parent scope.
+        # None == None is intentional: two top-level symbols both return None,
+        # meaning they share file-level scope and may merge.
+        same_scope = True
+        if scoped and last_code_idx is not None:
+            prev = result[last_code_idx]
+            same_scope = _parent_scope(chunk.section) == _parent_scope(prev.section)
+
         if (
             not is_imports
             and not is_doc
             and chunk.kind == "code"
             and line_count < CHUNK_MIN_LINES
             and last_code_idx is not None
+            and same_scope
         ):
             prev = result[last_code_idx]
             merged_text = prev.text + "\n" + chunk.text
@@ -2393,6 +2558,583 @@ def chunk_xml(source: str, path: str) -> list[Chunk]:
 
 
 # ---------------------------------------------------------------------------
+# Tree-sitter chunkers
+# ---------------------------------------------------------------------------
+
+def _ts_imports_chunk(import_nodes, source_lines: list[str], path: str, lang: str, stem: str) -> Optional[Chunk]:
+    """Build an __imports__ chunk from a list of import nodes."""
+    if not import_nodes:
+        return None
+    texts = [_ts_node_text(n, source_lines) for n in import_nodes]
+    text = "\n".join(texts)
+    start = import_nodes[0].start_point[0] + 1
+    end = import_nodes[-1].end_point[0] + 1
+    breadcrumb = f"{stem} > imports"
+    return Chunk(
+        id=f"{path}::__imports__",
+        path=path,
+        kind="code",
+        language=lang,
+        lines=(start, end),
+        section=breadcrumb,
+        text=f"{breadcrumb}\n\n{text}",
+    )
+
+
+def chunk_js_ts_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    """Tree-sitter JS/TS chunker. Returns None if tree-sitter unavailable."""
+    ext = PurePosixPath(_normalize_path(path)).suffix.lower()
+    lang_key = "typescript" if ext in {".ts", ".tsx"} else "javascript"
+    lang = _ext_language(ext)
+    stem = _file_stem(path)
+    path = _normalize_path(path)
+
+    tree = _ts_parse(lang_key, source)
+    if tree is None:
+        return None
+
+    source_lines = source.splitlines()
+    chunks: list[Chunk] = []
+    import_nodes = []
+
+    def _symbol_name(node) -> Optional[str]:
+        for child in node.children:
+            if child.type == "identifier":
+                return source_lines[child.start_point[0]][child.start_point[1]:child.end_point[1]]
+        return None
+
+    def _process_node(node, class_name: Optional[str] = None):
+        nonlocal import_nodes
+        t = node.type
+
+        if t == "import_statement":
+            import_nodes.append(node)
+            return
+
+        if t in ("function_declaration", "generator_function_declaration"):
+            name = _symbol_name(node) or "anonymous"
+            qname = f"{class_name}.{name}" if class_name else name
+            breadcrumb = f"{stem} > {qname}"
+            start, end = _ts_node_lines(node)
+            text = _ts_collapse_body(_ts_node_text(node, source_lines))
+            chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code", language=lang,
+                                lines=(start, end), section=breadcrumb, text=text))
+            return
+
+        if t == "class_declaration":
+            name = _symbol_name(node) or "AnonymousClass"
+            breadcrumb = f"{stem} > {name}"
+            start, end = _ts_node_lines(node)
+            chunks.append(Chunk(id=f"{path}::{name}.__decl__", path=path, kind="code", language=lang,
+                                lines=(start, start), section=breadcrumb,
+                                text=f"{breadcrumb}\n\nclass {name}"))
+            for child in node.children:
+                if child.type == "class_body":
+                    for member in child.children:
+                        if member.type == "method_definition":
+                            _process_node(member, class_name=name)
+            return
+
+        if t == "method_definition":
+            name = _symbol_name(node) or "method"
+            qname = f"{class_name}.{name}" if class_name else name
+            breadcrumb = f"{stem} > {qname}"
+            start, end = _ts_node_lines(node)
+            text = _ts_collapse_body(_ts_node_text(node, source_lines))
+            chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code", language=lang,
+                                lines=(start, end), section=breadcrumb, text=text))
+            return
+
+        if t == "export_statement":
+            # export function Foo / export class Foo / export const Foo = ...
+            for child in node.children:
+                if child.type in ("function_declaration", "class_declaration",
+                                  "generator_function_declaration"):
+                    _process_node(child, class_name=class_name)
+                    return
+                if child.type in ("lexical_declaration", "variable_declaration"):
+                    # export const Foo = ...
+                    for decl in child.children:
+                        if decl.type == "variable_declarator":
+                            name = _symbol_name(decl) or "const"
+                            qname = f"{class_name}.{name}" if class_name else name
+                            breadcrumb = f"{stem} > {qname}"
+                            start, end = _ts_node_lines(node)
+                            text = _ts_collapse_body(_ts_node_text(node, source_lines))
+                            chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code",
+                                                language=lang, lines=(start, end),
+                                                section=breadcrumb, text=text))
+                    return
+            return
+
+        if t in ("lexical_declaration", "variable_declaration") and class_name is None:
+            # Top-level const Foo = () => ...  or const Foo = styled(...)
+            for decl in node.children:
+                if decl.type == "variable_declarator":
+                    # check if value is arrow_function or call_expression (styled)
+                    for val in decl.children:
+                        if val.type in ("arrow_function", "call_expression",
+                                        "template_string", "object"):
+                            name = _symbol_name(decl) or "const"
+                            breadcrumb = f"{stem} > {name}"
+                            start, end = _ts_node_lines(node)
+                            text = _ts_collapse_body(_ts_node_text(node, source_lines))
+                            chunks.append(Chunk(id=f"{path}::{name}", path=path, kind="code",
+                                                language=lang, lines=(start, end),
+                                                section=breadcrumb, text=text))
+                            break
+
+    for node in tree.root_node.children:
+        _process_node(node)
+
+    imp = _ts_imports_chunk(import_nodes, source_lines, path, lang, stem)
+    if imp:
+        chunks.insert(0, imp)
+
+    if not chunks:
+        return None
+    return split_large_code_chunks(_merge_small_chunks(chunks, scoped=True))
+
+
+def chunk_go_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    """Tree-sitter Go chunker. Returns None if unavailable."""
+    path = _normalize_path(path)
+    stem = _file_stem(path)
+    tree = _ts_parse("go", source)
+    if tree is None:
+        return None
+
+    source_lines = source.splitlines()
+    chunks: list[Chunk] = []
+    import_nodes = []
+
+    def _name(node) -> str:
+        for c in node.children:
+            if c.type in ("identifier", "field_identifier", "type_identifier"):
+                return source_lines[c.start_point[0]][c.start_point[1]:c.end_point[1]]
+        return "unknown"
+
+    for node in tree.root_node.children:
+        t = node.type
+        if t == "package_clause":
+            breadcrumb = f"{stem} > namespace"
+            chunks.append(Chunk(id=f"{path}::__namespace__", path=path, kind="code",
+                                language="go", lines=_ts_node_lines(node), section=breadcrumb,
+                                text=f"{breadcrumb}\n\n{_ts_node_text(node, source_lines)}"))
+        elif t == "import_declaration":
+            import_nodes.append(node)
+        elif t == "function_declaration":
+            name = _name(node)
+            breadcrumb = f"{stem} > {name}"
+            start, end = _ts_node_lines(node)
+            text = _ts_collapse_body(_ts_node_text(node, source_lines))
+            chunks.append(Chunk(id=f"{path}::{name}", path=path, kind="code", language="go",
+                                lines=(start, end), section=breadcrumb, text=text))
+        elif t == "method_declaration":
+            # receiver type + method name
+            recv_type = ""
+            method_name = ""
+            for c in node.children:
+                if c.type == "parameter_list":
+                    for rc in c.children:
+                        if rc.type == "parameter_declaration":
+                            for tc in rc.children:
+                                if tc.type in ("type_identifier", "pointer_type"):
+                                    if tc.type == "pointer_type":
+                                        for ptc in tc.children:
+                                            if ptc.type == "type_identifier":
+                                                recv_type = source_lines[ptc.start_point[0]][ptc.start_point[1]:ptc.end_point[1]]
+                                    else:
+                                        recv_type = source_lines[tc.start_point[0]][tc.start_point[1]:tc.end_point[1]]
+                elif c.type == "field_identifier":
+                    method_name = source_lines[c.start_point[0]][c.start_point[1]:c.end_point[1]]
+            qname = f"{recv_type}.{method_name}" if recv_type else method_name
+            breadcrumb = f"{stem} > {qname}"
+            start, end = _ts_node_lines(node)
+            text = _ts_collapse_body(_ts_node_text(node, source_lines))
+            chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code", language="go",
+                                lines=(start, end), section=breadcrumb, text=text))
+        elif t == "type_declaration":
+            name = _name(node)
+            breadcrumb = f"{stem} > {name}"
+            start, end = _ts_node_lines(node)
+            text = _ts_collapse_body(_ts_node_text(node, source_lines))
+            chunks.append(Chunk(id=f"{path}::{name}", path=path, kind="code", language="go",
+                                lines=(start, end), section=breadcrumb, text=text))
+
+    imp = _ts_imports_chunk(import_nodes, source_lines, path, "go", stem)
+    if imp:
+        # insert after namespace if present
+        insert_idx = 1 if chunks and chunks[0].section and chunks[0].section.endswith("> namespace") else 0
+        chunks.insert(insert_idx, imp)
+
+    if not chunks:
+        return None
+    return split_large_code_chunks(_merge_small_chunks(chunks, scoped=True))
+
+
+def chunk_rust_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    """Tree-sitter Rust chunker. Returns None if unavailable."""
+    path = _normalize_path(path)
+    stem = _file_stem(path)
+    tree = _ts_parse("rust", source)
+    if tree is None:
+        return None
+
+    source_lines = source.splitlines()
+    chunks: list[Chunk] = []
+    import_nodes = []
+
+    def _name(node) -> str:
+        for c in node.children:
+            if c.type in ("identifier", "type_identifier"):
+                return source_lines[c.start_point[0]][c.start_point[1]:c.end_point[1]]
+        return "unknown"
+
+    def _process(node, impl_name: Optional[str] = None):
+        t = node.type
+        if t == "use_declaration":
+            import_nodes.append(node)
+        elif t in ("struct_item", "enum_item", "trait_item"):
+            name = _name(node)
+            breadcrumb = f"{stem} > {name}"
+            start, end = _ts_node_lines(node)
+            text = _ts_collapse_body(_ts_node_text(node, source_lines))
+            chunks.append(Chunk(id=f"{path}::{name}", path=path, kind="code", language="rust",
+                                lines=(start, end), section=breadcrumb, text=text))
+        elif t == "impl_item":
+            # find the type name
+            iname = None
+            for c in node.children:
+                if c.type == "type_identifier":
+                    iname = source_lines[c.start_point[0]][c.start_point[1]:c.end_point[1]]
+                    break
+            if not iname:
+                iname = "impl"
+            breadcrumb = f"{stem} > {iname}"
+            decl_line = source_lines[node.start_point[0]]
+            chunks.append(Chunk(id=f"{path}::{iname}.__impl__", path=path, kind="code",
+                                language="rust", lines=(_ts_node_lines(node)[0],) * 2,
+                                section=breadcrumb,
+                                text=f"{breadcrumb}\n\n{decl_line.strip()}"))
+            for child in node.children:
+                if child.type == "declaration_list":
+                    for member in child.children:
+                        if member.type == "function_item":
+                            _process(member, impl_name=iname)
+        elif t == "function_item":
+            name = _name(node)
+            qname = f"{impl_name}.{name}" if impl_name else name
+            breadcrumb = f"{stem} > {qname}"
+            start, end = _ts_node_lines(node)
+            text = _ts_collapse_body(_ts_node_text(node, source_lines))
+            chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code", language="rust",
+                                lines=(start, end), section=breadcrumb, text=text))
+
+    for node in tree.root_node.children:
+        _process(node)
+
+    imp = _ts_imports_chunk(import_nodes, source_lines, path, "rust", stem)
+    if imp:
+        chunks.insert(0, imp)
+
+    if not chunks:
+        return None
+    return split_large_code_chunks(_merge_small_chunks(chunks, scoped=True))
+
+
+def chunk_java_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    """Tree-sitter Java chunker. Returns None if unavailable."""
+    path = _normalize_path(path)
+    stem = _file_stem(path)
+    tree = _ts_parse("java", source)
+    if tree is None:
+        return None
+
+    source_lines = source.splitlines()
+    chunks: list[Chunk] = []
+    import_nodes = []
+
+    def _name(node) -> str:
+        for c in node.children:
+            if c.type == "identifier":
+                return source_lines[c.start_point[0]][c.start_point[1]:c.end_point[1]]
+        return "unknown"
+
+    def _process_class(class_node, class_name: str):
+        for child in class_node.children:
+            if child.type == "class_body":
+                for member in child.children:
+                    if member.type in ("method_declaration", "constructor_declaration"):
+                        name = _name(member)
+                        qname = f"{class_name}.{name}"
+                        breadcrumb = f"{stem} > {qname}"
+                        start, end = _ts_node_lines(member)
+                        text = _ts_collapse_body(_ts_node_text(member, source_lines))
+                        chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code",
+                                            language="java", lines=(start, end),
+                                            section=breadcrumb, text=text))
+
+    for node in tree.root_node.children:
+        t = node.type
+        if t == "package_declaration":
+            breadcrumb = f"{stem} > namespace"
+            chunks.append(Chunk(id=f"{path}::__namespace__", path=path, kind="code",
+                                language="java", lines=_ts_node_lines(node), section=breadcrumb,
+                                text=f"{breadcrumb}\n\n{_ts_node_text(node, source_lines)}"))
+        elif t == "import_declaration":
+            import_nodes.append(node)
+        elif t in ("class_declaration", "interface_declaration", "enum_declaration",
+                   "annotation_type_declaration"):
+            name = _name(node)
+            breadcrumb = f"{stem} > {name}"
+            start, end = _ts_node_lines(node)
+            decl_line = source_lines[node.start_point[0]].strip()
+            chunks.append(Chunk(id=f"{path}::{name}.__decl__", path=path, kind="code",
+                                language="java", lines=(start, start), section=breadcrumb,
+                                text=f"{breadcrumb}\n\n{decl_line}"))
+            _process_class(node, name)
+
+    imp = _ts_imports_chunk(import_nodes, source_lines, path, "java", stem)
+    if imp:
+        insert_idx = 1 if chunks and chunks[0].section and chunks[0].section.endswith("> namespace") else 0
+        chunks.insert(insert_idx, imp)
+
+    if not chunks:
+        return None
+    return split_large_code_chunks(_merge_small_chunks(chunks, scoped=True))
+
+
+def chunk_c_cpp_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    """Tree-sitter C/C++ chunker. Returns None if unavailable."""
+    path = _normalize_path(path)
+    ext = PurePosixPath(path).suffix.lower()
+    lang_key = "cpp" if ext in {".cpp", ".hpp"} else "c"
+    lang = _ext_language(ext)
+    stem = _file_stem(path)
+
+    tree = _ts_parse(lang_key, source)
+    if tree is None:
+        return None
+
+    source_lines = source.splitlines()
+    chunks: list[Chunk] = []
+    include_nodes = []
+
+    def _name(node) -> str:
+        for c in node.children:
+            if c.type in ("identifier", "field_identifier", "type_identifier",
+                          "function_declarator"):
+                if c.type == "function_declarator":
+                    for cc in c.children:
+                        if cc.type == "identifier":
+                            return source_lines[cc.start_point[0]][cc.start_point[1]:cc.end_point[1]]
+                return source_lines[c.start_point[0]][c.start_point[1]:c.end_point[1]]
+        return "unknown"
+
+    for node in tree.root_node.children:
+        t = node.type
+        if t == "preproc_include":
+            include_nodes.append(node)
+        elif t == "function_definition":
+            name = _name(node)
+            if name in {"if", "for", "while", "switch", "else", "do"}:
+                continue
+            breadcrumb = f"{stem} > {name}"
+            start, end = _ts_node_lines(node)
+            text = _ts_collapse_body(_ts_node_text(node, source_lines))
+            chunks.append(Chunk(id=f"{path}::{name}", path=path, kind="code", language=lang,
+                                lines=(start, end), section=breadcrumb, text=text))
+        elif t in ("class_specifier", "struct_specifier"):
+            name = _name(node)
+            breadcrumb = f"{stem} > {name}"
+            start, end = _ts_node_lines(node)
+            text = _ts_collapse_body(_ts_node_text(node, source_lines))
+            chunks.append(Chunk(id=f"{path}::{name}", path=path, kind="code", language=lang,
+                                lines=(start, end), section=breadcrumb, text=text))
+
+    imp = _ts_imports_chunk(include_nodes, source_lines, path, lang, stem)
+    if imp:
+        chunks.insert(0, imp)
+
+    if not chunks:
+        return None
+    return split_large_code_chunks(_merge_small_chunks(chunks, scoped=True))
+
+
+def chunk_csharp_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    """Tree-sitter C# chunker. Returns None if unavailable."""
+    path = _normalize_path(path)
+    stem = _file_stem(path)
+    tree = _ts_parse("csharp", source)
+    if tree is None:
+        return None
+
+    source_lines = source.splitlines()
+    chunks: list[Chunk] = []
+    using_nodes = []
+
+    def _name(node) -> str:
+        for c in node.children:
+            if c.type == "identifier":
+                return source_lines[c.start_point[0]][c.start_point[1]:c.end_point[1]]
+        return "unknown"
+
+    def _process_type(type_node, type_name: str):
+        for child in type_node.children:
+            if child.type == "declaration_list":
+                for member in child.children:
+                    if member.type in ("method_declaration", "constructor_declaration",
+                                       "operator_declaration"):
+                        name = _name(member)
+                        qname = f"{type_name}.{name}"
+                        breadcrumb = f"{stem} > {qname}"
+                        start, end = _ts_node_lines(member)
+                        text = _ts_collapse_body(_ts_node_text(member, source_lines))
+                        chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code",
+                                            language="csharp", lines=(start, end),
+                                            section=breadcrumb, text=text))
+
+    def _walk(node):
+        t = node.type
+        if t == "using_directive":
+            using_nodes.append(node)
+        elif t == "namespace_declaration":
+            for child in node.children:
+                if child.type == "declaration_list":
+                    for member in child.children:
+                        _walk(member)
+        elif t in ("class_declaration", "interface_declaration", "struct_declaration",
+                   "enum_declaration", "record_declaration"):
+            name = _name(node)
+            breadcrumb = f"{stem} > {name}"
+            start, end = _ts_node_lines(node)
+            decl_line = source_lines[node.start_point[0]].strip()
+            chunks.append(Chunk(id=f"{path}::{name}.__decl__", path=path, kind="code",
+                                language="csharp", lines=(start, start), section=breadcrumb,
+                                text=f"{breadcrumb}\n\n{decl_line}"))
+            _process_type(node, name)
+
+    for node in tree.root_node.children:
+        _walk(node)
+
+    imp = _ts_imports_chunk(using_nodes, source_lines, path, "csharp", stem)
+    if imp:
+        chunks.insert(0, imp)
+
+    if not chunks:
+        return None
+    return split_large_code_chunks(_merge_small_chunks(chunks, scoped=True))
+
+
+def chunk_bash_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    """Tree-sitter Bash chunker. Returns None if unavailable."""
+    path = _normalize_path(path)
+    stem = _file_stem(path)
+    tree = _ts_parse("bash", source)
+    if tree is None:
+        return None
+
+    source_lines = source.splitlines()
+    chunks: list[Chunk] = []
+    lang = _ext_language(PurePosixPath(path).suffix.lower()) or "shell"
+
+    def _name(node) -> str:
+        for c in node.children:
+            if c.type == "word":
+                return source_lines[c.start_point[0]][c.start_point[1]:c.end_point[1]]
+        return "unknown"
+
+    for node in tree.root_node.children:
+        if node.type == "function_definition":
+            name = _name(node)
+            breadcrumb = f"{stem} > {name}"
+            start, end = _ts_node_lines(node)
+            text = _ts_collapse_body(_ts_node_text(node, source_lines))
+            chunks.append(Chunk(id=f"{path}::{name}", path=path, kind="code", language=lang,
+                                lines=(start, end), section=breadcrumb, text=text))
+
+    if not chunks:
+        return None
+    return split_large_code_chunks(_merge_small_chunks(chunks, scoped=True))
+
+
+def chunk_kotlin_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    """Tree-sitter Kotlin chunker. Returns None if unavailable."""
+    path = _normalize_path(path)
+    stem = _file_stem(path)
+    tree = _ts_parse("kotlin", source)
+    if tree is None:
+        return None
+
+    source_lines = source.splitlines()
+    chunks: list[Chunk] = []
+    import_nodes = []
+
+    def _name(node) -> str:
+        for c in node.children:
+            if c.type in ("simple_identifier", "identifier"):
+                return source_lines[c.start_point[0]][c.start_point[1]:c.end_point[1]]
+        return "unknown"
+
+    def _process(node):
+        t = node.type
+        if t == "package_header":
+            breadcrumb = f"{stem} > namespace"
+            chunks.append(Chunk(id=f"{path}::__namespace__", path=path, kind="code",
+                                language="kotlin", lines=_ts_node_lines(node), section=breadcrumb,
+                                text=f"{breadcrumb}\n\n{_ts_node_text(node, source_lines)}"))
+        elif t in ("import_list", "import"):
+            import_nodes.append(node)
+        elif t in ("class_declaration", "object_declaration", "interface_declaration"):
+            name = _name(node)
+            breadcrumb = f"{stem} > {name}"
+            start, end = _ts_node_lines(node)
+            decl_line = source_lines[node.start_point[0]].strip()
+            chunks.append(Chunk(id=f"{path}::{name}.__decl__", path=path, kind="code",
+                                language="kotlin", lines=(start, start), section=breadcrumb,
+                                text=f"{breadcrumb}\n\n{decl_line}"))
+            for child in node.children:
+                if child.type == "class_body":
+                    for member in child.children:
+                        if member.type in ("function_declaration", "secondary_constructor"):
+                            mname = _name(member)
+                            qname = f"{name}.{mname}"
+                            bc = f"{stem} > {qname}"
+                            ms, me = _ts_node_lines(member)
+                            text = _ts_collapse_body(_ts_node_text(member, source_lines))
+                            chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code",
+                                                language="kotlin", lines=(ms, me),
+                                                section=bc, text=text))
+        elif t == "function_declaration":
+            name = _name(node)
+            breadcrumb = f"{stem} > {name}"
+            start, end = _ts_node_lines(node)
+            text = _ts_collapse_body(_ts_node_text(node, source_lines))
+            chunks.append(Chunk(id=f"{path}::{name}", path=path, kind="code", language="kotlin",
+                                lines=(start, end), section=breadcrumb, text=text))
+
+    for node in tree.root_node.children:
+        _process(node)
+
+    # import_list is a single node containing all imports — wrap as __imports__ chunk
+    if import_nodes:
+        all_import_text = "\n".join(_ts_node_text(n, source_lines) for n in import_nodes)
+        start = import_nodes[0].start_point[0] + 1
+        end = import_nodes[-1].end_point[0] + 1
+        breadcrumb = f"{stem} > imports"
+        imp = Chunk(id=f"{path}::__imports__", path=path, kind="code", language="kotlin",
+                    lines=(start, end), section=breadcrumb,
+                    text=f"{breadcrumb}\n\n{all_import_text}")
+        insert_idx = 1 if chunks and chunks[0].section and chunks[0].section.endswith("> namespace") else 0
+        chunks.insert(insert_idx, imp)
+
+    if not chunks:
+        return None
+    return split_large_code_chunks(_merge_small_chunks(chunks, scoped=True))
+
+
+# ---------------------------------------------------------------------------
 # Top-level dispatcher
 # ---------------------------------------------------------------------------
 
@@ -2452,28 +3194,52 @@ def chunk_file(source: str, path: str) -> list[Chunk]:
         return _chunk_design_json(source, normalized)
 
     if suffix in JAVA_EXTENSIONS:
+        ts_result = chunk_java_treesitter(source, normalized)
+        if ts_result is not None:
+            return ts_result
         return chunk_java(source, normalized)
 
     if suffix in SCALA_EXTENSIONS:
         return chunk_scala(source, normalized)
 
     if suffix in CSHARP_EXTENSIONS:
+        ts_result = chunk_csharp_treesitter(source, normalized)
+        if ts_result is not None:
+            return ts_result
         return chunk_csharp(source, normalized)
 
     if suffix in JS_TS_EXTENSIONS:
+        ts_result = chunk_js_ts_treesitter(source, normalized)
+        if ts_result is not None:
+            return ts_result
         return chunk_js_ts(source, normalized)
 
     if suffix in C_CPP_EXTENSIONS:
+        ts_result = chunk_c_cpp_treesitter(source, normalized)
+        if ts_result is not None:
+            return ts_result
         return chunk_c_cpp(source, normalized)
 
     if suffix in HTML_EXTENSIONS:
         return chunk_html(source, normalized)
 
     if suffix in GO_EXTENSIONS:
+        ts_result = chunk_go_treesitter(source, normalized)
+        if ts_result is not None:
+            return ts_result
         return chunk_go(source, normalized)
 
     if suffix in RUST_EXTENSIONS:
+        ts_result = chunk_rust_treesitter(source, normalized)
+        if ts_result is not None:
+            return ts_result
         return chunk_rust(source, normalized)
+
+    if suffix in KOTLIN_EXTENSIONS:
+        ts_result = chunk_kotlin_treesitter(source, normalized)
+        if ts_result is not None:
+            return ts_result
+        return chunk_line_window(source, normalized, language="kotlin", section=_file_stem(normalized))
 
     if suffix in SWIFT_EXTENSIONS:
         return chunk_swift(source, normalized)
@@ -2482,6 +3248,10 @@ def chunk_file(source: str, path: str) -> list[Chunk]:
         return chunk_objc(source, normalized)
 
     if suffix in SHELL_EXTENSIONS:
+        if suffix != ".fish":
+            ts_result = chunk_bash_treesitter(source, normalized)
+            if ts_result is not None:
+                return ts_result
         return chunk_shell(source, normalized)
 
     if suffix in SQL_EXTENSIONS:

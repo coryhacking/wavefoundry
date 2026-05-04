@@ -54,7 +54,7 @@ The model is not special or irreplaceable. The regression tests exist to make fu
 ### Index build time (`setup_index.py` + `indexer.py`)
 
 1. `walk_repo()` yields all non-excluded files (respects `.gitignore`, `.aiignore`, hardcoded excludes)
-2. `chunker.py` splits each file into chunks — Python files via AST, Markdown via header splits, others via line windows
+2. `chunker.py` splits each file into chunks — Python files via AST, Markdown via header splits, JS/TS/Go/Rust/Java/C/C++/C#/Bash/Kotlin via tree-sitter AST (wave 12c86), others via line windows. Tree-sitter grammar packages must be installed alongside `fastembed`; `setup_index.py` checks for them. Chunking quality depends on these grammars being present; fallback to regex/line-window chunkers occurs automatically if any grammar is absent.
 3. `fastembed.TextEmbedding` embeds each chunk's text — chunks are globally sorted by length before batching (minimises padding waste), fastembed batches internally at 256
 4. The resulting float32 matrix and chunk metadata are saved as:
    - `.wavefoundry/index/docs.npy` — float32 matrix, shape `[n_chunks, dim]`

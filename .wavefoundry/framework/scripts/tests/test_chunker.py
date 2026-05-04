@@ -1903,6 +1903,376 @@ class MergeSmallChunksTests(unittest.TestCase):
         result = self.chunker._merge_small_chunks(chunks)
         self.assertEqual(len(result), 2)
 
+    def test_parent_scope_extracts_class_prefix(self):
+        # _parent_scope returns the class part of a qualified breadcrumb
+        ps = self.chunker._parent_scope
+        self.assertEqual(ps("myfile > MyClass.render"), "myfile > MyClass")
+        self.assertIsNone(ps("myfile > topLevelFn"))
+        self.assertIsNone(ps(None))
+
+    def test_scoped_merge_does_not_merge_across_classes(self):
+        # scoped=True: 1-line method in ClassB must NOT merge into method in ClassA
+        Chunk = self.chunker.Chunk
+        chunks = [
+            Chunk(id="f::ClassA.methodA", path="f.py", kind="code", language="java",
+                  lines=(1, 10), section="f > ClassA.methodA", text="method A body"),
+            Chunk(id="f::ClassB.methodB", path="f.py", kind="code", language="java",
+                  lines=(11, 11), section="f > ClassB.methodB", text="stub()"),
+        ]
+        result = self.chunker._merge_small_chunks(chunks, scoped=True)
+        self.assertEqual(len(result), 2, "cross-class merge must not happen with scoped=True")
+
+    def test_scoped_merge_merges_within_same_class(self):
+        # scoped=True: 1-line method in ClassA merges into preceding ClassA method
+        Chunk = self.chunker.Chunk
+        chunks = [
+            Chunk(id="f::ClassA.methodA", path="f.py", kind="code", language="java",
+                  lines=(1, 10), section="f > ClassA.methodA", text="method A body"),
+            Chunk(id="f::ClassA.stub", path="f.py", kind="code", language="java",
+                  lines=(11, 11), section="f > ClassA.stub", text="stub()"),
+        ]
+        result = self.chunker._merge_small_chunks(chunks, scoped=True)
+        self.assertEqual(len(result), 1)
+        self.assertIn("stub()", result[0].text)
+
+    def test_unscoped_merge_still_merges_across_classes(self):
+        # scoped=False (default): existing behavior unchanged for regex chunkers
+        Chunk = self.chunker.Chunk
+        chunks = [
+            Chunk(id="f::ClassA.methodA", path="f.py", kind="code", language="java",
+                  lines=(1, 10), section="f > ClassA.methodA", text="method A body"),
+            Chunk(id="f::ClassB.methodB", path="f.py", kind="code", language="java",
+                  lines=(11, 11), section="f > ClassB.methodB", text="stub()"),
+        ]
+        result = self.chunker._merge_small_chunks(chunks, scoped=False)
+        self.assertEqual(len(result), 1, "unscoped merge should still merge 1-line across classes")
+
+
+class TreeSitterChunkerTests(unittest.TestCase):
+    """Tests for tree-sitter-backed chunkers (wave 12c7n+)."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def test_ts_available_flag(self):
+        # _TS_AVAILABLE must be a bool (True if tree-sitter installed, False otherwise)
+        self.assertIsInstance(self.chunker._TS_AVAILABLE, bool)
+
+    def test_js_ts_treesitter_returns_none_or_list(self):
+        source = textwrap.dedent("""\
+            import { foo } from './foo';
+
+            export function greet(name: string): string {
+                return `hello ${name}`;
+            }
+        """)
+        result = self.chunker.chunk_js_ts_treesitter(source, "src/greet.ts")
+        if self.chunker._TS_AVAILABLE:
+            self.assertIsInstance(result, list)
+            self.assertGreater(len(result), 0)
+        else:
+            self.assertIsNone(result)
+
+    def test_chunk_file_js_ts_fallback(self):
+        # chunk_file must return non-empty list regardless of tree-sitter availability
+        source = textwrap.dedent("""\
+            import React from 'react';
+
+            function App() {
+                return null;
+            }
+
+            export default App;
+        """)
+        chunks = self.chunker.chunk_file(source, "src/App.jsx")
+        self.assertIsInstance(chunks, list)
+        self.assertGreater(len(chunks), 0)
+
+    def test_chunk_file_go_fallback(self):
+        source = textwrap.dedent("""\
+            package main
+
+            import "fmt"
+
+            func main() {
+                fmt.Println("hello")
+            }
+        """)
+        chunks = self.chunker.chunk_file(source, "cmd/main.go")
+        self.assertIsInstance(chunks, list)
+        self.assertGreater(len(chunks), 0)
+
+    def test_chunk_file_rust_fallback(self):
+        source = textwrap.dedent("""\
+            use std::io;
+
+            fn main() {
+                println!("hello");
+            }
+        """)
+        chunks = self.chunker.chunk_file(source, "src/main.rs")
+        self.assertIsInstance(chunks, list)
+        self.assertGreater(len(chunks), 0)
+
+    def test_chunk_file_java_fallback(self):
+        source = textwrap.dedent("""\
+            package com.example;
+
+            public class Hello {
+                public void greet() {
+                    System.out.println("hello");
+                }
+            }
+        """)
+        chunks = self.chunker.chunk_file(source, "src/Hello.java")
+        self.assertIsInstance(chunks, list)
+        self.assertGreater(len(chunks), 0)
+
+    def test_chunk_file_csharp_fallback(self):
+        source = textwrap.dedent("""\
+            using System;
+
+            namespace Example {
+                public class Hello {
+                    public void Greet() {
+                        Console.WriteLine("hello");
+                    }
+                }
+            }
+        """)
+        chunks = self.chunker.chunk_file(source, "src/Hello.cs")
+        self.assertIsInstance(chunks, list)
+        self.assertGreater(len(chunks), 0)
+
+    def test_chunk_file_c_fallback(self):
+        source = textwrap.dedent("""\
+            #include <stdio.h>
+
+            int main(void) {
+                printf("hello\\n");
+                return 0;
+            }
+        """)
+        chunks = self.chunker.chunk_file(source, "src/main.c")
+        self.assertIsInstance(chunks, list)
+        self.assertGreater(len(chunks), 0)
+
+    def test_chunk_file_shell_fallback(self):
+        source = textwrap.dedent("""\
+            #!/bin/bash
+
+            greet() {
+                echo "hello $1"
+            }
+
+            greet world
+        """)
+        chunks = self.chunker.chunk_file(source, "scripts/greet.sh")
+        self.assertIsInstance(chunks, list)
+        self.assertGreater(len(chunks), 0)
+
+    @unittest.skipIf(not load_chunker()._TS_AVAILABLE, "tree-sitter not installed")
+    def test_ts_go_chunker_extracts_functions(self):
+        source = textwrap.dedent("""\
+            package util
+
+            import "fmt"
+
+            func Add(a, b int) int {
+                return a + b
+            }
+
+            func Sub(a, b int) int {
+                return a - b
+            }
+        """)
+        result = self.chunker.chunk_go_treesitter(source, "pkg/util/math.go")
+        self.assertIsNotNone(result)
+        ids = [c.id for c in result]
+        self.assertTrue(any("Add" in i for i in ids))
+        self.assertTrue(any("Sub" in i for i in ids))
+
+    @unittest.skipIf(not load_chunker()._TS_AVAILABLE, "tree-sitter not installed")
+    def test_ts_rust_chunker_extracts_functions(self):
+        source = textwrap.dedent("""\
+            use std::fmt;
+
+            fn add(a: i32, b: i32) -> i32 {
+                a + b
+            }
+
+            struct Point {
+                x: f64,
+                y: f64,
+            }
+        """)
+        result = self.chunker.chunk_rust_treesitter(source, "src/lib.rs")
+        self.assertIsNotNone(result)
+        ids = [c.id for c in result]
+        self.assertTrue(any("add" in i for i in ids))
+        self.assertTrue(any("Point" in i for i in ids))
+
+    @unittest.skipIf(not load_chunker()._TS_AVAILABLE, "tree-sitter not installed")
+    def test_ts_java_chunker_extracts_methods(self):
+        source = textwrap.dedent("""\
+            package com.example;
+
+            public class Calculator {
+                public int add(int a, int b) {
+                    return a + b;
+                }
+            }
+        """)
+        result = self.chunker.chunk_java_treesitter(source, "src/Calculator.java")
+        self.assertIsNotNone(result)
+        ids = [c.id for c in result]
+        self.assertTrue(any("add" in i for i in ids))
+
+    @unittest.skipIf(not load_chunker()._TS_AVAILABLE, "tree-sitter not installed")
+    def test_ts_csharp_chunker_extracts_methods(self):
+        source = textwrap.dedent("""\
+            using System;
+
+            namespace Example {
+                public class Calculator {
+                    public int Add(int a, int b) {
+                        return a + b;
+                    }
+                }
+            }
+        """)
+        result = self.chunker.chunk_csharp_treesitter(source, "src/Calculator.cs")
+        self.assertIsNotNone(result)
+        ids = [c.id for c in result]
+        self.assertTrue(any("Add" in i for i in ids))
+
+    @unittest.skipIf(not load_chunker()._TS_AVAILABLE, "tree-sitter not installed")
+    def test_ts_bash_chunker_extracts_functions(self):
+        source = textwrap.dedent("""\
+            #!/bin/bash
+
+            greet() {
+                echo "hello $1"
+            }
+
+            farewell() {
+                echo "bye $1"
+            }
+        """)
+        result = self.chunker.chunk_bash_treesitter(source, "scripts/greet.sh")
+        self.assertIsNotNone(result)
+        ids = [c.id for c in result]
+        self.assertTrue(any("greet" in i for i in ids))
+        self.assertTrue(any("farewell" in i for i in ids))
+
+    @unittest.skipIf(not load_chunker()._TS_AVAILABLE, "tree-sitter not installed")
+    def test_ts_c_chunker_extracts_functions(self):
+        source = textwrap.dedent("""\
+            #include <stdio.h>
+
+            int add(int a, int b) {
+                return a + b;
+            }
+
+            void print_result(int n) {
+                printf("%d\\n", n);
+            }
+        """)
+        result = self.chunker.chunk_c_cpp_treesitter(source, "src/math.c")
+        self.assertIsNotNone(result)
+        ids = [c.id for c in result]
+        self.assertTrue(any("add" in i for i in ids))
+        self.assertTrue(any("print_result" in i for i in ids))
+
+    @unittest.skipIf(not load_chunker()._TS_AVAILABLE, "tree-sitter not installed")
+    def test_ts_js_chunker_extracts_functions(self):
+        source = textwrap.dedent("""\
+            import { foo } from './foo';
+
+            function greet(name) {
+                return 'hello ' + name;
+            }
+
+            export default greet;
+        """)
+        result = self.chunker.chunk_js_ts_treesitter(source, "src/greet.js")
+        self.assertIsNotNone(result)
+        ids = [c.id for c in result]
+        self.assertTrue(any("greet" in i for i in ids))
+
+    def test_chunk_file_kotlin_fallback(self):
+        """chunk_file(.kt) returns chunks even when tree-sitter-kotlin absent."""
+        source = textwrap.dedent("""\
+            package com.example
+
+            fun hello(): String = "hello"
+        """)
+        result = self.chunker.chunk_file(source, "src/Hello.kt")
+        self.assertIsInstance(result, list)
+        self.assertTrue(len(result) > 0)
+        for c in result:
+            self.assertEqual(c.language, "kotlin")
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("tree_sitter_kotlin") is not None,
+        "tree-sitter-kotlin not installed",
+    )
+    def test_ts_kotlin_chunker_extracts_functions_and_classes(self):
+        source = textwrap.dedent("""\
+            package com.example
+
+            import java.util.List
+
+            class Greeter(private val name: String) {
+                fun greet(): String {
+                    return "Hello, $name"
+                }
+            }
+
+            fun main() {
+                val g = Greeter("world")
+                println(g.greet())
+            }
+        """)
+        result = self.chunker.chunk_kotlin_treesitter(source, "src/Greeter.kt")
+        self.assertIsNotNone(result)
+        ids = [c.id for c in result]
+        sections = [c.section for c in result]
+        # class declaration indexed
+        self.assertTrue(any("Greeter" in i for i in ids))
+        # method indexed
+        self.assertTrue(any("greet" in i for i in ids))
+        # top-level function indexed
+        self.assertTrue(any("main" in i for i in ids))
+        # imports chunk present
+        self.assertTrue(any("imports" in (s or "") for s in sections))
+        # all chunks are code kind
+        for c in result:
+            self.assertEqual(c.kind, "code")
+            self.assertEqual(c.language, "kotlin")
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("tree_sitter_kotlin") is not None,
+        "tree-sitter-kotlin not installed",
+    )
+    def test_ts_kotlin_scoped_merge_does_not_merge_across_classes(self):
+        """Single-line methods in different Kotlin classes must not merge."""
+        source = textwrap.dedent("""\
+            class A {
+                fun foo() = 1
+            }
+
+            class B {
+                fun bar() = 2
+            }
+        """)
+        result = self.chunker.chunk_kotlin_treesitter(source, "src/Two.kt")
+        self.assertIsNotNone(result)
+        ids = [c.id for c in result]
+        # Both foo and bar must appear as distinct chunks
+        self.assertTrue(any("A.foo" in i for i in ids), f"A.foo missing from {ids}")
+        self.assertTrue(any("B.bar" in i for i in ids), f"B.bar missing from {ids}")
+
 
 if __name__ == "__main__":
     unittest.main()

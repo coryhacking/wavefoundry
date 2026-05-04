@@ -70,6 +70,7 @@ HARDCODED_EXCLUDE_DIRS = {
 # Path prefixes (relative to repo root, forward slashes) that are always excluded.
 HARDCODED_EXCLUDE_PREFIXES = (
     ".wavefoundry/index/",
+    ".wavefoundry/framework/index/",
 )
 PROJECT_INDEX_EXCLUDE_PREFIXES = (
     ".wavefoundry/framework/",
@@ -126,7 +127,7 @@ _DOT_DIR_ALLOWLIST_PREFIX = ".wavefoundry/"
 # Bump when walk_repo() filter logic changes (binary exclusions, generated file exclusions,
 # null-byte/magic-byte sniff changes). A version mismatch forces a full rebuild so that
 # files newly excluded by the filter are removed from existing indexes automatically.
-WALKER_VERSION = "2"
+WALKER_VERSION = "3"
 
 # ---------------------------------------------------------------------------
 # Ignore file parsing

@@ -27,22 +27,53 @@ class SetupIndexTests(unittest.TestCase):
     def setUp(self):
         self.mod = load_setup_index()
 
-    def test_missing_deps_exits_with_isolated_venv_help(self):
+    def test_ensure_deps_installs_missing_packages(self):
+        """ensure_deps calls pip install for missing packages then rechecks."""
         with patch.object(self.mod, "_installed", return_value=False):
-            with redirect_stderr(io.StringIO()):
+            with patch.object(self.mod, "_install_deps") as mock_install:
                 with self.assertRaises(SystemExit) as raised:
                     self.mod.ensure_deps()
-
+        # _install_deps called with all missing packages
+        mock_install.assert_called_once()
+        missing_arg = mock_install.call_args[0][0]
+        self.assertIn("fastembed", missing_arg)
+        self.assertIn("numpy", missing_arg)
+        # Still exits 2 because _installed still returns False after mock install
         self.assertEqual(raised.exception.code, 2)
 
-    def test_dependency_help_mentions_tool_venv_and_required_deps(self):
-        help_text = self.mod._dependency_help(["fastembed"])
+    def test_ensure_deps_succeeds_when_all_installed(self):
+        with patch.object(self.mod, "_installed", return_value=True):
+            with redirect_stdout(io.StringIO()):
+                self.mod.ensure_deps()  # must not raise
 
-        self.assertIn("python3 -m venv", help_text)
-        self.assertIn("fastembed", help_text)
-        self.assertIn("numpy", help_text)
-        self.assertIn('"mcp[cli]"', help_text)
-        self.assertIn("WAVEFOUNDRY_TOOL_VENV", help_text)
+    def test_install_deps_invokes_pip_with_quoted_specifiers(self):
+        """_install_deps quotes deps with version specifiers or extras."""
+        import unittest.mock as um
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = um.MagicMock(returncode=0)
+            with redirect_stdout(io.StringIO()):
+                self.mod._install_deps(["fastembed", "mcp[cli]", "tree-sitter>=0.24,<0.26"])
+        cmd = mock_run.call_args[0][0]
+        self.assertEqual(cmd[0], sys.executable)
+        self.assertIn("-m", cmd)
+        self.assertIn("pip", cmd)
+        # Raw dep strings passed to subprocess — no shell quoting
+        self.assertIn("fastembed", cmd)
+        self.assertIn("mcp[cli]", cmd)
+        self.assertIn("tree-sitter>=0.24,<0.26", cmd)
+        # Shell-quoted forms must NOT appear in the subprocess cmd
+        self.assertNotIn('"mcp[cli]"', cmd)
+        self.assertNotIn('"tree-sitter>=0.24,<0.26"', cmd)
+
+    def test_install_deps_exits_on_pip_failure(self):
+        import unittest.mock as um
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = um.MagicMock(returncode=1)
+            with redirect_stderr(io.StringIO()):
+                with redirect_stdout(io.StringIO()):
+                    with self.assertRaises(SystemExit) as raised:
+                        self.mod._install_deps(["fastembed"])
+        self.assertEqual(raised.exception.code, 2)
 
     def test_build_index_uses_current_python(self):
         root = Path("/tmp/wavefoundry-test-root")

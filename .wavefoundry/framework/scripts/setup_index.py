@@ -18,6 +18,20 @@ REQUIRED_IMPORTS = {
     "fastembed": "fastembed",
     "numpy": "numpy",
     "mcp[cli]": "mcp",
+    # Tree-sitter grammars for AST-accurate code chunking (JS/TS, Go, Rust, Java, C/C++, C#, Bash).
+    # chunker.py falls back to regex chunkers if these are absent, so they are technically optional
+    # at runtime — but including them here ensures they are installed alongside fastembed/numpy.
+    "tree-sitter>=0.24,<0.26": "tree_sitter",
+    "tree-sitter-typescript": "tree_sitter_typescript",
+    "tree-sitter-javascript": "tree_sitter_javascript",
+    "tree-sitter-go": "tree_sitter_go",
+    "tree-sitter-rust": "tree_sitter_rust",
+    "tree-sitter-java": "tree_sitter_java",
+    "tree-sitter-c": "tree_sitter_c",
+    "tree-sitter-cpp": "tree_sitter_cpp",
+    "tree-sitter-c-sharp": "tree_sitter_c_sharp",
+    "tree-sitter-bash": "tree_sitter_bash",
+    "tree-sitter-kotlin": "tree_sitter_kotlin",
 }
 
 INDEXING_WORKFLOW_KEY = "indexing"
@@ -39,20 +53,26 @@ def _tool_venv_python() -> Path:
     return venv / "bin" / "python"
 
 
-def _dependency_help(missing: list[str]) -> str:
-    venv_python = _tool_venv_python()
-    venv_dir = venv_python.parent.parent
-    quoted_deps = " ".join(f'"{dep}"' if "[" in dep else dep for dep in REQUIRED_IMPORTS)
-    return (
-        f"Missing dependencies: {', '.join(missing)}\n\n"
-        "Install them into an isolated tool environment, then rerun setup_index.py "
-        "with that Python:\n\n"
-        f"  python3 -m venv {venv_dir}\n"
-        f"  {venv_python} -m pip install --upgrade pip\n"
-        f"  {venv_python} -m pip install {quoted_deps}\n"
-        f"  {venv_python} {SCRIPTS_DIR / 'setup_index.py'} --root . --full\n\n"
-        "Set WAVEFOUNDRY_TOOL_VENV to choose a different shared tool venv."
-    )
+def _install_deps(missing: list[str]) -> None:
+    """Install missing packages into the current Python environment."""
+    # Display string uses shell quoting for readability; cmd uses raw dep strings.
+    display = " ".join(f'"{dep}"' if "[" in dep or ">=" in dep or "<" in dep else dep for dep in missing)
+    cmd = [sys.executable, "-m", "pip", "install"] + missing
+    print(f"Installing missing dependencies: {display}", flush=True)
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        # Retry with --break-system-packages for Homebrew/externally-managed environments
+        # (PEP 668) where pip refuses to install without an explicit override.
+        print("Retrying with --break-system-packages (externally-managed environment) ...", flush=True)
+        result = subprocess.run(cmd + ["--break-system-packages"], check=False)
+    if result.returncode != 0:
+        print(
+            f"pip install failed (exit {result.returncode}). "
+            "Check the output above and install manually, then rerun setup_index.py.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    print("Dependencies installed successfully.", flush=True)
 
 
 def ensure_deps() -> None:
@@ -60,8 +80,18 @@ def ensure_deps() -> None:
     if not missing:
         print(f"Dependencies satisfied ({', '.join(REQUIRED_IMPORTS)})", flush=True)
         return
-    print(_dependency_help(missing), file=sys.stderr)
-    raise SystemExit(2)
+    _install_deps(missing)
+    # Re-check after install — pip may have succeeded but the module is still not importable
+    # (e.g. wrong environment, editable install edge case).
+    still_missing = [dist for dist, module in REQUIRED_IMPORTS.items() if not _installed(module)]
+    if still_missing:
+        print(
+            f"Dependencies installed but still not importable: {', '.join(still_missing)}\n"
+            "This may mean pip installed into a different environment. "
+            "Try running setup_index.py with the correct Python interpreter.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
 
 
 def _indexer_models(include_code: bool) -> list[str]:
