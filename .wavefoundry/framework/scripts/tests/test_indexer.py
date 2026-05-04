@@ -126,6 +126,17 @@ class FileWalkerTests(unittest.TestCase):
         self.assertNotIn("data.myext", names)
         self.assertIn("config.myext", names)
 
+    def test_excludes_elf_extensionless(self):
+        # Extensionless ELF binaries (Lambda extension pattern) excluded via magic bytes.
+        # Uses no null bytes so null-byte fallback cannot carry this — magic check must fire.
+        _make_repo(self.root, {"src/foo.py": "x = 1\n"})
+        elf_header = b"\x7fELF" + b"\x01\x01\x01\x03" * 16  # ELF magic + non-null padding
+        (self.root / "src" / "AWSSecretsLambdaExtension").write_bytes(elf_header)
+        files = self.bi.walk_repo(self.root)
+        names = {f.name for f in files}
+        self.assertNotIn("AWSSecretsLambdaExtension", names)
+        self.assertIn("foo.py", names)
+
     def test_excludes_lock_files(self):
         # AC-1..AC-3 (12c7n-bug generated-lock-files-indexed): lock files excluded
         _make_repo(self.root, {
@@ -781,6 +792,68 @@ class ModelVersionChangeTests(unittest.TestCase):
         meta = json.loads((index_dir / "meta.json").read_text())
         self.assertIn("chunker_versions", meta)
         self.assertEqual(meta["chunker_versions"]["docs"], current_cv)
+
+
+class WalkerVersionTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.bi = load_build_index()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_meta(self, extra: dict) -> Path:
+        index_dir = self.root / ".wavefoundry" / "index"
+        index_dir.mkdir(parents=True, exist_ok=True)
+        base = {
+            "model_versions": {
+                "docs": self.bi.DOCS_MODEL,
+                "code": self.bi.CODE_MODEL,
+            },
+            "chunker_versions": {
+                "docs": self.bi._get_chunker().CHUNKER_VERSION,
+                "code": self.bi._get_chunker().CHUNKER_VERSION,
+            },
+            "content": ["docs", "code"],
+            "file_meta": {},
+        }
+        base.update(extra)
+        (index_dir / "meta.json").write_text(json.dumps(base), encoding="utf-8")
+        return index_dir
+
+    def test_legacy_index_missing_walker_version_triggers_rebuild(self):
+        """An index built before walker versioning has no walker_version key — must rebuild."""
+        _make_repo(self.root, {"src/foo.md": "## Guide\n\nContent.\n"})
+        self._write_meta({})  # no walker_version key
+        docs_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
+            result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
+        self.assertFalse(result.get("up_to_date", False))
+        meta = json.loads((self.root / ".wavefoundry" / "index" / "meta.json").read_text())
+        self.assertEqual(meta["walker_version"], self.bi.WALKER_VERSION)
+
+    def test_stale_walker_version_triggers_rebuild(self):
+        """An index with an older walker_version must be fully rebuilt."""
+        _make_repo(self.root, {"src/foo.md": "## Guide\n\nContent.\n"})
+        self._write_meta({"walker_version": "0"})
+        docs_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
+            result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
+        self.assertFalse(result.get("up_to_date", False))
+        meta = json.loads((self.root / ".wavefoundry" / "index" / "meta.json").read_text())
+        self.assertEqual(meta["walker_version"], self.bi.WALKER_VERSION)
+
+    def test_current_walker_version_does_not_force_rebuild(self):
+        """An up-to-date walker_version does not contribute to a forced rebuild."""
+        _make_repo(self.root, {"src/foo.md": "## Guide\n\nContent.\n"})
+        current_wv = self.bi.WALKER_VERSION
+        self._write_meta({"walker_version": current_wv})
+        docs_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
+            result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
+        meta = json.loads((self.root / ".wavefoundry" / "index" / "meta.json").read_text())
+        self.assertEqual(meta["walker_version"], current_wv)
 
 
 class OnnxProviderSelectionTests(unittest.TestCase):

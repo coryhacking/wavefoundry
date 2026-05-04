@@ -123,6 +123,11 @@ _KNOWN_TEXT_EXTENSIONS = frozenset(SOURCE_CODE_EXTENSIONS) | {
 # only paths under .wavefoundry/ are permitted through the dot-dir filter.
 _DOT_DIR_ALLOWLIST_PREFIX = ".wavefoundry/"
 
+# Bump when walk_repo() filter logic changes (binary exclusions, generated file exclusions,
+# null-byte/magic-byte sniff changes). A version mismatch forces a full rebuild so that
+# files newly excluded by the filter are removed from existing indexes automatically.
+WALKER_VERSION = "2"
+
 # ---------------------------------------------------------------------------
 # Ignore file parsing
 # ---------------------------------------------------------------------------
@@ -217,11 +222,20 @@ def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
             result.append(path)
             continue
 
-        # Null-byte sniff for files with unrecognized extensions
-        if suffix and suffix not in _KNOWN_TEXT_EXTENSIONS:
+        # Binary sniff for extensionless files and files with unrecognized extensions.
+        # Checks magic-byte signatures first (ELF, Mach-O, PE, class files), then falls
+        # back to a null-byte scan which catches most binary formats not covered above.
+        if not suffix or suffix not in _KNOWN_TEXT_EXTENSIONS:
             try:
-                chunk = path.read_bytes()[:8192]
-                if b"\x00" in chunk:
+                header = path.read_bytes()[:8192]
+                if (
+                    header[:4] == b"\x7fELF"           # ELF (Linux/ARM executables)
+                    or header[:4] in (b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf",
+                                      b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe")  # Mach-O
+                    or header[:2] == b"MZ"             # PE/COFF (.exe, .dll)
+                    or header[:4] == b"\xca\xfe\xba\xbe"  # Java .class / fat Mach-O
+                    or b"\x00" in header
+                ):
                     continue
             except OSError:
                 continue
@@ -665,11 +679,15 @@ def _build_index_locked(
     if not old_chunker_versions and _legacy_cv:
         old_chunker_versions = {"docs": _legacy_cv, "code": _legacy_cv}
     current_chunker_version: str = getattr(_get_chunker(), "CHUNKER_VERSION", "")
+    # walker_version is a scalar (walk_repo applies to all layers equally).
+    # Absent key means a legacy index built before walker versioning — treat as mismatch.
+    old_walker_version: str = meta.get("walker_version", "")
 
     # Force a selected-content rebuild if models changed, chunker changed for
-    # this content layer, or selected index files are absent.
+    # this content layer, walker filter changed, or selected index files are absent.
     model_changed = False
     chunker_changed = False
+    walker_changed = old_walker_version != WALKER_VERSION
     if build_docs:
         model_changed = model_changed or old_model_versions.get("docs") != DOCS_MODEL
         model_changed = model_changed or not (index_dir / DOCS_JSON).exists()
@@ -686,9 +704,14 @@ def _build_index_locked(
         chunker_changed = chunker_changed or (
             current_chunker_version and old_chunker_versions.get("code") != current_chunker_version
         )
-    if model_changed or chunker_changed:
-        if not full and (old_model_versions or old_chunker_versions):
-            reason = "chunker version changed" if chunker_changed else "model version changed or index missing"
+    if model_changed or chunker_changed or walker_changed:
+        if not full and (old_model_versions or old_chunker_versions or old_walker_version):
+            if walker_changed:
+                reason = "walker version changed" if old_walker_version else "walker version unknown (legacy index)"
+            elif chunker_changed:
+                reason = "chunker version changed"
+            else:
+                reason = "model version changed or index missing"
             print(
                 f"build_index: selected {content} index missing or {reason} — "
                 "performing full rebuild",
@@ -916,6 +939,7 @@ def _build_index_locked(
         "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "model_versions": new_model_versions,
         "chunker_versions": new_chunker_versions,
+        "walker_version": WALKER_VERSION,
         "content": sorted(available_content),
         "file_meta": current_file_meta,
     }
