@@ -142,7 +142,7 @@ def _ts_collapse_body(text: str, max_lines: int = 150) -> str:
     return "\n".join(lines[:max_lines])
 
 
-CHUNKER_VERSION = "13"
+CHUNKER_VERSION = "18"
 
 # Lines per window and overlap for the line-window fallback chunker.
 WINDOW_SIZE = 120
@@ -169,6 +169,16 @@ HTML_EXTENSIONS = {".html", ".htm"}
 GO_EXTENSIONS = {".go"}
 RUST_EXTENSIONS = {".rs"}
 SHELL_EXTENSIONS = {".sh", ".bash", ".zsh", ".fish"}
+BATCH_EXTENSIONS = {".bat", ".cmd"}
+TERRAFORM_EXTENSIONS = {".tf", ".tfvars"}
+HCL_EXTENSIONS = {".hcl"}
+HELM_EXTENSIONS = {".tpl"}  # Helm/Go template files; .tpl is also used by non-Helm templating systems
+# Extensionless filenames dispatched to code chunkers rather than plain-text doc chunker.
+# Keep in sync with indexer.py:CODE_EXTENSIONLESS_NAMES.
+CODE_EXTENSIONLESS_NAMES = {
+    "Jenkinsfile", "Makefile", "Dockerfile", "Vagrantfile", "Brewfile",
+    "Fastfile", "Appfile", "Podfile", "Gemfile", "Procfile",
+}
 SQL_EXTENSIONS = {".sql"}
 XML_EXTENSIONS = {".xml", ".jsp", ".xsd", ".xsl", ".xslt", ".svg"}
 KOTLIN_EXTENSIONS = {".kt", ".kts"}
@@ -177,6 +187,10 @@ CODE_EXTENSIONS = {
     ".yaml", ".yml", ".toml", ".json", ".jsonc",
     ".css", ".scss", ".sass",
     ".ps1", ".psm1",
+    *BATCH_EXTENSIONS,
+    *TERRAFORM_EXTENSIONS,
+    *HCL_EXTENSIONS,
+    *HELM_EXTENSIONS,
 }
 
 SWIFT_EXTENSIONS = {".swift"}
@@ -209,6 +223,11 @@ _EXT_TO_LANGUAGE: dict[str, str] = {
     ".json": "json", ".jsonc": "json",
     ".toml": "toml",
     ".yml": "yaml", ".yaml": "yaml",
+    **{ext: "powershell" for ext in (".ps1", ".psm1")},
+    **{ext: "batch" for ext in BATCH_EXTENSIONS},
+    **{ext: "terraform" for ext in TERRAFORM_EXTENSIONS},
+    **{ext: "hcl" for ext in HCL_EXTENSIONS},
+    **{ext: "helm" for ext in HELM_EXTENSIONS},
 }
 
 
@@ -222,6 +241,14 @@ SEED_PATH_MARKERS = (
     ".wavefoundry/framework/seeds/",
     ".wavefoundry\\framework\\seeds\\",
 )
+
+PROMPT_PATH_MARKERS = (
+    "docs/prompts/",
+    "docs\\prompts\\",
+)
+
+# Files ending in .prompt.md are treated as prompts regardless of directory.
+PROMPT_SUFFIX = ".prompt.md"
 
 # Extensionless filenames routed to plain-text doc chunker.
 # Keep in sync with indexer.py:DOCS_EXTENSIONLESS_NAMES.
@@ -265,7 +292,7 @@ def _slugify(text: str) -> str:
 class Chunk:
     id: str
     path: str
-    kind: str          # "code" | "doc" | "seed"
+    kind: str          # "code" | "code-summary" | "doc" | "doc-summary" | "seed" | "prompt"
     language: Optional[str]
     lines: tuple[int, int]
     section: Optional[str]
@@ -454,7 +481,22 @@ _FENCED_CODE_PATTERN = re.compile(
     r"^```(\w*)\n(.*?)^```", re.MULTILINE | re.DOTALL
 )
 _H1_PATTERN = re.compile(r"^#\s+(.+)$", re.MULTILINE)
+_H2_PATTERN = re.compile(r"^##\s+(.+)$", re.MULTILINE)
 _H3_PATTERN = re.compile(r"^###\s+(.+)$", re.MULTILINE)
+
+
+def _detect_primary_heading_level(source: str) -> int:
+    """Return the primary section split depth for a markdown document: 2 (##) or 3 (###).
+
+    Uses ## when any ## headings exist (they are the top-level section boundary).
+    Falls back to ### only when the document has ### headings but no ## headings at all.
+    Defaults to 2 (preserves existing behavior) when neither level is present.
+    """
+    h2_count = len(_H2_PATTERN.findall(source))
+    if h2_count > 0:
+        return 2
+    h3_count = len(_H3_PATTERN.findall(source))
+    return 3 if h3_count > 0 else 2
 
 
 def _extract_fenced_code(
@@ -568,13 +610,30 @@ def chunk_markdown(
     source: str,
     path: str,
     kind_override: Optional[str] = None,
+    suppress_h3_split: bool = False,
+    suppress_code_extraction: bool = False,
 ) -> list[Chunk]:
-    """Chunk a markdown file by ## sections, splitting out fenced code blocks."""
+    """Chunk a markdown file by primary heading level, splitting out fenced code blocks.
+
+    The primary split boundary is detected from the document: ## when any ## headings
+    are present, ### only when no ## headings exist.
+
+    suppress_h3_split: when True, never re-split oversized ## sections at ### boundaries
+        (used for prompt files where step sequences must stay intact).
+    suppress_code_extraction: when True, fenced code blocks stay inline with surrounding
+        prose rather than being extracted as separate chunks (used for prompt files where
+        commands are inseparable from their instructional context).
+    """
     path = _normalize_path(path)
     default_kind = kind_override or "doc"
 
     if not source.strip():
         return []
+
+    # Detect primary heading level and build split pattern
+    primary_level = _detect_primary_heading_level(source)
+    primary_hashes = "#" * primary_level
+    split_pattern = re.compile(rf"^{re.escape(primary_hashes)}\s+(.+)$")
 
     # Capture H1 title for breadcrumb injection
     h1_match = _H1_PATTERN.search(source)
@@ -582,7 +641,7 @@ def chunk_markdown(
 
     chunks: list[Chunk] = []
 
-    # Split on ## headings
+    # Split on primary heading level
     sections: list[tuple[Optional[str], int, str]] = []  # (title, start_line, text)
     lines = source.splitlines(keepends=True)
     current_title: Optional[str] = None
@@ -590,7 +649,7 @@ def chunk_markdown(
     current_lines: list[str] = []
 
     for i, line in enumerate(lines, start=1):
-        m = re.match(r"^##\s+(.+)$", line.rstrip())
+        m = split_pattern.match(line.rstrip())
         if m:
             if current_lines:
                 sections.append((current_title, current_start, "".join(current_lines)))
@@ -613,28 +672,40 @@ def chunk_markdown(
 
         # Preamble: no breadcrumb injection
         if is_preamble:
-            code_chunks, code_spans = _extract_fenced_code(
-                body, start_line, None, slug, path, default_kind
-            )
-            # For preamble, use plain section label (None)
-            for c in code_chunks:
-                c.section = None
-                c.text = c.text.split("\n\n", 1)[-1] if "\n\n" in c.text else c.text
-            chunks.extend(code_chunks)
-            prose = body
-            for start_pos, end_pos in reversed(code_spans):
-                prose = prose[:start_pos] + prose[end_pos:]
-            prose = prose.strip()
-            if prose:
-                chunks.append(Chunk(
-                    id=f"{path}#{slug}",
-                    path=path,
-                    kind=default_kind,
-                    language=None,
-                    lines=(start_line, section_end),
-                    section=None,
-                    text=prose,
-                ))
+            if suppress_code_extraction:
+                prose = body.strip()
+                if prose:
+                    chunks.append(Chunk(
+                        id=f"{path}#{slug}",
+                        path=path,
+                        kind=default_kind,
+                        language=None,
+                        lines=(start_line, section_end),
+                        section=None,
+                        text=prose,
+                    ))
+            else:
+                code_chunks, code_spans = _extract_fenced_code(
+                    body, start_line, None, slug, path, default_kind
+                )
+                for c in code_chunks:
+                    c.section = None
+                    c.text = c.text.split("\n\n", 1)[-1] if "\n\n" in c.text else c.text
+                chunks.extend(code_chunks)
+                prose = body
+                for start_pos, end_pos in reversed(code_spans):
+                    prose = prose[:start_pos] + prose[end_pos:]
+                prose = prose.strip()
+                if prose:
+                    chunks.append(Chunk(
+                        id=f"{path}#{slug}",
+                        path=path,
+                        kind=default_kind,
+                        language=None,
+                        lines=(start_line, section_end),
+                        section=None,
+                        text=prose,
+                    ))
             continue
 
         # Build breadcrumb for this ## section
@@ -643,43 +714,65 @@ def chunk_markdown(
         else:
             section_label = title
 
-        # Threshold-gate H3 splitting for oversized sections
-        if len(body.strip()) > H3_SPLIT_THRESHOLD_CHARS and _H3_PATTERN.search(body):
+        # Threshold-gate H3 splitting for oversized sections (skipped for prompts)
+        if not suppress_h3_split and len(body.strip()) > H3_SPLIT_THRESHOLD_CHARS and _H3_PATTERN.search(body):
             chunks.extend(_split_h3_sections(
                 body, start_line, title, slug, doc_title, path, default_kind
             ))
             continue
 
-        # Standard section: extract fenced code then emit prose
-        code_chunks, code_spans = _extract_fenced_code(
-            body, start_line, section_label, slug, path, default_kind
-        )
-        chunks.extend(code_chunks)
+        if suppress_code_extraction:
+            # Keep fenced code inline — emit entire section as a single prose chunk
+            prose = body.strip()
+            if prose:
+                if not suppress_h3_split and len(prose) > H3_SPLIT_THRESHOLD_CHARS:
+                    for fw_chunk in chunk_line_window(prose, path):
+                        fw_chunk.id = f"{path}#{slug}:L{fw_chunk.lines[0]}-L{fw_chunk.lines[1]}"
+                        fw_chunk.kind = default_kind
+                        fw_chunk.section = section_label
+                        fw_chunk.text = f"{section_label}\n\n{fw_chunk.text}"
+                        chunks.append(fw_chunk)
+                else:
+                    chunks.append(Chunk(
+                        id=f"{path}#{slug}",
+                        path=path,
+                        kind=default_kind,
+                        language=None,
+                        lines=(start_line, section_end),
+                        section=section_label,
+                        text=f"{section_label}\n\n{prose}",
+                    ))
+        else:
+            # Standard section: extract fenced code then emit prose
+            code_chunks, code_spans = _extract_fenced_code(
+                body, start_line, section_label, slug, path, default_kind
+            )
+            chunks.extend(code_chunks)
 
-        prose = body
-        for start_pos, end_pos in reversed(code_spans):
-            prose = prose[:start_pos] + prose[end_pos:]
-        prose = prose.strip()
+            prose = body
+            for start_pos, end_pos in reversed(code_spans):
+                prose = prose[:start_pos] + prose[end_pos:]
+            prose = prose.strip()
 
-        if prose:
-            # For oversized sections without ### (line-window fallback), inject breadcrumb
-            if len(prose) > H3_SPLIT_THRESHOLD_CHARS:
-                for fw_chunk in chunk_line_window(prose, path):
-                    fw_chunk.id = f"{path}#{slug}:L{fw_chunk.lines[0]}-L{fw_chunk.lines[1]}"
-                    fw_chunk.kind = default_kind
-                    fw_chunk.section = section_label
-                    fw_chunk.text = f"{section_label}\n\n{fw_chunk.text}"
-                    chunks.append(fw_chunk)
-            else:
-                chunks.append(Chunk(
-                    id=f"{path}#{slug}",
-                    path=path,
-                    kind=default_kind,
-                    language=None,
-                    lines=(start_line, section_end),
-                    section=section_label,
-                    text=f"{section_label}\n\n{prose}",
-                ))
+            if prose:
+                # For oversized sections without ### (line-window fallback), inject breadcrumb
+                if len(prose) > H3_SPLIT_THRESHOLD_CHARS:
+                    for fw_chunk in chunk_line_window(prose, path):
+                        fw_chunk.id = f"{path}#{slug}:L{fw_chunk.lines[0]}-L{fw_chunk.lines[1]}"
+                        fw_chunk.kind = default_kind
+                        fw_chunk.section = section_label
+                        fw_chunk.text = f"{section_label}\n\n{fw_chunk.text}"
+                        chunks.append(fw_chunk)
+                else:
+                    chunks.append(Chunk(
+                        id=f"{path}#{slug}",
+                        path=path,
+                        kind=default_kind,
+                        language=None,
+                        lines=(start_line, section_end),
+                        section=section_label,
+                        text=f"{section_label}\n\n{prose}",
+                    ))
 
     return chunks
 
@@ -766,6 +859,67 @@ def chunk_line_window(
         i = end
 
     return chunks
+
+
+def chunk_secrets_file(source: str, path: str, language: str) -> list[Chunk]:
+    """Chunk key=value secrets files (.tfvars, .env) with values redacted.
+
+    Keeps variable names so agents can search for which keys are defined.
+    Replaces all values with <redacted> so secret material is never stored in the index.
+
+    Supported formats:
+    - .tfvars: KEY = "value", KEY = value, KEY = ["list"], KEY = { map }
+    - .env:    KEY=value, KEY="value", export KEY=value
+    - Comments (# ...) and blank lines are preserved as-is.
+    - Multi-line values (heredoc or block) are collapsed to a single <redacted> line.
+    """
+    import re
+    path = _normalize_path(path)
+    # Matches: optional 'export ', KEY, optional whitespace, '=', rest
+    _ASSIGN = re.compile(r'^(export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=.*$')
+    # Matches start of a multi-line HCL block value: KEY = {  or KEY = [
+    _BLOCK_START = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*[\[{]')
+
+    redacted_lines: list[str] = []
+    raw_lines = source.splitlines()
+    i = 0
+    while i < len(raw_lines):
+        line = raw_lines[i]
+        stripped = line.strip()
+
+        # Blank lines and comments pass through
+        if not stripped or stripped.startswith("#"):
+            redacted_lines.append(line)
+            i += 1
+            continue
+
+        # Multi-line block value: consume until matching close bracket/brace
+        block_match = _BLOCK_START.match(stripped)
+        if block_match and not (stripped.endswith("]") or stripped.endswith("}")):
+            key = block_match.group(1)
+            redacted_lines.append(f"{key} = <redacted>")
+            depth = stripped.count("{") + stripped.count("[") - stripped.count("}") - stripped.count("]")
+            i += 1
+            while i < len(raw_lines) and depth > 0:
+                bl = raw_lines[i]
+                depth += bl.count("{") + bl.count("[") - bl.count("}") - bl.count("]")
+                i += 1
+            continue
+
+        # Single-line assignment
+        m = _ASSIGN.match(stripped)
+        if m:
+            key = m.group(2)
+            redacted_lines.append(f"{key} = <redacted>")
+            i += 1
+            continue
+
+        # Anything else (e.g. bare block closers, unexpected syntax) — drop silently
+        i += 1
+
+    redacted_source = "\n".join(redacted_lines)
+    stem = _file_stem(path)
+    return chunk_line_window(redacted_source, path, language=language, section=stem)
 
 
 def chunk_plain_text(source: str, path: str) -> list[Chunk]:
@@ -3171,78 +3325,307 @@ def _chunk_design_json(source: str, path: str) -> list[Chunk]:
     )]
 
 
+_SUMMARY_SYMBOL_CAP = 20
+
+# Pre-compiled heading pattern for doc-summary extraction (all levels).
+_DOC_HEADING_RE = re.compile(r"^#{1,3}\s+(.+)$")
+
+# Matches frontmatter key-value lines: "Key: value" or "Key: `value`"
+_FRONTMATTER_LINE_RE = re.compile(r"^\w[\w\s\-]*:\s+\S")
+
+# Per-language pre-compiled regex patterns for top-level exported symbols.
+_SYMBOL_PATTERNS: dict[str, list[re.Pattern]] = {
+    "python": [re.compile(r"^(?:def|class|async def)\s+(\w+)")],
+    "javascript": [re.compile(r"^export\s+(?:default\s+)?(?:function|class|const|let|var)\s+(\w+)"), re.compile(r"^(?:function|class)\s+(\w+)")],
+    "typescript": [re.compile(r"^export\s+(?:default\s+)?(?:function|class|const|let|var|type|interface|enum)\s+(\w+)"), re.compile(r"^(?:function|class)\s+(\w+)")],
+    "go": [re.compile(r"^func\s+(?:\(\w+\s+\*?\w+\)\s+)?(\w+)"), re.compile(r"^type\s+(\w+)")],
+    "rust": [re.compile(r"^pub\s+(?:fn|struct|enum|trait|type|const)\s+(\w+)"), re.compile(r"^(?:fn|struct|enum|trait)\s+(\w+)")],
+    "java": [re.compile(r"^(?:public|protected|private)?\s*(?:static\s+)?(?:class|interface|enum)\s+(\w+)"), re.compile(r"^(?:public|protected|private)\s+(?:static\s+)?[\w<>\[\]]+\s+(\w+)\s*\(")],
+    "csharp": [re.compile(r"^(?:public|internal|protected|private)?\s*(?:static\s+)?(?:class|interface|enum|struct|record)\s+(\w+)"), re.compile(r"^(?:public|protected|private|internal)\s+(?:static\s+)?[\w<>\[\]]+\s+(\w+)\s*\(")],
+    "kotlin": [re.compile(r"^(?:fun|class|object|data class|interface|enum class)\s+(\w+)")],
+    "swift": [re.compile(r"^(?:public|internal|private|open)?\s*(?:func|class|struct|enum|protocol)\s+(\w+)")],
+}
+
+def _extract_code_symbols(source: str, language: str) -> list[str]:
+    patterns = _SYMBOL_PATTERNS.get(language, [])
+    seen: set[str] = set()
+    symbols: list[str] = []
+    for line in source.splitlines():
+        line = line.strip()
+        for pattern in patterns:
+            m = pattern.match(line)
+            if m:
+                name = m.group(1)
+                if name not in seen:
+                    seen.add(name)
+                    symbols.append(name)
+                    if len(symbols) >= _SUMMARY_SYMBOL_CAP:
+                        return symbols
+                break
+    return symbols
+
+
+def _extract_python_module_docstring(source: str) -> Optional[str]:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    if tree.body and isinstance(tree.body[0], ast.Expr) and isinstance(tree.body[0].value, ast.Constant) and isinstance(tree.body[0].value.value, str):
+        return tree.body[0].value.value.strip()
+    return None
+
+
+def _extract_leading_comment(source: str) -> Optional[str]:
+    lines = source.splitlines()
+    comment_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            comment_lines.append(stripped.lstrip("# ").strip())
+        elif stripped == "":
+            if comment_lines:
+                break
+        else:
+            break
+    return "\n".join(comment_lines) if comment_lines else None
+
+
+def _chunk_code_summary(source: str, path: str, language: str) -> Optional[Chunk]:
+    """Emit one kind='code-summary' chunk per source file: module docstring + top-level symbols."""
+    if not source.strip():
+        return None
+    if language == "python":
+        docstring = _extract_python_module_docstring(source) or _extract_leading_comment(source)
+    else:
+        docstring = _extract_leading_comment(source)
+    symbols = _extract_code_symbols(source, language)
+    if not docstring and not symbols:
+        return None
+    parts = []
+    if docstring:
+        parts.append(docstring)
+    if symbols:
+        parts.append("Symbols: " + ", ".join(symbols))
+    text = "\n".join(parts)
+    total_lines = source.count("\n") + 1
+    return Chunk(
+        id=f"{path}#summary",
+        path=path,
+        kind="code-summary",
+        language=language,
+        lines=(1, total_lines),
+        section="summary",
+        text=text,
+    )
+
+
+_FIRST_SECTION_OPENING_MAX = 150
+
+
+def _chunk_doc_summary(source: str, path: str, kind: str) -> Optional[Chunk]:
+    """Emit one kind='doc-summary' chunk per markdown doc file.
+
+    Captures: H1 title, frontmatter key-value lines, opening sentence of the first
+    primary-level section body, and the full heading list.
+    """
+    if not source.strip():
+        return None
+    lines = source.splitlines()
+    total_lines = len(lines)
+    primary_level = _detect_primary_heading_level(source)
+    primary_hashes = "#" * primary_level
+    primary_re = re.compile(rf"^{re.escape(primary_hashes)}\s+(.+)$")
+
+    # Extract all headings for the Sections list (## and ### regardless of primary level)
+    headings: list[str] = []
+    for line in lines:
+        m = _DOC_HEADING_RE.match(line.rstrip())
+        if m:
+            headings.append(m.group(1).strip())
+
+    # Extract H1 title
+    h1_title: Optional[str] = None
+    h1_re = re.compile(r"^#\s+(.+)$")
+    for line in lines:
+        m = h1_re.match(line.rstrip())
+        if m:
+            h1_title = m.group(1).strip()
+            break
+
+    # Extract preamble: lines between H1 and the first primary-level heading.
+    # If the preamble contains key-value frontmatter lines, preserve them individually.
+    # Otherwise, join non-empty non-heading lines as plain prose (original behavior).
+    preamble_lines: list[str] = []
+    past_h1 = h1_title is None  # if no H1, treat all pre-section lines as candidates
+    for line in lines:
+        stripped = line.strip()
+        if not past_h1:
+            if h1_re.match(line.rstrip()):
+                past_h1 = True
+            continue
+        if primary_re.match(line.rstrip()) or _DOC_HEADING_RE.match(line.rstrip()):
+            break
+        if stripped:
+            preamble_lines.append(stripped)
+
+    frontmatter_lines: list[str] = []
+    prose_preamble: Optional[str] = None
+    if preamble_lines:
+        kv_lines = [l for l in preamble_lines if _FRONTMATTER_LINE_RE.match(l)]
+        if len(kv_lines) >= len(preamble_lines) // 2 + 1:
+            # Majority are key-value: treat all as structured frontmatter
+            frontmatter_lines = preamble_lines
+        else:
+            # Plain prose preamble: join as a paragraph
+            prose_preamble = " ".join(preamble_lines)
+
+    # Extract opening sentence of first primary-level section body
+    first_section_opening: Optional[str] = None
+    in_first_section = False
+    for line in lines:
+        if primary_re.match(line.rstrip()):
+            if in_first_section:
+                break
+            in_first_section = True
+            continue
+        if not in_first_section:
+            continue
+        stripped = line.strip()
+        if not stripped or _DOC_HEADING_RE.match(stripped):
+            if first_section_opening:
+                break
+            continue
+        # Take up to the first period or max chars
+        period_pos = stripped.find(".")
+        if period_pos != -1:
+            first_section_opening = stripped[: period_pos + 1]
+        else:
+            first_section_opening = stripped[:_FIRST_SECTION_OPENING_MAX]
+        break
+
+    parts: list[str] = []
+    if h1_title:
+        parts.append(h1_title)
+    if frontmatter_lines:
+        parts.extend(frontmatter_lines)
+    elif prose_preamble:
+        parts.append(prose_preamble)
+    if first_section_opening:
+        parts.append(first_section_opening)
+    if headings:
+        parts.append("Sections: " + " · ".join(headings))
+
+    if not parts:
+        return None
+
+    return Chunk(
+        id=f"{path}#doc-summary",
+        path=path,
+        kind="doc-summary",
+        language=None,
+        lines=(1, total_lines),
+        section="doc-summary",
+        text="\n".join(parts),
+    )
+
+
 def chunk_file(source: str, path: str) -> list[Chunk]:
     """Dispatch to the appropriate chunker based on file path and extension."""
     normalized = _normalize_path(path)
     suffix = PurePosixPath(normalized).suffix.lower()
 
     is_seed = any(marker in normalized for marker in SEED_PATH_MARKERS)
+    is_prompt = (
+        any(marker in normalized for marker in PROMPT_PATH_MARKERS)
+        or normalized.endswith(PROMPT_SUFFIX)
+    )
     is_design_json = suffix == ".json" and DESIGN_JSON_MARKER in normalized
     stem = PurePosixPath(normalized).name  # full filename (no directory); equals stem when no suffix
+
+    if not suffix and stem in CODE_EXTENSIONLESS_NAMES:
+        return chunk_line_window(source, normalized, language=stem.lower(), section=stem)
 
     if suffix in TEXT_EXTENSIONS or (not suffix and stem in DOCS_EXTENSIONLESS_NAMES):
         return chunk_plain_text(source, normalized)
 
     if suffix in PYTHON_EXTENSIONS:
-        return split_large_code_chunks(chunk_python(source, normalized))
+        chunks = split_large_code_chunks(chunk_python(source, normalized))
+        summary = _chunk_code_summary(source, normalized, "python")
+        if summary:
+            chunks = [summary] + chunks
+        return chunks
 
     if suffix in MARKDOWN_EXTENSIONS:
-        kind = "seed" if is_seed else "doc"
-        return chunk_markdown(source, normalized, kind_override=kind)
+        if is_seed:
+            kind = "seed"
+        elif is_prompt:
+            kind = "prompt"
+        else:
+            kind = "doc"
+        chunks = chunk_markdown(
+            source, normalized,
+            kind_override=kind,
+            suppress_h3_split=(kind == "prompt"),
+            suppress_code_extraction=(kind == "prompt"),
+        )
+        doc_summary = _chunk_doc_summary(source, normalized, kind)
+        if doc_summary:
+            chunks = [doc_summary] + chunks
+        return chunks
 
     if is_design_json:
         return _chunk_design_json(source, normalized)
 
+    # For all code language paths below, prepend a code-summary chunk when extractable.
+    def _with_summary(chunks: list[Chunk], language: str) -> list[Chunk]:
+        s = _chunk_code_summary(source, normalized, language)
+        return ([s] + chunks) if s else chunks
+
     if suffix in JAVA_EXTENSIONS:
         ts_result = chunk_java_treesitter(source, normalized)
-        if ts_result is not None:
-            return ts_result
-        return chunk_java(source, normalized)
+        chunks = ts_result if ts_result is not None else chunk_java(source, normalized)
+        return _with_summary(chunks, "java")
 
     if suffix in SCALA_EXTENSIONS:
-        return chunk_scala(source, normalized)
+        return _with_summary(chunk_scala(source, normalized), "scala")
 
     if suffix in CSHARP_EXTENSIONS:
         ts_result = chunk_csharp_treesitter(source, normalized)
-        if ts_result is not None:
-            return ts_result
-        return chunk_csharp(source, normalized)
+        chunks = ts_result if ts_result is not None else chunk_csharp(source, normalized)
+        return _with_summary(chunks, "csharp")
 
     if suffix in JS_TS_EXTENSIONS:
         ts_result = chunk_js_ts_treesitter(source, normalized)
-        if ts_result is not None:
-            return ts_result
-        return chunk_js_ts(source, normalized)
+        chunks = ts_result if ts_result is not None else chunk_js_ts(source, normalized)
+        lang = _EXT_TO_LANGUAGE.get(suffix, "javascript")
+        return _with_summary(chunks, lang)
 
     if suffix in C_CPP_EXTENSIONS:
         ts_result = chunk_c_cpp_treesitter(source, normalized)
-        if ts_result is not None:
-            return ts_result
-        return chunk_c_cpp(source, normalized)
+        chunks = ts_result if ts_result is not None else chunk_c_cpp(source, normalized)
+        lang = "cpp" if suffix in {".cpp", ".hpp", ".cc", ".cxx"} else "c"
+        return _with_summary(chunks, lang)
 
     if suffix in HTML_EXTENSIONS:
         return chunk_html(source, normalized)
 
     if suffix in GO_EXTENSIONS:
         ts_result = chunk_go_treesitter(source, normalized)
-        if ts_result is not None:
-            return ts_result
-        return chunk_go(source, normalized)
+        chunks = ts_result if ts_result is not None else chunk_go(source, normalized)
+        return _with_summary(chunks, "go")
 
     if suffix in RUST_EXTENSIONS:
         ts_result = chunk_rust_treesitter(source, normalized)
-        if ts_result is not None:
-            return ts_result
-        return chunk_rust(source, normalized)
+        chunks = ts_result if ts_result is not None else chunk_rust(source, normalized)
+        return _with_summary(chunks, "rust")
 
     if suffix in KOTLIN_EXTENSIONS:
         ts_result = chunk_kotlin_treesitter(source, normalized)
-        if ts_result is not None:
-            return ts_result
-        return chunk_line_window(source, normalized, language="kotlin", section=_file_stem(normalized))
+        chunks = ts_result if ts_result is not None else chunk_line_window(source, normalized, language="kotlin", section=_file_stem(normalized))
+        return _with_summary(chunks, "kotlin")
 
     if suffix in SWIFT_EXTENSIONS:
-        return chunk_swift(source, normalized)
+        return _with_summary(chunk_swift(source, normalized), "swift")
 
     if suffix in OBJC_EXTENSIONS:
         return chunk_objc(source, normalized)
@@ -3259,6 +3642,12 @@ def chunk_file(source: str, path: str) -> list[Chunk]:
 
     if suffix in XML_EXTENSIONS:
         return chunk_xml(source, normalized)
+
+    # Secrets files: index variable names only, redact all values
+    if suffix == ".tfvars":
+        return chunk_secrets_file(source, normalized, language="terraform")
+    if stem == ".env" or stem.startswith(".env."):
+        return chunk_secrets_file(source, normalized, language="env")
 
     if suffix in CODE_EXTENSIONS:
         return chunk_line_window(source, normalized, language=_ext_language(suffix) or None,

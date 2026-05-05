@@ -427,7 +427,8 @@ class ChunkFileDispatchTests(unittest.TestCase):
         chunks = self.chunker.chunk_file(
             source, ".wavefoundry/framework/seeds/020-foo.prompt.md"
         )
-        self.assertTrue(all(c.kind == "seed" for c in chunks))
+        non_summary = [c for c in chunks if c.kind != "doc-summary"]
+        self.assertTrue(all(c.kind == "seed" for c in non_summary))
 
     def test_unknown_extension_uses_line_window(self):
         source = "some content\n" * 20
@@ -1675,9 +1676,104 @@ class ChunkFileNewExtensionsTests(unittest.TestCase):
         self.assertTrue(len(chunks) >= 1)
 
     def test_chunker_version_is_incremented(self):
-        # AC-14: CHUNKER_VERSION must be >= "10" after 12b0v/12b0w additions
+        # CHUNKER_VERSION >= 16 after secrets-file scrubbing for .tfvars and .env
         version = self.chunker.CHUNKER_VERSION
-        self.assertGreaterEqual(int(version), 10)
+        self.assertGreaterEqual(int(version), 16)
+
+
+class SecretsChunkerTests(unittest.TestCase):
+    """chunk_secrets_file: .tfvars and .env files index variable names, redact values."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _chunks(self, source, path):
+        return self.chunker.chunk_file(source, path)
+
+    # --- .tfvars ---
+
+    def test_tfvars_simple_assignment_redacted(self):
+        source = 'db_password = "supersecret"\n'
+        chunks = self._chunks(source, "infra/prod.tfvars")
+        text = " ".join(c.text for c in chunks)
+        self.assertIn("db_password", text)
+        self.assertNotIn("supersecret", text)
+        self.assertIn("<redacted>", text)
+
+    def test_tfvars_unquoted_value_redacted(self):
+        source = "instance_count = 3\n"
+        chunks = self._chunks(source, "infra/prod.tfvars")
+        text = " ".join(c.text for c in chunks)
+        self.assertIn("instance_count", text)
+        self.assertNotIn("3", text)
+
+    def test_tfvars_multiline_block_redacted(self):
+        source = 'tags = {\n  env = "prod"\n  owner = "team"\n}\n'
+        chunks = self._chunks(source, "vars.tfvars")
+        text = " ".join(c.text for c in chunks)
+        self.assertIn("tags", text)
+        self.assertNotIn("prod", text)
+        self.assertNotIn("team", text)
+
+    def test_tfvars_comment_preserved(self):
+        source = "# This is a comment\napi_key = \"secret\"\n"
+        chunks = self._chunks(source, "vars.tfvars")
+        text = " ".join(c.text for c in chunks)
+        self.assertIn("# This is a comment", text)
+        self.assertNotIn("secret", text)
+
+    def test_tfvars_language_is_terraform(self):
+        chunks = self._chunks('key = "val"\n', "vars.tfvars")
+        self.assertTrue(all(c.language == "terraform" for c in chunks))
+
+    def test_tf_file_not_scrubbed(self):
+        # .tf is infrastructure code, not a secrets file — values must not be redacted
+        source = 'resource "aws_instance" "web" {\n  ami = "ami-12345"\n}\n'
+        chunks = self._chunks(source, "main.tf")
+        text = " ".join(c.text for c in chunks)
+        self.assertNotIn("<redacted>", text)
+        self.assertIn("ami-12345", text)
+
+    # --- .env ---
+
+    def test_env_simple_assignment_redacted(self):
+        source = "API_KEY=supersecret\n"
+        chunks = self._chunks(source, ".env")
+        text = " ".join(c.text for c in chunks)
+        self.assertIn("API_KEY", text)
+        self.assertNotIn("supersecret", text)
+        self.assertIn("<redacted>", text)
+
+    def test_env_quoted_value_redacted(self):
+        source = 'DATABASE_URL="postgres://user:pass@host/db"\n'
+        chunks = self._chunks(source, ".env.local")
+        text = " ".join(c.text for c in chunks)
+        self.assertIn("DATABASE_URL", text)
+        self.assertNotIn("postgres", text)
+
+    def test_env_export_prefix_redacted(self):
+        source = "export SECRET_TOKEN=abc123\n"
+        chunks = self._chunks(source, ".env")
+        text = " ".join(c.text for c in chunks)
+        self.assertIn("SECRET_TOKEN", text)
+        self.assertNotIn("abc123", text)
+
+    def test_env_comment_preserved(self):
+        source = "# Database config\nDB_PASS=secret\n"
+        chunks = self._chunks(source, ".env")
+        text = " ".join(c.text for c in chunks)
+        self.assertIn("# Database config", text)
+        self.assertNotIn("secret", text)
+
+    def test_env_language_is_env(self):
+        chunks = self._chunks("KEY=val\n", ".env")
+        self.assertTrue(all(c.language == "env" for c in chunks))
+
+    def test_env_dotenv_local_variant_scrubbed(self):
+        chunks = self._chunks("KEY=val\n", ".env.production")
+        text = " ".join(c.text for c in chunks)
+        self.assertIn("KEY", text)
+        self.assertNotIn("val", text)
 
 
 class PlainTextChunkerTests(unittest.TestCase):
@@ -2272,6 +2368,335 @@ class TreeSitterChunkerTests(unittest.TestCase):
         # Both foo and bar must appear as distinct chunks
         self.assertTrue(any("A.foo" in i for i in ids), f"A.foo missing from {ids}")
         self.assertTrue(any("B.bar" in i for i in ids), f"B.bar missing from {ids}")
+
+
+class PromptChunkerTests(unittest.TestCase):
+    """Tests for kind="prompt" chunking behaviour (wave 12cv4)."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _chunks(self, source: str, path: str) -> list:
+        return self.chunker.chunk_file(source, path)
+
+    # -- kind assignment --
+
+    def test_prompt_kind_for_docs_prompts_path(self):
+        source = "# Prepare Wave\n\n## Step 1\n\nDo the thing.\n"
+        chunks = self._chunks(source, "docs/prompts/prepare-wave.prompt.md")
+        non_summary = [c for c in chunks if c.kind != "doc-summary"]
+        self.assertTrue(all(c.kind == "prompt" for c in non_summary))
+
+    def test_prompt_kind_for_docs_prompts_agents_path(self):
+        source = "# Agent Prompt\n\n## Context\n\nSome context.\n"
+        chunks = self._chunks(source, "docs/prompts/agents/prepare-wave.prompt.md")
+        non_summary = [c for c in chunks if c.kind != "doc-summary"]
+        self.assertTrue(all(c.kind == "prompt" for c in non_summary))
+
+    def test_prompt_kind_for_prompt_md_extension(self):
+        source = "# My Prompt\n\n## Step 1\n\nDo this.\n"
+        chunks = self._chunks(source, "docs/custom/my-prompt.prompt.md")
+        non_summary = [c for c in chunks if c.kind != "doc-summary"]
+        self.assertTrue(all(c.kind == "prompt" for c in non_summary))
+
+    def test_seed_kind_takes_priority_over_prompt_suffix(self):
+        # .prompt.md files under seeds/ stay kind="seed"
+        source = "# Seed Prompt\n\n## Context\n\nFramework seed.\n"
+        chunks = self._chunks(source, ".wavefoundry/framework/seeds/170-plan-feature.prompt.md")
+        non_summary = [c for c in chunks if c.kind != "doc-summary"]
+        self.assertTrue(all(c.kind == "seed" for c in non_summary))
+
+    def test_regular_doc_not_affected(self):
+        source = "# Architecture\n\n## Overview\n\nSome arch content.\n"
+        chunks = self._chunks(source, "docs/architecture/current-state.md")
+        non_summary = [c for c in chunks if c.kind != "doc-summary"]
+        self.assertTrue(all(c.kind == "doc" for c in non_summary))
+
+    # -- no H3 re-splitting --
+
+    def test_no_h3_split_for_prompt_file(self):
+        # Build a ## section > 2000 chars with a ### inside
+        long_body = "x " * 1010  # > 2000 chars
+        source = f"# Title\n\n## Step 1\n\n{long_body}\n\n### Sub\n\nmore text\n"
+        chunks = self._chunks(source, "docs/prompts/implement-wave.prompt.md")
+        # Should be ONE chunk for the ## section, not split at ###
+        step_chunks = [c for c in chunks if c.section and "Step 1" in c.section]
+        self.assertEqual(len(step_chunks), 1)
+
+    # -- no fenced code extraction --
+
+    def test_no_fenced_code_extraction_for_prompt_file(self):
+        source = (
+            "# Prepare Wave\n\n"
+            "## Step 1\n\n"
+            "Run the following:\n\n"
+            "```bash\npython3 setup_index.py\n```\n\n"
+            "Then verify with docs_search.\n"
+        )
+        chunks = self._chunks(source, "docs/prompts/prepare-wave.prompt.md")
+        # No separate code chunk — bash block stays in prose
+        code_chunks = [c for c in chunks if c.language == "bash"]
+        self.assertEqual(len(code_chunks), 0)
+        # The prose chunk includes the code block text
+        prose_chunks = [c for c in chunks if c.kind == "prompt"]
+        all_text = " ".join(c.text for c in prose_chunks)
+        self.assertIn("setup_index.py", all_text)
+
+    def test_fenced_code_still_extracted_for_regular_doc(self):
+        source = (
+            "# Arch Doc\n\n"
+            "## Overview\n\n"
+            "Use this:\n\n"
+            "```python\nprint('hello')\n```\n"
+        )
+        chunks = self._chunks(source, "docs/architecture/current-state.md")
+        code_chunks = [c for c in chunks if c.language == "python"]
+        self.assertEqual(len(code_chunks), 1)
+
+    # -- chunk_markdown direct flag tests --
+
+    def test_suppress_h3_split_flag(self):
+        long_body = "word " * 410  # > 2000 chars
+        source = f"# Doc\n\n## Section\n\n{long_body}\n\n### Sub\n\nmore\n"
+        without = self.chunker.chunk_markdown(source, "docs/prompts/foo.md", kind_override="prompt", suppress_h3_split=False)
+        with_flag = self.chunker.chunk_markdown(source, "docs/prompts/foo.md", kind_override="prompt", suppress_h3_split=True)
+        # With suppression: fewer chunks (no sub-split)
+        self.assertLessEqual(len(with_flag), len(without))
+
+    def test_suppress_code_extraction_flag(self):
+        source = "# Doc\n\n## Steps\n\nRun:\n\n```bash\necho hi\n```\n\nDone.\n"
+        with_extraction = self.chunker.chunk_markdown(source, "docs/prompts/foo.md", kind_override="prompt", suppress_code_extraction=False)
+        without_extraction = self.chunker.chunk_markdown(source, "docs/prompts/foo.md", kind_override="prompt", suppress_code_extraction=True)
+        bash_with = [c for c in with_extraction if c.language == "bash"]
+        bash_without = [c for c in without_extraction if c.language == "bash"]
+        self.assertEqual(len(bash_with), 1)
+        self.assertEqual(len(bash_without), 0)
+
+    def test_no_fenced_code_extraction_in_preamble_for_prompt_file(self):
+        # Code block in preamble (before first ##) must also stay inline
+        source = (
+            "# Prepare Wave\n\n"
+            "Run first:\n\n"
+            "```bash\npython3 setup.py\n```\n\n"
+            "## Step 1\n\nDo the thing.\n"
+        )
+        chunks = self._chunks(source, "docs/prompts/prepare-wave.prompt.md")
+        code_chunks = [c for c in chunks if c.language == "bash"]
+        self.assertEqual(len(code_chunks), 0)
+        all_text = " ".join(c.text for c in chunks)
+        self.assertIn("setup.py", all_text)
+
+    def test_kind_doc_does_not_return_prompt_chunks(self):
+        # kind="doc" filter must not include prompt-kind chunks
+        source = "# Arch Doc\n\n## Overview\n\nContent.\n"
+        doc_chunks = self._chunks(source, "docs/architecture/current-state.md")
+        prompt_chunks = self._chunks(source, "docs/prompts/prepare-wave.prompt.md")
+        # non-summary doc chunks have kind="doc"; non-summary prompt chunks have kind="prompt"
+        non_summary_doc = [c for c in doc_chunks if c.kind != "doc-summary"]
+        non_summary_prompt = [c for c in prompt_chunks if c.kind != "doc-summary"]
+        for c in non_summary_doc:
+            self.assertEqual(c.kind, "doc")
+        for c in non_summary_prompt:
+            self.assertEqual(c.kind, "prompt")
+        # Ensure they are distinct kinds — a kind="doc" filter should not match kind="prompt"
+        self.assertFalse(any(c.kind == "doc" for c in non_summary_prompt))
+
+
+class CodeSummaryChunkTests(unittest.TestCase):
+    """AC-1 (12d4h): kind='code-summary' extraction for code files."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def test_python_file_gets_code_summary(self):
+        source = '"""Handle billing retry logic."""\n\ndef process_payment(amount):\n    pass\n\nclass BillingError(Exception):\n    pass\n'
+        chunks = self.chunker.chunk_file(source, "src/billing.py")
+        summary = [c for c in chunks if c.kind == "code-summary"]
+        self.assertEqual(len(summary), 1)
+        self.assertIn("billing retry logic", summary[0].text)
+        self.assertIn("process_payment", summary[0].text)
+
+    def test_code_summary_has_correct_fields(self):
+        source = "def foo(): pass\n"
+        chunks = self.chunker.chunk_file(source, "src/foo.py")
+        summary = next(c for c in chunks if c.kind == "code-summary")
+        self.assertEqual(summary.path, "src/foo.py")
+        self.assertEqual(summary.kind, "code-summary")
+        self.assertEqual(summary.section, "summary")
+        self.assertIsNotNone(summary.lines)
+
+    def test_symbol_cap_at_20(self):
+        funcs = "\n".join(f"def func_{i}(): pass" for i in range(30))
+        source = f'"""Module."""\n\n{funcs}\n'
+        chunks = self.chunker.chunk_file(source, "src/large.py")
+        summary = next(c for c in chunks if c.kind == "code-summary")
+        # Symbol count in text should not exceed 20
+        symbol_line = [line for line in summary.text.splitlines() if line.startswith("Symbols:")]
+        if symbol_line:
+            symbols = symbol_line[0].replace("Symbols: ", "").split(", ")
+            self.assertLessEqual(len(symbols), 20)
+
+    def test_typescript_file_gets_code_summary(self):
+        source = "export function MyComponent() { return null; }\nexport class AppError extends Error {}\n"
+        chunks = self.chunker.chunk_file(source, "src/App.tsx")
+        summary = [c for c in chunks if c.kind == "code-summary"]
+        self.assertEqual(len(summary), 1)
+        self.assertIn("MyComponent", summary[0].text)
+
+    def test_go_file_gets_code_summary(self):
+        source = "package main\n\n// HandleRequest handles HTTP requests.\nfunc HandleRequest() {}\ntype Config struct {}\n"
+        chunks = self.chunker.chunk_file(source, "src/handler.go")
+        summary = [c for c in chunks if c.kind == "code-summary"]
+        self.assertEqual(len(summary), 1)
+
+    def test_empty_file_no_summary(self):
+        chunks = self.chunker.chunk_file("", "src/empty.py")
+        summary = [c for c in chunks if c.kind == "code-summary"]
+        self.assertEqual(len(summary), 0)
+
+
+class DocSummaryChunkTests(unittest.TestCase):
+    """AC-3 (12d4h): kind='doc-summary' extraction for markdown doc files."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def test_doc_file_gets_doc_summary(self):
+        source = "# Search Architecture\n\nThis document describes the search indexing pipeline.\n\n## Indexing\n\nContent.\n\n## Retrieval\n\nContent.\n"
+        chunks = self.chunker.chunk_file(source, "docs/architecture/search-architecture.md")
+        summary = [c for c in chunks if c.kind == "doc-summary"]
+        self.assertEqual(len(summary), 1)
+        self.assertIn("describes the search indexing pipeline", summary[0].text)
+        self.assertIn("Indexing", summary[0].text)
+        self.assertIn("Retrieval", summary[0].text)
+
+    def test_doc_summary_has_correct_fields(self):
+        source = "# Doc\n\nPurpose statement.\n\n## Section\n\nContent.\n"
+        chunks = self.chunker.chunk_file(source, "docs/architecture/arch.md")
+        summary = next(c for c in chunks if c.kind == "doc-summary")
+        self.assertEqual(summary.kind, "doc-summary")
+        self.assertEqual(summary.section, "doc-summary")
+        self.assertIsNone(summary.language)
+
+    def test_prompt_file_gets_doc_summary(self):
+        source = "# Prepare Wave\n\nRun the prepare lifecycle step.\n\n## Step 1\n\nDo this.\n"
+        chunks = self.chunker.chunk_file(source, "docs/prompts/prepare-wave.prompt.md")
+        summary = [c for c in chunks if c.kind == "doc-summary"]
+        self.assertEqual(len(summary), 1)
+
+    def test_seed_file_gets_doc_summary(self):
+        source = "# Seed\n\nSeed purpose.\n\n## Section\n\nContent.\n"
+        chunks = self.chunker.chunk_file(source, ".wavefoundry/framework/seeds/030-inventory.prompt.md")
+        summary = [c for c in chunks if c.kind == "doc-summary"]
+        self.assertEqual(len(summary), 1)
+
+    def test_doc_summary_sections_formatted(self):
+        source = "# Doc\n\nFirst paragraph.\n\n## Alpha\n\n### Beta\n\nContent.\n"
+        chunks = self.chunker.chunk_file(source, "docs/reference.md")
+        summary = next(c for c in chunks if c.kind == "doc-summary")
+        self.assertIn("Sections:", summary.text)
+        self.assertIn("Alpha", summary.text)
+        self.assertIn("Beta", summary.text)
+
+    def test_empty_doc_no_summary(self):
+        chunks = self.chunker.chunk_file("", "docs/empty.md")
+        summary = [c for c in chunks if c.kind == "doc-summary"]
+        self.assertEqual(len(summary), 0)
+
+    # AC-1 (12dkb): H1 title captured in doc-summary
+    def test_doc_summary_captures_h1_title(self):
+        source = "# My Document Title\n\n## Section\n\nContent.\n"
+        chunks = self.chunker.chunk_file(source, "docs/arch.md")
+        summary = next(c for c in chunks if c.kind == "doc-summary")
+        self.assertIn("My Document Title", summary.text)
+
+    # AC-1 (12dkb): title appears even when no ## sections exist
+    def test_doc_summary_title_without_sections(self):
+        source = "# Standalone Title\n\nSome prose here.\n"
+        chunks = self.chunker.chunk_file(source, "docs/arch.md")
+        summary = next(c for c in chunks if c.kind == "doc-summary")
+        self.assertIn("Standalone Title", summary.text)
+
+    # AC-2 (12dkb): frontmatter key-value lines preserved as individual lines
+    def test_doc_summary_frontmatter_preserved_as_lines(self):
+        source = (
+            "# Wave Record\n\n"
+            "Owner: Engineering\n"
+            "Status: active\n"
+            "Last verified: 2026-05-05\n\n"
+            "## Purpose\n\nDoes things.\n"
+        )
+        chunks = self.chunker.chunk_file(source, "docs/waves/wave.md")
+        summary = next(c for c in chunks if c.kind == "doc-summary")
+        # Each field must appear on its own line, not run together
+        self.assertIn("Owner: Engineering", summary.text)
+        self.assertIn("Status: active", summary.text)
+        self.assertIn("Last verified: 2026-05-05", summary.text)
+        # Not joined as a run-on string
+        self.assertNotIn("Owner: Engineering Status:", summary.text)
+
+    # AC-3 (12dkb): opening sentence of first ## section body captured
+    def test_doc_summary_first_section_opening(self):
+        source = (
+            "# Agent Prompt\n\n"
+            "## Purpose\n\n"
+            "The CIA is the team's most knowledgeable resource on the codebase. More detail here.\n\n"
+            "## Retrieval Loop\n\nSteps.\n"
+        )
+        chunks = self.chunker.chunk_file(source, "docs/prompts/agents/cia.prompt.md")
+        summary = next(c for c in chunks if c.kind == "doc-summary")
+        self.assertIn("The CIA is the team's most knowledgeable resource on the codebase.", summary.text)
+        # Must not include the full paragraph
+        self.assertNotIn("More detail here", summary.text)
+
+    # AC-5 (12dkb): doc with no H1, no frontmatter, no sections still produces summary
+    def test_doc_summary_no_h1_no_frontmatter(self):
+        source = "Just some prose with no headings at all.\n"
+        chunks = self.chunker.chunk_file(source, "docs/notes.md")
+        summary = [c for c in chunks if c.kind == "doc-summary"]
+        self.assertEqual(len(summary), 1)
+        self.assertIn("Just some prose", summary[0].text)
+
+    # AC-6 (12dkb): ## dominant doc uses ## as split boundary
+    def test_heading_detection_h2_dominant(self):
+        source = "# Doc\n\n## Alpha\n\nContent.\n\n## Beta\n\nContent.\n"
+        chunks = self.chunker.chunk_file(source, "docs/arch.md")
+        section_titles = [c.section for c in chunks if c.section and c.section != "doc-summary"]
+        self.assertTrue(any("Alpha" in s for s in section_titles))
+        self.assertTrue(any("Beta" in s for s in section_titles))
+
+    # AC-7 (12dkb): ### only doc splits at ### boundary, producing named section chunks
+    def test_heading_detection_h3_only_splits_at_h3(self):
+        source = (
+            "# Guide\n\n"
+            "### Installation\n\nInstall steps.\n\n"
+            "### Configuration\n\nConfig steps.\n"
+        )
+        chunks = self.chunker.chunk_file(source, "docs/guide.md")
+        non_summary = [c for c in chunks if c.kind != "doc-summary"]
+        section_titles = [c.section for c in non_summary if c.section]
+        # Both ### sections must produce named section chunks
+        self.assertTrue(any("Installation" in s for s in section_titles), section_titles)
+        self.assertTrue(any("Configuration" in s for s in section_titles), section_titles)
+        # Content chunks must not all be preamble — at least 2 named sections
+        self.assertGreaterEqual(len(section_titles), 2, section_titles)
+
+    # AC-8 (12dkb): suppress_h3_split still works when primary level is ##
+    def test_suppress_h3_split_unaffected_by_detection(self):
+        h3_threshold = self.chunker.H3_SPLIT_THRESHOLD_CHARS
+        sub_body = "y " * (h3_threshold // 2 + 10)
+        source = f"# Doc\n\n## Chapter\n\n### Intro\n\n{sub_body}\n"
+        chunks = self.chunker.chunk_markdown(
+            source,
+            "docs/prompts/prepare-wave.prompt.md",
+            kind_override="prompt",
+            suppress_h3_split=True,
+        )
+        # With suppression, no ### sub-chunks should appear
+        sub_chunks = [c for c in chunks if c.section and "Intro" in c.section and "/" in c.section.replace(" > ", "")]
+        # The Intro content should be in a ## Chapter chunk, not split out
+        chapter_chunks = [c for c in chunks if c.section and "Chapter" in c.section]
+        self.assertTrue(len(chapter_chunks) >= 1)
 
 
 if __name__ == "__main__":

@@ -279,6 +279,22 @@ Role-subset mapping:
 
 The Execution contract section belongs near the end of the role doc, after Responsibilities or Guardrails. Do not copy all six rules to every role doc — use the subset above so each role doc remains focused and non-redundant with `020`.
 
+## MCP Tools / CIA Orientation Section in Canonical Role Docs
+
+Ensure each of the following role docs includes an **MCP tools** section (or **Codebase orientation** section) that references the Code Insight Agent as the first-stop tool before reading files, writing plans, or making code decisions. Seed this section unconditionally — the CIA guidance is a forward-looking pointer that is valid once MCP is enabled, and having it present from the first init is better than requiring a follow-on upgrade. Place this section near the top of the role doc, after the role overview and before Responsibilities.
+
+MCP is not active at init time — it is registered separately via **Enable Wavefoundry MCP** after the framework is seeded. The role doc section should reflect this by framing the tools as available once MCP is set up, e.g. "When the Wavefoundry MCP server is available, use these tools as your first orientation pass before reading files."
+
+- **`implementer.md`** — Before writing or modifying code, use `code_definition(symbol)` to confirm whether the target already exists, `code_references(symbol)` to find all call sites, and `code_keyword_search(pattern)` to find similar implementations. Follow `docs/prompts/agents/code-insight-agent.prompt.md` **Implementer guidance** for the standard pre-implementation orientation pass.
+
+- **`planner.md`** — Before drafting a change doc, run a `code_search(topic, kind="code-summary")` module inventory and `code_ask("how does X currently work?")` to ground the rationale and affected-architecture sections in indexed evidence. Follow `docs/prompts/agents/code-insight-agent.prompt.md` **Planner guidance** for the standard pre-planning orientation pass.
+
+- **`wave-coordinator.md`** — During scope assessment and readiness review, use `code_ask` and `code_search(kind="code-summary")` to answer "what does X currently do?" and "which files are affected?" without launching full file reads. `code_dependencies(path)` is the fastest path to understanding what a changed file touches.
+
+When role docs for persona agents exist under `docs/agents/personas/`, add the same orientation guidance — persona agents should ground answers to user questions in `code_ask` / `docs_search` results, not memory recall. Reference `docs/prompts/agents/code-insight-agent.prompt.md` **Persona guidance**.
+
+**CIA journal:** When seeding the CIA agent surface, also create `docs/agents/journals/code-insight-agent.md` if it does not already exist. Use the same journal contract as other role journals (Operating Identity, Salience Triggers, Distillation, Active Signals, Index Gaps, Promotion Evidence, Retirement, Governance). The CIA journal is the recording surface for durable discoveries, index gaps, edge cases, and operator Q&A answers. Seed it with the CIA's operating identity and salience triggers from `docs/prompts/agents/code-insight-agent.prompt.md` (or `seed-211`).
+
 ## Cleanup and Destructive Operations
 
 Add a `## Cleanup and Destructive Operations` section to `AGENTS.md` when the repository contains installed artifacts (shipped binaries, installed apps) or legacy content that could be confused with live working docs:

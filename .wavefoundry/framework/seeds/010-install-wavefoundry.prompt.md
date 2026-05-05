@@ -1,6 +1,6 @@
-# 010 - Init Wave Framework (Shortcut)
+# 010 - Install Wavefoundry (Shortcut)
 
-**Primary:** **`Init wave framework`**, **`Install wave framework`** (when bootstrap applies before detection finishes). **Backwards-compatible:** **`Init wave context`**, **`Install wave context`** — identical behavior; keep accepting them from operators and older docs.
+**Primary:** **`Install Wavefoundry`**. **Backwards-compatible:** **`Init wave framework`**, **`Install wave framework`**, **`Init wave context`**, **`Install wave context`** — identical behavior; keep accepting them from operators and older docs.
 
 Use this when you want a single command-style request such as:
 
@@ -169,7 +169,7 @@ Include the following topics in plain language:
 4. **Agents and personas**
    - **Generic roles**: canonical specs under `docs/agents/README.md` and individual role files (planner, implementer, code-reviewer, architecture-reviewer, qa-reviewer, security-reviewer, docs-contract-reviewer, performance-reviewer, release-reviewer, plus factor-review agents only when factors are `applicable` in `docs/repo-profile.json`).
    - **Personas**: `docs/agents/personas/` when synthesized; review triggers and gating from `persona_review_policy` in `docs/workflow-config.json` and `docs/contributing/agent-team-workflow.md`.
-   - **Journals**: `docs/agents/journals/` for durable lessons; link from waves at close per `docs/prompts/close-wave.md` and `docs/contributing/review-and-evals.md`.
+   - **Journals**: `docs/agents/journals/` for durable lessons; link from waves at close per `docs/prompts/close-wave.prompt.md` and `docs/contributing/review-and-evals.md`.
 
 5. **Documentation setup and quality gates**
    - How to navigate docs: start with `docs/README.md`, `docs/references/project-overview.md`, and `docs/prompts/index.md`.
@@ -187,8 +187,8 @@ Include the following topics in plain language:
    - **Git commits**: operator-owned per **`AGENTS.md`** and **`docs/contributing/build-and-verification.md`** — agents hand off diff + suggested message unless the operator asks to commit in the **current** request.
    - **Product implementation**: when product code ships, **`AGENTS.md` Implementation guard** requires **Prepare wave** immediately before the first product-code edit unless an in-session, named-scope waiver is recorded.
    - **Implement wave vs Implement feature**: **Implement wave** coordinates all admitted changes (auto-runs **Prepare wave** if needed); **Implement feature** is the docs-first single-change path. Purposes also live in **`docs/prompts/index.md`**.
-   - **More shortcuts**: phrase→doc table is in **`AGENTS.md`**; **`docs/prompts/index.md` Usage Notes** cover alias handling and concurrency via **`docs/prompts/agent-routing-concurrency.md`**.
-   - **Closing a wave**: **Close wave** / **Finalize feature** must record **docs-contract review** (or **not applicable** + rationale) when `docs/specs/*.md` changed — see **`docs/contributing/review-and-evals.md` (Wave closure)** and **`docs/prompts/close-wave.md`**.
+   - **More shortcuts**: phrase→doc table is in **`AGENTS.md`**; **`docs/prompts/index.md` Usage Notes** cover alias handling and concurrency via **`docs/prompts/agent-routing-concurrency.prompt.md`**.
+   - **Closing a wave**: **Close wave** / **Finalize feature** must record **docs-contract review** (or **not applicable** + rationale) when `docs/specs/*.md` changed — see **`docs/contributing/review-and-evals.md` (Wave closure)** and **`docs/prompts/close-wave.prompt.md`**.
    - **Background reading**: `docs/references/wave-framework.md`, `002-wave-framework-seeding-overview.md`, **`docs/PLANS.md`** / **`docs/specs/index.md`**.
 
 Tailor every bullet with **this project's** actual paths, generated personas, and whether baseline wave-0 was created or skipped—avoid generic filler that ignores detection results.
@@ -275,35 +275,38 @@ Required outputs:
   - `WARP.md`
 - repo-local public prompt docs including:
   - `docs/prompts/index.md` — public catalog of shortcut phrases, purposes, and **Usage Notes** (must stay consistent with `AGENTS.md` and `prompt-surface-manifest.json`)
-  - `docs/prompts/install-wavefoundry.md`
-  - `docs/prompts/upgrade-wavefoundry.md`
-  - `docs/prompts/plan-feature.md`
-  - `docs/prompts/create-wave.md`
-  - `docs/prompts/add-change-to-wave.md`
-  - `docs/prompts/remove-change-from-wave.md`
-  - `docs/prompts/prepare-wave.md`
-  - `docs/prompts/implement-wave.md`
-  - `docs/prompts/implement-feature.md`
-  - `docs/prompts/pause-wave.md`
-  - `docs/prompts/review-wave.md`
-  - `docs/prompts/close-wave.md`
-  - `docs/prompts/finalize-feature.md`
-  - `docs/prompts/agent-routing-concurrency.md`
+  - `docs/prompts/install-wavefoundry.prompt.md`
+  - `docs/prompts/upgrade-wavefoundry.prompt.md`
+  - `docs/prompts/plan-feature.prompt.md`
+  - `docs/prompts/create-wave.prompt.md`
+  - `docs/prompts/add-change-to-wave.prompt.md`
+  - `docs/prompts/remove-change-from-wave.prompt.md`
+  - `docs/prompts/prepare-wave.prompt.md`
+  - `docs/prompts/implement-wave.prompt.md`
+  - `docs/prompts/implement-feature.prompt.md`
+  - `docs/prompts/pause-wave.prompt.md`
+  - `docs/prompts/review-wave.prompt.md`
+  - `docs/prompts/close-wave.prompt.md`
+  - `docs/prompts/finalize-feature.prompt.md`
+  - `docs/prompts/agent-routing-concurrency.prompt.md`
 - supporting agent-oriented prompt bodies under `docs/prompts/agents/` when project-context/planning helpers are seeded locally:
   - `docs/prompts/agents/README.md`
-  - `docs/prompts/agents/init-wave-context.md`
-  - `docs/prompts/agents/upgrade-wave-context.md`
-  - `docs/prompts/agents/plan-feature.md`
+  - `docs/prompts/agents/init-wave-context.prompt.md`
+  - `docs/prompts/agents/upgrade-wave-context.prompt.md`
+  - `docs/prompts/agents/plan-feature.prompt.md`
   - `docs/prompts/agents/create-wave.md`
   - `docs/prompts/agents/add-change-to-wave.md`
   - `docs/prompts/agents/remove-change-from-wave.md`
-  - `docs/prompts/agents/prepare-wave.md`
-  - `docs/prompts/agents/implement-wave.md`
-  - `docs/prompts/agents/implement-feature.md`
+  - `docs/prompts/agents/prepare-wave.prompt.md`
+  - `docs/prompts/agents/implement-wave.prompt.md`
+  - `docs/prompts/agents/implement-feature.prompt.md`
   - `docs/prompts/agents/pause-wave.md`
-  - `docs/prompts/agents/review-wave.md`
-  - `docs/prompts/agents/close-wave.md`
-  - `docs/prompts/agents/finalize-feature.md`
+  - `docs/prompts/agents/review-wave.prompt.md`
+  - `docs/prompts/agents/close-wave.prompt.md`
+  - `docs/prompts/agents/finalize-feature.prompt.md`
+  - `docs/prompts/agents/code-insight-agent.prompt.md` (CIA / `code_ask` retrieval agent — `seed-211`)
+  - `docs/prompts/agents/performance-reviewer.prompt.md` (`performance-reviewer` lane — `seed-212`)
+  - `docs/prompts/agents/security-reviewer.prompt.md` (`security-reviewer` lane — `seed-213`)
 
 Required bootstrap behaviors:
 
@@ -324,8 +327,8 @@ Required bootstrap behaviors:
 - generate a repo-local `docs/contributing/feature-wave-lifecycle-overview.md` from `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md`, then adapt it with the project's actual reviewer roles, persona agents, and artifact paths
 - generate policy and procedure docs with project-specific triggers, prerequisites, commands, review gates, fallback paths, and artifact locations instead of leaving them as generic placeholders
 - ensure `docs/contributing/build-and-verification.md` includes a **Git commits** section (operator-owned policy) consistent with `seed-050` whenever that file is created or refreshed during init — same contract as **Git commits** in `AGENTS.md`
-- seed `docs/contributing/review-and-evals.md` with a **Wave closure** subsection that requires **Docs-contract review** (spec review) when behavioral specs under `docs/specs/*.md` changed during a wave, consistent with `seed-190` and seeded `docs/prompts/close-wave.md`
-- seed `docs/prompts/close-wave.md`, `docs/prompts/agents/close-wave.md`, and `docs/contributing/review-and-evals.md` with explicit closure-reconciliation requirements (not status flip only): block closure until chronology metadata is reconciled (`Status`, `Current state`, change states, `Completed at`), required reviewer lanes from readiness are reconciled in `Review checkpoints`, closure artifacts are reconciled (journal distillation, durable memory promotion, and `docs/agents/session-handoff.md` clear/refresh), and docs-contract disposition is recorded (reviewed or not applicable with rationale)
+- seed `docs/contributing/review-and-evals.md` with a **Wave closure** subsection that requires **Docs-contract review** (spec review) when behavioral specs under `docs/specs/*.md` changed during a wave, consistent with `seed-190` and seeded `docs/prompts/close-wave.prompt.md`
+- seed `docs/prompts/close-wave.prompt.md`, `docs/prompts/agents/close-wave.prompt.md`, and `docs/contributing/review-and-evals.md` with explicit closure-reconciliation requirements (not status flip only): block closure until chronology metadata is reconciled (`Status`, `Current state`, change states, `Completed at`), required reviewer lanes from readiness are reconciled in `Review checkpoints`, closure artifacts are reconciled (journal distillation, durable memory promotion, and `docs/agents/session-handoff.md` clear/refresh), and docs-contract disposition is recorded (reviewed or not applicable with rationale)
 - seed close-wave guidance so reviewer-journal capture is expected for important implementation/review lessons when role journals exist, while absence of role-specific journal files is not itself a closure blocker (record lessons in canonical existing journals instead)
 - keep generated project-specific outputs outside this shared pack
 

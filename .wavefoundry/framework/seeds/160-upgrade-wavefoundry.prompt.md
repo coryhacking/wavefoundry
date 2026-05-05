@@ -79,7 +79,10 @@ Execution flow:
    - `AGENTS.md` and thin pointers so **Implementation guard (product code)** matches `seed-050` when the repo ships product code; backfill when inventory or repo-profile indicates implementation directories but the section is missing
    - tracked platform hook/config surfaces via `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` so generated hook entrypoints stay aligned with the current framework contract
    - repo-local prompt docs
-   - `docs/prompts/agents/` prompt bodies when the repository keeps checked-in project-context/planning helper prompts
+   - `docs/prompts/agents/` prompt bodies when the repository keeps checked-in project-context/planning helper prompts; backfill missing specialist agent bodies introduced in `seed-211` through `seed-213` when not present:
+     - `docs/prompts/agents/code-insight-agent.prompt.md` (CIA / `code_ask` retrieval agent — `seed-211`)
+     - `docs/prompts/agents/performance-reviewer.prompt.md` (`performance-reviewer` lane — `seed-212`)
+     - `docs/prompts/agents/security-reviewer.prompt.md` (`security-reviewer` lane — `seed-213`)
    - workflow config schema
    - `docs/references/project-overview.md` when missing or stale
    - `docs/contributing/feature-wave-lifecycle-overview.md` when missing or stale so it stays aligned with `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` plus local reviewer/persona policy
@@ -97,15 +100,15 @@ Execution flow:
    - `indexing.project_include_prefixes` when the repo intentionally extends the default project semantic index to additional roots; preserve explicit repo-local prefixes and backfill the generic structure when the repo already depends on non-default indexed paths
    - canonical workflow docs and role docs when the current framework standard requires them and they are missing or stale
    - `docs/ARCHITECTURE.md` and `docs/architecture/{current-state,domain-map,layering-rules,cross-cutting-concerns,data-and-control-flow,testing-architecture}.md` (and `docs/architecture/decisions/template.md` when ADR seeding changed) when `seed-060`, `seed-030`, or repository topology changed; merge with repo-specific depth per `060` guardrails
-   - `docs/prompts/close-wave.md`, `docs/prompts/agents/close-wave.md`, and `docs/contributing/review-and-evals.md` (**Wave closure** / docs-contract-at-close) when the seed pack’s `seed-190` or `seed-100` closure expectations have evolved
-   - `docs/prompts/upgrade-wavefoundry.md` and `docs/prompts/agents/upgrade-wavefoundry.md` when the seed pack's upgrade contract changes
+   - `docs/prompts/close-wave.prompt.md`, `docs/prompts/agents/close-wave.prompt.md`, and `docs/contributing/review-and-evals.md` (**Wave closure** / docs-contract-at-close) when the seed pack’s `seed-190` or `seed-100` closure expectations have evolved
+   - `docs/prompts/upgrade-wavefoundry.prompt.md` and `docs/prompts/agents/upgrade-wavefoundry.md` when the seed pack's upgrade contract changes
    - **`.wavefoundry/bin/docs-lint`**, **`.wavefoundry/bin/docs-gardener`**, and any legacy **`./package-wave-framework`** repo-root wrapper so they point to the **current** script filenames under `.wavefoundry/framework/scripts/` or are retired when packaging is not supported in a target repository. These **bin** launchers (and any repo-root packaging helper) are **not** overwritten blindly by pack unpack, so reconcile them explicitly during upgrade. Required invocations for packs at `2026-04-22a` and later in this repository:
      - `.wavefoundry/bin/docs-lint` must invoke `scripts/docs_lint.py` (underscore) — the retired `scripts/docs-lint.py` path must not be referenced
      - `.wavefoundry/bin/docs-gardener` must invoke `scripts/docs_gardener.py` (underscore) — the retired `scripts/docs-gardener.py` path must not be referenced
      - `./package-wave-framework`, when intentionally retained in a source repository, must invoke `scripts/build_pack.py` — the retired `scripts/build_zip.py` path must not be referenced
 
      Launcher filenames under **`.wavefoundry/bin/`** remain hyphenated for conventional CLI ergonomics; only the Python module filenames moved to snake_case.
-   - `docs/contributing/build-and-verification.md` — ensure a **Git commits** subsection (operator-owned policy, aligned with `050` and **Git commits** in `AGENTS.md`) exists whenever that file is refreshed; backfill when missing or when `050` changed. Ensure a **Wave framework pack upgrade verification** section exists and matches `seed-040` task 17 (ordered checklist: root zip or manual tree update → **Upgrade wave framework** → docs gate (**agents with MCP:** **`wave_garden`** then **`wave_validate`**; **operators / CI / no MCP:** **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`**) → diff/commit; cross-links to `docs/prompts/upgrade-wavefoundry.md` and `docs/prompts/package-wavefoundry.md` when applicable; step-0 exclusions and product-build N/A note). Note that the framework test suite (`scripts/tests/`, `scripts/run_tests.py`) is a development-only artifact **not included in the distribution pack** — downstream repos must not reference it in upgrade verification steps. Backfill when the repo vendors the pack but the section is missing or stale.
+   - `docs/contributing/build-and-verification.md` — ensure a **Git commits** subsection (operator-owned policy, aligned with `050` and **Git commits** in `AGENTS.md`) exists whenever that file is refreshed; backfill when missing or when `050` changed. Ensure a **Wave framework pack upgrade verification** section exists and matches `seed-040` task 17 (ordered checklist: root zip or manual tree update → **Upgrade wave framework** → docs gate (**agents with MCP:** **`wave_garden`** then **`wave_validate`**; **operators / CI / no MCP:** **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`**) → diff/commit; cross-links to `docs/prompts/upgrade-wavefoundry.prompt.md` and `docs/prompts/package-wavefoundry.prompt.md` when applicable; step-0 exclusions and product-build N/A note). Note that the framework test suite (`scripts/tests/`, `scripts/run_tests.py`) is a development-only artifact **not included in the distribution pack** — downstream repos must not reference it in upgrade verification steps. Backfill when the repo vendors the pack but the section is missing or stale.
    - `docs/design-system/design-language.md` — backfill when `docs/repo-profile.json` `design_system.design_evidence.detected` is `true` but `docs/design-system/design-language.md` does not exist; use the canonical structure defined in `seed-040` task 13 and re-run `030` design surface scan to gather current evidence before seeding. When `design-language.md` exists but `design_system` in the profile has changed since last verified (check `Last verified:` date in the file vs profile `design_sensitivity` or `ui_roots` changes), flag as stale and prompt the operator to refresh the file before closing the upgrade.
    - **`docs/design-system/` extraction contract backfill (merge-safe upgrade)** — when `docs/design-system/` exists in the target repository, run the extraction contract backfill defined in `seed-040` task 14 and `seed-010` step 8. This backfill is **merge-safe**: never delete or overwrite existing files. Steps:
      1. For each required path in the core tree (see `seed-040` task 14 or `seed-010` step 8 checklist), create the path if it does not yet exist using the stub content defined in those seeds. Never overwrite any existing file.
@@ -121,10 +124,55 @@ Execution flow:
      3. **Coexistence rule** — extraction must never rewrite `docs/design-system/design-language.md` or `docs/design-system/index.md` body content. Extraction may only: (a) append a cross-link row to `index.md` listing new extraction artifacts with status `generated`, when that row does not already exist; (b) add a "See extracted contract" pointer at the top of `design-language.md` when that pointer does not already exist. Both operations are idempotent.
      4. **Rollback path** (document in gap log, not automatic) — if the operator needs a clean re-extraction: (a) move the existing `docs/design-system/<subtree>` to a timestamped backup at `docs/design-system/.backup/<ISO-date>/`; (b) regenerate using the seed contract; (c) diff against the backup for review. Record a `meta`-category `gaps.md` entry when a backup is created. Never auto-delete operator artifacts without the backup step.
    - `.gitignore` scoping when broad ignore rules would hide framework-managed files
-9. Retire or rewrite stale local prompt/docs references that still point at legacy framework names or obsolete helper surfaces after replacement artifacts are in place. **Delete fully-superseded prompt files** rather than leaving tombstone files with "RETIRED" notices — a tombstone that is no longer needed as a migration alias only adds noise and confusion. A prompt file should be deleted when: (a) a replacement file exists at the canonical path, (b) no live references to the old file remain in AGENTS.md, docs/prompts/index.md, or prompt-surface-manifest.json, and (c) the migration window is over. Remove the corresponding entry from `docs/prompts/index.md` legacy aliases section when deleting tombstones. Also remove any empty legacy workspace directories (`docs/exec-plans/`, `docs/product-specs/`, `docs/gaps/`, `docs/performance/`, `docs/generated/`) that may have been left as shells by the init or a prior upgrade run.
-10. Re-run the docs gate (**MCP:** **`wave_garden`** then **`wave_validate`** when attached; **CLI:** **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`**).
+9. **Prompt file extension migration (`.md` → `.prompt.md`):** Runnable prompt files must use the `.prompt.md` extension (wave 12cv4 convention — see `008-framework-map.md` **Prompt file naming convention**). Do **not** skip this step without running the detection command first.
 
-11. **Operating-memory upgrade reconciliation:** When `seed-006`, `seed-050`, `seed-120`, `seed-130`, `seed-140`, `seed-160`, `seed-170`, `seed-180`, `seed-190`, `seed-200`, or `seed-210` changed the journal/role/persona memory contract, upgrade existing projects using this checklist:
+   **Detect files that need renaming** (run this first — do not assume the migration is already done):
+   ```bash
+   find docs/prompts -maxdepth 2 -name "*.md" \
+     ! -name "index.md" ! -name "README.md" ! -name "*.prompt.md" \
+     | sort
+   ```
+   If the command prints nothing, the migration is already complete — skip to step 10.
+
+   If files are listed, migrate each one using this loop (handles both git-tracked and untracked files):
+   ```bash
+   while IFS= read -r src; do
+     dst="${src%.md}.prompt.md"
+     git ls-files --error-unmatch "$src" 2>/dev/null \
+       && git mv "$src" "$dst" \
+       || mv "$src" "$dst"
+   done < <(find docs/prompts -maxdepth 2 -name "*.md" \
+     ! -name "index.md" ! -name "README.md" ! -name "*.prompt.md")
+   ```
+   `git mv` is used when the file is git-tracked; plain `mv` is used when it is untracked. If both commands fail for a file, the final verification step will catch it.
+
+   **After renaming**, update all references to the old filenames in:
+   - `AGENTS.md` shortcut table
+   - `docs/prompts/index.md` command table and any path references
+   - `docs/prompts/agents/README.md` contents table
+   - `docs/prompts/prompt-surface-manifest.json` `doc` fields
+   - any cross-references within prompt files themselves
+
+   **Verify** — re-run the detection command and confirm it prints nothing:
+   ```bash
+   find docs/prompts -maxdepth 2 -name "*.md" \
+     ! -name "index.md" ! -name "README.md" ! -name "*.prompt.md" \
+     | sort
+   ```
+
+10. Retire or rewrite stale local prompt/docs references that still point at legacy framework names or obsolete helper surfaces after replacement artifacts are in place. **Delete fully-superseded prompt files** rather than leaving tombstone files with "RETIRED" notices — a tombstone that is no longer needed as a migration alias only adds noise and confusion. A prompt file should be deleted when: (a) a replacement file exists at the canonical path, (b) no live references to the old file remain in AGENTS.md, docs/prompts/index.md, or prompt-surface-manifest.json, and (c) the migration window is over. Remove the corresponding entry from `docs/prompts/index.md` legacy aliases section when deleting tombstones. Also remove any empty legacy workspace directories (`docs/exec-plans/`, `docs/product-specs/`, `docs/gaps/`, `docs/performance/`, `docs/generated/`) that may have been left as shells by the init or a prior upgrade run.
+11. **Index rebuild after `CHUNKER_VERSION` bump:** If the pack upgrade changed `CHUNKER_VERSION` (visible in `.wavefoundry/framework/scripts/chunker.py`), a full index rebuild is required. `wave_index_health` will emit a `chunker_version_mismatch` advisory when the index was built with an older version. Use the docs-first approach so MCP is available immediately:
+    ```bash
+    # Phase 1: docs index — unblocks MCP immediately (~2.5 min)
+    python3 .wavefoundry/framework/scripts/setup_index.py --full
+    # Phase 2: code index in background — foreground returns immediately
+    python3 .wavefoundry/framework/scripts/setup_index.py --background-code --full
+    ```
+    Call `wave_index_health()` after phase 1 to confirm MCP is ready. See `docs/contributing/build-and-verification.md` **Upgrade rebuild requirement** for full details.
+
+12. Re-run the docs gate (**MCP:** **`wave_garden`** then **`wave_validate`** when attached; **CLI:** **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`**).
+
+13. **Operating-memory upgrade reconciliation:** When `seed-006`, `seed-050`, `seed-120`, `seed-130`, `seed-140`, `seed-160`, `seed-170`, `seed-180`, `seed-190`, `seed-200`, or `seed-210` changed the journal/role/persona memory contract, upgrade existing projects using this checklist:
    - Preserve operator standing directives, active cautions, security/release-sensitive notes, and evidence refs unless explicitly superseded with evidence.
    - Do not bulk-rewrite historical journal entries. Keep historical sections readable, add current operating-memory sections around them, and migrate only entries needed for current retrieval, promotion, or retirement.
    - Add or reconcile `Operating Identity`, `Salience Triggers`, and memory responsibilities in generated/local role and persona docs.
@@ -174,8 +222,8 @@ Include the following topics in plain language:
    - `docs/workflow-config.json` and `docs/repo-profile.json` remain the primary configuration surfaces for wave execution, reviews, factors, and personas.
 
 8. **Operators new to wave-context (or re-onboarding after upgrade)**
-   - Point them at **`AGENTS.md` → Start Here** and **`docs/prompts/index.md` Usage Notes** for the authoritative rules: **Git commits (operator-owned)** (agents do not `git commit` unless explicitly instructed in the **current** request), **stage gate** (plan + admit + **Prepare wave** / **Ready wave** before **repository code** edits), **Implementation guard** for product implementation source (and **in-session waiver** recording), **Implement wave** vs **Implement feature**, **docs-contract review** at **Close wave** / **Finalize feature** when specs changed, and **`docs/prompts/agent-routing-concurrency.md`** when plans need explicit concurrency.
-   - If this upgrade changed closure or guard semantics, call that out explicitly so returning operators re-read **`docs/prompts/close-wave.md`** and **`AGENTS.md`** for the current bar.
+   - Point them at **`AGENTS.md` → Start Here** and **`docs/prompts/index.md` Usage Notes** for the authoritative rules: **Git commits (operator-owned)** (agents do not `git commit` unless explicitly instructed in the **current** request), **stage gate** (plan + admit + **Prepare wave** / **Ready wave** before **repository code** edits), **Implementation guard** for product implementation source (and **in-session waiver** recording), **Implement wave** vs **Implement feature**, **docs-contract review** at **Close wave** / **Finalize feature** when specs changed, and **`docs/prompts/agent-routing-concurrency.prompt.md`** when plans need explicit concurrency.
+   - If this upgrade changed closure or guard semantics, call that out explicitly so returning operators re-read **`docs/prompts/close-wave.prompt.md`** and **`AGENTS.md`** for the current bar.
 
 Tailor the summary to **this run's** drift summary and concrete files touched.
 
@@ -204,7 +252,7 @@ Required upgrade behaviors:
 - ensure lifecycle ID generation is co-located with framework scripts by keeping `.wavefoundry/framework/scripts/lifecycle_id.py` as the canonical entrypoint and updating stale legacy path references
 - reconcile **Git commits (operator-owned)** in `AGENTS.md` and the **Git commits** subsection in `docs/contributing/build-and-verification.md` on every upgrade when `seed-050` changed, or when either surface predates the policy; treat upgrade as the peer of init for this contract, not an optional follow-up
 - reconcile **Implementation guard (product code)** on every upgrade when `seed-050` or `seed-100` changed, or when `AGENTS.md` / implement prompts predate the guard; treat upgrade as the peer of init for this policy, not an optional follow-up
-- reconcile closure-process surfaces on upgrade whenever seed closure contract changed: `docs/prompts/close-wave.md`, `docs/prompts/agents/close-wave.md`, and `docs/contributing/review-and-evals.md` must explicitly enforce chronology reconciliation (`Status`, `Current state`, change states, `Completed at`), required-reviewer reconciliation from readiness to review checkpoints, closure-artifact reconciliation (journals/memory/handoff), and docs-contract disposition rules
+- reconcile closure-process surfaces on upgrade whenever seed closure contract changed: `docs/prompts/close-wave.prompt.md`, `docs/prompts/agents/close-wave.prompt.md`, and `docs/contributing/review-and-evals.md` must explicitly enforce chronology reconciliation (`Status`, `Current state`, change states, `Completed at`), required-reviewer reconciliation from readiness to review checkpoints, closure-artifact reconciliation (journals/memory/handoff), and docs-contract disposition rules
 - preserve and reconcile reviewer-journal expectations during upgrade: important implementation/review lessons should be journaled when role journals exist; when role journals are absent, closure guidance should route lessons to canonical existing journals without making missing role-journal files a hard closure blocker
 - reconcile operating-memory expectations during upgrade: journals may be written before closure for critical/high durable signals; closure distills, promotes, retires, and reconciles rather than serving as the only write point
 - generate or refresh the repo-local project overview when needed so it still explains the canonical docs, workflow, generic roles, synthesized personas, and collaboration model for the current project
