@@ -48,21 +48,21 @@ Public Wave Framework commands for Wavefoundry's self-hosted surface. Full detai
 
 | Phrase                            | Purpose                                         | Doc                                                                        |
 | --------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
-| **Init wave framework**           | Initialize Wave Framework in a target repo      | `docs/prompts/install-wavefoundry.md`                                      |
-| **Upgrade wave framework**        | Upgrade Wave Framework in a target repo         | `docs/prompts/upgrade-wavefoundry.md`                                      |
-| **Plan feature**                  | Author a consolidated change doc                | `docs/prompts/plan-feature.md`                                             |
-| **Create wave**                   | Create a wave record                            | `docs/prompts/create-wave.md`                                              |
-| **Add change to wave**            | Admit a change doc into the active wave         | `docs/prompts/add-change-to-wave.md`                                       |
-| **Remove change from wave**       | Remove an admitted change                       | `docs/prompts/remove-change-from-wave.md`                                  |
-| **Prepare wave** / **Ready wave** | Confirm readiness before implementation         | `docs/prompts/prepare-wave.md`                                             |
-| **Implement wave**                | Coordinator-managed multi-change implementation | `docs/prompts/implement-wave.md`                                           |
-| **Implement feature**             | Single-change docs-first implementation         | `docs/prompts/implement-feature.md`                                        |
-| **Pause wave**                    | Park session state in handoff artifact          | `docs/prompts/pause-wave.md`                                               |
-| **Review wave**                   | Run required review lanes                       | `docs/prompts/review-wave.md`                                              |
-| **Close wave**                    | Finalize and archive the wave                   | `docs/prompts/close-wave.md`                                               |
-| **Finalize feature**              | Single-change closure path                      | `docs/prompts/finalize-feature.md`                                         |
-| **Interrogate this plan**         | Stress-test a change doc before admission       | `docs/prompts/interrogate-plan.md`                                         |
-| **Package Wavefoundry**           | Build framework zip distribution                | `docs/prompts/package-wavefoundry.md`                                      |
+| **Init wave framework**           | Initialize Wave Framework in a target repo      | `docs/prompts/install-wavefoundry.prompt.md`                                      |
+| **Upgrade wave framework**        | Upgrade Wave Framework in a target repo         | `docs/prompts/upgrade-wavefoundry.prompt.md`                                      |
+| **Plan feature**                  | Author a consolidated change doc                | `docs/prompts/plan-feature.prompt.md`                                             |
+| **Create wave**                   | Create a wave record                            | `docs/prompts/create-wave.prompt.md`                                              |
+| **Add change to wave**            | Admit a change doc into the active wave         | `docs/prompts/add-change-to-wave.prompt.md`                                       |
+| **Remove change from wave**       | Remove an admitted change                       | `docs/prompts/remove-change-from-wave.prompt.md`                                  |
+| **Prepare wave** / **Ready wave** | Confirm readiness before implementation         | `docs/prompts/prepare-wave.prompt.md`                                             |
+| **Implement wave**                | Coordinator-managed multi-change implementation | `docs/prompts/implement-wave.prompt.md`                                           |
+| **Implement feature**             | Single-change docs-first implementation         | `docs/prompts/implement-feature.prompt.md`                                        |
+| **Pause wave**                    | Park session state in handoff artifact          | `docs/prompts/pause-wave.prompt.md`                                               |
+| **Review wave**                   | Run required review lanes                       | `docs/prompts/review-wave.prompt.md`                                              |
+| **Close wave**                    | Finalize and archive the wave                   | `docs/prompts/close-wave.prompt.md`                                               |
+| **Finalize feature**              | Single-change closure path                      | `docs/prompts/finalize-feature.prompt.md`                                         |
+| **Interrogate this plan**         | Stress-test a change doc before admission       | `docs/prompts/interrogate-plan.prompt.md`                                         |
+| **Package Wavefoundry**           | Build framework zip distribution                | `docs/prompts/package-wavefoundry.prompt.md`                                      |
 | **Migrate to Wavefoundry**        | Migrate a target repo from legacy layout        | `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md` |
 
 
@@ -113,6 +113,8 @@ find .wavefoundry/framework/scripts -type d -name '__pycache__' -prune -exec rm 
 Agents must **not** run `git commit` unless the operator explicitly instructs them to finalize that commit in the **current** request after reviewing the diff. Default agent behavior: hand off a suggested commit message and diff for the operator to commit locally.
 
 This applies to all changes: framework source edits, self-hosted docs changes, platform surface renders, and packaging builds. See `docs/contributing/build-and-verification.md` **Git commits** for the full policy.
+
+**Commit message style:** Do not mention Claude Code, Claude, or any AI tool in commit message subject lines or bodies. The `Co-Authored-By` trailer is also prohibited — omit it entirely.
 
 ## Wave Close (Operator-Owned)
 
@@ -172,7 +174,9 @@ The project-local index is stored at `.wavefoundry/index/` (gitignored). Package
 }
 ```
 
-**Available tools:** `wave_help`, `wave_audit`, `wave_map`, `docs_search`, `code_search`, `seed_get`, `wave_current`, `wave_list_waves`, `wave_list_plans`, `wave_get_change`, `wave_get_prompt`, `wave_get_handoff`, `wave_set_handoff`, `wave_open_gate`, `wave_close_gate`, `wave_create_wave`, `wave_add_change`, `wave_remove_change`, `wave_prepare`, `wave_pause`, `wave_review`, `wave_close`, `wave_new_feature`, `wave_new_bug`, `wave_new_enhancement`, `wave_new_refactor`, `wave_new_change`, `wave_new_documentation`, `wave_new_tech_debt`, `wave_new_task`, `wave_new_maintenance`, `wave_new_operations`, `wave_validate`, `wave_garden`, `wave_sync_surfaces`, `wave_index_health`, `wave_index_build`, `code_list_files`, `code_read`, `code_keyword_search`, `code_definition`, `code_references`.
+**Available tools:** `wave_help`, `wave_audit`, `wave_map`, `docs_search`, `code_search`, `code_ask`, `seed_get`, `wave_current`, `wave_list_waves`, `wave_list_plans`, `wave_get_change`, `wave_get_prompt`, `wave_get_handoff`, `wave_set_handoff`, `wave_open_gate`, `wave_close_gate`, `wave_create_wave`, `wave_add_change`, `wave_remove_change`, `wave_prepare`, `wave_pause`, `wave_review`, `wave_close`, `wave_new_feature`, `wave_new_bug`, `wave_new_enhancement`, `wave_new_refactor`, `wave_new_change`, `wave_new_documentation`, `wave_new_tech_debt`, `wave_new_task`, `wave_new_maintenance`, `wave_new_operations`, `wave_validate`, `wave_garden`, `wave_sync_surfaces`, `wave_index_health`, `wave_index_build`, `code_list_files`, `code_read`, `code_keyword_search`, `code_definition`, `code_references`, `code_dependencies`.
+
+**Codebase Q&A shortcut:** `code_ask(question)` — ask a natural-language question about the codebase; returns `{answer, citations, confidence, gaps, question_type, index_freshness}`. See `docs/prompts/agents/code-insight-agent.prompt.md` for retrieval loop, citation format, and uncertainty protocol.
 
 For change-plan creation, use the **`wave_new_<kind>` tools** — one call per kind, no `kind` argument needed: `wave_new_feature`, `wave_new_bug`, `wave_new_enhancement`, `wave_new_refactor`, `wave_new_change`, `wave_new_documentation`, `wave_new_tech_debt`, `wave_new_task`, `wave_new_maintenance`, `wave_new_operations`. All MCP creation tools wrap lifecycle ID generation and scaffold `docs/plans/<change-id>.md` in one call. Use `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>` only as a CLI fallback when MCP is unavailable, or for wave-folder IDs until lifecycle mutation tools exist.
 
