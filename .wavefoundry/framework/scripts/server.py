@@ -681,6 +681,38 @@ def _read_workflow_config(root: Path) -> dict:
     return {}
 
 
+def _read_project_required_review_lanes(root: Path) -> list[str]:
+    """Return project-declared required review lanes from workflow-config.json."""
+    cfg = _read_workflow_config(root)
+    raw = cfg.get("required_review_lanes", [])
+    if not isinstance(raw, list):
+        return []
+    return [str(lane).strip() for lane in raw if isinstance(lane, str) and str(lane).strip()]
+
+
+def _read_project_sensors(root: Path) -> list[dict]:
+    """Return registered sensor definitions from workflow-config.json."""
+    cfg = _read_workflow_config(root)
+    raw = cfg.get("sensors", [])
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        command = item.get("command")
+        if not name or not command:
+            continue
+        out.append({
+            "name": name,
+            "command": command if isinstance(command, list) else str(command),
+            "dimension": str(item.get("dimension", "maintainability")),
+            "description": str(item.get("description", "")),
+        })
+    return out
+
+
 def _normalize_prefix_list(raw: object) -> tuple[str, ...]:
     if not isinstance(raw, list):
         return ()
@@ -3690,6 +3722,37 @@ def wave_audit_response(
     if not next_tools:
         next_tools = ["wave_current"]
 
+    # --- Harness sub-checks ---
+    commit_governance = _audit_commit_governance(root)
+    harnessability = _audit_harnessability(root)
+    harness_coverage = _audit_harness_coverage(root)
+    harness_coherence = _audit_harness_coherence(root)
+
+    # Advisory diagnostics for harness checks
+    if commit_governance.get("available") and commit_governance.get("unassociated_count", 0) > 0:
+        n = commit_governance["unassociated_count"]
+        diagnostics.append(_diagnostic(
+            "unassociated_commits",
+            f"{n} recent commit(s) could not be associated with a wave or change ID.",
+            recovery_tools=["wave_current"],
+            recovery_usage="wave_current()",
+        ))
+    if harness_coverage.get("covered_count", 3) < 3:
+        uncovered = [k for k, v in harness_coverage.get("dimensions", {}).items() if not v["covered"]]
+        diagnostics.append(_diagnostic(
+            "harness_coverage_gap",
+            f"Harness coverage {harness_coverage['coverage_ratio']}: uncovered dimensions: {', '.join(uncovered)}.",
+            recovery_tools=["wave_audit"],
+            recovery_usage="wave_audit()",
+        ))
+    if harness_coherence.get("findings_count", 0) > 0:
+        diagnostics.append(_diagnostic(
+            "harness_coherence_issue",
+            f"{harness_coherence['findings_count']} harness coherence finding(s) detected in seed surface.",
+            recovery_tools=["wave_audit"],
+            recovery_usage="wave_audit()",
+        ))
+
     return _response(
         "ok",
         {
@@ -3697,6 +3760,10 @@ def wave_audit_response(
             "wave": wave_data,
             "validation": val_result,
             "index": index_data,
+            "commit_governance": commit_governance,
+            "harnessability": harnessability,
+            "harness_coverage": harness_coverage,
+            "harness_coherence": harness_coherence,
         },
         diagnostics=diagnostics,
         next_tools=next_tools,
@@ -3892,7 +3959,13 @@ def wave_index_build_status_response(root: Path, layer: str = "project") -> dict
             last_line = next((l.strip() for l in reversed(log_text.splitlines()) if l.strip()), "")
         except OSError:
             pass
-    log_done = bool(re.search(r"done\s*[—-]+\s*\d+\s+files? indexed", log_text))
+    # Either the "done — N files indexed" completion line or the "index is up to date"
+    # early-exit message counts as a terminal state. Without the second pattern, a zombie
+    # process (defunct on macOS) keeps reporting state="running" indefinitely because
+    # os.kill(pid, 0) succeeds on zombies until the parent reaps them.
+    log_done = bool(re.search(r"done\s*[—-]+\s*\d+\s+files? indexed", log_text)) or bool(
+        re.search(r"index is up to date", log_text)
+    )
 
     if not log_done and isinstance(pid, int) and _pid_is_running(pid):
         running_data: dict[str, Any] = {"layer": layer_s, "state": "running", "pid": pid, "started_at": started_at, "elapsed_seconds": elapsed, "progress": last_line}
@@ -3932,6 +4005,302 @@ def wave_index_build_status_response(root: Path, layer: str = "project") -> dict
     if previous_stats is not None:
         summary["previous_stats"] = previous_stats
     return _response("ok", summary, next_tools=["wave_index_health"], usage="wave_index_health()")
+
+
+def wave_run_sensors_response(root: Path) -> dict[str, Any]:
+    """Run registered project sensors and return structured pass/fail results.
+
+    Sensors are defined in ``docs/workflow-config.json`` under the ``sensors`` key.
+    Each sensor entry must have ``name`` and ``command`` fields; ``dimension`` and
+    ``description`` are optional.  Commands are run in a subprocess with ``cwd=root``.
+    Results include per-sensor pass/fail, exit code, and stdout/stderr summary.
+    """
+    import subprocess as _sp
+    sensors = _read_project_sensors(root)
+    if not sensors:
+        return _response(
+            "ok",
+            {"sensors_run": 0, "results": [], "all_passed": True, "notice": "No sensors registered in workflow-config.json."},
+            next_tools=["wave_audit"],
+            usage="wave_audit()",
+        )
+    results = []
+    all_passed = True
+    for sensor in sensors:
+        cmd = sensor["command"]
+        try:
+            proc = _sp.run(
+                cmd if isinstance(cmd, list) else cmd,
+                shell=not isinstance(cmd, list),
+                cwd=str(root),
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            passed = proc.returncode == 0
+            output = (proc.stdout + proc.stderr).strip()
+            summary_lines = output.splitlines()
+            results.append({
+                "name": sensor["name"],
+                "dimension": sensor["dimension"],
+                "passed": passed,
+                "exit_code": proc.returncode,
+                "output_summary": "\n".join(summary_lines[:20]) if summary_lines else "",
+            })
+            if not passed:
+                all_passed = False
+        except _sp.TimeoutExpired:
+            results.append({"name": sensor["name"], "dimension": sensor["dimension"], "passed": False, "exit_code": None, "output_summary": "Sensor timed out after 120s."})
+            all_passed = False
+        except Exception as exc:
+            results.append({"name": sensor["name"], "dimension": sensor["dimension"], "passed": False, "exit_code": None, "output_summary": f"Sensor failed to run: {exc}"})
+            all_passed = False
+
+    diagnostics = []
+    if not all_passed:
+        failed = [r["name"] for r in results if not r["passed"]]
+        diagnostics.append(_diagnostic(
+            "sensor_failed",
+            f"Sensor(s) failed: {', '.join(failed)}. Address failures before declaring done.",
+            recovery_tools=["wave_run_sensors"],
+            recovery_usage="wave_run_sensors()",
+        ))
+    return _response(
+        "ok" if all_passed else "error",
+        {"sensors_run": len(results), "results": results, "all_passed": all_passed},
+        diagnostics=diagnostics,
+        next_tools=["wave_audit"] if all_passed else ["wave_run_sensors"],
+        usage="wave_audit()" if all_passed else "wave_run_sensors()",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Audit helpers: commit governance, harnessability, harness coverage, coherence
+# ---------------------------------------------------------------------------
+
+def _audit_commit_governance(root: Path) -> dict[str, Any]:
+    """Scan recent git commits and classify as governed or unassociated."""
+    import subprocess as _sp
+    cfg = _read_workflow_config(root)
+    governance_cfg = cfg.get("commit_governance", {})
+    window_days = int(governance_cfg.get("window_days", 30)) if isinstance(governance_cfg, dict) else 30
+    exclusion_patterns = governance_cfg.get("exclusion_patterns", []) if isinstance(governance_cfg, dict) else []
+    if not isinstance(exclusion_patterns, list):
+        exclusion_patterns = []
+
+    try:
+        result = _sp.run(
+            ["git", "log", f"--since={window_days} days ago", "--pretty=format:%h %s"],
+            cwd=str(root), capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            return {"available": False, "reason": "git log failed"}
+        lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
+    except Exception:
+        return {"available": False, "reason": "git unavailable"}
+
+    # Collect known wave/change ID prefixes from docs/waves/
+    known_ids: set[str] = set()
+    waves_dir = root / "docs" / "waves"
+    if waves_dir.is_dir():
+        for entry in waves_dir.iterdir():
+            if entry.is_dir():
+                # wave-id prefix like "12ecs"
+                parts = entry.name.split(" ", 1)
+                if parts:
+                    known_ids.add(parts[0].lower())
+                for f in entry.iterdir():
+                    if f.suffix == ".md" and "-" in f.stem:
+                        # change-id like "12ecs-feat"
+                        cid = f.stem.split(" ")[0].lower()
+                        known_ids.add(cid)
+
+    governed, unassociated, excluded = [], [], []
+    for line in lines:
+        parts = line.split(" ", 1)
+        sha = parts[0]
+        msg = parts[1] if len(parts) > 1 else ""
+        msg_lower = msg.lower()
+        # Check exclusion patterns first
+        if any(msg_lower.startswith(pat.lower()) or pat.lower() in msg_lower for pat in exclusion_patterns):
+            excluded.append({"sha": sha, "message": msg})
+            continue
+        # Check association with known wave/change IDs
+        associated = any(kid in msg_lower for kid in known_ids)
+        if associated:
+            governed.append({"sha": sha, "message": msg})
+        else:
+            unassociated.append({"sha": sha, "message": msg})
+
+    return {
+        "available": True,
+        "window_days": window_days,
+        "governed": governed,
+        "unassociated": unassociated,
+        "excluded": excluded,
+        "governed_count": len(governed),
+        "unassociated_count": len(unassociated),
+    }
+
+
+def _audit_harnessability(root: Path) -> dict[str, Any]:
+    """Assess codebase harnessability across three proxy dimensions."""
+    # --- Type coverage ---
+    type_score = "unknown"
+    type_evidence = ""
+    typed_configs = []
+    for cfg_file in ["tsconfig.json", "mypy.ini", "pyrightconfig.json", ".pyrightconfig.json"]:
+        if (root / cfg_file).exists():
+            typed_configs.append(cfg_file)
+    pyproject = root / "pyproject.toml"
+    if pyproject.exists():
+        try:
+            text = pyproject.read_text(encoding="utf-8")
+            if "strict" in text or "disallow_untyped" in text or "mypy" in text:
+                typed_configs.append("pyproject.toml (typed)")
+        except OSError:
+            pass
+    if typed_configs:
+        type_score = "high" if len(typed_configs) >= 2 else "medium"
+        type_evidence = f"Type config found: {', '.join(typed_configs)}"
+    else:
+        type_score = "low"
+        type_evidence = "No type configuration files detected"
+
+    # --- Module boundary clarity ---
+    boundary_score = "unknown"
+    boundary_evidence = ""
+    arch_dir = root / "docs" / "architecture"
+    boundary_docs = []
+    for name in ["domain-map.md", "layering-rules.md", "current-state.md"]:
+        if (arch_dir / name).exists():
+            boundary_docs.append(name)
+    if len(boundary_docs) >= 2:
+        boundary_score = "high"
+    elif boundary_docs:
+        boundary_score = "medium"
+    else:
+        boundary_score = "low"
+    boundary_evidence = f"Architecture docs found: {', '.join(boundary_docs)}" if boundary_docs else "No architecture boundary docs found"
+
+    # --- Debt density proxy ---
+    debt_score = "unknown"
+    debt_evidence = ""
+    try:
+        result = __import__("subprocess").run(
+            ["git", "grep", "-c", "-E", "TODO|FIXME|HACK|XXX"],
+            cwd=str(root), capture_output=True, text=True, timeout=10,
+        )
+        todo_count = sum(int(l.split(":")[-1]) for l in result.stdout.splitlines() if ":" in l and l.split(":")[-1].isdigit())
+        if todo_count == 0:
+            debt_score = "high"
+        elif todo_count < 20:
+            debt_score = "medium"
+        else:
+            debt_score = "low"
+        debt_evidence = f"{todo_count} TODO/FIXME/HACK markers found"
+    except Exception:
+        debt_score = "unknown"
+        debt_evidence = "Could not scan for debt markers"
+
+    scores = {"high": 3, "medium": 2, "low": 1, "unknown": 0}
+    dims = [type_score, boundary_score, debt_score]
+    known = [s for s in dims if s != "unknown"]
+    if known:
+        avg = sum(scores[s] for s in known) / len(known)
+        overall = "high" if avg >= 2.5 else "medium" if avg >= 1.5 else "low"
+    else:
+        overall = "unknown"
+
+    return {
+        "overall": overall,
+        "dimensions": {
+            "type_coverage": {"score": type_score, "evidence": type_evidence},
+            "boundary_clarity": {"score": boundary_score, "evidence": boundary_evidence},
+            "debt_density": {"score": debt_score, "evidence": debt_evidence},
+        },
+    }
+
+
+def _audit_harness_coverage(root: Path) -> dict[str, Any]:
+    """Report which harness dimensions have at least one sensor configured."""
+    cfg = _read_workflow_config(root)
+    sensors = _read_project_sensors(root)
+    required_lanes = _read_project_required_review_lanes(root)
+    lanes_lower = [l.lower() for l in required_lanes]
+
+    maintainability_covered = len(sensors) > 0
+    architecture_covered = any("architecture" in l for l in lanes_lower)
+    behaviour_covered = (
+        any(l in ("security", "security-review", "performance", "performance-review") for l in lanes_lower)
+        or bool(cfg.get("test_runner"))
+    )
+
+    dimensions = {
+        "maintainability": {"covered": maintainability_covered, "signal": "computational sensors" if maintainability_covered else None},
+        "architecture": {"covered": architecture_covered, "signal": "architecture-review lane" if architecture_covered else None},
+        "behaviour": {"covered": behaviour_covered, "signal": "security/performance lanes or test_runner" if behaviour_covered else None},
+    }
+    covered_count = sum(1 for d in dimensions.values() if d["covered"])
+    return {
+        "coverage_ratio": f"{covered_count}/3",
+        "covered_count": covered_count,
+        "dimensions": dimensions,
+    }
+
+
+def _audit_harness_coherence(root: Path) -> dict[str, Any]:
+    """Scan seed surface for stale tool references and known contradiction patterns."""
+    seed_dirs = [
+        root / ".wavefoundry" / "framework" / "seeds",
+        root / "docs" / "prompts",
+    ]
+    # Collect live MCP tool names from this server module
+    live_tools: set[str] = set()
+    try:
+        import re as _re
+        src = Path(__file__).read_text(encoding="utf-8")
+        live_tools = set(_re.findall(r'def (wave_\w+|docs_search|code_\w+|seed_get)\(', src))
+    except Exception:
+        pass
+
+    findings = []
+    scanned_files = 0
+
+    for seed_dir in seed_dirs:
+        if not seed_dir.is_dir():
+            continue
+        for f in sorted(seed_dir.glob("*.md")):
+            try:
+                text = f.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            scanned_files += 1
+            rel = str(f.relative_to(root))
+
+            # Check for stale tool references (tool names mentioned but not in live set)
+            import re as _re2
+            mentioned = set(_re2.findall(r'\b(wave_\w+|docs_search|code_\w+|seed_get)\b', text))
+            for tool in sorted(mentioned):
+                # Strip trailing punctuation artefacts and check
+                clean = tool.rstrip("_")
+                if clean not in live_tools and clean + "_response" not in live_tools:
+                    # Exclude common false positives (e.g. wave_new_* family covered by pattern)
+                    if not any(clean.startswith(p) for p in ("wave_new_", "wave_list_", "wave_get_", "wave_set_")):
+                        findings.append({"file": rel, "type": "stale_tool_reference", "detail": f"Tool '{clean}' mentioned but not found in live MCP surface"})
+
+            # Check for bypass patterns (skip + gate/lane in same sentence)
+            lines = text.splitlines()
+            for i, line in enumerate(lines):
+                ll = line.lower()
+                if ("skip" in ll or "bypass" in ll or "omit" in ll) and ("gate" in ll or "required_review" in ll or "operator-signoff" in ll):
+                    findings.append({"file": rel, "type": "bypass_pattern", "detail": f"Line {i+1}: possible gate/lane bypass instruction"})
+
+    return {
+        "scanned_files": scanned_files,
+        "findings": findings[:50],  # cap at 50 to avoid overwhelming response
+        "findings_count": len(findings),
+    }
 
 
 def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
@@ -4152,6 +4521,25 @@ def _operator_signoff_present(wave_text: str) -> bool:
     return _lane_has_signoff_in_evidence(_combined_review_evidence(wave_text), "operator-signoff")
 
 
+_SEVERITY_ORDER = ["none", "low", "medium", "high", "critical"]
+
+
+def _max_severity_from_evidence(wave_text: str) -> str:
+    """Scan Review Evidence signoff lines for severity annotations; return highest found."""
+    evidence = _combined_review_evidence(wave_text)
+    max_rank = 0
+    for raw in evidence.splitlines():
+        line = raw.strip().lower()
+        if not line or line.startswith("#") or "<" in line:
+            continue
+        for sev in _SEVERITY_ORDER:
+            if sev in line and line.index(sev) > 0:
+                rank = _SEVERITY_ORDER.index(sev)
+                if rank > max_rank:
+                    max_rank = rank
+    return _SEVERITY_ORDER[max_rank]
+
+
 def wave_review_response(root: Path, wave_id: str) -> dict[str, Any]:
     wave_md = _find_wave_md(root, wave_id)
     if wave_md is None:
@@ -4159,32 +4547,44 @@ def wave_review_response(root: Path, wave_id: str) -> dict[str, Any]:
     _trigger_background_index_refresh_for_paths(root, [wave_md])
     lint_result = run_validate(root)
     wave_text = wave_md.read_text(encoding="utf-8")
-    required_lanes = ["operator"] + _extract_required_review_lanes(wave_text)
+    # Merge lanes from wave.md Participants table and project-declared required_review_lanes
+    wave_lanes = _extract_required_review_lanes(wave_text)
+    project_lanes = _read_project_required_review_lanes(root)
+    extra_lanes = [l for l in project_lanes if l not in wave_lanes]
+    required_lanes = ["operator"] + wave_lanes + extra_lanes
     operator_signed = _operator_signoff_present(wave_text)
     lane_results = [{"lane": "operator", "recorded_signoff": operator_signed}] + [{"lane": lane, "recorded_signoff": _lane_has_signoff(wave_text, lane)} for lane in required_lanes[1:]]
     diagnostics = [] if lint_result["passed"] else [_diagnostic("docs_lint_error", err, recovery_tools=["wave_validate"]) for err in lint_result["errors"]]
     missing = [entry["lane"] for entry in lane_results if not entry["recorded_signoff"]]
-    if missing:
-        diag_msg = (
+    if "operator" in missing:
+        diagnostics.append(_diagnostic(
+            "missing_operator_signoff",
             "Operator review approval is required before closing this wave. "
             "Add `operator-signoff: approved` to `## Review Evidence` in wave.md. "
-            "Approval is given by the operator asking to close the wave, or by the agent explicitly asking for approval."
-        ) if "operator" in missing else f"Required review lanes without recorded signoff: {', '.join(missing)}."
-        diagnostics.append(
-            _diagnostic(
-                "missing_operator_signoff" if "operator" in missing else "missing_lane_signoff",
-                diag_msg,
-                recovery_tools=["wave_current"],
-                recovery_usage="wave_current()",
-            )
-        )
-        if "operator" in missing and len(missing) > 1:
-            other_missing = [m for m in missing if m != "operator"]
-            diagnostics.append(_diagnostic("missing_lane_signoff", f"Required review lanes without recorded signoff: {', '.join(other_missing)}.", recovery_tools=["wave_current"], recovery_usage="wave_current()"))
+            "Approval is given by the operator asking to close the wave, or by the agent explicitly asking for approval.",
+            recovery_tools=["wave_current"],
+            recovery_usage="wave_current()",
+        ))
+    other_missing = [m for m in missing if m != "operator"]
+    if other_missing:
+        diagnostics.append(_diagnostic(
+            "missing_required_lane",
+            f"Required review lanes without recorded signoff: {', '.join(other_missing)}.",
+            recovery_tools=["wave_current"],
+            recovery_usage="wave_current()",
+        ))
+    max_severity = _max_severity_from_evidence(wave_text)
+    if max_severity in ("critical", "high"):
+        diagnostics.append(_diagnostic(
+            "high_severity_finding",
+            f"Sensor findings include {max_severity}-severity issues — prioritise operator review of these before closing.",
+            recovery_tools=["wave_current"],
+            recovery_usage="wave_current()",
+        ))
     status = "ok" if lint_result["passed"] and not missing else "error"
     return _response(
         status,
-        {"wave_id": wave_id, "required_lanes": required_lanes, "lane_results": lane_results, "lint_passed": lint_result["passed"]},
+        {"wave_id": wave_id, "required_lanes": required_lanes, "lane_results": lane_results, "lint_passed": lint_result["passed"], "max_severity": max_severity},
         diagnostics=diagnostics,
         next_tools=["wave_validate", "wave_current"],
         usage="wave_validate()",
@@ -4227,7 +4627,10 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
                 recovery_usage=f"wave_review(wave_id={wave_id!r})",
             )
         )
-    required_lanes = _extract_required_review_lanes(text)
+    # Merge lanes from wave.md Participants table and project-declared required_review_lanes
+    wave_lanes = _extract_required_review_lanes(text)
+    project_lanes = _read_project_required_review_lanes(root)
+    required_lanes = list({*wave_lanes, *project_lanes})  # deduped, order doesn't matter here
     evidence_present = bool(_combined_review_evidence(text).strip())
     if required_lanes:
         if not evidence_present:
@@ -4240,11 +4643,11 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
                 )
             )
         else:
-            missing_lane = _lanes_missing_signoff(text)
+            missing_lane = [l for l in required_lanes if not _lane_has_signoff_in_evidence(_combined_review_evidence(text), l)]
             if missing_lane:
                 diagnostics.append(
                     _diagnostic(
-                        "missing_lane_signoff",
+                        "missing_required_lane",
                         f"Required review lanes without a signoff line in Review Evidence: {', '.join(missing_lane)}.",
                         recovery_tools=["wave_review"],
                         recovery_usage=f"wave_review(wave_id={wave_id!r})",
@@ -5583,6 +5986,20 @@ def build_server(root: Path):
         if bad is not None:
             return bad
         return wave_validate_response(root)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def wave_run_sensors(**kwargs: Any) -> dict[str, Any]:
+        """Run all computational sensors declared in workflow-config.json and return structured results.
+
+        Sensors are defined as: {"name": "...", "command": [...], "dimension": "maintainability|architecture|behaviour", "description": "..."}.
+        Each sensor runs as a subprocess; pass/fail is determined by exit code.
+        Returns per-sensor results and an overall all_passed flag.
+        Use wave_audit to declare sensors in workflow-config.json if none are configured.
+        """
+        bad = _ensure_no_extra_args("wave_run_sensors", kwargs)
+        if bad is not None:
+            return bad
+        return wave_run_sensors_response(root)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_garden(mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:

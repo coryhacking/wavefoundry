@@ -31,7 +31,8 @@ You are running **performance-reviewer** on Wavefoundry. This lane checks that n
 
 ## Verdict Format
 
-Return **Approved**, **Approved with notes**, or **Block** with:
+Return one of: `approved`, `approved-with-notes`, or `needs-revision` with:
+- `severity`: one of `critical`, `high`, `medium`, `low`, or `none` — set based on worst finding. Use `critical` for algorithmic regressions that make the tool unusable at scale; `high` for regressions that measurably degrade hot paths; `medium` for suboptimal patterns with no immediate impact; `low` for minor style or micro-optimisation issues; `none` when no findings.
 - For each finding: file, line range, observed complexity, concern, and recommended fix (if blocking).
 - For approvals: a one-line confirmation of the O(n) model for each reviewed hot path.
 

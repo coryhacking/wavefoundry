@@ -205,6 +205,14 @@ def build_zip(
     if prebuild_index:
         build_framework_index(fw, verbose=verbose)
 
+    # Remove .DS_Store files from the repo root before collecting files.
+    repo_root = fw.parent.parent if fw.parent.name == ".wavefoundry" else fw.parent
+    for ds in repo_root.rglob(".DS_Store"):
+        try:
+            ds.unlink()
+        except OSError:
+            pass
+
     entries = collect_files(fw)
     # Write MANIFEST (always lists itself) before zipping so it is included.
     manifest_path = write_manifest(fw, entries)
@@ -212,6 +220,13 @@ def build_zip(
     manifest_arcname = FRAMEWORK_REL + "/MANIFEST"
     if not any(a == manifest_arcname for _, a in entries):
         entries.append((manifest_path, manifest_arcname))
+
+    # Include .wavefoundry/README.md (project-owner orientation doc) if it exists.
+    # This file sits outside the framework dir so must be added explicitly.
+    wavefoundry_readme = fw.parent / "README.md"
+    readme_arcname = ".wavefoundry/README.md"
+    if wavefoundry_readme.exists() and not any(a == readme_arcname for _, a in entries):
+        entries.append((wavefoundry_readme, readme_arcname))
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for abs_path, arcname in entries:

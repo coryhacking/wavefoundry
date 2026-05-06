@@ -1285,7 +1285,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
             result = self.srv.wave_review_response(self.root, "1200a test-wave")
         self.assertEqual(result["status"], "error")
-        self.assertTrue(any(d["code"] == "missing_lane_signoff" for d in result["diagnostics"]))
+        self.assertTrue(any(d["code"] == "missing_required_lane" for d in result["diagnostics"]))
 
     def test_wave_close_requires_signoff_and_no_open_changes(self):
         _make_wave(self.root, "1200a test-wave", "active", [{"id": "1200a-feat sample", "status": "active"}])
@@ -1348,7 +1348,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
         self.assertEqual(result["status"], "error")
-        self.assertTrue(any(d["code"] == "missing_lane_signoff" for d in result["diagnostics"]))
+        self.assertTrue(any(d["code"] == "missing_required_lane" for d in result["diagnostics"]))
 
 
 class WaveReopenTests(unittest.TestCase):
@@ -1585,6 +1585,15 @@ class IndexBuildStatusTests(unittest.TestCase):
         result = self.srv.wave_index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "finished")
         self.assertEqual(result["data"]["files_indexed"], 100)
+
+    def test_finished_when_log_has_up_to_date_despite_live_pid(self):
+        # Regression: zombie process (defunct on macOS) keeps os.kill(pid,0) returning True.
+        # "index is up to date" must be treated as a terminal log state, same as the done marker.
+        import os, time
+        self._write_state(os.getpid(), time.time() - 60)
+        self.log_path.write_text("build_index: index is up to date\n", encoding="utf-8")
+        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        self.assertEqual(result["data"]["state"], "finished")
 
     def test_invalid_layer_returns_error(self):
         result = self.srv.wave_index_build_status_response(self.root, layer="bogus")
@@ -2559,7 +2568,8 @@ class WaveAuditTests(unittest.TestCase):
             )
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"]["ready"])
-        self.assertEqual(result["diagnostics"], [])
+        # Advisory diagnostics (e.g. harness_coverage_gap) are allowed in healthy state.
+        self.assertNotIn("error", [d.get("severity") for d in result.get("diagnostics", [])])
         self.assertIn("wave_current", result["next_tools"])
 
     def test_lint_fail_path(self):
@@ -5464,6 +5474,254 @@ class InferTagsServerTests(unittest.TestCase):
             self.assertIn("o1", ids)
         finally:
             tmp.cleanup()
+
+
+class WaveRunSensorsTests(unittest.TestCase):
+    """12ecs-feat post-edit-computational-sensors: wave_run_sensors MCP tool."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_config(self, sensors):
+        cfg = {
+            "lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0},
+            "sensors": sensors,
+        }
+        (self.root / "docs" / "workflow-config.json").write_text(
+            json.dumps(cfg), encoding="utf-8"
+        )
+
+    def test_no_sensors_configured(self):
+        result = self.srv.wave_run_sensors_response(self.root)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["sensors_run"], 0)
+        self.assertEqual(result["data"]["results"], [])
+        self.assertTrue(result["data"]["all_passed"])
+
+    def test_passing_sensor(self):
+        self._write_config([{"name": "true-check", "command": ["true"], "dimension": "maintainability"}])
+        result = self.srv.wave_run_sensors_response(self.root)
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"]["all_passed"])
+        self.assertEqual(len(result["data"]["results"]), 1)
+        self.assertTrue(result["data"]["results"][0]["passed"])
+
+    def test_failing_sensor(self):
+        self._write_config([{"name": "false-check", "command": ["false"], "dimension": "maintainability"}])
+        result = self.srv.wave_run_sensors_response(self.root)
+        self.assertEqual(result["status"], "error")
+        self.assertFalse(result["data"]["all_passed"])
+        self.assertFalse(result["data"]["results"][0]["passed"])
+        self.assertEqual(result["data"]["results"][0]["name"], "false-check")
+        self.assertTrue(any(d["code"] == "sensor_failed" for d in result["diagnostics"]))
+
+    def test_sensor_with_invalid_command(self):
+        self._write_config([{"name": "bad-cmd", "command": ["__nonexistent_command__"], "dimension": "behaviour"}])
+        result = self.srv.wave_run_sensors_response(self.root)
+        self.assertFalse(result["data"]["all_passed"])
+        self.assertFalse(result["data"]["results"][0]["passed"])
+
+
+class RequiredReviewLanesTests(unittest.TestCase):
+    """12ecs-enh inferential-sensors-as-required-review-lanes: project-declared lanes enforcement."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_config_with_lanes(self, lanes):
+        cfg = {
+            "lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0},
+            "required_review_lanes": lanes,
+        }
+        (self.root / "docs" / "workflow-config.json").write_text(
+            json.dumps(cfg), encoding="utf-8"
+        )
+
+    def _make_wave_with_evidence(self, evidence_lines):
+        wave_dir = self.root / "docs" / "waves" / "1200a test-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        (wave_dir / "wave.md").write_text(
+            "# Wave Record\n"
+            "wave-id: `1200a test-wave`\n"
+            "Status: active\n\n"
+            "## Changes\n\n"
+            "Change ID: `1200a-feat sample`\n"
+            "Change Status: `complete`\n\n"
+            "## Review Evidence\n\n"
+            + "\n".join(evidence_lines) + "\n",
+            encoding="utf-8",
+        )
+
+    def test_project_declared_lane_appears_in_required_lanes(self):
+        self._write_config_with_lanes(["security-review"])
+        self._make_wave_with_evidence(["- operator-signoff: approved", "- security-review: approved"])
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertIn("security-review", result["data"]["required_lanes"])
+
+    def test_missing_declared_lane_emits_missing_required_lane(self):
+        self._write_config_with_lanes(["security-review"])
+        self._make_wave_with_evidence(["- operator-signoff: approved"])
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertEqual(result["status"], "error")
+        self.assertTrue(any(d["code"] == "missing_required_lane" for d in result["diagnostics"]))
+
+    def test_no_declared_lanes_unchanged_behaviour(self):
+        # AC-3: projects with no declared lanes only require operator
+        self._make_wave_with_evidence(["- operator-signoff: approved"])
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["required_lanes"], ["operator"])
+
+    def test_wave_close_blocks_on_missing_declared_lane(self):
+        self._write_config_with_lanes(["security-review"])
+        self._make_wave_with_evidence(["- operator-signoff: approved"])
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+        self.assertEqual(result["status"], "error")
+        self.assertTrue(any(d["code"] == "missing_required_lane" for d in result["diagnostics"]))
+
+    def test_wave_close_passes_when_declared_lane_signed(self):
+        self._write_config_with_lanes(["security-review"])
+        self._make_wave_with_evidence(["- operator-signoff: approved", "- security-review: approved"])
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+        self.assertNotIn("missing_required_lane", [d["code"] for d in result.get("diagnostics", [])])
+
+
+class SeverityTriageTests(unittest.TestCase):
+    """12ed1-enh sensor-finding-severity-triage: max_severity and advisory diagnostic."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_wave_with_evidence(self, evidence_lines):
+        wave_dir = self.root / "docs" / "waves" / "1200a test-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        (wave_dir / "wave.md").write_text(
+            "# Wave Record\n"
+            "wave-id: `1200a test-wave`\n"
+            "Status: active\n\n"
+            "## Changes\n\n"
+            "Change ID: `1200a-feat sample`\n"
+            "Change Status: `complete`\n\n"
+            "## Review Evidence\n\n"
+            + "\n".join(evidence_lines) + "\n",
+            encoding="utf-8",
+        )
+
+    def test_no_severity_annotations_returns_none(self):
+        self._make_wave_with_evidence(["- operator-signoff: approved"])
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertEqual(result["data"]["max_severity"], "none")
+
+    def test_medium_severity_no_advisory(self):
+        self._make_wave_with_evidence([
+            "- operator-signoff: approved",
+            "- security-review: approved-with-notes (medium — minor issue)",
+        ])
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertEqual(result["data"]["max_severity"], "medium")
+        self.assertFalse(any(d["code"] == "high_severity_finding" for d in result.get("diagnostics", [])))
+
+    def test_high_severity_emits_advisory(self):
+        self._make_wave_with_evidence([
+            "- operator-signoff: approved",
+            "- security-review: needs-revision (high — path traversal in code_read)",
+        ])
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertEqual(result["data"]["max_severity"], "high")
+        self.assertTrue(any(d["code"] == "high_severity_finding" for d in result.get("diagnostics", [])))
+
+    def test_critical_severity_emits_advisory(self):
+        self._make_wave_with_evidence([
+            "- operator-signoff: approved",
+            "- security-review: needs-revision (critical — exploitable RCE)",
+        ])
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertEqual(result["data"]["max_severity"], "critical")
+        self.assertTrue(any(d["code"] == "high_severity_finding" for d in result.get("diagnostics", [])))
+
+    def test_low_severity_no_advisory(self):
+        self._make_wave_with_evidence([
+            "- operator-signoff: approved",
+            "- performance-review: approved-with-notes (low — micro-optimisation opportunity)",
+        ])
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertEqual(result["data"]["max_severity"], "low")
+        self.assertFalse(any(d["code"] == "high_severity_finding" for d in result.get("diagnostics", [])))
+
+
+class HarnessCoverageAuditTests(unittest.TestCase):
+    """12ed1-feat harness-coverage-metrics: _audit_harness_coverage dimensions."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_config(self, extra):
+        cfg = {"lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0}, **extra}
+        (self.root / "docs" / "workflow-config.json").write_text(json.dumps(cfg), encoding="utf-8")
+
+    def test_no_config_returns_zero_coverage(self):
+        result = self.srv._audit_harness_coverage(self.root)
+        self.assertEqual(result["covered_count"], 0)
+        self.assertEqual(result["coverage_ratio"], "0/3")
+
+    def test_sensors_cover_maintainability(self):
+        self._write_config({"sensors": [{"name": "lint", "command": ["true"], "dimension": "maintainability"}]})
+        result = self.srv._audit_harness_coverage(self.root)
+        self.assertTrue(result["dimensions"]["maintainability"]["covered"])
+
+    def test_architecture_lane_covers_architecture(self):
+        self._write_config({"required_review_lanes": ["architecture-review"]})
+        result = self.srv._audit_harness_coverage(self.root)
+        self.assertTrue(result["dimensions"]["architecture"]["covered"])
+
+    def test_security_lane_covers_behaviour(self):
+        self._write_config({"required_review_lanes": ["security-review"]})
+        result = self.srv._audit_harness_coverage(self.root)
+        self.assertTrue(result["dimensions"]["behaviour"]["covered"])
+
+    def test_full_coverage(self):
+        self._write_config({
+            "sensors": [{"name": "lint", "command": ["true"], "dimension": "maintainability"}],
+            "required_review_lanes": ["architecture-review", "security-review"],
+        })
+        result = self.srv._audit_harness_coverage(self.root)
+        self.assertEqual(result["covered_count"], 3)
+        self.assertEqual(result["coverage_ratio"], "3/3")
 
 
 if __name__ == "__main__":

@@ -952,7 +952,7 @@ Use this checklist when intentionally editing the wave framework or repo-local w
 
 ## Gate sequence
 
-1. Read `AGENTS.md` and `docs/prompts/upgrade-wavefoundry.md`.
+1. Read `AGENTS.md` and `docs/prompts/upgrade-wavefoundry.prompt.md`.
 2. Produce a file-level patch plan and wait for operator approval before broad framework-maintenance edits.
 3. Create or update `.wavefoundry/guard-overrides.json` before editing:
    - `.wavefoundry/framework/`
@@ -1071,6 +1071,11 @@ def main(argv: list[str] | None = None) -> int:
         render_platform_entrypoints(repo_root, platform)
     render_bin_launchers(repo_root)
     render_git_hooks(repo_root)
+    for ds in repo_root.rglob(".DS_Store"):
+        try:
+            ds.unlink()
+        except OSError:
+            pass
     return 0
 
 

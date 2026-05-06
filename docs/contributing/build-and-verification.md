@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-30
+Last verified: 2026-05-06
 
 ## Verification Commands
 
@@ -30,19 +30,67 @@ python3 .wavefoundry/framework/scripts/setup_index.py
 
 What this does:
 - checks required runtime packages
-- prewarms the embedding model cache
-- verifies that cached models can load in offline-only mode
-- rebuilds the project docs index (and optional code index when requested)
+- prewarms the docs embedding model cache
+- rebuilds the project docs index (seeds + docs)
+
+**MCP is available as soon as the docs index build completes** (~2.5 min). The code index is separate and optional.
+
+### Two-phase onboarding
+
+For new developer onboarding or post-upgrade rebuilds, use the docs-first approach to unblock MCP immediately while the code index builds in the background:
+
+```bash
+# Phase 1: docs index — unblocks all MCP tools immediately (~2.5 min)
+python3 .wavefoundry/framework/scripts/setup_index.py
+
+# Phase 2: code index — builds in the background, foreground returns immediately
+python3 .wavefoundry/framework/scripts/setup_index.py --background-code
+```
+
+`--background-code` builds the docs index synchronously, then spawns a detached background process for code model prewarm and code embedding. Progress is written to `.wavefoundry/index/background-build.log`. Call `wave_index_health()` to check whether the background build is still running.
+
+To build both synchronously (e.g. CI):
+
+```bash
+python3 .wavefoundry/framework/scripts/setup_index.py --include-code
+```
+
+### Upgrade rebuild requirement
+
+When a pack upgrade bumps `CHUNKER_VERSION`, a full rebuild is required for both docs and code layers — file hashes alone will not detect this. The full rebuild takes approximately 6 minutes (docs ~2.5 min + code ~3.5 min).
+
+`wave_index_health` will emit a `chunker_version_mismatch` advisory (distinct from `index_stale`) when the index was built with an older chunker version. If you see this advisory, run:
+
+```bash
+python3 .wavefoundry/framework/scripts/setup_index.py --full
+# or docs-first, then background code:
+python3 .wavefoundry/framework/scripts/setup_index.py --full
+python3 .wavefoundry/framework/scripts/setup_index.py --background-code --full
+```
 
 If the repo needs extra project index roots beyond the default, declare them explicitly in `docs/workflow-config.json` under `indexing.project_include_prefixes`. Use repo-relative `docs` and `code` lists rather than one-off booleans. Wavefoundry uses this in self-hosting mode to include `.wavefoundry/framework/scripts` in project code search without changing the default for ordinary target repos.
 
-If `wave_index_health` reports `index_missing` or `index_stale`, rerun `setup_index.py`. If `docs_search` falls back to lexical mode and you need to know whether the semantic index is stale or missing, call `wave_index_health` explicitly. In clients that do not execute the post-edit hook path, assume manual reindexing is required after meaningful docs changes.
+### Update vs rebuild — decision table
 
-Wavefoundry MCP doc-mutating tools now also request a detached background docs-index refresh after successful writes. That improves freshness in non-hook environments such as Codex, but it is best-effort and non-blocking; use `wave_index_health` when you need an explicit health verdict or rerun `setup_index.py` for deterministic rebuilds.
+| Situation | Action |
+|---|---|
+| Docs changed during a wave (post-edit hook ran automatically) | No manual action needed — MCP tools trigger a background refresh on write |
+| Hook didn't run (Codex, Warp, or non-hook env) and docs feel stale | **Update:** `wave_index_build(content="docs", mode="update")` — re-indexes changed files only |
+| `wave_index_health` reports `index_stale` | **Update:** `wave_index_build(content="docs", mode="update")` |
+| `wave_index_health` reports `index_missing` | **Update (creates index):** `wave_index_build(content="docs", mode="update")` or `setup_index.py` |
+| `wave_index_health` reports `chunker_version_mismatch` after a pack upgrade | **Full rebuild required** — file hashes alone won't detect the version change. See *Upgrade rebuild requirement* above |
+| Code navigation (`code_search`, `code_read`) feels stale or was never built | **Code update:** `wave_index_build(content="code", mode="update")` — or `setup_index.py --background-code` |
+| Framework seeds changed (self-hosting only) | **Framework layer:** `wave_index_build(content="docs", layer="framework")` |
+| First install / clean environment | `setup_index.py` (docs, ~2.5 min) then `setup_index.py --background-code` (code, background) |
+| CI deterministic full build | `setup_index.py --include-code` (~6 min, both layers synchronous) |
 
-If you need that deterministic index path through MCP instead of shell, use `wave_index_build(content="docs", mode="update")` for the normal incremental project docs index, `wave_index_build(content="all", mode="rebuild")` for a forced full project build (docs+code via `setup_index.py`), or `wave_index_build(content="docs", layer="framework")` for the packaged framework docs/seeds index.
+**Update** re-indexes only changed files (fast, uses file hashes). **Rebuild** (`--full` / `mode="rebuild"`) ignores hashes and reprocesses everything — use it when `CHUNKER_VERSION` changed or the index is known corrupt.
 
-Successful `wave_index_build` responses include structured `stats` so you can confirm how many files were indexed, how many doc/code chunks exist for the selected layer, and whether the run was already up to date.
+If `docs_search` falls back to lexical mode and you need to know whether the semantic index is stale or missing, call `wave_index_health` explicitly. In clients that do not execute the post-edit hook path, assume manual reindexing is required after meaningful docs changes.
+
+Wavefoundry MCP doc-mutating tools also request a detached background docs-index refresh after successful writes. That improves freshness in non-hook environments such as Codex, but it is best-effort and non-blocking; use `wave_index_health` when you need an explicit health verdict or run `wave_index_build` for a deterministic result.
+
+`wave_index_build` accepts: `content` (`docs` | `code` | `all`), `mode` (`update` | `rebuild`), `layer` (`project` | `framework`). Successful responses include structured `stats` confirming file count, chunk count, and whether the run was already up to date.
 
 ## Docs Gate
 
@@ -109,7 +157,7 @@ python3 .wavefoundry/framework/scripts/run_tests.py
   - `wave_audit` (combined wave + lint + index check)
   - `wave_index_build` (deterministic project/framework index rebuild path)
 
-**For full upgrade procedure:** see `docs/prompts/upgrade-wavefoundry.md` and `.wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md`.
+**For full upgrade procedure:** see `docs/prompts/upgrade-wavefoundry.prompt.md` and `.wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md`.
 
 **`build_pack.py` semantics:** default zip date is today (local ISO); letter suffix is the next letter after the maximum suffix already present for that date in the output directory (not the first missing gap). The script stamps `.wavefoundry/framework/VERSION` to `<date><letter>` before writing the archive. Use `--date` only for tests or exceptional rebuilds.
 

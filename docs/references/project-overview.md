@@ -2,17 +2,19 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-05-06
 
 ## What Wavefoundry Is
 
-Wavefoundry is the canonical repository for the Wave Framework and its future local MCP server. It owns the seed prompts, framework scripts, packaging logic, migration helpers, and the planned tool surface that makes framework-aware work searchable, auditable, and operable across target repositories.
+Wavefoundry is the canonical repository for the Wave Framework and its local MCP server. It owns the seed prompts, framework scripts, packaging logic, migration helpers, and the MCP tool surface that makes framework-aware work searchable, auditable, and operable across target repositories.
 
 **Wavefoundry is a framework and tooling repository, not a target product repository.** It does not ship a user-facing application. Its deliverables are:
 
-1. **The Wave Framework seed pack** — prompts and reference docs packaged into dated `.zip` distributions and installed into target repositories.
-2. **Framework scripts** — CLI tools for lifecycle ID generation, docs linting, docs gardening, platform surface rendering, packaging, and test running.
-3. **Future local MCP server** — a local-only stdio server exposing structured tools for framework-aware inspection, validation, seed resolution, code search, and (eventually) mutation operations on target repositories.
+1. **The Wave Framework seed pack** — numbered seed prompts (001–214+) and reference docs packaged into dated `.zip` distributions and installed into target repositories.
+2. **Framework scripts** — CLI tools for lifecycle ID generation, docs linting, docs gardening, platform surface rendering, packaging, test running, and index building.
+3. **Local MCP server** — a local-only stdio server exposing 47 structured tools for wave lifecycle management, semantic search, code navigation, audit, and feedback harness operation.
+
+For a full conceptual overview see `docs/references/wavefoundry-overview.md`.
 
 ## Repository Structure
 
@@ -21,7 +23,7 @@ wavefoundry/
   .wavefoundry/framework/seeds/    Canonical seed prompts (001–250 numbered)
   .wavefoundry/framework/scripts/  Framework tooling (lint, gardener, lifecycle ID, packaging, rendering)
   .wavefoundry/framework/README.md Canonical prompt map, public commands, factor model
-  .wavefoundry/framework/VERSION   Current distribution version (2026-04-28a)
+  .wavefoundry/framework/VERSION   Current distribution version (2026-05-06g)
   docs/                            Wavefoundry self-hosted Wave Framework operating surface (this tree)
   AGENTS.md                        Root agent entry map with shortcuts, stage gate, git commits policy
   README.md                        Product README for Wavefoundry

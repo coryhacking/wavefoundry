@@ -33,7 +33,8 @@ You are running **security-reviewer** on Wavefoundry. This lane checks that new 
 
 ## Verdict Format
 
-Return **Approved**, **Approved with notes**, or **Block** with:
+Return one of: `approved`, `approved-with-notes`, or `needs-revision` with:
+- `severity`: one of `critical`, `high`, `medium`, `low`, or `none` — set based on worst finding. Use `critical` for exploitable vulnerabilities or data-loss paths; `high` for privilege escalation, path traversal without confinement, or injection of untrusted content; `medium` for findings that are exploitable only under unusual conditions; `low` for defence-in-depth gaps with no immediate risk; `none` when no findings.
 - For each finding: file, line range, the vulnerability class, and recommended fix.
 - For approvals: a one-line confirmation that confinement checks are present on all new file-access paths and that `re.escape` is used where symbols are interpolated.
 

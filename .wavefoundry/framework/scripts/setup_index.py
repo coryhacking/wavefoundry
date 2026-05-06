@@ -140,6 +140,39 @@ def prewarm_models(*, include_code: bool) -> None:
         print(f"Verified offline semantic model cache: {model_name}", flush=True)
 
 
+def _spawn_background_code_build(root: Path, args: argparse.Namespace) -> None:
+    """Spawn a detached background process to build the code index."""
+    cmd = [sys.executable, __file__, "--root", str(root), "--include-code"]
+    if args.full:
+        cmd.append("--full")
+    if args.include_tests:
+        cmd.append("--include-tests")
+    if args.include_generated:
+        cmd.append("--include-generated")
+    if args.verbose:
+        cmd.append("--verbose")
+    log_path = root / ".wavefoundry" / "index" / "background-build.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_file = open(log_path, "w", encoding="utf-8")  # noqa: SIM115
+    try:
+        kwargs: dict = {"stdout": log_file, "stderr": log_file, "stdin": subprocess.DEVNULL}
+        if os.name == "nt":
+            kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kwargs["start_new_session"] = True
+        proc = subprocess.Popen(cmd, **kwargs)
+    finally:
+        log_file.close()
+    pid_path = root / ".wavefoundry" / "index" / "background-build.pid"
+    pid_path.write_text(str(proc.pid), encoding="utf-8")
+    print(
+        f"Code index build started in background (PID {proc.pid}).\n"
+        f"Progress: {log_path}\n"
+        f"MCP is available now — docs index is ready.",
+        flush=True,
+    )
+
+
 def _run_indexer(
     root: Path,
     full: bool,
@@ -268,6 +301,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--root", default=None, help="Repository root (default: current directory)")
     p.add_argument("--full", action="store_true", help="Force full rebuild")
     p.add_argument("--include-code", action="store_true", help="Also build semantic code embeddings (slower and more memory-intensive)")
+    p.add_argument("--background-code", action="store_true", help="Build docs index synchronously (unblocks MCP immediately), then spawn a detached background process for code embedding")
     p.add_argument("--include-tests", action="store_true", help="Include target test files in semantic code indexing")
     p.add_argument("--include-generated", action="store_true", help="Include generated platform hook files in semantic code indexing")
     p.add_argument("--verbose", "-v", action="store_true")
@@ -279,6 +313,11 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(args.root).expanduser().resolve() if args.root else Path.cwd().resolve()
 
     print(f"Wavefoundry index setup: root={root}", flush=True)
+    for ds in root.rglob(".DS_Store"):
+        try:
+            ds.unlink()
+        except OSError:
+            pass
     ensure_deps()
     include_prefixes = _workflow_project_include_prefixes(root)
     docs_prefixes = include_prefixes.get(DOCS_PREFIXES_KEY, ())
@@ -289,17 +328,20 @@ def main(argv: list[str] | None = None) -> int:
             f"(docs={list(docs_prefixes)}, code={list(code_prefixes)})",
             flush=True,
         )
-    prewarm_models(include_code=args.include_code)
+    background_code = args.background_code and not args.include_code
+    prewarm_models(include_code=not background_code and args.include_code)
     build_index(
         root,
         full=args.full,
-        include_code=args.include_code,
+        include_code=not background_code and args.include_code,
         verbose=args.verbose,
         include_tests=args.include_tests,
         include_generated=args.include_generated,
         project_include_prefixes_for_docs=docs_prefixes,
         project_include_prefixes_for_code=code_prefixes,
     )
+    if background_code:
+        _spawn_background_code_build(root, args)
     print(f"\nDone. MCP server: python3 {SCRIPTS_DIR / 'server.py'} --root {root}", flush=True)
     return 0
 

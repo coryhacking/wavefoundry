@@ -1,146 +1,152 @@
 # Wavefoundry
 
-Wavefoundry is the repository for the Wave Framework and its future local MCP implementation.
+Wavefoundry is an agent operating framework for software repositories. It gives AI coding agents a structured, auditable way to plan, execute, review, and close work — and ships as a local MCP server that agents connect to directly.
 
-It owns the canonical Wave Framework seed prompts, framework scripts, packaging logic, migration rules, and the planned local MCP server that will make framework-aware work searchable, auditable, and operable across target repositories.
+Current version: **2026-05-06g**
 
-## Product Boundary
+---
 
-Wavefoundry is a framework and tooling repository, not a target product repository.
+## What It Does
 
-It should work against any explicitly configured target repository with Wave Framework state. Target examples in docs and tests must stay generic unless a fixture intentionally names a sample repository.
+When an AI agent works on a software project, it typically operates with no memory of prior decisions, no enforcement of process, no structured handoff between sessions, and no way to verify that what it did matches what was intended. The result is drift: half-finished work, bypassed reviews, documentation that diverges from code, and coordination that only works when the same context is still in the conversation window.
 
-## What This Repository Owns
+Wavefoundry addresses this by giving agents a persistent operating surface: a set of documents, tools, and conventions that let agents plan work, admit it into tracked delivery units called *waves*, gate implementation behind readiness checks, record reviews, and seal closure with structured evidence. Agents interact with this surface through a local MCP server — a set of tools that run in the same process as the agent's host and operate on the repository's own files.
 
-- Canonical Wave Framework seed prompts and reference material under `.wavefoundry/framework/seeds/`.
-- Framework scripts under `.wavefoundry/framework/scripts/` for validation, rendering, packaging, migration, lifecycle IDs, and maintenance.
-- Distribution packaging for the canonical framework source.
-- Migration guidance for projects moving from the old `agent-workflows/wave-context-framework/` layout to the Wavefoundry layout.
-- The future local MCP server and code index.
-- Project docs for Wavefoundry itself under `docs/`.
+---
 
-## What Target Repositories Own
+## Core Concepts
 
-Target repositories keep their own local operating surface:
+### Waves
 
-- `AGENTS.md`
-- `docs/prompts/`
-- `docs/agents/`
-- `docs/waves/`
-- `docs/plans/`
-- `docs/workflow-config.json`
-- project-specific specs, architecture docs, and workflow policy
+A *wave* is the delivery unit. Work is never planned directly into production — it is first authored as a change document, admitted into a wave, and then implemented through the wave lifecycle. This keeps scope explicit, makes handoffs durable, and gives every closed wave a permanent record of what was decided and why.
 
-Wavefoundry can install, upgrade, audit, and validate those surfaces, but target repositories remain the authority for project-specific facts and customizations.
+```
+Plan feature → Create wave → Add change → Prepare wave → Implement → Review → Close wave
+```
+
+Each step has a gate. `Prepare wave` runs a readiness check before any code is touched. `Review wave` enforces required reviewer lanes — including project-declared inferential sensor lanes that run LLM-based security, performance, and architecture reviewers. `Close wave` blocks until operator signoff and all required lanes are recorded.
+
+### Seeds
+
+Seeds are numbered prompt documents (001–214 and growing) that define how agents should behave at each lifecycle step. They live in `.wavefoundry/framework/seeds/` and cover everything from installing the framework to reviewing architecture to triaging sensor findings by severity. Seeds are the framework's long-term memory — they encode hard-won operational lessons in a form agents can retrieve and apply.
+
+### The MCP Server
+
+The local MCP server (`server.py`) exposes 47 tools across four surfaces:
+
+- **Wave lifecycle** — `wave_current`, `wave_prepare`, `wave_review`, `wave_close`, `wave_run_sensors`, and the full creation and mutation surface
+- **Docs and code search** — `docs_search` (semantic + lexical fallback), `code_search`, `code_read`, `code_definition`, `code_references`, `code_ask`
+- **Audit and health** — `wave_audit`, `wave_validate`, `wave_garden`, `wave_index_health`, `wave_index_build`
+- **Framework navigation** — `seed_get`, `wave_help`, `wave_map`, `wave_get_prompt`
+
+The server runs locally over stdio — no hosted service, no network dependency, no data leaving the machine.
+
+### The Feedback Harness
+
+Beyond process gates, Wavefoundry ships a three-dimension feedback harness based on Böckeler's harness engineering model:
+
+- **Maintainability** — computational sensors: project-registered shell commands run via `wave_run_sensors` before reviewer lanes; pass/fail determined by exit code
+- **Architecture** — inferential sensor lane: `architecture-reviewer` (seed 214) reads project architecture docs and assesses layer violations, boundary crossings, and decision conflicts
+- **Behaviour** — inferential sensor lanes: `security-reviewer` (seed 213) and `performance-reviewer` (seed 212) assess their respective dimensions
+
+Projects declare which lanes are required in `docs/workflow-config.json`. `wave_review` enforces them structurally — a missing declared lane blocks `wave_close` the same way a missing operator signoff does.
+
+Sensor findings carry a severity (`critical`, `high`, `medium`, `low`, `none`). `wave_review` aggregates severity across all recorded signoffs and emits a `high_severity_finding` advisory when the worst finding is `critical` or `high`.
+
+### The Semantic Index
+
+The framework ships a local semantic search index built on `fastembed` and `BAAI/bge-base-en-v1.5`. It indexes project docs and code separately, runs entirely offline, and supports incremental updates driven by post-edit hooks. `docs_search` falls back to lexical search when the index is unavailable, so MCP tools always return something useful.
+
+---
 
 ## Repository Layout
 
-```text
+```
 wavefoundry/
-  AGENTS.md
-  README.md
-  start-wavefoundry.prompt.md
-  docs/
-    README.md
-  framework/
-    README.md
-    VERSION
-    seeds/
-    scripts/
+  .wavefoundry/framework/
+    seeds/        Numbered seed prompts (001–214+)
+    scripts/      Framework tooling: server, indexer, chunker, lint, gardener,
+                  lifecycle ID, packaging, platform surface rendering
+    index/        Packaged framework semantic index (ships in the distribution zip)
+    VERSION       Current distribution version
+    MANIFEST      File manifest for pack-aware upgrade pruning
+  docs/           Wavefoundry's self-hosted operating surface
+    waves/        Closed and active wave records
+    agents/       Role docs, journals, personas, session handoff
+    architecture/ Architecture docs (current-state, layering rules, domain map, etc.)
+    contributing/ Build, verification, workflow, review-and-evals docs
+    prompts/      Public command catalog and agent-oriented prompt bodies
+    references/   Project overview, context memory, tech debt tracker
+    workflow-config.json  Lifecycle epoch, review policies, sensor config, index roots
+  AGENTS.md       Root agent entry map with shortcuts, stage gate, git policy
+  README.md       This file
 ```
 
-Planned MCP implementation layout:
+---
 
-```text
-wavefoundry/
-  pyproject.toml
-  src/
-    wavefoundry/
-      __init__.py
-      server.py
-      config.py
-      tools/
-        __init__.py
-        code.py
-        framework.py
-        wave.py
-      index/
-        __init__.py
-  tests/
-  examples/
+## Getting Started
+
+### Installing in a target repository
+
+Drop the distribution zip (`wavefoundry-YYYY-MM-DDx.zip`) at the root of the target repository and run:
+
+```
+Install Wavefoundry
 ```
 
-## Framework Source
+The agent unpacks the zip, bootstraps the full operating surface, registers the MCP server with the host, and hands off a summary. After install, restart the MCP server and run:
 
-`.wavefoundry/framework/` is the canonical Wave Framework source tree in this self-hosted repository.
+```
+wave_index_build(content="docs", mode="update")
+```
 
-`.wavefoundry/framework/seeds/` contains the seed prompts and framework reference material. `.wavefoundry/framework/scripts/` contains the executable framework tooling. `.wavefoundry/framework/README.md` is the canonical map of the seed pack, prompt numbering, public command surface, and package behavior.
+### Upgrading an existing install
 
-Package Wavefoundry from this repository with:
+```
+Upgrade Wavefoundry
+```
+
+The agent detects drift, reconciles prompts and hook surfaces, runs the docs gate, restarts MCP, and updates the index. If `CHUNKER_VERSION` changed in the new pack, a full rebuild is required — `wave_index_health` will report `chunker_version_mismatch`.
+
+### Working on Wavefoundry itself
+
+Wavefoundry uses the Wave Framework to develop itself. The self-hosting boundary:
+
+- `.wavefoundry/framework/` — canonical framework source; edits here change the framework for all downstream repositories
+- `docs/` — Wavefoundry's own project operating surface
+
+Before editing seeds, open the `seed_edit_allowed` gate. Before broad framework edits, open `framework_edit_allowed`. Both gates are checked by pre-edit hooks and closed automatically at wave close.
 
 ```bash
+# Package a new distribution
 python3 .wavefoundry/framework/scripts/build_pack.py
+
+# Run framework tests
+python3 .wavefoundry/framework/scripts/run_tests.py
+
+# Docs gate
+wave_garden() then wave_validate()
 ```
 
-The package is a dated `wavefoundry-YYYY-MM-DDx.zip` archive. Packaging is a maintainer action; target-repository install and upgrade behavior is a separate concern.
+---
 
-## MCP Direction
+## Design Principles
 
-The MCP server is a capability inside Wavefoundry, not the whole product.
+**Local-first.** The server runs as a subprocess in the agent's host process. No hosted service, no accounts, no data leaving the machine. The semantic index is built and queried offline.
 
-The first MCP surface should be local, read-only, and reliable:
+**File-based state.** All wave state, change records, review evidence, and configuration live in ordinary Markdown and JSON files in the repository. Nothing is hidden in a database. Agents and humans can read, edit, and version-control everything.
 
-- `wave.current`
-- `wave.validate`
-- `wave.prompt_surface_audit`
-- `wave.resolve_seed`
-- `code.search`
-- `code.read`
+**Structural enforcement over convention.** Gates are enforced by the server, not by agent instruction. `wave_close` will not succeed without operator signoff and all required lane signoffs recorded in the wave file. The harness dimensions are declared in config and enforced the same way.
 
-Mutation tools come later, after validation and audit are trustworthy:
+**Feedforward and feedback together.** Seeds (feedforward) guide agents through correct behavior. Sensors and reviewers (feedback) catch what the feedforward missed. Both are necessary; neither alone is sufficient.
 
-- `wave.install`
-- `wave.upgrade`
-- `wave.package`
-- `wave.create`
-- `wave.prepare`
-- `wave.review`
-- `wave.close`
+**Framework as a deployable artifact.** Wavefoundry ships as a dated zip that any repository can install or upgrade. The framework evolves in Wavefoundry's own wave process, gets packaged, and propagates to downstream projects through a standard upgrade flow.
 
-The server should use explicit allowed target roots, avoid network dependencies for the MVP, and expose structured operations rather than arbitrary shell execution.
-
-## Self-Hosting
-
-Wavefoundry should use the Wave Framework to develop the Wave Framework.
-
-That self-hosting boundary is:
-
-- `.wavefoundry/framework/` is canonical framework product source.
-- `docs/` is Wavefoundry's project operating surface.
-- Framework behavior changes should be planned, reviewed, and closed through Wavefoundry's local wave process once the local docs surface is installed.
-- If rendered local docs conflict with `.wavefoundry/framework/seeds/`, the seed source wins for generic framework behavior.
-- If Wavefoundry-specific policy under `docs/` conflicts with generic defaults, the local project policy governs this repository until a wave changes the framework default.
-
-## Existing Project Migration
-
-Existing projects that already vendor the old framework under `agent-workflows/wave-context-framework/` should use the explicit migration flow:
-
-```text
-Migrate to Wavefoundry
-Upgrade to Wavefoundry
-```
-
-The migration prompt is `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md`. It preserves target-local docs and customizations, stages the canonical framework under `.wavefoundry/framework/`, validates compatibility, and leaves the old tree in place until validation passes and the operator has reviewed the migration result.
+---
 
 ## Non-Goals
 
-- Do not make Wavefoundry specific to any one target repository.
-- Do not hide all framework behavior inside MCP.
-- Do not require hosted services for install, upgrade, validation, indexing, or packaging.
-- Do not start with semantic/vector search before exact search and wave validation are stable.
-- Do not let tools overwrite target-local docs without diff or conflict reporting.
-- Do not implement lifecycle mutation tools before read-only validation and audit tools are trustworthy.
-
-## Current Status
-
-This repository currently contains the canonical framework source and kickoff documentation. The MCP implementation has not been scaffolded yet.
+- Not specific to any one target repository or language
+- Not a hosted service — no network dependency for install, upgrade, validation, indexing, or packaging
+- Not a replacement for human review — the harness directs attention, it does not eliminate judgment
+- Not a code generator — Wavefoundry structures how agents work, not what they produce

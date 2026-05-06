@@ -16,7 +16,7 @@ Use this when you want a single command-style request such as:
 
 Intent:
 
-- Ready and execute the active wave — evaluate its admitted changes, coordinate agents and reviews, and drive the implementation-review loop until the wave is **closure-ready**. **Do not** perform **terminal closure** (completed `Status`, `Completed at`, closure-only plan/handoff reconciliation) unless the operator **explicitly confirms** closure in the current request (e.g. **`Close wave`**, **`Finalize feature`**, or a clear yes after you ask). See `docs/prompts/implement-wave.md` and `docs/prompts/close-wave.md`.
+- Ready and execute the active wave — evaluate its admitted changes, coordinate agents and reviews, and drive the implementation-review loop until the wave is **closure-ready**. **Do not** perform **terminal closure** (completed `Status`, `Completed at`, closure-only plan/handoff reconciliation) unless the operator **explicitly confirms** closure in the current request (e.g. **`Close wave`**, **`Finalize feature`**, or a clear yes after you ask). See `docs/prompts/implement-wave.prompt.md` and `docs/prompts/close-wave.prompt.md`.
 
 Core execution model:
 
@@ -136,7 +136,7 @@ Required tasks:
 7. Assign admitted changes, tasks, and review lanes to agents and personas.
 8. Confirm the wave roster, allocation rules, dependency rules, readiness checkpoints, and review checkpoints.
 9. Before the first edit, produce the wave plan: an ordered lane sequence with scoped inputs per serialization unit. This is the plan the operator approves at the checkpoint in task 8. Record it in the wave's Progress Log as the baseline. Deviations are `Deviation:` events, not silent reorderings.
-10. Execute the implement loop per the **Implement loop execution model** above (Thought → Action → Observe → Reflect, with CRITIC evaluation and Level 1/2/3 escalation). Defaults apply as specified there; do not restate them inline.
+10. Execute the implement loop per the **Implement loop execution model** above (Thought → Action → Observe → Reflect, with CRITIC evaluation and Level 1/2/3 escalation). Defaults apply as specified there; do not restate them inline. After implementation tasks are complete and before invoking inferential reviewer lanes, run `wave_run_sensors()` if the project has computational sensors configured — fix any sensor failures before proceeding to reviewer lanes.
 11. Coordinate execution until the wave objective is satisfied or the wave must be reconsidered.
 12. Reconcile partial completions, blocked changes, retries, deferred work, or moved work as execution proceeds.
 13. Rerun the readiness evaluation during final review before closure is accepted. After confirming required reviewer lanes are clean and required acceptance criteria are met, run an **AC scope gap check**: surface important/nice-to-have items not in admitted scope that would add value, confirm not-this-scope deferrals, and present a short prioritized list so the operator can decide before closure whether to admit follow-on work or carry it to the next wave. Keep this pass bounded — one list, no full discovery exercise.

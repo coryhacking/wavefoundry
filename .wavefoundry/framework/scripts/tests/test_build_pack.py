@@ -146,13 +146,19 @@ class BuildPackTests(unittest.TestCase):
         names = self._zip_names(path)
         self.assertGreater(len(names), 0)
 
-    def test_all_entries_begin_with_framework_prefix(self):
+    def test_all_entries_begin_with_wavefoundry_prefix(self):
         path = self._build()
+        allowed_prefixes = (".wavefoundry/framework/", ".wavefoundry/README.md")
         for name in self._zip_names(path):
             self.assertTrue(
-                name.startswith(".wavefoundry/framework/"),
+                any(name.startswith(p) or name == p for p in allowed_prefixes),
                 f"Entry does not start with expected prefix: {name}",
             )
+
+    def test_wavefoundry_readme_included_in_pack(self):
+        path = self._build()
+        names = self._zip_names(path)
+        self.assertIn(".wavefoundry/README.md", names)
 
     def test_expected_files_present(self):
         path = self._build()
@@ -170,6 +176,12 @@ class BuildPackTests(unittest.TestCase):
         for name in self._zip_names(path):
             self.assertNotIn("scripts/tests/", name, name)
             self.assertFalse(name.endswith("run_tests.py"), name)
+
+    def test_benchmarks_excluded_from_pack(self):
+        # Benchmarks are development-only artifacts; must not ship in the distribution zip.
+        path = self._build()
+        for name in self._zip_names(path):
+            self.assertNotIn("scripts/benchmarks/", name, name)
 
     def test_pycache_excluded(self):
         path = self._build()

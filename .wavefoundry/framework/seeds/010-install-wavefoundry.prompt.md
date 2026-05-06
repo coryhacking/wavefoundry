@@ -143,6 +143,7 @@ Execution contract (complete seed, not partial):
 - Copy or keep the **entire** `.wavefoundry/framework/scripts/` tree (including `docs_lint.py`, `docs_gardener.py`, `lifecycle_id.py`, and supporting modules) in the target repository whenever the repo vendors the pack; **`lifecycle_id.py` must exist** before relying on scripted IDs.
 - Init must explicitly run `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` after the agent-entry bootstrap so tracked platform hook/config surfaces are rendered deterministically rather than being left implicit.
 - Hook rendering may create Copilot agent files under `.github/hooks/`, but it must not create or modify GitHub Actions workflows under `.github/workflows/` and must not touch local git hooks under `.git/hooks/`.
+- **Final step — restart MCP and update indexes:** After init is complete and the docs gate passes, instruct the operator to restart the MCP server so the newly installed server picks up all rendered surfaces, then run `wave_index_build(content="docs", mode="update")` (or both project and framework layers when self-hosting) to ensure the semantic index reflects the installed docs. Present this as a required handoff step, not optional cleanup.
 
 Operator summary (required handoff):
 

@@ -79,10 +79,11 @@ Execution flow:
    - `AGENTS.md` and thin pointers so **Implementation guard (product code)** matches `seed-050` when the repo ships product code; backfill when inventory or repo-profile indicates implementation directories but the section is missing
    - tracked platform hook/config surfaces via `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` so generated hook entrypoints stay aligned with the current framework contract
    - repo-local prompt docs
-   - `docs/prompts/agents/` prompt bodies when the repository keeps checked-in project-context/planning helper prompts; backfill missing specialist agent bodies introduced in `seed-211` through `seed-213` when not present:
+   - `docs/prompts/agents/` prompt bodies when the repository keeps checked-in project-context/planning helper prompts; backfill missing specialist agent bodies introduced in `seed-211` through `seed-214` when not present:
      - `docs/prompts/agents/code-insight-agent.prompt.md` (CIA / `code_ask` retrieval agent — `seed-211`)
      - `docs/prompts/agents/performance-reviewer.prompt.md` (`performance-reviewer` lane — `seed-212`)
      - `docs/prompts/agents/security-reviewer.prompt.md` (`security-reviewer` lane — `seed-213`)
+     - `docs/prompts/agents/architecture-reviewer.prompt.md` (`architecture-reviewer` lane — `seed-214`)
    - workflow config schema
    - `docs/references/project-overview.md` when missing or stale
    - `docs/contributing/feature-wave-lifecycle-overview.md` when missing or stale so it stays aligned with `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` plus local reviewer/persona policy
@@ -172,7 +173,9 @@ Execution flow:
 
 12. Re-run the docs gate (**MCP:** **`wave_garden`** then **`wave_validate`** when attached; **CLI:** **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`**).
 
-13. **Operating-memory upgrade reconciliation:** When `seed-006`, `seed-050`, `seed-120`, `seed-130`, `seed-140`, `seed-160`, `seed-170`, `seed-180`, `seed-190`, `seed-200`, or `seed-210` changed the journal/role/persona memory contract, upgrade existing projects using this checklist:
+13. **Restart MCP and update indexes:** After the docs gate passes, instruct the operator to restart the MCP server so the upgraded server and any newly rendered hook/config surfaces take effect. Then run `wave_index_build(content="docs", mode="update")` for both the project layer and the framework layer (when self-hosting). If `CHUNKER_VERSION` changed, a full rebuild is required instead — see step 11. Present this as a required final handoff step, not optional cleanup.
+
+14. **Operating-memory upgrade reconciliation:** When `seed-006`, `seed-050`, `seed-120`, `seed-130`, `seed-140`, `seed-160`, `seed-170`, `seed-180`, `seed-190`, `seed-200`, or `seed-210` changed the journal/role/persona memory contract, upgrade existing projects using this checklist: When `seed-006`, `seed-050`, `seed-120`, `seed-130`, `seed-140`, `seed-160`, `seed-170`, `seed-180`, `seed-190`, `seed-200`, or `seed-210` changed the journal/role/persona memory contract, upgrade existing projects using this checklist:
    - Preserve operator standing directives, active cautions, security/release-sensitive notes, and evidence refs unless explicitly superseded with evidence.
    - Do not bulk-rewrite historical journal entries. Keep historical sections readable, add current operating-memory sections around them, and migrate only entries needed for current retrieval, promotion, or retirement.
    - Add or reconcile `Operating Identity`, `Salience Triggers`, and memory responsibilities in generated/local role and persona docs.
@@ -272,6 +275,8 @@ Validation areas that should be checked explicitly:
 - required canonical docs and topical artifact roots exist
 - `docs/references/project-overview.md` exists and explains the project workflow plus role/persona collaboration model
 - workflow config contains wave, memory, persona, prompt-generation, factor-review, and persona-review sections (`factor_review_policy` and `persona_review_policy` as separate keys)
+- workflow config `required_review_lanes` key is present when the project declares required inferential sensor lanes (`security-review`, `architecture-review`, `performance-review`, or project-custom lanes); if absent and the project uses reviewer agents, prompt the operator to add it
+- workflow config `sensors` key is present when the project registers computational sensors; document the format (`name`, `command`, `dimension`, `description`) in `docs/contributing/build-and-verification.md` when backfilling
 - workflow config includes **`lifecycle_id_policy`** when the project vendors `lifecycle_id.py` in the repository, either present already or backfilled without mutating an existing epoch/offset
 - workflow config `review_policies` includes `require_qa_reviewer_for_bug_fixes` when the project follows `docs/contributing/agent-team-workflow.md` bug-fix QA rules
 - workflow config wave-execution section contains readiness-review expectations when non-trivial wave execution is enabled
