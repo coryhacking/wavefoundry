@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: active
+Status: closed
 Last verified: 2026-05-05
 
 wave-id: `12dkb doc-summary-frontmatter`
@@ -23,6 +23,8 @@ Change Status: `implemented`
 
 - code-reviewer: approved — `_detect_primary_heading_level` correctly gates on `##` presence before checking `###`; `_H2_PATTERN` does not false-match `###` lines; `split_pattern` in `chunk_markdown` correctly replaces hardcoded `##` via `re.escape`; `suppress_h3_split` path is unaffected; frontmatter majority threshold is conservative and won't misfire on prose with one colon line; first-section opening extraction correctly skips blanks and sub-headings; docstring in `chunk_markdown` has a minor inaccuracy (says "count-based" but code is presence-based) — not a behavioral issue; 910 tests pass.
 - qa-reviewer: approved — all 12 ACs verified: AC-1 H1 title captured and tested, AC-2 frontmatter as individual lines with run-on guard tested, AC-3 first-section opening truncated at period and tested, AC-4 Sections list preserved, AC-5 no-H1/no-frontmatter/no-sections produces valid chunk, AC-6 `##`-dominant detection correct, AC-7 `###`-only doc splits at `###` with ≥2 named sections, AC-8 `suppress_h3_split` survives detection, AC-9 `CHUNKER_VERSION = "18"`, AC-10 all pre-existing tests pass, AC-11 8 new tests cover all specified cases, AC-12 910 tests pass.
+
+Completed At: 2026-05-05
 
 ## Wave Summary
 

@@ -32,6 +32,7 @@ Last distilled: 2026-05-05
 
 wave-id: `12dhh cia-research-role`
 wave-id: `12dkb doc-summary-frontmatter`
+wave-id: `12dv9 chunk-tags`
 
 - No other active signals at creation.
 

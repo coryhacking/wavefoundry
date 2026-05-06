@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: active
+Status: closed
 Last verified: 2026-05-05
 
 wave-id: `12dhh cia-research-role`
@@ -23,6 +23,8 @@ Change Status: `implemented`
 | qa-reviewer | review | 12dhh — AC coverage, seed-211 fidelity |
 | docs-contract-reviewer | review | 12dhh-enh cia-role-doc-orientation — CIA orientation section content accuracy and role-specificity |
 | qa-reviewer | review | 12dhh-enh cia-role-doc-orientation — AC coverage, existing content preservation |
+
+Completed At: 2026-05-05
 
 ## Wave Summary
 
