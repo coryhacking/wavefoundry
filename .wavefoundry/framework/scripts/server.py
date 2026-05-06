@@ -64,7 +64,7 @@ TRUSTED_PROJECT_METADATA = "trusted_project_metadata"
 UNTRUSTED_PROJECT_CONTENT = "untrusted_project_content"
 VALID_CHANGE_KINDS = {"bug", "feat", "enh", "change", "doc", "debt", "ref", "task", "maint", "ops"}
 MCP_TOOL_PREFIXES = ("wave_", "docs_", "code_", "seed_")
-DOCS_SEARCH_KINDS = frozenset({"doc", "seed", "architecture", "prompt"})
+DOCS_SEARCH_KINDS = frozenset({"doc", "seed", "architecture", "prompt", "doc-summary"})
 _PROMPT_MISS = object()
 """Sentinel used by ``McpRepoCache.get_prompt_text_cached`` to cache a None
 result (i.e. prompt not found) without storing Python ``None``, which cannot
@@ -129,6 +129,10 @@ class WaveIndex:
         self._meta: dict = {}
         self._loaded = False
         self._loaded_built_at: dict[str, str] = {}  # layer -> built_at stamp when last loaded
+        self._docs_tag_index: dict[str, list[int]] = {}
+        self._code_tag_index: dict[str, list[int]] = {}
+        self._docs_kind_index: dict[str, list[int]] = {}
+        self._code_kind_index: dict[str, list[int]] = {}
 
     def _indexer_module(self):
         return _load_script("indexer")
@@ -190,6 +194,11 @@ class WaveIndex:
         stale_paths = sorted(set(modified_paths) | set(added_paths) | set(removed_paths))
         docs_present = docs_json_path.exists()
         meta_present = meta_path.exists()
+        raw_chunker_versions = meta.get("chunker_versions", {})
+        indexed_chunker_versions: dict[str, str] = (
+            raw_chunker_versions if isinstance(raw_chunker_versions, dict) else {}
+        )
+        current_chunker_version: str = _read_chunker_version()
         return {
             "layer": layer,
             "index_dir": str(index_dir),
@@ -202,6 +211,8 @@ class WaveIndex:
             "added_paths_count": len(added_paths),
             "removed_paths_count": len(removed_paths),
             "current_hash_count": len(current_hashes),
+            "indexed_chunker_versions": indexed_chunker_versions,
+            "current_chunker_version": current_chunker_version,
         }
 
     def docs_health(self) -> dict[str, Any]:
@@ -221,6 +232,18 @@ class WaveIndex:
         readiness_overview = _index_readiness_overview(
             missing_layers, stale_layers, compatible_chunks, has_any_index
         )
+        # Detect chunker version mismatch: index was built with an older CHUNKER_VERSION.
+        # Fires even when file hashes are current (e.g. after a pack upgrade before rebuild).
+        chunker_version_mismatch_layers: list[str] = []
+        for layer_health in (project, framework):
+            current_cv = layer_health.get("current_chunker_version", "")
+            indexed_cvs = layer_health.get("indexed_chunker_versions", {})
+            if not current_cv or not layer_health.get("meta_present"):
+                continue
+            if isinstance(indexed_cvs, dict) and any(
+                v != current_cv for v in indexed_cvs.values() if v
+            ):
+                chunker_version_mismatch_layers.append(layer_health["layer"])
         return {
             "project": project,
             "framework": framework,
@@ -230,6 +253,7 @@ class WaveIndex:
             "compatible_chunks": compatible_chunks,
             "readiness_overview": readiness_overview,
             "semantic_ready": has_any_index and not stale_layers and compatible_chunks,
+            "chunker_version_mismatch_layers": chunker_version_mismatch_layers,
         }
 
     @contextlib.contextmanager
@@ -303,12 +327,14 @@ class WaveIndex:
         normalized_path = str(chunk.get("path") or "").replace("\\", "/")
         if kind == "seed":
             return chunk_kind == "seed"
+        if kind == "prompt":
+            return chunk_kind == "prompt"
+        if kind == "doc-summary":
+            return chunk_kind == "doc-summary"
         if chunk_kind != "doc":
             return False
         if kind == "doc":
             return True
-        if kind == "prompt":
-            return normalized_path.startswith("docs/prompts/")
         if kind == "architecture":
             return normalized_path == "docs/ARCHITECTURE.md" or normalized_path.startswith("docs/architecture/")
         return chunk_kind == kind
@@ -467,6 +493,28 @@ class WaveIndex:
             "project": project_meta.get("built_at", ""),
             "framework": framework_meta.get("built_at", ""),
         }
+        docs_tag_index: dict[str, list[int]] = {}
+        docs_kind_index: dict[str, list[int]] = {}
+        for i, chunk in enumerate(self._docs_chunks):
+            for tag in _infer_tags(chunk.get("path", "")):
+                docs_tag_index.setdefault(tag, []).append(i)
+            chunk_kind = str(chunk.get("kind") or "")
+            docs_kind_index.setdefault(chunk_kind, []).append(i)
+            if chunk_kind == "doc":
+                p = str(chunk.get("path") or "").replace("\\", "/")
+                if p == "docs/ARCHITECTURE.md" or p.startswith("docs/architecture/"):
+                    docs_kind_index.setdefault("architecture", []).append(i)
+        self._docs_tag_index = docs_tag_index
+        self._docs_kind_index = docs_kind_index
+        code_tag_index: dict[str, list[int]] = {}
+        code_kind_index: dict[str, list[int]] = {}
+        for i, chunk in enumerate(self._code_chunks):
+            for tag in _infer_tags(chunk.get("path", "")):
+                code_tag_index.setdefault(tag, []).append(i)
+            chunk_kind = str(chunk.get("kind") or "")
+            code_kind_index.setdefault(chunk_kind, []).append(i)
+        self._code_tag_index = code_tag_index
+        self._code_kind_index = code_kind_index
         self._loaded = True
 
     # ------------------------------------------------------------------
@@ -552,22 +600,54 @@ class WaveIndex:
             if scores[i] > 0
         ]
 
-    def search_docs(self, query: str, kind: Optional[str] = None, top_n: int = 5) -> list[dict]:
+    def search_docs(self, query: str, kind: Optional[str] = None, top_n: int = 5, tags: Optional[list] = None) -> list[dict]:
         self._ensure_loaded()
         DOCS_MODEL = self._indexer_constant("DOCS_MODEL")
         qvec = self._embed_query(query, DOCS_MODEL)
-        results = self._cosine_search(qvec, self._docs_vecs, self._docs_chunks, top_n * 2)
-        if kind:
-            results = [r for r in results if self._doc_matches_kind(r, kind)]
-        return results[:top_n]
+        vecs, chunks = self._docs_vecs, self._docs_chunks
+        if tags or kind:
+            indices: set[int] = set(range(len(self._docs_chunks)))
+            if tags:
+                indices &= set().union(*(self._docs_tag_index.get(t, []) for t in tags))
+            if kind:
+                indices &= set(self._docs_kind_index.get(kind, []))
+            sorted_indices = sorted(indices)
+            if not sorted_indices:
+                return []
+            vecs = vecs[sorted_indices]
+            chunks = [chunks[i] for i in sorted_indices]
+        return self._cosine_search(qvec, vecs, chunks, top_n)
 
-    def search_code(self, query: str, language: Optional[str] = None, top_n: int = 5) -> list[dict]:
+    def search_code(self, query: str, language: Optional[str] = None, top_n: int = 5, kind: Optional[str] = None, max_per_file: Optional[int] = None, tags: Optional[list] = None) -> list[dict]:
         self._ensure_loaded()
         CODE_MODEL = self._indexer_constant("CODE_MODEL")
         qvec = self._embed_query(query, CODE_MODEL)
-        results = self._cosine_search(qvec, self._code_vecs, self._code_chunks, top_n * 2)
+        vecs, chunks = self._code_vecs, self._code_chunks
+        if tags or kind:
+            indices: set[int] = set(range(len(self._code_chunks)))
+            if tags:
+                indices &= set().union(*(self._code_tag_index.get(t, []) for t in tags))
+            if kind:
+                indices &= set(self._code_kind_index.get(kind, []))
+            sorted_indices = sorted(indices)
+            if not sorted_indices:
+                return []
+            vecs = vecs[sorted_indices]
+            chunks = [chunks[i] for i in sorted_indices]
+        n = top_n * 4 if language or max_per_file is not None else top_n
+        results = self._cosine_search(qvec, vecs, chunks, n)
         if language:
             results = [r for r in results if r.get("language") == language]
+        if max_per_file is not None:
+            seen: dict[str, int] = {}
+            filtered = []
+            for r in results:
+                p = str(r.get("path") or "")
+                count = seen.get(p, 0)
+                if count < max_per_file:
+                    seen[p] = count + 1
+                    filtered.append(r)
+            results = filtered
         return results[:top_n]
 
     def get_seed(self, name: str) -> Optional[dict]:
@@ -1219,6 +1299,53 @@ def wave_help_response(goal: str = "") -> dict[str, Any]:
 # Framework operation helpers (direct import)
 # ---------------------------------------------------------------------------
 
+_chunker_version_cache: str = ""
+
+
+def _read_chunker_version() -> str:
+    """Read CHUNKER_VERSION from chunker.py without importing the full module.
+
+    Importing chunker.py requires tree-sitter and fastembed which are not
+    always available (e.g. during unit tests). Reading the constant directly
+    from source avoids that dependency.
+    """
+    global _chunker_version_cache
+    if _chunker_version_cache:
+        return _chunker_version_cache
+    chunker_path = Path(__file__).resolve().parent / "chunker.py"
+    try:
+        source = chunker_path.read_text(encoding="utf-8")
+        m = re.search(r'^CHUNKER_VERSION\s*=\s*["\']([^"\']+)["\']', source, re.MULTILINE)
+        if m:
+            _chunker_version_cache = m.group(1)
+    except OSError:
+        pass
+    return _chunker_version_cache
+
+
+def _background_build_status(root: Path) -> str:
+    """Return 'running', 'completed', or 'none' for the background code build.
+
+    Uses a PID file written by _spawn_background_code_build to detect whether
+    the process is still alive. 'completed' means the PID file exists but the
+    process has already exited (build finished or crashed).
+    """
+    pid_path = root / ".wavefoundry" / "index" / "background-build.pid"
+    if not pid_path.exists():
+        return "none"
+    try:
+        pid = int(pid_path.read_text(encoding="utf-8").strip())
+        os.kill(pid, 0)
+        return "running"
+    except (ValueError, OSError):
+        return "completed"
+
+
+def _infer_tags(path: str) -> list[str]:
+    """Return classification tags for a file path. Delegates to _tag_utils — single source of truth."""
+    return _load_script("_tag_utils").infer_tags(path)
+
+
 _script_cache: dict[str, Any] = {}
 """Module-level cache for scripts loaded via _load_script.
 
@@ -1359,51 +1486,107 @@ def _read_index_rebuild_stats(root: Path, layer: str) -> dict[str, Any]:
     }
 
 
-def _extract_rebuild_runtime_stats(output: str) -> dict[str, Any]:
-    stats: dict[str, Any] = {}
-    if "build_index: index is up to date" in output:
-        stats["files_indexed"] = 0
-        stats["up_to_date"] = True
-        return stats
+def _index_is_up_to_date(root: Path, layer: str, content: str = "docs") -> bool:
+    """Return True if the index has no stale or missing files.
 
-    done_matches = list(re.finditer(
-        r"build_index: done — (?P<files>\d+) files indexed, "
-        r"(?P<doc_chunks>\d+) doc chunks, (?P<code_chunks>\d+) code chunks",
-        output,
-    ))
-    if done_matches:
-        last_done = done_matches[-1]
-        stats["files_indexed"] = int(last_done.group("files"))
-        stats["doc_chunks"] = int(last_done.group("doc_chunks"))
-        stats["code_chunks"] = int(last_done.group("code_chunks"))
-        stats["up_to_date"] = False
-        if len(done_matches) > 1:
-            stats["pass_stats"] = [
-                {
-                    "files_indexed": int(match.group("files")),
-                    "doc_chunks": int(match.group("doc_chunks")),
-                    "code_chunks": int(match.group("code_chunks")),
-                }
-                for match in done_matches
-            ]
+    Runs the indexer with --dry-run (hash check only, no embedding/writes) and
+    checks whether it reports the index as current. Used by run_index_rebuild
+    to short-circuit spawning a background process when there is nothing to do.
+    """
+    import subprocess
+    scripts_dir = Path(__file__).resolve().parent
+    index_dir = _index_dir_for_layer(root, layer)
+    if not (index_dir / "meta.json").exists():
+        return False
+    include_prefixes = _workflow_project_include_prefixes(root) if layer == "project" else {"docs": (), "code": ()}
+    if layer == "project" and content == "all":
+        # setup_index.py doesn't support --dry-run; check docs layer as a proxy
+        check_content = "docs"
+    else:
+        check_content = content if content != "all" else "docs"
+    cmd = [
+        sys.executable, str(scripts_dir / "indexer.py"),
+        "--root", str(root), "--content", check_content, "--dry-run",
+    ]
+    if layer == "framework":
+        cmd.extend([
+            "--index-dir", str(index_dir),
+            "--include-prefix", ".wavefoundry/framework",
+            "--no-ignore-files",
+        ])
+    elif layer == "project" and check_content in {"docs", "code"}:
+        for prefix in (include_prefixes["docs"] if check_content == "docs" else include_prefixes["code"]):
+            cmd.extend(["--project-include-prefix", prefix])
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, cwd=str(root),
+            env={**os.environ, "PROJECT_ROOT": str(root)},
+            timeout=30,
+        )
+        return result.returncode == 0 and "build_index: index is up to date" in (result.stdout + result.stderr)
+    except Exception:
+        return False
 
-    incremental_matches = list(re.finditer(
-        r"build_index: incremental \w+ rebuild — (?P<changed>\d+) changed, (?P<removed>\d+) removed",
-        output,
-    ))
-    if incremental_matches:
-        last_incremental = incremental_matches[-1]
-        stats["changed_files"] = int(last_incremental.group("changed"))
-        stats["removed_files"] = int(last_incremental.group("removed"))
 
-    full_matches = list(re.finditer(r"build_index: full \w+ rebuild — (?P<files>\d+) files", output))
-    if full_matches:
-        stats["rebuild_scope"] = "full"
-        stats.setdefault("files_indexed", int(full_matches[-1].group("files")))
-    elif incremental_matches:
-        stats["rebuild_scope"] = "incremental"
+def _index_build_state_path(root: Path, layer: str) -> Path:
+    if layer == "framework":
+        return root / ".wavefoundry" / "framework" / "index" / "index-build.json"
+    return root / ".wavefoundry" / "index" / "index-build.json"
 
-    return stats
+
+def _index_build_log_path(root: Path, layer: str) -> Path:
+    if layer == "framework":
+        return root / ".wavefoundry" / "framework" / "index" / "index-build.log"
+    return root / ".wavefoundry" / "index" / "index-build.log"
+
+
+def _index_build_stats_path(root: Path, layer: str) -> Path:
+    if layer == "framework":
+        return root / ".wavefoundry" / "framework" / "index" / "index-build-stats.json"
+    return root / ".wavefoundry" / "index" / "index-build-stats.json"
+
+
+def _read_index_build_stats_file(root: Path, layer: str) -> Optional[dict[str, Any]]:
+    """Return persisted build stats from a previous completed build, or None."""
+    try:
+        path = _index_build_stats_path(root, layer)
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _write_index_build_stats_file(root: Path, layer: str, stats: dict[str, Any]) -> None:
+    """Persist build stats — never raises."""
+    try:
+        path = _index_build_stats_path(root, layer)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(stats), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _index_build_active(root: Path, layer: str) -> bool:
+    """Return True if a wave_index_build-spawned process is currently running."""
+    state_path = _index_build_state_path(root, layer)
+    if not state_path.exists():
+        return False
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    pid = state.get("pid")
+    if isinstance(pid, int) and _pid_is_running(pid):
+        return True
+    # Brief throttle covers the Popen → indexer lock-acquire window (~1-2s cold start).
+    # Reuses BACKGROUND_INDEX_REFRESH_THROTTLE_SECONDS (15s) — same race condition.
+    started_at = state.get("started_at")
+    if isinstance(started_at, (int, float)):
+        import time
+        if (time.time() - float(started_at)) < BACKGROUND_INDEX_REFRESH_THROTTLE_SECONDS:
+            return True
+    return False
 
 
 def run_index_rebuild(
@@ -1413,19 +1596,40 @@ def run_index_rebuild(
     full: bool = False,
     layer: str = "project",
 ) -> dict:
-    """Run indexer.py (or setup_index.py for project ``content=all``) synchronously.
+    """Spawn indexer.py as a background process and return immediately with pre-build stats.
 
-    When ``full`` is false (the default), the indexer performs an **incremental update**
-    (hash-based: changed files only). When ``full`` is true, it forces a **full rebuild**
-    of the selected content for that layer. Exposed as MCP ``wave_index_build`` with ``mode='update'|'rebuild'``.
+    The indexer runs detached; stdout/stderr are written to ``index-build.log`` in the
+    index directory. Exposed as MCP ``wave_index_build`` with ``mode='update'|'rebuild'``.
     """
     import subprocess
+    import time
     if content not in {"docs", "code", "all"}:
         raise ValueError(f"Unsupported content '{content}'.")
     if layer not in {"project", "framework"}:
         raise ValueError(f"Unsupported layer '{layer}'.")
     if layer == "framework" and content != "docs":
         raise ValueError("Framework index rebuild only supports content 'docs'.")
+
+    if _index_build_active(root, layer):
+        log_path = _index_build_log_path(root, layer)
+        pre_stats = _read_index_rebuild_stats(root, layer)
+        _index_label = {"docs": "docs/seed", "code": "code", "all": "docs/seed + code"}.get(content, content)
+        return {
+            "passed": True,
+            "already_running": True,
+            "notice": (
+                f"An index build for the {layer} layer is already in progress. "
+                f"Watch progress: {log_path}"
+            ),
+            "content": content,
+            "full": full,
+            "mode": "rebuild" if full else "update",
+            "index_scope": "full_rebuild" if full else "incremental_update",
+            "layer": layer,
+            "stats": pre_stats,
+            "log": str(log_path),
+        }
+
     scripts_dir = Path(__file__).resolve().parent
     include_prefixes = _workflow_project_include_prefixes(root) if layer == "project" else {"docs": (), "code": ()}
 
@@ -1447,35 +1651,131 @@ def run_index_rebuild(
             cmd.extend(["--project-include-prefix", prefix])
     if full:
         cmd.append("--full")
-    result = subprocess.run(
-        cmd,
-        capture_output=True, text=True,
-        cwd=str(root),
-        env={**os.environ, "PROJECT_ROOT": str(root)},
+
+    pre_stats = _read_index_rebuild_stats(root, layer)
+    _index_label = {"docs": "docs/seed", "code": "code", "all": "docs/seed + code"}.get(content, content)
+    _file_count = pre_stats.get("files_total", "?")
+
+    if not full and _index_is_up_to_date(root, layer, content):
+        return {
+            "passed": True,
+            "already_running": False,
+            "up_to_date": True,
+            "notice": f"Index is up to date — no rebuild needed.",
+            "content": content,
+            "full": False,
+            "mode": "update",
+            "index_scope": "incremental_update",
+            "layer": layer,
+            "stats": pre_stats,
+        }
+
+    # Persist stats from the previous completed build before overwriting the log.
+    log_path = _index_build_log_path(root, layer)
+    prev_log_text = ""
+    if log_path.exists():
+        try:
+            prev_log_text = log_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            pass
+    if prev_log_text:
+        _m = re.search(
+            r"done\s*[—-]+\s*(\d+)\s+files? indexed,\s*(\d+)\s+doc chunks?,\s*(\d+)\s+code chunks?",
+            prev_log_text,
+        )
+        if _m:
+            _prev_state: dict[str, Any] = {}
+            try:
+                _prev_state = json.loads(_index_build_state_path(root, layer).read_text(encoding="utf-8"))
+            except Exception:
+                pass
+            _prev_started = _prev_state.get("started_at")
+            _finished_ts: Optional[float] = None
+            try:
+                _finished_ts = log_path.stat().st_mtime
+            except OSError:
+                pass
+            _elapsed = (
+                int(_finished_ts - float(_prev_started))
+                if _finished_ts is not None and isinstance(_prev_started, (int, float))
+                else None
+            )
+            _write_index_build_stats_file(root, layer, {
+                "elapsed_seconds": _elapsed,
+                "files_indexed": int(_m.group(1)),
+                "doc_chunks": int(_m.group(2)),
+                "code_chunks": int(_m.group(3)),
+                "built_at": (
+                    datetime.datetime.utcfromtimestamp(_finished_ts).isoformat() + "Z"
+                    if _finished_ts is not None else None
+                ),
+                "content": _prev_state.get("content", content),
+                "mode": "rebuild" if _prev_state.get("full") else "update",
+            })
+
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_file = open(log_path, "w", encoding="utf-8")  # noqa: SIM115
+    try:
+        kwargs: dict[str, Any] = {
+            "stdout": log_file,
+            "stderr": log_file,
+            "stdin": subprocess.DEVNULL,
+            "cwd": str(root),
+            "env": {**os.environ, "PROJECT_ROOT": str(root)},
+        }
+        if os.name == "nt":
+            kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kwargs["start_new_session"] = True
+        proc = subprocess.Popen(cmd, **kwargs)
+    finally:
+        log_file.close()
+
+    state_path = _index_build_state_path(root, layer)
+    state_path.write_text(
+        json.dumps({"pid": proc.pid, "started_at": time.time(), "content": content, "layer": layer, "full": full}),
+        encoding="utf-8",
     )
-    output = result.stdout + result.stderr
-    lines = [line.strip() for line in output.splitlines() if line.strip()]
-    stats: dict[str, Any] = {}
-    if result.returncode == 0:
-        stats = _read_index_rebuild_stats(root, layer)
-        stats.update(_extract_rebuild_runtime_stats(output))
-        if stats.get("pass_stats") and not stats.get("up_to_date"):
-            stats["files_indexed"] = stats.get("files_total", stats.get("files_indexed", 0))
+
+    _build_stats = _read_index_build_stats_file(root, layer)
+    _timing_hint = ""
+    if _build_stats and isinstance(_build_stats.get("elapsed_seconds"), int):
+        _mins = round(_build_stats["elapsed_seconds"] / 60)
+        _prev_files = _build_stats.get("files_indexed", "?")
+        _timing_hint = f" Last build took ~{_mins} minute{'s' if _mins != 1 else ''} for {_prev_files} files — expect similar."
+
+    if full:
+        notice = (
+            f"Rebuilding {_index_label} index ({layer} layer) — {_file_count} source files. "
+            f"The index is being built locally and may take 5–10 minutes depending on repository size."
+            f"{_timing_hint} "
+            f"Watch progress: {log_path}"
+        )
+    else:
+        notice = (
+            f"Updating {_index_label} index ({layer} layer) — scanning for changes. "
+            f"The index is being built locally and may take 5–10 minutes depending on repository size."
+            f"{_timing_hint} "
+            f"Watch progress: {log_path}"
+        )
+
     mode_label = "rebuild" if full else "update"
     return {
-        "passed": result.returncode == 0,
+        "passed": True,
+        "already_running": False,
+        "notice": notice,
         "content": content,
         "full": full,
         "mode": mode_label,
         "index_scope": "full_rebuild" if full else "incremental_update",
         "layer": layer,
-        "stats": stats,
-        "output": output,
-        "summary": lines[-1] if lines else "",
+        "stats": pre_stats,
+        "log": str(log_path),
+        "pid": proc.pid,
     }
 
 
-def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: int = 5) -> dict[str, Any]:
+def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: int = 5, tags: Optional[list] = None) -> dict[str, Any]:
     k = (kind or "").strip().lower()
     n = max(1, min(int(limit), 20))  # clamp to [1, 20]
     if k and k not in DOCS_SEARCH_KINDS:
@@ -1500,7 +1800,7 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
     fallback_reason = ""
     try:
         # Attempt semantic search; exception handlers below switch to lexical fallback.
-        results = index.search_docs(query, kind=k or None, top_n=n)
+        results = index.search_docs(query, kind=k or None, top_n=n, tags=tags or None)
     except SemanticModelUnavailableOfflineError as exc:
         search_mode = "lexical_fallback"
         fallback_reason = "semantic_model_unavailable_offline"
@@ -1571,7 +1871,7 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
     )
 
 
-def code_search_response(index: WaveIndex, query: str, language: str = "", limit: int = 5) -> dict[str, Any]:
+def code_search_response(index: WaveIndex, query: str, language: str = "", limit: int = 5, kind: Optional[str] = None, max_per_file: Optional[int] = None, tags: Optional[list] = None) -> dict[str, Any]:
     n = max(1, min(int(limit), 20))  # clamp to [1, 20]
 
     # Resolve language input → either a category (set of langs) or a single canonical name.
@@ -1607,10 +1907,10 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
     try:
         if category_langs is not None:
             # Fetch unfiltered results then post-filter to the category set.
-            raw = index.search_code(query, language=None, top_n=n * len(category_langs))
+            raw = index.search_code(query, language=None, top_n=n * len(category_langs), kind=kind, max_per_file=max_per_file, tags=tags or None)
             results = [r for r in raw if r.get("language") in category_langs][:n]
         else:
-            results = index.search_code(query, language=language or None, top_n=n)
+            results = index.search_code(query, language=language or None, top_n=n, kind=kind, max_per_file=max_per_file, tags=tags or None)
     except SemanticModelUnavailableOfflineError as exc:
         return _response(
             "error",
@@ -2215,6 +2515,9 @@ def _lane_has_signoff_in_evidence(evidence_text: str, lane: str) -> bool:
         line = raw.strip().lower()
         if not line or line.startswith("#"):
             continue
+        # Skip placeholder lines — e.g. "operator-signoff: <approved when ...>"
+        if "<" in line:
+            continue
         if lane_l not in line:
             continue
         if any(tok in line for tok in _SIGNOFF_TOKENS):
@@ -2241,6 +2544,8 @@ def _review_evidence_has_any_signoff_line(wave_text: str) -> bool:
     for raw in el.splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
+            continue
+        if "<" in line:
             continue
         if any(tok in line for tok in _SIGNOFF_TOKENS):
             return True
@@ -2578,6 +2883,8 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
             "<Describe the purpose and scope of this wave in 1–3 sentences.>\n\n"
             "## Journal Watchpoints\n\n"
             "- <Add any coordination notes, sequencing constraints, or guard requirements here.>\n\n"
+            "## Review Evidence\n\n"
+            "- operator-signoff: <approved when operator confirms closure>\n\n"
             "## Dependencies\n\n"
             "- No external wave dependencies.\n"
         ),
@@ -3235,12 +3542,37 @@ def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
                 recovery_usage="python3 .wavefoundry/framework/scripts/setup_index.py --root .",
             )
         )
+    for layer in health.get("chunker_version_mismatch_layers", []):
+        diagnostics.append(
+            _diagnostic(
+                "chunker_version_mismatch",
+                f"Index layer '{layer}' was built with an older chunker version. "
+                "A full rebuild is required: python3 .wavefoundry/framework/scripts/setup_index.py --root . --full",
+                recovery_tools=["wave_index_build"],
+                recovery_usage="python3 .wavefoundry/framework/scripts/setup_index.py --root . --full",
+            )
+        )
+    background_build_status = _background_build_status(index.root)
+    if background_build_status == "running":
+        diagnostics.append(
+            _diagnostic(
+                "background_code_build_running",
+                "A background code index build is in progress. "
+                f"Watch progress: {index.root / '.wavefoundry' / 'index' / 'background-build.log'}",
+                recovery_tools=[],
+                recovery_usage="wave_index_health()",
+            )
+        )
 
     # Always return "ok" when health data was successfully computed — agents
     # read ``readiness_overview`` and ``diagnostics`` to decide whether to
     # reindex.  Reserve ``status: "error"`` for the except branch above (i.e.
     # when the health check itself crashed, not when the index is merely absent
     # or stale).
+    project_stats = _read_index_build_stats_file(index.root, "project")
+    if project_stats is not None:
+        health["previous_build_stats"] = project_stats
+
     semantic_ready = health.get("semantic_ready")
     return _response(
         "ok",
@@ -3507,33 +3839,99 @@ def wave_index_build_response(
             next_tools=["wave_help"],
             usage="wave_help(goal='maintain_framework')",
         )
-    status = "ok" if result["passed"] else "error"
-    recovery_usage = "python3 .wavefoundry/framework/scripts/setup_index.py --root ."
-    if layer_s == "framework":
-        recovery_usage = (
-            "python3 .wavefoundry/framework/scripts/indexer.py --root . --content docs "
-            "--index-dir .wavefoundry/framework/index --include-prefix .wavefoundry/framework "
-            "--no-ignore-files"
-        )
-    elif content_s == "all":
-        recovery_usage = "python3 .wavefoundry/framework/scripts/setup_index.py --root . --include-code"
-    diagnostics = [] if result["passed"] else [
-        _diagnostic(
-            "index_rebuild_failed",
-            result["output"].strip() or "index rebuild failed",
-            recovery_tools=["wave_index_health", "wave_help"],
-            recovery_usage=recovery_usage,
-        )
-    ]
-    if cache and result["passed"]:
+    # Only invalidate the cache when a rebuild was actually spawned — not for
+    # up-to-date or already-running short-circuits.
+    if cache and not result.get("up_to_date") and not result.get("already_running"):
         cache.invalidate()
+    diagnostics = []
+    if result.get("already_running"):
+        diagnostics.append(_diagnostic(
+            "index_build_already_running",
+            result["notice"],
+            recovery_tools=["wave_index_health"],
+            recovery_usage="wave_index_health()",
+        ))
     return _response(
-        status,
+        "ok",
         result,
         diagnostics=diagnostics,
-        next_tools=["wave_index_health", "docs_search"] if result["passed"] else ["wave_index_health", "wave_help"],
-        usage="docs_search(query='...')" if result["passed"] else "python3 .wavefoundry/framework/scripts/setup_index.py --root .",
+        next_tools=["wave_index_health"],
+        usage="wave_index_health()",
     )
+
+
+def wave_index_build_status_response(root: Path, layer: str = "project") -> dict[str, Any]:
+    import time as _time
+    layer_s = (layer or "").strip().lower()
+    if layer_s not in {"project", "framework"}:
+        return _response("error", {"layer": layer}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported layer '{layer}'. Use 'project' or 'framework'.")])
+    state_path = _index_build_state_path(root, layer_s)
+    log_path = _index_build_log_path(root, layer_s)
+
+    if not state_path.exists():
+        return _response("ok", {"layer": layer_s, "state": "idle"}, next_tools=["wave_index_build"], usage="wave_index_build()")
+
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return _response("ok", {"layer": layer_s, "state": "idle"}, next_tools=["wave_index_build"], usage="wave_index_build()")
+
+    pid = state.get("pid")
+    started_at = state.get("started_at")
+    now = _time.time()
+    elapsed = int(now - float(started_at)) if isinstance(started_at, (int, float)) else None
+
+    # Read log once — used for last_line (progress) and done-marker detection.
+    # Check log for completion marker before trusting _pid_is_running — the OS can
+    # recycle a PID to an unrelated process after the indexer exits, causing a false positive.
+    log_text = ""
+    last_line = ""
+    if log_path.exists():
+        try:
+            log_text = log_path.read_text(encoding="utf-8", errors="replace")
+            last_line = next((l.strip() for l in reversed(log_text.splitlines()) if l.strip()), "")
+        except OSError:
+            pass
+    log_done = bool(re.search(r"done\s*[—-]+\s*\d+\s+files? indexed", log_text))
+
+    if not log_done and isinstance(pid, int) and _pid_is_running(pid):
+        running_data: dict[str, Any] = {"layer": layer_s, "state": "running", "pid": pid, "started_at": started_at, "elapsed_seconds": elapsed, "progress": last_line}
+        _running_prev = _read_index_build_stats_file(root, layer_s)
+        if _running_prev is not None:
+            running_data["previous_stats"] = _running_prev
+        return _response(
+            "ok",
+            running_data,
+            next_tools=["wave_index_build_status"],
+            usage="wave_index_build_status()",
+        )
+
+    # Process not running (or log confirms done) — build finished (or crashed). Parse summary from log.
+    finished_at = None
+    if log_path.exists():
+        try:
+            finished_at = int(log_path.stat().st_mtime)
+        except OSError:
+            pass
+    finished_elapsed = int(float(finished_at) - float(started_at)) if finished_at and isinstance(started_at, (int, float)) else elapsed
+
+    files_indexed: Optional[int] = None
+    doc_chunks: Optional[int] = None
+    code_chunks: Optional[int] = None
+    if log_text:
+        m = re.search(r"done\s*[—-]+\s*(\d+)\s+files? indexed,\s*(\d+)\s+doc chunks?,\s*(\d+)\s+code chunks?", log_text)
+        if m:
+            files_indexed, doc_chunks, code_chunks = int(m.group(1)), int(m.group(2)), int(m.group(3))
+
+    previous_stats = _read_index_build_stats_file(root, layer_s)
+    summary: dict[str, Any] = {"layer": layer_s, "state": "finished", "started_at": started_at, "finished_at": finished_at, "elapsed_seconds": finished_elapsed}
+    if files_indexed is not None:
+        summary.update({"files_indexed": files_indexed, "doc_chunks": doc_chunks, "code_chunks": code_chunks})
+    else:
+        summary["last_log_line"] = last_line
+    if previous_stats is not None:
+        summary["previous_stats"] = previous_stats
+    return _response("ok", summary, next_tools=["wave_index_health"], usage="wave_index_health()")
 
 
 def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
@@ -3749,6 +4147,11 @@ def wave_pause_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
     )
 
 
+def _operator_signoff_present(wave_text: str) -> bool:
+    """True if Review Evidence contains an operator-signoff line."""
+    return _lane_has_signoff_in_evidence(_combined_review_evidence(wave_text), "operator-signoff")
+
+
 def wave_review_response(root: Path, wave_id: str) -> dict[str, Any]:
     wave_md = _find_wave_md(root, wave_id)
     if wave_md is None:
@@ -3756,19 +4159,28 @@ def wave_review_response(root: Path, wave_id: str) -> dict[str, Any]:
     _trigger_background_index_refresh_for_paths(root, [wave_md])
     lint_result = run_validate(root)
     wave_text = wave_md.read_text(encoding="utf-8")
-    required_lanes = _extract_required_review_lanes(wave_text)
-    lane_results = [{"lane": lane, "recorded_signoff": _lane_has_signoff(wave_text, lane)} for lane in required_lanes]
+    required_lanes = ["operator"] + _extract_required_review_lanes(wave_text)
+    operator_signed = _operator_signoff_present(wave_text)
+    lane_results = [{"lane": "operator", "recorded_signoff": operator_signed}] + [{"lane": lane, "recorded_signoff": _lane_has_signoff(wave_text, lane)} for lane in required_lanes[1:]]
     diagnostics = [] if lint_result["passed"] else [_diagnostic("docs_lint_error", err, recovery_tools=["wave_validate"]) for err in lint_result["errors"]]
     missing = [entry["lane"] for entry in lane_results if not entry["recorded_signoff"]]
     if missing:
+        diag_msg = (
+            "Operator review approval is required before closing this wave. "
+            "Add `operator-signoff: approved` to `## Review Evidence` in wave.md. "
+            "Approval is given by the operator asking to close the wave, or by the agent explicitly asking for approval."
+        ) if "operator" in missing else f"Required review lanes without recorded signoff: {', '.join(missing)}."
         diagnostics.append(
             _diagnostic(
-                "missing_lane_signoff",
-                f"Required review lanes without recorded signoff: {', '.join(missing)}.",
+                "missing_operator_signoff" if "operator" in missing else "missing_lane_signoff",
+                diag_msg,
                 recovery_tools=["wave_current"],
                 recovery_usage="wave_current()",
             )
         )
+        if "operator" in missing and len(missing) > 1:
+            other_missing = [m for m in missing if m != "operator"]
+            diagnostics.append(_diagnostic("missing_lane_signoff", f"Required review lanes without recorded signoff: {', '.join(other_missing)}.", recovery_tools=["wave_current"], recovery_usage="wave_current()"))
     status = "ok" if lint_result["passed"] and not missing else "error"
     return _response(
         status,
@@ -3802,6 +4214,19 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
         diagnostics.append(_diagnostic("docs_gardener_failed", "docs_gardener failed during close.", recovery_tools=["wave_garden", "wave_validate"], recovery_usage="wave_garden(mode='run')"))
     if unresolved:
         diagnostics.append(_diagnostic("open_changes_remaining", f"Wave has unresolved change statuses: {', '.join(sorted(set(unresolved)))}.", recovery_tools=["wave_current"], recovery_usage="wave_current()"))
+    if not _operator_signoff_present(text):
+        diagnostics.append(
+            _diagnostic(
+                "missing_operator_signoff",
+                (
+                    "Operator review approval is required before closing this wave. "
+                    "Add `operator-signoff: approved` to `## Review Evidence` in wave.md. "
+                    "Approval is given by the operator asking to close the wave, or by the agent explicitly asking for approval."
+                ),
+                recovery_tools=["wave_review"],
+                recovery_usage=f"wave_review(wave_id={wave_id!r})",
+            )
+        )
     required_lanes = _extract_required_review_lanes(text)
     evidence_present = bool(_combined_review_evidence(text).strip())
     if required_lanes:
@@ -3871,6 +4296,24 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
         next_tools=["wave_current"],
         usage="wave_current()",
     )
+
+
+def wave_reopen_response(root: Path, wave_id: str) -> dict[str, Any]:
+    wave_md = _find_wave_md(root, wave_id)
+    if wave_md is None:
+        return _response("error", {"wave_id": wave_id}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wave_list_waves"], recovery_usage="wave_list_waves()")], next_tools=["wave_list_waves"], usage="wave_list_waves()")
+    text = wave_md.read_text(encoding="utf-8")
+    status_match = _STATUS_PATTERN.search(text)
+    current_status = status_match.group(1).lower() if status_match else ""
+    if current_status != "closed":
+        return _response("error", {"wave_id": wave_id, "current_status": current_status}, diagnostics=[_diagnostic("wave_not_closed", f"Wave '{wave_id}' has status '{current_status}' — only closed waves can be reopened.", recovery_tools=["wave_current"], recovery_usage="wave_current()")], next_tools=["wave_current"], usage="wave_current()")
+    # Set status back to active
+    text = text[:status_match.start(1)] + "active" + text[status_match.end(1):]
+    # Remove any "Completed At: ..." line stamped by wave_close
+    text = re.sub(r"^Completed At:.*\n?", "", text, flags=re.MULTILINE)
+    wave_md.write_text(text, encoding="utf-8")
+    _trigger_background_index_refresh_for_paths(root, [wave_md])
+    return _response("ok", {"wave_id": wave_id, "status": "active", "updated": True}, next_tools=["wave_current", "wave_review"], usage="wave_current()")
 
 
 def _default_template() -> str:
@@ -4151,8 +4594,32 @@ def _python_references(root: Path, symbol: str) -> list[dict[str, Any]]:
     return results
 
 
+_KEYWORD_FALLBACK_RESULT_CAP = 50
+
+
+def _keyword_fallback_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
+    """Keyword fallback for non-Python definition lookup."""
+    results = []
+    root_r = root.resolve()
+    pattern = re.compile(r"\b" + re.escape(symbol) + r"\b")
+    for p in _walk_repo_for_navigation(root):
+        if len(results) >= _KEYWORD_FALLBACK_RESULT_CAP:
+            break
+        try:
+            source = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+        for lineno, line in enumerate(source.splitlines(), 1):
+            if pattern.search(line):
+                results.append({"path": rel, "line": lineno, "snippet": line.rstrip(), "method": "keyword_fallback"})
+                if len(results) >= _KEYWORD_FALLBACK_RESULT_CAP:
+                    break
+    return results
+
+
 def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[str, Any]:
-    """Find definition(s) for a symbol (Python AST) or return unsupported for other languages."""
+    """Find definition(s) for a symbol. Uses Python AST for Python files; keyword fallback for all other languages."""
     symbol = symbol_or_path_position.strip()
     if not symbol:
         return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("invalid_arguments", "Symbol must be a non-empty string.")], next_tools=["code_keyword_search"], usage="code_keyword_search(query='MyClass')")
@@ -4160,24 +4627,36 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
         definitions = _python_definitions(root, symbol)
     except Exception as exc:
         return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Definition search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
-    if not definitions:
+    if definitions:
         return _response(
             "ok",
-            {"symbol": symbol, "language": "python", "definitions": [], "supported_languages": list(_SUPPORTED_DEFINITION_LANGS)},
-            diagnostics=[_diagnostic("not_found", f"No Python definition found for '{symbol}'. Use code_keyword_search for text-based fallback.", recovery_tools=["code_keyword_search"], recovery_usage=f"code_keyword_search(query={symbol!r})")],
+            {"symbol": symbol, "language": "python", "definitions": definitions, "supported_languages": list(_SUPPORTED_DEFINITION_LANGS), "method": "ast"},
+            next_tools=["code_read"],
+            usage=f"code_read(path={definitions[0]['path']!r}, start_line={definitions[0]['line']}, end_line={definitions[0]['line'] + 20})",
+        )
+    # No Python definitions found — run keyword fallback across all languages
+    try:
+        fallback = _keyword_fallback_definitions(root, symbol)
+    except Exception as exc:
+        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Fallback search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
+    if not fallback:
+        return _response(
+            "ok",
+            {"symbol": symbol, "definitions": [], "method": "keyword_fallback"},
+            diagnostics=[_diagnostic("not_found", f"No definition found for '{symbol}' in any language.", recovery_tools=["code_keyword_search"], recovery_usage=f"code_keyword_search(query={symbol!r})")],
             next_tools=["code_keyword_search"],
             usage=f"code_keyword_search(query={symbol!r})",
         )
     return _response(
         "ok",
-        {"symbol": symbol, "language": "python", "definitions": definitions, "supported_languages": list(_SUPPORTED_DEFINITION_LANGS), "note": "Non-Python languages are not supported. Use code_keyword_search for text-based lookup in those files."},
+        {"symbol": symbol, "definitions": fallback, "method": "keyword_fallback", "note": "AST-based lookup is Python-only. Results are keyword matches across all languages."},
         next_tools=["code_read"],
-        usage=f"code_read(path={definitions[0]['path']!r}, start_line={definitions[0]['line']}, end_line={definitions[0]['line'] + 20})",
+        usage=f"code_read(path={fallback[0]['path']!r}, start_line={fallback[0]['line']}, end_line={fallback[0]['line'] + 20})",
     )
 
 
 def code_references_response(root: Path, symbol_or_path_position: str) -> dict[str, Any]:
-    """Find references to a symbol in Python files, or return unsupported for other languages."""
+    """Find references to a symbol. Uses Python text matching for Python files; keyword fallback for all other languages."""
     symbol = symbol_or_path_position.strip()
     if not symbol:
         return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("invalid_arguments", "Symbol must be a non-empty string.")], next_tools=["code_keyword_search"], usage="code_keyword_search(query='my_func')")
@@ -4185,11 +4664,270 @@ def code_references_response(root: Path, symbol_or_path_position: str) -> dict[s
         refs = _python_references(root, symbol)
     except Exception as exc:
         return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Reference search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
+    if refs:
+        return _response(
+            "ok",
+            {"symbol": symbol, "language": "python", "count": len(refs), "references": refs, "method": "ast", "supported_languages": list(_SUPPORTED_REFERENCE_LANGS)},
+            next_tools=["code_read"],
+            usage=f"code_read(path='...', start_line=N, end_line=N+20)",
+        )
+    # No Python references — run keyword fallback across all languages
+    try:
+        fallback = _keyword_fallback_definitions(root, symbol)
+    except Exception as exc:
+        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Fallback search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
+    if not fallback:
+        return _response(
+            "ok",
+            {"symbol": symbol, "references": [], "count": 0, "method": "keyword_fallback"},
+            diagnostics=[_diagnostic("not_found", f"No references found for '{symbol}'.", recovery_tools=["code_keyword_search"], recovery_usage=f"code_keyword_search(query={symbol!r})")],
+            next_tools=["code_keyword_search"],
+            usage=f"code_keyword_search(query={symbol!r})",
+        )
     return _response(
         "ok",
-        {"symbol": symbol, "language": "python", "count": len(refs), "references": refs, "supported_languages": list(_SUPPORTED_REFERENCE_LANGS), "note": "Reference search uses text matching for Python. Non-Python languages fall back to code_keyword_search."},
+        {"symbol": symbol, "references": fallback, "count": len(fallback), "method": "keyword_fallback", "note": "Python-only AST lookup found no results. Results are keyword matches across all languages."},
         next_tools=["code_read"],
-        usage=f"code_read(path='...', start_line=N, end_line=N+20)" if refs else f"code_keyword_search(query={symbol!r})",
+        usage=f"code_read(path='...', start_line=N, end_line=N+20)",
+    )
+
+
+# ---------------------------------------------------------------------------
+# code_dependencies — on-demand import graph extraction
+# ---------------------------------------------------------------------------
+
+def _parse_python_imports(source: str) -> list[dict[str, Any]]:
+    import ast as _ast
+    try:
+        tree = _ast.parse(source)
+    except SyntaxError:
+        return []
+    imports = []
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Import):
+            for alias in node.names:
+                imports.append({"module": alias.name, "resolved": False})
+        elif isinstance(node, _ast.ImportFrom):
+            module = node.module or ""
+            level = node.level or 0
+            name = ("." * level) + module if level else module
+            imports.append({"module": name, "resolved": False})
+    return imports
+
+
+_JS_TS_IMPORT_RE = re.compile(r"""(?:import|export)\s+(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]""")
+_JS_TS_REQUIRE_RE = re.compile(r"""require\s*\(\s*['"]([^'"]+)['"]\s*\)""")
+_GO_IMPORT_BLOCK_RE = re.compile(r"import\s*\(([^)]+)\)", re.DOTALL)
+_GO_IMPORT_INLINE_RE = re.compile(r'import\s+"([^"]+)"')
+_GO_IMPORT_STR_RE = re.compile(r'"([^"]+)"')
+_RUST_USE_RE = re.compile(r"^(?:pub\s+)?use\s+([\w:]+)", re.MULTILINE)
+
+
+def _parse_js_ts_imports(source: str) -> list[dict[str, Any]]:
+    imports = []
+    for m in _JS_TS_IMPORT_RE.finditer(source):
+        imports.append({"module": m.group(1), "resolved": False})
+    for m in _JS_TS_REQUIRE_RE.finditer(source):
+        imports.append({"module": m.group(1), "resolved": False})
+    return imports
+
+
+def _parse_go_imports(source: str) -> list[dict[str, Any]]:
+    imports = []
+    for block in _GO_IMPORT_BLOCK_RE.finditer(source):
+        for m in _GO_IMPORT_STR_RE.finditer(block.group(1)):
+            imports.append({"module": m.group(1), "resolved": False})
+    for m in _GO_IMPORT_INLINE_RE.finditer(source):
+        imports.append({"module": m.group(1), "resolved": False})
+    return imports
+
+
+def _parse_rust_imports(source: str) -> list[dict[str, Any]]:
+    imports = []
+    for m in _RUST_USE_RE.finditer(source):
+        imports.append({"module": m.group(1), "resolved": False})
+    return imports
+
+
+_IMPORT_PARSERS: dict[str, Any] = {
+    "python": (_parse_python_imports, "ast"),
+    "javascript": (_parse_js_ts_imports, "regex"),
+    "typescript": (_parse_js_ts_imports, "regex"),
+    "go": (_parse_go_imports, "regex"),
+    "rust": (_parse_rust_imports, "regex"),
+}
+
+_JS_TS_SUFFIXES = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
+
+
+def code_dependencies_response(root: Path, path: str) -> dict[str, Any]:
+    """Return imported modules/files for a given repo-relative path, parsed on demand."""
+    rel = path.strip().replace("\\", "/")
+    if not rel:
+        return _response("error", {"path": rel}, diagnostics=[_diagnostic("invalid_arguments", "path must be a non-empty repo-relative file path.")], next_tools=["code_list_files"], usage="code_list_files()")
+    abs_path = _resolve_repo_path(root, rel)
+    if abs_path is None:
+        return _response("error", {"path": rel}, diagnostics=[_diagnostic("invalid_arguments", "path escapes the repository root or is absolute.")], next_tools=["code_list_files"], usage="code_list_files()")
+    try:
+        source = abs_path.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return _response("error", {"path": rel}, diagnostics=[_diagnostic("file_not_found", f"File not found: {rel}")], next_tools=["code_list_files"], usage="code_list_files()")
+    except OSError as exc:
+        return _response("error", {"path": rel}, diagnostics=[_diagnostic("read_error", str(exc))], next_tools=[], usage="")
+
+    suffix = Path(rel).suffix.lower()
+    if suffix == ".py":
+        lang = "python"
+    elif suffix in _JS_TS_SUFFIXES:
+        lang = _EXT_TO_LANG.get(suffix, "javascript")
+    else:
+        lang = _EXT_TO_LANG.get(suffix, "")
+
+    parser_entry = _IMPORT_PARSERS.get(lang)
+    if not parser_entry:
+        return _response("ok", {"path": rel, "imports": [], "method": "unsupported"}, next_tools=[], usage="")
+
+    parser_fn, method = parser_entry
+    imports = parser_fn(source)
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    deduped = []
+    for entry in imports:
+        mod = entry["module"]
+        if mod not in seen:
+            seen.add(mod)
+            deduped.append(entry)
+
+    return _response(
+        "ok",
+        {"path": rel, "imports": deduped, "method": method},
+        next_tools=["code_read"],
+        usage=f"code_read(path={rel!r})",
+    )
+
+
+# ---------------------------------------------------------------------------
+# code_ask — mechanical retrieval routing for codebase Q&A
+# ---------------------------------------------------------------------------
+
+def _classify_question(question: str) -> str:
+    """Heuristic question classifier: navigational | explanatory | instructional."""
+    q = question.lower()
+    navigational_signals = ["where", "which file", "what file", "find", "locate", "path to"]
+    instructional_signals = ["how do i", "how to", "steps to", "how can i", "how should i", "how would i"]
+    for sig in instructional_signals:
+        if sig in q:
+            return "instructional"
+    for sig in navigational_signals:
+        if sig in q:
+            return "navigational"
+    return "explanatory"
+
+
+def _heuristic_confidence(citations: list[dict]) -> str:
+    if len(citations) >= 2:
+        return "high"
+    if len(citations) == 1:
+        return "medium"
+    return "low"
+
+
+def code_ask_response(index: "WaveIndex", root: Path, question: str) -> dict[str, Any]:
+    """Mechanical routing: broad retrieval pass → targeted pass → assemble structured response."""
+    question = question.strip()
+    if not question:
+        return _response("error", {"question": question}, diagnostics=[_diagnostic("invalid_arguments", "question must be a non-empty string.")], next_tools=[], usage="")
+
+    question_type = _classify_question(question)
+    gaps: list[str] = []
+    citations: list[dict] = []
+
+    # Check index freshness
+    try:
+        health = index._layer_health("project")
+        chunker_versions = health.get("indexed_chunker_versions", {})
+        current_cv = health.get("current_chunker_version", "")
+        is_stale = bool(chunker_versions) and any(v != current_cv for v in chunker_versions.values())
+    except Exception:
+        is_stale = False
+    index_freshness = "stale" if is_stale else "current"
+
+    # Broad pass: semantic search over code and docs
+    try:
+        code_results = index.search_code(question, top_n=5, max_per_file=2)
+    except Exception:
+        code_results = []
+        gaps.append("code index unavailable")
+
+    try:
+        doc_results = index.search_docs(question, top_n=3)
+    except Exception:
+        doc_results = []
+        gaps.append("docs index unavailable")
+
+    def _to_citation(r: dict) -> dict:
+        path = r.get("path", "")
+        lines = r.get("lines") or []
+        line_range = f":{lines[0]}-{lines[1]}" if len(lines) == 2 else ""
+        return {
+            "ref": f"{path}{line_range}",
+            "path": path,
+            "lines": lines,
+            "excerpt": (r.get("text") or "")[:300],
+            "score": r.get("score"),
+            "kind": r.get("kind"),
+        }
+
+    broad_hits = code_results + doc_results
+    citations = [_to_citation(r) for r in broad_hits]
+
+    # Targeted pass: keyword and structural lookup when broad pass is thin
+    if len(citations) < 2:
+        try:
+            kw_resp = code_keyword_search_response(root, question.split()[0] if question.split() else question)
+            if kw_resp.get("status") != "ok":
+                gaps.append("keyword search failed")
+            else:
+                kw_results = kw_resp.get("data", {}).get("results", [])[:3]
+                for r in kw_results:
+                    citations.append({
+                        "ref": f"{r.get('path', '')}:{r.get('line', '')}",
+                        "path": r.get("path", ""),
+                        "lines": [r.get("line"), r.get("line")],
+                        "excerpt": r.get("snippet", ""),
+                        "score": None,
+                        "kind": "keyword",
+                    })
+        except Exception:
+            gaps.append("keyword search unavailable")
+
+    if not citations:
+        gaps.append(f"no indexed evidence found for: {question!r}")
+
+    confidence = _heuristic_confidence(citations)
+
+    # Assemble answer text from top citations
+    if citations:
+        top = citations[0]
+        answer = f"Based on indexed sources: see {top['ref']}."
+        if len(citations) > 1:
+            answer += f" Additional evidence in {', '.join(c['ref'] for c in citations[1:3])}."
+    else:
+        answer = f"No indexed evidence found for this question. The topic may not be covered in the current index or may use different terminology."
+
+    return _response(
+        "ok",
+        {
+            "question": question,
+            "question_type": question_type,
+            "answer": answer,
+            "citations": citations,
+            "confidence": confidence,
+            "gaps": gaps,
+            "index_freshness": index_freshness,
+        },
+        next_tools=["code_read", "docs_search"],
+        usage=f"code_read(path={citations[0]['path']!r}, start_line={citations[0]['lines'][0] if citations[0]['lines'] else 1})" if citations else "code_search(query=...)",
     )
 
 
@@ -4229,7 +4967,8 @@ def build_server(root: Path):
     @mcp.tool(annotations=_READONLY_TOOL)
     def docs_search(
         query: str,
-        kind: Literal["", "doc", "seed", "architecture", "prompt"] = "",
+        kind: Literal["", "doc", "seed", "architecture", "prompt", "doc-summary"] = "",
+        tags: list = [],
         limit: int = 5,
         **kwargs: Any,
     ) -> dict[str, Any]:
@@ -4239,24 +4978,39 @@ def build_server(root: Path):
         Use code_keyword_search instead when the exact text is known.
         Degrades to lexical fallback when the semantic model or index is unavailable.
 
+        Tags pre-filter the search space before cosine ranking. Use to scope results to a specific doc category.
+        Tag vocabulary: wave, agent, lifecycle, reference, journal, prompt, seed, framework, test, config.
+        Multiple tags use OR semantics (a chunk matching any requested tag is included).
+        kind and tags compose with AND semantics (a chunk must satisfy both when both are provided).
+        Examples: tags=["wave"] for wave records, tags=["agent"] for agent prompts and journals,
+                  tags=["lifecycle"] for install/onboarding docs, tags=["journal"] for agent journals only.
+
         Args:
             query: Natural language search query.
-            kind: Optional filter — one of: doc, seed, architecture, prompt.
+            kind: Optional filter — one of: doc, seed, architecture, prompt, doc-summary.
+            tags: Optional list of classification tags to pre-filter results. See tag vocabulary above.
             limit: Maximum results to return (1–20, default 5).
         """
         bad = _ensure_no_extra_args("docs_search", kwargs)
         if bad is not None:
             return bad
-        return docs_search_response(index, query, kind, limit=limit)
+        return docs_search_response(index, query, kind, limit=limit, tags=tags or None)
 
     @mcp.tool(annotations=_READONLY_TOOL)
-    def code_search(query: str, language: str = "", limit: int = 5, **kwargs: Any) -> dict[str, Any]:
+    def code_search(query: str, language: str = "", kind: str = "", max_per_file: int = 0, tags: list = [], limit: int = 5, **kwargs: Any) -> dict[str, Any]:
         """Semantic search over indexed source code chunks. Requires a built code index (wave_index_build content='code').
 
         Prefer when: searching for code by concept, behavior, or intent (e.g. "React component with loading state").
         Use code_keyword_search instead when the exact token, symbol, or string is known — always available, deterministic.
         Use docs_search instead when the answer is in a spec, architecture doc, or prompt rather than source code.
         When the code index is absent: returns status='error' with a diagnostic — does not crash.
+
+        Orientation pass (CIA): use kind="code-summary" with max_per_file=1 for a fast file-level survey before targeted retrieval.
+
+        Tags pre-filter the search space before cosine ranking. Use to scope results to a specific file category.
+        Tag vocabulary: test, config, framework, seed. Multiple tags use OR semantics.
+        language, kind, and tags all compose with AND semantics when provided together.
+        Example: tags=["test"] to scope to test files only, tags=["config"] for config/infra files.
 
         Choosing a language filter:
         - No filter: query spans the whole codebase. Best when you don't know which language has the answer.
@@ -4271,12 +5025,15 @@ def build_server(root: Path):
         Args:
             query: Natural language description of the code behavior or concept to find.
             language: Optional — category name, canonical language name, or raw extension (with or without dot).
+            kind: Optional — filter to a specific chunk kind. Use "code-summary" for file-level orientation chunks only.
+            max_per_file: Optional — cap results per file path (0 = no cap). Use 1 for orientation pass diversity.
+            tags: Optional list of classification tags to pre-filter results. See tag vocabulary above.
             limit: Maximum results to return (1–20, default 5).
         """
         bad = _ensure_no_extra_args("code_search", kwargs)
         if bad is not None:
             return bad
-        return code_search_response(index, query, language, limit=limit)
+        return code_search_response(index, query, language, limit=limit, kind=kind or None, max_per_file=max_per_file or None, tags=tags or None)
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def seed_get(name: str, **kwargs: Any) -> dict[str, Any]:
@@ -4291,6 +5048,45 @@ def build_server(root: Path):
         if bad is not None:
             return bad
         return seed_get_response(index, name)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_dependencies(path: str, **kwargs: Any) -> dict[str, Any]:
+        """Return the list of imported modules/files for a repo-relative source file, parsed on demand.
+
+        Prefer when: you need to understand what a file imports without reading the full source.
+        Supports Python (AST), JavaScript/TypeScript, Go, and Rust (regex). Returns method="unsupported" for other languages.
+
+        Args:
+            path: Repo-relative file path, e.g. "src/billing.py" or "src/App.tsx".
+        """
+        bad = _ensure_no_extra_args("code_dependencies", kwargs)
+        if bad is not None:
+            return bad
+        return code_dependencies_response(root, path)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_ask(question: str, **kwargs: Any) -> dict[str, Any]:
+        """Ask a natural-language question about the codebase and receive a grounded, cited answer.
+
+        Performs mechanical retrieval routing: broad semantic pass (code_search + docs_search) followed by
+        targeted keyword pass. Returns a structured response with citations, confidence, and gaps.
+        No LLM synthesis occurs in this tool — the calling agent synthesizes from the returned citations.
+
+        Response fields:
+        - answer: Short answer with primary citation reference(s)
+        - citations: List of {ref, path, lines, excerpt, score, kind}
+        - confidence: "high" (2+ citations), "medium" (1 citation), "low" (no evidence)
+        - gaps: Retrieval gaps or index unavailability notices
+        - question_type: "navigational" | "explanatory" | "instructional"
+        - index_freshness: "current" | "stale"
+
+        Args:
+            question: Natural-language question about the codebase, e.g. "where does billing handle failed payments?"
+        """
+        bad = _ensure_no_extra_args("code_ask", kwargs)
+        if bad is not None:
+            return bad
+        return code_ask_response(index, root, question)
 
     # --- Wave inspection ---
 
@@ -4525,6 +5321,21 @@ def build_server(root: Path):
             return bad
         return wave_review_response(root, wave_id)
 
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_reopen(wave_id: str, **kwargs: Any) -> dict[str, Any]:
+        """Reopen a closed wave, restoring it to active status.
+
+        Only works on waves with status 'closed'. Removes any Completed At stamp
+        and sets Status back to active.
+
+        Args:
+            wave_id: Wave ID or unique prefix.
+        """
+        bad = _ensure_no_extra_args("wave_reopen", kwargs)
+        if bad is not None:
+            return bad
+        return wave_reopen_response(root, wave_id)
+
     @mcp.tool(annotations=_DESTRUCTIVE_TOOL)
     def wave_close(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Dry-run or close a wave after validation passes.
@@ -4745,6 +5556,22 @@ def build_server(root: Path):
         if bad is not None:
             return bad
         return wave_index_build_response(root, content=content, mode=mode, layer=layer, cache=cache)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def wave_index_build_status(layer: str = "project", **kwargs: Any) -> dict[str, Any]:
+        """Check the status of a background index build.
+
+        Returns state: 'running' (with pid, elapsed, progress), 'finished' (with
+        elapsed time and file/chunk summary), or 'idle' (no build has been run).
+        Safe to call at any time — read-only, no side effects. Suitable for /loop polling.
+
+        Args:
+            layer: `project` (default) or `framework`.
+        """
+        bad = _ensure_no_extra_args("wave_index_build_status", kwargs)
+        if bad is not None:
+            return bad
+        return wave_index_build_status_response(root, layer=layer)
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_validate(**kwargs: Any) -> dict[str, Any]:

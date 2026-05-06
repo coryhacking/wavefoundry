@@ -3,12 +3,10 @@ README.md
 VERSION
 index/docs.json
 index/docs.npy
+index/index-build.json
+index/index-build.log
 index/meta.json
-scripts/benchmarks/bench_report.json
-scripts/benchmarks/bench_report_final.json
-scripts/benchmarks/bench_report_sorted.json
-scripts/benchmarks/embed_bench.py
-scripts/benchmarks/retrieval_eval.json
+scripts/_tag_utils.py
 scripts/build_pack.py
 scripts/chunker.py
 scripts/docs_gardener.py
@@ -64,6 +62,9 @@ seeds/180-implement-feature.prompt.md
 seeds/190-finalize-feature.prompt.md
 seeds/200-wave-reconciliation.prompt.md
 seeds/210-agent-journal-distillation.prompt.md
+seeds/211-code-insight-agent.prompt.md
+seeds/212-performance-reviewer.prompt.md
+seeds/213-security-reviewer.prompt.md
 seeds/220-legacy-framework-migration.prompt.md
 seeds/230-author-spec.prompt.md
 seeds/240-package-wavefoundry.prompt.md

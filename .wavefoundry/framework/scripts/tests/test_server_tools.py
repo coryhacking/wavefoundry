@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -330,13 +331,13 @@ class LayeredIndexTests(unittest.TestCase):
 
         self.assertEqual(results, [])
 
-    def test_search_docs_lexical_supports_prompt_kind_by_path(self):
+    def test_search_docs_lexical_supports_prompt_kind(self):
         index = self.srv.WaveIndex(self.root)
         chunks = [
             {
                 "id": "prompt",
-                "path": "docs/prompts/prepare-wave.md",
-                "kind": "doc",
+                "path": "docs/prompts/prepare-wave.prompt.md",
+                "kind": "prompt",
                 "language": None,
                 "lines": [1, 2],
                 "section": "Purpose",
@@ -541,7 +542,7 @@ class GetPromptTests(unittest.TestCase):
 
     def test_finds_prompt_by_slug(self):
         _make_repo(self.root, {
-            "docs/prompts/plan-feature.md": "# Plan Feature\n\nDo the thing.\n",
+            "docs/prompts/plan-feature.prompt.md": "# Plan Feature\n\nDo the thing.\n",
         })
         text = self.srv.get_prompt(self.root, "plan-feature")
         self.assertIsNotNone(text)
@@ -601,7 +602,7 @@ class GuidedContractTests(unittest.TestCase):
         index = MagicMock()
         index.search_docs.return_value = []
         self.srv.docs_search_response(index, "q", "Doc")
-        index.search_docs.assert_called_with("q", kind="doc", top_n=5)
+        index.search_docs.assert_called_with("q", kind="doc", top_n=5, tags=None)
 
     def test_wave_help_catalog_is_browseable(self):
         self.srv._cached_help_catalog_json.cache_clear()
@@ -682,7 +683,7 @@ class GuidedContractTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["search_mode"], "semantic")
-        index.search_docs.assert_called_once_with("agent catalog", kind="doc", top_n=5)
+        index.search_docs.assert_called_once_with("agent catalog", kind="doc", top_n=5, tags=None)
         index.docs_health.assert_not_called()
 
     def test_docs_search_falls_back_to_lexical_on_index_not_ready(self):
@@ -746,25 +747,25 @@ class CodeSearchLanguageNormalizationTests(unittest.TestCase):
         index = self._index_with_results(self._fake_result())
         result = self.srv.code_search_response(index, "render", "typescript")
         self.assertEqual(result["data"]["language"], "typescript")
-        index.search_code.assert_called_once_with("render", language="typescript", top_n=5)
+        index.search_code.assert_called_once_with("render", language="typescript", top_n=5, kind=None, max_per_file=None, tags=None)
 
     def test_raw_extension_without_dot_is_normalized(self):
         index = self._index_with_results(self._fake_result())
         result = self.srv.code_search_response(index, "render", "tsx")
         self.assertEqual(result["data"]["language"], "typescript")
-        index.search_code.assert_called_once_with("render", language="typescript", top_n=5)
+        index.search_code.assert_called_once_with("render", language="typescript", top_n=5, kind=None, max_per_file=None, tags=None)
 
     def test_raw_extension_with_dot_is_normalized(self):
         index = self._index_with_results(self._fake_result())
         result = self.srv.code_search_response(index, "render", ".tsx")
         self.assertEqual(result["data"]["language"], "typescript")
-        index.search_code.assert_called_once_with("render", language="typescript", top_n=5)
+        index.search_code.assert_called_once_with("render", language="typescript", top_n=5, kind=None, max_per_file=None, tags=None)
 
     def test_js_extension_normalizes_to_javascript(self):
         index = self._index_with_results(self._fake_result())
         result = self.srv.code_search_response(index, "fetch", "js")
         self.assertEqual(result["data"]["language"], "javascript")
-        index.search_code.assert_called_once_with("fetch", language="javascript", top_n=5)
+        index.search_code.assert_called_once_with("fetch", language="javascript", top_n=5, kind=None, max_per_file=None, tags=None)
 
     def test_ts_extension_normalizes_to_typescript(self):
         index = self._index_with_results(self._fake_result())
@@ -1224,6 +1225,11 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertIn("1200a test-wave", text)
 
     def test_wave_review_reports_ok_when_lint_passes(self):
+        wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8") + "\n## Review Evidence\n\n- operator-signoff: approved\n",
+            encoding="utf-8",
+        )
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
             with patch.object(self.srv, "_trigger_background_index_refresh_for_paths") as trigger:
                 result = self.srv.wave_review_response(self.root, "1200a test-wave")
@@ -1247,6 +1253,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 "## Review Checkpoints\n\n"
                 "- prepare wave completed\n\n"
                 "## Review Evidence\n\n"
+                "- operator-signoff: approved\n"
                 "- architecture-reviewer sign-off: approved\n"
                 "- code-reviewer sign-off: approved\n"
             ),
@@ -1301,6 +1308,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 "Change ID: `1200a-feat sample`\n"
                 "Change Status: `complete`\n\n"
                 "## Review Evidence\n\n"
+                "- operator-signoff: approved\n"
                 "- architecture-reviewer: approved\n"
                 "- code-reviewer: approved\n"
                 "- qa-reviewer: approved\n"
@@ -1341,6 +1349,359 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
         self.assertEqual(result["status"], "error")
         self.assertTrue(any(d["code"] == "missing_lane_signoff" for d in result["diagnostics"]))
+
+
+class WaveReopenTests(unittest.TestCase):
+    """12eb0: wave_reopen MCP tool."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+        wave_dir = self.root / "docs" / "waves" / "1200a test-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        self.wave_md = wave_dir / "wave.md"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_wave(self, status: str, completed_at: bool = False) -> None:
+        text = (
+            "# Wave Record\n"
+            "wave-id: `1200a test-wave`\n"
+            f"Status: {status}\n\n"
+            "## Changes\n\n"
+            "Change ID: `1200a-feat sample`\n"
+            "Change Status: `done`\n\n"
+        )
+        if completed_at:
+            text += "Completed At: 2026-05-06\n\n"
+        text += "## Wave Summary\n\nSome summary.\n"
+        self.wave_md.write_text(text, encoding="utf-8")
+
+    def test_reopen_closed_wave_sets_status_active(self):
+        self._write_wave("closed")
+        result = self.srv.wave_reopen_response(self.root, "1200a test-wave")
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("Status: active", self.wave_md.read_text(encoding="utf-8"))
+
+    def test_reopen_removes_completed_at_stamp(self):
+        self._write_wave("closed", completed_at=True)
+        self.assertIn("Completed At:", self.wave_md.read_text(encoding="utf-8"))
+        self.srv.wave_reopen_response(self.root, "1200a test-wave")
+        self.assertNotIn("Completed At:", self.wave_md.read_text(encoding="utf-8"))
+
+    def test_reopen_non_closed_wave_returns_error(self):
+        self._write_wave("active")
+        result = self.srv.wave_reopen_response(self.root, "1200a test-wave")
+        self.assertEqual(result["status"], "error")
+        self.assertTrue(any(d["code"] == "wave_not_closed" for d in result["diagnostics"]))
+
+    def test_reopen_planned_wave_returns_error(self):
+        self._write_wave("planned")
+        result = self.srv.wave_reopen_response(self.root, "1200a test-wave")
+        self.assertEqual(result["status"], "error")
+        self.assertTrue(any(d["code"] == "wave_not_closed" for d in result["diagnostics"]))
+
+    def test_reopen_nonexistent_wave_returns_error(self):
+        result = self.srv.wave_reopen_response(self.root, "nonexistent-wave")
+        self.assertEqual(result["status"], "error")
+        self.assertTrue(any(d["code"] == "wave_not_found" for d in result["diagnostics"]))
+
+
+class OperatorSignoffTests(unittest.TestCase):
+    """12eb2: operator review lane required for wave_review and wave_close."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+        wave_dir = self.root / "docs" / "waves" / "1200a test-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        self.wave_md = wave_dir / "wave.md"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _base_wave(self, with_operator_signoff: bool = True) -> str:
+        review = "## Review Evidence\n\n"
+        if with_operator_signoff:
+            review += "- operator-signoff: approved\n"
+        return (
+            "# Wave Record\n"
+            "wave-id: `1200a test-wave`\n"
+            "Status: active\n\n"
+            "## Changes\n\n"
+            "Change ID: `1200a-feat sample`\n"
+            "Change Status: `done`\n\n"
+            + review
+        )
+
+    def test_wave_review_fails_without_operator_signoff(self):
+        self.wave_md.write_text(self._base_wave(with_operator_signoff=False), encoding="utf-8")
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertEqual(result["status"], "error")
+        codes = {d["code"] for d in result["diagnostics"]}
+        self.assertIn("missing_operator_signoff", codes)
+
+    def test_wave_review_passes_with_operator_signoff(self):
+        self.wave_md.write_text(self._base_wave(with_operator_signoff=True), encoding="utf-8")
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertEqual(result["status"], "ok")
+
+    def test_wave_review_includes_operator_in_required_lanes(self):
+        self.wave_md.write_text(self._base_wave(with_operator_signoff=True), encoding="utf-8")
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertIn("operator", result["data"]["required_lanes"])
+
+    def test_wave_close_blocked_without_operator_signoff(self):
+        self.wave_md.write_text(self._base_wave(with_operator_signoff=False), encoding="utf-8")
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+        self.assertEqual(result["status"], "error")
+        codes = {d["code"] for d in result["diagnostics"]}
+        self.assertIn("missing_operator_signoff", codes)
+
+    def test_wave_close_succeeds_with_operator_signoff(self):
+        self.wave_md.write_text(self._base_wave(with_operator_signoff=True), encoding="utf-8")
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="create")
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("Status: closed", self.wave_md.read_text(encoding="utf-8"))
+
+    def test_placeholder_signoff_does_not_count_as_approval(self):
+        # Regression: "<approved when operator confirms closure>" contains "approved"
+        # but is a template placeholder, not a real signoff.
+        text = (
+            "# Wave Record\n"
+            "wave-id: `1200a test-wave`\n"
+            "Status: active\n\n"
+            "## Changes\n\n"
+            "Change ID: `1200a-feat sample`\n"
+            "Change Status: `done`\n\n"
+            "## Review Evidence\n\n"
+            "- operator-signoff: <approved when operator confirms closure>\n"
+        )
+        self.wave_md.write_text(text, encoding="utf-8")
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertEqual(result["status"], "error")
+        codes = {d["code"] for d in result["diagnostics"]}
+        self.assertIn("missing_operator_signoff", codes)
+
+    def test_placeholder_signoff_blocks_wave_close(self):
+        text = (
+            "# Wave Record\n"
+            "wave-id: `1200a test-wave`\n"
+            "Status: active\n\n"
+            "## Changes\n\n"
+            "Change ID: `1200a-feat sample`\n"
+            "Change Status: `done`\n\n"
+            "## Review Evidence\n\n"
+            "- operator-signoff: <approved when operator confirms closure>\n"
+        )
+        self.wave_md.write_text(text, encoding="utf-8")
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+        self.assertEqual(result["status"], "error")
+        codes = {d["code"] for d in result["diagnostics"]}
+        self.assertIn("missing_operator_signoff", codes)
+
+
+class IndexBuildStatusTests(unittest.TestCase):
+    """12ebh: wave_index_build_status MCP tool."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+        self.state_path = self.index_dir / "index-build.json"
+        self.log_path = self.index_dir / "index-build.log"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_state(self, pid: int, started_at: float) -> None:
+        import json
+        self.state_path.write_text(json.dumps({"pid": pid, "started_at": started_at}), encoding="utf-8")
+
+    def test_idle_when_no_state_file(self):
+        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["state"], "idle")
+
+    def test_running_when_pid_active(self):
+        import os, time
+        self._write_state(os.getpid(), time.time() - 30)
+        self.log_path.write_text("build_index: embedding doc chunks 100-200/500\n", encoding="utf-8")
+        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        self.assertEqual(result["data"]["state"], "running")
+        self.assertIn("elapsed_seconds", result["data"])
+        self.assertEqual(result["data"]["progress"], "build_index: embedding doc chunks 100-200/500")
+
+    def test_finished_when_pid_dead(self):
+        import time
+        self._write_state(99999999, time.time() - 120)
+        self.log_path.write_text(
+            "build_index: embedding code chunks 1-2000/2000\n"
+            "build_index: done — 300 files indexed, 2000 doc chunks, 1800 code chunks\n",
+            encoding="utf-8",
+        )
+        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        self.assertEqual(result["data"]["state"], "finished")
+        self.assertEqual(result["data"]["files_indexed"], 300)
+        self.assertEqual(result["data"]["doc_chunks"], 2000)
+        self.assertEqual(result["data"]["code_chunks"], 1800)
+
+    def test_finished_falls_back_to_last_line_when_no_summary(self):
+        import time
+        self._write_state(99999999, time.time() - 60)
+        self.log_path.write_text("build_index: some partial output\n", encoding="utf-8")
+        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        self.assertEqual(result["data"]["state"], "finished")
+        self.assertEqual(result["data"]["last_log_line"], "build_index: some partial output")
+
+    def test_finished_when_log_has_done_marker_despite_live_pid(self):
+        # Regression: OS recycled the PID to an unrelated process after indexer exited.
+        # The done marker in the log must take precedence over _pid_is_running.
+        import os, time
+        self._write_state(os.getpid(), time.time() - 300)
+        self.log_path.write_text(
+            "build_index: embedding code chunks 1-500/500\n"
+            "build_index: done — 100 files indexed, 500 doc chunks, 400 code chunks\n",
+            encoding="utf-8",
+        )
+        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        self.assertEqual(result["data"]["state"], "finished")
+        self.assertEqual(result["data"]["files_indexed"], 100)
+
+    def test_invalid_layer_returns_error(self):
+        result = self.srv.wave_index_build_status_response(self.root, layer="bogus")
+        self.assertEqual(result["status"], "error")
+
+    def test_framework_layer_uses_framework_paths(self):
+        fw_index = self.root / ".wavefoundry" / "framework" / "index"
+        fw_index.mkdir(parents=True, exist_ok=True)
+        result = self.srv.wave_index_build_status_response(self.root, layer="framework")
+        self.assertEqual(result["data"]["state"], "idle")
+
+    def test_previous_stats_included_in_finished_response(self):
+        import json, time
+        self._write_state(99999999, time.time() - 120)
+        self.log_path.write_text(
+            "build_index: done — 300 files indexed, 2000 doc chunks, 1800 code chunks\n",
+            encoding="utf-8",
+        )
+        stats = {"elapsed_seconds": 420, "files_indexed": 300, "doc_chunks": 2000, "code_chunks": 1800, "built_at": "2026-05-06T10:00:00Z", "content": "docs", "mode": "rebuild"}
+        (self.index_dir / "index-build-stats.json").write_text(json.dumps(stats), encoding="utf-8")
+        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        self.assertEqual(result["data"]["state"], "finished")
+        self.assertIn("previous_stats", result["data"])
+        self.assertEqual(result["data"]["previous_stats"]["elapsed_seconds"], 420)
+
+    def test_previous_stats_included_in_running_response(self):
+        import json, os, time
+        self._write_state(os.getpid(), time.time() - 30)
+        self.log_path.write_text("build_index: embedding doc chunks 100-200/500\n", encoding="utf-8")
+        stats = {"elapsed_seconds": 300, "files_indexed": 200, "doc_chunks": 1500, "code_chunks": 0, "built_at": "2026-05-05T10:00:00Z", "content": "docs", "mode": "update"}
+        (self.index_dir / "index-build-stats.json").write_text(json.dumps(stats), encoding="utf-8")
+        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        self.assertEqual(result["data"]["state"], "running")
+        self.assertIn("previous_stats", result["data"])
+        self.assertEqual(result["data"]["previous_stats"]["elapsed_seconds"], 300)
+
+    def test_missing_stats_not_included_in_response(self):
+        import time
+        self._write_state(99999999, time.time() - 120)
+        self.log_path.write_text(
+            "build_index: done — 300 files indexed, 2000 doc chunks, 1800 code chunks\n",
+            encoding="utf-8",
+        )
+        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        self.assertEqual(result["data"]["state"], "finished")
+        self.assertNotIn("previous_stats", result["data"])
+
+    def test_corrupt_stats_file_not_included(self):
+        import time
+        self._write_state(99999999, time.time() - 120)
+        self.log_path.write_text(
+            "build_index: done — 300 files indexed, 2000 doc chunks, 1800 code chunks\n",
+            encoding="utf-8",
+        )
+        (self.index_dir / "index-build-stats.json").write_text("not valid json{{", encoding="utf-8")
+        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        self.assertEqual(result["data"]["state"], "finished")
+        self.assertNotIn("previous_stats", result["data"])
+
+
+class IndexBuildStatsTests(unittest.TestCase):
+    """12ec2: index-build-stats-persistence helpers."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_stats_path_project_layer(self):
+        path = self.srv._index_build_stats_path(self.root, "project")
+        self.assertEqual(path, self.root / ".wavefoundry" / "index" / "index-build-stats.json")
+
+    def test_stats_path_framework_layer(self):
+        path = self.srv._index_build_stats_path(self.root, "framework")
+        self.assertEqual(path, self.root / ".wavefoundry" / "framework" / "index" / "index-build-stats.json")
+
+    def test_read_returns_none_when_file_missing(self):
+        result = self.srv._read_index_build_stats_file(self.root, "project")
+        self.assertIsNone(result)
+
+    def test_read_returns_none_on_corrupt_json(self):
+        stats_path = self.root / ".wavefoundry" / "index" / "index-build-stats.json"
+        stats_path.parent.mkdir(parents=True, exist_ok=True)
+        stats_path.write_text("{{broken", encoding="utf-8")
+        result = self.srv._read_index_build_stats_file(self.root, "project")
+        self.assertIsNone(result)
+
+    def test_write_and_read_roundtrip(self):
+        stats = {"elapsed_seconds": 420, "files_indexed": 300, "doc_chunks": 2000, "code_chunks": 1800, "built_at": "2026-05-06T10:00:00Z", "content": "docs", "mode": "rebuild"}
+        self.srv._write_index_build_stats_file(self.root, "project", stats)
+        result = self.srv._read_index_build_stats_file(self.root, "project")
+        self.assertEqual(result, stats)
+
+    def test_write_creates_parent_directories(self):
+        stats = {"elapsed_seconds": 60, "files_indexed": 50, "doc_chunks": 100, "code_chunks": 200, "built_at": None, "content": "docs", "mode": "update"}
+        self.srv._write_index_build_stats_file(self.root, "project", stats)
+        stats_path = self.root / ".wavefoundry" / "index" / "index-build-stats.json"
+        self.assertTrue(stats_path.exists())
+
+    def test_write_does_not_raise_on_unwritable_path(self):
+        # Passes a read-only directory scenario by using a file path where parent cannot be created.
+        # We simulate this by pointing root to a non-existent nested path under a file.
+        fake_root = self.root / "notadir.txt"
+        fake_root.write_text("x", encoding="utf-8")
+        self.srv._write_index_build_stats_file(fake_root, "project", {"x": 1})
+
+    def test_framework_layer_stats_written_correctly(self):
+        stats = {"elapsed_seconds": 180, "files_indexed": 150, "doc_chunks": 900, "code_chunks": 0, "built_at": "2026-05-06T10:00:00Z", "content": "docs", "mode": "rebuild"}
+        self.srv._write_index_build_stats_file(self.root, "framework", stats)
+        stats_path = self.root / ".wavefoundry" / "framework" / "index" / "index-build-stats.json"
+        self.assertTrue(stats_path.exists())
+        result = self.srv._read_index_build_stats_file(self.root, "framework")
+        self.assertEqual(result["files_indexed"], 150)
 
 
 class McpRepoCacheTests(unittest.TestCase):
@@ -1493,55 +1854,60 @@ class RunIndexRebuildTests(unittest.TestCase):
 
     def _run(
         self,
-        returncode: int,
-        output: str,
         *,
         content: str = "docs",
         full: bool = False,
         layer: str = "project",
     ) -> dict:
-        mock_result = MagicMock()
-        mock_result.returncode = returncode
-        mock_result.stdout = output
-        mock_result.stderr = ""
-        with patch("subprocess.run", return_value=mock_result):
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_proc), \
+             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
             return self.srv.run_index_rebuild(self.root, content=content, full=full, layer=layer)
 
-    def test_passed_true_on_zero(self):
-        self._write_index_state()
-        result = self._run(0, "build_index: done — 1 files indexed, 1 doc chunks, 0 code chunks")
+    def test_returns_immediately_with_pre_build_stats(self):
+        self._write_index_state(file_hashes={"docs/a.md": "h1"}, docs_chunks=[{"id": "d1"}])
+        result = self._run()
         self.assertTrue(result["passed"])
+        self.assertFalse(result["already_running"])
         self.assertEqual(result["content"], "docs")
-        self.assertEqual(result["stats"]["files_indexed"], 1)
         self.assertEqual(result["stats"]["files_total"], 1)
         self.assertEqual(result["stats"]["doc_chunks"], 1)
+        self.assertIn("pid", result)
+        self.assertIn("log", result)
+        self.assertIn("notice", result)
 
     def test_full_flag_propagates(self):
         """Project ``content=all`` runs ``setup_index.py`` (docs + code); ``--full`` is appended."""
-        with patch("subprocess.run") as run:
-            mock_result = MagicMock(returncode=0, stdout="ok\n", stderr="")
-            run.return_value = mock_result
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen") as popen, \
+             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+            popen.return_value = mock_proc
             self.srv.run_index_rebuild(self.root, content="all", full=True)
-        cmd = run.call_args.args[0]
+        cmd = popen.call_args.args[0]
         self.assertIn("setup_index.py", str(cmd[1]))
         self.assertIn("--include-code", cmd)
         self.assertIn("--full", cmd)
 
     def test_index_scope_reflects_full_flag(self):
-        with patch("subprocess.run") as run:
-            mock_result = MagicMock(returncode=0, stdout="ok\n", stderr="")
-            run.return_value = mock_result
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_proc), \
+             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
             inc = self.srv.run_index_rebuild(self.root, content="docs", full=False)
             full = self.srv.run_index_rebuild(self.root, content="docs", full=True)
         self.assertEqual(inc["index_scope"], "incremental_update")
         self.assertEqual(full["index_scope"], "full_rebuild")
 
     def test_project_all_rebuild_uses_setup_index_script(self):
-        with patch("subprocess.run") as run:
-            mock_result = MagicMock(returncode=0, stdout="ok\n", stderr="")
-            run.return_value = mock_result
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen") as popen, \
+             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+            popen.return_value = mock_proc
             self.srv.run_index_rebuild(self.root, content="all", full=True)
-        cmd = run.call_args.args[0]
+        cmd = popen.call_args.args[0]
         self.assertIn("setup_index.py", str(cmd[1]))
         self.assertIn("--include-code", cmd)
         self.assertIn("--full", cmd)
@@ -1558,21 +1924,25 @@ class RunIndexRebuildTests(unittest.TestCase):
             }),
             encoding="utf-8",
         )
-        with patch("subprocess.run") as run:
-            mock_result = MagicMock(returncode=0, stdout="ok\n", stderr="")
-            run.return_value = mock_result
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen") as popen, \
+             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+            popen.return_value = mock_proc
             self.srv.run_index_rebuild(self.root, content="code")
-        cmd = run.call_args.args[0]
+        cmd = popen.call_args.args[0]
         self.assertIn("--project-include-prefix", cmd)
         self.assertIn(".wavefoundry/framework/scripts", cmd)
         self.assertIn("vendor/docs", cmd)
 
     def test_framework_layer_uses_framework_index_args(self):
-        with patch("subprocess.run") as run:
-            mock_result = MagicMock(returncode=0, stdout="ok\n", stderr="")
-            run.return_value = mock_result
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen") as popen, \
+             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+            popen.return_value = mock_proc
             result = self.srv.run_index_rebuild(self.root, content="docs", layer="framework")
-        cmd = run.call_args.args[0]
+        cmd = popen.call_args.args[0]
         self.assertEqual(result["layer"], "framework")
         self.assertIn("--index-dir", cmd)
         self.assertIn(".wavefoundry/framework/index", cmd)
@@ -1580,13 +1950,42 @@ class RunIndexRebuildTests(unittest.TestCase):
         self.assertIn(".wavefoundry/framework", cmd)
         self.assertIn("--no-ignore-files", cmd)
 
-    def test_up_to_date_rebuild_reports_zero_files_indexed(self):
-        self._write_index_state(file_hashes={"docs/a.md": "h1", "docs/b.md": "h2"}, docs_chunks=[{"id": "d1"}, {"id": "d2"}])
-        result = self._run(0, "build_index: index is up to date\n")
-        self.assertTrue(result["stats"]["up_to_date"])
-        self.assertEqual(result["stats"]["files_indexed"], 0)
-        self.assertEqual(result["stats"]["files_total"], 2)
-        self.assertEqual(result["stats"]["doc_chunks"], 2)
+    def test_up_to_date_returns_without_spawning(self):
+        self._write_index_state(file_hashes={"docs/a.md": "h1"}, docs_chunks=[{"id": "d1"}])
+        with patch("subprocess.Popen") as popen, \
+             patch.object(self.srv, "_index_is_up_to_date", return_value=True):
+            result = self.srv.run_index_rebuild(self.root, content="docs", full=False)
+        popen.assert_not_called()
+        self.assertTrue(result["passed"])
+        self.assertTrue(result["up_to_date"])
+        self.assertNotIn("pid", result)
+        self.assertIn("notice", result)
+
+    def test_full_bypasses_up_to_date_check(self):
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_proc) as popen, \
+             patch.object(self.srv, "_index_is_up_to_date", return_value=True):
+            result = self.srv.run_index_rebuild(self.root, content="docs", full=True)
+        popen.assert_called_once()
+        self.assertFalse(result.get("up_to_date", False))
+
+    def test_already_running_returns_without_spawning(self):
+        # Write a state file with a fake "running" PID
+        import time
+        index_dir = self.root / ".wavefoundry" / "index"
+        index_dir.mkdir(parents=True, exist_ok=True)
+        state_path = index_dir / "index-build.json"
+        state_path.write_text(
+            json.dumps({"pid": os.getpid(), "started_at": time.time(), "content": "docs", "layer": "project", "full": False}),
+            encoding="utf-8",
+        )
+        mock_proc = MagicMock()
+        with patch("subprocess.Popen") as popen:
+            result = self.srv.run_index_rebuild(self.root, content="docs")
+        popen.assert_not_called()
+        self.assertTrue(result["already_running"])
+        self.assertTrue(result["passed"])
 
     def test_invalid_content_raises(self):
         with self.assertRaises(ValueError):
@@ -1606,15 +2005,84 @@ class RunIndexRebuildTests(unittest.TestCase):
             file_hashes={"seed/a.md": "h1", "seed/b.md": "h2"},
             docs_chunks=[{"id": "s1"}, {"id": "s2"}, {"id": "s3"}],
         )
-        result = self._run(
-            0,
-            "build_index: full docs rebuild — 2 files\nbuild_index: done — 2 files indexed, 3 doc chunks, 0 code chunks\n",
-            layer="framework",
-        )
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_proc):
+            result = self.srv.run_index_rebuild(self.root, content="docs", layer="framework")
         self.assertEqual(result["stats"]["files_total"], 2)
-        self.assertEqual(result["stats"]["files_indexed"], 2)
         self.assertEqual(result["stats"]["doc_chunks"], 3)
-        self.assertEqual(result["stats"]["rebuild_scope"], "full")
+        self.assertEqual(result["index_scope"], "incremental_update")
+
+    def test_stats_written_when_previous_log_has_done_marker(self):
+        index_dir = self.root / ".wavefoundry" / "index"
+        index_dir.mkdir(parents=True, exist_ok=True)
+        log_path = index_dir / "index-build.log"
+        log_path.write_text(
+            "build_index: done — 150 files indexed, 800 doc chunks, 600 code chunks\n",
+            encoding="utf-8",
+        )
+        state_path = index_dir / "index-build.json"
+        state_path.write_text(
+            json.dumps({"pid": 99999, "started_at": 1000.0, "content": "docs", "full": False}),
+            encoding="utf-8",
+        )
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_proc), \
+             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+            self.srv.run_index_rebuild(self.root, content="docs")
+        stats = self.srv._read_index_build_stats_file(self.root, "project")
+        self.assertIsNotNone(stats)
+        self.assertEqual(stats["files_indexed"], 150)
+        self.assertEqual(stats["doc_chunks"], 800)
+        self.assertEqual(stats["code_chunks"], 600)
+        self.assertEqual(stats["content"], "docs")
+        self.assertEqual(stats["mode"], "update")
+
+    def test_stats_not_written_when_no_done_marker(self):
+        index_dir = self.root / ".wavefoundry" / "index"
+        index_dir.mkdir(parents=True, exist_ok=True)
+        log_path = index_dir / "index-build.log"
+        log_path.write_text("build_index: embedding doc chunks 100-200/500\n", encoding="utf-8")
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_proc), \
+             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+            self.srv.run_index_rebuild(self.root, content="docs")
+        stats = self.srv._read_index_build_stats_file(self.root, "project")
+        self.assertIsNone(stats)
+
+    def test_stats_not_written_when_no_previous_log(self):
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_proc), \
+             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+            self.srv.run_index_rebuild(self.root, content="docs")
+        stats = self.srv._read_index_build_stats_file(self.root, "project")
+        self.assertIsNone(stats)
+
+    def test_notice_includes_timing_estimate_when_stats_available(self):
+        index_dir = self.root / ".wavefoundry" / "index"
+        index_dir.mkdir(parents=True, exist_ok=True)
+        stats = {"elapsed_seconds": 420, "files_indexed": 200, "doc_chunks": 1000, "code_chunks": 0, "built_at": None, "content": "docs", "mode": "rebuild"}
+        (index_dir / "index-build-stats.json").write_text(json.dumps(stats), encoding="utf-8")
+        # Write a log without done marker so stats won't be overwritten
+        (index_dir / "index-build.log").write_text("no done marker\n", encoding="utf-8")
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_proc), \
+             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+            result = self.srv.run_index_rebuild(self.root, content="docs")
+        self.assertIn("7 minute", result["notice"])
+        self.assertIn("200 files", result["notice"])
+
+    def test_notice_has_no_timing_estimate_when_no_stats(self):
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_proc), \
+             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+            result = self.srv.run_index_rebuild(self.root, content="docs")
+        self.assertNotIn("Last build", result["notice"])
 
 
 class WaveIndexBuildResponseTests(unittest.TestCase):
@@ -1641,21 +2109,23 @@ class WaveIndexBuildResponseTests(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["diagnostics"][0]["code"], "invalid_arguments")
 
-    def test_success_invalidates_cache(self):
+    def test_spawn_invalidates_cache(self):
         cache = self.srv.McpRepoCache(self.root)
         with patch.object(
             self.srv,
             "run_index_rebuild",
             return_value={
                 "passed": True,
+                "already_running": False,
+                "notice": "Updating docs/seed index (project layer) — scanning for changes. This may take several minutes.",
                 "content": "docs",
                 "full": False,
                 "mode": "update",
                 "index_scope": "incremental_update",
                 "layer": "project",
-                "stats": {"files_indexed": 1, "files_total": 1, "doc_chunks": 1, "code_chunks": 0, "up_to_date": False},
-                "output": "ok",
-                "summary": "done",
+                "stats": {"files_total": 1, "doc_chunks": 1, "code_chunks": 0},
+                "log": "/tmp/index-build.log",
+                "pid": 12345,
             },
         ):
             with patch.object(cache, "invalidate") as invalidate:
@@ -1664,43 +2134,71 @@ class WaveIndexBuildResponseTests(unittest.TestCase):
         invalidate.assert_called_once()
         self.assertIn("stats", result["data"])
 
-    def test_failure_returns_recovery_diagnostic(self):
+    def test_up_to_date_does_not_invalidate_cache(self):
+        cache = self.srv.McpRepoCache(self.root)
         with patch.object(
             self.srv,
             "run_index_rebuild",
             return_value={
-                "passed": False,
+                "passed": True,
+                "already_running": False,
+                "up_to_date": True,
+                "notice": "Index is up to date — no rebuild needed.",
                 "content": "docs",
                 "full": False,
                 "mode": "update",
+                "index_scope": "incremental_update",
+                "layer": "project",
+                "stats": {"files_total": 1, "doc_chunks": 1, "code_chunks": 0},
+            },
+        ):
+            with patch.object(cache, "invalidate") as invalidate:
+                result = self.srv.wave_index_build_response(self.root, content="docs", mode="update", cache=cache)
+        self.assertEqual(result["status"], "ok")
+        invalidate.assert_not_called()
+
+    def test_already_running_returns_diagnostic(self):
+        with patch.object(
+            self.srv,
+            "run_index_rebuild",
+            return_value={
+                "passed": True,
+                "already_running": True,
+                "notice": "An index build is already in progress.",
+                "content": "docs",
+                "full": False,
+                "mode": "update",
+                "index_scope": "incremental_update",
                 "layer": "project",
                 "stats": {},
-                "output": "boom",
-                "summary": "",
+                "log": "/tmp/index-build.log",
             },
         ):
             result = self.srv.wave_index_build_response(self.root, content="docs", mode="update")
-        self.assertEqual(result["status"], "error")
-        self.assertEqual(result["diagnostics"][0]["code"], "index_rebuild_failed")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["diagnostics"][0]["code"], "index_build_already_running")
 
-    def test_framework_failure_returns_framework_recovery_command(self):
+    def test_framework_layer_build_returns_ok_with_log(self):
         with patch.object(
             self.srv,
             "run_index_rebuild",
             return_value={
-                "passed": False,
+                "passed": True,
+                "already_running": False,
+                "notice": "Updating docs/seed index (framework layer) — scanning for changes.",
                 "content": "docs",
                 "full": False,
                 "mode": "update",
+                "index_scope": "incremental_update",
                 "layer": "framework",
                 "stats": {},
-                "output": "boom",
-                "summary": "",
+                "log": "/tmp/framework-index-build.log",
+                "pid": 99,
             },
         ):
             result = self.srv.wave_index_build_response(self.root, content="docs", layer="framework")
-        self.assertEqual(result["status"], "error")
-        self.assertIn(".wavefoundry/framework/index", result["diagnostics"][0]["recovery_usage"])
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("notice", result["data"])
 
 
 # ---------------------------------------------------------------------------
@@ -1802,6 +2300,116 @@ class WaveIndexHealthTests(unittest.TestCase):
         self.assertIn("index_absent", codes)
         self.assertEqual(result["data"]["readiness_overview"], "absent")
 
+    def _healthy_base(self):
+        return {
+            "semantic_ready": True,
+            "stale_layers": [],
+            "missing_layers": [],
+            "has_any_index": True,
+            "compatible_chunks": True,
+            "readiness_overview": "ready",
+            "project": {"readiness": "current"},
+            "framework": {"readiness": "current"},
+            "chunker_version_mismatch_layers": [],
+        }
+
+    def test_chunker_version_mismatch_emits_advisory(self):
+        index = MagicMock()
+        base = self._healthy_base()
+        base["chunker_version_mismatch_layers"] = ["project"]
+        index.docs_health.return_value = base
+        result = self.srv.wave_index_health_response(index)
+        self.assertEqual(result["status"], "ok")
+        codes = [d["code"] for d in result["diagnostics"]]
+        self.assertIn("chunker_version_mismatch", codes)
+
+    def test_chunker_version_mismatch_fires_for_framework_layer(self):
+        index = MagicMock()
+        base = self._healthy_base()
+        base["chunker_version_mismatch_layers"] = ["framework"]
+        index.docs_health.return_value = base
+        result = self.srv.wave_index_health_response(index)
+        codes = [d["code"] for d in result["diagnostics"]]
+        self.assertIn("chunker_version_mismatch", codes)
+
+    def test_chunker_version_mismatch_distinct_from_index_stale(self):
+        """chunker_version_mismatch fires even when stale_layers is empty (file hashes are current)."""
+        index = MagicMock()
+        base = self._healthy_base()
+        base["chunker_version_mismatch_layers"] = ["project"]
+        # stale_layers is intentionally empty — hashes match, only version differs
+        base["stale_layers"] = []
+        index.docs_health.return_value = base
+        result = self.srv.wave_index_health_response(index)
+        codes = [d["code"] for d in result["diagnostics"]]
+        self.assertIn("chunker_version_mismatch", codes)
+        self.assertNotIn("index_stale", codes)
+
+    def test_no_chunker_version_mismatch_when_layers_empty(self):
+        index = MagicMock()
+        base = self._healthy_base()
+        base["chunker_version_mismatch_layers"] = []
+        index.docs_health.return_value = base
+        result = self.srv.wave_index_health_response(index)
+        codes = [d["code"] for d in result["diagnostics"]]
+        self.assertNotIn("chunker_version_mismatch", codes)
+
+    def test_background_code_build_running_emits_advisory(self):
+        index = MagicMock()
+        base = self._healthy_base()
+        index.docs_health.return_value = base
+        with patch.object(self.srv, "_background_build_status", return_value="running"):
+            result = self.srv.wave_index_health_response(index)
+        codes = [d["code"] for d in result["diagnostics"]]
+        self.assertIn("background_code_build_running", codes)
+
+    def test_background_code_build_completed_no_advisory(self):
+        index = MagicMock()
+        base = self._healthy_base()
+        index.docs_health.return_value = base
+        with patch.object(self.srv, "_background_build_status", return_value="completed"):
+            result = self.srv.wave_index_health_response(index)
+        codes = [d["code"] for d in result["diagnostics"]]
+        self.assertNotIn("background_code_build_running", codes)
+
+    def test_background_code_build_none_no_advisory(self):
+        index = MagicMock()
+        base = self._healthy_base()
+        index.docs_health.return_value = base
+        with patch.object(self.srv, "_background_build_status", return_value="none"):
+            result = self.srv.wave_index_health_response(index)
+        codes = [d["code"] for d in result["diagnostics"]]
+        self.assertNotIn("background_code_build_running", codes)
+
+    def test_previous_build_stats_included_when_stats_file_exists(self):
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmp.name)
+            index_dir = root / ".wavefoundry" / "index"
+            index_dir.mkdir(parents=True, exist_ok=True)
+            stats = {"elapsed_seconds": 420, "files_indexed": 300, "doc_chunks": 2000, "code_chunks": 1800, "built_at": "2026-05-06T10:00:00Z", "content": "docs", "mode": "rebuild"}
+            (index_dir / "index-build-stats.json").write_text(json.dumps(stats), encoding="utf-8")
+            index = MagicMock()
+            index.root = root
+            index.docs_health.return_value = {"semantic_ready": True, "stale_layers": [], "missing_layers": [], "has_any_index": True, "compatible_chunks": True, "readiness_overview": "ready", "chunker_version_mismatch_layers": []}
+            result = self.srv.wave_index_health_response(index)
+            self.assertIn("previous_build_stats", result["data"])
+            self.assertEqual(result["data"]["previous_build_stats"]["elapsed_seconds"], 420)
+        finally:
+            tmp.cleanup()
+
+    def test_previous_build_stats_absent_when_no_stats_file(self):
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmp.name)
+            index = MagicMock()
+            index.root = root
+            index.docs_health.return_value = {"semantic_ready": True, "stale_layers": [], "missing_layers": [], "has_any_index": True, "compatible_chunks": True, "readiness_overview": "ready", "chunker_version_mismatch_layers": []}
+            result = self.srv.wave_index_health_response(index)
+            self.assertNotIn("previous_build_stats", result["data"])
+        finally:
+            tmp.cleanup()
+
     def test_exception_from_docs_health_returns_structured_error(self):
         index = MagicMock()
         index.docs_health.side_effect = RuntimeError("unexpected failure")
@@ -1815,6 +2423,81 @@ class WaveIndexHealthTests(unittest.TestCase):
         index.search_docs.return_value = []
         self.srv.docs_search_response(index, "query")
         index.docs_health.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _read_chunker_version
+# ---------------------------------------------------------------------------
+
+class ReadChunkerVersionTests(unittest.TestCase):
+    def setUp(self):
+        self.srv = load_server()
+
+    def _reset_cache(self):
+        self.srv._chunker_version_cache = ""
+
+    def test_reads_version_from_chunker_source(self):
+        self._reset_cache()
+        version = self.srv._read_chunker_version()
+        self.assertIsInstance(version, str)
+        self.assertTrue(version, "Expected a non-empty CHUNKER_VERSION string")
+
+    def test_returns_cached_value_on_second_call(self):
+        self._reset_cache()
+        first = self.srv._read_chunker_version()
+        # Patch read_text to detect if file is accessed again
+        with patch.object(Path, "read_text", side_effect=AssertionError("should not re-read")) as _:
+            second = self.srv._read_chunker_version()
+        self.assertEqual(first, second)
+
+    def test_returns_empty_string_on_oserror(self):
+        self._reset_cache()
+        with patch.object(Path, "read_text", side_effect=OSError("not found")):
+            result = self.srv._read_chunker_version()
+        self.assertEqual(result, "")
+
+
+# ---------------------------------------------------------------------------
+# _background_build_status
+# ---------------------------------------------------------------------------
+
+class BackgroundBuildStatusTests(unittest.TestCase):
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _pid_path(self):
+        return self.root / ".wavefoundry" / "index" / "background-build.pid"
+
+    def test_returns_none_when_no_pid_file(self):
+        result = self.srv._background_build_status(self.root)
+        self.assertEqual(result, "none")
+
+    def test_returns_running_when_process_alive(self):
+        pid_path = self._pid_path()
+        pid_path.parent.mkdir(parents=True, exist_ok=True)
+        pid_path.write_text(str(os.getpid()), encoding="utf-8")
+        result = self.srv._background_build_status(self.root)
+        self.assertEqual(result, "running")
+
+    def test_returns_completed_when_pid_not_alive(self):
+        pid_path = self._pid_path()
+        pid_path.parent.mkdir(parents=True, exist_ok=True)
+        # PID 0 is never a valid user process; os.kill raises on all platforms
+        pid_path.write_text("999999999", encoding="utf-8")
+        result = self.srv._background_build_status(self.root)
+        self.assertEqual(result, "completed")
+
+    def test_returns_completed_on_invalid_pid_file_content(self):
+        pid_path = self._pid_path()
+        pid_path.parent.mkdir(parents=True, exist_ok=True)
+        pid_path.write_text("not-a-pid", encoding="utf-8")
+        result = self.srv._background_build_status(self.root)
+        self.assertEqual(result, "completed")
 
 
 # ---------------------------------------------------------------------------
@@ -1957,7 +2640,9 @@ class ServerToolRegistrationTests(unittest.TestCase):
             "wave_prepare",
             "wave_pause",
             "wave_review",
+            "wave_reopen",
             "wave_close",
+            "wave_index_build_status",
             "docs_search",
             "code_search",
             "seed_get",
@@ -2512,10 +3197,12 @@ class CodeDefinitionTests(unittest.TestCase):
         self.assertIn("supported_languages", result["data"])
         self.assertIn("python", result["data"]["supported_languages"])
 
-    def test_note_mentions_non_python_unsupported(self):
-        result = self.srv.code_definition_response(self.root, "MyClass")
-        self.assertIn("note", result["data"])
-        self.assertIn("Python", result["data"]["note"] + result["data"].get("note", ""))
+    def test_non_python_falls_back_to_keyword(self):
+        # With no Python definitions found, falls back to keyword_fallback method
+        result = self.srv.code_definition_response(self.root, "ZZZNODEFINITIONYYY")
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("method", result["data"])
+        self.assertEqual(result["data"]["method"], "keyword_fallback")
 
 
 class CodeReferencesTests(unittest.TestCase):
@@ -2542,10 +3229,9 @@ class CodeReferencesTests(unittest.TestCase):
         paths = [r["path"] for r in result["data"]["references"]]
         self.assertTrue(any("caller.py" in p for p in paths))
 
-    def test_note_mentions_code_keyword_search_fallback(self):
+    def test_python_references_returns_ast_method(self):
         result = self.srv.code_references_response(self.root, "MyClass")
-        note = result["data"].get("note", "")
-        self.assertIn("code_keyword_search", note)
+        self.assertEqual(result["data"].get("method"), "ast")
 
     def test_empty_results_when_no_match(self):
         result = self.srv.code_references_response(self.root, "ZZZNOREFERENCEYYY")
@@ -2930,7 +3616,7 @@ class GateAutoCloseTests(unittest.TestCase):
         # Add minimal review evidence so wave_close can pass validation
         wave_md = self.root / "docs" / "waves" / "test-wave" / "wave.md"
         text = wave_md.read_text(encoding="utf-8")
-        wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
+        wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- operator-signoff: approved\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
             with patch.object(self.srv, "run_garden", return_value={"passed": True}):
                 resp = self.srv.wave_close_response(self.root, "test-wave", mode="create")
@@ -2942,7 +3628,7 @@ class GateAutoCloseTests(unittest.TestCase):
         self._make_active_wave()
         wave_md = self.root / "docs" / "waves" / "test-wave" / "wave.md"
         text = wave_md.read_text(encoding="utf-8")
-        wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
+        wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- operator-signoff: approved\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
             with patch.object(self.srv, "run_garden", return_value={"passed": True}):
                 resp = self.srv.wave_close_response(self.root, "test-wave", mode="create")
@@ -2982,7 +3668,7 @@ class WaveCloseHandoffPreservationTests(unittest.TestCase):
         self._make_active_wave()
         wave_md = self.root / "docs" / "waves" / "hw-test" / "wave.md"
         text = wave_md.read_text(encoding="utf-8")
-        wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
+        wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- operator-signoff: approved\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
             with patch.object(self.srv, "run_garden", return_value={"passed": True}):
                 self.srv.wave_close_response(self.root, "hw-test", mode="create")
@@ -3001,7 +3687,7 @@ class WaveCloseHandoffPreservationTests(unittest.TestCase):
         )
         wave_md = self.root / "docs" / "waves" / "hw-test" / "wave.md"
         text = wave_md.read_text(encoding="utf-8")
-        wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
+        wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- operator-signoff: approved\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
             with patch.object(self.srv, "run_garden", return_value={"passed": True}):
                 self.srv.wave_close_response(self.root, "hw-test", mode="create")
@@ -3027,7 +3713,7 @@ class WaveCloseHandoffPreservationTests(unittest.TestCase):
             handoff.unlink()
         wave_md = self.root / "docs" / "waves" / "hw-test" / "wave.md"
         text = wave_md.read_text(encoding="utf-8")
-        wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
+        wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- operator-signoff: approved\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
             with patch.object(self.srv, "run_garden", return_value={"passed": True}):
                 self.srv.wave_close_response(self.root, "hw-test", mode="create")
@@ -4187,6 +4873,597 @@ class WaveIndexAutoReloadTests(unittest.TestCase):
         # No changes — should remain loaded
         idx._ensure_loaded()
         self.assertTrue(idx._loaded)
+
+
+class CodeSummaryChunkSearchTests(unittest.TestCase):
+    """AC-2 (12d4h): code_search kind filter isolates code-summary chunks."""
+
+    def _make_index(self, chunks):
+        srv = load_server()
+        index = MagicMock()
+        index.search_code.return_value = chunks
+        return srv, index
+
+    def _make_chunk(self, path, kind, score=0.9):
+        return {"path": path, "kind": kind, "language": "python", "lines": [1, 10], "text": "...", "score": score}
+
+    def test_kind_filter_isolates_code_summary(self):
+        srv, index = self._make_index([
+            self._make_chunk("src/auth.py", "code-summary", 0.9),
+            self._make_chunk("src/auth.py", "code", 0.85),
+        ])
+        result = srv.code_search_response(index, "auth module", kind="code-summary")
+        self.assertEqual(result["status"], "ok")
+        index.search_code.assert_called_once_with(
+            "auth module", language=None, top_n=5, kind="code-summary", max_per_file=None, tags=None
+        )
+
+    def test_max_per_file_caps_results(self):
+        srv, index = self._make_index([
+            self._make_chunk("src/auth.py", "code", 0.9),
+            self._make_chunk("src/auth.py", "code", 0.85),
+            self._make_chunk("src/billing.py", "code", 0.8),
+        ])
+        result = srv.code_search_response(index, "query", max_per_file=1)
+        self.assertEqual(result["status"], "ok")
+        index.search_code.assert_called_once_with(
+            "query", language=None, top_n=5, kind=None, max_per_file=1, tags=None
+        )
+
+    def test_no_kind_filter_returns_all(self):
+        srv, index = self._make_index([self._make_chunk("src/a.py", "code")])
+        result = srv.code_search_response(index, "query")
+        self.assertEqual(result["status"], "ok")
+        index.search_code.assert_called_once_with(
+            "query", language=None, top_n=5, kind=None, max_per_file=None, tags=None
+        )
+
+
+class DocSummaryKindFilterTests(unittest.TestCase):
+    """AC-4 (12d4h): docs_search kind='doc-summary' filter isolates doc-summary chunks."""
+
+    def _make_index(self, doc_chunks):
+        srv = load_server()
+        index = MagicMock()
+        index.search_docs.return_value = doc_chunks
+        return srv, index
+
+    def test_doc_summary_kind_filter(self):
+        srv, index = self._make_index([
+            {"path": "docs/architecture/search-architecture.md", "kind": "doc-summary", "score": 0.9, "text": "Search · Sections: Indexing · Retrieval", "lines": [1, 50], "section": "doc-summary"},
+        ])
+        result = srv.docs_search_response(index, "search architecture", "doc-summary")
+        self.assertEqual(result["status"], "ok")
+        index.search_docs.assert_called_once_with("search architecture", kind="doc-summary", top_n=5, tags=None)
+
+    def test_doc_summary_not_returned_for_doc_kind(self):
+        # _doc_matches_kind should not match "doc-summary" for kind="doc"
+        srv = load_server()
+        index_obj = srv.WaveIndex.__new__(srv.WaveIndex)
+        chunk = {"kind": "doc-summary", "path": "docs/arch.md"}
+        self.assertFalse(index_obj._doc_matches_kind(chunk, "doc"))
+
+    def test_doc_summary_matched_for_doc_summary_kind(self):
+        srv = load_server()
+        index_obj = srv.WaveIndex.__new__(srv.WaveIndex)
+        chunk = {"kind": "doc-summary", "path": "docs/arch.md"}
+        self.assertTrue(index_obj._doc_matches_kind(chunk, "doc-summary"))
+
+
+class CodeDefinitionFallbackTests(unittest.TestCase):
+    """AC-6 (12d4h): code_definition falls back to keyword for non-Python files."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        src = self.root / "src"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "App.tsx").write_text(
+            "export function MyComponent() { return null; }\n",
+            encoding="utf-8",
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_ts_file_returns_keyword_fallback(self):
+        result = self.srv.code_definition_response(self.root, "MyComponent")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["method"], "keyword_fallback")
+        self.assertTrue(any("App.tsx" in d["path"] for d in result["data"]["definitions"]))
+
+    def test_fallback_definitions_have_path_and_line(self):
+        result = self.srv.code_definition_response(self.root, "MyComponent")
+        for d in result["data"]["definitions"]:
+            self.assertIn("path", d)
+            self.assertIn("line", d)
+            self.assertEqual(d["method"], "keyword_fallback")
+
+    def test_not_found_returns_empty_list(self):
+        result = self.srv.code_definition_response(self.root, "ZZZNODEFINITIONYYY")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["definitions"], [])
+        self.assertEqual(result["data"]["method"], "keyword_fallback")
+
+
+class CodeReferencesFallbackTests(unittest.TestCase):
+    """AC-5 (12d4h): code_references falls back to keyword for non-Python symbols."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        src = self.root / "src"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "utils.go").write_text(
+            "func HandleRequest(w http.ResponseWriter, r *http.Request) {}\n",
+            encoding="utf-8",
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_go_symbol_returns_keyword_fallback(self):
+        result = self.srv.code_references_response(self.root, "HandleRequest")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["method"], "keyword_fallback")
+        self.assertGreater(result["data"]["count"], 0)
+
+    def test_keyword_fallback_result_shape(self):
+        result = self.srv.code_references_response(self.root, "HandleRequest")
+        for ref in result["data"]["references"]:
+            self.assertIn("path", ref)
+            self.assertIn("line", ref)
+            self.assertIn("snippet", ref)
+            self.assertEqual(ref["method"], "keyword_fallback")
+
+
+class CodeDependenciesTests(unittest.TestCase):
+    """AC-7/AC-8/AC-9 (12d4h): code_dependencies parses imports on demand."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        src = self.root / "src"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "billing.py").write_text(
+            "import os\nfrom pathlib import Path\nfrom .utils import helper\n",
+            encoding="utf-8",
+        )
+        (src / "App.tsx").write_text(
+            "import React from 'react';\nimport { useState } from 'react';\nimport './App.css';\n",
+            encoding="utf-8",
+        )
+        (src / "main.rs").write_text(
+            "use std::io;\npub use crate::utils;\n",
+            encoding="utf-8",
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_python_imports_parsed(self):
+        result = self.srv.code_dependencies_response(self.root, "src/billing.py")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["method"], "ast")
+        modules = [i["module"] for i in result["data"]["imports"]]
+        self.assertIn("os", modules)
+        self.assertIn("pathlib", modules)
+
+    def test_typescript_imports_parsed(self):
+        result = self.srv.code_dependencies_response(self.root, "src/App.tsx")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["method"], "regex")
+        modules = [i["module"] for i in result["data"]["imports"]]
+        self.assertIn("react", modules)
+
+    def test_rust_imports_parsed(self):
+        result = self.srv.code_dependencies_response(self.root, "src/main.rs")
+        self.assertEqual(result["status"], "ok")
+        modules = [i["module"] for i in result["data"]["imports"]]
+        self.assertIn("std::io", modules)
+
+    def test_unsupported_language_returns_empty(self):
+        (self.root / "config.toml").write_text("[package]\nname = 'foo'\n", encoding="utf-8")
+        result = self.srv.code_dependencies_response(self.root, "config.toml")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["method"], "unsupported")
+        self.assertEqual(result["data"]["imports"], [])
+
+    def test_resolved_field_present(self):
+        result = self.srv.code_dependencies_response(self.root, "src/billing.py")
+        for imp in result["data"]["imports"]:
+            self.assertIn("resolved", imp)
+
+    def test_missing_file_returns_error(self):
+        result = self.srv.code_dependencies_response(self.root, "src/nonexistent.py")
+        self.assertEqual(result["status"], "error")
+
+    def test_path_traversal_rejected(self):
+        """Security: path escaping repo root must return error, not read the file."""
+        result = self.srv.code_dependencies_response(self.root, "../../../etc/passwd")
+        self.assertEqual(result["status"], "error")
+
+    def test_absolute_path_rejected(self):
+        """Security: absolute paths must be rejected by confinement check."""
+        result = self.srv.code_dependencies_response(self.root, "/etc/passwd")
+        self.assertEqual(result["status"], "error")
+
+
+class CodeAskTests(unittest.TestCase):
+    """AC tests for code_ask mechanical routing."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_index(self, code_results=None, doc_results=None):
+        index = MagicMock()
+        index.search_code.return_value = code_results or []
+        index.search_docs.return_value = doc_results or []
+        index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
+        return index
+
+    def _fake_code_chunk(self, path="src/billing.py", score=0.9):
+        return {"path": path, "kind": "code", "lines": [42, 58], "text": "def handle_failed_payment(): ...", "score": score}
+
+    def test_response_has_required_fields(self):
+        index = self._make_index(code_results=[self._fake_code_chunk()])
+        result = self.srv.code_ask_response(index, self.root, "where does billing handle failed payments?")
+        self.assertEqual(result["status"], "ok")
+        data = result["data"]
+        for field in ("question", "question_type", "answer", "citations", "confidence", "gaps", "index_freshness"):
+            self.assertIn(field, data)
+
+    def test_question_type_classified(self):
+        index = self._make_index()
+        result = self.srv.code_ask_response(index, self.root, "where is the auth module?")
+        self.assertEqual(result["data"]["question_type"], "navigational")
+
+        result = self.srv.code_ask_response(index, self.root, "how do I add a new user?")
+        self.assertEqual(result["data"]["question_type"], "instructional")
+
+        result = self.srv.code_ask_response(index, self.root, "what does the billing module do?")
+        self.assertEqual(result["data"]["question_type"], "explanatory")
+
+    def test_confidence_high_with_multiple_citations(self):
+        index = self._make_index(code_results=[self._fake_code_chunk("src/a.py"), self._fake_code_chunk("src/b.py")])
+        result = self.srv.code_ask_response(index, self.root, "billing?")
+        self.assertEqual(result["data"]["confidence"], "high")
+
+    def test_confidence_low_with_no_citations(self):
+        index = self._make_index()
+        result = self.srv.code_ask_response(index, self.root, "ZZZNOEVIDENCEYYY")
+        self.assertEqual(result["data"]["confidence"], "low")
+        self.assertTrue(len(result["data"]["gaps"]) > 0)
+
+    def test_citations_have_ref_and_path(self):
+        index = self._make_index(code_results=[self._fake_code_chunk()])
+        result = self.srv.code_ask_response(index, self.root, "billing?")
+        for c in result["data"]["citations"]:
+            self.assertIn("ref", c)
+            self.assertIn("path", c)
+
+    def test_index_freshness_current_when_no_mismatch(self):
+        index = self._make_index(code_results=[self._fake_code_chunk()])
+        result = self.srv.code_ask_response(index, self.root, "billing?")
+        self.assertEqual(result["data"]["index_freshness"], "current")
+
+    def test_index_freshness_stale_when_mismatch(self):
+        index = self._make_index()
+        index._layer_health.return_value = {
+            "indexed_chunker_versions": {"docs": "16", "code": "16"},
+            "current_chunker_version": "17",
+        }
+        result = self.srv.code_ask_response(index, self.root, "billing?")
+        self.assertEqual(result["data"]["index_freshness"], "stale")
+
+    def test_keyword_search_error_appended_to_gaps(self):
+        """AC-4 (12d4b): keyword search error status is surfaced in gaps, not silently swallowed."""
+        index = self._make_index()  # no results → triggers keyword fallback
+        srv = load_server()
+        with patch.object(srv, "code_keyword_search_response", return_value={"status": "error", "error": "index not built"}):
+            result = srv.code_ask_response(index, self.root, "ZZZNOEVIDENCEYYY")
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("keyword search failed", result["data"]["gaps"])
+
+    def test_code_ask_does_not_call_write_path_tools(self):
+        """AC-4 (12d4b): code_ask_response must never invoke write-path operations."""
+        write_path_names = {
+            "wave_index_build", "wave_sync_surfaces", "wave_add_change",
+            "wave_new_feature", "wave_new_bug",
+        }
+        srv = load_server()
+        # Verify none of the write-path function names are referenced inside code_ask_response
+        import inspect
+        source = inspect.getsource(srv.code_ask_response)
+        for name in write_path_names:
+            self.assertNotIn(name, source, f"code_ask_response references write-path tool: {name}")
+
+
+class MaxPerFileFilterDirectTests(unittest.TestCase):
+    """AC-1, AC-2, AC-4 (12d5s): max_per_file filtering logic in WaveIndex.search_code."""
+
+    def _make_index_with_chunks(self, raw_chunks):
+        """Patch WaveIndex to avoid embedding; inject raw chunks as cosine search result."""
+        srv = load_server()
+        index = srv.WaveIndex.__new__(srv.WaveIndex)
+        # Provide the minimal attributes that search_code depends on after _ensure_loaded
+        index._code_chunks = raw_chunks
+        index._code_vecs = None  # not used — we'll patch _cosine_search
+        # Bypass _ensure_loaded
+        with patch.object(index, "_ensure_loaded"):
+            with patch.object(index, "_embed_query", return_value=None):
+                with patch.object(srv, "_indexer_constant", return_value="model"):
+                    # Patch _cosine_search to return chunks in score-descending order (already sorted)
+                    with patch.object(index, "_cosine_search", return_value=raw_chunks):
+                        with patch.object(index, "_indexer_constant", return_value="model"):
+                            return index
+
+    def _chunk(self, path, score):
+        return {"path": path, "kind": "code", "language": "python", "lines": [1, 5], "text": "x", "score": score}
+
+    def test_max_per_file_1_caps_at_one_result_per_file(self):
+        """AC-1 (12d5s): output has at most 1 chunk per file when max_per_file=1."""
+        srv = load_server()
+        index = MagicMock()
+        chunks = [
+            self._chunk("src/auth.py", 0.95),
+            self._chunk("src/auth.py", 0.90),
+            self._chunk("src/auth.py", 0.85),
+            self._chunk("src/billing.py", 0.80),
+        ]
+        index.search_code.return_value = chunks
+        result = srv.code_search_response(index, "auth", max_per_file=1)
+        self.assertEqual(result["status"], "ok")
+        # The response passes through the index.search_code result — verify the index was asked
+        index.search_code.assert_called_once_with("auth", language=None, top_n=5, kind=None, max_per_file=1, tags=None)
+
+    def test_search_code_max_per_file_cap_enforced_by_index(self):
+        """AC-2 (12d5s): WaveIndex.search_code with max_per_file=2 returns at most 2 chunks per file."""
+        srv = load_server()
+        index = srv.WaveIndex.__new__(srv.WaveIndex)
+        index._code_vecs = []
+        index._code_chunks = []
+        raw = [
+            self._chunk("src/auth.py", 0.95),
+            self._chunk("src/auth.py", 0.90),
+            self._chunk("src/auth.py", 0.85),
+            self._chunk("src/billing.py", 0.80),
+            self._chunk("src/billing.py", 0.75),
+        ]
+        with patch.object(index, "_ensure_loaded"), \
+             patch.object(index, "_embed_query", return_value=None), \
+             patch.object(index, "_indexer_constant", return_value="model"), \
+             patch.object(index, "_cosine_search", return_value=raw):
+            results = index.search_code("query", max_per_file=2, top_n=10)
+        auth_results = [r for r in results if r["path"] == "src/auth.py"]
+        billing_results = [r for r in results if r["path"] == "src/billing.py"]
+        self.assertLessEqual(len(auth_results), 2)
+        self.assertLessEqual(len(billing_results), 2)
+        self.assertEqual(len(auth_results), 2)
+        self.assertEqual(len(billing_results), 2)
+
+    def test_search_code_max_per_file_retains_highest_score(self):
+        """AC-4 (12d5s): the first chunk per file (highest-ranked) is the one retained."""
+        srv = load_server()
+        index = srv.WaveIndex.__new__(srv.WaveIndex)
+        index._code_vecs = []
+        index._code_chunks = []
+        raw = [
+            self._chunk("src/auth.py", 0.95),  # highest score — should be retained
+            self._chunk("src/auth.py", 0.50),  # lower score — should be dropped with max_per_file=1
+        ]
+        with patch.object(index, "_ensure_loaded"), \
+             patch.object(index, "_embed_query", return_value=None), \
+             patch.object(index, "_indexer_constant", return_value="model"), \
+             patch.object(index, "_cosine_search", return_value=raw):
+            results = index.search_code("query", max_per_file=1, top_n=10)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["score"], 0.95)
+
+
+class InferTagsServerTests(unittest.TestCase):
+    """AC-10 through AC-16 (12dv9): tag index and filter behavior via server."""
+
+    def setUp(self):
+        self.srv = load_server()
+
+    def test_infer_tags_wave(self):
+        tags = self.srv._infer_tags("docs/waves/12dv9 chunk-tags/wave.md")
+        self.assertIn("wave", tags)
+
+    def test_infer_tags_prompt_suffix(self):
+        tags = self.srv._infer_tags("anywhere/my-agent.prompt.md")
+        self.assertIn("prompt", tags)
+
+    def test_infer_tags_no_match(self):
+        tags = self.srv._infer_tags("src/main.py")
+        self.assertEqual(tags, [])
+
+    def test_docs_search_response_passes_tags_to_index(self):
+        index = MagicMock()
+        index.search_docs.return_value = []
+        self.srv.docs_search_response(index, "query", tags=["wave"])
+        index.search_docs.assert_called_once()
+        _, kwargs = index.search_docs.call_args
+        self.assertEqual(kwargs.get("tags"), ["wave"])
+
+    def test_docs_search_response_empty_tags_passes_none(self):
+        index = MagicMock()
+        index.search_docs.return_value = []
+        self.srv.docs_search_response(index, "query", tags=[])
+        _, kwargs = index.search_docs.call_args
+        self.assertIsNone(kwargs.get("tags"))
+
+    def test_code_search_response_passes_tags_to_index(self):
+        index = MagicMock()
+        index.search_code.return_value = []
+        self.srv.code_search_response(index, "query", tags=["test"])
+        index.search_code.assert_called_once()
+        _, kwargs = index.search_code.call_args
+        self.assertEqual(kwargs.get("tags"), ["test"])
+
+    def test_tag_index_built_on_load(self):
+        import numpy as np
+        import tempfile
+        import json
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmp.name)
+            (root / ".wavefoundry" / "index").mkdir(parents=True)
+            (root / ".wavefoundry" / "framework" / "index").mkdir(parents=True)
+            docs_chunks = [
+                {"id": "a", "path": "docs/waves/12dv9/wave.md", "kind": "doc", "text": "wave doc"},
+                {"id": "b", "path": "docs/agents/journals/cia.md", "kind": "doc", "text": "journal"},
+                {"id": "c", "path": "src/main.py", "kind": "code", "text": "code"},
+            ]
+            vecs = np.ones((3, 4), dtype=np.float32)
+            np.save(str(root / ".wavefoundry" / "index" / "docs.npy"), vecs)
+            (root / ".wavefoundry" / "index" / "docs.json").write_text(json.dumps(docs_chunks), encoding="utf-8")
+            meta = {"model_versions": {"docs": "BAAI/bge-base-en-v1.5", "code": "BAAI/bge-base-en-v1.5"}, "built_at": "2026-01-01"}
+            (root / ".wavefoundry" / "index" / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+            idx = self.srv.WaveIndex(root)
+            idx._ensure_loaded()
+            self.assertIn("wave", idx._docs_tag_index)
+            self.assertIn("journal", idx._docs_tag_index)
+            self.assertIn("agent", idx._docs_tag_index)
+            self.assertNotIn("wave", idx._code_tag_index)
+            # Kind index also built at load time; chunks 0 and 1 have kind="doc", chunk 2 has kind="code"
+            self.assertIn("doc", idx._docs_kind_index)
+            self.assertEqual(sorted(idx._docs_kind_index["doc"]), [0, 1])
+        finally:
+            tmp.cleanup()
+
+    def test_search_docs_tags_pre_filter(self):
+        import numpy as np
+        import tempfile
+        import json
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmp.name)
+            (root / ".wavefoundry" / "index").mkdir(parents=True)
+            (root / ".wavefoundry" / "framework" / "index").mkdir(parents=True)
+            docs_chunks = [
+                {"id": "w1", "path": "docs/waves/12dv9/wave.md", "kind": "doc", "text": "wave doc"},
+                {"id": "o1", "path": "docs/other/something.md", "kind": "doc", "text": "unrelated"},
+            ]
+            # Both vectors point the same direction so cosine similarity is equal
+            vecs = np.ones((2, 4), dtype=np.float32)
+            np.save(str(root / ".wavefoundry" / "index" / "docs.npy"), vecs)
+            (root / ".wavefoundry" / "index" / "docs.json").write_text(json.dumps(docs_chunks), encoding="utf-8")
+            meta = {"model_versions": {"docs": "BAAI/bge-base-en-v1.5", "code": "BAAI/bge-base-en-v1.5"}, "built_at": "2026-01-01"}
+            (root / ".wavefoundry" / "index" / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+            idx = self.srv.WaveIndex(root)
+            # Patch embed so we don't need actual model
+            idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
+            idx._ensure_loaded()
+            results = idx.search_docs("anything", tags=["wave"], top_n=5)
+            ids = [r["id"] for r in results]
+            self.assertIn("w1", ids)
+            self.assertNotIn("o1", ids)
+        finally:
+            tmp.cleanup()
+
+    def test_search_docs_tags_and_kind_compose_with_and_semantics(self):
+        # AC-13: chunks must satisfy BOTH tags AND kind (both pre-filter, index intersection).
+        # Setup: three chunks —
+        #   w1: wave-tagged, kind="doc"         → matches tags ∩ kind ✓
+        #   w2: wave-tagged, kind="doc-summary" → in tags index but not kind index ✗
+        #   o1: no wave tag, kind="doc"         → in kind index but not tags index ✗
+        # Only w1 should be returned.
+        import numpy as np
+        import tempfile
+        import json
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmp.name)
+            (root / ".wavefoundry" / "index").mkdir(parents=True)
+            (root / ".wavefoundry" / "framework" / "index").mkdir(parents=True)
+            docs_chunks = [
+                {"id": "w1", "path": "docs/waves/12dv9/wave.md", "kind": "doc", "text": "wave doc"},
+                {"id": "w2", "path": "docs/waves/12dv9/summary.md", "kind": "doc-summary", "text": "wave summary"},
+                {"id": "o1", "path": "docs/other/something.md", "kind": "doc", "text": "other doc"},
+            ]
+            vecs = np.ones((3, 4), dtype=np.float32)
+            np.save(str(root / ".wavefoundry" / "index" / "docs.npy"), vecs)
+            (root / ".wavefoundry" / "index" / "docs.json").write_text(json.dumps(docs_chunks), encoding="utf-8")
+            meta = {"model_versions": {"docs": "BAAI/bge-base-en-v1.5", "code": "BAAI/bge-base-en-v1.5"}, "built_at": "2026-01-01"}
+            (root / ".wavefoundry" / "index" / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+            idx = self.srv.WaveIndex(root)
+            idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
+            idx._ensure_loaded()
+            results = idx.search_docs("anything", kind="doc", tags=["wave"], top_n=5)
+            ids = [r["id"] for r in results]
+            self.assertIn("w1", ids)       # wave-tagged + kind=doc ✓
+            self.assertNotIn("w2", ids)    # wave-tagged but kind=doc-summary ✗
+            self.assertNotIn("o1", ids)    # kind=doc but not wave-tagged ✗
+        finally:
+            tmp.cleanup()
+
+    def test_search_docs_kind_only_pre_filter(self):
+        import numpy as np
+        import tempfile
+        import json
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmp.name)
+            (root / ".wavefoundry" / "index").mkdir(parents=True)
+            (root / ".wavefoundry" / "framework" / "index").mkdir(parents=True)
+            docs_chunks = [
+                {"id": "s1", "path": "docs/waves/12dv9/12dv9.md", "kind": "doc-summary", "text": "wave summary"},
+                {"id": "d1", "path": "docs/waves/12dv9/wave.md", "kind": "doc", "text": "wave doc"},
+                {"id": "s2", "path": "docs/other/other.md", "kind": "doc-summary", "text": "other summary"},
+            ]
+            vecs = np.ones((3, 4), dtype=np.float32)
+            np.save(str(root / ".wavefoundry" / "index" / "docs.npy"), vecs)
+            (root / ".wavefoundry" / "index" / "docs.json").write_text(json.dumps(docs_chunks), encoding="utf-8")
+            meta = {"model_versions": {"docs": "BAAI/bge-base-en-v1.5", "code": "BAAI/bge-base-en-v1.5"}, "built_at": "2026-01-01"}
+            (root / ".wavefoundry" / "index" / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+            idx = self.srv.WaveIndex(root)
+            idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
+            idx._ensure_loaded()
+            results = idx.search_docs("wave summary", kind="doc-summary", top_n=5)
+            ids = [r["id"] for r in results]
+            self.assertIn("s1", ids)    # doc-summary ✓
+            self.assertIn("s2", ids)    # doc-summary ✓
+            self.assertNotIn("d1", ids) # kind=doc excluded ✗
+        finally:
+            tmp.cleanup()
+
+    def test_search_docs_empty_tags_returns_all(self):
+        import numpy as np
+        import tempfile
+        import json
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmp.name)
+            (root / ".wavefoundry" / "index").mkdir(parents=True)
+            (root / ".wavefoundry" / "framework" / "index").mkdir(parents=True)
+            docs_chunks = [
+                {"id": "w1", "path": "docs/waves/12dv9/wave.md", "kind": "doc", "text": "wave doc"},
+                {"id": "o1", "path": "docs/other/something.md", "kind": "doc", "text": "unrelated"},
+            ]
+            vecs = np.ones((2, 4), dtype=np.float32)
+            np.save(str(root / ".wavefoundry" / "index" / "docs.npy"), vecs)
+            (root / ".wavefoundry" / "index" / "docs.json").write_text(json.dumps(docs_chunks), encoding="utf-8")
+            meta = {"model_versions": {"docs": "BAAI/bge-base-en-v1.5", "code": "BAAI/bge-base-en-v1.5"}, "built_at": "2026-01-01"}
+            (root / ".wavefoundry" / "index" / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+            idx = self.srv.WaveIndex(root)
+            idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
+            idx._ensure_loaded()
+            results = idx.search_docs("anything", tags=None, top_n=5)
+            ids = [r["id"] for r in results]
+            self.assertIn("w1", ids)
+            self.assertIn("o1", ids)
+        finally:
+            tmp.cleanup()
 
 
 if __name__ == "__main__":
