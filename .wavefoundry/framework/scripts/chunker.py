@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Optional
 
+from _tag_utils import infer_tags as _infer_tags
+
 _log = logging.getLogger(__name__)
 
 

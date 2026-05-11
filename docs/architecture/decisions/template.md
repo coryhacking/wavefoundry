@@ -1,9 +1,9 @@
-# DEC-NNN — [Decision Title]
+# <id>-adr — [Decision Title]
 
 Owner: Engineering
 Status: proposed | accepted | deprecated | superseded
-Last verified: 2026-04-28
-Superseded by: [DEC-NNN] (when applicable)
+Last verified: 2026-05-08
+Superseded by: [<id>-adr] (when applicable)
 
 ## Context
 

@@ -7,6 +7,10 @@ Last verified: 2026-05-03
 wave-id: `12c86 tree-sitter-chunker`
 Title: Tree-Sitter Chunker
 
+## Objective
+
+Add a tree-sitter-based structured code chunker for semantically meaningful chunk boundaries.
+
 ## Changes
 
 Change ID: `12c87-feat tree-sitter-structured-chunker`

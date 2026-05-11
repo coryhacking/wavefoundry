@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Iterable
@@ -43,6 +44,14 @@ from .constants import (
 )
 from .helpers import load_json, read_text, relative_to_root
 
+
+_H1_TITLE_RE = re.compile(r"^#\s+\S", re.MULTILINE)
+
+_CHANGE_DOC_REQUIRED_SECTIONS = (
+    "## Rationale",
+    "## Acceptance Criteria",
+    "## AC Priority",
+)
 
 def _extract_backtick_value(raw_line: str) -> str:
     if "`" not in raw_line:
@@ -393,6 +402,10 @@ def check_wave_docs(root: Path) -> list[str]:
         for section in WAVE_REQUIRED_SECTIONS:
             if section not in text:
                 failures.append(f"{rel}: missing required section `{section}`")
+        if not _metadata_value(text, "Title"):
+            failures.append(f"{rel}: wave doc must declare `Title:` metadata (displayed in the dashboard wave card)")
+        if "## Objective" not in text:
+            failures.append(f"{rel}: wave doc must declare `## Objective` section (displayed in the dashboard wave card)")
         sections = _extract_sections(text)
         watchpoints = sections.get("## Journal Watchpoints", "")
         if watchpoints and not _section_has_bullets(watchpoints):
@@ -495,6 +508,14 @@ def check_wave_docs(root: Path) -> list[str]:
                         f"{rel}: wave-owned change `{change_id}` must exist at "
                         f"`{relative_to_root(root, expected)}` (relocate during Prepare wave before implementation)"
                     )
+                else:
+                    change_text = read_text(expected)
+                    change_rel = relative_to_root(root, expected)
+                    if not _H1_TITLE_RE.search(change_text):
+                        failures.append(f"{change_rel}: change doc must have an H1 title (`# Title text`) — used by the dashboard")
+                    for section in _CHANGE_DOC_REQUIRED_SECTIONS:
+                        if section not in change_text:
+                            failures.append(f"{change_rel}: change doc is missing required section `{section}` — used by the dashboard")
                 staging = root / "docs/plans" / f"{change_id}.md"
                 if staging.is_file():
                     failures.append(

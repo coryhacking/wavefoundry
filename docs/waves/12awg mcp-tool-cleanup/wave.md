@@ -7,6 +7,10 @@ Last verified: 2026-05-01
 wave-id: `12awg mcp-tool-cleanup`
 Title: Mcp Tool Cleanup
 
+## Objective
+
+Clean up the MCP tool surface: remove deprecated wave-change-create, introduce edit-gate tools, fix wave-close metadata overwrite, and add an operator gate to wave-close.
+
 ## Changes
 
 Change ID: `12awg-maint remove-wave-change-create`

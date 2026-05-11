@@ -209,5 +209,54 @@ class SetupIndexTests(unittest.TestCase):
         self.assertEqual(result["code"], (".wavefoundry/framework/scripts",))
 
 
+class BackgroundCodeTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_setup_index()
+
+    def test_background_code_prewarms_docs_only(self):
+        """--background-code must not prewarm the code model in the foreground."""
+        with patch.object(self.mod, "ensure_deps"):
+            with patch.object(self.mod, "prewarm_models") as prewarm:
+                with patch.object(self.mod, "build_index"):
+                    with patch.object(self.mod, "_spawn_background_code_build"):
+                        with redirect_stdout(io.StringIO()):
+                            self.mod.main(["--root", "/tmp/repo", "--background-code"])
+        prewarm.assert_called_once_with(include_code=False)
+
+    def test_background_code_builds_docs_only_in_foreground(self):
+        """--background-code must call build_index with include_code=False."""
+        with patch.object(self.mod, "ensure_deps"):
+            with patch.object(self.mod, "prewarm_models"):
+                with patch.object(self.mod, "build_index") as build_index:
+                    with patch.object(self.mod, "_spawn_background_code_build"):
+                        with redirect_stdout(io.StringIO()):
+                            self.mod.main(["--root", "/tmp/repo", "--background-code"])
+        _, kwargs = build_index.call_args
+        self.assertFalse(kwargs.get("include_code", True))
+
+    def test_background_code_spawns_background_process(self):
+        """--background-code must call _spawn_background_code_build after docs build."""
+        with patch.object(self.mod, "ensure_deps"):
+            with patch.object(self.mod, "prewarm_models"):
+                with patch.object(self.mod, "build_index"):
+                    with patch.object(self.mod, "_spawn_background_code_build") as spawn:
+                        with redirect_stdout(io.StringIO()):
+                            self.mod.main(["--root", "/tmp/repo", "--background-code"])
+        spawn.assert_called_once()
+
+    def test_include_code_takes_precedence_over_background_code(self):
+        """--include-code with --background-code should behave as --include-code (synchronous)."""
+        with patch.object(self.mod, "ensure_deps"):
+            with patch.object(self.mod, "prewarm_models") as prewarm:
+                with patch.object(self.mod, "build_index") as build_index:
+                    with patch.object(self.mod, "_spawn_background_code_build") as spawn:
+                        with redirect_stdout(io.StringIO()):
+                            self.mod.main(["--root", "/tmp/repo", "--include-code", "--background-code"])
+        prewarm.assert_called_once_with(include_code=True)
+        _, kwargs = build_index.call_args
+        self.assertTrue(kwargs.get("include_code", False))
+        spawn.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

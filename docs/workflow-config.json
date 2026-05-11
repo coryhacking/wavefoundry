@@ -45,6 +45,23 @@
     "upgrade_merge_behavior": "preserve_repo_grown_adaptations",
     "output_contract_schema_version": "1.0"
   },
+  "dashboard": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "entrypoint": "dashboard.html",
+    "preferred_port": 43127,
+    "port_range_start": 43127,
+    "port_range_end": 43147,
+    "poll_interval_ms": 2000,
+    "project_label": "Wavefoundry",
+    "include_dirs": [".wavefoundry"],
+    "terminology": {
+      "wave": "wave",
+      "change": "change",
+      "task": "task"
+    },
+    "auto_index": true
+  },
   "indexing": {
     "project_include_prefixes": {
       "docs": [],
@@ -71,6 +88,38 @@
     "findings_gating": false,
     "findings_advisory": true,
     "active_personas": ["framework-operator", "wave-coordinator"]
+  },
+  "wave_council_policy": {
+    "enabled": true,
+    "required_for_all_waves": true,
+    "evidence_section": "## Review Evidence",
+    "transition_policy": "applies-from-next-prepare",
+    "non_waiver_rule": "Wave Council may synthesize and escalate specialist findings, but it may not waive blocking required lanes by itself.",
+    "challenge_round_policy": "at-most-one-targeted-round-on-material-disagreement",
+    "phases": {
+      "prepare": {
+        "signoff_key": "wave-council-readiness",
+        "moderator_role": "council-moderator",
+        "fixed_seats": [
+          "architecture-reviewer",
+          "security-reviewer",
+          "qa-reviewer",
+          "reality-checker"
+        ],
+        "rotating_seat_policy": "Select one domain seat from review triggers and wave evidence. Prefer docs-contract-reviewer for seed/prompt/behavioral-contract changes, performance-reviewer for indexing/search/hot-path changes, release-reviewer for packaging/distribution changes, or an applicable persona when operator-facing acceptance is central."
+      },
+      "review": {
+        "signoff_key": "wave-council-delivery",
+        "moderator_role": "council-moderator",
+        "fixed_seats": [
+          "architecture-reviewer",
+          "security-reviewer",
+          "qa-reviewer",
+          "reality-checker"
+        ],
+        "rotating_seat_policy": "Re-evaluate the rotating seat from delivered behavior and completed specialist findings. Prefer the highest-salience domain lane or persona affected by what actually shipped."
+      }
+    }
   },
   "review_policies": {
     "require_qa_reviewer_for_bug_fixes": true,

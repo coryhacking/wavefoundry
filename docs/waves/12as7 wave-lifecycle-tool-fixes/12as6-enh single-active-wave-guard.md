@@ -4,7 +4,7 @@ Change ID: `12as6-enh single-active-wave-guard`
 Change Status: `done`
 Owner: Engineering
 Status: done
-Last verified: 2026-05-01
+Last verified: 2026-05-08
 Wave: 12as7 wave-lifecycle-tool-fixes
 
 ## Rationale
@@ -49,7 +49,7 @@ Without all three, the guard's error message ("Pause it before preparing") doesn
 4. **Self-prepare is allowed.** If the target wave is itself already `active` (e.g., operator re-runs `wave_prepare` on the currently active wave), the guard must not trigger. That path stays a no-op status flip and continues through the rest of the existing prepare logic (lint, garden, admitted-change relocation).
 5. **Detection method.** Reuse existing `list_waves(root)` / `cache.list_waves_cached()` to enumerate wave statuses. Do not introduce a new filesystem scanner. The guard check runs after admitted-change validation and after lint/garden (so lint/garden failures still surface as the primary diagnostics); it runs before the status write at line 3357.
 6. **Ordering with other diagnostics.** If both (a) another wave is active and (b) lint or garden fails, both diagnostics must appear in the response. The existing code already aggregates diagnostics into a single error response when any are present — extend that aggregation rather than short-circuiting.
-7. **Prompt surface update.** `docs/prompts/prepare-wave.md` must document the guard: one-active-wave rule, recovery path, and a pointer to `wave_pause`.
+7. **Prompt surface update.** `docs/prompts/prepare-wave.prompt.md` must document the guard: one-active-wave rule, recovery path, and a pointer to `wave_pause`.
 8. **Seed update.** `.wavefoundry/framework/seeds/170-plan-feature.prompt.md` (or whichever seed owns prepare-wave guidance — locate at implementation) must mention the guard so target repos get the rule when they refresh.
 9. **AGENTS.md update.** The "Stage Gate (repository code)" section in `AGENTS.md` should note that preparing a new wave requires pausing any currently active wave first, with a short recovery phrase pointing at `wave_pause`.
 10. **No new policy enforcement beyond `wave_prepare`.** Do not add a validator that flags "two waves currently active" as a lint failure. A validator would spuriously fire during the brief window a pause is in flight, and legitimate tooling states (paused but still tracked, closing but not yet closed) could trip it. The guard belongs at the transition, not the state.
@@ -111,7 +111,7 @@ Without all three, the guard's error message ("Pause it before preparing") doesn
 - `server.py` `wave_current_response` (`:1640`) — breaking change from `data.wave` to `data.waves[]`; include active/planned/paused/other non-closed waves; paused-wave entries carry `next_action: "resume_wave"`.
 - In-tree migration of every `data.wave` reader.
 - Tests under `.wavefoundry/framework/scripts/tests/test_server_tools.py`.
-- Prompt doc updates: `docs/prompts/prepare-wave.md`, `docs/prompts/pause-wave.md`.
+- Prompt doc updates: `docs/prompts/prepare-wave.prompt.md`, `docs/prompts/pause-wave.prompt.md`.
 - Seed update: the seed(s) that own `wave_prepare`, `wave_pause`, and `wave_current` guidance; also seeds/prompts that embed `wave_current` examples.
 - `AGENTS.md` updates: pause-then-prepare note, `wave_current` envelope shape update, `resume_wave` next-action.
 
@@ -139,7 +139,7 @@ Without all three, the guard's error message ("Pause it before preparing") doesn
 - **AC-11b** (Resume blocked when another wave is active): with wave A paused and wave B active, `wave_prepare(wave_id="A", mode="create")` returns the same `another_wave_active` diagnostic as the planned → active case. The guard keys on "is any other wave active?", not on the target wave's status. Asserted by `test_wave_prepare_resume_blocked_when_other_active`.
 - **AC-12** (Paused waves excluded from `wave_current`): `wave_current` does not return a wave with `Status: paused`. Existing `current_wave` filter on `("active", "planned")` already handles this — AC verifies with a test. Asserted by `test_wave_current_skips_paused`.
 - **AC-13** (Paused passes docs lint): a wave.md with `Status: paused` passes `wave_validate` with no new errors. Asserted by `test_wave_validate_accepts_paused_status`.
-- **AC-14** (Prompt docs): `docs/prompts/prepare-wave.md` and `docs/prompts/pause-wave.md` describe the one-active-wave rule, the pause-then-prepare recovery path, and the `paused` status.
+- **AC-14** (Prompt docs): `docs/prompts/prepare-wave.prompt.md` and `docs/prompts/pause-wave.prompt.md` describe the one-active-wave rule, the pause-then-prepare recovery path, and the `paused` status.
 - **AC-15** (Seed and AGENTS.md): seed prompts and `AGENTS.md` note the guard and the pause transition.
 - **AC-16** (Envelope compat): no other `wave_prepare` or `wave_pause` behavior changes beyond what is specified. Existing tests pass without modification (except pause tests that asserted status stays `active` — those must be updated to match the new transition semantics).
 - **AC-17** (`wave_current` returns `data.waves[]`): response shape is `data.waves` array, not `data.wave`. Empty array when nothing is open. Asserted by `test_wave_current_returns_waves_array`.
@@ -199,9 +199,9 @@ Without all three, the guard's error message ("Pause it before preparing") doesn
 - Review existing `wave_current` tests (grep `wave_current_response` and `current_wave(` in `test_server_tools.py`) — assertions on `data["wave"]` must rewrite to `data["waves"][0]` (with empty-array handling). `test_no_active_wave_path` at test_server_tools.py:1739 and `test_current_wave_returns_no_active_wave_message` at :2362 and siblings around :485-500 and :2452-2503 must migrate.
 - Review existing `wave_audit` tests — any that read `wave_current` results must migrate to the new envelope.
 - Run framework tests: `python3 .wavefoundry/framework/scripts/run_tests.py`. All existing tests (after the updates above) must pass.
-- Update `docs/prompts/prepare-wave.md` with the one-active-wave rule and recovery path.
-- Update `docs/prompts/pause-wave.md` with the status-transition behavior and the `paused` status.
-- Update `docs/prompts/` entries that mention `wave_current` response shape (grep; likely `docs/prompts/index.md`, `docs/prompts/implement-wave.md`, agent prompt docs under `docs/prompts/agents/`) with the new `data.waves[]` shape and `resume_wave` next-action.
+- Update `docs/prompts/prepare-wave.prompt.md` with the one-active-wave rule and recovery path.
+- Update `docs/prompts/pause-wave.prompt.md` with the status-transition behavior and the `paused` status.
+- Update `docs/prompts/` entries that mention `wave_current` response shape (grep; likely `docs/prompts/index.md`, `docs/prompts/implement-wave.prompt.md`, agent prompt docs under `docs/prompts/agents/`) with the new `data.waves[]` shape and `resume_wave` next-action.
 - Update the seed(s) that own `wave_prepare`, `wave_pause`, and `wave_current` guidance (locate via grep at implementation).
 - Update `AGENTS.md`:
   - Stage Gate section: short note about pausing the current active wave before preparing a new one.
@@ -274,7 +274,7 @@ N/A — contained to a single server function and its tests, plus prompt/seed/AG
 | 2026-05-01 | Enhancement opened after noticing no enforcement exists for "one active wave at a time" during wave `12as1 design-system-extraction` creation  | Session transcript; `server.py:811`, `server.py:3357` |
 | 2026-05-01 | Scope expanded: `wave_pause` today only writes the session-handoff entry, it does not transition wave status. Manual `Status: paused` edit on `12ahv mcp-agent-surface` was required to clear it from `wave_current` during context-switch to `12as1`. This change now also extends `wave_pause` to write `active → paused`, adds resume semantics in `wave_prepare` (paused → active), and adds `paused` to the recognized status vocabulary. | Operator direction; `server.py:3370` `wave_pause_response`; manual edit to `docs/waves/12ahv mcp-agent-surface/wave.md` line 4 on 2026-05-01 |
 | 2026-05-01 | Scope expanded further: `wave_current` changes from returning a single wave (`data.wave`) to returning all non-closed waves (`data.waves[]` — active first, then planned, then paused). Hard-break envelope change with full in-tree migration. Per-entry `next_action` becomes `"resume_wave"` for paused entries (semantic hint; underlying transition remains `wave_prepare`). No new `wave_resume` tool in this change. | Operator direction; `server.py:1640` `wave_current_response` |
-| 2026-05-01 | Implementation: added `_find_other_active_wave` helper and guard check in `wave_prepare_response` (server.py:3410); extended `wave_pause_response` with status-transition logic (server.py:3406+); rewrote `wave_current_response` to return `data.waves[]` with per-entry `next_action` mapping (active→implement_wave, planned→prepare_wave, paused→resume_wave); added 17 new tests across four test classes; updated `docs/prompts/prepare-wave.md` and `docs/prompts/pause-wave.md` and `AGENTS.md`. No other in-tree `data["wave"]` readers existed (audit producer-key in `wave_audit_response` is a separate envelope and unaffected). All 426 framework tests pass; docs lint clean. | server.py, tests/test_server_tools.py, docs/prompts/*.md, AGENTS.md diffs |
+| 2026-05-01 | Implementation: added `_find_other_active_wave` helper and guard check in `wave_prepare_response` (server.py:3410); extended `wave_pause_response` with status-transition logic (server.py:3406+); rewrote `wave_current_response` to return `data.waves[]` with per-entry `next_action` mapping (active→implement_wave, planned→prepare_wave, paused→resume_wave); added 17 new tests across four test classes; updated `docs/prompts/prepare-wave.prompt.md` and `docs/prompts/pause-wave.prompt.md` and `AGENTS.md`. No other in-tree `data["wave"]` readers existed (audit producer-key in `wave_audit_response` is a separate envelope and unaffected). All 426 framework tests pass; docs lint clean. | server.py, tests/test_server_tools.py, docs/prompts/*.md, AGENTS.md diffs |
 
 
 ## Decision Log

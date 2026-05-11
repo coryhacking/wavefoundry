@@ -7,6 +7,10 @@ Last verified: 2026-05-02
 wave-id: `12axj chunker-and-pack-improvements`
 Title: Chunker And Pack Improvements
 
+## Objective
+
+Improve the chunker and framework pack: exclude tests from the pack, add markdown heading hierarchy, structure-aware code chunking, cross-language import chunks, and Swift/Objective-C language support.
+
 ## Changes
 
 Change ID: `12avt-enh exclude-tests-from-framework-pack`

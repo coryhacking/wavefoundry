@@ -4,7 +4,7 @@ Change ID: `12avt-enh exclude-tests-from-framework-pack`
 Change Status: `complete`
 Owner: Engineering
 Status: complete
-Last verified: 2026-05-02
+Last verified: 2026-05-08
 Wave: `12axj chunker-and-pack-improvements`
 
 ## Rationale
@@ -16,7 +16,7 @@ The Wavefoundry framework test suite (`scripts/tests/`, `scripts/run_tests.py`) 
 1. The packaged `wavefoundry-*.zip` must not include `scripts/tests/` or `scripts/run_tests.py`.
 2. The Framework Script Hygiene Rule in `seed-050` (copied verbatim into downstream `AGENTS.md`) must not reference `run_tests.py` — it should note that tests are a development-only artifact in the Wavefoundry source repo.
 3. The `build-and-verification.md` checklist template seeded by `seed-040` task 17 must not include a "Framework tests" step pointing at `run_tests.py`.
-4. The upgrade verification checklist seeded into downstream `docs/prompts/upgrade-wavefoundry.md` by `seed-100` must not reference `run_tests.py`.
+4. The upgrade verification checklist seeded into downstream `docs/prompts/upgrade-wavefoundry.prompt.md` by `seed-100` must not reference `run_tests.py`.
 5. The install seed (`seed-010`) must not tell downstream repos to set up framework test hygiene for Python tests.
 6. `seed-160` must list `scripts/tests/` (whole directory) and `scripts/run_tests.py` in its retire-stale-paths step so old-pack recipients clean them up on next upgrade.
 7. `build_pack.py` exclusion list must be updated to match the new intent (tests excluded by design, not incidentally).
@@ -46,7 +46,7 @@ The Wavefoundry framework test suite (`scripts/tests/`, `scripts/run_tests.py`) 
 - AC-1: `python3 .wavefoundry/framework/scripts/build_pack.py` produces a zip that contains no files under `framework/scripts/tests/` and no `framework/scripts/run_tests.py`.
 - AC-2: A freshly seeded downstream `AGENTS.md` (from `seed-050`) contains no instruction to run `run_tests.py`.
 - AC-3: A freshly seeded `docs/contributing/build-and-verification.md` (from `seed-040`) contains no "Framework tests" step.
-- AC-4: A freshly seeded `docs/prompts/upgrade-wavefoundry.md` (from `seed-100`) contains no `run_tests.py` reference.
+- AC-4: A freshly seeded `docs/prompts/upgrade-wavefoundry.prompt.md` (from `seed-100`) contains no `run_tests.py` reference.
 - AC-5: `seed-160` retire-stale-paths list includes `scripts/tests/` and `scripts/run_tests.py`.
 - AC-6: Existing test infrastructure in this repo is unaffected — `run_tests.py` and `scripts/tests/` still exist and pass locally.
 

@@ -7,6 +7,10 @@ Last verified: 2026-05-06
 wave-id: `12ec2 index-build-stats-persistence`
 Title: Index Build Stats Persistence
 
+## Objective
+
+Persist index build stats (elapsed time, file and chunk counts) to `index-build-stats.json` after each completed build, and surface timing estimates in `wave_index_build` notices and `wave_index_build_status` responses.
+
 ## Changes
 
 Change ID: `12ec1-enh index-build-stats-persistence`

@@ -49,6 +49,16 @@ See `docs/contributing/build-and-verification.md` **Wave framework pack upgrade 
 7. Review diff of pack changes, hooks, `docs/prompts/`, manifests
 8. Commit (operator-owned)
 
+## Optional Dashboard Verification
+
+If the upgraded pack includes the local dashboard feature, verify the surface starts cleanly:
+
+```bash
+python3 .wavefoundry/framework/scripts/dashboard_server.py --root . --open
+```
+
+The command must always print the final bound URL, even when it opens the browser automatically.
+
 ## Protected Surfaces
 
 Inventory/drift-detection subagents run read-only. Broad edits to `docs/prompts/`, `AGENTS.md`, or hook configs require `framework_edit_allowed` guard approval and a concise file-level plan before execution.

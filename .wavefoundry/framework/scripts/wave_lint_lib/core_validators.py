@@ -6,6 +6,8 @@ from pathlib import Path
 
 from .constants import (
     ADDITIONAL_REQUIRED_DOCS,
+    FORBIDDEN_ROOT_WRAPPERS_RELOCATED,
+    FORBIDDEN_ROOT_WRAPPERS_RETIRED,
     MANIFEST_REQUIRED_KEYS,
     PROMPT_SURFACE_ALIASES,
     PROMPT_SURFACE_FILES,
@@ -107,13 +109,29 @@ def check_pycache(root: Path) -> list[str]:
     return failures
 
 
+def check_forbidden_root_wrappers(root: Path) -> list[str]:
+    """Flag legacy binary wrapper files that must not exist at the repository root."""
+    failures: list[str] = []
+    for name in FORBIDDEN_ROOT_WRAPPERS_RETIRED:
+        if (root / name).exists():
+            failures.append(
+                f"{name}: retired root wrapper must be removed (no replacement)"
+            )
+    for name in FORBIDDEN_ROOT_WRAPPERS_RELOCATED:
+        if (root / name).exists():
+            failures.append(
+                f"{name}: root wrapper must be removed — use .wavefoundry/bin/{name} instead"
+            )
+    return failures
+
+
 def check_required_files(root: Path) -> list[str]:
     failures: list[str] = []
     init_or_upgrade_started = any(
         (root / candidate).exists()
         for candidate in (
-            "docs/prompts/install-wavefoundry.md",
-            "docs/prompts/upgrade-wavefoundry.md",
+            "docs/prompts/install-wavefoundry.prompt.md",
+            "docs/prompts/upgrade-wavefoundry.prompt.md",
             "docs/prompts/prompt-surface-manifest.json",
             "docs/waves",
             "docs/agents/journals",
@@ -126,11 +144,37 @@ def check_required_files(root: Path) -> list[str]:
             failures.append(f"{relative}: missing required Wavefoundry file")
     if init_or_upgrade_started:
         for required in (
-            "docs/prompts/install-wavefoundry.md",
-            "docs/prompts/upgrade-wavefoundry.md",
+            "docs/prompts/install-wavefoundry.prompt.md",
+            "docs/prompts/upgrade-wavefoundry.prompt.md",
         ):
             if not (root / required).exists():
                 failures.append(f"{required}: missing required Wavefoundry file")
+    return failures
+
+
+_PROMPT_EXTENSION_EXEMPT = frozenset({"index.md", "README.md"})
+
+
+def check_prompt_file_extensions(root: Path) -> list[str]:
+    """Flag plain .md files under docs/prompts/ that should use the .prompt.md extension.
+
+    Exempt by filename (at any depth): index.md, README.md — these are navigation/catalog
+    docs, not runnable prompts. All other .md files under docs/prompts/ must use .prompt.md.
+    Only fires when docs/prompts/ exists — skips repos that haven't seeded the prompt surface.
+    """
+    prompts_dir = root / "docs" / "prompts"
+    if not prompts_dir.exists():
+        return []
+    failures: list[str] = []
+    for path in prompts_dir.rglob("*.md"):
+        if path.name in _PROMPT_EXTENSION_EXEMPT:
+            continue
+        if not path.name.endswith(".prompt.md"):
+            rel = path.relative_to(root).as_posix()
+            failures.append(
+                f"{rel}: runnable prompt file must use .prompt.md extension"
+                f" (rename to {path.stem}.prompt.md)"
+            )
     return failures
 
 

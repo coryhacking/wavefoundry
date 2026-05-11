@@ -7,6 +7,10 @@ Last verified: 2026-05-02
 wave-id: `12bc4 journal-upgrade-coverage-gaps`
 Title: Journal Upgrade Coverage Gaps
 
+## Objective
+
+Close coverage gaps in the journal upgrade path.
+
 ## Changes
 
 Change ID: `12bc3-enh journal-upgrade-coverage-gaps`

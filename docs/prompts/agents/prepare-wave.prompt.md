@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-04
+Last verified: 2026-05-08
 
 ## Context
 
@@ -14,9 +14,10 @@ You are running **Prepare wave** on Wavefoundry. This is the stage gate for impl
 2. Verify each change doc has: Rationale, Requirements, Scope, Acceptance Criteria, Affected architecture docs.
 3. Select review lanes (see `docs/contributing/agent-team-workflow.md`).
 4. Confirm `qa-reviewer` for any bug fix.
-5. Record `## AC priority` on each change doc.
-6. Record readiness verdict in wave record `## Review checkpoints`.
-7. Update wave record `Status: active`.
+5. When `wave_council_policy.enabled` is true, run the Wave Council readiness pass and record `wave-council-readiness` in `## Review Evidence`; `council-moderator` owns the synthesis.
+6. Record `## AC priority` on each change doc.
+7. Record readiness verdict in wave record `## Review checkpoints`.
+8. Update wave record `Status: active`.
 
 ## Review Lane Matrix for Wavefoundry
 
@@ -27,6 +28,8 @@ You are running **Prepare wave** on Wavefoundry. This is the stage gate for impl
 | MCP tool contract | architecture-reviewer, docs-contract-reviewer |
 | Packaging / build | code-reviewer, release-reviewer |
 | Bug fix | qa-reviewer (required by policy) |
+
+When Wave Council is enabled, fixed seats are `architecture-reviewer`, `security-reviewer`, `qa-reviewer`, and `reality-checker`; the fifth seat rotates from wave evidence.
 
 ## CIA Orientation
 

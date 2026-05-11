@@ -7,6 +7,10 @@ Last verified: 2026-05-06
 wave-id: `12ecs agent-feedback-harness`
 Title: Agent Feedback Harness
 
+## Objective
+
+Add a complete feedback harness layer to Wavefoundry: post-edit computational sensors, behaviour harness test-generation, architecture/security/performance reviewers as declarable required review lanes, hotfix bypass detection, harnessability assessment, harness coverage metrics, coherence checking across the seed surface, and sensor finding severity triage.
+
 ## Changes
 
 Change ID: `12ecs-feat post-edit-computational-sensors`

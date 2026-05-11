@@ -39,11 +39,22 @@ SOURCE_CODE_EXTENSIONS = {
     ".yaml", ".yml", ".toml", ".json", ".jsonc",
     ".html", ".css", ".scss", ".sass",
     ".xml", ".graphql", ".gql", ".proto", ".sql",
+    ".ps1", ".psm1",
+    ".bat", ".cmd",
+    ".tf", ".tfvars", ".hcl",
+    ".tpl",
 }
 
 # Extensionless filenames treated as documentation (routed to chunk_plain_text in chunker).
 # Keep in sync with chunker.py:DOCS_EXTENSIONLESS_NAMES.
 DOCS_EXTENSIONLESS_NAMES = {"README", "LICENSE", "CHANGELOG", "CONTRIBUTING", "NOTICE"}
+
+# Extensionless filenames treated as code (routed to chunk_line_window in chunker).
+# Keep in sync with chunker.py:CODE_EXTENSIONLESS_NAMES.
+CODE_EXTENSIONLESS_NAMES = {
+    "Jenkinsfile", "Makefile", "Dockerfile", "Vagrantfile", "Brewfile",
+    "Fastfile", "Appfile", "Podfile", "Gemfile", "Procfile",
+}
 
 # Plain-text extensions indexed as documentation (not code).
 DOCS_TEXT_EXTENSIONS = {".txt"}
@@ -104,6 +115,7 @@ HARDCODED_EXCLUDE_FILENAMES = frozenset({
     "package-lock.json",
     "yarn.lock",
     "pnpm-lock.yaml",
+    "prompt-surface-manifest.json",  # machine-generated metadata artifact, not useful for search
 })
 
 # Extensions for machine-generated files that are valid text but have no code semantics.
@@ -117,6 +129,9 @@ _KNOWN_TEXT_EXTENSIONS = frozenset(SOURCE_CODE_EXTENSIONS) | {
     ".md", ".markdown",
     ".txt",
     ".graphql", ".gql", ".proto",
+    ".tf", ".tfvars", ".hcl", ".tpl",
+    ".ps1", ".psm1",
+    ".bat", ".cmd",
 }
 
 # Dot-directories that are always excluded from the walk.
@@ -195,15 +210,20 @@ def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
             if any(part.startswith(".") for part in parts[:-1]):
                 continue
 
-        # Check remaining hardcoded dir-name excludes (non-dot dirs like node_modules)
-        if any(part in HARDCODED_EXCLUDE_DIRS for part in parts):
+        # Check remaining hardcoded dir-name excludes (non-dot dirs like node_modules).
+        # Only check directory components (parts[:-1]) so filenames like ".env" aren't
+        # blocked by the ".env" virtualenv dir entry.
+        if any(part in HARDCODED_EXCLUDE_DIRS for part in parts[:-1]):
             continue
 
         filename = parts[-1]
         suffix = path.suffix.lower()
 
-        # Exclude .env files (secrets risk) — matches .env, .env.local, .env.production, etc.
-        if filename == ".env" or filename.startswith(".env."):
+        # .env files: allow through — chunker redacts all values, indexes variable names only.
+        # Must be checked before the gitignore check and binary sniff since .env has no
+        # recognised extension and is typically listed in .gitignore.
+        if filename == ".env" or (filename.startswith(".env.") and len(filename) > 5):
+            result.append(path)
             continue
 
         # Exact-filename exclusions (generated lock files)
@@ -220,6 +240,11 @@ def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
 
         # Allow extensionless docs files (README, LICENSE, etc.) before extension check
         if not path.suffix and filename in DOCS_EXTENSIONLESS_NAMES:
+            result.append(path)
+            continue
+
+        # Allow extensionless code files (Jenkinsfile, Makefile, etc.) before extension check
+        if not path.suffix and filename in CODE_EXTENSIONLESS_NAMES:
             result.append(path)
             continue
 
@@ -573,7 +598,7 @@ def _progress(verbose: bool, message: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _is_docs_kind(kind: str) -> bool:
-    return kind in ("doc", "seed")
+    return kind in ("doc", "seed", "prompt", "doc-summary")
 
 
 # We cache the chunker module after first load
@@ -616,6 +641,7 @@ def build_index(
     include_generated: bool = False,
     project_include_prefixes: tuple[str, ...] = (),
     verbose: bool = False,
+    dry_run: bool = False,
 ) -> dict:
     index_dir = index_dir or (root / INDEX_DIR_NAME)
     if not index_dir.is_absolute():
@@ -633,6 +659,7 @@ def build_index(
             include_generated=include_generated,
             project_include_prefixes=project_include_prefixes,
             verbose=verbose,
+            dry_run=dry_run,
         )
 
 
@@ -648,6 +675,7 @@ def _build_index_locked(
     include_generated: bool = False,
     project_include_prefixes: tuple[str, ...] = (),
     verbose: bool = False,
+    dry_run: bool = False,
 ) -> dict:
     """Build or incrementally update the index at root/.wavefoundry/index/.
 
@@ -761,11 +789,26 @@ def _build_index_locked(
             print("build_index: index is up to date", flush=True)
         return {"files_indexed": 0, "files_total": len(files), "up_to_date": True}
 
+    if dry_run:
+        scope = "full" if full else f"{len(changed)} changed, {len(removed)} removed"
+        print(f"build_index: dry-run — rebuild needed ({scope})", flush=True)
+        return {"files_indexed": 0, "files_total": len(files), "up_to_date": False, "dry_run": True}
+
+    _index_label = {"docs": "docs/seed", "code": "code", "all": "docs/seed + code"}.get(content, content)
+    if full:
+        print(
+            f"build_index: rebuilding {_index_label} index — {len(files_for_content)} source files\n"
+            "  This may take several minutes to complete.",
+            flush=True,
+        )
+    else:
+        print(
+            f"build_index: updating {_index_label} index — "
+            f"{len(changed)} file(s) changed, {len(removed)} removed\n"
+            "  This may take several minutes to complete.",
+            flush=True,
+        )
     if verbose:
-        if full:
-            print(f"build_index: full {content} rebuild — {len(files_for_content)} files", flush=True)
-        else:
-            print(f"build_index: incremental {content} rebuild — {len(changed)} changed, {len(removed)} removed", flush=True)
         if not build_code:
             print("build_index: semantic code embedding disabled (use setup_index.py --include-code to enable)", flush=True)
         elif build_code and not build_docs:
@@ -1069,6 +1112,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--watch", action="store_true", help="Watch for file changes and rebuild incrementally (requires watchdog)")
+    parser.add_argument("--dry-run", action="store_true", help="Check whether a rebuild is needed without writing anything")
     parser.add_argument("--verbose", "-v", action="store_true", help="Print progress")
     return parser.parse_args(argv)
 
@@ -1092,6 +1136,7 @@ def main(argv: list[str] | None = None) -> int:
         include_generated=args.include_generated,
         project_include_prefixes=tuple(args.project_include_prefix),
         verbose=args.verbose,
+        dry_run=args.dry_run,
     )
     return 0
 

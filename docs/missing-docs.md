@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-05-08
 
 Tracks known documentation gaps — items that should exist but don't yet, or items flagged as needing verification.
 
@@ -10,8 +10,8 @@ Tracks known documentation gaps — items that should exist but don't yet, or it
 
 | Gap | Why Needed | Priority |
 |-----|-----------|---------|
-| `docs/architecture/decisions/DEC-001-framework-location.md` | Record the decision to place framework content at `.wavefoundry/framework/` as the canonical directory | medium |
-| `docs/architecture/decisions/DEC-002-mcp-transport.md` | Record transport decision (stdio vs socket) once MCP server design is finalized | medium |
+| `docs/architecture/decisions/<id>-adr framework-location.md` | Record the decision to place framework content at `.wavefoundry/framework/` as the canonical directory | medium |
+| `docs/architecture/decisions/<id>-adr mcp-transport.md` | Record transport decision (stdio vs socket) once MCP server design is finalized | medium |
 | `docs/contributing/docs-maintenance.md` | Explains doc freshness expectations, metadata update triggers | low |
 | Factor 07 (port binding) ADR | Need decision on MCP server transport before this factor can be fully evaluated | medium |
 | Factor 09 (disposability) ADR | Depends on MCP server process model | medium |

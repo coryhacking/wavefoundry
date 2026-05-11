@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Dashboard launcher — .wavefoundry/bin/wave_dashboard
+# Starts the local dashboard server and opens it in the default browser.
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$REPO_ROOT"
+exec python3 ".wavefoundry/framework/scripts/dashboard_server.py" --open "$@"

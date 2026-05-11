@@ -6,7 +6,7 @@ Use this checklist when intentionally editing the wave framework or repo-local w
 
 ## Gate sequence
 
-1. Read `AGENTS.md` and `docs/prompts/upgrade-wavefoundry.md`.
+1. Read `AGENTS.md` and `docs/prompts/upgrade-wavefoundry.prompt.md`.
 2. Produce a file-level patch plan and wait for operator approval before broad framework-maintenance edits.
 3. Create or update `.wavefoundry/guard-overrides.json` before editing:
    - `.wavefoundry/framework/`
@@ -19,9 +19,10 @@ Use this checklist when intentionally editing the wave framework or repo-local w
 
 ## Verification sequence
 
-1. `python3 -B .wavefoundry/framework/scripts/run_tests.py`
+1. Run framework tests when the test suite is present (development installs only — not included in distribution packs): `python3 -B .wavefoundry/framework/scripts/run_tests.py` (skip if `run_tests.py` does not exist)
 2. `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py`
-3. **Docs gate:** Prefer MCP **`wave_garden`** (if needed) then **`wave_validate`**. **CLI fallback:** `.wavefoundry/bin/docs-gardener` then `.wavefoundry/bin/docs-lint`
+3. `.wavefoundry/bin/docs-gardener`
+4. `.wavefoundry/bin/docs-lint`
 
 ## Guardrails
 

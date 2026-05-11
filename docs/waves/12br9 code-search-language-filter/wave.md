@@ -7,6 +7,10 @@ Last verified: 2026-05-03
 wave-id: `12br9 code-search-language-filter`
 Title: Code Search Language Filter
 
+## Objective
+
+Fix code search language filter mismatches, normalize language extensions, add language categories, and evaluate embedding model ANE performance.
+
 ## Changes
 
 Change ID: `12br9-bug code-search-language-filter-mismatch`

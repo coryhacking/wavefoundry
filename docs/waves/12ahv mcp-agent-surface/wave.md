@@ -7,6 +7,10 @@ Last verified: 2026-05-01
 wave-id: `12ahv mcp-agent-surface`
 Title: Mcp Agent Surface
 
+## Objective
+
+Expand the MCP tool surface with change-creation coverage, resource-template reads, code-navigation tools, and MCP layer polish.
+
 ## Changes
 
 Change ID: `1297t-feat mcp-change-creation-coverage`

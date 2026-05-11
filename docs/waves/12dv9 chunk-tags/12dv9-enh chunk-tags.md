@@ -1,10 +1,10 @@
 # Chunk Tags — Multi-Label Retrieval Axis
 
 Change ID: `12dv9-enh chunk-tags`
-Change Status: `draft`
+Change Status: `complete`
 Owner: Engineering
-Status: draft
-Last verified: 2026-05-05
+Status: active
+Last verified: 2026-05-10
 Wave: `12dv9 chunk-tags`
 
 ## Rationale

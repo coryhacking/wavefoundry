@@ -6,7 +6,7 @@ Wave: `129p8 mcp-docs-search-reliability`
 Change Status: `complete`
 Owner: Engineering
 Status: complete
-Last verified: 2026-04-30
+Last verified: 2026-05-08
 
 ## Core intent
 
@@ -76,7 +76,7 @@ This change delivers the **core intent** above: **merge-safe generated configs**
    Extend `test_render_platform_surfaces.py` (or equivalent) so a temp repo with `.cursor/`, `.junie/`, and pre-seeded `.mcp.json` / `.cursor/mcp.json` proves merge preservation and `wavefoundry` stanza for each **implemented** path.
 
 10. **Docs**  
-   `AGENTS.md` and `docs/prompts/install-wavefoundry.md` include the **host matrix** (or pointer to this change doc) and, per host, **either** “what was generated and where to enable it in the UI” **or** “open host settings → add stdio server → paste …” so primary vs secondary paths are obvious.
+   `AGENTS.md` and `docs/prompts/install-wavefoundry.prompt.md` include the **host matrix** (or pointer to this change doc) and, per host, **either** “what was generated and where to enable it in the UI” **or** “open host settings → add stdio server → paste …” so primary vs secondary paths are obvious.
 
 ## Scope
 
@@ -86,7 +86,7 @@ This change delivers the **core intent** above: **merge-safe generated configs**
 
 - `render_platform_surfaces.py`: shared helper; **auto** paths for **Cursor**, **Claude**, **Junie**; optional **Copilot** workspace file if validated.
 - Tests for every **generated** path touched above.
-- `AGENTS.md`, `docs/prompts/install-wavefoundry.md`, **`docs/prompts/index.md`** (or equivalent catalog line), and minimal architecture pointer if reviewers require it — all written for **searchability and copy-paste** where hosts are instruction-only.
+- `AGENTS.md`, `docs/prompts/install-wavefoundry.prompt.md`, **`docs/prompts/index.md`** (or equivalent catalog line), and minimal architecture pointer if reviewers require it — all written for **searchability and copy-paste** where hosts are instruction-only.
 
 **Out of scope:**
 

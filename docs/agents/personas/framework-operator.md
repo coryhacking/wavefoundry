@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-30
+Last verified: 2026-05-08
 
 ## Who
 
@@ -68,7 +68,7 @@ A developer or engineering lead who installs, upgrades, and operates the Wave Fr
 
 ## Review Triggers
 
-- Any change to `docs/prompts/install-wavefoundry.md` or `docs/prompts/upgrade-wavefoundry.md`.
+- Any change to `docs/prompts/install-wavefoundry.prompt.md` or `docs/prompts/upgrade-wavefoundry.prompt.md`.
 - Any change to seed-010 or seed-020 that affects the operator summary or installed file set.
 - Any change to `.wavefoundry/framework/VERSION` or `docs/prompts/prompt-surface-manifest.json` `framework_revision`.
 - MCP tool design review when a tool failure would be visible to the operator without a clear recovery path.

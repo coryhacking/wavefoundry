@@ -48,7 +48,7 @@ Required target-repo outputs (seed or refresh from evidence; omit only when the 
 - `docs/architecture/data-and-control-flow.md` — Control paths, state ownership, mutations (task 11)
 - `docs/architecture/testing-architecture.md` — Test tiers, target ownership, doubles policy, CI hooks (task 12)
 - `docs/architecture/decisions/README.md` — Decision-record convention (may already exist from `seed-040`)
-- `docs/architecture/decisions/template.md` — Copy-paste skeleton for new `DEC-*` files (task 13)
+- `docs/architecture/decisions/template.md` — Copy-paste skeleton for new ADR files (task 13); ADR files use `<id>-adr <slug>.md` naming with lifecycle IDs
 - `docs/architecture/threat-model.md` and `docs/architecture/performance-budget.md` — Baseline adaptive artifacts (even when posture is low-risk); reference boundaries defined above
 
 Alignment with review and roles:

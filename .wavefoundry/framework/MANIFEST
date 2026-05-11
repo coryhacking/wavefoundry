@@ -1,6 +1,11 @@
 MANIFEST
 README.md
 VERSION
+dashboard/dashboard.css
+dashboard/dashboard.html
+dashboard/dashboard.js
+dashboard/react-dom.production.min.js
+dashboard/react.production.min.js
 index/docs.json
 index/docs.npy
 index/index-build-stats.json
@@ -10,6 +15,8 @@ index/meta.json
 scripts/_tag_utils.py
 scripts/build_pack.py
 scripts/chunker.py
+scripts/dashboard_lib.py
+scripts/dashboard_server.py
 scripts/docs_gardener.py
 scripts/docs_lint.py
 scripts/eval_chunker.py
@@ -56,6 +63,7 @@ seeds/120-project-persona-synthesis.prompt.md
 seeds/130-agent-journal-bootstrap.prompt.md
 seeds/140-reindex-ongoing.prompt.md
 seeds/150-refresh-wavefoundry.prompt.md
+seeds/152-start-dashboard.prompt.md
 seeds/160-upgrade-wavefoundry.prompt.md
 seeds/170-plan-feature.prompt.md
 seeds/175-interrogate-plan.prompt.md
@@ -67,6 +75,8 @@ seeds/211-code-insight-agent.prompt.md
 seeds/212-performance-reviewer.prompt.md
 seeds/213-security-reviewer.prompt.md
 seeds/214-architecture-reviewer.prompt.md
+seeds/215-council-moderator.prompt.md
+seeds/216-reality-checker.prompt.md
 seeds/220-legacy-framework-migration.prompt.md
 seeds/230-author-spec.prompt.md
 seeds/240-package-wavefoundry.prompt.md

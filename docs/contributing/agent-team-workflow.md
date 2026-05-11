@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-30
+Last verified: 2026-05-08
 
 ## Role Routing
 
@@ -14,6 +14,7 @@ Wavefoundry uses the standard Wave Framework generic roles. The wave-coordinator
 |------|------------|
 | `planner` | Drafting a consolidated change doc; discovery; planning a wave shape |
 | `wave-coordinator` | Admitting changes; managing execution order; closing waves |
+| `council-moderator` | Synthesizing Wave Council readiness and delivery passes when `wave_council_policy.enabled` |
 | `implementer` | Executing code changes per admitted change doc |
 | `code-reviewer` | Any implementation change (mandatory for non-trivial code changes) |
 | `architecture-reviewer` | Changes touching module boundaries, integration contracts, or data flow |
@@ -26,6 +27,31 @@ Wavefoundry uses the standard Wave Framework generic roles. The wave-coordinator
 ### Bug Fix Policy
 
 `docs/workflow-config.json` `review_policies.require_qa_reviewer_for_bug_fixes: true` — all bug fixes admitted into a wave must include `qa-reviewer` in readiness and **Review checkpoints** before closure.
+
+## Wave Council Routing
+
+When `docs/workflow-config.json` `wave_council_policy.enabled` is true:
+
+- `wave-council-readiness` is required at **Prepare wave**
+- `wave-council-delivery` is required at **Review wave** / before **Close wave**
+- `council-moderator` owns the synthesis output for both phases
+- `wave-coordinator` gathers evidence, routes lanes, and enforces the gate, but does not author the council verdict
+
+Default fixed seats:
+
+- `architecture-reviewer`
+- `security-reviewer`
+- `qa-reviewer`
+- `reality-checker`
+
+The fifth seat rotates from wave evidence and review triggers:
+
+- `docs-contract-reviewer` for seed/prompt/contract work
+- `performance-reviewer` for indexing, search, and hot-path concerns
+- `release-reviewer` for packaging or distribution changes
+- an applicable persona when operator-facing acceptance is central
+
+Machine-readable council signoffs belong in `## Review Evidence`. Narrative council synthesis belongs in `## Review checkpoints`.
 
 ## Persona Agent Routing
 
@@ -53,7 +79,7 @@ Invoke these when the change needs deeper expertise than a generic role normally
 | `technical-writer` | Operator docs, onboarding docs, or durable reference docs need active authorship |
 | `codebase-onboarding-engineer` | Repo discovery, architecture walkthroughs, or onboarding maps are the primary output |
 | `workflow-architect` | Multi-step flows, handoffs, failure modes, or recovery paths need explicit design |
-| `reality-checker` | Claims need adversarial evidence review before closure or release |
+| `reality-checker` | Claims need adversarial evidence review before closure or release; fixed seat in the default Wave Council template |
 
 Deferred or adapt-only catalog candidates such as `mcp-builder`, `lsp-index-engineer`, `ux-architect`, `incident-response-commander`, or `spring-boot-engineer` are tracked in `docs/agents/specialists/README.md` but are not part of the supported framework routing surface yet.
 
@@ -80,7 +106,7 @@ Enable these from repo evidence rather than by default:
 
 ## Concurrency
 
-See `docs/prompts/agent-routing-concurrency.md` for read-only vs write-owning lane rules and serialization points.
+See `docs/prompts/agent-routing-concurrency.prompt.md` for read-only vs write-owning lane rules and serialization points.
 
 Protected surfaces that require single-lane ownership:
 - `.wavefoundry/framework/seeds/` — seed edits require `seed_edit_allowed` guard approval; single write owner at a time

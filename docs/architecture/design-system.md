@@ -2,13 +2,15 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-02
+Last verified: 2026-05-08
 
 Hub doc for the design-system extraction contract seeded under `docs/design-system/`. Explains the extraction philosophy, where each artifact type lives, what is regeneratable versus operator-owned, and how the semantic index relates to the design surface.
 
 ## Extraction Philosophy
 
 The design system extraction contract follows a single governing rule: **extract, don't invent.** When source evidence is absent, the framework records `null` and a matching `gaps.md` entry rather than silently defaulting to a value. This makes every design decision auditable and prevents agents from drifting from the actual evidence.
+
+For the local dashboard feature, the design-system surface is also the governance home for the dashboard's small shared UI contract: shell layout, typography, spacing, status-color semantics, card/table structure, and loading/empty/error states. The dashboard may ship browser assets under `.wavefoundry/framework/dashboard/`, but those assets should still align with the checked-in design-system narrative and token surfaces rather than accreting ad hoc styling rules in isolation.
 
 Two artifact classes coexist under `docs/design-system/` and must never be conflated:
 

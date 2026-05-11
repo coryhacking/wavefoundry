@@ -62,6 +62,46 @@ code_keyword_search(symbol)      # exact token match — always available
 code_dependencies(path)          # import graph for a specific file
 ```
 
+### Tags Filter
+
+Both `docs_search` and `code_search` accept an optional `tags` parameter that pre-filters the search space before cosine ranking. Use tags when the question is clearly scoped to a specific category of file — this gives tighter results on the first pass and avoids noise from unrelated chunks.
+
+Tag vocabulary:
+
+| Tag | What it matches |
+|-----|----------------|
+| `wave` | Wave records and change docs (`docs/waves/`) |
+| `agent` | Agent prompts and journals (`docs/prompts/agents/`, `docs/agents/`) |
+| `journal` | Agent journal files only (`docs/agents/journals/`) |
+| `lifecycle` | Install and onboarding docs under `docs/` |
+| `reference` | Reference docs (`docs/references/`) |
+| `prompt` | Any `.prompt.md` file or file under `docs/prompts/` |
+| `seed` | Framework seed files (`.wavefoundry/framework/seeds/`) |
+| `framework` | Any file under `.wavefoundry/framework/` |
+| `test` | Test files (`test_*.py`, `*_test.go`, `*.spec.ts`, files under `/tests/`) |
+| `config` | Config files (`.yaml`, `.yml`, `.toml`, `.env`, `.env.*`) |
+
+Filter semantics: multiple tags use OR (a chunk matching any tag is included). `kind` and `tags` compose with AND (both must be satisfied when both are provided).
+
+Usage examples:
+
+```
+# Scope to wave records only
+docs_search("how is CHUNKER_VERSION used", tags=["wave"])
+
+# Find agent prompts related to implementation
+docs_search("implement wave steps", tags=["agent", "prompt"])
+
+# Find test files covering a specific function
+code_search("chunk_markdown tests", tags=["test"])
+
+# Find lifecycle/install documentation
+docs_search("how to install", tags=["lifecycle"])
+
+# Find agent journals for recent signals
+docs_search("active wave signals", tags=["journal"])
+```
+
 ## Assumption Discipline
 
 Every claim must be either **code-validated** or **explicitly qualified**:
@@ -176,7 +216,7 @@ Citation fields in `code_ask` response:
 
 - If no indexed evidence is found: respond with `confidence: "low"` and state what was not found rather than guessing.
 - If evidence is partial (keyword-only): note `method: "keyword_fallback"` in the relevant citations and flag in `gaps`.
-- If the index is stale (`index_freshness: "stale"`): note that the index may not reflect recent changes; recommend `wave_index_build` to rebuild.
+- If the index is stale (`index_freshness: "stale"`): note that the index may not reflect recent changes; recommend `wave_index_build(mode="rebuild")` to rebuild. After triggering a rebuild, use `wave_index_build_status()` to poll for completion — it returns `state: "running"` or `state: "finished"` without blocking.
 
 ## Write Permissions
 

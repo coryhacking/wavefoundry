@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .context import build_context
 from .constants import AUDIT_DEFAULT_REPORT
-from .core_validators import check_prompt_surface_manifest, check_pycache, check_required_files, check_workflow_config
+from .core_validators import check_forbidden_root_wrappers, check_prompt_file_extensions, check_prompt_surface_manifest, check_pycache, check_required_files, check_workflow_config
 from .design_system_validators import check_design_system
 from .design_system_governance_validators import check_design_governance
 from .design_system_surface_validators import check_design_surface
@@ -76,6 +76,8 @@ def main() -> int:
         return 1
 
     failures.extend(check_required_files(root))
+    failures.extend(check_forbidden_root_wrappers(root))
+    failures.extend(check_prompt_file_extensions(root))
     failures.extend(check_pycache(root))
     failures.extend(check_wave_roots(root))
     failures.extend(check_workflow_config(root))

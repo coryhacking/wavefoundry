@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-30
+Last verified: 2026-05-08
 
 Generic Wave Framework agent roles used in Wavefoundry delivery work. Role docs define operating identity, salience triggers, and memory responsibilities.
 
@@ -12,6 +12,7 @@ Generic Wave Framework agent roles used in Wavefoundry delivery work. Role docs 
 |------|-----|----------------------|
 | planner | `docs/agents/planner.md` | Discovery, change doc authoring, wave planning |
 | wave-coordinator | `docs/agents/wave-coordinator.md` | Wave admission, execution order, closure |
+| council-moderator | `docs/agents/council-moderator.md` | Wave Council synthesis and verdict ownership |
 | implementer | `docs/agents/implementer.md` | Code changes per admitted change doc |
 | code-reviewer | `docs/agents/code-reviewer.md` | Implementation correctness and pattern compliance |
 | architecture-reviewer | `docs/agents/architecture-reviewer.md` | Boundary and layering impact |
@@ -32,7 +33,7 @@ Currently supported universal specialists. These are the cross-project roles tha
 | technical-writer | Operator-facing docs authoring and durable guidance polish |
 | codebase-onboarding-engineer | Read-only repo discovery, architecture walkthroughs, onboarding maps |
 | workflow-architect | Happy-path, failure-path, and handoff design before implementation |
-| reality-checker | Evidence-first release skepticism and claim validation |
+| reality-checker | Evidence-first release skepticism and claim validation; fixed seat in the default Wave Council template |
 
 ## Archetype Specialists
 

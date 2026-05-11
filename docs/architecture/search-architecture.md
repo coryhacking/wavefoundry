@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-03
+Last verified: 2026-05-08
 
 ## The Problem
 
@@ -23,7 +23,8 @@ The MCP search surface is organized into three layers, each solving a narrower a
 ```
 Layer 1: Semantic search   — docs_search, code_search
 Layer 2: Exact navigation  — code_keyword_search, code_read, code_list_files
-Layer 3: Symbol navigation — code_definition, code_references
+Layer 3: Symbol navigation — code_definition, code_references, code_dependencies
+Layer 4: Codebase Q&A      — code_ask
 ```
 
 They are ordered from broadest to narrowest:
@@ -32,7 +33,8 @@ They are ordered from broadest to narrowest:
 |-------|-------|--------|-------------|-------------------|
 | Semantic | Natural language query | Ranked relevant chunks | Orientation, discovery, "find something like X" | No — requires model cache |
 | Exact | Literal text substring | File path + line + snippet | Known keyword, function name, exact string | Yes — always |
-| Symbol | Symbol name or position | Definition/reference locations | Jump-to-definition, find-all-references | Partial — Python only |
+| Symbol | Symbol name or position | Definition/reference locations; import graph | Jump-to-definition, find-all-references, dependency tracing | Partial — Python AST; other languages use keyword fallback |
+| Codebase Q&A | Natural language question | Grounded answer with citations | Open-ended questions spanning multiple files | No — requires semantic index |
 
 The layering matters because agents should reach for the narrowest tool that fits the task. Using semantic search to find a function you know the name of is slower, less reliable, and wastes tokens. Using exact keyword search to find documentation about a concept you can't name exactly is fruitless.
 
@@ -91,16 +93,44 @@ Layers are only merged if their vector dimensions and model names match. A misma
 
 All file walks reuse the same ignore/exclusion rules as the indexer (`walk_repo()`, `.gitignore`, `.aiignore`, hardcoded excludes) to keep results consistent.
 
-### Decision 6: Symbol navigation starts Python-only with explicit unsupported responses
+### Decision 6: Symbol navigation starts Python-only with cross-language keyword fallback
 
-Language-aware symbol navigation (jump-to-definition, find-references) requires parsing, which requires language-specific infrastructure. Rather than shipping a degenerate implementation that works partially for many languages, the initial scope is deliberately narrow:
+Language-aware symbol navigation (jump-to-definition, find-references) requires parsing, which requires language-specific infrastructure. The implementation uses a two-tier approach:
 
-- **Python**: AST-based, using `ast.walk()` to find `FunctionDef`, `AsyncFunctionDef`, and `ClassDef` nodes by name. Reliable and dependency-free.
-- **Other languages**: explicit `"unsupported language"` response with a `code_keyword_search` fallback hint.
+- **Python**: AST-based, using `ast.walk()` to find `FunctionDef`, `AsyncFunctionDef`, and `ClassDef` nodes by name. Reliable and dependency-free. Returns `method: "ast"`.
+- **Other languages**: keyword fallback — walks all repo files with a word-boundary regex (`\b<symbol>\b`) and returns matching lines with `method: "keyword_fallback"`. Less precise than AST but universally available and consistently shaped.
 
-The alternative — shipping "best effort" regex-based symbol lookup for many languages — produces subtly wrong results that agents may trust. An explicit unsupported response is more useful than a wrong answer.
+Both tiers return the same response structure (`definitions` / `references` list with `path`, `line`, `method`). This means callers never need to branch on language — they just inspect `method` to understand provenance.
+
+`code_dependencies` provides an import graph for a specific file. Python uses `ast.parse` for reliable import extraction; JS/TS/Go/Rust use regex patterns. Response: `{path, imports: [{module, resolved_path?, resolved: bool}], method: "ast" | "regex" | "unsupported"}`.
 
 Future expansion (tree-sitter, LSP integration) is a natural extension of this layer without changing the public tool API.
+
+### Decision 7: Orientation chunks (`code-summary`, `doc-summary`) enable fast first-pass retrieval
+
+A full semantic search over all file chunks is expensive when the agent only needs to know which files are relevant. Two orientation chunk kinds solve this:
+
+- **`kind="code-summary"`**: one chunk per source file — module docstring (or leading comment) + top-level symbol names (capped at 20). Produced by `_chunk_code_summary` in `chunker.py`; routes to the code index. Queried with `code_search(kind="code-summary")` to get a file-level orientation map without reading full source chunks.
+- **`kind="doc-summary"`**: one chunk per markdown file — first non-heading paragraph + all H1/H2/H3 headings concatenated as `Sections: A · B · C`. Produced by `_chunk_doc_summary`; routes to the docs index (via `_is_docs_kind`). Queried with `docs_search(kind="doc-summary")` for documentation orientation.
+
+Both kinds are prepended to their file's chunk list so they appear first in retrieval results when the query matches the file-level summary.
+
+### Decision 8: `code_ask` does mechanical retrieval routing, not LLM synthesis
+
+`code_ask` is a structured routing tool, not an LLM-in-the-loop summarizer. Given a question, it:
+
+1. Classifies the question type (navigational / explanatory / instructional) using a keyword heuristic
+2. Runs a broad semantic pass (`code_search` + `docs_search`)
+3. If fewer than 2 citations, runs a keyword fallback pass (`code_keyword_search`)
+4. Returns `{answer, citations, confidence, gaps, question_type, index_freshness}`
+
+The `answer` field is mechanically assembled from the top citation — it names the file and line range, not a synthesized prose response. This is intentional: the tool is designed to be called by an agent that will read the cited sources and reason over them, not to replace that reasoning. Synthesis is the caller's job; retrieval and citation is `code_ask`'s job.
+
+`confidence` is heuristic: `high` = 2+ citations, `medium` = 1 citation, `low` = 0. `index_freshness` is `"stale"` when any indexed chunker version differs from the current `CHUNKER_VERSION`.
+
+### Decision 9: `max_per_file` cap in `code_search` for result diversity
+
+Without a per-file cap, `code_search` can return many chunks from a single large file when that file dominates cosine similarity scores — useful for deep dives into one file, but unhelpful for orientation across the codebase. The `max_per_file` parameter caps how many chunks from the same file can appear in results. Order is: rank (cosine score descending) → language filter → kind filter → per-file cap → `[:top_n]`. The highest-scoring chunk per file is always retained when the cap is applied.
 
 ---
 
@@ -141,13 +171,17 @@ For code navigation (Layer 2 and 3), there is no fallback: the tools either retu
 {
   "id":       "unique string",
   "path":     "repo-relative/path/to/file.md",
-  "kind":     "doc | seed | python | ...",
+  "kind":     "doc | doc-summary | seed | prompt | code | code-summary | python | ...",
   "language": "python | null",
   "lines":    [start_line, end_line],
   "section":  "Header text or null",
   "text":     "chunk text — what was embedded"
 }
 ```
+
+The `kind` field now includes two orientation kinds:
+- `code-summary` — file-level symbol index for source files; routes to code index
+- `doc-summary` — heading index for markdown files; routes to docs index
 
 The `text` field is what was embedded. The `path` and `lines` fields are what the agent sees in results. Keeping the two separate means the embedded text can be a normalized or chunked version of the file without changing what's reported back.
 
@@ -158,3 +192,4 @@ The `text` field is what was embedded. The `path` and `lines` fields are what th
 - **`embedding-model.md`** — the specific model choice, its properties, regression tests, and upgrade procedure
 - **`data-and-control-flow.md`** — the runtime control paths for index build and MCP query calls
 - **`current-state.md`** — the deployed MCP topology, including which tools belong to each search layer
+- **`docs/prompts/agents/code-insight-agent.prompt.md`** — the CIA agent prompt: retrieval loop, citation format, confidence model, and per-specialist-agent usage guidance

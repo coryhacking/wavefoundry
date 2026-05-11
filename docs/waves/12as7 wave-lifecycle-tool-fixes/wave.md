@@ -2,10 +2,14 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-05-01
+Last verified: 2026-05-08
 
 wave-id: `12as7 wave-lifecycle-tool-fixes`
 Title: Wave Lifecycle Tool Fixes
+
+## Objective
+
+Fix wave lifecycle tool bugs in wave-create scaffold and admit placement, and add a single-active-wave guard.
 
 ## Changes
 
@@ -49,7 +53,7 @@ Review date: 2026-05-01
 | code-review     | ✅ pass | **12as3:** helper `_insert_change_block_into_changes_section` is pure, correctly handles legacy / missing-section / empty-section branches. Regex `^## Changes[ \t]*\n` correctly anchored in MULTILINE. **12as6:** all 19 requirements implemented; `_find_other_active_wave` uses path-resolve equality; guard aggregates with lint/garden (no short-circuit); pause status write ordered before handoff write; `wave_current` envelope rewrite preserves drift detection for active entry only. Minor observations noted (`current_status` empty-string edge case on malformed wave.md, weak assertion on lint-accepts-paused — none blocking). |
 | qa-review       | ✅ pass | **12as3:** 6 tests cover AC-1 through AC-6 (AC-5 legacy round-trip genuinely exercises the buggy pre-existing layout; not just test-name-level). **12as6:** 21 tests map 1:1 to AC-1 through AC-21 (including AC-11b; AC-6 aggregation and AC-21 `wave_audit` envelope tests added after first qa pass flagged them as missing). `test_no_stale_data_wave_readers_in_source_and_prompts` uses correct `parents[4]` path and actively scans — no longer skipped. 429/429 framework tests pass (zero skips). |
 | architecture    | ✅ pass | 12as3 is N/A (pure bug fix, no contract impact). 12as6 required two architecture doc updates: `docs/architecture/current-state.md` (MCP tool table note for `wave_current` envelope, `wave_prepare` guard, `wave_pause` transition) and `docs/architecture/data-and-control-flow.md` (sections 5 and 7 updated). No new ADR required; change doc Decision Logs are authoritative for the lifecycle vocabulary and envelope contract. Domain-map does not enumerate statuses, so no change there. |
-| docs-contract   | ✅ pass | `docs/prompts/prepare-wave.md` — Single-Active-Wave Rule + recovery flow added. `docs/prompts/pause-wave.md` — rewrote Steps, added status-transition semantics table, resume instructions, paused-in-wave_current note. `AGENTS.md` — added `wave_current` envelope note and single-active-wave rule paragraph. Prompt surface manifest not affected (no new shortcut phrases). Seeds unchanged — tool-envelope details are prompt-doc scope, not seed scope for this change. |
+| docs-contract   | ✅ pass | `docs/prompts/prepare-wave.prompt.md` — Single-Active-Wave Rule + recovery flow added. `docs/prompts/pause-wave.prompt.md` — rewrote Steps, added status-transition semantics table, resume instructions, paused-in-wave_current note. `AGENTS.md` — added `wave_current` envelope note and single-active-wave rule paragraph. Prompt surface manifest not affected (no new shortcut phrases). Seeds unchanged — tool-envelope details are prompt-doc scope, not seed scope for this change. |
 
 
 **Overall: PASS** — Wave 12as7 passes all review lanes. Both changes are ready for closure.

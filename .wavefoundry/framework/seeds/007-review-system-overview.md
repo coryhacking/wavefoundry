@@ -12,6 +12,34 @@ Explain the shared Wave Framework review model: what review is for, how it fits 
 - A wave is not complete until required review outputs are collected and addressed.
 - The same readiness evaluation used before implementation should be rerun during final review before closure.
 
+## Wave Council Meta-Review
+
+Projects may enable **Wave Council** as a universal meta-review for every wave. Wave Council does **not** replace specialist review lanes. It adds two required synthesis checkpoints:
+
+- **`wave-council-readiness`** — before implementation begins
+- **`wave-council-delivery`** — after implementation and before closure
+
+Wave Council uses a structured protocol:
+
+1. A fixed briefing packet is assembled for the relevant phase.
+2. Each council seat reviews that packet in isolation.
+3. The **council-moderator** synthesizes the seat outputs into a single verdict.
+4. When seats materially disagree, the council-moderator may run **one targeted challenge round** on the disputed claims only.
+
+The council-moderator is distinct from the wave-coordinator. The wave-coordinator owns lifecycle routing, readiness, and closure state. The council-moderator owns council synthesis and council verdict text.
+
+### Default seat model
+
+The framework default is **five seats**:
+
+- `architecture-reviewer`
+- `security-reviewer`
+- `qa-reviewer`
+- `reality-checker`
+- one rotating domain seat selected from repo-local evidence, such as `performance-reviewer`, `docs-contract-reviewer`, `release-reviewer`, or an applicable persona
+
+Projects may adapt the rotating-seat policy locally, but the non-waiver rule is framework-wide: **Wave Council may summarize or escalate specialist findings, but it may not waive blocking required lanes by itself.**
+
 ## Generic Review Lanes
 
 The framework commonly expects some combination of these lanes in seeded repositories:
@@ -47,6 +75,35 @@ Projects declare which lanes are required in `docs/workflow-config.json`:
 
 `wave_review` reads this config and includes all declared lanes in `required_lanes` alongside the always-required operator lane. `wave_close` blocks if any declared lane lacks a recorded signoff.
 
+Projects that enable Wave Council should also declare an explicit council policy in `docs/workflow-config.json`, for example:
+
+```json
+{
+  "wave_council_policy": {
+    "enabled": true,
+    "required_for_all_waves": true,
+    "evidence_section": "## Review Evidence",
+    "transition_policy": "applies-from-next-prepare",
+    "phases": {
+      "prepare": {
+        "signoff_key": "wave-council-readiness",
+        "moderator_role": "council-moderator"
+      },
+      "review": {
+        "signoff_key": "wave-council-delivery",
+        "moderator_role": "council-moderator"
+      }
+    }
+  }
+}
+```
+
+`transition_policy` controls rollout for waves already in flight. The framework default, `applies-from-next-prepare`, means:
+
+- the next `Prepare wave` pass must record `wave-council-readiness`
+- waves already past readiness still require the delivery-phase council pass before closure
+- closure does not retroactively require a missing readiness signoff for a wave that never re-entered `Prepare wave`
+
 ### Recording signoff
 
 After running an inferential sensor, record its verdict in the `## Review Evidence` section of `wave.md` using this format:
@@ -58,6 +115,22 @@ After running an inferential sensor, record its verdict in the `## Review Eviden
 ```
 
 The format is: `- <lane-name>: <verdict> [(<severity> — <one-line summary>)]`. The severity annotation is required when severity is `medium` or above.
+
+When Wave Council is enabled, record the machine-readable council signoffs in the **same** `## Review Evidence` section:
+
+```
+- wave-council-readiness: approved (moderator: council-moderator — seats aligned on scope, lane selection, and protected surfaces)
+- wave-council-delivery: approved-with-notes (moderator: council-moderator — ship path accepted; follow-up docs-contract work noted)
+```
+
+Keep the detailed narrative synthesis in `## Review checkpoints`. At minimum, record:
+
+- the full seat roster for the phase, including the rotating fifth seat
+- the moderator's synthesis summary
+- any material disagreements between seats
+- how those disagreements were resolved, or why they remain unresolved
+
+This preserves a single machine-readable evidence location while leaving tradeoff reasoning in the wave narrative.
 
 ### Severity levels
 
@@ -99,16 +172,19 @@ This complements **docs-contract review** (spec vs code): contract review catche
 - Personas may add specialized domain context to a review, but they do not replace the repository's generic review gates.
 - Repo-local policy should decide when persona participation is selected during readiness evaluation and whether those persona findings are gating.
 - Shared framework guidance assumes persona lanes can be required both before implementation and again at final review when the delivered behavior warrants it.
+- An applicable persona may also serve as the rotating fifth Wave Council seat when the repo-local council policy says persona evidence is part of the decision.
 
 ## Seeded Repository Expectations
 
 Init and upgrade should generate or refresh review docs in the repository that define:
 
 - the actual reviewer roles available in the repository
+- whether Wave Council is enabled and, if so, which phases and seat templates are required
 - which change types trigger which review lanes
 - how the readiness evaluation selects implementer lanes, reviewer lanes, and persona lanes before implementation begins
+- how the readiness evaluation selects or confirms the rotating fifth Wave Council seat
 - what evidence each reviewer should inspect
-- which reviewer and persona outputs are gating for readiness and closure
+- which reviewer, council, and persona outputs are gating for readiness and closure
 
 In a seeded project, that local source of truth lives in `docs/contributing/review-and-evals.md` plus related agent-role docs.
 

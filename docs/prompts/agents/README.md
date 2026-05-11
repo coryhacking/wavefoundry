@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-05-08
 
 Supporting agent-oriented prompt bodies for Wavefoundry. These are checked-in context helpers for agents executing Wave Framework commands. They are **not public commands** and are not listed in `docs/prompts/index.md`.
 
@@ -10,15 +10,15 @@ Supporting agent-oriented prompt bodies for Wavefoundry. These are checked-in co
 
 | File | Purpose |
 |------|---------|
-| `init-wave-context.md` | Agent body for Init wave framework |
-| `upgrade-wave-context.md` | Agent body for Upgrade wave framework |
-| `plan-feature.md` | Agent body for Plan feature |
-| `prepare-wave.md` | Agent body for Prepare wave |
-| `implement-wave.md` | Agent body for Implement wave |
-| `implement-feature.md` | Agent body for Implement feature |
-| `review-wave.md` | Agent body for Review wave |
-| `close-wave.md` | Agent body for Close wave |
-| `finalize-feature.md` | Agent body for Finalize feature |
+| `init-wave-context.prompt.md` | Agent body for Init wave framework |
+| `upgrade-wave-context.prompt.md` | Agent body for Upgrade wave framework |
+| `plan-feature.prompt.md` | Agent body for Plan feature |
+| `prepare-wave.prompt.md` | Agent body for Prepare wave |
+| `implement-wave.prompt.md` | Agent body for Implement wave |
+| `implement-feature.prompt.md` | Agent body for Implement feature |
+| `review-wave.prompt.md` | Agent body for Review wave |
+| `close-wave.prompt.md` | Agent body for Close wave |
+| `finalize-feature.prompt.md` | Agent body for Finalize feature |
 
 ## Usage
 

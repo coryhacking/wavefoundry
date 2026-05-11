@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-03
+Last verified: 2026-05-08
 
 ## Runtime Topology
 
@@ -16,7 +16,8 @@ Developer/agent
   ├── python3 .wavefoundry/framework/scripts/docs_gardener.py  →  docs/ tree (read/write metadata)
   ├── python3 .wavefoundry/framework/scripts/build_pack.py     →  .wavefoundry/framework/VERSION (write), .wavefoundry/framework/index/ (write), wavefoundry-*.zip (write)
   ├── python3 .wavefoundry/framework/scripts/render_platform_surfaces.py  →  .claude/, .cursor/, .github/hooks/, .junie/mcp/, .mcp.json (write)
-  └── python3 .wavefoundry/framework/scripts/setup_index.py    →  local model cache (write/verify), .wavefoundry/index/ (write)
+  ├── python3 .wavefoundry/framework/scripts/setup_index.py    →  local model cache (write/verify), .wavefoundry/index/ (write)
+  └── python3 .wavefoundry/framework/scripts/dashboard_server.py [--open]  →  docs/ tree + .wavefoundry/framework/VERSION (read), .wavefoundry/dashboard-server.json (write), browser loopback session (serve)
 ```
 
 **MCP topology (active):**
@@ -79,6 +80,12 @@ build_pack.py
   ├── stamps .wavefoundry/framework/VERSION
   ├── rebuilds .wavefoundry/framework/index/ for packaged framework docs/seeds
   └── writes wavefoundry-YYYY-MM-DDx.zip including framework/index/
+
+dashboard_server.py
+  ├── reads docs/workflow-config.json dashboard settings
+  ├── reads docs/waves/, docs/plans/, docs/prompts/prompt-surface-manifest.json, docs/agents/session-handoff.md
+  ├── serves .wavefoundry/framework/dashboard/{dashboard.html,dashboard.css,dashboard.js}
+  └── writes .wavefoundry/dashboard-server.json for host-local endpoint discovery
 ```
 
 ## Current Risk Areas
@@ -89,6 +96,7 @@ build_pack.py
 | No CI/CD | No automated test runs on push | Framework tests run manually: `python3 .wavefoundry/framework/scripts/run_tests.py` |
 | Index not built on first install | `fastembed`, `numpy`, and `mcp[cli]` must be available in the Python runtime; index built manually before server is useful | `setup_index.py` checks dependencies, prewarms/verifies the embedding model cache, and prints isolated tool-venv setup commands when missing |
 | Search index drift or missing cache | Hook-driven indexing is not guaranteed in every agent environment, and query embedding must remain offline-safe | `docs_search` falls back to lexical search with structured diagnostics when the index is not ready or the semantic model is unavailable offline; per-query repo hash walks were removed to avoid O(repo) latency on every search; mutating MCP doc tools now request background incremental refresh for affected docs in non-hook environments; additional project index roots are explicit in `docs/workflow-config.json` `indexing.project_include_prefixes` rather than hidden repo-specific toggles |
+| Loopback dashboard port collisions | Multiple local Wave Framework repositories can run dashboards concurrently on one workstation | Dashboard host/port preferences live in `docs/workflow-config.json`; the server reuses host-local metadata when valid and scans a bounded fallback range when the preferred port is busy |
 | Lifecycle mutation drift between docs and files | Admitted change docs can drift between `docs/plans/` and wave folders when operators or tools bypass the normal lifecycle path | `wave_add_change`, `wave_remove_change`, and `wave_prepare` now relocate or repair placement and emit explicit diagnostics for duplicates or mismatched wave ownership |
 | MCP contract migration complete for initial surface | Discovery, `wave_map`, envelopes, consolidated creation, prefix checks, `docs_search` kind validation, per-process caches (wave/plan lists, prompt resolution, `wave_help` catalogue snapshot, index reload on mutation), `resolve_path_under_root`, server-side rejection of unexpected tool kwargs, MCP resources/templates, and code navigation tools (`code_keyword_search`, `code_list_files`, `code_read`, `code_definition`, `code_references`) are all in place. Symbol navigation (milestone 2) supports Python only; future tree-sitter/LSP integration deferred. | `docs/specs/mcp-tool-surface.md` is the governing contract for follow-on MCP work |
 

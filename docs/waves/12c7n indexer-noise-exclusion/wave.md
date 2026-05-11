@@ -7,6 +7,10 @@ Last verified: 2026-05-03
 wave-id: `12c7n indexer-noise-exclusion`
 Title: Indexer Noise Exclusion
 
+## Objective
+
+Exclude binary files and generated lock files from indexing, improve line-window chunker boundaries, fix TypeScript export-const body truncation, and enforce a minimum chunk size.
+
 ## Changes
 
 Change ID: `12c7n-bug binary-files-indexed-as-text`

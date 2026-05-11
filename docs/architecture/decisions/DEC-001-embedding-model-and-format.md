@@ -1,4 +1,4 @@
-# DEC-001 — Embedding Model: BAAI/bge-base-en-v1.5 via fastembed ONNX INT8
+# 12dzj-adr — Embedding Model: BAAI/bge-base-en-v1.5 via fastembed ONNX INT8
 
 Owner: Engineering
 Status: accepted

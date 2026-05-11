@@ -5678,6 +5678,149 @@ class SeverityTriageTests(unittest.TestCase):
         self.assertFalse(any(d["code"] == "high_severity_finding" for d in result.get("diagnostics", [])))
 
 
+class WaveCouncilPolicyTests(unittest.TestCase):
+    """12g1y-enh wave-council-review-system: council signoff enforcement."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_config(self, enabled=True, transition_policy=""):
+        cfg = {
+            "lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0},
+            "wave_council_policy": {
+                "enabled": enabled,
+                "transition_policy": transition_policy,
+                "phases": {
+                    "prepare": {"signoff_key": "wave-council-readiness", "moderator_role": "council-moderator"},
+                    "review": {"signoff_key": "wave-council-delivery", "moderator_role": "council-moderator"},
+                },
+            },
+        }
+        (self.root / "docs" / "workflow-config.json").write_text(json.dumps(cfg), encoding="utf-8")
+
+    def _make_change_doc(self, change_id: str):
+        wave_dir = self.root / "docs" / "waves" / "1200a test-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        (wave_dir / f"{change_id}.md").write_text(
+            "# Sample Change\n\n"
+            f"Change ID: `{change_id}`\n"
+            "Change Status: `planned`\n"
+            "## Rationale\n\nwhy\n\n"
+            "## Requirements\n\n1. x\n\n"
+            "## Scope\n\nin scope\n\n"
+            "## Acceptance Criteria\n\n- x\n\n"
+            "## Tasks\n\n- x\n\n"
+            "## AC Priority\n\n"
+            "| AC | Priority | Rationale |\n"
+            "| -- | -------- | --------- |\n"
+            "| AC-1 | required | x |\n",
+            encoding="utf-8",
+        )
+
+    def _make_wave(self, status="planned", evidence_lines=None):
+        if evidence_lines is None:
+            evidence_lines = []
+        wave_dir = self.root / "docs" / "waves" / "1200a test-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        (wave_dir / "wave.md").write_text(
+            "# Wave Record\n"
+            "Owner: Engineering\n"
+            f"Status: {status}\n"
+            "Last verified: 2026-05-08\n\n"
+            "wave-id: `1200a test-wave`\n"
+            "Title: Test Wave\n\n"
+            "## Changes\n\n"
+            "Change ID: `1200a-feat sample`\n"
+            "Change Status: `planned`\n\n"
+            "## Participants\n\n"
+            "| Role | Lane | Scope |\n"
+            "|------|------|-------|\n"
+            "| code-reviewer | review | sample |\n\n"
+            "## Review Evidence\n\n"
+            + "\n".join(evidence_lines) + "\n",
+            encoding="utf-8",
+        )
+        self._make_change_doc("1200a-feat sample")
+
+    def test_prepare_requires_readiness_council_signoff(self):
+        self._write_config()
+        self._make_wave(status="planned", evidence_lines=[])
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_prepare_response(self.root, "1200a test-wave", mode="dry_run")
+        self.assertEqual(result["status"], "error")
+        self.assertTrue(any(d["code"] == "missing_wave_council_signoff" for d in result["diagnostics"]))
+
+    def test_prepare_passes_when_readiness_signoff_present(self):
+        self._write_config()
+        self._make_wave(status="planned", evidence_lines=["- wave-council-readiness: approved"])
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_prepare_response(self.root, "1200a test-wave", mode="dry_run")
+        self.assertIn("wave-council-readiness", result["data"]["required_council_signoffs"])
+        self.assertNotEqual(result["status"], "error")
+
+    def test_review_requires_delivery_council_signoff(self):
+        self._write_config()
+        self._make_wave(status="active", evidence_lines=["- operator-signoff: approved", "- code-reviewer: approved"])
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertEqual(result["status"], "error")
+        self.assertTrue(any(d["code"] == "missing_wave_council_signoff" for d in result["diagnostics"]))
+
+    def test_close_requires_both_council_signoffs(self):
+        self._write_config()
+        self._make_wave(
+            status="active",
+            evidence_lines=[
+                "- operator-signoff: approved",
+                "- code-reviewer: approved",
+                "- wave-council-delivery: approved",
+            ],
+        )
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+        self.assertEqual(result["status"], "error")
+        self.assertTrue(any(d["code"] == "missing_wave_council_signoff" for d in result["diagnostics"]))
+
+    def test_disabled_policy_does_not_require_council(self):
+        self._write_config(enabled=False)
+        self._make_wave(status="active", evidence_lines=["- operator-signoff: approved", "- code-reviewer: approved"])
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertEqual(result["data"]["required_council_signoffs"], [])
+        self.assertFalse(any(d["code"] == "missing_wave_council_signoff" for d in result.get("diagnostics", [])))
+
+    def test_transition_policy_still_requires_delivery_review_signoff(self):
+        self._write_config(transition_policy="applies-from-next-prepare")
+        self._make_wave(status="active", evidence_lines=["- operator-signoff: approved", "- code-reviewer: approved"])
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertEqual(result["data"]["required_council_signoffs"], ["wave-council-delivery"])
+        self.assertTrue(any(d["code"] == "missing_wave_council_signoff" for d in result["diagnostics"]))
+
+    def test_transition_policy_close_does_not_require_missing_readiness_signoff(self):
+        self._write_config(transition_policy="applies-from-next-prepare")
+        self._make_wave(
+            status="active",
+            evidence_lines=[
+                "- operator-signoff: approved",
+                "- code-reviewer: approved",
+                "- wave-council-delivery: approved",
+            ],
+        )
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+        self.assertEqual(result["data"]["required_council_signoffs"], ["wave-council-delivery"])
+        self.assertFalse(any(d["code"] == "missing_wave_council_signoff" for d in result.get("diagnostics", [])))
+
+
 class HarnessCoverageAuditTests(unittest.TestCase):
     """12ed1-feat harness-coverage-metrics: _audit_harness_coverage dimensions."""
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-04
+Last verified: 2026-05-08
 
 ## Context
 
@@ -24,6 +24,7 @@ Use `code_ask` for open-ended questions ("how does X currently work?") when the 
 
 - **Prepare wave** has passed cleanly as the immediately preceding lifecycle step.
 - Stage gate satisfied: change docs admitted and wave-owned; fix placement drift before editing code if any staged copy remains.
+- When `wave_council_policy.enabled` is true, `wave-council-readiness` must already be recorded before the first edit.
 
 ## Execution
 

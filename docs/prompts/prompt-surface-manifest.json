@@ -20,66 +20,70 @@
     "docs/agents/personas/wave-coordinator.md"
   ],
   "journal_root": "docs/agents/journals/",
-  "last_gardened_at": "2026-05-03",
+  "last_gardened_at": "2026-05-08",
   "public_prompt_surface": [
     {
-      "doc": "docs/prompts/install-wavefoundry.md",
+      "doc": "docs/prompts/install-wavefoundry.prompt.md",
       "shortcut": "Init wave framework"
     },
     {
-      "doc": "docs/prompts/upgrade-wavefoundry.md",
+      "doc": "docs/prompts/start-dashboard.prompt.md",
+      "shortcut": "Start dashboard"
+    },
+    {
+      "doc": "docs/prompts/upgrade-wavefoundry.prompt.md",
       "shortcut": "Upgrade wave framework"
     },
     {
-      "doc": "docs/prompts/package-wavefoundry.md",
+      "doc": "docs/prompts/package-wavefoundry.prompt.md",
       "shortcut": "Package Wavefoundry"
     },
     {
-      "doc": "docs/prompts/plan-feature.md",
+      "doc": "docs/prompts/plan-feature.prompt.md",
       "shortcut": "Plan feature"
     },
     {
-      "doc": "docs/prompts/create-wave.md",
+      "doc": "docs/prompts/create-wave.prompt.md",
       "shortcut": "Create wave"
     },
     {
-      "doc": "docs/prompts/add-change-to-wave.md",
+      "doc": "docs/prompts/add-change-to-wave.prompt.md",
       "shortcut": "Add change to wave"
     },
     {
-      "doc": "docs/prompts/remove-change-from-wave.md",
+      "doc": "docs/prompts/remove-change-from-wave.prompt.md",
       "shortcut": "Remove change from wave"
     },
     {
-      "doc": "docs/prompts/prepare-wave.md",
+      "doc": "docs/prompts/prepare-wave.prompt.md",
       "shortcut": "Prepare wave"
     },
     {
-      "doc": "docs/prompts/implement-wave.md",
+      "doc": "docs/prompts/implement-wave.prompt.md",
       "shortcut": "Implement wave"
     },
     {
-      "doc": "docs/prompts/implement-feature.md",
+      "doc": "docs/prompts/implement-feature.prompt.md",
       "shortcut": "Implement feature"
     },
     {
-      "doc": "docs/prompts/pause-wave.md",
+      "doc": "docs/prompts/pause-wave.prompt.md",
       "shortcut": "Pause wave"
     },
     {
-      "doc": "docs/prompts/review-wave.md",
+      "doc": "docs/prompts/review-wave.prompt.md",
       "shortcut": "Review wave"
     },
     {
-      "doc": "docs/prompts/close-wave.md",
+      "doc": "docs/prompts/close-wave.prompt.md",
       "shortcut": "Close wave"
     },
     {
-      "doc": "docs/prompts/finalize-feature.md",
+      "doc": "docs/prompts/finalize-feature.prompt.md",
       "shortcut": "Finalize feature"
     },
     {
-      "doc": "docs/prompts/interrogate-plan.md",
+      "doc": "docs/prompts/interrogate-plan.prompt.md",
       "shortcut": "Interrogate this plan"
     }
   ],

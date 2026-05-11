@@ -77,7 +77,19 @@ Tasks:
 
    If the repository has fewer than three source files with meaningful implementation to compare, record `code_patterns: { "status": "insufficient_history" }` and skip the catalog.
 
-9. **Architecture handoff for `seed-060`** — In `docs/repo-index.md` (or a clearly labeled subsection), make the following **easy for a downstream prompt to quote** without re-scanning the whole tree:
+9. **Module inventory format for `docs/repo-index.md`** — When recording top-level modules, use the structured `## Module: <name>` format below. This makes the inventory machine-readable for the Code Insight Agent's orientation pass and consistent with `kind="code-summary"` chunks that the semantic index emits per source file:
+
+   ```markdown
+   ## Module: <name>
+
+   **Purpose:** One sentence describing what this module does.
+   **Entry points:** Primary public functions, classes, or API routes (comma-separated).
+   **Key dependencies:** Other modules or external packages this module imports (comma-separated).
+   ```
+
+   Emit one `## Module:` section per top-level module, package, service, or app. When the repository has fewer than three source files, record a single `## Module: (root)` entry rather than omitting the section.
+
+10. **Architecture handoff for `seed-060`** — In `docs/repo-index.md` (or a clearly labeled subsection), make the following **easy for a downstream prompt to quote** without re-scanning the whole tree:
 
    - **Deployable units** — apps, daemons, libraries, CLIs, and how they are built or packaged (paths to build scripts or manifests).
    - **Inter-unit edges** — IPC, HTTP, files, notifications, shared DBs, cloud / vendor SDKs (name the integration and both ends).
@@ -87,7 +99,7 @@ Tasks:
 
    When evidence is missing, add **`TBD`** or **`Unknown`** entries so `seed-060` can record explicit gaps instead of silent omissions.
 
-10. **Persona candidate evidence** — Identify evidence for project-specific personas and record under `persona_candidates` in `docs/repo-profile.json` as a list of objects. Consumed by `seed-120` (project persona synthesis) as a starting shortlist; `seed-120` still performs its own evidence scan and user-confirmation pass before generating persona docs. Each candidate object has:
+11. **Persona candidate evidence** — Identify evidence for project-specific personas and record under `persona_candidates` in `docs/repo-profile.json` as a list of objects. Consumed by `seed-120` (project persona synthesis) as a starting shortlist; `seed-120` still performs its own evidence scan and user-confirmation pass before generating persona docs. Each candidate object has:
 
     - `name` — proposed persona (e.g., `wave-coordinator`, `release-engineer`, `homekit-integration-owner`).
     - `evidence` — concise rationale grounded in repository signals (file paths, recurring review responsibilities, ownership patterns, domain-specific operations).
@@ -95,7 +107,7 @@ Tasks:
 
     When evidence is thin, record fewer candidates rather than speculative ones. Record `persona_candidates: []` (empty list) rather than omitting the key when no evidence supports any candidate.
 
-11. **Per-factor applicability evaluation** — Evaluate each of the 15 factors defined in the framework README `## Factor Review Model` section against project evidence. For each factor, record one of: `applicable` (concrete evidence meets the applicability signal), `partial` (some evidence; may become relevant as the project grows), or `not-applicable` (no meaningful review pressure). Include a **concise evidence rationale** for each. Record the full evaluation in `docs/repo-profile.json` under `factor_review` as an object keyed by factor number (e.g. `"04"`) with fields `name`, `status`, and `rationale`. Consumed by `seed-050` (agent entry surface bootstrap) to determine which factor-review agent files to generate, and by `seed-070` (quality and debt) for factor-aware review triggers.
+12. **Per-factor applicability evaluation** — Evaluate each of the 15 factors defined in the framework README `## Factor Review Model` section against project evidence. For each factor, record one of: `applicable` (concrete evidence meets the applicability signal), `partial` (some evidence; may become relevant as the project grows), or `not-applicable` (no meaningful review pressure). Include a **concise evidence rationale** for each. Record the full evaluation in `docs/repo-profile.json` under `factor_review` as an object keyed by factor number (e.g. `"04"`) with fields `name`, `status`, and `rationale`. Consumed by `seed-050` (agent entry surface bootstrap) to determine which factor-review agent files to generate, and by `seed-070` (quality and debt) for factor-aware review triggers.
 
 Required outputs or updates in the target repository:
 
@@ -113,8 +125,8 @@ Required outputs or updates in the target repository:
   | `design_sensitivity`            | 3    | `seed-040`, `seed-050`                          |
   | `design_system.design_evidence` | 7    | `seed-010`, `seed-040`, `seed-160`              |
   | `code_patterns`                 | 8    | `seed-020` (at implementation time)             |
-  | `persona_candidates`            | 10   | `seed-120`                                      |
-  | `factor_review`                 | 11   | `seed-050`, `seed-070`                          |
+  | `persona_candidates`            | 11   | `seed-120`                                      |
+  | `factor_review`                 | 12   | `seed-050`, `seed-070`                          |
 
   Profiles may carry additional keys set by other seeds (for example `supported_agent_platforms` from `seed-050`); this table names only the keys `seed-030` is responsible for.
 

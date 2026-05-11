@@ -153,6 +153,17 @@ class FileWalkerTests(unittest.TestCase):
         self.assertNotIn("pnpm-lock.yaml", names)
         self.assertIn("package.json", names)
 
+    def test_excludes_prompt_surface_manifest(self):
+        # AC-7 (12cv4): prompt-surface-manifest.json is a machine-generated artifact, not indexed
+        _make_repo(self.root, {"docs/prompts/index.md": "# Index\n"})
+        manifest = self.root / "docs" / "prompts" / "prompt-surface-manifest.json"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text('{"schema_version":"1.0"}', encoding="utf-8")
+        files = self.bi.walk_repo(self.root)
+        names = {f.name for f in files}
+        self.assertNotIn("prompt-surface-manifest.json", names)
+        self.assertIn("index.md", names)
+
     def test_excludes_snap_and_excalidraw(self):
         # AC-4, AC-5 (12c7n-bug generated-lock-files-indexed): snapshots and diagrams excluded
         _make_repo(self.root, {"src/foo.ts": "export {};", "src/bar.json": "{}"}),
@@ -238,17 +249,17 @@ class FileWalkerTests(unittest.TestCase):
         rel_strs = {str(f.relative_to(self.root)).replace("\\", "/") for f in files}
         self.assertIn(".wavefoundry/config.json", rel_strs)
 
-    def test_excludes_env_files(self):
-        """.env and .env.* files are excluded (secrets risk)."""
+    def test_includes_env_files_for_scrubbing(self):
+        """.env and .env.* files are now included — values are redacted at chunk time."""
         _make_repo(self.root, {"src/foo.py": "x = 1\n"})
         (self.root / ".env").write_text("SECRET=abc\n", encoding="utf-8")
         (self.root / ".env.local").write_text("LOCAL=xyz\n", encoding="utf-8")
         (self.root / ".env.production").write_text("PROD=123\n", encoding="utf-8")
         files = self.bi.walk_repo(self.root)
         names = {f.name for f in files}
-        self.assertNotIn(".env", names)
-        self.assertNotIn(".env.local", names)
-        self.assertNotIn(".env.production", names)
+        self.assertIn(".env", names)
+        self.assertIn(".env.local", names)
+        self.assertIn(".env.production", names)
 
     def test_includes_txt_files(self):
         """.txt files pass through the walker."""

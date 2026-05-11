@@ -8,7 +8,7 @@ Hub index for Wavefoundry architecture documentation. Child docs provide detail;
 
 ## Scope
 
-Wavefoundry is a framework and tooling repository: canonical Wave Framework seed prompts, Python CLI scripts, planned local MCP server. No shipped user-facing application.
+Wavefoundry is a framework and tooling repository: canonical Wave Framework seed prompts, Python CLI scripts, a local MCP server, and an optional local loopback dashboard surface. No networked product application is shipped from this repository.
 
 ## Child Docs
 
@@ -31,6 +31,7 @@ Update this hub and relevant child docs when:
 - MCP server is scaffolded (updates current-state, domain-map, data-and-control-flow)
 - Transport decision is made (updates current-state, threat-model)
 - New framework tool is added (updates domain-map, data-and-control-flow)
+- Local dashboard server or browser asset contract changes (updates current-state, domain-map, threat-model, design-system)
 - Integration contract changes (updates layering-rules boundary invariants)
 - New test tier or CI gate is added (updates testing-architecture)
 

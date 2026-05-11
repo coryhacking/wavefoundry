@@ -63,6 +63,12 @@ See `AGENTS.md → MCP / Wavefoundry server — enabling per host` for the full 
 
 **Docs validation (agents):** After MCP is enabled, use **`wave_validate`** and **`wave_garden`** for the docs gate instead of shelling out to `.wavefoundry/bin/docs-lint` / `.wavefoundry/bin/docs-gardener`. Use the bin launchers only when MCP is not attached (CI, hooks, bare terminal).
 
+**Optional local dashboard:** After install, the repository can expose the local dashboard surface with **`Start dashboard`**, which runs:
+
+```bash
+python3 .wavefoundry/framework/scripts/dashboard_server.py --root . --open
+```
+
 **Step 3 — Restart MCP and update indexes:**
 
 After registration, restart the MCP server in your host so the newly installed server picks up all rendered surfaces. Then update the semantic index so docs_search reflects the installed content:

@@ -169,6 +169,22 @@ class BuildPackTests(unittest.TestCase):
         self.assertTrue(
             any(n.endswith("render_platform_surfaces.py") for n in names), names[:5]
         )
+        self.assertIn(
+            ".wavefoundry/framework/seeds/215-council-moderator.prompt.md",
+            names,
+        )
+        self.assertIn(
+            ".wavefoundry/framework/seeds/216-reality-checker.prompt.md",
+            names,
+        )
+        self.assertIn(
+            ".wavefoundry/framework/scripts/dashboard_server.py",
+            names,
+        )
+        self.assertIn(
+            ".wavefoundry/framework/dashboard/dashboard.html",
+            names,
+        )
 
     def test_tests_excluded_from_pack(self):
         # Test suite is a development-only artifact; must not ship in the distribution zip.

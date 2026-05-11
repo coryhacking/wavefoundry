@@ -43,9 +43,9 @@ The **wave** is the primary delivery unit. A wave is a bounded, reviewable conta
 ## Lifecycle At A Glance
 
 1. Plan the wave — define scope, admit changes, establish review gates.
-2. Ready the wave — validate that admitted change docs are already wave-owned, repair placement drift if needed, evaluate the admitted changes, select required implementer, reviewer, and persona lanes, and block start until readiness is clean.
+2. Ready the wave — validate that admitted change docs are already wave-owned, repair placement drift if needed, evaluate the admitted changes, select required implementer, reviewer, persona, and council lanes, run the Wave Council readiness pass when the project enables it, and block start until readiness is clean.
 3. Implement the wave — implement all admitted changes together.
-4. Review the wave — run required review lanes as a unified set and rerun readiness at final review.
+4. Review the wave — run required review lanes as a unified set, run the Wave Council delivery pass when the project enables it, and rerun readiness at final review.
 5. Close and commit the wave — record completion, reconcile wave-owned change docs and reports, commit the result.
 6. Either plan the next wave (carry incomplete changes forward) or finalize.
 
@@ -87,8 +87,9 @@ flowchart TD
 
 - A wave should not start implementation until a readiness evaluation has passed.
 - Readiness includes validating that admitted change docs are already in `docs/waves/<wave-id>/`, repairing staged-only drift when needed, and clearing duplicate staging copies.
-- The readiness evaluation determines which implementer lanes, reviewer lanes, and persona lanes must participate.
+- The readiness evaluation determines which implementer lanes, reviewer lanes, persona lanes, and any required Wave Council seats must participate.
 - If a user asks to implement the wave directly, the coordinator should run or confirm this readiness evaluation automatically first.
+- When the project enables Wave Council, readiness is not complete until the council-moderator has synthesized the isolated council-seat outputs into a recorded `wave-council-readiness` verdict.
 
 ## 3. Implement The Wave
 
@@ -112,6 +113,7 @@ flowchart TD
 - Admitted change docs should already live under `docs/waves/<wave-id>/` after `Add change to wave`; `Prepare wave` repairs drift defensively if staging copies remain.
 - Verification follows the project's build, test, docs, and smoke-check procedures before wave closure.
 - For exact reviewer roles, personas, and gate triggers, use the seeded project's agent-team workflow and review docs.
+- When the project enables Wave Council, delivery review includes a second council pass after implementation: isolated seat outputs first, then council-moderator synthesis into a recorded `wave-council-delivery` verdict.
 
 ## 3a. Implement Loop Execution Model
 
@@ -136,6 +138,8 @@ Before the first edit, the coordinator produces an ordered execution plan: which
 ### Parallel Lane Merge
 
 Reviewer and persona lanes that share no dependencies run concurrently. The coordinator records a single merged `Observe:` entry synthesizing all concurrent lane outputs before emitting the next `Thought:`. This prevents the coordinator from acting on partial findings from one lane while others are still running.
+
+When Wave Council is enabled, the council seats also run in parallel on an isolated first pass. The council-moderator — not the wave-coordinator — owns the synthesis step, optional targeted challenge round on material disagreement, and final council verdict. The wave-coordinator remains responsible for lifecycle routing and gate enforcement.
 
 ### Finding Classification (CRITIC)
 
@@ -209,6 +213,6 @@ flowchart TD
 - `docs/contributing/discovery-delivery-workflow.md`
 - `docs/contributing/review-and-evals.md`
 - `docs/waves/README.md`
-- `docs/prompts/plan-feature.md`
-- `docs/prompts/implement-feature.md`
-- `docs/prompts/finalize-feature.md`
+- `docs/prompts/plan-feature.prompt.md`
+- `docs/prompts/implement-feature.prompt.md`
+- `docs/prompts/finalize-feature.prompt.md`

@@ -4,7 +4,7 @@ Change ID: `1297p-feat embedding-model-ane-eval`
 Change Status: `implemented`
 Owner: Engineering
 Status: implemented
-Last verified: 2026-05-03
+Last verified: 2026-05-08
 Wave: `12br9 code-search-language-filter`
 
 ## Rationale
@@ -73,7 +73,7 @@ This plan establishes a measurement-driven decision before code is written. The 
 - AC-2: A retrieval ground-truth set at `.wavefoundry/framework/scripts/benchmarks/retrieval_eval.json` with ≥30 (query, expected_paths) entries: ≥15 code-intent queries (e.g. "function that parses wave IDs", "error handling for missing index") and ≥10 docs-intent queries, plus ≥5 cross-cutting queries that should match both. The code-intent set is the primary quality gate for code-specific model candidates.
 - AC-3: A conversion script at `.wavefoundry/framework/scripts/convert_to_coreml.py` produces a `.mlpackage` from a fastembed-supported model name, deterministically, with conversion logs and weight SHA-256.
 - AC-4: Tokenizer parity test confirms the standalone `tokenizers` pipeline emits identical token IDs to fastembed's internal tokenizer for ≥100 sample inputs spanning English prose, code, and edge cases (long inputs, unicode, code with `<` `>` `&`).
-- AC-5: A decision document at `docs/architecture/decisions/embedding-model-and-format.md` captures the chosen model, format, conversion provenance, measured numbers, and explicit rejection reasons for non-chosen candidates.
+- AC-5: A decision document at `docs/architecture/decisions/12dzj-adr embedding-model-and-format.md` captures the chosen model, format, conversion provenance, measured numbers, and explicit rejection reasons for non-chosen candidates.
 - AC-6: If Core ML path is adopted: `_get_embedder()` selects format based on cache presence + platform; existing tests still pass; new tests cover format selection logic.
 - AC-7: `meta.json` records `format` alongside `model_name` so a model or format change forces a full rebuild via the existing `model_versions` mechanism.
 - AC-8: Full-rebuild latency on this repository's corpus does not regress on Linux CI runners (which lack ANE); this is the cross-platform safety check.
@@ -121,7 +121,7 @@ If no candidate meets the speedup threshold *and* quality gate, the recommendati
 - [x] Decision: adopt `bge-base-en-v1.5` for both DOCS_MODEL and CODE_MODEL.
 - [x] Updated `DOCS_MODEL` and `CODE_MODEL` constants in `indexer.py`.
 - [x] Updated regression test constants (`_EXPECTED_DOCS_MODEL`, `_EXPECTED_EMBEDDING_DIM`) in `test_server_tools.py`.
-- [x] Author `docs/architecture/decisions/embedding-model-and-format.md` ADR.
+- [x] Author `docs/architecture/decisions/12dzj-adr embedding-model-and-format.md` ADR.
 - [x] Update architecture docs that name `bge-small-en-v1.5` (current-state.md, data-and-control-flow.md, search-architecture.md, embedding-model.md).
 - [x] Rebuild index (required: bge-base produces 768d vectors vs bge-small's 384d; indexer model-change detection will force full rebuild).
 
@@ -150,7 +150,7 @@ If no candidate meets the speedup threshold *and* quality gate, the recommendati
 
 - `docs/architecture/current-state.md` — embedding model is named in the MCP topology; will need an update if the model or format changes
 - `docs/architecture/data-and-control-flow.md` Path 5 (Semantic Index Build) — current text names `BAAI/bge-small-en-v1.5`; would need to reflect format detection if Core ML is adopted
-- `docs/architecture/decisions/embedding-model-and-format.md` — new ADR (does not exist yet); records the decision, even if the decision is "stay"
+- `docs/architecture/decisions/12dzj-adr embedding-model-and-format.md` — new ADR (does not exist yet); records the decision, even if the decision is "stay"
 - `docs/contributing/build-and-verification.md` — would need to document the conversion command if Core ML is adopted
 
 ## AC Priority

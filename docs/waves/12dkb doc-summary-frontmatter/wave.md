@@ -7,6 +7,10 @@ Last verified: 2026-05-05
 wave-id: `12dkb doc-summary-frontmatter`
 Title: Doc-Summary Frontmatter, Title Capture, and Heading-Level Detection
 
+## Objective
+
+Add frontmatter, title capture, and heading-level detection to doc-summary chunks.
+
 ## Changes
 
 Change ID: `12dkb-enh doc-summary-frontmatter`

@@ -2,13 +2,14 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-01
+Last verified: 2026-05-08
 
 ## Test Tiers
 
 | Tier | Scope | Location | Runner |
 |------|-------|----------|--------|
 | Framework script unit tests | `docs_lint.py`, `build_pack.py` behavior | `.wavefoundry/framework/scripts/tests/` | `python3 .wavefoundry/framework/scripts/run_tests.py` |
+| Dashboard reader/server unit tests | `dashboard_lib.py`, `dashboard_server.py` snapshot and HTTP-handler contract | `.wavefoundry/framework/scripts/tests/test_dashboard_server.py` | `python3 .wavefoundry/framework/scripts/run_tests.py` |
 | Fixture-based integration | Docs-lint against fixture repos | `.wavefoundry/framework/scripts/tests/fixtures/` | Same runner |
 | Semantic embedding regression | Real fastembed path, model name/dim/determinism/ranking anchors — **skipped** when fastembed is not installed or model not cached | `SemanticEmbeddingRegressionTests` in `test_server_tools.py` | Same runner |
 | Manual docs gate | MCP **`wave_validate`** succeeds, **or** `.wavefoundry/bin/docs-lint` passes | MCP / repo root | `wave_validate` / `.wavefoundry/bin/docs-lint` |
@@ -31,6 +32,7 @@ When a model upgrade is intentional, update the two constants at the top of `Sem
 |-----------|--------------|
 | `.wavefoundry/framework/scripts/tests/test_docs_gardener.py` | docs_gardener behavior |
 | `.wavefoundry/framework/scripts/tests/test_build_pack.py` | build_pack.py behavior |
+| `.wavefoundry/framework/scripts/tests/test_dashboard_server.py` | dashboard snapshot readers, port selection, and HTTP handler responses |
 | `.wavefoundry/framework/scripts/tests/fixtures/docs_lint/base/` | Fixture target repo for docs_lint tests |
 
 ## Doubles Policy

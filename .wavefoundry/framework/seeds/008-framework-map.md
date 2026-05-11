@@ -37,8 +37,8 @@ These files explain the framework and route maintainers toward the right operati
 
 These are the durable shortcut entry points that seeded repositories expose to users and agents:
 
-- `Init wave framework` (legacy: `Init wave context`)
-- `Upgrade wave framework` (legacy: `Upgrade wave context`)
+- `Install Wavefoundry` (legacy: `Init wave framework` / `Init wave context`)
+- `Upgrade Wavefoundry` (legacy: `Upgrade wave framework` / `Upgrade wave context`)
 - `Plan feature`
 - `Create wave`
 - `Add change to wave`
@@ -91,6 +91,16 @@ The framework expects repo-local work to close the loop through:
 - wave reconciliation and carry-forward handling
 - journal distillation and memory promotion
 - upgrade/reindex passes when the framework evolves
+
+## Prompt file naming convention
+
+Any markdown file that lives under `docs/prompts/` **or** carries the `.prompt.md` suffix (anywhere in the repository) is indexed with `kind="prompt"`. This lets agents retrieve runnable prompts separately from generic documentation via `docs_search(kind="prompt")`.
+
+- **Runnable prompt files** — use the `.prompt.md` extension. Path-based detection (`docs/prompts/`) catches files without the suffix; extension-based detection (`.prompt.md`) catches files outside that directory.
+- **Reference and index docs** — use plain `.md`. Files such as `docs/prompts/index.md` and `docs/prompts/agents/README.md` are navigation aids, not runnable prompts, and should stay as `.md`.
+- **Seed priority exception** — seed files get `kind="seed"` regardless of path or suffix. The seed-origin check fires before prompt detection.
+
+When generating new runnable prompt files, always apply the `.prompt.md` suffix. When upgrading an existing project, migrate `docs/prompts/**/*.md` runnable files with `git mv` (see seed 160, step 9).
 
 ## Shared-to-Local Boundary Map
 

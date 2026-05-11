@@ -15,12 +15,14 @@
   ],
   "runtime_surfaces": [
     "cli_scripts",
-    "future_mcp_stdio_server"
+    "future_mcp_stdio_server",
+    "local_loopback_dashboard"
   ],
   "deployment_modes": [
     "local_python_scripts",
     "zip_distribution_to_target_repos",
-    "future_local_mcp_server"
+    "future_local_mcp_server",
+    "local_browser_dashboard"
   ],
   "security_sensitivity": {
     "level": "low",
@@ -31,23 +33,30 @@
     "notes": "Docs-lint and gardener scripts run on docs trees, expected to be fast. Future MCP code-search index may have indexing latency for large repos."
   },
   "design_sensitivity": {
-    "level": "none",
-    "notes": "No UI surface; CLI and MCP tool outputs are plain text or JSON."
+    "level": "partial",
+    "notes": "Framework now ships an optional local dashboard surface under .wavefoundry/framework/dashboard/. It is operational tooling rather than product UI, but still needs a basic design-system contract."
   },
   "design_system": {
     "design_evidence": {
-      "detected": false,
-      "stack_specific_source": "No UI roots found; CLI-only tooling and seed-prompt text files",
-      "has_design_tokens": false,
-      "token_files": [],
+      "detected": true,
+      "stack_specific_source": "Optional loopback dashboard assets under .wavefoundry/framework/dashboard/ plus docs/design-system/ governance surfaces",
+      "has_design_tokens": true,
+      "token_files": [
+        "docs/design-system/tokens/primitives.tokens.json",
+        "docs/design-system/tokens/semantic.tokens.json"
+      ],
       "has_component_library": false,
       "component_library": null,
       "has_storybook": false,
       "storybook_config_path": null,
-      "has_typography_system": false,
-      "typography_source": null,
-      "ui_roots": [],
-      "detected_methodology": []
+      "has_typography_system": true,
+      "typography_source": "docs/design-system/foundations/typography.md",
+      "ui_roots": [
+        ".wavefoundry/framework/dashboard/"
+      ],
+      "detected_methodology": [
+        "repo-evidence-only"
+      ]
     }
   },
   "code_patterns": {
@@ -106,8 +115,8 @@
     },
     "07": {
       "name": "Port binding",
-      "status": "partial",
-      "rationale": "Future MCP server may bind a port or use stdio. Not yet implemented. Re-evaluate when server is scaffolded."
+      "status": "applicable",
+      "rationale": "The optional local dashboard server binds loopback HTTP ports per repository. Preferred/fallback port behavior is now part of the framework contract."
     },
     "08": {
       "name": "Concurrency",
@@ -141,8 +150,8 @@
     },
     "14": {
       "name": "Telemetry",
-      "status": "not-applicable",
-      "rationale": "No monitoring, alerting, or tracing requirements. Local tool; no operational dashboard."
+      "status": "partial",
+      "rationale": "The dashboard surfaces local project activity and health snapshots, but does not yet provide external monitoring, alerting, or tracing."
     },
     "15": {
       "name": "Auth and security",

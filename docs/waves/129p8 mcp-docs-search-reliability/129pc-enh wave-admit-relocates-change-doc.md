@@ -4,7 +4,7 @@ Change ID: `129pc-enh wave-admit-relocates-change-doc`
 Change Status: `complete`
 Owner: Engineering
 Status: complete
-Last verified: 2026-04-30
+Last verified: 2026-05-08
 Wave: `129p8 mcp-docs-search-reliability`
 
 ## Rationale
@@ -87,9 +87,9 @@ That gives the wave folder a simpler meaning as soon as a change is admitted: it
 - Update `.wavefoundry/framework/scripts/server.py` so `wave_prepare_response` validates admitted file placement and repairs the simple missing-wave-copy case.
 - Decide and document the duplicate-copy policy for `Prepare wave`.
 - Review whether any shared helper should own change-doc path resolution so add/prepare/remove stay consistent.
-- Update `docs/prompts/add-change-to-wave.md`.
-- Update `docs/prompts/prepare-wave.md`.
-- Update `docs/prompts/remove-change-from-wave.md`.
+- Update `docs/prompts/add-change-to-wave.prompt.md`.
+- Update `docs/prompts/prepare-wave.prompt.md`.
+- Update `docs/prompts/remove-change-from-wave.prompt.md`.
 - Update `docs/prompts/index.md` and any lifecycle overview docs that summarize the move point.
 - Update `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md`.
 - Update any additional canonical seeds that currently encode prepare-time relocation, keeping the touched seed set disciplined and consistent.

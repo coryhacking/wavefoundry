@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-30
+Last verified: 2026-05-08
 
 Public shortcut phrase catalog for Wavefoundry. See `AGENTS.md` for the routing table.
 
@@ -19,27 +19,31 @@ This prompt surface follows `.wavefoundry/framework/seeds/020-run-contract.promp
 
 | Phrase | Purpose | Doc |
 |--------|---------|-----|
-| **Init wave framework** | Initialize Wave Framework in a target repository | `docs/prompts/install-wavefoundry.md` |
-| **Enable Wavefoundry MCP** | Register the local MCP server in Claude Code, Cursor, Junie, Copilot, Codex, or Air | `docs/prompts/install-wavefoundry.md#mcp--wavefoundry-server` |
-| **Upgrade wave framework** | Upgrade Wave Framework in a target repository | `docs/prompts/upgrade-wavefoundry.md` |
-| **Plan feature** | Author a consolidated change document | `docs/prompts/plan-feature.md` |
-| **Create wave** | Create a wave record | `docs/prompts/create-wave.md` |
-| **Add change to wave** | Admit a change doc into the active wave | `docs/prompts/add-change-to-wave.md` |
-| **Remove change from wave** | Remove an admitted change from the wave | `docs/prompts/remove-change-from-wave.md` |
-| **Prepare wave** / **Ready wave** | Confirm readiness; validate/repair change-doc placement; AC priority | `docs/prompts/prepare-wave.md` |
-| **Implement wave** | Coordinator-managed multi-change implementation loop | `docs/prompts/implement-wave.md` |
-| **Implement feature** | Single-change docs-first implementation | `docs/prompts/implement-feature.md` |
-| **Pause wave** | Park session state in handoff artifact | `docs/prompts/pause-wave.md` |
-| **Review wave** | Run required review lanes with AC reconciliation | `docs/prompts/review-wave.md` |
-| **Close wave** | Finalize wave with closure reconciliation | `docs/prompts/close-wave.md` |
-| **Finalize feature** | Single-change closure path | `docs/prompts/finalize-feature.md` |
-| **Interrogate this plan** | Stress-test a change doc before admission | `docs/prompts/interrogate-plan.md` |
+| **Init wave framework** | Initialize Wave Framework in a target repository | `docs/prompts/install-wavefoundry.prompt.md` |
+| **Start dashboard** | Start the local repository dashboard and open it in the browser | `docs/prompts/start-dashboard.prompt.md` |
+| **Enable Wavefoundry MCP** | Register the local MCP server in Claude Code, Cursor, Junie, Copilot, Codex, or Air | `docs/prompts/install-wavefoundry.prompt.md#mcp--wavefoundry-server` |
+| **Upgrade wave framework** | Upgrade Wave Framework in a target repository | `docs/prompts/upgrade-wavefoundry.prompt.md` |
+| **Plan feature** | Author a consolidated change document | `docs/prompts/plan-feature.prompt.md` |
+| **Create wave** | Create a wave record | `docs/prompts/create-wave.prompt.md` |
+| **Add change to wave** | Admit a change doc into the active wave | `docs/prompts/add-change-to-wave.prompt.md` |
+| **Remove change from wave** | Remove an admitted change from the wave | `docs/prompts/remove-change-from-wave.prompt.md` |
+| **Prepare wave** / **Ready wave** | Confirm readiness; validate/repair change-doc placement; AC priority | `docs/prompts/prepare-wave.prompt.md` |
+| **Implement wave** | Coordinator-managed multi-change implementation loop | `docs/prompts/implement-wave.prompt.md` |
+| **Implement feature** | Single-change docs-first implementation | `docs/prompts/implement-feature.prompt.md` |
+| **Pause wave** | Park session state in handoff artifact | `docs/prompts/pause-wave.prompt.md` |
+| **Review wave** | Run required review lanes with AC reconciliation | `docs/prompts/review-wave.prompt.md` |
+| **Reopen wave** | Reopen a prematurely closed wave | MCP: `wave_reopen(wave_id)` |
+| **Index build status** | Check background index rebuild progress | MCP: `wave_index_build_status(layer?)` — suitable for `/loop` polling |
+| **Close wave** | Finalize wave with closure reconciliation | `docs/prompts/close-wave.prompt.md` |
+| **Finalize feature** | Single-change closure path | `docs/prompts/finalize-feature.prompt.md` |
+| **Interrogate this plan** | Stress-test a change doc before admission | `docs/prompts/interrogate-plan.prompt.md` |
+| **Ask codebase** | Ask a natural-language question about the codebase; returns cited answer | `docs/prompts/agents/code-insight-agent.prompt.md` — MCP: `code_ask(question)` |
 
 ## Wavefoundry Maintainer Commands
 
 | Phrase | Purpose | Doc |
 |--------|---------|-----|
-| **Package Wavefoundry** | Build framework zip distribution | `docs/prompts/package-wavefoundry.md` |
+| **Package Wavefoundry** | Build framework zip distribution | `docs/prompts/package-wavefoundry.prompt.md` |
 | **Migrate to Wavefoundry** | Migrate a target repo from legacy layout | `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md` |
 
 ## Legacy Aliases
@@ -56,11 +60,26 @@ The following phrases are accepted for backwards compatibility but redirect to p
 ## Usage Notes
 
 - **Full lifecycle required before code:** Every non-trivial code change needs a change doc, wave admission, and a clean **Prepare wave** before implementation. See `AGENTS.md` **Stage Gate (repository code)**.
+- **Wave Council:** when `docs/workflow-config.json` `wave_council_policy.enabled` is true, every wave also requires a council readiness pass during **Prepare wave** and a council delivery pass during **Review wave** / before **Close wave**. These are universal meta-review checkpoints and do not replace specialist lanes.
 - **Implement wave vs Implement feature:** Use **Implement wave** for multiple admitted changes; use **Implement feature** for a single docs-first change.
-- **Concurrency and protected surfaces:** See `docs/prompts/agent-routing-concurrency.md` for read-only vs write-owning lane rules.
+- **Concurrency and protected surfaces:** See `docs/prompts/agent-routing-concurrency.prompt.md` for read-only vs write-owning lane rules.
 - **Stress-testing plans:** After **Plan feature**, use **Interrogate this plan** to walk unresolved decision branches before admission.
 - **Wavefoundry self-hosting:** When editing framework seeds, use **Package Wavefoundry** to produce a distribution and **Upgrade wave framework** in a target repo to consume it.
 
 ## Internal Agent-Oriented Prompt Bodies
 
 Supporting agent-oriented prompt bodies live under `docs/prompts/agents/`. These are checked-in context helpers and are not listed as public commands.
+
+| File | Lane |
+|------|------|
+| `docs/prompts/agents/code-insight-agent.prompt.md` | CIA / `code_ask` retrieval agent |
+| `docs/prompts/agents/performance-reviewer.prompt.md` | `performance-reviewer` |
+| `docs/prompts/agents/security-reviewer.prompt.md` | `security-reviewer` |
+
+## Prompt Search Routing
+
+All files under `docs/prompts/` are indexed with `kind="prompt"` and searched via the MCP server.
+
+- **When the prompt name is unknown** — use `docs_search(query="...", kind="prompt")` to discover relevant commands. Example: `docs_search(query="how do I start a wave", kind="prompt")`.
+- **When the prompt ID is known** — use `seed_get(id="...")` for direct retrieval of a framework seed prompt (e.g. `seed_get(id="170-plan-feature.prompt.md")`). For project prompt docs, use `code_read(path="docs/prompts/prepare-wave.prompt.md")`.
+- **Omit `kind`** to search across all doc kinds (prompts, architecture, wave records, seeds) in a single query.

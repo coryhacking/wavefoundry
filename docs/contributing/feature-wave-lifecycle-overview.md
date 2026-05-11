@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-30
+Last verified: 2026-05-08
 
 Adapted from `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` for Wavefoundry's specific reviewer roles, personas, and artifact paths.
 
@@ -25,6 +25,7 @@ Add change to wave
 
 Prepare wave (stage gate — required before implementation)
   → confirm readiness: admitted docs are wave-owned, doc complete, review lanes selected, AC priority recorded
+  → when enabled, run Wave Council readiness pass and record `wave-council-readiness`
   → required reviewers confirmed; product-owner acknowledgment if product-impacting
 
 Implement wave / Implement feature
@@ -34,6 +35,7 @@ Implement wave / Implement feature
 
 Review wave
   → code-reviewer, qa-reviewer, architecture-reviewer (as required by change type)
+  → when enabled, run Wave Council delivery pass and record `wave-council-delivery`
   → AC scope gap check; AC priority reconciliation against shipped behavior
 
 Close wave / Finalize feature
@@ -57,6 +59,15 @@ Close wave / Finalize feature
 
 - **framework-operator** — invoked during spec authoring, MCP tool design review, and acceptance of install/upgrade behavior changes
 - **wave-coordinator** — invoked during spec authoring for wave lifecycle behavior changes
+
+## Wave Council
+
+When `docs/workflow-config.json` `wave_council_policy.enabled` is true, every wave also requires:
+
+- `wave-council-readiness` before implementation
+- `wave-council-delivery` before closure
+
+The `council-moderator` owns council synthesis. The `wave-coordinator` still owns lifecycle state and gates.
 
 ## Factor-Review Agents (applicable)
 

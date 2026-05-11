@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-01
+Last verified: 2026-05-08
 
 Wave records for Wavefoundry delivery work. Each wave is a bounded, reviewable container for one or more admitted changes.
 
@@ -12,10 +12,11 @@ Wave records for Wavefoundry delivery work. Each wave is a bounded, reviewable c
 
 ## Active Waves
 
-*(none)*
+- `12g47 dashboard-framework`
 
 ## Completed Waves
 
+- `12g27 wave-council-review-system`
 - `129p8 mcp-docs-search-reliability`
 - `1293d mcp-server-foundation`
 

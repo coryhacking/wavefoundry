@@ -3,8 +3,13 @@
 Owner: Engineering
 Status: active
 Last verified: 2026-03-21
+Title: Routine Behavior Contract
 
 wave-id: `00057 routine-behavior-contract`
+
+## Objective
+
+Validate docs-lint fixture behavior for wave-owned change doc validation.
 
 ## Wave Summary
 

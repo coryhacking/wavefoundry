@@ -2699,5 +2699,97 @@ class DocSummaryChunkTests(unittest.TestCase):
         self.assertTrue(len(chapter_chunks) >= 1)
 
 
+class InferTagsTests(unittest.TestCase):
+    """AC-1 through AC-9 (12dv9): _infer_tags controlled vocabulary."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def test_wave_tag(self):
+        tags = self.chunker._infer_tags("docs/waves/12dv9 chunk-tags/wave.md")
+        self.assertIn("wave", tags)
+
+    def test_agent_tag_from_prompts_agents(self):
+        tags = self.chunker._infer_tags("docs/prompts/agents/code-insight-agent.prompt.md")
+        self.assertIn("agent", tags)
+        self.assertIn("prompt", tags)
+
+    def test_agent_tag_from_docs_agents(self):
+        tags = self.chunker._infer_tags("docs/agents/journals/code-insight-agent.md")
+        self.assertIn("agent", tags)
+        self.assertIn("journal", tags)
+
+    def test_journal_tag(self):
+        tags = self.chunker._infer_tags("docs/agents/journals/wave-coordinator.md")
+        self.assertIn("journal", tags)
+
+    def test_reference_tag(self):
+        tags = self.chunker._infer_tags("docs/references/project-overview.md")
+        self.assertIn("reference", tags)
+
+    def test_prompt_tag_from_docs_prompts(self):
+        tags = self.chunker._infer_tags("docs/prompts/prepare-wave.prompt.md")
+        self.assertIn("prompt", tags)
+
+    def test_prompt_tag_from_prompt_md_suffix_anywhere(self):
+        tags = self.chunker._infer_tags("some/other/location/my-agent.prompt.md")
+        self.assertIn("prompt", tags)
+
+    def test_seed_and_framework_tags(self):
+        tags = self.chunker._infer_tags(".wavefoundry/framework/seeds/211-code-insight-agent.prompt.md")
+        self.assertIn("seed", tags)
+        self.assertIn("framework", tags)
+
+    def test_lifecycle_tag_install(self):
+        tags = self.chunker._infer_tags("docs/contributing/install-wavefoundry.md")
+        self.assertIn("lifecycle", tags)
+
+    def test_lifecycle_tag_onboarding(self):
+        tags = self.chunker._infer_tags("docs/references/onboarding-guide.md")
+        self.assertIn("lifecycle", tags)
+
+    def test_lifecycle_not_triggered_outside_docs(self):
+        tags = self.chunker._infer_tags(".wavefoundry/framework/scripts/setup_index.py")
+        self.assertNotIn("lifecycle", tags)
+
+    def test_test_tag_python(self):
+        tags = self.chunker._infer_tags(".wavefoundry/framework/scripts/tests/test_chunker.py")
+        self.assertIn("test", tags)
+
+    def test_test_tag_go(self):
+        tags = self.chunker._infer_tags("pkg/indexer/indexer_test.go")
+        self.assertIn("test", tags)
+
+    def test_test_tag_spec_ts(self):
+        tags = self.chunker._infer_tags("src/components/Button.spec.ts")
+        self.assertIn("test", tags)
+
+    def test_test_tag_tests_dir(self):
+        tags = self.chunker._infer_tags("src/tests/helpers.py")
+        self.assertIn("test", tags)
+
+    def test_config_tag_yaml(self):
+        tags = self.chunker._infer_tags("config/settings.yaml")
+        self.assertIn("config", tags)
+
+    def test_config_tag_toml(self):
+        tags = self.chunker._infer_tags("pyproject.toml")
+        self.assertIn("config", tags)
+
+    def test_config_tag_env(self):
+        tags = self.chunker._infer_tags(".env.production")
+        self.assertIn("config", tags)
+
+    def test_no_tags_for_plain_source_file(self):
+        tags = self.chunker._infer_tags("src/auth/login.py")
+        self.assertEqual(tags, [])
+
+    def test_multi_tag_seed_file(self):
+        tags = self.chunker._infer_tags(".wavefoundry/framework/seeds/001-overview.md")
+        self.assertIn("seed", tags)
+        self.assertIn("framework", tags)
+        self.assertGreaterEqual(len(tags), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

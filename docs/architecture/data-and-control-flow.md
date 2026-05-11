@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-03
+Last verified: 2026-05-08
 
 ## Primary Control Paths
 
@@ -101,6 +101,43 @@ Last verified: 2026-05-03
 **State written (Path 6):** `docs/plans/`, `docs/waves/`, `docs/agents/session-handoff.md` (handoff tools), `docs/` metadata (garden tool)
 **Transport:** stdio (FastMCP)
 
+### Path 7: Local Dashboard
+
+1. Operator or agent runs `python3 .wavefoundry/framework/scripts/dashboard_server.py --root . [--open]`
+2. Script reads `docs/workflow-config.json` `dashboard` settings to determine host, preferred port, fallback range, poll interval, and optional `include_dirs` for file-activity metrics
+3. Script resolves the runtime port using a preference-then-fallback strategy across a configured range; reuses the recorded port from `.wavefoundry/dashboard-server.json` when available and free
+4. Script writes host-local endpoint metadata to `.wavefoundry/dashboard-server.json` (pid, host, port, url, started_at)
+5. Browser loads `dashboard.html` (shell), `dashboard.css` (design system tokens + layout), `dashboard.js` (React application), `react.production.min.js`, and `react-dom.production.min.js` from the loopback server; no build toolchain required in target repos
+6. Browser React app polls `/api/dashboard` on a graduated backoff schedule (2 → 5 → 8 → 13 → 21 → 30 s); resets to 2 s when the snapshot hash changes; UI state (selected agent, scroll) stays in browser memory
+7. On each poll, `dashboard_lib.collect_dashboard_snapshot` assembles the snapshot from:
+   - `docs/waves/` and `docs/plans/` — wave and change records (status, tasks, AC counts, progress logs, participants, review evidence)
+   - `docs/agents/` tree including `personas/`, `specialists/`, `journals/` subdirectories — agent/persona metadata and section content for the detail dialog
+   - `docs/agents/session-handoff.md` — active wave and recent progress context
+   - `docs/prompts/prompt-surface-manifest.json` — public prompt count and framework revision
+   - `docs/repo-profile.json` — project archetypes
+   - `.wavefoundry/framework/VERSION` — framework version string
+   - File-system mtime scan for `files_updated_today` and `files_updated_week` activity metrics
+
+**State read:** `docs/workflow-config.json`, `docs/repo-profile.json`, `docs/waves/`, `docs/plans/`, `docs/prompts/prompt-surface-manifest.json`, `docs/agents/` tree, `.wavefoundry/framework/VERSION`, repo file mtimes
+**State written:** `.wavefoundry/dashboard-server.json`
+**Transport:** localhost HTTP on loopback only; browser never speaks to MCP or git directly
+
+### Path 8: Daemon-Triggered Incremental Index Rebuild
+
+Opt-in via `dashboard.auto_index: true` in `docs/workflow-config.json` (default: false).
+
+1. `SnapshotStore._watch_loop` runs every `_WATCH_INTERVAL` seconds; when any watched path (excluding `.wavefoundry/index/index-build-stats.json`) has a changed mtime, it calls `IndexBuilder.signal_change()`
+2. On startup and every `_STALENESS_CHECK_INTERVAL` seconds (default 60 s), `SnapshotStore` calls `_index_is_stale()` — a git-based check comparing uncommitted changes and commits since `meta.json`'s `built_at`; a stale result calls `IndexBuilder.signal_change()`
+3. `IndexBuilder` arms a debounce timer for `auto_index_delay_seconds` (default 30 s, min 10 s); if a second signal arrives during an active build, the rebuild is re-armed for after completion — only one build runs at a time
+4. After the settling delay, `IndexBuilder` spawns an incremental indexer subprocess using the same Python interpreter that started the server, with `start_new_session=True` and `close_fds=True` to prevent file-handle leakage
+5. `SnapshotStore._rebuild()` overlays `IndexBuilder.get_status()` (`idle` | `running` | `done` | `failed`) onto `health.index.project` after `collect_dashboard_snapshot()` returns; build status is injected at the server layer, not in `dashboard_lib`
+6. On build completion, `SnapshotStore._on_index_build_done` calls `_rebuild()` **before** `_notify_sse()` so the browser fetches a snapshot that already contains the fresh `index-build-stats.json` data
+7. External index builds (manual CLI, MCP `wave_index_build`) are detected when `_watch_loop` sees a mtime change on `.wavefoundry/index/index-build-stats.json`; this triggers `SnapshotStore._rebuild()` so the dashboard reflects the new chunk counts without any daemon rebuild
+
+**State read:** `docs/workflow-config.json` (auto_index config), `.wavefoundry/index/index-build-stats.json`, repo file mtimes, git state (staleness check)
+**State written:** `.wavefoundry/index/` (via indexer subprocess — idempotent, atomic temp-then-rename)
+**Transport:** loopback only; subprocess uses the same Python interpreter as the server
+
 ## State Ownership
 
 | State | Owner | Read By | Written By |
@@ -112,6 +149,7 @@ Last verified: 2026-05-03
 | `.mcp.json` | Engineering | Claude Code and compatible clients | render_platform_surfaces.py |
 | `.junie/mcp/mcp.json` | Engineering | JetBrains Junie / AI Assistant MCP | render_platform_surfaces.py |
 | `.wavefoundry/index/` | indexer.py | server.py | indexer.py (incremental) |
+| `.wavefoundry/dashboard-server.json` | dashboard_server.py | dashboard_server.py | dashboard_server.py |
 | Background refresh state `.wavefoundry/index/background-refresh.json` | MCP server runtime | server.py background refresh helper | MCP mutation/review tools that request detached docs-index refresh |
 | Wave records `docs/waves/<id>/wave.md` | wave-coordinator | wave inspection tools | wave lifecycle commands |
 | Change docs `docs/plans/<id>.md` | Engineering | wave_get_change | wave_new_* tools, operator, wave_remove_change |

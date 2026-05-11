@@ -49,6 +49,7 @@ Public Wave Framework commands for Wavefoundry's self-hosted surface. Full detai
 | Phrase                            | Purpose                                         | Doc                                                                        |
 | --------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
 | **Init wave framework**           | Initialize Wave Framework in a target repo      | `docs/prompts/install-wavefoundry.prompt.md`                                      |
+| **Start dashboard**               | Start the local repository dashboard            | `docs/prompts/start-dashboard.prompt.md`                                           |
 | **Upgrade wave framework**        | Upgrade Wave Framework in a target repo         | `docs/prompts/upgrade-wavefoundry.prompt.md`                                      |
 | **Plan feature**                  | Author a consolidated change doc                | `docs/prompts/plan-feature.prompt.md`                                             |
 | **Create wave**                   | Create a wave record                            | `docs/prompts/create-wave.prompt.md`                                              |
@@ -419,4 +420,3 @@ Use real target paths only in local configuration, fixtures, or operator-provide
 - Can audit prompt surface drift.
 - Has tests for target-root safety, seed resolution, exact search, and prompt-surface audit behavior.
 - Uses `Wavefoundry` consistently for the project identity.
-

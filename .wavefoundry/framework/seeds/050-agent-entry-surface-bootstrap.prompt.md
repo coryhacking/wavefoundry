@@ -50,7 +50,7 @@ Tasks:
 7. Ensure parent directories exist before writing wrappers.
 8. Keep non-canonical entry files and native wrappers thin and mechanical.
 9. When generating or refreshing canonical role/persona docs, add or preserve operating identity, salience triggers, and memory responsibilities. Thin native wrappers should point to those canonical sections rather than duplicating them.
-10. Support the canonical agent taxonomy in repo-local docs and wrappers: `generic`, `persona`, `factor-review`, `universal specialist`, `archetype specialist`, and `repo-local specialist`. Only the first three are guaranteed in every seeded repository; specialist tiers are enabled from repo evidence and repo-local config.
+10. Support the canonical agent taxonomy in repo-local docs and wrappers: `generic`, `persona`, `factor-review`, `universal specialist`, `archetype specialist`, and `repo-local specialist`. Only the first three are guaranteed in every seeded repository; specialist tiers are enabled from repo evidence and repo-local config. When the repository enables Wave Council in `docs/workflow-config.json`, treat `council-moderator` as part of the canonical generic role set and ensure `reality-checker` is available as a universal specialist because it is a fixed council seat in the default framework template.
 11. Generate specialist wrappers only for roles that are enabled by repo-local evidence or operator configuration. Universal specialists are cross-project roles such as architecture, security, docs, and onboarding. Archetype specialists are keyed to repository shape, such as web/full-stack, mobile/desktop, AI/agent, JVM/service, or infrastructure-heavy repos. Repo-local specialists are project-specific and must stay clearly separated from reusable framework defaults.
 12. Update `.gitignore` so framework-managed platform files are tracked rather than silently excluded.
 13. Add the framework script hygiene rule to `AGENTS.md` as a universal cross-agent instruction (see below).
@@ -81,6 +81,7 @@ Required semantics:
 - public prompt phrases and their local docs
 - canonical docs routing
 - generic role routing
+- council-moderator routing when Wave Council is enabled
 - factor-review agent routing when applicable factors exist
 - persona routing when personas exist
 - specialist routing when repo evidence enables universal, archetype, or repo-local specialists

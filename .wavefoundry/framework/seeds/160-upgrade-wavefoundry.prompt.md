@@ -99,7 +99,7 @@ Execution flow:
    - readiness-review behavior, including whether readiness is required before implementation, auto-runs when missing, and reruns before closure
    - **`lifecycle_id_policy`** in `docs/workflow-config.json` — when missing, backfill with the framework default epoch (`2020-02-02T02:02:00Z`) and `hour_offset` `0` (plus optional metadata fields aligned with current seed standard) so greenfield and legacy installs match `lifecycle_id.py` documentation; **never overwrite** an existing `epoch_utc` or `hour_offset` once set, so issued IDs stay valid
    - `indexing.project_include_prefixes` when the repo intentionally extends the default project semantic index to additional roots; preserve explicit repo-local prefixes and backfill the generic structure when the repo already depends on non-default indexed paths
-   - canonical workflow docs and role docs when the current framework standard requires them and they are missing or stale
+   - canonical workflow docs and role docs when the current framework standard requires them and they are missing or stale, including `council-moderator` when `wave_council_policy` is present or backfilled
    - `docs/ARCHITECTURE.md` and `docs/architecture/{current-state,domain-map,layering-rules,cross-cutting-concerns,data-and-control-flow,testing-architecture}.md` (and `docs/architecture/decisions/template.md` when ADR seeding changed) when `seed-060`, `seed-030`, or repository topology changed; merge with repo-specific depth per `060` guardrails
    - `docs/prompts/close-wave.prompt.md`, `docs/prompts/agents/close-wave.prompt.md`, and `docs/contributing/review-and-evals.md` (**Wave closure** / docs-contract-at-close) when the seed pack’s `seed-190` or `seed-100` closure expectations have evolved
    - `docs/prompts/upgrade-wavefoundry.prompt.md` and `docs/prompts/agents/upgrade-wavefoundry.md` when the seed pack's upgrade contract changes
@@ -209,6 +209,7 @@ Include the following topics in plain language:
 
 4. **Commands and trigger phrases**
    - **`Upgrade wave framework`** vs **`Install wave framework`** (legacy: **`Install wave context`**; alias after detection); **`Init wave framework`** (legacy: **`Init wave context`**) for first-time or legacy baseline capture only when appropriate.
+   - If the upgraded pack includes the dashboard feature, call out **`Start dashboard`** as the operator-facing loopback UI command.
    - Lifecycle IDs remain `python3 .wavefoundry/framework/scripts/lifecycle_id.py`.
 
 5. **Agents and personas**
@@ -279,6 +280,7 @@ Validation areas that should be checked explicitly:
 - workflow config `sensors` key is present when the project registers computational sensors; document the format (`name`, `command`, `dimension`, `description`) in `docs/contributing/build-and-verification.md` when backfilling
 - workflow config includes **`lifecycle_id_policy`** when the project vendors `lifecycle_id.py` in the repository, either present already or backfilled without mutating an existing epoch/offset
 - workflow config `review_policies` includes `require_qa_reviewer_for_bug_fixes` when the project follows `docs/contributing/agent-team-workflow.md` bug-fix QA rules
+- workflow config `wave_council_policy` is present when the project adopts the framework-standard council model; when backfilling it, preserve repo-local seat overrides and transition policy rather than overwriting them
 - workflow config wave-execution section contains readiness-review expectations when non-trivial wave execution is enabled
 - wrappers point at the wave framework scripts rather than legacy script paths
 - agent entry files are semantically aligned and still thin

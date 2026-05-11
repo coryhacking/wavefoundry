@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-05
+Last verified: 2026-05-10
 
 wave-id: `12dv9 chunk-tags`
 Title: Chunk Tags — Multi-Label Retrieval Axis
@@ -10,7 +10,7 @@ Title: Chunk Tags — Multi-Label Retrieval Axis
 ## Changes
 
 Change ID: `12dv9-enh chunk-tags`
-Change Status: `draft`
+Change Status: `complete`
 
 ## Participants
 
@@ -28,7 +28,7 @@ Adds a `tags` list field to the `Chunk` dataclass, populated at index time from 
 - **Watch: CHUNKER_VERSION bump** — incrementing forces a full index rebuild on next `setup_index.py` run; coordinate with any other in-flight chunker changes to avoid double-bumping unnecessarily.
 - **Watch: Chunk.to_dict / from_dict symmetry** — `tags` must round-trip cleanly through JSON serialization; verify that `search_docs` and `search_code` deserialization handles missing `tags` key (for indexes built before this wave).
 - **Watch: tag vocabulary stability** — the controlled vocabulary is part of the public tool contract once shipped; additions are safe, removals are breaking. Define the initial set conservatively.
-- **Follow-up: CIA prompt update** — after landing, update the CIA prompt and seed-211 to document the `tags` filter and give examples of when to use it (e.g., `docs_search(query, tags=["lifecycle"])` for wave/install queries).
+- **CIA prompt update** — resolved: seed-211 `### Tags Filter` section documents the full vocabulary, OR semantics, `kind`+`tags` AND composition, and usage examples.
 
 ## Dependencies
 

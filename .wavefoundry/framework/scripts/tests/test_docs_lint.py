@@ -386,7 +386,7 @@ class DocsLintFixtureTests(unittest.TestCase):
 
     def test_stale_legacy_prompt_marker_fails(self) -> None:
         root = self.copy_fixture()
-        wave_prompt = root / "docs/prompts/install-wavefoundry.md"
+        wave_prompt = root / "docs/prompts/install-wavefoundry.prompt.md"
         wave_prompt.write_text(
             wave_prompt.read_text(encoding="utf-8") + "\nLegacy helper: spec-change-lifecycle\n",
             encoding="utf-8",
@@ -396,7 +396,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         finally:
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("WARNING: migration-edge drift detected; stale legacy marker remains in docs/prompts/install-wavefoundry.md: spec-change-lifecycle", result.stderr)
+        self.assertIn("WARNING: migration-edge drift detected; stale legacy marker remains in docs/prompts/install-wavefoundry.prompt.md: spec-change-lifecycle", result.stderr)
 
     def test_unsatisfied_change_dependency_fails(self) -> None:
         root = self.copy_fixture()
@@ -569,7 +569,7 @@ class DocsLintFixtureTests(unittest.TestCase):
             '  ],\n'
             '  "public_prompt_surface": [\n'
             '    {\n'
-            '      "doc": "docs/prompts/install-wavefoundry.md",\n'
+            '      "doc": "docs/prompts/install-wavefoundry.prompt.md",\n'
             '      "shortcut": "Init wave framework"\n'
             '    }\n'
             '  ]\n'
@@ -583,7 +583,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("`generated_artifacts` is missing `docs/agents/personas/`", result.stderr)
 
-    def test_stale_wrapper_target_is_warning_only(self) -> None:
+    def test_stale_wrapper_target_is_error(self) -> None:
         root = self.copy_fixture()
         wrapper = root / "docs-lint"
         wrapper.write_text("#!/bin/sh\npython3 agent-workflows/legacy-framework/scripts/docs-lint.py\n", encoding="utf-8")
@@ -591,12 +591,12 @@ class DocsLintFixtureTests(unittest.TestCase):
             result = self.run_docs_lint(root)
         finally:
             shutil.rmtree(root)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("WARNING: migration-edge drift detected; stale wrapper target remains in docs-lint", result.stderr)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("root wrapper must be removed", result.stderr)
 
     def test_migration_audit_report_is_written_only_when_requested(self) -> None:
         root = self.copy_fixture()
-        wave_prompt = root / "docs/prompts/install-wavefoundry.md"
+        wave_prompt = root / "docs/prompts/install-wavefoundry.prompt.md"
         wave_prompt.write_text(
             wave_prompt.read_text(encoding="utf-8") + "\nLegacy helper: spec-change-lifecycle\n",
             encoding="utf-8",
@@ -711,6 +711,126 @@ class CheckPycacheTests(unittest.TestCase):
         errors = self._check_pycache(self._root)
         self.assertEqual(len(errors), 1)
         self.assertIn("__pycache__", errors[0])
+
+
+class CheckPromptFileExtensionsTests(unittest.TestCase):
+    """Unit tests for ``check_prompt_file_extensions``."""
+
+    def setUp(self) -> None:
+        import sys
+
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        from wave_lint_lib.core_validators import check_prompt_file_extensions
+
+        self._check = check_prompt_file_extensions
+        self._root = Path(tempfile.mkdtemp(prefix="wave-prompt-ext-"))
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self._root)
+
+    def _prompts_dir(self) -> Path:
+        d = self._root / "docs" / "prompts"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def test_no_prompts_dir_passes(self) -> None:
+        self.assertEqual(self._check(self._root), [])
+
+    def test_prompt_md_file_fails(self) -> None:
+        d = self._prompts_dir()
+        (d / "close-wave.md").write_text("# Close Wave\n", encoding="utf-8")
+        errors = self._check(self._root)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("close-wave.md", errors[0])
+        self.assertIn(".prompt.md", errors[0])
+
+    def test_prompt_md_file_in_agents_subdir_fails(self) -> None:
+        d = self._prompts_dir() / "agents"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "close-wave.md").write_text("# Close Wave\n", encoding="utf-8")
+        errors = self._check(self._root)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("close-wave.md", errors[0])
+
+    def test_prompt_md_extension_passes(self) -> None:
+        d = self._prompts_dir()
+        (d / "close-wave.prompt.md").write_text("# Close Wave\n", encoding="utf-8")
+        self.assertEqual(self._check(self._root), [])
+
+    def test_index_md_exempt(self) -> None:
+        d = self._prompts_dir()
+        (d / "index.md").write_text("# Index\n", encoding="utf-8")
+        self.assertEqual(self._check(self._root), [])
+
+    def test_readme_md_exempt(self) -> None:
+        d = self._prompts_dir() / "agents"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "README.md").write_text("# Agents\n", encoding="utf-8")
+        self.assertEqual(self._check(self._root), [])
+
+    def test_multiple_violations_reported(self) -> None:
+        d = self._prompts_dir()
+        (d / "close-wave.md").write_text("# Close\n", encoding="utf-8")
+        (d / "review-wave.md").write_text("# Review\n", encoding="utf-8")
+        errors = self._check(self._root)
+        self.assertEqual(len(errors), 2)
+
+
+class CheckForbiddenRootWrappersTests(unittest.TestCase):
+    """Unit tests for ``check_forbidden_root_wrappers``."""
+
+    def setUp(self) -> None:
+        import sys
+
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        from wave_lint_lib.core_validators import check_forbidden_root_wrappers
+        from wave_lint_lib.constants import FORBIDDEN_ROOT_WRAPPERS_RETIRED, FORBIDDEN_ROOT_WRAPPERS_RELOCATED
+
+        self._check = check_forbidden_root_wrappers
+        self._forbidden = FORBIDDEN_ROOT_WRAPPERS_RETIRED + FORBIDDEN_ROOT_WRAPPERS_RELOCATED
+        self._root = Path(tempfile.mkdtemp(prefix="wave-forbidden-root-"))
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self._root)
+
+    def test_no_forbidden_files_passes(self) -> None:
+        self.assertEqual(self._check(self._root), [])
+
+    def test_each_forbidden_wrapper_fails(self) -> None:
+        for name in self._forbidden:
+            (self._root / name).write_text("#!/bin/sh\n", encoding="utf-8")
+            errors = self._check(self._root)
+            self.assertEqual(len(errors), 1, f"expected 1 error for {name}, got {errors}")
+            self.assertIn(name, errors[0])
+            self.assertIn("must be removed", errors[0])
+            (self._root / name).unlink()
+
+    def test_retired_wrapper_message_says_no_replacement(self) -> None:
+        from wave_lint_lib.constants import FORBIDDEN_ROOT_WRAPPERS_RETIRED
+        name = FORBIDDEN_ROOT_WRAPPERS_RETIRED[0]
+        (self._root / name).write_text("#!/bin/sh\n", encoding="utf-8")
+        errors = self._check(self._root)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("no replacement", errors[0])
+        self.assertNotIn(".wavefoundry/bin", errors[0])
+
+    def test_relocated_wrapper_message_says_bin(self) -> None:
+        from wave_lint_lib.constants import FORBIDDEN_ROOT_WRAPPERS_RELOCATED
+        name = FORBIDDEN_ROOT_WRAPPERS_RELOCATED[0]
+        (self._root / name).write_text("#!/bin/sh\n", encoding="utf-8")
+        errors = self._check(self._root)
+        self.assertEqual(len(errors), 1)
+        self.assertIn(".wavefoundry/bin", errors[0])
+
+    def test_multiple_forbidden_files_reports_all(self) -> None:
+        for name in self._forbidden:
+            (self._root / name).write_text("#!/bin/sh\n", encoding="utf-8")
+        errors = self._check(self._root)
+        self.assertEqual(len(errors), len(self._forbidden))
+
+    def test_allowed_root_file_not_flagged(self) -> None:
+        (self._root / "AGENTS.md").write_text("# Agents\n", encoding="utf-8")
+        self.assertEqual(self._check(self._root), [])
 
 
 class LinkValidatorUnitTests(unittest.TestCase):

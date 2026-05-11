@@ -163,12 +163,12 @@ Include the following topics in plain language:
    - Pointer to the repo-local lifecycle companion: `docs/contributing/feature-wave-lifecycle-overview.md` (and shared model `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md`).
 
 3. **Commands and trigger phrases**
-   - The operator uses natural-language shortcuts listed in `AGENTS.md` and `docs/prompts/index.md` (for example **`Init wave framework`** / **`Init wave context`**, **`Upgrade wave framework`** / **`Upgrade wave context`**, `Plan feature`, `Prepare wave`, `Close wave`).
+   - The operator uses natural-language shortcuts listed in `AGENTS.md` and `docs/prompts/index.md` (for example **`Init wave framework`** / **`Init wave context`**, **`Upgrade wave framework`** / **`Upgrade wave context`**, **`Start dashboard`**, `Plan feature`, `Prepare wave`, `Close wave`).
    - **`Install wave framework`** (legacy: **`Install wave context`**) is a convenience alias: init runs detection first; if the repo is already seeded, hand off to **`Upgrade wave framework`** (legacy: **`Upgrade wave context`**).
    - Lifecycle IDs: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>` (and change IDs per seeded policy).
 
 4. **Agents and personas**
-   - **Generic roles**: canonical specs under `docs/agents/README.md` and individual role files (planner, implementer, code-reviewer, architecture-reviewer, qa-reviewer, security-reviewer, docs-contract-reviewer, performance-reviewer, release-reviewer, plus factor-review agents only when factors are `applicable` in `docs/repo-profile.json`).
+   - **Generic roles**: canonical specs under `docs/agents/README.md` and individual role files (planner, implementer, wave-coordinator, code-reviewer, architecture-reviewer, qa-reviewer, security-reviewer, docs-contract-reviewer, performance-reviewer, release-reviewer, and `council-moderator` when `wave_council_policy` is enabled, plus factor-review agents only when factors are `applicable` in `docs/repo-profile.json`).
    - **Personas**: `docs/agents/personas/` when synthesized; review triggers and gating from `persona_review_policy` in `docs/workflow-config.json` and `docs/contributing/agent-team-workflow.md`.
    - **Journals**: `docs/agents/journals/` for durable lessons; link from waves at close per `docs/prompts/close-wave.prompt.md` and `docs/contributing/review-and-evals.md`.
 
@@ -178,7 +178,7 @@ Include the following topics in plain language:
    - Framework script hygiene: `__pycache__` cleanup after framework script runs (the test suite is a development-only artifact in the Wavefoundry source repo and is not included in the distribution pack).
 
 6. **Important configuration**
-   - **`docs/workflow-config.json`**: lifecycle mode, `lifecycle_id_policy` (epoch and optional offset for `lifecycle_id.py`), `wave_execution` (readiness before implement, auto-run when missing), `review_policies`, `factor_review_policy`, `persona_review_policy`, memory and prompt-generation settings—this is the primary machine- and human-readable policy knob for waves and reviews.
+   - **`docs/workflow-config.json`**: lifecycle mode, `lifecycle_id_policy` (epoch and optional offset for `lifecycle_id.py`), `wave_execution` (readiness before implement, auto-run when missing), `review_policies`, `factor_review_policy`, `persona_review_policy`, `wave_council_policy` when the framework-standard council model is enabled, memory and prompt-generation settings—this is the primary machine- and human-readable policy knob for waves and reviews.
    - **`docs/repo-profile.json`**: project archetype and traits, supported agent platforms, `factor_review` applicability—drives which factor agents exist and how reviews are scoped.
    - Change documents: `docs/plans/plan-template.md` and staging plans under `docs/plans/`; canonical admitted change docs live under `docs/waves/<wave-id>/` after `Prepare wave` relocates them alongside `wave.md`.
 
@@ -243,6 +243,12 @@ Required outputs:
   - persona review policy (`persona_review_policy`), including:
     - when user/operator persona agents are invoked (wave readiness review, spec authoring, design review, acceptance)
     - whether persona findings are advisory or gating for behavioral changes
+  - Wave Council policy (`wave_council_policy`) when the framework-standard council model is enabled, including:
+    - required phases (`prepare`, `review`)
+    - machine-readable signoff keys in `## Review Evidence`
+    - council-moderator role
+    - default seat template and rotating-seat policy
+    - transition policy for waves already in flight at adoption time
   - review policy flags (`review_policies`), including at minimum booleans aligned with `docs/contributing/agent-team-workflow.md` — for example `require_qa_reviewer_for_bug_fixes` when **product bug fixes** must include **`qa-reviewer`** in readiness and **Review checkpoints**
   - optional indexing policy (`indexing`) when the repo needs additional project index roots beyond the default:
     - use `project_include_prefixes` with explicit `docs` and/or `code` lists of repo-relative prefixes
@@ -277,6 +283,7 @@ Required outputs:
 - repo-local public prompt docs including:
   - `docs/prompts/index.md` — public catalog of shortcut phrases, purposes, and **Usage Notes** (must stay consistent with `AGENTS.md` and `prompt-surface-manifest.json`)
   - `docs/prompts/install-wavefoundry.prompt.md`
+  - `docs/prompts/start-dashboard.prompt.md`
   - `docs/prompts/upgrade-wavefoundry.prompt.md`
   - `docs/prompts/plan-feature.prompt.md`
   - `docs/prompts/create-wave.prompt.md`

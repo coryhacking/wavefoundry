@@ -1,0 +1,180 @@
+# Dashboard Install, Upgrade, and Package Flows
+
+Owner: Engineering
+Status: active
+Last verified: 2026-05-09
+
+Reference doc covering how the local dashboard feature moves from the Wavefoundry framework pack into target repositories. Addresses packaging (build_pack.py), install (seed-010), upgrade (seed-160), and the sibling-directory runtime option.
+
+## Overview
+
+The dashboard is a framework feature, not a per-repo app. Its assets (HTML shell, CSS, React JS bundle) and server scripts are packaged into the dated framework zip distribution and seeded into target repositories through the standard install and upgrade flows. No Node.js, npm, or build toolchain is required in target repos at install or runtime.
+
+## Packaging (build_pack.py)
+
+`build_pack.py` zips the entire `.wavefoundry/framework/` tree into a dated distribution archive (`wavefoundry-<YYYY-MM-DDx>.zip`). The dashboard files are included automatically:
+
+**Packed paths (canonical):**
+```
+dashboard/dashboard.html
+dashboard/dashboard.css
+dashboard/dashboard.js
+dashboard/react.production.min.js
+dashboard/react-dom.production.min.js
+scripts/dashboard_lib.py
+scripts/dashboard_server.py
+seeds/152-start-dashboard.prompt.md
+```
+
+These paths are tracked in `.wavefoundry/framework/MANIFEST`. The build script regenerates MANIFEST on every run, so removing or renaming a dashboard file automatically drops it from future distributions. The zip file itself is gitignored; do not commit it.
+
+**Exclusion rules:** `build_pack.py` excludes `__pycache__`, `.pytest_cache`, `.wavefoundry` (as directory names), `.DS_Store`, and the `scripts/tests/` subtree. Dashboard assets are not matched by any exclusion rule and are always packed.
+
+## Install (seed-010)
+
+`seed-010` (Install Wavefoundry) unpacks the framework zip into the target repo under `.wavefoundry/framework/` using:
+
+```bash
+unzip -o wavefoundry-<date>.zip -d <repo-root>
+```
+
+The `-o` flag overwrites existing files without prompting. After unpacking, seed-010 seeds the `docs/prompts/start-dashboard.prompt.md` public prompt doc. This prompt documents the operator-facing `Start dashboard` command and is the canonical entry point for dashboard discovery.
+
+**Config seeding:** `docs/workflow-config.json` must include a `dashboard` block after install. The minimum valid config:
+
+```json
+{
+  "dashboard": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "preferred_port": 43127,
+    "port_range_start": 43127,
+    "port_range_end": 43147,
+    "project_label": "<repo name>",
+    "include_dirs": [],
+    "terminology": {
+      "wave": "wave",
+      "change": "change",
+      "task": "task"
+    },
+    "auto_index": false,
+    "auto_index_delay_seconds": 30
+  }
+}
+```
+
+If a `dashboard` block already exists in `workflow-config.json`, seed-010 preserves operator-customized values (port ranges, `project_label`, `include_dirs`, `terminology`) and only backfills missing fields. `auto_index` defaults to `false` and must be explicitly set to `true` to opt in.
+
+**Gitignore entries:** After install, `.wavefoundry/dashboard-server.json` must be gitignored. This file holds host-local endpoint metadata (pid, port, url) and must never be committed. Add to `.gitignore`:
+
+```
+.wavefoundry/dashboard-server.json
+```
+
+## Upgrade (seed-160)
+
+`seed-160` (Upgrade Wavefoundry) unpacks the new framework zip with the same `unzip -o` command, overwriting dashboard assets in place. After unpacking:
+
+1. The server script (`dashboard_server.py`) and shared reader (`dashboard_lib.py`) are replaced with the new version.
+2. The browser assets (`dashboard.js`, `dashboard.css`, `dashboard.html`, React bundles) are replaced.
+3. The `docs/prompts/start-dashboard.prompt.md` public prompt doc is refreshed if the seed content changed.
+4. Operator-customized values in `docs/workflow-config.json` `dashboard` block are preserved. Seed-160 backfills any new fields added in the upgraded version without touching existing values.
+
+If the upgraded pack includes the dashboard feature for the first time (i.e. the prior version did not ship it), seed-160 seeds `start-dashboard.prompt.md` and prompts the operator to add the `dashboard` config block to `workflow-config.json`.
+
+**Config field backfill for auto-index:** When upgrading from a version that predates auto-index support, seed-160 backfills the following fields into the existing `dashboard` block without touching any existing values:
+
+```json
+"auto_index": false,
+"auto_index_delay_seconds": 30
+```
+
+`auto_index` always backfills as `false`. Operators who want automatic index rebuilds must explicitly set it to `true` after upgrade.
+
+**No restart required for asset changes:** The dashboard server re-reads `workflow-config.json` and serves updated static files on the next request. If the server process is already running when assets are upgraded, the browser will pick up new JS/CSS on the next page reload. To pick up a `workflow-config.json` change (e.g. enabling `auto_index`), restart the server process.
+
+## Sibling-Directory Runtime Option
+
+When a dashboard session must survive branch switching or parallel work in the same repo, the server can be run from a sibling directory outside the git worktree:
+
+```bash
+# From any stable path (e.g. a persistent process manager):
+python3 /path/to/.wavefoundry/framework/scripts/dashboard_server.py \
+  --root /path/to/target-repo
+```
+
+The `--root` argument tells the server where to read project state from. The dashboard assets are always loaded from the framework directory co-located with the script, not from the `--root`. This means asset upgrades in `--root/.wavefoundry/framework/` take effect on the next request even when the server process is stable.
+
+## Operator-Facing Command
+
+Both the operator command and the low-level script must always print the final bound URL (including port). The operator-facing command opens the browser by default:
+
+```bash
+# Via public prompt shortcut (preferred):
+Start dashboard
+
+# Via MCP tool (agent-facing):
+wave_dashboard_start
+
+# Via bin shortcut (if installed — see below):
+.wavefoundry/bin/wave_dashboard
+
+# Via low-level script — opens browser:
+python3 .wavefoundry/framework/scripts/dashboard_server.py --root . --open
+
+# Startup-only (no browser launch):
+python3 .wavefoundry/framework/scripts/dashboard_server.py --root .
+```
+
+The `--open` flag is appropriate for interactive operator sessions. Automation, tests, and headless environments should use the startup-only form.
+
+## wave_dashboard_start MCP Tool
+
+`wave_dashboard_start` is an MCP tool registered in `scripts/server.py`. It is part of the framework pack and available after any install or upgrade that includes `server.py`. No additional config is required.
+
+Behavior:
+- Checks `.wavefoundry/dashboard-server.json` for an already-running process (by PID). If running, returns the existing URL immediately.
+- If not running, spawns `dashboard_server.py --root <repo> --open` as a detached background process.
+- Polls the metadata file for up to 5 seconds for the bound URL, then returns it.
+
+This tool is the preferred agent-facing entry point when an agent needs to start or surface the dashboard URL programmatically.
+
+## bin/wave_dashboard Shortcut
+
+`.wavefoundry/bin/wave_dashboard` is a bash wrapper that starts the dashboard server with `--open` (browser launch). Unlike framework scripts, **this file is not included in the distribution pack** — it is a per-repo convenience script that must be added manually or by the install seed.
+
+Contents:
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$REPO_ROOT"
+exec python3 ".wavefoundry/framework/scripts/dashboard_server.py" --open "$@"
+```
+
+To add it to a repo manually:
+```bash
+mkdir -p .wavefoundry/bin
+# write script content, then:
+chmod +x .wavefoundry/bin/wave_dashboard
+```
+
+The script passes through any additional arguments (`$@`) to `dashboard_server.py`, so `--root` and other flags work as expected.
+
+## Verification After Install or Upgrade
+
+After install or upgrade, confirm the dashboard is functional:
+
+1. Run `python3 .wavefoundry/framework/scripts/dashboard_server.py --root . --open`.
+2. Confirm the browser opens and the dashboard header shows the correct `project_label` and framework version.
+3. Confirm the state badge shows `LIVE` after the first poll.
+4. Run `python3 .wavefoundry/framework/scripts/run_tests.py` to confirm framework tests pass.
+
+## Cross-Links
+
+- `docs/references/dashboard-adapter-model.md` — config surface and data source declaration (AC-7)
+- `docs/design-system/foundations/dashboard.md` — UI token and component rules (AC-7a)
+- `docs/architecture/data-and-control-flow.md` — Path 4 (packaging), Path 7 (dashboard server)
+- `.wavefoundry/framework/scripts/build_pack.py` — packaging script
+- `.wavefoundry/framework/MANIFEST` — canonical packed-file list
+- `docs/prompts/start-dashboard.prompt.md` — operator-facing command doc

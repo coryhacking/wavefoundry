@@ -7,6 +7,10 @@ Last verified: 2026-05-01
 wave-id: `12as1 design-system-extraction`
 Title: Design System Extraction
 
+## Objective
+
+Extract and formalize the project design system into a documented directory structure with pattern depth, surface governance, and bootstrap guidance.
+
 ## Changes
 
 Change ID: `12akr-enh design-system-directory-structure-extraction`

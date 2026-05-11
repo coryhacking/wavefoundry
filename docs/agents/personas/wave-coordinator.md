@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-05-08
 
 ## Who
 
@@ -66,7 +66,7 @@ A developer or engineering lead in a target repository who runs wave lifecycle c
 
 ## Review Triggers
 
-- Any change to `docs/prompts/prepare-wave.md`, `docs/prompts/implement-wave.md`, `docs/prompts/review-wave.md`, or `docs/prompts/close-wave.md`.
+- Any change to `docs/prompts/prepare-wave.prompt.md`, `docs/prompts/implement-wave.prompt.md`, `docs/prompts/review-wave.prompt.md`, or `docs/prompts/close-wave.prompt.md`.
 - Any change to the `## Shortcut Phrases` table in `AGENTS.md` or the public commands table in `docs/prompts/index.md`.
 - Any change to the wave record schema in `docs/waves/README.md` or `docs/workflow-config.json` `wave_execution`.
 - Any change that affects what "Prepare wave passed" means (readiness criteria, AC priority recording, change doc relocation).

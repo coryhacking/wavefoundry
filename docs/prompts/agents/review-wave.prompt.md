@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-04
+Last verified: 2026-05-08
 
 ## Context
 
@@ -19,6 +19,8 @@ You are running **Review wave** on Wavefoundry.
 | `release-reviewer` | VERSION stamp correctness; zip naming semantics; gitignore coverage | _(inline — see Wavefoundry Review Specifics)_ |
 | `performance-reviewer` | Algorithmic complexity on hot paths (chunker, indexer, query); O(n) per-file model; pre-compiled regex constants; bounded in-memory structures | `docs/prompts/agents/performance-reviewer.prompt.md` |
 | `security-reviewer` | Path confinement on file-access tools; `re.escape` on symbol interpolation; write-path constraint on read-only tools; untrusted content handling | `docs/prompts/agents/security-reviewer.prompt.md` |
+
+When `wave_council_policy.enabled` is true, Wavefoundry also requires a delivery-phase council pass. The council seats review the delivered implementation and specialist findings in isolation, then `council-moderator` records `wave-council-delivery` in `## Review Evidence` and summarizes the tradeoffs in `## Review checkpoints`.
 
 ## CIA Orientation
 

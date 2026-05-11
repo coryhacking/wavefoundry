@@ -341,9 +341,9 @@
             "query": "what is the stage gate and when does it apply",
             "hit": true,
             "top_paths": [
-              "docs/prompts/implement-wave.md",
+              "docs/prompts/implement-wave.prompt.md",
               "AGENTS.md",
-              "docs/prompts/implement-feature.md"
+              "docs/prompts/implement-feature.prompt.md"
             ],
             "expected": [
               "AGENTS.md",
@@ -357,8 +357,8 @@
             "query": "how to prepare a wave before implementation begins",
             "hit": true,
             "top_paths": [
-              "docs/prompts/prepare-wave.md",
-              "docs/prompts/implement-wave.md",
+              "docs/prompts/prepare-wave.prompt.md",
+              "docs/prompts/implement-wave.prompt.md",
               ".wavefoundry/framework/scripts/tests/test_server_tools.py"
             ],
             "expected": [
@@ -888,8 +888,8 @@
             "hit": true,
             "top_paths": [
               "AGENTS.md",
-              "docs/prompts/prepare-wave.md",
-              "docs/prompts/agents/prepare-wave.md"
+              "docs/prompts/prepare-wave.prompt.md",
+              "docs/prompts/agents/prepare-wave.prompt.md"
             ],
             "expected": [
               "AGENTS.md",
@@ -903,9 +903,9 @@
             "query": "how to prepare a wave before implementation begins",
             "hit": true,
             "top_paths": [
-              "docs/prompts/prepare-wave.md",
-              "docs/prompts/implement-wave.md",
-              "docs/prompts/agents/implement-wave.md"
+              "docs/prompts/prepare-wave.prompt.md",
+              "docs/prompts/implement-wave.prompt.md",
+              "docs/prompts/agents/implement-wave.prompt.md"
             ],
             "expected": [
               "docs/prompts",

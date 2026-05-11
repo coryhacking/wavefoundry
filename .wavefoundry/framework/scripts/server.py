@@ -690,6 +690,80 @@ def _read_project_required_review_lanes(root: Path) -> list[str]:
     return [str(lane).strip() for lane in raw if isinstance(lane, str) and str(lane).strip()]
 
 
+def _read_wave_council_policy(root: Path) -> dict[str, Any]:
+    """Return normalized Wave Council policy from workflow-config.json."""
+    cfg = _read_workflow_config(root)
+    raw = cfg.get("wave_council_policy", {})
+    if not isinstance(raw, dict) or not bool(raw.get("enabled")):
+        return {}
+
+    phases_raw = raw.get("phases", {})
+    if not isinstance(phases_raw, dict):
+        phases_raw = {}
+
+    phase_defaults = {
+        "prepare": "wave-council-readiness",
+        "review": "wave-council-delivery",
+    }
+    phases: dict[str, dict[str, str]] = {}
+    for phase, default_key in phase_defaults.items():
+        phase_raw = phases_raw.get(phase, {})
+        if not isinstance(phase_raw, dict):
+            phase_raw = {}
+        signoff_key = str(phase_raw.get("signoff_key", default_key)).strip()
+        moderator_role = str(phase_raw.get("moderator_role", "council-moderator")).strip()
+        if signoff_key:
+            phases[phase] = {
+                "signoff_key": signoff_key,
+                "moderator_role": moderator_role or "council-moderator",
+            }
+
+    return {
+        "enabled": True,
+        "required_for_all_waves": bool(raw.get("required_for_all_waves", True)),
+        "evidence_section": str(raw.get("evidence_section", "## Review Evidence")).strip() or "## Review Evidence",
+        "transition_policy": str(raw.get("transition_policy", "")).strip(),
+        "phases": phases,
+    }
+
+
+def _required_wave_council_signoffs(root: Path, lifecycle_phase: str, wave_text: Optional[str] = None) -> list[str]:
+    policy = _read_wave_council_policy(root)
+    if not policy:
+        return []
+    phase_map = {
+        "prepare": ["prepare"],
+        "review": ["review"],
+        "close": ["prepare", "review"],
+    }
+    required: list[str] = []
+    for phase in phase_map.get(lifecycle_phase, []):
+        signoff_key = policy.get("phases", {}).get(phase, {}).get("signoff_key")
+        if signoff_key and signoff_key not in required:
+            required.append(signoff_key)
+    if not required:
+        return required
+
+    transition_policy = str(policy.get("transition_policy", "")).strip().lower()
+    if transition_policy != "applies-from-next-prepare" or lifecycle_phase == "prepare" or not wave_text:
+        return required
+
+    prepare_key = policy.get("phases", {}).get("prepare", {}).get("signoff_key")
+    review_key = policy.get("phases", {}).get("review", {}).get("signoff_key")
+    has_prepare_signoff = bool(prepare_key and _lane_has_signoff(wave_text, prepare_key))
+    has_review_signoff = bool(review_key and _lane_has_signoff(wave_text, review_key))
+
+    if lifecycle_phase == "review":
+        return required
+    if lifecycle_phase == "close":
+        if has_prepare_signoff:
+            return required
+        if has_review_signoff and review_key:
+            return [review_key]
+        return [key for key in required if key != prepare_key]
+    return required
+
+
 def _read_project_sensors(root: Path) -> list[dict]:
     """Return registered sensor definitions from workflow-config.json."""
     cfg = _read_workflow_config(root)
@@ -1183,6 +1257,7 @@ def _help_catalog() -> dict[str, Any]:
             "wave_index_health",
             "wave_index_build",
             "wave_audit",
+            "wave_dashboard_start",
         ],
         "compatibility_tools": [
             "wave_new_feature",
@@ -4007,6 +4082,76 @@ def wave_index_build_status_response(root: Path, layer: str = "project") -> dict
     return _response("ok", summary, next_tools=["wave_index_health"], usage="wave_index_health()")
 
 
+def wave_dashboard_start_response(root: Path) -> dict[str, Any]:
+    """Start the local dashboard server (with browser open) or return its URL if already running."""
+    import subprocess
+    import time as _time
+
+    meta_path = root / ".wavefoundry" / "dashboard-server.json"
+
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            pid = meta.get("pid")
+            url = meta.get("url", "")
+            if isinstance(pid, int) and _pid_is_running(pid) and url:
+                return _response(
+                    "ok",
+                    {"already_running": True, "pid": pid, "url": url},
+                    usage=url,
+                )
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    scripts_dir = Path(__file__).resolve().parent
+    cmd = [sys.executable, str(scripts_dir / "dashboard_server.py"), "--root", str(root), "--open"]
+    spawn_kwargs: dict[str, Any] = {
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "stdin": subprocess.DEVNULL,
+        "cwd": str(root),
+    }
+    if os.name == "nt":
+        spawn_kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        spawn_kwargs["start_new_session"] = True
+
+    try:
+        proc = subprocess.Popen(cmd, **spawn_kwargs)
+    except OSError as exc:
+        return _response(
+            "error",
+            {},
+            diagnostics=[_diagnostic("spawn_failed", str(exc))],
+        )
+
+    # Poll up to 5s for the server to write its metadata (host, port, URL).
+    url = ""
+    deadline = _time.monotonic() + 5.0
+    while _time.monotonic() < deadline:
+        _time.sleep(0.25)
+        if meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                if meta.get("pid") == proc.pid and meta.get("url"):
+                    url = meta["url"]
+                    break
+            except (OSError, json.JSONDecodeError):
+                pass
+
+    if not url:
+        return _response(
+            "ok",
+            {"started": True, "pid": proc.pid, "url": None},
+            diagnostics=[_diagnostic(
+                "url_not_ready",
+                "Dashboard spawned but URL not yet available — it may still be binding.",
+            )],
+        )
+
+    return _response("ok", {"started": True, "pid": proc.pid, "url": url}, usage=url)
+
+
 def wave_run_sensors_response(root: Path) -> dict[str, Any]:
     """Run registered project sensors and return structured pass/fail results.
 
@@ -4410,6 +4555,25 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
                     )
                 )
     # Garden and lint only run on create — dry-run must stay read-only.
+    required_council_signoffs = _required_wave_council_signoffs(root, "prepare")
+    if required_council_signoffs:
+        missing_council = [
+            signoff_key
+            for signoff_key in required_council_signoffs
+            if not _lane_has_signoff_in_evidence(_combined_review_evidence(text), signoff_key)
+        ]
+        if missing_council:
+            diagnostics.append(
+                _diagnostic(
+                    "missing_wave_council_signoff",
+                    (
+                        "Required Wave Council signoff missing for prepare: "
+                        f"{', '.join(missing_council)}. Record the signoff line(s) in `## Review Evidence` before the wave can become active."
+                    ),
+                    recovery_tools=["wave_current"],
+                    recovery_usage="wave_current()",
+                )
+            )
     garden_passed = True
     lint_passed = True
     if mode_s == "create":
@@ -4441,6 +4605,7 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
         )
     if diagnostics:
         error_data = {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "repairs_needed": repairs_needed, "repaired": repaired}
+        error_data["required_council_signoffs"] = required_council_signoffs
         error_data.update(guard_data)
         next_tools_list = ["wave_pause", "wave_current"] if other_active is not None else ["wave_validate", "wave_current"]
         usage_hint = f"wave_pause(wave_id={other_active['wave_id']!r}, mode='create')" if other_active is not None else "wave_validate()"
@@ -4457,7 +4622,7 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
             root,
             [wave_md, *(_wave_change_doc_path(root, wave_md, change_id) for change_id in change_ids)],
         )
-    return _response("dry_run" if mode_s == "dry_run" else "ok", {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired}, diagnostics=_ac_advisories if _ac_advisories else None, next_tools=["wave_current"], usage="wave_current()")
+    return _response("dry_run" if mode_s == "dry_run" else "ok", {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired, "required_council_signoffs": required_council_signoffs}, diagnostics=_ac_advisories if _ac_advisories else None, next_tools=["wave_current"], usage="wave_current()")
 
 
 def wave_pause_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
@@ -4554,6 +4719,11 @@ def wave_review_response(root: Path, wave_id: str) -> dict[str, Any]:
     required_lanes = ["operator"] + wave_lanes + extra_lanes
     operator_signed = _operator_signoff_present(wave_text)
     lane_results = [{"lane": "operator", "recorded_signoff": operator_signed}] + [{"lane": lane, "recorded_signoff": _lane_has_signoff(wave_text, lane)} for lane in required_lanes[1:]]
+    required_council_signoffs = _required_wave_council_signoffs(root, "review", wave_text=wave_text)
+    council_results = [
+        {"signoff_key": signoff_key, "recorded_signoff": _lane_has_signoff(wave_text, signoff_key)}
+        for signoff_key in required_council_signoffs
+    ]
     diagnostics = [] if lint_result["passed"] else [_diagnostic("docs_lint_error", err, recovery_tools=["wave_validate"]) for err in lint_result["errors"]]
     missing = [entry["lane"] for entry in lane_results if not entry["recorded_signoff"]]
     if "operator" in missing:
@@ -4573,6 +4743,17 @@ def wave_review_response(root: Path, wave_id: str) -> dict[str, Any]:
             recovery_tools=["wave_current"],
             recovery_usage="wave_current()",
         ))
+    missing_council = [entry["signoff_key"] for entry in council_results if not entry["recorded_signoff"]]
+    if missing_council:
+        diagnostics.append(_diagnostic(
+            "missing_wave_council_signoff",
+            (
+                "Required Wave Council signoff missing for review: "
+                f"{', '.join(missing_council)}. Record the signoff line(s) in `## Review Evidence` before closing the wave."
+            ),
+            recovery_tools=["wave_current"],
+            recovery_usage="wave_current()",
+        ))
     max_severity = _max_severity_from_evidence(wave_text)
     if max_severity in ("critical", "high"):
         diagnostics.append(_diagnostic(
@@ -4581,10 +4762,10 @@ def wave_review_response(root: Path, wave_id: str) -> dict[str, Any]:
             recovery_tools=["wave_current"],
             recovery_usage="wave_current()",
         ))
-    status = "ok" if lint_result["passed"] and not missing else "error"
+    status = "ok" if lint_result["passed"] and not missing and not missing_council else "error"
     return _response(
         status,
-        {"wave_id": wave_id, "required_lanes": required_lanes, "lane_results": lane_results, "lint_passed": lint_result["passed"], "max_severity": max_severity},
+        {"wave_id": wave_id, "required_lanes": required_lanes, "lane_results": lane_results, "required_council_signoffs": required_council_signoffs, "council_results": council_results, "lint_passed": lint_result["passed"], "max_severity": max_severity},
         diagnostics=diagnostics,
         next_tools=["wave_validate", "wave_current"],
         usage="wave_validate()",
@@ -4631,6 +4812,7 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
     wave_lanes = _extract_required_review_lanes(text)
     project_lanes = _read_project_required_review_lanes(root)
     required_lanes = list({*wave_lanes, *project_lanes})  # deduped, order doesn't matter here
+    required_council_signoffs = _required_wave_council_signoffs(root, "close", wave_text=text)
     evidence_present = bool(_combined_review_evidence(text).strip())
     if required_lanes:
         if not evidence_present:
@@ -4663,13 +4845,31 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
                     recovery_usage=f"wave_review(wave_id={wave_id!r})",
                 )
             )
+    if required_council_signoffs:
+        missing_council = [
+            signoff_key
+            for signoff_key in required_council_signoffs
+            if not _lane_has_signoff_in_evidence(_combined_review_evidence(text), signoff_key)
+        ]
+        if missing_council:
+            diagnostics.append(
+                _diagnostic(
+                    "missing_wave_council_signoff",
+                    (
+                        "Required Wave Council signoff missing for close: "
+                        f"{', '.join(missing_council)}. Record the signoff line(s) in `## Review Evidence` before attempting closure."
+                    ),
+                    recovery_tools=["wave_review"],
+                    recovery_usage=f"wave_review(wave_id={wave_id!r})",
+                )
+            )
     if not lint_result["passed"]:
         diagnostics.extend([_diagnostic("docs_lint_error", err, recovery_tools=["wave_validate"]) for err in lint_result["errors"]])
     # Gate close runs unconditionally so open gates are always reported (and closed in
     # create mode) even when other diagnostics cause an early return.
     gate_diagnostics = _force_gates_closed(root, mode_s)
     if diagnostics:
-        return _response("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed}, diagnostics=diagnostics + gate_diagnostics, next_tools=["wave_validate", "wave_current"], usage="wave_validate()")
+        return _response("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed, "required_council_signoffs": required_council_signoffs}, diagnostics=diagnostics + gate_diagnostics, next_tools=["wave_validate", "wave_current"], usage="wave_validate()")
     updated = False
     handoff_rel = ""
     if mode_s == "create":
@@ -5975,6 +6175,22 @@ def build_server(root: Path):
         if bad is not None:
             return bad
         return wave_index_build_status_response(root, layer=layer)
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_dashboard_start(**kwargs: Any) -> dict[str, Any]:
+        """Start the local dashboard server and open it in the browser.
+
+        If the dashboard is already running, returns its URL immediately without
+        spawning a second process. Otherwise spawns the server in the background,
+        waits up to 5 seconds for it to bind, and returns the URL.
+
+        The dashboard provides a live web UI for wave status, index health, git
+        activity, and (when ``auto_index`` is enabled) automatic index rebuilds.
+        """
+        bad = _ensure_no_extra_args("wave_dashboard_start", kwargs)
+        if bad is not None:
+            return bad
+        return wave_dashboard_start_response(root)
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_validate(**kwargs: Any) -> dict[str, Any]:

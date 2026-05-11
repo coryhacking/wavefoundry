@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-03
+Last verified: 2026-05-08
 
 ## What This Document Covers
 
@@ -44,6 +44,20 @@ Both constants currently point to the same model. They are intentionally separat
 | `nomic-embed-text-v1.5` | 768 | — | — | — | FP32 only; fastembed INT8 registry broken |
 | `nomic-embed-code` | 3584 | — | — | — | 28 GB 7B-parameter model; disqualified |
 | `text-embedding-ada-002` (OpenAI) | 1536 | — | — | API only | Requires network; unacceptable for offline-first |
+
+**Code-specific models researched (2026-05-04):**
+
+Prompted by community reports (r/LocalLLaMA, March 2026) of newer code retrieval models, and decision log note in wave 12c86 to revisit when a code-specific INT8 ONNX model in fastembed outperforms bge-base on the ground truth set.
+
+| Model | Params | CoIR | In fastembed | INT8 ONNX | Verdict |
+|-------|--------|------|-------------|-----------|---------|
+| `google/embeddinggemma-300m` | 300M | strong on CoIR (community reports) | ✓ (builtin_sentence_embedding.py, not yet in public docs) | ✗ FP32 only (1.24 GB) | Blocked: no INT8; 10× heavier than bge-base |
+| `SFR-Embedding-Code-400M_R` (Salesforce) | 400M | 61.9 | ✗ | — | Blocked: not in fastembed |
+| `CodeSage-Small` (Salesforce) | 130M | 54.4 | ✗ | — | Blocked: not in fastembed |
+| `nomic-embed-code` | 7B | — | ✗ | — | Blocked: not in fastembed; 7B param model |
+| `Voyage-Code-002` | — | 56.3 | ✗ | — | Blocked: cloud API only |
+
+**Conclusion (2026-05-04):** No code-specific model with INT8 ONNX exists in fastembed. `google/embeddinggemma-300m` is the closest candidate but lacks quantization and is 10× larger. Revisit when fastembed adds an INT8 build for embeddinggemma or a comparable code-specific model.
 
 The model is not special or irreplaceable. The regression tests exist to make future upgrades safe and auditable.
 

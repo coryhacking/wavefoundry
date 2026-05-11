@@ -10,10 +10,10 @@ METADATA_PATTERNS = {
 
 PROMPT_SURFACE_FILES = (
     "docs/prompts/index.md",
-    "docs/prompts/plan-feature.md",
-    "docs/prompts/implement-feature.md",
-    "docs/prompts/finalize-feature.md",
-    "docs/prompts/agent-routing-concurrency.md",
+    "docs/prompts/plan-feature.prompt.md",
+    "docs/prompts/implement-feature.prompt.md",
+    "docs/prompts/finalize-feature.prompt.md",
+    "docs/prompts/agent-routing-concurrency.prompt.md",
 )
 
 PROMPT_SURFACE_ALIASES: tuple[tuple[str, str], ...] = ()
@@ -91,6 +91,20 @@ PERSONA_REQUIRED_SECTIONS = (
     "## Escalation Conditions",
     "## Associated Journal",
 )
+
+# Root wrapper names that must not exist at the repository root.
+# RETIRED: no replacement — these have been removed entirely.
+FORBIDDEN_ROOT_WRAPPERS_RETIRED = (
+    "package-wave-framework",
+    "install-wave-framework",
+    "upgrade-wave-framework",
+)
+# RELOCATED: these belong under .wavefoundry/bin/ instead.
+FORBIDDEN_ROOT_WRAPPERS_RELOCATED = (
+    "docs-lint",
+    "docs-gardener",
+)
+FORBIDDEN_ROOT_WRAPPERS = FORBIDDEN_ROOT_WRAPPERS_RETIRED + FORBIDDEN_ROOT_WRAPPERS_RELOCATED
 
 LEGACY_MARKERS = ("spec-change-lifecycle",)
 # All repositories should be Wavefoundry-first. We still flag non-wave legacy markers during

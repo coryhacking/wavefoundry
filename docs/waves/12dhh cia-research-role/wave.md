@@ -7,6 +7,10 @@ Last verified: 2026-05-05
 wave-id: `12dhh cia-research-role`
 Title: CIA Research and Documentation Role
 
+## Objective
+
+Expand the CIA's research and documentation role, and add doc orientation guidance for the CIA.
+
 ## Changes
 
 Change ID: `12dhh-enh cia-research-role`

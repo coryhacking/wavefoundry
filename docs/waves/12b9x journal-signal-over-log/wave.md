@@ -7,6 +7,10 @@ Last verified: 2026-05-02
 wave-id: `12b9x journal-signal-over-log`
 Title: Journal Signal Over Log
 
+## Objective
+
+Replace log-style journal entries with structured signal artifacts and add MCP search tool routing guidance.
+
 ## Changes
 
 Change ID: `12b9v-feat journal-signal-over-log`

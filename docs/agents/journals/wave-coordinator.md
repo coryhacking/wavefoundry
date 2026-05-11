@@ -34,18 +34,6 @@ wave-id: `12bc4 journal-upgrade-coverage-gaps`
 
 - Active: extending journal upgrade and distillation seeds to catch non-standard activity-log sections, missing Distillation sections, and dangling cross-references.
 
-wave-id: `12cv4 prompt-indexing-quality`
-
-- Active: adding kind="prompt" chunk kind for docs/prompts/, suppressing H3 re-split and fenced code extraction for prompt content, excluding manifest artifact, extending docs_search kind filter, and adding seed_get vs docs_search routing guidance.
-
-wave-id: `12d4b codebase-qa`
-
-- Planned: Code Insight Agent (CIA) — `code_ask` MCP tool + knowledge extraction improvements (`kind="code-summary"`, `code_dependencies`, cross-language `code_references` fallback, seed guidance).
-
-wave-id: `12eas background-index-rebuild`
-
-- Closed 2026-05-06: `wave_index_build` non-blocking, `wave_reopen`, mandatory operator review lane, `wave_index_build_status`. Tested in external project before signoff.
-
 wave-id: `12ec2 index-build-stats-persistence`
 
 - Closed 2026-05-06: persisted index build stats to `index-build-stats.json`; timing estimates in `wave_index_build` notices, `wave_index_build_status`, and `wave_index_health` responses. Fixed placeholder signoff bypass bug (`<approved...>` no longer counts as real signoff). Fixed `build_pack.py` excluding nested `.wavefoundry` dirs.
