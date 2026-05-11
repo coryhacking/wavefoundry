@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: active
+Status: closed
 Last verified: 2026-05-10
 
 wave-id: `12dv9 chunk-tags`
@@ -23,6 +23,8 @@ Change Status: `complete`
 | code-reviewer | review | 12dv9 — tag inference logic, Chunk dataclass change, search filter correctness |
 | qa-reviewer | review | 12dv9 — AC coverage, no regressions, framework tests pass |
 
+Completed At: 2026-05-10
+
 ## Wave Summary
 
 Adds a `tags` list field to the `Chunk` dataclass, populated at index time from path-pattern heuristics (no LLM required). Tags give search results a second classification axis beyond `kind` — a chunk can be reachable as both `kind="prompt"` and `tags=["lifecycle"]`, for example. `docs_search` and `code_search` gain an optional `tags` filter parameter. Inspired by the "virtual nodes / multi-ancestor" pattern from PageIndex's filesystem research (2025), adapted to work entirely within Wavefoundry's offline, embedding-based model. `CHUNKER_VERSION` is incremented to trigger a full index rebuild.
@@ -37,3 +39,10 @@ Adds a `tags` list field to the `Chunk` dataclass, populated at index time from 
 ## Dependencies
 
 - Depends on: wave `12dkb doc-summary-frontmatter` (closed) — Chunk dataclass familiarity; CHUNKER_VERSION = "18" is the baseline.
+
+## Review Evidence
+
+- wave-council-delivery: approved (2026-05-10 — all ACs satisfied: `tags` field on Chunk, path-pattern heuristics in `_tag_utils.py`, `tags` filter on `docs_search`/`code_search`, CHUNKER_VERSION bumped, seed-211 Tags Filter section complete, 1087 tests passing)
+- code-reviewer: approved (2026-05-10 — tag inference logic correct, Chunk dataclass change sound, search filter wired correctly, `to_dict`/`from_dict` symmetry verified)
+- qa-reviewer: approved (2026-05-10 — AC coverage complete, no regressions, all framework tests pass)
+- operator-signoff: approved

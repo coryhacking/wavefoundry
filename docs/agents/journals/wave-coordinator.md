@@ -46,6 +46,14 @@ wave-id: `12ec2 index-build-stats-persistence`
 
 - Closed 2026-05-06: persisted index build stats to `index-build-stats.json`; timing estimates in `wave_index_build` notices, `wave_index_build_status`, and `wave_index_health` responses. Fixed placeholder signoff bypass bug (`<approved...>` no longer counts as real signoff). Fixed `build_pack.py` excluding nested `.wavefoundry` dirs.
 
+wave-id: `12dv9 chunk-tags`
+
+- Closed 2026-05-10: `tags: list[str]` field on Chunk, path-pattern heuristics in `_tag_utils.py`, `tags` filter on `docs_search`/`code_search`, CHUNKER_VERSION bumped, seed-211 Tags Filter section complete.
+
+wave-id: `12g47 dashboard-framework`
+
+- Closed 2026-05-10: React+Python loopback dashboard, auto-index daemon, design system, gradient tile borders, dark mode fixes, docs-lint extended for dashboard-required fields. ADR naming convention enforced (`<id>-adr slug.md`). `_index_stats` fixed to read from actual chunk files. `dashboard-server.json` gitignored.
+
 ## Promotion Evidence
 
 - Lessons about self-hosting path resolution and lifecycle ID epoch have been promoted to `docs/references/project-context-memory.md` at init.
