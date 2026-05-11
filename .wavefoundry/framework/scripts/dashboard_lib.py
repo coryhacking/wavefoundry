@@ -520,17 +520,42 @@ def collect_activity(root: Path, change_sets: dict[str, list[dict[str, Any]]]) -
     }
 
 
-def _index_stats(meta: Any, build_stats: Any) -> dict[str, Any]:
-    """Merge meta.json + index-build-stats.json into a flat stats dict."""
+def _index_stats(meta: Any, build_stats: Any, index_dir: "Path | None" = None) -> dict[str, Any]:
+    """Merge meta.json + index-build-stats.json into a flat stats dict.
+
+    Files and chunk counts are read from the actual chunk data (docs.json / code.json)
+    when index_dir is provided — build stats only reflect the last run and undercount
+    for incremental updates.
+    """
     m = meta if isinstance(meta, dict) else {}
     s = build_stats if isinstance(build_stats, dict) else {}
     model_versions = m.get("model_versions") or {}
+
+    doc_chunks = 0
+    code_chunks = 0
+    files: set[str] = set()
+    if index_dir is not None:
+        docs = _read_json(index_dir / "docs.json", [])
+        if isinstance(docs, list):
+            doc_chunks = len(docs)
+            files.update(c.get("path", "") for c in docs if isinstance(c, dict))
+        code = _read_json(index_dir / "code.json", [])
+        if isinstance(code, list):
+            code_chunks = len(code)
+            files.update(c.get("path", "") for c in code if isinstance(c, dict))
+        files.discard("")
+    files_indexed = len(files) or int(s.get("files_indexed", 0) or len(m.get("file_meta") or {}))
+    if not doc_chunks:
+        doc_chunks = int(s.get("doc_chunks", 0))
+    if not code_chunks:
+        code_chunks = int(s.get("code_chunks", 0))
+
     return {
         "present": bool(m),
         "built_at": m.get("built_at", "") or s.get("built_at", ""),
-        "files_indexed": int(s.get("files_indexed", 0) or len(m.get("file_meta") or {})),
-        "doc_chunks": int(s.get("doc_chunks", 0)),
-        "code_chunks": int(s.get("code_chunks", 0)),
+        "files_indexed": files_indexed,
+        "doc_chunks": doc_chunks,
+        "code_chunks": code_chunks,
         "elapsed_seconds": int(s.get("elapsed_seconds", 0)),
         "mode": str(s.get("mode", "")),
         "model": str(model_versions.get("docs", "") or model_versions.get("code", "")),
@@ -538,15 +563,17 @@ def _index_stats(meta: Any, build_stats: Any) -> dict[str, Any]:
 
 
 def collect_health(root: Path, wave_count: int, change_sets: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
-    index_meta       = _read_json(root / ".wavefoundry" / "index" / "meta.json", {})
-    index_stats      = _read_json(root / ".wavefoundry" / "index" / "index-build-stats.json", {})
-    fw_index_meta    = _read_json(root / ".wavefoundry" / "framework" / "index" / "meta.json", {})
-    fw_index_stats   = _read_json(root / ".wavefoundry" / "framework" / "index" / "index-build-stats.json", {})
+    index_dir        = root / ".wavefoundry" / "index"
+    fw_index_dir     = root / ".wavefoundry" / "framework" / "index"
+    index_meta       = _read_json(index_dir    / "meta.json", {})
+    index_stats      = _read_json(index_dir    / "index-build-stats.json", {})
+    fw_index_meta    = _read_json(fw_index_dir / "meta.json", {})
+    fw_index_stats   = _read_json(fw_index_dir / "index-build-stats.json", {})
     return {
         "docs_lint": {"status": "unknown", "reason": "Run on demand outside the dashboard poll loop."},
         "index": {
-            "project":   _index_stats(index_meta,    index_stats),
-            "framework": _index_stats(fw_index_meta, fw_index_stats),
+            "project":   _index_stats(index_meta,    index_stats,    index_dir),
+            "framework": _index_stats(fw_index_meta, fw_index_stats, fw_index_dir),
         },
         "counts": {
             "waves": wave_count,
