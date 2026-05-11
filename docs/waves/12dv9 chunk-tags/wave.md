@@ -7,6 +7,10 @@ Last verified: 2026-05-10
 wave-id: `12dv9 chunk-tags`
 Title: Chunk Tags — Multi-Label Retrieval Axis
 
+## Objective
+
+Add a `tags: list[str]` field to Chunk for multi-label retrieval, populated at index time from path-pattern heuristics, with a `tags` filter parameter on `docs_search` and `code_search`.
+
 ## Changes
 
 Change ID: `12dv9-enh chunk-tags`

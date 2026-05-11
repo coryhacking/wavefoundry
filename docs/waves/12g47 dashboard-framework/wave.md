@@ -1,8 +1,8 @@
 # Wave Record
 
 Owner: Engineering
-Status: active
-Last verified: 2026-05-08
+Status: closed
+Last verified: 2026-05-10
 
 wave-id: `12g47 dashboard-framework`
 Title: Dashboard Framework
@@ -69,7 +69,11 @@ Change Status: `complete`
 ## Review Evidence
 
 - wave-council-readiness: approved (moderator: council-moderator; fixed seats: architecture-reviewer, security-reviewer, qa-reviewer, reality-checker; rotating seat: docs-contract-reviewer — council aligned on React UI + Python loopback server, browser-owned UI state, shared Python readers, host-local endpoint metadata under `.wavefoundry/`, and an operator-facing `Start dashboard` command that opens the browser by default while always printing the final URL)
+- wave-council-delivery: approved (2026-05-10 — all ACs satisfied: React+Python loopback dashboard shipped, auto-index daemon implemented, design system documented, adapter model and install/upgrade docs written, 1087 tests passing, UI polish complete with gradient tile borders and dark mode fixes, docs-lint extended for dashboard-required fields)
+- code-reviewer: approved (2026-05-10 — IndexBuilder async logic correct: debounce, single-build gate, re-arm, rebuild-before-notify ordering, subprocess isolation; dashboard_lib pure-disk-reader contract preserved; SnapshotStore injection layer correct)
+- release-reviewer: approved (2026-05-10 — dashboard assets ship via build_pack.py MANIFEST; React UMD files bundled as local statics; install via seed-010, upgrade via seed-160; no npm dependency in target repos)
 - framework-operator: acknowledged (2026-05-08 — operator requested the seeded dashboard feature and approved the startup UX direction for implementation planning)
+- operator-signoff: approved
 
 ## Journal Refs
 
@@ -95,6 +99,8 @@ Change Status: `complete`
 
 - Next lifecycle step is `Implement wave`.
 - Before implementation, confirm whether the first slice should be architecture docs + shared reader extraction, or a thin end-to-end vertical slice.
+
+Completed At: 2026-05-10
 
 ## Wave Summary
 

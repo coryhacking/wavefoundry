@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-06
+Last verified: 2026-05-10
 
 Actor: wave-coordinator
 Schema version: 1.0
@@ -29,6 +29,14 @@ Last distilled: 2026-04-30
 - **`wave_current` envelope is a list:** `data.waves[]` — not `data.wave`. Every call site reading the current wave must use the list form; the old single-key form no longer exists.
 
 ## Active Signals
+
+wave-id: `12cv4 prompt-indexing-quality`
+
+- Closed: prompt indexing quality improvements, `.prompt.md` file extension rename, docs-first index onboarding guidance.
+
+wave-id: `12d4b codebase-qa`
+
+- Closed: Code Insight Agent (CIA) — codebase QA agent, knowledge extraction, code search result diversity, CIA seed distribution and agent guidance.
 
 wave-id: `12bc4 journal-upgrade-coverage-gaps`
 

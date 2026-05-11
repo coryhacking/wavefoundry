@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-05-10
 
 Architecture Decision Records (ADRs) capture significant design decisions made for Wavefoundry.
 
@@ -26,4 +26,4 @@ Copy `template.md` and fill in all sections. Link new ADRs from `docs/ARCHITECTU
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [12dzj-adr](12dzj-adr%20embedding-model-and-format.md) | Embedding Model: BAAI/bge-base-en-v1.5 via fastembed ONNX INT8 | accepted |
+| [DEC-001](DEC-001-embedding-model-and-format.md) | Embedding Model: BAAI/bge-base-en-v1.5 via fastembed ONNX INT8 | accepted |
