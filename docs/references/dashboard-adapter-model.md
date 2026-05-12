@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-09
+Last verified: 2026-05-11
 
 Reference doc for how target repositories declare custom data sources, port preferences, terminology, and file-activity scope for the local dashboard. The dashboard is a generic Wave Framework feature; this doc defines the knobs available to any seeded repo without forking the core UI or server.
 
@@ -22,6 +22,8 @@ All dashboard configuration lives in `docs/workflow-config.json` under the `dash
     "project_label": "My Project",
     "entrypoint": "dashboard.html",
     "include_dirs": [],
+    "auto_index": true,
+    "auto_index_delay_seconds": 30,
     "terminology": {
       "wave": "wave",
       "change": "change",
@@ -44,6 +46,8 @@ All dashboard configuration lives in `docs/workflow-config.json` under the `dash
 | `project_label` | string | repo directory name | Name shown in the dashboard header and browser tab title |
 | `entrypoint` | string | `"dashboard.html"` | Filename served at `/`. Override only when the repo ships a custom shell page alongside the default assets |
 | `include_dirs` | string[] | `[]` | Additional root-relative directories included in the `files_updated_today` / `files_updated_week` mtime scan. By default the scan excludes `.wavefoundry`, `.git`, `node_modules`, and similar noise dirs |
+| `auto_index` | bool | `true` | When `true`, the dashboard server schedules background index rebuilds for stale index layers; set to `false` to opt out |
+| `auto_index_delay_seconds` | int | `30` | Debounce/settling delay before a scheduled auto-index rebuild starts; values below `10` are clamped up |
 | `terminology.wave` | string | `"wave"` | Singular display label for a wave-level work item |
 | `terminology.change` | string | `"change"` | Singular display label for a change-level work item |
 | `terminology.task` | string | `"task"` | Singular display label for a task-level work item |

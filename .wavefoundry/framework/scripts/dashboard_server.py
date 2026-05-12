@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import hashlib
+import importlib.util
 import json
 import os
 import queue
@@ -30,6 +31,22 @@ _GIT_INTERVAL = 60       # seconds between git stat rebuilds
 _WATCH_INTERVAL = 3.0    # seconds between mtime polls
 _SSE_HEARTBEAT = 15      # seconds between SSE keep-alive comments
 _STALENESS_CHECK_INTERVAL = 60.0  # seconds between periodic git-based index staleness checks
+_INDEX_LAYERS = ("project", "framework")
+_INDEXER_MOD = None
+_FRAMEWORK_STALE_IGNORE_FILENAMES = {"MANIFEST", "VERSION"}
+
+
+def _get_indexer():
+    global _INDEXER_MOD
+    if _INDEXER_MOD is None:
+        indexer_path = Path(__file__).resolve().parent / "indexer.py"
+        spec = importlib.util.spec_from_file_location("dashboard_indexer", indexer_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Unable to load indexer module from {indexer_path}")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _INDEXER_MOD = mod
+    return _INDEXER_MOD
 
 
 # ── Index builder ─────────────────────────────────────────────────────────────
@@ -54,44 +71,122 @@ class IndexBuilder:
         self._status = "idle"
         self._build_started_at: str | None = None
         self._build_finished_at: str | None = None
+        self._pending_layers: set[str] = set()
+        self._active_layers: set[str] = set()
+        self._pending_reasons = {layer: set() for layer in _INDEX_LAYERS}
+        self._active_reasons = {layer: set() for layer in _INDEX_LAYERS}
+        self._layer_states = {
+            layer: {
+                "build_status": "idle",
+                "build_started_at": None,
+                "build_finished_at": None,
+            }
+            for layer in _INDEX_LAYERS
+        }
 
-    def signal_change(self) -> None:
+    @staticmethod
+    def _format_layers(layers: set[str]) -> str:
+        ordered = [layer for layer in _INDEX_LAYERS if layer in layers]
+        return ", ".join(ordered) if ordered else "project"
+
+    @staticmethod
+    def _normalize_reason(reason: str | None) -> str:
+        text = (reason or "").strip()
+        return text or "unspecified trigger"
+
+    def _record_pending_reason(self, layer: str, reason: str) -> None:
+        self._pending_reasons[layer].add(self._normalize_reason(reason))
+
+    def _format_reason_summary(self, layers: set[str], reasons_by_layer: dict[str, set[str]]) -> str:
+        parts: list[str] = []
+        for layer in _INDEX_LAYERS:
+            if layer not in layers:
+                continue
+            reasons = sorted(reasons_by_layer.get(layer) or [])
+            parts.append(f"{layer}: {', '.join(reasons) if reasons else 'unspecified trigger'}")
+        return "; ".join(parts) if parts else "project: unspecified trigger"
+
+    def signal_change(self, layer: str = "project", reason: str = "change signal") -> None:
+        if layer not in _INDEX_LAYERS:
+            raise ValueError(f"Unsupported index layer: {layer}")
         with self._lock:
+            self._pending_layers.add(layer)
+            self._record_pending_reason(layer, reason)
             if self._running:
                 self._pending_after_build = True
+                sys.stderr.write(
+                    f"[dashboard] IndexBuilder: queued {layer} index update ({self._normalize_reason(reason)}) while build is running.\n"
+                )
                 return
             if self._timer is not None:
                 self._timer.cancel()
             self._timer = threading.Timer(self._delay, self._run_build)
             self._timer.daemon = True
             self._timer.start()
+            sys.stderr.write(
+                f"[dashboard] IndexBuilder: scheduled {self._format_layers(self._pending_layers)} index update in {self._delay:.1f}s "
+                f"({self._format_reason_summary(self._pending_layers, self._pending_reasons)}).\n"
+            )
 
-    def signal_startup(self, delay: float = 1.0) -> None:
+    def signal_startup(
+        self,
+        delay: float = 1.0,
+        layers: set[str] | None = None,
+        reason: str = "startup stale check",
+    ) -> None:
         """Arm a startup rebuild with a short fixed delay, bypassing the debounce."""
+        requested_layers = set(layers or {"project"})
+        invalid = requested_layers.difference(_INDEX_LAYERS)
+        if invalid:
+            raise ValueError(f"Unsupported index layers: {sorted(invalid)}")
         with self._lock:
+            self._pending_layers.update(requested_layers)
+            for layer in requested_layers:
+                self._record_pending_reason(layer, reason)
             if self._running:
+                sys.stderr.write(
+                    f"[dashboard] IndexBuilder: startup request ignored while build is running "
+                    f"({self._format_reason_summary(requested_layers, self._pending_reasons)}).\n"
+                )
                 return
             if self._timer is not None:
                 self._timer.cancel()
             self._timer = threading.Timer(delay, self._run_build)
             self._timer.daemon = True
             self._timer.start()
+            sys.stderr.write(
+                f"[dashboard] IndexBuilder: scheduled startup {self._format_layers(requested_layers)} index update in {delay:.1f}s "
+                f"({self._format_reason_summary(requested_layers, self._pending_reasons)}).\n"
+            )
 
-    def get_status(self) -> dict[str, Any]:
+    def get_status(self, layer: str = "project") -> dict[str, Any]:
+        if layer not in _INDEX_LAYERS:
+            raise ValueError(f"Unsupported index layer: {layer}")
         with self._lock:
-            return {
-                "build_status": self._status,
-                "build_started_at": self._build_started_at,
-                "build_finished_at": self._build_finished_at,
-            }
+            return dict(self._layer_states[layer])
 
     def _run_build(self) -> None:
         with self._lock:
             self._timer = None
             self._running = True
             self._status = "running"
+            self._active_layers = set(self._pending_layers or {"project"})
+            self._pending_layers.clear()
+            active_reasons = {
+                layer: set(self._pending_reasons[layer]) for layer in _INDEX_LAYERS
+            }
+            self._active_reasons = active_reasons
+            self._pending_reasons = {layer: set() for layer in _INDEX_LAYERS}
             self._build_started_at = datetime.now(UTC).isoformat()
             self._build_finished_at = None
+            for layer in self._active_layers:
+                self._layer_states[layer]["build_status"] = "running"
+                self._layer_states[layer]["build_started_at"] = self._build_started_at
+                self._layer_states[layer]["build_finished_at"] = None
+        sys.stderr.write(
+            f"[dashboard] IndexBuilder: starting {self._format_layers(self._active_layers)} index update "
+            f"({self._format_reason_summary(self._active_layers, active_reasons)}).\n"
+        )
 
         self._on_started()
 
@@ -101,12 +196,27 @@ class IndexBuilder:
             self._running = False
             self._build_finished_at = datetime.now(UTC).isoformat()
             self._status = "done" if exit_code == 0 else "failed"
+            completed_layers = set(self._active_layers)
+            completed_reasons = {
+                layer: set(self._active_reasons[layer]) for layer in _INDEX_LAYERS
+            }
+            for layer in self._active_layers:
+                self._layer_states[layer]["build_status"] = self._status
+                self._layer_states[layer]["build_finished_at"] = self._build_finished_at
             if exit_code != 0:
                 sys.stderr.write(
-                    f"[dashboard] IndexBuilder: index build failed (exit {exit_code})\n"
+                    f"[dashboard] IndexBuilder: {self._format_layers(completed_layers)} index update failed (exit {exit_code}) "
+                    f"({self._format_reason_summary(completed_layers, completed_reasons)}).\n"
+                )
+            else:
+                sys.stderr.write(
+                    f"[dashboard] IndexBuilder: completed {self._format_layers(completed_layers)} index update "
+                    f"({self._format_reason_summary(completed_layers, completed_reasons)}).\n"
                 )
             rearm = self._pending_after_build
             self._pending_after_build = False
+            self._active_layers = set()
+            self._active_reasons = {layer: set() for layer in _INDEX_LAYERS}
 
         self._on_done()
 
@@ -116,24 +226,49 @@ class IndexBuilder:
                 t.daemon = True
                 t.start()
                 self._timer = t
+                sys.stderr.write(
+                    f"[dashboard] IndexBuilder: rearmed {self._format_layers(self._pending_layers)} index update in {self._delay:.1f}s "
+                    f"({self._format_reason_summary(self._pending_layers, self._pending_reasons)}).\n"
+                )
 
     def _execute(self) -> int:
         indexer_path = self._root / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
-        cmd = [sys.executable, str(indexer_path), "--root", str(self._root), "--content", "all"]
+        with self._lock:
+            active_layers = set(self._active_layers or {"project"})
         try:
-            proc = subprocess.Popen(
-                cmd,
-                start_new_session=True,
-                close_fds=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-            )
-            _, stderr_data = proc.communicate()
-            if proc.returncode != 0 and stderr_data:
-                sys.stderr.write(
-                    f"[dashboard] IndexBuilder stderr: {stderr_data.decode(errors='replace')[:400]}\n"
+            commands: list[list[str]] = []
+            if "project" in active_layers:
+                commands.append([sys.executable, str(indexer_path), "--root", str(self._root), "--content", "all"])
+            if "framework" in active_layers:
+                commands.append([
+                    sys.executable,
+                    str(indexer_path),
+                    "--root",
+                    str(self._root),
+                    "--content",
+                    "docs",
+                    "--index-dir",
+                    str(self._root / ".wavefoundry" / "framework" / "index"),
+                    "--include-prefix",
+                    ".wavefoundry/framework",
+                    "--no-ignore-files",
+                ])
+            for cmd in commands:
+                proc = subprocess.Popen(
+                    cmd,
+                    start_new_session=True,
+                    close_fds=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
                 )
-            return proc.returncode
+                _, stderr_data = proc.communicate()
+                if proc.returncode != 0 and stderr_data:
+                    sys.stderr.write(
+                        f"[dashboard] IndexBuilder stderr: {stderr_data.decode(errors='replace')[:400]}\n"
+                    )
+                if proc.returncode != 0:
+                    return proc.returncode
+            return 0
         except FileNotFoundError:
             sys.stderr.write("[dashboard] IndexBuilder: indexer executable not found\n")
             return -1
@@ -142,13 +277,73 @@ class IndexBuilder:
             return -1
 
 
-def _index_is_stale(root: Path) -> bool:
-    """Return True if the project index is missing or older than the current git state.
+def _path_matches_index_layer(path: str, layer: str) -> bool:
+    normalized = path.replace("\\", "/").strip()
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    if not normalized:
+        return False
+    parts = [part for part in normalized.split("/") if part]
+    if "__pycache__" in parts or normalized.endswith(".pyc"):
+        return False
+    if normalized.startswith(".wavefoundry/index/") or normalized == ".wavefoundry/index":
+        return layer == "project" and False
+    if normalized.startswith(".wavefoundry/framework/index/") or normalized == ".wavefoundry/framework/index":
+        return False
+    if layer == "framework":
+        return normalized.startswith(".wavefoundry/framework/")
+    return not normalized.startswith(".wavefoundry/framework/")
+
+
+def _is_git_status_directory_entry(raw_path: str, root: Path) -> bool:
+    normalized = raw_path.replace("\\", "/").strip()
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    if not normalized:
+        return False
+    if normalized.endswith("/"):
+        return True
+    try:
+        return (root / normalized).is_dir()
+    except OSError:
+        return False
+
+
+def _framework_index_inputs_stale(root: Path, meta: dict[str, Any]) -> bool | None:
+    file_meta = meta.get("file_meta")
+    if not isinstance(file_meta, dict) or not file_meta:
+        return None
+    try:
+        indexer = _get_indexer()
+        framework_index_dir = root / ".wavefoundry" / "framework" / "index"
+        files = indexer.walk_repo(root, respect_ignore=False)
+        files = [path for path in files if not indexer._is_relative_to(path, framework_index_dir)]
+        files = indexer._filter_by_prefixes(files, root, (".wavefoundry/framework",))
+        files = [path for path in files if path.name not in _FRAMEWORK_STALE_IGNORE_FILENAMES]
+        filtered_file_meta = {
+            rel_path: entry
+            for rel_path, entry in file_meta.items()
+            if Path(rel_path).name not in _FRAMEWORK_STALE_IGNORE_FILENAMES
+        }
+        _, changed, removed = indexer._detect_changes(files, root, filtered_file_meta)
+        return bool(changed or removed)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _index_is_stale(root: Path, layer: str = "project") -> bool:
+    """Return True if the selected index layer is missing or older than the current git state.
 
     A file is only considered stale if it was modified *after* the last index build —
     files that were dirty before the build are already indexed and do not count.
     """
-    meta_path = root / ".wavefoundry" / "index" / "meta.json"
+    if layer not in _INDEX_LAYERS:
+        raise ValueError(f"Unsupported index layer: {layer}")
+    meta_path = (
+        root / ".wavefoundry" / "index" / "meta.json"
+        if layer == "project"
+        else root / ".wavefoundry" / "framework" / "index" / "meta.json"
+    )
     if not meta_path.exists():
         return True
     try:
@@ -160,24 +355,35 @@ def _index_is_stale(root: Path) -> bool:
     except (OSError, json.JSONDecodeError, ValueError):
         return True
 
+    if layer == "framework":
+        framework_file_meta_stale = _framework_index_inputs_stale(root, meta)
+        if framework_file_meta_stale is not None:
+            return framework_file_meta_stale
+
     git = ["git", "-C", str(root)]
     try:
         r = subprocess.run(
-            git + ["log", f"--since={built_at}", "--oneline"],
+            git + ["log", f"--since={built_at}", "--name-only", "--pretty=format:"],
             capture_output=True, text=True, timeout=5,
         )
         if r.returncode == 0 and r.stdout.strip():
-            return True
+            for line in r.stdout.splitlines():
+                if _path_matches_index_layer(line, layer):
+                    return True
     except Exception:  # noqa: BLE001
         pass
     try:
         r = subprocess.run(
-            git + ["status", "--porcelain"],
+            git + ["status", "--porcelain", "--untracked-files=all"],
             capture_output=True, text=True, timeout=5,
         )
         if r.returncode == 0 and r.stdout.strip():
             for line in r.stdout.splitlines():
                 filename = line[3:].strip().split(" -> ")[-1]
+                if _is_git_status_directory_entry(filename, root):
+                    continue
+                if not _path_matches_index_layer(filename, layer):
+                    continue
                 try:
                     if (root / filename).stat().st_mtime > built_at_ts:
                         return True
@@ -230,15 +436,22 @@ class SnapshotStore:
         else:
             self._index_builder = None
         # Check staleness once at startup so the first snapshot already has the state.
-        self._index_stale: bool | None = _index_is_stale(root)
+        self._index_stale: dict[str, bool | None] = {
+            layer: _index_is_stale(root, layer) for layer in _INDEX_LAYERS
+        }
 
         # Build the initial snapshot (including git) before serving requests.
         self._rebuild(force_git=True)
         self._ready.set()
 
-        if self._index_builder is not None and self._index_stale:
-            sys.stderr.write("[dashboard] Index is stale — scheduling startup index update.\n")
-            self._index_builder.signal_startup()
+        startup_layers = {
+            layer for layer, stale in self._index_stale.items() if stale
+        }
+        if self._index_builder is not None and startup_layers:
+            sys.stderr.write(
+                f"[dashboard] Index is stale at startup — scheduling {IndexBuilder._format_layers(startup_layers)} update.\n"
+            )
+            self._index_builder.signal_startup(layers=startup_layers, reason="startup stale check")
 
         t = threading.Thread(
             target=self._watch_loop, daemon=True, name="wf-dashboard-watcher"
@@ -262,6 +475,7 @@ class SnapshotStore:
             r / "docs" / "agents" / "session-handoff.md",
             r / "docs" / "prompts" / "prompt-surface-manifest.json",
             r / ".wavefoundry" / "index" / "index-build-stats.json",
+            r / ".wavefoundry" / "framework" / "index" / "index-build-stats.json",
         ]
 
     def _current_mtimes(self) -> dict[str, float]:
@@ -292,10 +506,14 @@ class SnapshotStore:
         else:
             snap["git"] = self._cached_git
         proj = snap.setdefault("health", {}).setdefault("index", {}).setdefault("project", {})
+        fw = snap.setdefault("health", {}).setdefault("index", {}).setdefault("framework", {})
         if self._index_builder is not None:
-            proj.update(self._index_builder.get_status())
-        if self._index_stale is not None:
-            proj["stale"] = self._index_stale
+            proj.update(self._index_builder.get_status("project"))
+            fw.update(self._index_builder.get_status("framework"))
+        if self._index_stale.get("project") is not None:
+            proj["stale"] = self._index_stale["project"]
+        if self._index_stale.get("framework") is not None:
+            fw["stale"] = self._index_stale["framework"]
         new_hash = self._hash_snapshot(snap)
         with self._lock:
             changed = new_hash != self._content_hash
@@ -314,14 +532,14 @@ class SnapshotStore:
 
     def _on_index_build_done(self) -> None:
         if self._index_builder is not None:
-            status = self._index_builder.get_status()
-            if status["build_status"] == "done":
-                self._index_stale = False
+            for layer in _INDEX_LAYERS:
+                status = self._index_builder.get_status(layer)
+                if status["build_status"] == "done":
+                    self._index_stale[layer] = False
         self._rebuild(force_git=False)
         self._notify_sse()
 
     def _watch_loop(self) -> None:
-        _stats_key = str(self._root / ".wavefoundry" / "index" / "index-build-stats.json")
         self._last_mtimes = self._current_mtimes()
         while True:
             time.sleep(_WATCH_INTERVAL)
@@ -344,15 +562,19 @@ class SnapshotStore:
                     self._index_builder is None or not self._index_builder._running
                 ):
                     self._last_staleness_check = now
-                    stale = _index_is_stale(self._root)
-                    if stale != self._index_stale:
-                        self._index_stale = stale
+                    stale_changed = False
+                    for layer in _INDEX_LAYERS:
+                        stale = _index_is_stale(self._root, layer)
+                        if stale != self._index_stale.get(layer):
+                            self._index_stale[layer] = stale
+                            stale_changed = True
+                            if stale and self._index_builder is not None:
+                                self._index_builder.signal_change(layer=layer, reason="periodic stale check")
+                        else:
+                            self._index_stale[layer] = stale
+                    if stale_changed:
                         self._rebuild(force_git=False)
                         self._notify_sse()
-                        if stale and self._index_builder is not None:
-                            self._index_builder.signal_change()
-                    else:
-                        self._index_stale = stale
             except Exception as exc:  # noqa: BLE001
                 sys.stderr.write(f"[dashboard] watcher error: {exc}\n")
 

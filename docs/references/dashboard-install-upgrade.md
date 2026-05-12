@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-09
+Last verified: 2026-05-11
 
 Reference doc covering how the local dashboard feature moves from the Wavefoundry framework pack into target repositories. Addresses packaging (build_pack.py), install (seed-010), upgrade (seed-160), and the sibling-directory runtime option.
 
@@ -57,13 +57,13 @@ The `-o` flag overwrites existing files without prompting. After unpacking, seed
       "change": "change",
       "task": "task"
     },
-    "auto_index": false,
+    "auto_index": true,
     "auto_index_delay_seconds": 30
   }
 }
 ```
 
-If a `dashboard` block already exists in `workflow-config.json`, seed-010 preserves operator-customized values (port ranges, `project_label`, `include_dirs`, `terminology`) and only backfills missing fields. `auto_index` defaults to `false` and must be explicitly set to `true` to opt in.
+If a `dashboard` block already exists in `workflow-config.json`, seed-010 preserves operator-customized values (port ranges, `project_label`, `include_dirs`, `terminology`) and only backfills missing fields. `auto_index` now defaults to `true`; set it explicitly to `false` to opt out.
 
 **Gitignore entries:** After install, `.wavefoundry/dashboard-server.json` must be gitignored. This file holds host-local endpoint metadata (pid, port, url) and must never be committed. Add to `.gitignore`:
 
@@ -85,13 +85,13 @@ If the upgraded pack includes the dashboard feature for the first time (i.e. the
 **Config field backfill for auto-index:** When upgrading from a version that predates auto-index support, seed-160 backfills the following fields into the existing `dashboard` block without touching any existing values:
 
 ```json
-"auto_index": false,
+"auto_index": true,
 "auto_index_delay_seconds": 30
 ```
 
-`auto_index` always backfills as `false`. Operators who want automatic index rebuilds must explicitly set it to `true` after upgrade.
+`auto_index` now backfills as `true`. Operators who want automatic index rebuilds disabled must explicitly set it to `false` after upgrade.
 
-**No restart required for asset changes:** The dashboard server re-reads `workflow-config.json` and serves updated static files on the next request. If the server process is already running when assets are upgraded, the browser will pick up new JS/CSS on the next page reload. To pick up a `workflow-config.json` change (e.g. enabling `auto_index`), restart the server process.
+**No restart required for asset changes:** The dashboard server re-reads `workflow-config.json` and serves updated static files on the next request. If the server process is already running when assets are upgraded, the browser will pick up new JS/CSS on the next page reload. To pick up a `workflow-config.json` change (e.g. disabling `auto_index`), restart the server process.
 
 ## Sibling-Directory Runtime Option
 

@@ -264,32 +264,6 @@ a { color: inherit; }
   font-size: 0.84rem;
 }
 
-.git-files-pill {
-  font-size: 0.84rem;
-}
-
-.meta-pill--clickable {
-  cursor: pointer;
-}
-
-.meta-pill--clickable:hover {
-  border-color: var(--accent-mid);
-  background: var(--accent-soft);
-}
-
-.git-diff-pill {
-  font-family: var(--font-mono);
-  font-size: 0.84rem;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.git-diff-added   { color: #1e7e34; }
-.git-diff-removed { color: var(--danger); }
-.git-diff-sep     { display: none; }
-
 .git-ahead-pill {
   color: var(--accent);
   background: var(--accent-soft);
@@ -664,6 +638,8 @@ a { color: inherit; }
 
 td .wave-change-id {
   font-size: 0.85rem;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 
 .wave-change-title {
@@ -690,7 +666,7 @@ td .wave-change-id {
   gap: var(--space-2);
 }
 
-.waves-section-label::before {
+.waves-section-label::after {
   content: "";
   flex: 1;
   height: 1px;
@@ -879,10 +855,19 @@ html[data-theme="dark"] .metric-dialog-card {
 
 .pending-wave-left {
   display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
   min-width: 0;
   overflow: hidden;
+}
+
+.pending-wave-left .open-wave-id {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .pending-wave-title {
@@ -950,16 +935,47 @@ html[data-theme="dark"] .metric-dialog-card {
   color: var(--accent);
 }
 
+.metric--index .metric-value {
+  font-size: 1.7rem;
+  letter-spacing: -0.02em;
+}
+
 .metric-note {
   margin-top: var(--space-1);
   color: var(--muted);
   font-size: 0.82rem;
 }
 
+.metric-subnote {
+  color: var(--muted);
+}
+
+.metric-status-line {
+  display: block;
+  min-height: 1.2em;
+  margin-top: 0.2rem;
+  font-weight: 700;
+}
+
+.metric-diff-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.metric-diff-added { color: #1e7e34; }
+.metric-diff-removed { color: var(--danger); }
+.metric-diff-sep { display: none; }
+
 .metric--running .metric-value { color: var(--accent); }
 .metric--running .metric-note  { color: var(--accent); opacity: 0.75; animation: metric-pulse 1.4s ease-in-out infinite; }
 .metric--failed  .metric-note  { color: var(--danger); }
 .metric--stale   .metric-note  { color: var(--warn); }
+html[data-theme="dark"] .metric-subnote { color: var(--muted); }
+html[data-theme="dark"] .metric-diff-added { color: #4ade80; }
+html[data-theme="dark"] .metric-diff-removed { color: #f87171; }
 
 @keyframes metric-pulse {
   0%, 100% { opacity: 0.75; }
@@ -1178,7 +1194,7 @@ html[data-theme="dark"] .metric-dialog-card {
 }
 
 .hero-agent-pill {
-  font-size: 0.88rem;
+  font-size: 0.78rem;
   padding: 3px var(--space-3);
   border-radius: 999px;
   background: rgba(255,255,255,0.6);
@@ -1773,8 +1789,6 @@ html[data-theme="dark"] .empty-state {
   border-color: rgba(46, 50, 56, 0.7);
 }
 
-html[data-theme="dark"] .git-diff-added   { color: #4ade80; }
-html[data-theme="dark"] .git-diff-removed { color: #f87171; }
 
 html[data-theme="dark"] .file-tree-file--added   { color: #4ade80; }
 html[data-theme="dark"] .file-tree-file--deleted  { color: #f87171; }
@@ -1955,4 +1969,3 @@ html[data-theme="dark"] .index-build-badge--current {
   background: rgba(64, 163, 233, 0.10);
   border-color: rgba(64, 163, 233, 0.22);
 }
-

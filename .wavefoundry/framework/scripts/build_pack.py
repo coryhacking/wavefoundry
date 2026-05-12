@@ -174,7 +174,10 @@ def build_framework_index(framework_dir: Path, *, verbose: bool = False) -> None
         include_prefixes = (framework_dir.relative_to(root).as_posix(),)
     indexer.build_index(
         root,
-        full=True,
+        # Prefer the indexer's incremental path during packaging. The shared
+        # build_index logic will automatically escalate to a full rebuild when
+        # model, chunker, walker, or on-disk index state requires it.
+        full=False,
         content="docs",
         index_dir=framework_dir / "index",
         include_prefixes=include_prefixes,

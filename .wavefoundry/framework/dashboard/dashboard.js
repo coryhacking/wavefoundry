@@ -88,7 +88,7 @@ const DONE_STATUSES = new Set(["complete", "completed", "done", "implemented", "
 function isDone(status) { return DONE_STATUSES.has(String(status || "").toLowerCase()); }
 function waveStatus(w) { return String(w.status || "").toLowerCase(); }
 function activeWaves(waves)  { return waves.filter(w => waveStatus(w) === "active"); }
-function pendingWaves(waves) { return waves.filter(w => waveStatus(w) !== "active" && waveStatus(w) !== "closed"); }
+function pendingWaves(waves) { return waves.filter(w => waveStatus(w) !== "active" && waveStatus(w) !== "closed" && waveStatus(w) !== "completed"); }
 
 function badgeClass(status) {
   const key = String(status || "unknown").toLowerCase();
@@ -195,7 +195,7 @@ function ThemeToggle({ dark, onToggle }) {
   }, dark ? h(SunIcon) : h(MoonIcon));
 }
 
-function GitPills({ git, onFilesClick }) {
+function GitPills({ git }) {
   if (!git?.branch) return null;
   const pills = [
     h("span", { key: "branch", className: "meta-pill git-branch-pill", title: `Branch: ${git.branch}` },
@@ -207,20 +207,6 @@ function GitPills({ git, onFilesClick }) {
   if (git.commit_hash) {
     const label = git.commit_date ? `${git.commit_hash} · ${git.commit_date}` : git.commit_hash;
     pills.push(h("span", { key: "commit", className: "meta-pill git-commit-pill", title: git.commit_message || "" }, label));
-  }
-  if (git.files_changed > 0) {
-    pills.push(h("span", {
-      key: "files", className: "meta-pill git-files-pill" + (onFilesClick ? " meta-pill--clickable" : ""),
-      title: "Modified + untracked files (git status) — click to view",
-      onClick: onFilesClick, role: onFilesClick ? "button" : undefined,
-    }, `${git.files_changed} ${p(git.files_changed, "file", "files")} changed`));
-  }
-  if (git.lines_added > 0 || git.lines_removed > 0) {
-    pills.push(h("span", { key: "diff", className: "meta-pill git-diff-pill", title: "Lines added / removed" },
-      git.lines_added > 0   ? h("span", { className: "git-diff-added"   }, `+${git.lines_added.toLocaleString()}`)   : null,
-      git.lines_added > 0 && git.lines_removed > 0 ? h("span", { className: "git-diff-sep" }, " ") : null,
-      git.lines_removed > 0 ? h("span", { className: "git-diff-removed" }, `−${git.lines_removed.toLocaleString()}`) : null,
-    ));
   }
   if (git.ahead > 0)  pills.push(h("span", { key: "ahead",  className: "meta-pill git-ahead-pill",  title: "Commits ahead of upstream"  }, `↑${git.ahead} ahead`));
   if (git.behind > 0) pills.push(h("span", { key: "behind", className: "meta-pill git-behind-pill", title: "Commits behind upstream" }, `↓${git.behind} behind`));
@@ -472,9 +458,8 @@ function WavesCard({ waves, allChanges, handoffWaveId }) {
 function Metrics({ snapshot, onWavesClick, onChangesClick, onAcsClick, onTasksClick, onFilesClick, onIndexClick }) {
   const waves = snapshot.waves || [];
   const inWaves = snapshot.changes?.in_waves || [];
+  const git = snapshot.git || {};
   const health = snapshot.health || {};
-  const changedFiles = snapshot.activity?.files_changed ?? [];
-  const fileCount = changedFiles.length;
   // active = on active wave(s); pending = on non-active waves + staged plans not yet in a wave
   const staged = snapshot.changes?.staged || [];
 
@@ -501,30 +486,51 @@ function Metrics({ snapshot, onWavesClick, onChangesClick, onAcsClick, onTasksCl
   const acTotal   = countAcs([...inWaves, ...staged]);
   const acActive  = Math.max(0, countAcs(activeChanges)  - countCompletedAcs(activeChanges));
   const acPending = Math.max(0, countAcs(pendingChanges) - countCompletedAcs(pendingChanges));
+  const gitFileCount = Number(git.files_changed) || 0;
+  const gitLinesAdded = Number(git.lines_added) || 0;
+  const gitLinesRemoved = Number(git.lines_removed) || 0;
+  const fileNote = gitLinesAdded || gitLinesRemoved
+    ? h("span", { className: "metric-diff-note", title: "Lines added / removed" },
+        gitLinesAdded ? h("span", { className: "metric-diff-added" }, `+${gitLinesAdded.toLocaleString()}`) : null,
+        gitLinesAdded && gitLinesRemoved ? h("span", { className: "metric-diff-sep" }, " ") : null,
+        gitLinesRemoved ? h("span", { className: "metric-diff-removed" }, `−${gitLinesRemoved.toLocaleString()}`) : null,
+      )
+    : gitFileCount
+      ? "working tree"
+      : "clean working tree";
 
   const metrics = [
     { label: p(waveActive,  "Active wave",   "Active waves"),   value: waveActive,   note: `${wavePending} pending · ${waveTotal} total`,          onClick: onWavesClick,   variant: "waves" },
     { label: p(changeActive,"Active change", "Active changes"), value: changeActive, note: `${changePending} pending · ${changeTotal} total`,       onClick: onChangesClick, variant: "changes" },
     { label: p(acActive,    "Active AC",     "Active ACs"),     value: acActive,     note: `${acPending} pending · ${acTotal} total`,               onClick: onAcsClick,     variant: "acs" },
     { label: p(allTasksActive, "Active task","Active tasks"),   value: allTasksActive, note: `${allTasksPending} pending · ${allTasksTotal} total`, onClick: onTasksClick,   variant: "tasks" },
-    { label: p(fileCount, "File updated", "Files updated"), value: fileCount,   note: "today",                                                  onClick: onFilesClick,   variant: "files" },
+    { label: p(gitFileCount, "File changed", "Files changed"), value: gitFileCount, note: fileNote, onClick: onFilesClick, variant: "files" },
     (() => {
-      const idx = health.index?.project || {};
-      const buildStatus = idx.build_status;
-      const totalChunks = (idx.doc_chunks || 0) + (idx.code_chunks || 0);
-      const chunkPart = totalChunks ? `${totalChunks.toLocaleString()} chunks` : null;
-      const fileCount = idx.present ? (idx.files_indexed || 0).toLocaleString() : null;
-      const value = fileCount ?? (buildStatus === "running" ? "Indexing…" : "Missing");
-      const stalePart = idx.stale === true ? "stale" : (idx.stale === false ? "up to date" : null);
-      let note;
-      if (buildStatus === "running") {
-        note = [chunkPart, "indexing…"].filter(Boolean).join(" · ") || "indexing…";
-      } else if (buildStatus === "failed") {
-        note = [chunkPart, "build failed"].filter(Boolean).join(" · ");
-      } else {
-        note = [fileCount ? "files" : null, chunkPart, stalePart].filter(Boolean).join(" · ") || "not yet built";
-      }
-      const state = buildStatus === "running" ? "running" : buildStatus === "failed" ? "failed" : idx.stale === true ? "stale" : null;
+      const projectIdx = health.index?.project || {};
+      const frameworkIdx = health.index?.framework || {};
+      const totalChunks = (projectIdx.doc_chunks || 0) + (projectIdx.code_chunks || 0) + (frameworkIdx.doc_chunks || 0) + (frameworkIdx.code_chunks || 0);
+      const totalFiles = (projectIdx.files_indexed || 0) + (frameworkIdx.files_indexed || 0);
+      const buildStatus = projectIdx.build_status === "running" || frameworkIdx.build_status === "running"
+        ? "running"
+        : projectIdx.build_status === "failed" || frameworkIdx.build_status === "failed"
+          ? "failed"
+          : null;
+      const isStale = projectIdx.stale === true || frameworkIdx.stale === true;
+      const state = buildStatus === "running" ? "running" : buildStatus === "failed" ? "failed" : isStale ? "stale" : null;
+      const statusText = buildStatus === "running"
+        ? "Indexing…"
+        : buildStatus === "failed"
+          ? "Index build failed"
+          : isStale
+            ? "Stale"
+            : (!projectIdx.present && !frameworkIdx.present)
+              ? "Not yet built"
+              : null;
+      const note = h(React.Fragment, null,
+        h("div", { className: "metric-subnote" }, `files / ${totalChunks.toLocaleString()} chunks`),
+        h("div", { className: "metric-status-line" }, statusText || "\u00A0"),
+      );
+      const value = totalFiles ? totalFiles.toLocaleString() : (buildStatus === "running" ? "Indexing…" : "Missing");
       return { label: "Semantic Index", value, note, state, onClick: onIndexClick, variant: "index" };
     })(),
   ];
@@ -854,7 +860,9 @@ function ChangesTable({ changes, title }) {
           shown.map(c =>
             h("tr", { key: c.change_id },
               h("td", null,
-                h("div", { className: "wave-change-id" }, c.change_id),
+                h("div", { className: "wave-change-id" },
+                  c.change_id.split("-").flatMap((part, i) => i === 0 ? [part] : ["-", h("wbr", { key: i }), part]),
+                ),
                 h("div", { className: "wave-change-title" }, c.title),
               ),
               h("td", { style: { textAlign: "center" } }, h("span", { className: badgeClass(c.status) }, c.status)),
@@ -1022,7 +1030,6 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
   const [showAcs, setShowAcs] = useState(false);
   const [showTasks, setShowTasks] = useState(false);
   const [showIndex, setShowIndex] = useState(false);
-  const [showFiles, setShowFiles] = useState(false);
   const [showAllFiles, setShowAllFiles] = useState(false);
 
   const project    = snapshot.project    || {};
@@ -1046,14 +1053,14 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
         h("article", { className: "hero-card" },
           h("div", { className: "hero-meta" },
             h("span", { className: "meta-pill" }, `Repository: ${project.repo_basename || ""}`),
-            h(GitPills, { git: snapshot.git, onFilesClick: () => setShowAllFiles(true) }),
+            h(GitPills, { git: snapshot.git }),
           ),
           h(Metrics, { snapshot,
             onWavesClick:   () => setShowWaves(true),
             onChangesClick: () => setShowChanges(true),
             onAcsClick:     () => setShowAcs(true),
             onTasksClick:   () => setShowTasks(true),
-            onFilesClick:   () => setShowFiles(true),
+            onFilesClick:   () => setShowAllFiles(true),
             onIndexClick:   () => setShowIndex(true),
           }),
           h(ProgressCard, { snapshot }),
@@ -1089,8 +1096,7 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
     showAcs     ? h(AcsDialog,     { snapshot, onClose: () => setShowAcs(false) })     : null,
     showTasks   ? h(TasksDialog,   { snapshot, onClose: () => setShowTasks(false) })   : null,
     showIndex   ? h(IndexDialog,   { health: snapshot.health, onClose: () => setShowIndex(false) }) : null,
-    showFiles   ? h(FilesDialog,   { title: "Files changed today", files: snapshot.activity?.files_changed || [], emptyMessage: "No files changed today.", onClose: () => setShowFiles(false) }) : null,
-    showAllFiles ? h(FilesDialog,  { title: "All uncommitted changes", files: snapshot.activity?.files_changed_all || [], emptyMessage: "No uncommitted changes.", onClose: () => setShowAllFiles(false) }) : null,
+    showAllFiles ? h(FilesDialog,  { title: "Changed files", files: snapshot.activity?.files_changed_all || [], emptyMessage: "Working tree is clean.", onClose: () => setShowAllFiles(false) }) : null,
   );
 }
 

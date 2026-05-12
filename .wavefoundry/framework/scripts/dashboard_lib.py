@@ -19,7 +19,7 @@ _TITLE_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 _OWNER_RE = re.compile(r"^Owner:\s+(.+)$", re.MULTILINE)
 _WAVE_RE = re.compile(r"^Wave:\s+`([^`]+)`", re.MULTILINE)
 _SECTION_RE = re.compile(r"^##\s+(.+)$", re.MULTILINE)
-_TASK_RE = re.compile(r"^\s*-\s+\[(?P<mark>[ xX])\]\s+(?P<label>.+?)\s*$", re.MULTILINE)
+_TASK_RE = re.compile(r"^\s*-\s+(?:(?:\[(?P<mark>[ xX])\])\s+)?(?P<label>.+?)\s*$", re.MULTILINE)
 _ACTIVE_WAVE_RE = re.compile(r"^\*\*Active wave:\*\*\s+(.+)$", re.MULTILINE)
 
 
@@ -86,7 +86,7 @@ def read_dashboard_config(root: Path) -> dict[str, Any]:
         "project_label": str(cfg.get("project_label", "")).strip(),
         "terminology": cfg.get("terminology", {}) if isinstance(cfg.get("terminology"), dict) else {},
         "include_dirs": [str(d) for d in cfg.get("include_dirs", []) if isinstance(d, str)] if isinstance(cfg.get("include_dirs"), list) else [],
-        "auto_index": bool(cfg.get("auto_index", False)),
+        "auto_index": bool(cfg.get("auto_index", True)),
         "auto_index_delay_seconds": max(10, int(cfg.get("auto_index_delay_seconds", 30) or 30)),
     }
 
@@ -143,15 +143,12 @@ def derive_project_name(root: Path) -> str:
 
 
 def _extract_section(text: str, heading: str) -> str:
-    marker = f"## {heading}"
-    start = text.find(marker)
-    if start == -1:
+    heading_re = re.compile(rf"^##\s+{re.escape(heading)}\s*$", re.MULTILINE)
+    match = heading_re.search(text)
+    if not match:
         return ""
-    start = text.find("\n", start)
-    if start == -1:
-        return ""
-    body = text[start + 1 :]
-    end_match = re.search(r"\n(?=## )", body)
+    body = text[match.end() :].lstrip("\r\n")
+    end_match = re.search(r"(?m)^##\s+", body)
     section = body[: end_match.start()] if end_match else body
     return section.strip()
 
@@ -170,7 +167,7 @@ def _markdown_table_rows(section_text: str) -> list[list[str]]:
 
 
 _AC_ID_RE = re.compile(r"(AC-[\w\-]+)")
-_AC_CHECKED_RE = re.compile(r"^\s*-\s+\[[xX]\]\s+", re.MULTILINE)
+_TERMINAL_CHANGE_STATUSES = {"complete", "completed", "closed"}
 
 
 def _parse_ac_priority_counts(section_text: str) -> dict[str, int]:
@@ -195,32 +192,8 @@ def _parse_ac_priority_counts(section_text: str) -> dict[str, int]:
     return counts
 
 
-def _parse_ac_completed_by_priority(ac_section: str, priority_section: str) -> dict[str, int]:
-    """Count completed ACs (marked [x]) by priority tier.
-
-    Parses checkboxes from the Acceptance Criteria section and cross-references
-    the AC Priority table to map each completed AC to its priority bucket.
-    """
-    completed_ids: set[str] = set()
-    for raw in ac_section.splitlines():
-        line = raw.strip()
-        if re.match(r"-\s+\[[xX]\]", line):
-            m = _AC_ID_RE.search(line)
-            if m:
-                completed_ids.add(m.group(1))
-
-    priority_map: dict[str, str] = {}
-    for row in _markdown_table_rows(priority_section)[1:]:
-        if len(row) >= 2:
-            ac_id = row[0].strip()
-            priority = row[1].strip().lower().replace(" ", "-")
-            priority_map[ac_id] = priority
-
-    counts: dict[str, int] = {"required": 0, "important": 0, "nice-to-have": 0, "not-this-scope": 0, "unknown": 0}
-    for ac_id in completed_ids:
-        priority = priority_map.get(ac_id, "unknown")
-        counts[priority] = counts.get(priority, 0) + 1
-    return counts
+def _is_terminal_change_status(status: str) -> bool:
+    return status.strip().lower() in _TERMINAL_CHANGE_STATUSES
 
 
 def _parse_progress_log(section_text: str) -> list[dict[str, str]]:
@@ -236,15 +209,12 @@ def _parse_progress_log(section_text: str) -> list[dict[str, str]]:
     return result
 
 
-def _parse_tasks(text: str) -> dict[str, Any]:
-    # Exclude the Acceptance Criteria section so AC checkboxes aren't counted as tasks.
-    ac_section = _extract_section(text, "Acceptance Criteria")
-    search_text = text.replace(ac_section, "", 1) if ac_section else text
+def _parse_tasks(tasks_section: str, change_status: str) -> dict[str, Any]:
     tasks = []
     completed = 0
-    for match in _TASK_RE.finditer(search_text):
-        mark = match.group("mark").strip().lower()
-        done = mark == "x"
+    for match in _TASK_RE.finditer(tasks_section):
+        mark = (match.group("mark") or "").strip().lower()
+        done = mark == "x" if mark else _is_terminal_change_status(change_status)
         if done:
             completed += 1
         tasks.append({"label": match.group("label").strip(), "done": done})
@@ -256,10 +226,10 @@ def _parse_tasks(text: str) -> dict[str, Any]:
     }
 
 
-_AC_LINE_RE = re.compile(r"^\s*-\s+\[(?P<mark>[ xX])\]\s+(?P<text>.+?)\s*$", re.MULTILINE)
+_AC_LINE_RE = re.compile(r"^\s*-\s+(?:(?:\[(?P<mark>[ xX])\])\s+)?(?P<text>.+?)\s*$", re.MULTILINE)
 
 
-def _parse_ac_items(ac_section: str, priority_section: str) -> list[dict[str, Any]]:
+def _parse_ac_items(ac_section: str, priority_section: str, change_status: str) -> list[dict[str, Any]]:
     """Return individual AC items with text, completion status, and priority."""
     priority_map: dict[str, str] = {}
     for row in _markdown_table_rows(priority_section)[1:]:
@@ -270,13 +240,24 @@ def _parse_ac_items(ac_section: str, priority_section: str) -> list[dict[str, An
 
     items = []
     for match in _AC_LINE_RE.finditer(ac_section):
-        done = match.group("mark").strip().lower() == "x"
+        mark = (match.group("mark") or "").strip().lower()
+        done = mark == "x" if mark else _is_terminal_change_status(change_status)
         text = match.group("text").strip()
         id_match = _AC_ID_RE.search(text)
         ac_id = id_match.group(1) if id_match else ""
         priority = priority_map.get(ac_id, "unknown") if ac_id else "unknown"
         items.append({"id": ac_id, "text": text, "done": done, "priority": priority})
     return items
+
+
+def _completed_ac_counts(items: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {"required": 0, "important": 0, "nice-to-have": 0, "not-this-scope": 0, "unknown": 0}
+    for item in items:
+        if not item.get("done"):
+            continue
+        priority = str(item.get("priority") or "unknown")
+        counts[priority] = counts.get(priority, 0) + 1
+    return counts
 
 
 def _parse_participants(section_text: str) -> list[dict[str, str]]:
@@ -350,10 +331,11 @@ def parse_change_doc(root: Path, change_path: Path) -> ChangeRecord:
     description = _first_para[: _sent_end + 1] if _sent_end != -1 else _first_para
     ac_priority_section = _extract_section(text, "AC Priority")
     ac_section = _extract_section(text, "Acceptance Criteria")
+    tasks_section = _extract_section(text, "Tasks")
     ac_counts = _parse_ac_priority_counts(ac_priority_section)
-    ac_completed = _parse_ac_completed_by_priority(ac_section, ac_priority_section)
-    ac_items = _parse_ac_items(ac_section, ac_priority_section)
-    tasks = _parse_tasks(text)
+    ac_items = _parse_ac_items(ac_section, ac_priority_section, change_status)
+    ac_completed = _completed_ac_counts(ac_items)
+    tasks = _parse_tasks(tasks_section, change_status)
     progress = _parse_progress_log(_extract_section(text, "Progress Log"))
     latest = progress[-1] if progress else None
     scope = "wave" if "docs/waves/" in str(change_path).replace("\\", "/") else "plan"
@@ -440,7 +422,7 @@ def _parse_porcelain_path(raw: str) -> str:
 
 
 def list_git_changed_files(root: Path, since: date | None = None, limit: int = 500) -> list[dict[str, str]]:
-    """Return files changed today as {path, status} dicts.
+    """Return changed files as {path, status} dicts.
 
     When ``since`` is set, combines:
     - Committed changes on or after ``since`` (git log)
@@ -515,7 +497,6 @@ def collect_activity(root: Path, change_sets: dict[str, list[dict[str, Any]]]) -
         "session_handoff_path": "docs/agents/session-handoff.md",
         "session_handoff_active_wave": active_match.group(1).strip() if active_match else "",
         "recent_progress": recent_progress[:10],
-        "files_changed": list_git_changed_files(root, since=date.today()),
         "files_changed_all": list_git_changed_files(root),
     }
 

@@ -107,8 +107,22 @@ class BuildPackTests(unittest.TestCase):
         kwargs = fake_indexer.build_index.call_args.kwargs
         self.assertEqual(fake_indexer.build_index.call_args.args[0], repo.resolve())
         self.assertEqual(kwargs["index_dir"], (fw / "index").resolve())
+        self.assertFalse(kwargs["full"])
         self.assertEqual(kwargs["include_prefixes"], (".wavefoundry/framework",))
         self.assertFalse(kwargs["respect_ignore"])
+
+    def test_framework_index_requests_incremental_update_for_packaging(self):
+        fw = self.tmp / "mini-fw"
+        fw.mkdir(parents=True)
+        fake_indexer = MagicMock()
+
+        with patch.object(build_pack, "_load_indexer", return_value=fake_indexer):
+            build_pack.build_framework_index(fw)
+
+        fake_indexer.build_index.assert_called_once()
+        kwargs = fake_indexer.build_index.call_args.kwargs
+        self.assertFalse(kwargs["full"])
+        self.assertEqual(kwargs["content"], "docs")
 
     def test_second_build_does_not_alter_first_zip_mtime(self):
         first = self._build()
