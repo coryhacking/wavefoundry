@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-10
+Last verified: 2026-05-11
 
 Actor: wave-coordinator
 Schema version: 1.0
@@ -49,6 +49,14 @@ wave-id: `12ec2 index-build-stats-persistence`
 wave-id: `12dv9 chunk-tags`
 
 - Closed 2026-05-10: `tags: list[str]` field on Chunk, path-pattern heuristics in `_tag_utils.py`, `tags` filter on `docs_search`/`code_search`, CHUNKER_VERSION bumped, seed-211 Tags Filter section complete.
+
+wave-id: `12hsd dashboard-completed-wave-pending-filter`
+
+- Closed 2026-05-10: two pending-row bugs — exclude `completed` from pendingWaves(); stack title below ID in .pending-wave-left.
+
+wave-id: `12hs9 dashboard-pending-wave-id-wrap`
+
+- Closed 2026-05-10: CSS fix — `.open-wave-id` nowrap scoped to `.pending-wave-left` to prevent wrap/misalignment in compact pending-wave rows.
 
 wave-id: `12g47 dashboard-framework`
 
