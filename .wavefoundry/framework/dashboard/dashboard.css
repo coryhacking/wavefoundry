@@ -756,8 +756,6 @@ td .wave-change-id {
 
 .metric-dialog-ac-item--done .metric-dialog-ac-text {
   color: var(--muted);
-  text-decoration: line-through;
-  text-decoration-color: var(--panel-border);
 }
 
 .metric-dialog-ac-check {

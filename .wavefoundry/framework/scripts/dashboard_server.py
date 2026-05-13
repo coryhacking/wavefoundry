@@ -34,6 +34,10 @@ _STALENESS_CHECK_INTERVAL = 60.0  # seconds between periodic git-based index sta
 _INDEX_LAYERS = ("project", "framework")
 _INDEXER_MOD = None
 _FRAMEWORK_STALE_IGNORE_FILENAMES = {"MANIFEST", "VERSION"}
+_PROJECT_STALE_IGNORE_PATHS = {
+    ".wavefoundry/dashboard-server.json",
+    ".wavefoundry/guard-overrides.json",
+}
 
 
 def _get_indexer():
@@ -47,6 +51,13 @@ def _get_indexer():
         spec.loader.exec_module(mod)
         _INDEXER_MOD = mod
     return _INDEXER_MOD
+
+
+def _dashboard_log(message: str, *, context: str | None = None) -> None:
+    prefix = f"{datetime.now(UTC).isoformat()} - "
+    if context:
+        prefix += f"{context} - "
+    sys.stderr.write(f"[dashboard] {prefix}{message}\n")
 
 
 # ── Index builder ─────────────────────────────────────────────────────────────
@@ -114,8 +125,8 @@ class IndexBuilder:
             self._record_pending_reason(layer, reason)
             if self._running:
                 self._pending_after_build = True
-                sys.stderr.write(
-                    f"[dashboard] IndexBuilder: queued {layer} index update ({self._normalize_reason(reason)}) while build is running.\n"
+                _dashboard_log(
+                    f"IndexBuilder: queued {layer} index update ({self._normalize_reason(reason)}) while build is running."
                 )
                 return
             if self._timer is not None:
@@ -123,9 +134,9 @@ class IndexBuilder:
             self._timer = threading.Timer(self._delay, self._run_build)
             self._timer.daemon = True
             self._timer.start()
-            sys.stderr.write(
-                f"[dashboard] IndexBuilder: scheduled {self._format_layers(self._pending_layers)} index update in {self._delay:.1f}s "
-                f"({self._format_reason_summary(self._pending_layers, self._pending_reasons)}).\n"
+            _dashboard_log(
+                f"IndexBuilder: scheduled {self._format_layers(self._pending_layers)} index update in {self._delay:.1f}s "
+                f"({self._format_reason_summary(self._pending_layers, self._pending_reasons)})."
             )
 
     def signal_startup(
@@ -144,9 +155,9 @@ class IndexBuilder:
             for layer in requested_layers:
                 self._record_pending_reason(layer, reason)
             if self._running:
-                sys.stderr.write(
-                    f"[dashboard] IndexBuilder: startup request ignored while build is running "
-                    f"({self._format_reason_summary(requested_layers, self._pending_reasons)}).\n"
+                _dashboard_log(
+                    f"IndexBuilder: startup request ignored while build is running "
+                    f"({self._format_reason_summary(requested_layers, self._pending_reasons)})."
                 )
                 return
             if self._timer is not None:
@@ -154,9 +165,9 @@ class IndexBuilder:
             self._timer = threading.Timer(delay, self._run_build)
             self._timer.daemon = True
             self._timer.start()
-            sys.stderr.write(
-                f"[dashboard] IndexBuilder: scheduled startup {self._format_layers(requested_layers)} index update in {delay:.1f}s "
-                f"({self._format_reason_summary(requested_layers, self._pending_reasons)}).\n"
+            _dashboard_log(
+                f"IndexBuilder: scheduled startup {self._format_layers(requested_layers)} index update in {delay:.1f}s "
+                f"({self._format_reason_summary(requested_layers, self._pending_reasons)})."
             )
 
     def get_status(self, layer: str = "project") -> dict[str, Any]:
@@ -183,9 +194,9 @@ class IndexBuilder:
                 self._layer_states[layer]["build_status"] = "running"
                 self._layer_states[layer]["build_started_at"] = self._build_started_at
                 self._layer_states[layer]["build_finished_at"] = None
-        sys.stderr.write(
-            f"[dashboard] IndexBuilder: starting {self._format_layers(self._active_layers)} index update "
-            f"({self._format_reason_summary(self._active_layers, active_reasons)}).\n"
+        _dashboard_log(
+            f"IndexBuilder: starting {self._format_layers(self._active_layers)} index update "
+            f"({self._format_reason_summary(self._active_layers, active_reasons)})."
         )
 
         self._on_started()
@@ -204,14 +215,14 @@ class IndexBuilder:
                 self._layer_states[layer]["build_status"] = self._status
                 self._layer_states[layer]["build_finished_at"] = self._build_finished_at
             if exit_code != 0:
-                sys.stderr.write(
-                    f"[dashboard] IndexBuilder: {self._format_layers(completed_layers)} index update failed (exit {exit_code}) "
-                    f"({self._format_reason_summary(completed_layers, completed_reasons)}).\n"
+                _dashboard_log(
+                    f"IndexBuilder: {self._format_layers(completed_layers)} index update failed (exit {exit_code}) "
+                    f"({self._format_reason_summary(completed_layers, completed_reasons)})."
                 )
             else:
-                sys.stderr.write(
-                    f"[dashboard] IndexBuilder: completed {self._format_layers(completed_layers)} index update "
-                    f"({self._format_reason_summary(completed_layers, completed_reasons)}).\n"
+                _dashboard_log(
+                    f"IndexBuilder: completed {self._format_layers(completed_layers)} index update "
+                    f"({self._format_reason_summary(completed_layers, completed_reasons)})."
                 )
             rearm = self._pending_after_build
             self._pending_after_build = False
@@ -226,9 +237,9 @@ class IndexBuilder:
                 t.daemon = True
                 t.start()
                 self._timer = t
-                sys.stderr.write(
-                    f"[dashboard] IndexBuilder: rearmed {self._format_layers(self._pending_layers)} index update in {self._delay:.1f}s "
-                    f"({self._format_reason_summary(self._pending_layers, self._pending_reasons)}).\n"
+                _dashboard_log(
+                    f"IndexBuilder: rearmed {self._format_layers(self._pending_layers)} index update in {self._delay:.1f}s "
+                    f"({self._format_reason_summary(self._pending_layers, self._pending_reasons)})."
                 )
 
     def _execute(self) -> int:
@@ -263,17 +274,15 @@ class IndexBuilder:
                 )
                 _, stderr_data = proc.communicate()
                 if proc.returncode != 0 and stderr_data:
-                    sys.stderr.write(
-                        f"[dashboard] IndexBuilder stderr: {stderr_data.decode(errors='replace')[:400]}\n"
-                    )
+                    _dashboard_log(f"IndexBuilder stderr: {stderr_data.decode(errors='replace')[:400]}")
                 if proc.returncode != 0:
                     return proc.returncode
             return 0
         except FileNotFoundError:
-            sys.stderr.write("[dashboard] IndexBuilder: indexer executable not found\n")
+            _dashboard_log("IndexBuilder: indexer executable not found")
             return -1
         except Exception as exc:  # noqa: BLE001
-            sys.stderr.write(f"[dashboard] IndexBuilder error: {exc}\n")
+            _dashboard_log(f"IndexBuilder error: {exc}")
             return -1
 
 
@@ -331,6 +340,32 @@ def _framework_index_inputs_stale(root: Path, meta: dict[str, Any]) -> bool | No
         return None
 
 
+def _project_index_inputs_stale(root: Path, meta: dict[str, Any]) -> bool | None:
+    file_meta = meta.get("file_meta")
+    if not isinstance(file_meta, dict) or not file_meta:
+        return None
+    try:
+        indexer = _get_indexer()
+        project_index_dir = root / ".wavefoundry" / "index"
+        files = indexer.walk_repo(root, respect_ignore=True)
+        files = [path for path in files if not indexer._is_relative_to(path, project_index_dir)]
+        files = indexer._filter_project_index_excludes(files, root, (), project_include_prefixes=())
+        files = [
+            path
+            for path in files
+            if str(path.relative_to(root)).replace("\\", "/") not in _PROJECT_STALE_IGNORE_PATHS
+        ]
+        filtered_file_meta = {
+            rel_path: entry
+            for rel_path, entry in file_meta.items()
+            if rel_path not in _PROJECT_STALE_IGNORE_PATHS
+        }
+        _, changed, removed = indexer._detect_changes(files, root, filtered_file_meta)
+        return bool(changed or removed)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _index_is_stale(root: Path, layer: str = "project") -> bool:
     """Return True if the selected index layer is missing or older than the current git state.
 
@@ -354,6 +389,11 @@ def _index_is_stale(root: Path, layer: str = "project") -> bool:
         built_at_ts = datetime.fromisoformat(built_at.replace("Z", "+00:00")).timestamp()
     except (OSError, json.JSONDecodeError, ValueError):
         return True
+
+    if layer == "project":
+        project_file_meta_stale = _project_index_inputs_stale(root, meta)
+        if project_file_meta_stale is not None:
+            return project_file_meta_stale
 
     if layer == "framework":
         framework_file_meta_stale = _framework_index_inputs_stale(root, meta)
@@ -448,8 +488,8 @@ class SnapshotStore:
             layer for layer, stale in self._index_stale.items() if stale
         }
         if self._index_builder is not None and startup_layers:
-            sys.stderr.write(
-                f"[dashboard] Index is stale at startup — scheduling {IndexBuilder._format_layers(startup_layers)} update.\n"
+            _dashboard_log(
+                f"Index is stale at startup — scheduling {IndexBuilder._format_layers(startup_layers)} update."
             )
             self._index_builder.signal_startup(layers=startup_layers, reason="startup stale check")
 
@@ -576,7 +616,7 @@ class SnapshotStore:
                         self._rebuild(force_git=False)
                         self._notify_sse()
             except Exception as exc:  # noqa: BLE001
-                sys.stderr.write(f"[dashboard] watcher error: {exc}\n")
+                _dashboard_log(f"watcher error: {exc}")
 
     def register_sse_client(self) -> _SseClient:
         client = _SseClient()
@@ -746,9 +786,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        sys.stderr.write(
-            f"[dashboard] {self.address_string()} - {datetime.now(UTC).isoformat()} - {fmt % args}\n"
-        )
+        _dashboard_log(fmt % args, context=self.address_string())
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -768,9 +806,9 @@ def main(argv: list[str] | None = None) -> int:
     cfg = dashboard_lib.read_dashboard_config(root)
     host = args.host.strip() or cfg["host"]
     if host not in _LOOPBACK_HOSTS:
-        sys.stderr.write(
-            f"[dashboard] WARNING: binding to non-loopback host '{host}'. "
-            "The dashboard is designed for local-only access.\n"
+        _dashboard_log(
+            f"WARNING: binding to non-loopback host '{host}'. "
+            "The dashboard is designed for local-only access."
         )
     port = choose_port(root, host, args.port)
 

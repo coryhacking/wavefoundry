@@ -868,8 +868,32 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 exec python3 "$REPO_ROOT/.wavefoundry/framework/scripts/docs_gardener.py" "$@"
 """
+    codex_mcp_src = """\
+#!/usr/bin/env bash
+# Canonical Codex MCP bootstrap launcher — .wavefoundry/bin/register-codex-mcp
+# Registers the repo-local Wavefoundry MCP server in ~/.codex/config.toml.
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+repo_suffix() {
+  if command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$1" | shasum -a 256 | cut -c1-8
+  elif command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha256sum | cut -c1-8
+  else
+    printf '%s' "$1" | cksum | awk '{print $1}'
+  fi
+}
+
+SERVER_NAME="wavefoundry-$(repo_suffix "$REPO_ROOT")"
+if ! command -v codex >/dev/null 2>&1; then
+  echo "codex CLI not found on PATH." >&2
+  exit 127
+fi
+exec codex mcp add "$SERVER_NAME" -- python3 "$REPO_ROOT/.wavefoundry/framework/scripts/server.py" --root "$REPO_ROOT"
+"""
     write_text(bin_dir / "docs-lint", docs_lint_src, executable=True)
     write_text(bin_dir / "docs-gardener", docs_gardener_src, executable=True)
+    write_text(bin_dir / "register-codex-mcp", codex_mcp_src, executable=True)
 
 
 def render_git_hooks(repo_root: Path) -> None:

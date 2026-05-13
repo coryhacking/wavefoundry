@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-05-12
 
 ## Runtime Topology
 
@@ -15,7 +15,7 @@ Developer/agent
   ├── python3 .wavefoundry/framework/scripts/docs_lint.py      →  docs/ tree (read)
   ├── python3 .wavefoundry/framework/scripts/docs_gardener.py  →  docs/ tree (read/write metadata)
   ├── python3 .wavefoundry/framework/scripts/build_pack.py     →  .wavefoundry/framework/VERSION (write), .wavefoundry/framework/index/ (write), wavefoundry-*.zip (write)
-  ├── python3 .wavefoundry/framework/scripts/render_platform_surfaces.py  →  .claude/, .cursor/, .github/hooks/, .junie/mcp/, .mcp.json (write)
+  ├── python3 .wavefoundry/framework/scripts/render_platform_surfaces.py  →  .claude/, .cursor/, .github/hooks/, .junie/mcp/, .mcp.json, .wavefoundry/bin/register-codex-mcp (write)
   ├── python3 .wavefoundry/framework/scripts/setup_index.py    →  local model cache (write/verify), .wavefoundry/index/ (write)
   └── python3 .wavefoundry/framework/scripts/dashboard_server.py [--open]  →  docs/ tree + .wavefoundry/framework/VERSION (read), .wavefoundry/dashboard-server.json (write), browser loopback session (serve)
 ```
@@ -28,6 +28,7 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
   └── stdio transport
         └── .wavefoundry/framework/scripts/server.py  (FastMCP)
               ├── wave_help
+              ├── wave_server_info
               ├── docs_search / code_search / seed_get
               │       └── .wavefoundry/index/ (read: *.npy, *.json)
               ├── wave_current / wave_list_waves / wave_list_plans / wave_get_change / wave_get_prompt
@@ -42,7 +43,7 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
               ├── code_list_files / code_read / code_keyword_search
               │       └── repo files (read-only; respects gitignore/aiignore/hardcoded excludes)
               ├── code_definition / code_references
-              │       └── Python AST navigation; unsupported-language responses for non-Python
+              │       └── Python AST definitions + tree-sitter-backed Java/C#/JS/TS navigation + structural/text fallback for other supported non-Python languages
               ├── wave_new_* convenience tools
               │       └── docs/plans/ (write), lifecycle_id.py (import), background index refresh request
               ├── wave_add_change / wave_remove_change / wave_prepare
@@ -98,7 +99,7 @@ dashboard_server.py
 | Search index drift or missing cache | Hook-driven indexing is not guaranteed in every agent environment, and query embedding must remain offline-safe | `docs_search` falls back to lexical search with structured diagnostics when the index is not ready or the semantic model is unavailable offline; per-query repo hash walks were removed to avoid O(repo) latency on every search; mutating MCP doc tools now request background incremental refresh for affected docs in non-hook environments; additional project index roots are explicit in `docs/workflow-config.json` `indexing.project_include_prefixes` rather than hidden repo-specific toggles |
 | Loopback dashboard port collisions | Multiple local Wave Framework repositories can run dashboards concurrently on one workstation | Dashboard host/port preferences live in `docs/workflow-config.json`; the server reuses host-local metadata when valid and scans a bounded fallback range when the preferred port is busy |
 | Lifecycle mutation drift between docs and files | Admitted change docs can drift between `docs/plans/` and wave folders when operators or tools bypass the normal lifecycle path | `wave_add_change`, `wave_remove_change`, and `wave_prepare` now relocate or repair placement and emit explicit diagnostics for duplicates or mismatched wave ownership |
-| MCP contract migration complete for initial surface | Discovery, `wave_map`, envelopes, consolidated creation, prefix checks, `docs_search` kind validation, per-process caches (wave/plan lists, prompt resolution, `wave_help` catalogue snapshot, index reload on mutation), `resolve_path_under_root`, server-side rejection of unexpected tool kwargs, MCP resources/templates, and code navigation tools (`code_keyword_search`, `code_list_files`, `code_read`, `code_definition`, `code_references`) are all in place. Symbol navigation (milestone 2) supports Python only; future tree-sitter/LSP integration deferred. | `docs/specs/mcp-tool-surface.md` is the governing contract for follow-on MCP work |
+| MCP contract migration complete for initial surface | Discovery, `wave_map`, envelopes, consolidated creation, prefix checks, `docs_search` kind validation, per-process caches (wave/plan lists, prompt resolution, `wave_help` catalogue snapshot, index reload on mutation), `resolve_path_under_root`, server-side rejection of unexpected tool kwargs, MCP resources/templates, `wave_server_info`, and code navigation tools (`code_keyword_search`, `code_list_files`, `code_read`, `code_definition`, `code_references`) are all in place. Symbol navigation now uses a mixed strategy: Python AST definitions, tree-sitter-backed Java/C#/JS/TS navigation, structural regex definitions for several other non-Python languages, and cross-language text fallbacks; future LSP integration can deepen precision without changing the public tool API. | `docs/specs/mcp-tool-surface.md` is the governing contract for follow-on MCP work |
 
 ## Verification Sources
 

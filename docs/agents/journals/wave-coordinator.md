@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-11
+Last verified: 2026-05-12
 
 Actor: wave-coordinator
 Schema version: 1.0
@@ -57,6 +57,10 @@ wave-id: `12hsd dashboard-completed-wave-pending-filter`
 wave-id: `12hs9 dashboard-pending-wave-id-wrap`
 
 - Closed 2026-05-10: CSS fix — `.open-wave-id` nowrap scoped to `.pending-wave-left` to prevent wrap/misalignment in compact pending-wave rows.
+
+wave-id: `12jnb project-index-stale-use-index-inputs`
+
+- Planned 2026-05-12: investigate idle project-index rebuild loops and align project-layer stale detection with indexed project inputs instead of broad git-history/runtime-state signals.
 
 wave-id: `12g47 dashboard-framework`
 

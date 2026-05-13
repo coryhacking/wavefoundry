@@ -369,6 +369,17 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         self.assertEqual(handler.response_code, 200)
         self.assertIn('<div id="app"></div>', handler.wfile.getvalue().decode("utf-8"))
 
+    def test_log_message_uses_shared_dashboard_log_format(self):
+        handler = self._make_handler("/dashboard.html")
+        with patch("sys.stderr", new=io.StringIO()) as stderr:
+            handler.log_message('"%s" %s -', "GET /dashboard.html HTTP/1.1", 200)
+            output = stderr.getvalue()
+
+        self.assertRegex(
+            output,
+            r'^\[dashboard\] \d{4}-\d{2}-\d{2}T[^\n]+ - 127\.0\.0\.1 - "GET /dashboard\.html HTTP/1\.1" 200 -\n$',
+        )
+
 
 class DashboardReadOnlyTests(_HandlerHarnessMixin, unittest.TestCase):
     """Verify the dashboard server never writes project state during GET requests."""
@@ -1048,6 +1059,11 @@ class IndexBuilderTests(unittest.TestCase):
         self.assertIn("framework: periodic stale check", output)
         self.assertIn("starting framework index update", output)
         self.assertIn("completed framework index update", output)
+        self.assertRegex(
+            output,
+            r"\[dashboard\] \d{4}-\d{2}-\d{2}T[^\n]+ - IndexBuilder: scheduled framework index update",
+        )
+        self.assertNotIn("[dashboard] [dashboard]", output)
 
     def test_signal_startup_logs_framework_only_layers(self):
         done_event = threading.Event()
@@ -1065,6 +1081,26 @@ class IndexBuilderTests(unittest.TestCase):
         self.assertIn("scheduled startup framework index update", output)
         self.assertIn("starting framework index update", output)
         self.assertNotIn("project, framework", output)
+
+    def test_dashboard_log_helper_prefixes_timestamp(self):
+        with patch("sys.stderr", new=io.StringIO()) as stderr:
+            self.srv._dashboard_log("watcher error: boom")
+            output = stderr.getvalue()
+
+        self.assertRegex(
+            output,
+            r"^\[dashboard\] \d{4}-\d{2}-\d{2}T[^\n]+ - watcher error: boom\n$",
+        )
+
+    def test_dashboard_log_helper_prefixes_context_after_timestamp(self):
+        with patch("sys.stderr", new=io.StringIO()) as stderr:
+            self.srv._dashboard_log("hello", context="127.0.0.1")
+            output = stderr.getvalue()
+
+        self.assertRegex(
+            output,
+            r"^\[dashboard\] \d{4}-\d{2}-\d{2}T[^\n]+ - 127\.0\.0\.1 - hello\n$",
+        )
 
     def test_get_status_is_threadsafe(self):
         """Concurrent get_status calls must not raise."""
@@ -1333,6 +1369,76 @@ class IndexStalenessTests(unittest.TestCase):
             ]
             result = self.srv._index_is_stale(self.root, "framework")
         self.assertTrue(result)
+
+    def test_project_not_stale_when_project_file_meta_matches_current_inputs(self):
+        project_file = self.root / "docs" / "guide.md"
+        project_file.parent.mkdir(parents=True, exist_ok=True)
+        project_file.write_text("# Guide\n", encoding="utf-8")
+        digest = hashlib.sha256(project_file.read_bytes()).hexdigest()
+        stat = project_file.stat()
+        self._write_meta_payload(
+            {
+                "built_at": "2026-01-01T00:00:00+00:00",
+                "file_meta": {
+                    "docs/guide.md": {
+                        "hash": digest,
+                        "mtime": stat.st_mtime,
+                        "size": stat.st_size,
+                        "inode": stat.st_ino,
+                    }
+                },
+            },
+            layer="project",
+        )
+        with patch("subprocess.run", side_effect=AssertionError("project file_meta path should bypass git")):
+            result = self.srv._index_is_stale(self.root, "project")
+        self.assertFalse(result)
+
+    def test_project_stale_when_project_file_meta_detects_changed_input(self):
+        project_file = self.root / "docs" / "guide.md"
+        project_file.parent.mkdir(parents=True, exist_ok=True)
+        project_file.write_text("# Guide updated\n", encoding="utf-8")
+        stat = project_file.stat()
+        self._write_meta_payload(
+            {
+                "built_at": "2026-01-01T00:00:00+00:00",
+                "file_meta": {
+                    "docs/guide.md": {
+                        "hash": "stale-hash",
+                        "mtime": stat.st_mtime - 1,
+                        "size": max(stat.st_size - 1, 0),
+                        "inode": stat.st_ino,
+                    }
+                },
+            },
+            layer="project",
+        )
+        with patch("subprocess.run", side_effect=AssertionError("project file_meta path should bypass git")):
+            result = self.srv._index_is_stale(self.root, "project")
+        self.assertTrue(result)
+
+    def test_project_not_stale_when_only_dashboard_runtime_state_differs_from_file_meta(self):
+        runtime_file = self.root / ".wavefoundry" / "dashboard-server.json"
+        runtime_file.parent.mkdir(parents=True, exist_ok=True)
+        runtime_file.write_text('{"pid": 1}\n', encoding="utf-8")
+        stat = runtime_file.stat()
+        self._write_meta_payload(
+            {
+                "built_at": "2026-01-01T00:00:00+00:00",
+                "file_meta": {
+                    ".wavefoundry/dashboard-server.json": {
+                        "hash": "stale-hash",
+                        "mtime": stat.st_mtime - 1,
+                        "size": max(stat.st_size - 1, 0),
+                        "inode": stat.st_ino,
+                    }
+                },
+            },
+            layer="project",
+        )
+        with patch("subprocess.run", side_effect=AssertionError("project file_meta path should bypass git")):
+            result = self.srv._index_is_stale(self.root, "project")
+        self.assertFalse(result)
 
     def test_project_not_stale_when_only_framework_file_modified_after_build(self):
         self._write_meta("2026-01-01T00:00:00+00:00", layer="project")

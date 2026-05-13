@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-05-12
 
 Shortcut: **`Ask codebase`** | MCP tool: **`code_ask`**
 
@@ -31,6 +31,14 @@ Before choosing a retrieval strategy, classify the question:
 
 ## Retrieval Loop
 
+### Tool Selection Quick Rules
+
+- Use `code_search` when the question is conceptual and the owning file or symbol is not known yet.
+- Use `code_definition` when the symbol is known and the next question is "where is this declared?"
+- Use `code_references` when the symbol is known and the next question is "where is this used?"
+- Use `code_keyword_search` when the operator gives an exact token, import path, or string literal and expects deterministic coverage.
+- Use `code_read` after discovery to validate the actual implementation at the cited lines.
+
 ### Pass 1 — Orientation (all question types)
 
 Run these in parallel to identify which files are relevant before fetching line-window chunks:
@@ -56,8 +64,8 @@ docs_search(query, limit=3)
 Run for specific symbols or file paths identified in earlier passes:
 
 ```
-code_definition(symbol)          # Python AST or keyword fallback for all languages
-code_references(symbol)          # Python text match or keyword fallback
+code_definition(symbol)          # Python AST, tree-sitter-backed JS/TS/Java/C#, or supported structural fallback
+code_references(symbol)          # tree-sitter-backed JS/TS/Java/C# references, then broader fallback
 code_keyword_search(symbol)      # exact token match — always available
 code_dependencies(path)          # import graph for a specific file
 ```

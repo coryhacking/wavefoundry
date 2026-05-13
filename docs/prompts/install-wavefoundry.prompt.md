@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-04
+Last verified: 2026-05-12
 
 Shortcut: **`Install Wavefoundry`** | Legacy: **`Init wave framework`** / **`Init wave context`**
 
@@ -41,25 +41,52 @@ python3 .wavefoundry/framework/scripts/setup_index.py
 
 | Host | Registration surface | What to do |
 |------|----------------------|------------|
-| **Claude Code** | `.mcp.json` (auto-generated) | Run `render_platform_surfaces --platform claude`. Open the project — Claude Code discovers `.mcp.json` automatically. |
-| **Cursor** | `.cursor/mcp.json` (auto-generated) | Run `render_platform_surfaces --platform cursor`. Enable under **Cursor → Settings → MCP** if not auto-loaded. |
+| **Claude Code** | `.mcp.json` (auto-generated) | Run `render_platform_surfaces --platform claude`. Open the project - Claude Code discovers `.mcp.json` automatically. |
+| **Cursor** | `.cursor/mcp.json` (auto-generated) | Run `render_platform_surfaces --platform cursor`. Enable under **Cursor -> Settings -> MCP** if not auto-loaded. |
 | **Junie** | `.junie/mcp/mcp.json` (auto-generated) | Run `render_platform_surfaces --platform junie`. Junie discovers this on project open. |
-| **GitHub Copilot** | VS Code MCP settings | Open **VS Code → Settings → MCP servers** and add the stdio entry below. |
-| **Codex / Air / other** | Host UI | Add the stdio entry below via your host's MCP attachment UI. See your host's MCP documentation. |
+| **GitHub Copilot** | VS Code MCP settings | Open **VS Code -> Settings -> MCP servers** and add the stdio entry below. |
+| **Codex** | `.wavefoundry/bin/register-codex-mcp` | Run the repo-local bootstrap launcher to register this repository in Codex. It writes the current repo's MCP entry into `~/.codex/config.toml` and names it `wavefoundry-<hash>` for every checkout. The hash is stable for that checkout path, so moving or recloning the repo intentionally changes the label. |
+| **Air / other** | Host UI | Add the stdio entry below via your host's MCP attachment UI. See your host's MCP documentation. |
 
-**Copy-ready stdio entry** (replace `<repo>` with the absolute path to this repository):
+**Codex bootstrap launcher**:
+
+```bash
+./.wavefoundry/bin/register-codex-mcp
+```
+
+The launcher registers this repo in `~/.codex/config.toml` with the correct per-checkout server name, so Codex can select the matching MCP server deterministically. The label is stable for the current folder path, not for an abstract project identity across moves.
+
+After connecting, call `wave_server_info()` once to confirm the attached `repo_root` before you rely on any other MCP tools.
+
+**Copy-ready stdio entry** for hosts that accept a direct MCP command block:
 
 ```json
 {
   "command": "python3",
   "args": [
-    ".wavefoundry/framework/scripts/server.py",
-    "--root", "<repo>"
+    "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/server.py",
+    "--root",
+    "/Users/coryhacking/Developer/wavefoundry"
   ]
 }
 ```
 
 See `AGENTS.md → MCP / Wavefoundry server — enabling per host` for the full matrix with UI paths and vendor links.
+
+**Codex config** (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.wavefoundry]
+command = "python3"
+args = [
+  "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/server.py",
+  "--root",
+  "/Users/coryhacking/Developer/wavefoundry"
+]
+cwd = "/Users/coryhacking/Developer/wavefoundry"
+```
+
+Register each additional Wavefoundry repo with a separate `wavefoundry-<hash>` entry in the same file so the command points at that repo's absolute path. The hash is derived from the absolute checkout path, so the label remains stable for that folder and changes when the folder path changes.
 
 **Docs validation (agents):** After MCP is enabled, use **`wave_validate`** and **`wave_garden`** for the docs gate instead of shelling out to `.wavefoundry/bin/docs-lint` / `.wavefoundry/bin/docs-gardener`. Use the bin launchers only when MCP is not attached (CI, hooks, bare terminal).
 

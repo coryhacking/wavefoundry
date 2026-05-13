@@ -6,6 +6,7 @@ import argparse
 import contextlib
 import datetime
 import functools
+import importlib.util
 import json
 import os
 import re
@@ -1194,6 +1195,36 @@ def _slug_fragment(text: str) -> str:
     return re.sub(r"[^\w]+", "-", text.strip().lower()).strip("-")
 
 
+def _codex_slug_fragment(text: str) -> str:
+    return re.sub(r"[^0-9a-z]+", "-", text.strip().lower()).strip("-")
+
+
+def _project_slug(root: Path) -> str:
+    slug = _codex_slug_fragment(root.name)
+    return slug or "project"
+
+
+def _repo_suffix(root: Path) -> str:
+    import hashlib
+
+    return hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[:8]
+
+
+def _codex_server_name(root: Path) -> str:
+    resolved_root = root.resolve()
+    return f"wavefoundry-{_repo_suffix(resolved_root)}"
+
+
+def server_identity(root: Path) -> dict[str, Any]:
+    resolved_root = root.resolve()
+    return {
+        "repo_root": str(resolved_root),
+        "repo_name": resolved_root.name,
+        "project_slug": _project_slug(resolved_root),
+        "codex_server_name": _codex_server_name(resolved_root),
+    }
+
+
 def _trust_label(path: str, *, kind: str = "") -> str:
     normalized = path.replace("\\", "/")
     if kind == "seed" or normalized.startswith(".wavefoundry/framework/"):
@@ -1243,6 +1274,7 @@ def _help_catalog() -> dict[str, Any]:
         "contract_version": 2,
         "core_tools": [
             "wave_help",
+            "wave_server_info",
             "wave_map",
             "wave_current",
             "wave_create_wave",
@@ -1278,6 +1310,13 @@ def _help_catalog() -> dict[str, Any]:
             "seed_": "canonical framework seed retrieval",
         },
         "workflows": {
+            "server_identity": {
+                "recommended_chain": ["wave_server_info", "wave_current"],
+                "rationale": "Start by confirming which repository this MCP server is attached to, then inspect the active wave in that repository.",
+                "fallback_tools": ["wave_help"],
+                "next_step": "Call wave_server_info immediately after connect.",
+                "usage": "wave_server_info()",
+            },
             "plan_feature": {
                 "recommended_chain": ["wave_new_feature", "wave_get_change", "wave_validate"],
                 "rationale": "Create the change doc with the kind-specific tool, inspect it, then validate docs state.",
@@ -1399,6 +1438,15 @@ def wave_help_response(goal: str = "") -> dict[str, Any]:
         {"goal": normalized, **workflow},
         next_tools=list(workflow["recommended_chain"]),
         usage=str(workflow["usage"]),
+    )
+
+
+def wave_server_info_response(root: Path) -> dict[str, Any]:
+    return _response(
+        "ok",
+        server_identity(root),
+        next_tools=["wave_current", "wave_help"],
+        usage="wave_server_info()",
     )
 
 
@@ -5104,11 +5152,8 @@ def code_keyword_search_response(root: Path, query: str, glob: str = "") -> dict
 
 
 # ---------------------------------------------------------------------------
-# Symbol navigation helpers (milestone 2 — Python AST, unsupported for others)
+# Symbol navigation helpers
 # ---------------------------------------------------------------------------
-
-_SUPPORTED_DEFINITION_LANGS = {"python"}
-_SUPPORTED_REFERENCE_LANGS = {"python"}
 
 
 _EXT_TO_LANG: dict[str, str] = {
@@ -5145,10 +5190,123 @@ _LANG_CATEGORIES: dict[str, frozenset] = {
     "script":   frozenset({"python", "ruby", "shell", "fish"}),
 }
 
+_TREE_SITTER_DEFINITION_LANGS = {"javascript", "typescript", "java", "csharp"}
+_TREE_SITTER_REFERENCE_LANGS = {"javascript", "typescript", "java", "csharp"}
+_CHUNKER_MOD = None
+
+_SUPPORTED_DEFINITION_LANGS = {
+    "python", "javascript", "typescript", "go", "rust", "java", "csharp", "kotlin", "swift",
+}
+_SUPPORTED_REFERENCE_LANGS = set(_LANG_TO_EXTS)
+
+_DOC_REFERENCE_EXTS = {".md", ".markdown", ".mdx", ".rst", ".txt", ".adoc", ".asciidoc"}
+_TEST_REFERENCE_PATH_RE = re.compile(r"(^|/)(tests?|__tests__)(/|$)|(^|/)(test|spec)[^/]*\.(py|js|jsx|ts|tsx|java|cs|go|rs|kt|swift)$|(\.test|\.spec)\.[^.]+$", re.IGNORECASE)
+
+_TS_CALL_PARENT_TYPES: dict[str, set[str]] = {
+    "javascript": {"call_expression", "new_expression"},
+    "typescript": {"call_expression", "new_expression"},
+    "java": {"method_invocation", "object_creation_expression"},
+    "csharp": {"invocation_expression", "object_creation_expression"},
+}
+
+_IDENTIFIER_SYMBOL_RE = re.compile(r"^[A-Za-z_]\w*$")
+
+# Regex-based structural definition patterns for languages where we have a
+# reliable top-level symbol shape but no AST/LSP navigation in the MCP layer.
+_DEFINITION_PATTERNS: dict[str, list[tuple[str, re.Pattern]]] = {
+    "javascript": [
+        ("function", re.compile(r"^(?:export\s+)?(?:default\s+)?function\s+(\w+)")),
+        ("class", re.compile(r"^(?:export\s+)?(?:default\s+)?class\s+(\w+)")),
+        ("variable", re.compile(r"^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=")),
+    ],
+    "typescript": [
+        ("function", re.compile(r"^(?:export\s+)?(?:default\s+)?function\s+(\w+)")),
+        ("class", re.compile(r"^(?:export\s+)?(?:default\s+)?class\s+(\w+)")),
+        ("interface", re.compile(r"^(?:export\s+)?interface\s+(\w+)")),
+        ("type", re.compile(r"^(?:export\s+)?type\s+(\w+)")),
+        ("enum", re.compile(r"^(?:export\s+)?enum\s+(\w+)")),
+        ("variable", re.compile(r"^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=")),
+    ],
+    "go": [
+        ("function", re.compile(r"^func\s+(?:\([^)]*\)\s*)?(\w+)\s*\(")),
+        ("type", re.compile(r"^type\s+(\w+)")),
+        ("variable", re.compile(r"^var\s+(\w+)")),
+        ("const", re.compile(r"^const\s+(\w+)")),
+    ],
+    "rust": [
+        ("function", re.compile(r"^(?:pub\s+)?fn\s+(\w+)")),
+        ("struct", re.compile(r"^(?:pub\s+)?struct\s+(\w+)")),
+        ("enum", re.compile(r"^(?:pub\s+)?enum\s+(\w+)")),
+        ("trait", re.compile(r"^(?:pub\s+)?trait\s+(\w+)")),
+        ("type", re.compile(r"^(?:pub\s+)?type\s+(\w+)")),
+        ("const", re.compile(r"^(?:pub\s+)?const\s+(\w+)")),
+    ],
+    "java": [
+        ("class", re.compile(r"^(?:public|protected|private)?\s*(?:abstract\s+|final\s+)?class\s+(\w+)")),
+        ("interface", re.compile(r"^(?:public|protected|private)?\s*interface\s+(\w+)")),
+        ("enum", re.compile(r"^(?:public|protected|private)?\s*enum\s+(\w+)")),
+        ("method", re.compile(r"^(?:public|protected|private)\s+(?:static\s+)?[\w<>\[\], ?]+\s+(\w+)\s*\(")),
+    ],
+    "csharp": [
+        ("class", re.compile(r"^(?:public|internal|protected|private)?\s*(?:abstract\s+|sealed\s+)?(?:partial\s+)?class\s+(\w+)")),
+        ("interface", re.compile(r"^(?:public|internal|protected|private)?\s*interface\s+(\w+)")),
+        ("enum", re.compile(r"^(?:public|internal|protected|private)?\s*enum\s+(\w+)")),
+        ("struct", re.compile(r"^(?:public|internal|protected|private)?\s*struct\s+(\w+)")),
+        ("record", re.compile(r"^(?:public|internal|protected|private)?\s*record\s+(\w+)")),
+        ("method", re.compile(r"^(?:public|protected|private|internal)\s+(?:static\s+)?[\w<>\[\], ?.]+\s+(\w+)\s*\(")),
+    ],
+    "kotlin": [
+        ("function", re.compile(r"^(?:public|private|internal|protected)?\s*fun\s+(\w+)")),
+        ("class", re.compile(r"^(?:data\s+)?class\s+(\w+)")),
+        ("object", re.compile(r"^object\s+(\w+)")),
+        ("interface", re.compile(r"^interface\s+(\w+)")),
+        ("enum", re.compile(r"^enum\s+class\s+(\w+)")),
+    ],
+    "swift": [
+        ("function", re.compile(r"^(?:public|internal|private|open)?\s*func\s+(\w+)")),
+        ("class", re.compile(r"^(?:public|internal|private|open)?\s*class\s+(\w+)")),
+        ("struct", re.compile(r"^(?:public|internal|private|open)?\s*struct\s+(\w+)")),
+        ("enum", re.compile(r"^(?:public|internal|private|open)?\s*enum\s+(\w+)")),
+        ("protocol", re.compile(r"^(?:public|internal|private|open)?\s*protocol\s+(\w+)")),
+    ],
+}
+
 
 def _detect_language(path: str) -> str:
     ext = Path(path).suffix.lower()
     return _EXT_TO_LANG.get(ext, "unknown")
+
+
+def _get_chunker_module():
+    """Load chunker.py lazily for tree-sitter-backed navigation."""
+    global _CHUNKER_MOD
+    if _CHUNKER_MOD is not None:
+        return _CHUNKER_MOD
+    chunker_path = Path(__file__).resolve().parent / "chunker.py"
+    script_dir = str(chunker_path.parent)
+    added = False
+    if script_dir not in sys.path:
+        sys.path.insert(0, script_dir)
+        added = True
+    try:
+        spec = importlib.util.spec_from_file_location("wf_server_chunker", chunker_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Unable to load chunker module from {chunker_path}")
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["wf_server_chunker"] = mod
+        spec.loader.exec_module(mod)
+        _CHUNKER_MOD = mod
+        return mod
+    finally:
+        if added:
+            with contextlib.suppress(ValueError):
+                sys.path.remove(script_dir)
+
+
+def _symbol_search_pattern(symbol: str) -> re.Pattern:
+    if _IDENTIFIER_SYMBOL_RE.match(symbol):
+        return re.compile(r"\b" + re.escape(symbol) + r"\b")
+    return re.compile(re.escape(symbol))
 
 
 def _python_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
@@ -5175,14 +5333,63 @@ def _python_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
                     "line": node.lineno,
                     "kind": type(node).__name__.lower().replace("asyncfunctiondef", "async_function").replace("functiondef", "function").replace("classdef", "class"),
                     "name": name,
+                    "language": "python",
+                    "method": "ast",
                 })
     return results
 
 
-def _python_references(root: Path, symbol: str) -> list[dict[str, Any]]:
-    """Find references to *symbol* in Python files via text search (lightweight)."""
+def _python_reference_call_sites(root: Path, symbol: str) -> list[dict[str, Any]]:
+    """Find structural Python call sites for *symbol* via AST."""
+    import ast as _ast
     results: list[dict[str, Any]] = []
     root_r = root.resolve()
+    for p in _walk_repo_for_navigation(root):
+        if p.suffix.lower() != ".py":
+            continue
+        try:
+            source = p.read_text(encoding="utf-8", errors="replace")
+            tree = _ast.parse(source, filename=str(p))
+        except (SyntaxError, OSError):
+            continue
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+        lines = source.splitlines()
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.Call):
+                continue
+            func = node.func
+            matched = False
+            if isinstance(func, _ast.Name):
+                matched = func.id == symbol
+            elif isinstance(func, _ast.Attribute):
+                matched = func.attr == symbol
+            if not matched:
+                continue
+            line = getattr(node, "lineno", 0)
+            if line <= 0 or line > len(lines):
+                continue
+            results.append({
+                "path": rel,
+                "line": line,
+                "snippet": lines[line - 1].rstrip(),
+                "language": "python",
+                "method": "ast",
+                "reference_kind": "call_sites",
+            })
+    return results
+
+
+def _python_references(root: Path, symbol: str) -> list[dict[str, Any]]:
+    """Find references to *symbol* in Python files via AST call-site detection plus text fallback."""
+    results: list[dict[str, Any]] = []
+    root_r = root.resolve()
+    pattern = _symbol_search_pattern(symbol)
+    call_sites_by_path: dict[str, set[int]] = {}
+    for ref in _python_reference_call_sites(root, symbol):
+        ref["reference_kind"] = "call_sites"
+        ref["method"] = "ast"
+        results.append(ref)
+        call_sites_by_path.setdefault(ref["path"], set()).add(ref["line"])
     for p in _walk_repo_for_navigation(root):
         if p.suffix.lower() != ".py":
             continue
@@ -5191,9 +5398,215 @@ def _python_references(root: Path, symbol: str) -> list[dict[str, Any]]:
         except OSError:
             continue
         rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+        call_site_lines = call_sites_by_path.get(rel, set())
         for lineno, line in enumerate(source.splitlines(), 1):
-            if symbol in line:
-                results.append({"path": rel, "line": lineno, "snippet": line.rstrip()})
+            if pattern.search(line):
+                if lineno in call_site_lines:
+                    continue
+                results.append({
+                    "path": rel,
+                    "line": lineno,
+                    "snippet": line.rstrip(),
+                    "language": "python",
+                    "method": "text",
+                    "reference_kind": _text_reference_kind(rel, line, symbol),
+                })
+    return results
+
+
+def _treesitter_definition_results(root: Path, symbol: str) -> list[dict[str, Any]]:
+    """Find definitions in tree-sitter-backed languages using chunker parse helpers."""
+    chunker = _get_chunker_module()
+    by_language = {
+        "javascript": chunker.chunk_js_ts_treesitter,
+        "typescript": chunker.chunk_js_ts_treesitter,
+        "java": chunker.chunk_java_treesitter,
+        "csharp": chunker.chunk_csharp_treesitter,
+    }
+    results: list[dict[str, Any]] = []
+    root_r = root.resolve()
+    for p in _walk_repo_for_navigation(root):
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+        lang = _detect_language(rel)
+        if lang not in _TREE_SITTER_DEFINITION_LANGS:
+            continue
+        chunk_fn = by_language.get(lang)
+        if chunk_fn is None:
+            continue
+        try:
+            source = p.read_text(encoding="utf-8", errors="replace")
+            chunks = chunk_fn(source, rel)
+        except Exception:
+            continue
+        if not chunks:
+            continue
+        for chunk in chunks:
+            if getattr(chunk, "kind", None) != "code":
+                continue
+            chunk_id = getattr(chunk, "id", "")
+            if not chunk_id.startswith(f"{rel}::"):
+                continue
+            local_id = chunk_id.split("::", 1)[1]
+            section = getattr(chunk, "section", "")
+            line = getattr(chunk, "lines", (1, 1))[0]
+            match_name = local_id
+            kind = "symbol"
+            if local_id.endswith(".__decl__"):
+                match_name = local_id[: -len(".__decl__")]
+                if lang in {"java", "csharp"}:
+                    kind = "class"
+                else:
+                    kind = "class"
+            elif "." in local_id:
+                match_name = local_id.split(".")[-1]
+                kind = "method"
+            else:
+                kind = "function"
+            if match_name == symbol or symbol in match_name:
+                results.append({
+                    "path": rel,
+                    "line": line,
+                    "kind": kind,
+                    "name": match_name,
+                    "language": lang,
+                    "method": "treesitter",
+                    "section": section,
+                })
+    return results
+
+
+_TS_IDENTIFIER_NODE_TYPES: dict[str, set[str]] = {
+    "javascript": {"identifier", "property_identifier"},
+    "typescript": {"identifier", "property_identifier", "type_identifier"},
+    "java": {"identifier"},
+    "csharp": {"identifier"},
+}
+
+_TS_DEFINITION_PARENT_TYPES: dict[str, set[str]] = {
+    "javascript": {
+        "function_declaration", "generator_function_declaration", "class_declaration",
+        "method_definition", "variable_declarator",
+    },
+    "typescript": {
+        "function_declaration", "generator_function_declaration", "class_declaration",
+        "method_definition", "variable_declarator", "interface_declaration",
+        "type_alias_declaration", "enum_declaration",
+    },
+    "java": {
+        "class_declaration", "interface_declaration", "enum_declaration",
+        "annotation_type_declaration", "method_declaration", "constructor_declaration",
+    },
+    "csharp": {
+        "class_declaration", "interface_declaration", "struct_declaration",
+        "enum_declaration", "record_declaration", "method_declaration",
+        "constructor_declaration", "operator_declaration",
+    },
+}
+
+
+def _treesitter_references(root: Path, symbol: str) -> list[dict[str, Any]]:
+    """Find identifier references in tree-sitter-backed languages."""
+    chunker = _get_chunker_module()
+    results: list[dict[str, Any]] = []
+    root_r = root.resolve()
+    for p in _walk_repo_for_navigation(root):
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+        lang = _detect_language(rel)
+        if lang not in _TREE_SITTER_REFERENCE_LANGS:
+            continue
+        try:
+            source = p.read_text(encoding="utf-8", errors="replace")
+            tree = chunker._ts_parse(lang, source)
+        except Exception:
+            continue
+        if tree is None:
+            continue
+        source_lines = source.splitlines()
+        id_types = _TS_IDENTIFIER_NODE_TYPES.get(lang, {"identifier"})
+        def_parents = _TS_DEFINITION_PARENT_TYPES.get(lang, set())
+        stack = [tree.root_node]
+        while stack:
+            node = stack.pop()
+            if getattr(node, "type", "") in id_types:
+                text = source_lines[node.start_point[0]][node.start_point[1]:node.end_point[1]]
+                if text == symbol:
+                    line = node.start_point[0] + 1
+                    snippet = source_lines[node.start_point[0]].rstrip()
+                    parent = getattr(node, "parent", None)
+                    method = "treesitter_reference"
+                    if parent is not None and getattr(parent, "type", "") in def_parents:
+                        method = "treesitter_definition_reference"
+                    results.append({
+                        "path": rel,
+                        "line": line,
+                        "snippet": snippet,
+                        "language": lang,
+                        "method": method,
+                        "reference_kind": _tree_sitter_reference_kind(lang, node, symbol, source_lines),
+                    })
+            children = list(getattr(node, "children", []) or [])
+            stack.extend(reversed(children))
+    return results
+
+
+def _regex_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
+    """Find structural definitions in supported non-Python languages via regex."""
+    results: list[dict[str, Any]] = []
+    root_r = root.resolve()
+    for p in _walk_repo_for_navigation(root):
+        lang = _detect_language(str(p))
+        patterns = _DEFINITION_PATTERNS.get(lang)
+        if not patterns:
+            continue
+        try:
+            source = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+        for lineno, line in enumerate(source.splitlines(), 1):
+            stripped = line.strip()
+            for kind, pattern in patterns:
+                match = pattern.match(stripped)
+                if not match:
+                    continue
+                name = match.group(1)
+                if name == symbol or symbol in name:
+                    results.append({
+                        "path": rel,
+                        "line": lineno,
+                        "kind": kind,
+                        "name": name,
+                        "language": lang,
+                        "method": "regex",
+                    })
+                break
+    return results
+
+
+def _non_python_references(root: Path, symbol: str) -> list[dict[str, Any]]:
+    """Find references to *symbol* across non-Python files via text search."""
+    results: list[dict[str, Any]] = []
+    root_r = root.resolve()
+    pattern = _symbol_search_pattern(symbol)
+    for p in _walk_repo_for_navigation(root):
+        lang = _detect_language(str(p))
+        if lang == "python":
+            continue
+        try:
+            source = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+        for lineno, line in enumerate(source.splitlines(), 1):
+            if pattern.search(line):
+                results.append({
+                    "path": rel,
+                    "line": lineno,
+                    "snippet": line.rstrip(),
+                    "language": lang,
+                    "method": "text",
+                    "reference_kind": _text_reference_kind(rel, line, symbol),
+                })
     return results
 
 
@@ -5201,10 +5614,10 @@ _KEYWORD_FALLBACK_RESULT_CAP = 50
 
 
 def _keyword_fallback_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
-    """Keyword fallback for non-Python definition lookup."""
+    """Broad keyword fallback for unsupported or unmatched languages."""
     results = []
     root_r = root.resolve()
-    pattern = re.compile(r"\b" + re.escape(symbol) + r"\b")
+    pattern = _symbol_search_pattern(symbol)
     for p in _walk_repo_for_navigation(root):
         if len(results) >= _KEYWORD_FALLBACK_RESULT_CAP:
             break
@@ -5215,29 +5628,174 @@ def _keyword_fallback_definitions(root: Path, symbol: str) -> list[dict[str, Any
         rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
         for lineno, line in enumerate(source.splitlines(), 1):
             if pattern.search(line):
-                results.append({"path": rel, "line": lineno, "snippet": line.rstrip(), "method": "keyword_fallback"})
+                results.append({
+                    "path": rel,
+                    "line": lineno,
+                    "snippet": line.rstrip(),
+                    "language": _detect_language(rel),
+                    "method": "keyword_fallback",
+                })
                 if len(results) >= _KEYWORD_FALLBACK_RESULT_CAP:
                     break
     return results
 
 
+def _dedupe_navigation_results(results: list[dict[str, Any]], key_fields: tuple[str, ...]) -> list[dict[str, Any]]:
+    """Deduplicate navigation hits while preserving the earliest/strongest entry order."""
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for item in results:
+        key = tuple(item.get(field) for field in key_fields)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
+def _reference_counts(refs: list[dict[str, Any]]) -> dict[str, int]:
+    counts = {"call_sites": 0, "other": 0, "docs": 0, "tests": 0}
+    for ref in refs:
+        counts[_reference_bucket(str(ref.get("reference_kind", "other")))] += 1
+    return counts
+
+
+def _is_test_reference_path(rel_path: str) -> bool:
+    rel = rel_path.replace("\\", "/").lower()
+    return bool(_TEST_REFERENCE_PATH_RE.search(rel))
+
+
+def _is_doc_reference_path(rel_path: str) -> bool:
+    rel = rel_path.replace("\\", "/").lower()
+    return rel.startswith("docs/") or "/docs/" in rel or Path(rel).suffix.lower() in _DOC_REFERENCE_EXTS
+
+
+def _text_reference_kind(path: str, line: str, symbol: str) -> str:
+    if _is_test_reference_path(path):
+        return "tests"
+    if _is_doc_reference_path(path):
+        return "docs"
+    stripped = line.strip()
+    if not stripped:
+        return "other"
+    if stripped.startswith(("def ", "class ", "func ", "function ", "const ", "let ", "var ", "type ", "interface ", "enum ", "record ", "struct ", "import ", "from ", "export ")):
+        return "other"
+    if re.search(rf"\b{re.escape(symbol)}\s*\(", line):
+        return "call_sites"
+    return "other"
+
+
+def _tree_sitter_reference_kind(lang: str, node: Any, symbol: str, source_lines: list[str]) -> str:
+    path = getattr(node, "parent", None)
+    ancestor = path
+    depth = 0
+    while ancestor is not None and depth < 4:
+        if getattr(ancestor, "type", "") in _TS_CALL_PARENT_TYPES.get(lang, set()):
+            return "call_sites"
+        ancestor = getattr(ancestor, "parent", None)
+        depth += 1
+    if path is not None and getattr(path, "type", "") in _TS_DEFINITION_PARENT_TYPES.get(lang, set()):
+        return "other"
+    line_idx = getattr(node, "start_point", (0, 0))[0]
+    if 0 <= line_idx < len(source_lines):
+        return _text_reference_kind("", source_lines[line_idx], symbol)
+    return "other"
+
+
+def _reference_bucket(kind: str) -> str:
+    if kind == "call_sites":
+        return "call_sites"
+    if kind == "tests":
+        return "tests"
+    if kind == "docs":
+        return "docs"
+    return "other"
+
+
+def _reference_sort_key(ref: dict[str, Any]) -> tuple[int, int, int, str, int, str]:
+    kind_rank = {"call_sites": 0, "other": 1, "docs": 2, "tests": 3}.get(str(ref.get("reference_kind", "other")), 1)
+    language_rank = 0 if ref.get("language") == "python" else 1
+    method_rank = 0 if str(ref.get("method", "")).startswith("treesitter") else 1
+    return (
+        kind_rank,
+        language_rank,
+        method_rank,
+        str(ref.get("path", "")),
+        int(ref.get("line", 0) or 0),
+        str(ref.get("snippet", "")),
+    )
+
+
+def _apply_reference_filters(
+    refs: list[dict[str, Any]],
+    *,
+    exclude_tests: bool = False,
+    exclude_docs: bool = False,
+    call_sites_only: bool = False,
+) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, int]]:
+    """Normalize reference kinds, sort by signal, and apply optional filters."""
+    all_counts = {"call_sites": 0, "other": 0, "docs": 0, "tests": 0}
+    filtered_counts = {"call_sites": 0, "other": 0, "docs": 0, "tests": 0}
+    filtered: list[dict[str, Any]] = []
+    for ref in refs:
+        kind = _reference_bucket(str(ref.get("reference_kind", "other")))
+        ref["reference_kind"] = kind
+        all_counts[kind] += 1
+        if call_sites_only and kind != "call_sites":
+            continue
+        if exclude_tests and kind == "tests":
+            continue
+        if exclude_docs and kind == "docs":
+            continue
+        filtered_counts[kind] += 1
+        filtered.append(ref)
+    filtered.sort(key=_reference_sort_key)
+    return filtered, filtered_counts, all_counts
+
+
 def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[str, Any]:
-    """Find definition(s) for a symbol. Uses Python AST for Python files; keyword fallback for all other languages."""
+    """Find definition(s) for a symbol across Python AST and supported non-Python regex matchers."""
     symbol = symbol_or_path_position.strip()
     if not symbol:
         return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("invalid_arguments", "Symbol must be a non-empty string.")], next_tools=["code_keyword_search"], usage="code_keyword_search(query='MyClass')")
     try:
-        definitions = _python_definitions(root, symbol)
+        python_definitions = _python_definitions(root, symbol)
+        treesitter_definitions = _treesitter_definition_results(root, symbol)
+        regex_definitions = _regex_definitions(root, symbol)
     except Exception as exc:
         return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Definition search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
+    definitions = _dedupe_navigation_results(
+        python_definitions + treesitter_definitions + regex_definitions,
+        ("path", "line", "language", "name"),
+    )
     if definitions:
+        languages = sorted({d.get("language") for d in definitions if d.get("language")})
+        definition_methods = {d.get("method") for d in definitions}
+        method = "multi_language"
+        if definition_methods == {"ast"}:
+            return _response(
+                "ok",
+                {"symbol": symbol, "language": "python", "definitions": definitions, "supported_languages": sorted(_SUPPORTED_DEFINITION_LANGS), "method": "ast"},
+                next_tools=["code_read"],
+                usage=f"code_read(path={definitions[0]['path']!r}, start_line={definitions[0]['line']}, end_line={definitions[0]['line'] + 20})",
+            )
+        if definition_methods == {"treesitter"}:
+            method = "treesitter"
+        elif definition_methods == {"regex"}:
+            method = "regex"
         return _response(
             "ok",
-            {"symbol": symbol, "language": "python", "definitions": definitions, "supported_languages": list(_SUPPORTED_DEFINITION_LANGS), "method": "ast"},
+            {
+                "symbol": symbol,
+                "definitions": definitions,
+                "supported_languages": sorted(_SUPPORTED_DEFINITION_LANGS),
+                "method": method,
+                "languages": languages,
+            },
             next_tools=["code_read"],
             usage=f"code_read(path={definitions[0]['path']!r}, start_line={definitions[0]['line']}, end_line={definitions[0]['line'] + 20})",
         )
-    # No Python definitions found — run keyword fallback across all languages
+    # No structural definitions found — run keyword fallback across all files.
     try:
         fallback = _keyword_fallback_definitions(root, symbol)
     except Exception as exc:
@@ -5252,29 +5810,114 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
         )
     return _response(
         "ok",
-        {"symbol": symbol, "definitions": fallback, "method": "keyword_fallback", "note": "AST-based lookup is Python-only. Results are keyword matches across all languages."},
+        {"symbol": symbol, "definitions": fallback, "method": "keyword_fallback", "note": "No structural definition matcher found a result. Returning broad keyword matches across the repo."},
         next_tools=["code_read"],
         usage=f"code_read(path={fallback[0]['path']!r}, start_line={fallback[0]['line']}, end_line={fallback[0]['line'] + 20})",
     )
 
 
-def code_references_response(root: Path, symbol_or_path_position: str) -> dict[str, Any]:
-    """Find references to a symbol. Uses Python text matching for Python files; keyword fallback for all other languages."""
+def code_references_response(
+    root: Path,
+    symbol_or_path_position: str,
+    *,
+    exclude_tests: bool = False,
+    exclude_docs: bool = False,
+    call_sites_only: bool = False,
+    limit: Optional[int] = None,
+) -> dict[str, Any]:
+    """Find references to a symbol across known code languages with structural call-site detection where available."""
     symbol = symbol_or_path_position.strip()
     if not symbol:
         return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("invalid_arguments", "Symbol must be a non-empty string.")], next_tools=["code_keyword_search"], usage="code_keyword_search(query='my_func')")
+    if limit is not None and limit < 0:
+        return _response("error", {"symbol": symbol, "limit": limit}, diagnostics=[_diagnostic("invalid_arguments", "limit must be a non-negative integer or omitted.")], next_tools=["code_help"], usage="code_help()")
     try:
-        refs = _python_references(root, symbol)
+        python_refs = _python_references(root, symbol)
+        treesitter_refs = _treesitter_references(root, symbol)
+        other_refs = _non_python_references(root, symbol)
     except Exception as exc:
         return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Reference search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
+    refs = _dedupe_navigation_results(
+        python_refs + treesitter_refs + other_refs,
+        ("path", "line", "language", "snippet"),
+    )
     if refs:
+        refs, filtered_counts, all_counts = _apply_reference_filters(
+            refs,
+            exclude_tests=exclude_tests,
+            exclude_docs=exclude_docs,
+            call_sites_only=call_sites_only,
+        )
+        matched_count = len(refs)
+        matched_counts = dict(filtered_counts)
+        if limit is not None and limit > 0:
+            refs = refs[:limit]
+        returned_counts = _reference_counts(refs)
+        languages = sorted({r.get("language") for r in refs if r.get("language")})
+        ref_methods = {r.get("method") for r in refs}
+        method = "multi_language"
+        if languages == ["python"] and ref_methods.issubset({"ast", "text"}):
+            return _response(
+                "ok",
+                {
+                    "symbol": symbol,
+                    "language": "python",
+                    "count": len(refs),
+                    "matched_count": matched_count,
+                    "total_count": sum(all_counts.values()),
+                    "counts": returned_counts,
+                    "matched_counts": matched_counts,
+                    "all_counts": all_counts,
+                    "references": refs,
+                    "buckets": {
+                        "call_sites": [r for r in refs if r["reference_kind"] == "call_sites"],
+                        "other": [r for r in refs if r["reference_kind"] == "other"],
+                        "docs": [r for r in refs if r["reference_kind"] == "docs"],
+                        "tests": [r for r in refs if r["reference_kind"] == "tests"],
+                    },
+                    "method": "ast",
+                    "supported_languages": sorted(_SUPPORTED_REFERENCE_LANGS),
+                    "exclude_tests": exclude_tests,
+                    "exclude_docs": exclude_docs,
+                    "call_sites_only": call_sites_only,
+                    "limit": limit,
+                },
+                next_tools=["code_read"],
+                usage=f"code_read(path='...', start_line=N, end_line=N+20)",
+            )
+        if all(str(m).startswith("treesitter") for m in ref_methods):
+            method = "treesitter"
+        elif ref_methods == {"text"}:
+            method = "text"
         return _response(
             "ok",
-            {"symbol": symbol, "language": "python", "count": len(refs), "references": refs, "method": "ast", "supported_languages": list(_SUPPORTED_REFERENCE_LANGS)},
+            {
+                "symbol": symbol,
+                "count": len(refs),
+                "matched_count": matched_count,
+                "total_count": sum(all_counts.values()),
+                "counts": returned_counts,
+                "matched_counts": matched_counts,
+                "all_counts": all_counts,
+                "references": refs,
+                "buckets": {
+                    "call_sites": [r for r in refs if r["reference_kind"] == "call_sites"],
+                    "other": [r for r in refs if r["reference_kind"] == "other"],
+                    "docs": [r for r in refs if r["reference_kind"] == "docs"],
+                    "tests": [r for r in refs if r["reference_kind"] == "tests"],
+                },
+                "method": method,
+                "supported_languages": sorted(_SUPPORTED_REFERENCE_LANGS),
+                "languages": languages,
+                "exclude_tests": exclude_tests,
+                "exclude_docs": exclude_docs,
+                "call_sites_only": call_sites_only,
+                "limit": limit,
+            },
             next_tools=["code_read"],
             usage=f"code_read(path='...', start_line=N, end_line=N+20)",
         )
-    # No Python references — run keyword fallback across all languages
+    # No known-language references — run broad keyword fallback across all files.
     try:
         fallback = _keyword_fallback_definitions(root, symbol)
     except Exception as exc:
@@ -5287,9 +5930,42 @@ def code_references_response(root: Path, symbol_or_path_position: str) -> dict[s
             next_tools=["code_keyword_search"],
             usage=f"code_keyword_search(query={symbol!r})",
         )
+    fallback_total = len(fallback)
+    fallback, fallback_counts, fallback_all_counts = _apply_reference_filters(
+        fallback,
+        exclude_tests=exclude_tests,
+        exclude_docs=exclude_docs,
+        call_sites_only=call_sites_only,
+    )
+    fallback_matched_count = len(fallback)
+    fallback_matched_counts = dict(fallback_counts)
+    if limit is not None and limit > 0:
+        fallback = fallback[:limit]
+    fallback_returned_counts = _reference_counts(fallback)
     return _response(
         "ok",
-        {"symbol": symbol, "references": fallback, "count": len(fallback), "method": "keyword_fallback", "note": "Python-only AST lookup found no results. Results are keyword matches across all languages."},
+        {
+            "symbol": symbol,
+            "references": fallback,
+            "count": len(fallback),
+            "matched_count": fallback_matched_count,
+            "total_count": fallback_total,
+            "counts": fallback_returned_counts,
+            "matched_counts": fallback_matched_counts,
+            "all_counts": fallback_all_counts,
+            "buckets": {
+                "call_sites": [r for r in fallback if r["reference_kind"] == "call_sites"],
+                "other": [r for r in fallback if r["reference_kind"] == "other"],
+                "docs": [r for r in fallback if r["reference_kind"] == "docs"],
+                "tests": [r for r in fallback if r["reference_kind"] == "tests"],
+            },
+            "method": "keyword_fallback",
+            "exclude_tests": exclude_tests,
+            "exclude_docs": exclude_docs,
+            "call_sites_only": call_sites_only,
+            "limit": limit,
+            "note": "No known-language reference search found a result. Returning broad keyword matches across the repo.",
+        },
         next_tools=["code_read"],
         usage=f"code_read(path='...', start_line=N, end_line=N+20)",
     )
@@ -5566,6 +6242,17 @@ def build_server(root: Path):
         if bad is not None:
             return bad
         return wave_help_response(goal)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def wave_server_info(**kwargs: Any) -> dict[str, Any]:
+        """Return the repository root and deterministic Codex server label for this MCP server.
+
+        Use immediately after connect when you need to confirm which checkout this server is attached to.
+        """
+        bad = _ensure_no_extra_args("wave_server_info", kwargs)
+        if bad is not None:
+            return bad
+        return wave_server_info_response(root)
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def docs_search(
@@ -6296,17 +6983,21 @@ def build_server(root: Path):
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_definition(symbol_or_path_position: str, **kwargs: Any) -> dict[str, Any]:
-        """Find definition(s) for a symbol name by searching all Python files via AST.
+        """Find definition(s) for a symbol name across Python and supported non-Python languages.
 
-        Prefer when: looking up where a Python function or class is defined by name.
-        For non-Python symbols, use code_keyword_search directly — this tool searches only .py files.
-        If no Python definition is found, the response includes a code_keyword_search fallback recommendation.
+        Prefer when: looking up where a function, class, interface, enum, or similar symbol is defined.
+        Python uses AST-based lookup. Java, C#, JavaScript, and TypeScript use tree-sitter-backed navigation
+        when parser support is available. Other supported non-Python languages use structural regex matchers.
+        If no structural definition is found, the response includes a broad code_keyword_search-style fallback.
 
-        Supported languages: Python (AST-based, finds function/class/async-function definitions).
+        Supported languages:
+        - Python: AST-based function/class/async-function definitions
+        - JavaScript/TypeScript/Java/C#: tree-sitter-backed structural definitions when available
+        - Go/Rust/Kotlin/Swift: regex-based structural definitions
 
         Args:
             symbol_or_path_position: Symbol name to look up (e.g. "MyClass", "process_wave").
-                                     Exact or partial match against Python AST node names.
+                                     Exact or partial match against supported symbol names.
         """
         bad = _ensure_no_extra_args("code_definition", kwargs)
         if bad is not None:
@@ -6314,22 +7005,45 @@ def build_server(root: Path):
         return code_definition_response(root, symbol_or_path_position)
 
     @mcp.tool(annotations=_READONLY_TOOL)
-    def code_references(symbol_or_path_position: str, **kwargs: Any) -> dict[str, Any]:
-        """Find references to a symbol by searching all Python .py files via text matching.
+    def code_references(
+        symbol_or_path_position: str,
+        exclude_tests: bool = False,
+        exclude_docs: bool = False,
+        call_sites_only: bool = False,
+        limit: int = 0,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Find references to a symbol across known code languages via text matching.
 
-        Prefer when: tracing all call sites for a known Python symbol — more targeted than code_keyword_search.
-        For non-Python symbols, use code_keyword_search directly — this tool searches only .py files.
+        Prefer when: tracing call sites for a known symbol more directly than broad code_keyword_search.
+        Python uses AST-backed call-site detection plus text fallback for broader mentions. Java, C#, JavaScript,
+        and TypeScript use tree-sitter-backed identifier traversal when parser support is available. Other known
+        code languages use language-aware text matching.
+        If no known-language references are found, the response includes a broad keyword fallback.
+        Optional filters can suppress test/doc hits or restrict the response to call sites only.
+        Optional limit caps returned hits after ordering and filtering while preserving matched counts.
 
-        Supported languages: Python (text-based matching in .py files).
+        Supported languages: all canonical code-search languages recognized by the navigation layer.
 
         Args:
             symbol_or_path_position: Symbol name to find references for (e.g. "wave_close_response").
-                                     Text-based search in Python files.
+                                     Text-based search in known code files.
+            exclude_tests: When true, omit references classified as tests.
+            exclude_docs: When true, omit references classified as docs.
+            call_sites_only: When true, omit all non-call-site references.
+            limit: Optional cap on the number of hits returned. Use 0 to keep all hits.
         """
         bad = _ensure_no_extra_args("code_references", kwargs)
         if bad is not None:
             return bad
-        return code_references_response(root, symbol_or_path_position)
+        return code_references_response(
+            root,
+            symbol_or_path_position,
+            exclude_tests=exclude_tests,
+            exclude_docs=exclude_docs,
+            call_sites_only=call_sites_only,
+            limit=limit if limit and limit > 0 else None,
+        )
 
     # --- Read-only MCP Resources ---
     # These expose stable context as MCP resources rather than tool calls.

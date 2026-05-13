@@ -212,6 +212,16 @@ class FileWalkerTests(unittest.TestCase):
         paths = [str(f.relative_to(self.root)).replace("\\", "/") for f in files]
         self.assertFalse(any(p.startswith(".wavefoundry/framework/index/") for p in paths))
 
+    def test_excludes_wavefoundry_runtime_state_files(self):
+        _make_repo(self.root, {"src/foo.py": "x = 1\n"})
+        (self.root / ".wavefoundry" / "dashboard-server.json").parent.mkdir(parents=True, exist_ok=True)
+        (self.root / ".wavefoundry" / "dashboard-server.json").write_text('{"pid": 1}\n', encoding="utf-8")
+        (self.root / ".wavefoundry" / "guard-overrides.json").write_text('{"seed_edit_allowed": {"enabled": false}}\n', encoding="utf-8")
+        files = self.bi.walk_repo(self.root)
+        rel_strs = {str(f.relative_to(self.root)).replace("\\", "/") for f in files}
+        self.assertNotIn(".wavefoundry/dashboard-server.json", rel_strs)
+        self.assertNotIn(".wavefoundry/guard-overrides.json", rel_strs)
+
     def test_returns_paths_with_forward_slashes(self):
         _make_repo(self.root, {"src/sub/foo.py": "x = 1\n"})
         files = self.bi.walk_repo(self.root)

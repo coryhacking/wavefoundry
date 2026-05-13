@@ -20,6 +20,22 @@ Terminology — do not confuse **upgrade** with **packaging**:
 - **Upgrade wave framework** (operator phrases such as *Upgrade wave framework*, *Upgrade wave context*, *upgrade the wave framework*, *upgrade from the latest zip*): adopt and reconcile **this** repository. When step 0 applies, it unpacks the **lexicographically greatest** `wavefoundry-YYYY-*.zip` already present at the **repository root**, runs `render_platform_surfaces.py`, then continues with drift detection, backfill, and verification in this prompt. This path **does not build** a new zip and **does not** run **Package Wavefoundry**.
 - **Package Wavefoundry** (maintainer / distribution): **creates** a new versioned zip and stamps `VERSION` / manifest `framework_revision` in the tree used for the build. Use only when the operator explicitly asked to **package** or **cut a distribution**. Never substitute packaging for **Upgrade wave framework** when the operator asked to **upgrade** from zips already on disk (legacy phrasing: **Upgrade wave context**).
 
+Operator mental model — how framework updates actually work:
+
+1. **Bring the new framework to this repository.**
+   - Usually by placing a `wavefoundry-*.zip` pack at the repository root.
+   - Or by already having the newer `.wavefoundry/framework/` tree staged locally in the repo.
+2. **Run Upgrade wave framework once.**
+   - If a root pack zip is present, step 0 adopts it automatically.
+   - The rest of this prompt then reconciles prompts, hooks, docs, configs, and local policy surfaces.
+3. **Restart MCP after the upgrade completes.**
+   - A running MCP process will not automatically pick up upgraded server code or regenerated host config.
+4. **Update or rebuild indexes after restart.**
+   - Normal upgrades should run docs-layer updates.
+   - `CHUNKER_VERSION` or schema shifts require a full rebuild instead.
+
+Do not describe upgrade as a manual unzip-only workflow. Do not describe packaging as part of the target-repo upgrade path. Do not imply that unpack success alone completes the framework update.
+
 Execution flow:
 
 0. **Adopting a distribution zip (automatic when present):** When one or more date-shaped `wavefoundry-YYYY-MM-DDx.zip` files exist at the **repository root** (not in a subdirectory), **Upgrade wave framework** must apply the newest pack **before** step 1 — the operator does not need a separate unzip step. Other archive names and zips outside the root **do not** trigger this step — unpack those manually if used. When **no** matching zip exists at the root, skip this entire step with no error and continue at step 1.

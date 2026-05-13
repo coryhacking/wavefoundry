@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-03
+Last verified: 2026-05-12
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -177,10 +177,11 @@ recovery tool rather than silently duplicating work.
 
 ### Search And Retrieval
 
-`docs_search(query: str, kind: str = "", limit: int = 5)`
+`docs_search(query: str, kind: str = "", tags: list[str] = [], limit: int = 5)`
 
 - Semantic search over docs, architecture docs, prompts, and seed chunks.
-- Optional `kind`: `doc`, `seed`, `architecture`, `prompt`.
+- Optional `kind`: `doc`, `seed`, `architecture`, `prompt`, `doc-summary`.
+- Optional `tags`: pre-filter the search space before semantic ranking. Current tags: `wave`, `agent`, `journal`, `lifecycle`, `reference`, `prompt`, `seed`, `framework`, `test`, `config`.
 - Optional `limit`: number of results to return, default `5`, clamped `[1, 20]`.
 - Query-time embedding must run offline-only once the local model cache exists.
 - When the semantic model cache is unavailable or the index is not ready, the tool must
@@ -195,10 +196,13 @@ is applied.
 active `search_mode` (`semantic`, `lexical_fallback`, or other future explicit mode)
 once envelope migration is complete.
 
-`code_search(query: str, language: str = "", limit: int = 5)`
+`code_search(query: str, language: str = "", kind: str = "", max_per_file: int = 0, tags: list[str] = [], limit: int = 5)`
 
 - Semantic search over indexed source code chunks.
 - Optional `language`: category name, canonical language name, or raw file extension (with or without leading dot) — all accepted. e.g. `"typescript"`, `"tsx"`, and `".tsx"` are all equivalent single-language filters. Category filters expand to a set of languages and return `language_resolved` (the expanded language list) and `language_extensions` (all covered extensions). Single-language filters return `language_extensions` only; `language_resolved` is absent. Categories: `java` (java, kotlin, scala, groovy), `web` (typescript, javascript, html, css, scss), `systems` (c, cpp, rust, go), `script` (python, ruby, shell, fish), `data` (sql), `sparksql` (sql alias for SparkSQL queries), `dotnet` (csharp). Canonical names and their extensions: `typescript` (.ts, .tsx), `javascript` (.js, .jsx, .mjs, .cjs), `python` (.py), `go` (.go), `rust` (.rs), `java` (.java), `kotlin` (.kt, .kts), `scala` (.scala), `groovy` (.groovy), `ruby` (.rb), `csharp` (.cs), `cpp` (.cpp, .hpp), `c` (.c, .h), `shell` (.sh, .bash, .zsh), `fish` (.fish), `sql` (.sql), `xml` (.xml), `html` (.html, .htm), `css` (.css), `scss` (.scss), `swift` (.swift), `json` (.json, .jsonc), `toml` (.toml), `yaml` (.yaml, .yml). Use `wave_help(goal='search_code')` to rediscover this list at runtime.
+- Optional `kind`: chunk-kind filter. Use `code-summary` for file-level orientation chunks only.
+- Optional `max_per_file`: cap results per file path (`0` means no cap). Use `1` for orientation passes when you want breadth over repeated hits from one file.
+- Optional `tags`: pre-filter the search space before semantic ranking. Current tags: `wave`, `agent`, `journal`, `lifecycle`, `reference`, `prompt`, `seed`, `framework`, `test`, `config`.
 - Optional `limit`: number of results to return, default `5`, clamped `[1, 20]`.
 - Returns path, line range, score, excerpt, trust label, and a stable result ID
 once envelope migration is complete.
@@ -393,8 +397,8 @@ is enforced; structured diagnostics are returned for rejected paths.
 - `code_keyword_search` — exact substring search, always available, no index required
 - `code_read` — read a file by repo-relative path with optional line range
 - `code_list_files` — list repo files with optional glob filter
-- `code_definition` — AST-based symbol definition lookup (Python only; falls back to `code_keyword_search` for other languages)
-- `code_references` — symbol reference search in Python files (text-based; use `code_keyword_search` for other languages)
+- `code_definition` — symbol definition lookup across Python AST, tree-sitter-backed Java/C#/JS/TS navigation, and supported non-Python structural matchers; falls back to broad keyword matches when no structural definition is found
+- `code_references` — symbol reference search across Python plus tree-sitter-backed Java/C#/JS/TS navigation, with language-aware text matching and broad keyword fallback for the rest
 
 ## Tool Selection Guide
 
@@ -405,8 +409,8 @@ Use this table to select the right tool for a query type.
 | Search docs/arch/prompts/seeds by concept or intent | `docs_search` | `code_keyword_search` with glob `*.md` |
 | Search code by concept, behavior, or intent | `code_search` | `code_keyword_search` |
 | Search for exact token, symbol name, or string | `code_keyword_search` | — |
-| Look up where a Python function/class is defined | `code_definition` | `code_keyword_search` |
-| Find all call sites for a Python symbol | `code_references` | `code_keyword_search` |
+| Look up where a symbol is defined | `code_definition` | `code_keyword_search` |
+| Find all call sites for a symbol | `code_references` | `code_keyword_search` |
 | Fetch a seed prompt by name | `seed_get` | `docs_search` with `kind=seed` |
 | Navigate from a search result anchor to a file | `wave_map` | `code_read` with the path directly |
 | Check current wave and admitted changes | `wave_current` | `wave_list_waves` |
@@ -414,6 +418,17 @@ Use this table to select the right tool for a query type.
 | Combined health check after a mutation | `wave_audit` | `wave_validate` + `wave_index_health` |
 | Lint-only targeted check | `wave_validate` | `wave_audit` (`data.validation` contains the same lint result) |
 | Check semantic index layer readiness | `wave_index_health` | `wave_audit` (`data.index` contains the same health summary) |
+
+### Which Code Tool To Use
+
+| If you need to... | Use | Why |
+|---|---|---|
+| Find code by concept or behavior and you do not know the exact symbol or file | `code_search` | Semantic discovery across indexed code |
+| Find the defining declaration for a known symbol | `code_definition` | Structural symbol navigation beats broad search |
+| Find call sites or usages of a known symbol | `code_references` | Reference-oriented structural lookup |
+| Find an exact token, import path, or string literal | `code_keyword_search` | Deterministic exhaustive substring search |
+| Read the actual implementation once you know the file | `code_read` | Source-of-truth file content with line numbers |
+| Search markdown docs, prompts, specs, or seeds instead of source code | `docs_search` | Semantic retrieval over docs, not code |
 
 ### When to use `code_search` — and which `language` form to pass
 
@@ -446,6 +461,16 @@ Use this table to select the right tool for a query type.
 - You know the exact function name, variable, import path, or string literal.
 - The semantic index is unavailable (`wave_index_health` reports not ready).
 - You need deterministic, exhaustive results (semantic search scores by relevance, not completeness).
+
+**Use `code_definition` instead of `code_search` when:**
+- You already know the symbol name and want the defining declaration first.
+- You want a jump-to-definition style answer instead of relevance-ranked candidate files.
+- The symbol is in Python, Java, C#, JavaScript, or TypeScript and you want the strongest structural matcher available.
+
+**Use `code_references` instead of `code_search` when:**
+- You already know the symbol name and need call sites, usages, or mentions.
+- You are reviewing blast radius before a change.
+- You want a references-first workflow rather than conceptual discovery.
 
 **Use `docs_search` instead of `code_search` when:**
 - The answer is in a markdown spec, architecture doc, prompt, or seed — not in source code.
@@ -557,4 +582,3 @@ are now applied to all tools. Whether annotations are consistently consumed acro
 Claude, Cursor, Copilot, Codex, Junie, and other MCP clients remains to be validated;
 correctness of the hints in `server.py` is no longer an open question.
 - ~~Whether a dedicated `wave_audit` tool should be added in this wave or deferred~~ **Resolved:** `wave_audit` is shipped; it aggregates `wave_current`-class wave state, `wave_validate` output, and index health (`semantic_ready`) in one read-only call. Lifecycle mutation tools remain separate; agents use `wave_audit` as the preferred post-mutation landing check.
-

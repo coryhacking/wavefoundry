@@ -2,10 +2,10 @@
 
 Owner: wave-coordinator
 Status: idle
-Last verified: 2026-05-11
+Last verified: 2026-05-12
 
 ## Current Session
 
 **Active wave:** *(none)*
 
-**Current focus:** Prepare wave completed. Next lifecycle step is `Implement wave` for the generic dashboard feature: React UI, Python loopback server, shared state readers, seeded operator startup command, and concurrent multi-repo port handling.
+**Current focus:** Prepare wave completed. Next lifecycle step is `Implement wave` for the Codex project-local bootstrap launcher: repo-local Codex registration, per-project server naming, and docs updates for install/startup flow.

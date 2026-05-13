@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hashlib
 import importlib.util
 import json
 import os
@@ -611,7 +613,27 @@ class GuidedContractTests(unittest.TestCase):
         self.assertIn("core_tools", result["data"])
         self.assertIn("workflows", result["data"])
         self.assertIn("wave_help", result["data"]["core_tools"])
+        self.assertIn("wave_server_info", result["data"]["core_tools"])
         self.assertIn("wave_map", result["data"]["core_tools"])
+        self.assertIn("server_identity", result["data"]["workflows"])
+
+    def test_wave_server_info_returns_repo_identity(self):
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = _make_repo(Path(tmp.name) / "wave_foundry")
+            result = self.srv.wave_server_info_response(root)
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["data"]["repo_root"], str(root.resolve()))
+            self.assertEqual(result["data"]["repo_name"], root.name)
+            self.assertEqual(result["data"]["project_slug"], "wave-foundry")
+            expected_suffix = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[:8]
+            self.assertEqual(
+                result["data"]["codex_server_name"],
+                f"wavefoundry-{expected_suffix}",
+            )
+            self.assertEqual(result["next_tools"], ["wave_current", "wave_help"])
+        finally:
+            tmp.cleanup()
 
     def test_ensure_no_extra_args_returns_envelope(self):
         err = self.srv._ensure_no_extra_args("docs_search", {"extra": 1})
@@ -2643,6 +2665,7 @@ class ServerToolRegistrationTests(unittest.TestCase):
 
         expected = {
             "wave_help",
+            "wave_server_info",
             "wave_map",
             "wave_create_wave",
             "wave_add_change",
@@ -3162,7 +3185,7 @@ class CodeKeywordSearchTests(unittest.TestCase):
 
 
 class CodeDefinitionTests(unittest.TestCase):
-    """AC-6: code_definition works for Python and returns unsupported for others."""
+    """AC-6: code_definition preserves Python AST lookup."""
 
     def setUp(self):
         self.srv = load_server()
@@ -3206,6 +3229,8 @@ class CodeDefinitionTests(unittest.TestCase):
         result = self.srv.code_definition_response(self.root, "MyClass")
         self.assertIn("supported_languages", result["data"])
         self.assertIn("python", result["data"]["supported_languages"])
+        self.assertIn("java", result["data"]["supported_languages"])
+        self.assertIn("csharp", result["data"]["supported_languages"])
 
     def test_non_python_falls_back_to_keyword(self):
         # With no Python definitions found, falls back to keyword_fallback method
@@ -3228,6 +3253,18 @@ class CodeReferencesTests(unittest.TestCase):
             "from mymodule import MyClass\n\ndef caller():\n    obj = MyClass()\n    return obj\n",
             encoding="utf-8",
         )
+        tests_dir = self.root / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tests_dir / "test_mycls.py").write_text(
+            "from mymodule import MyClass\n\n\ndef test_uses_class():\n    assert MyClass is not None\n",
+            encoding="utf-8",
+        )
+        docs_dir = self.root / "docs"
+        docs_dir.mkdir(parents=True, exist_ok=True)
+        (docs_dir / "reference-filtering.md").write_text(
+            "# Reference Filtering\n\nMyClass is mentioned in the docs as a usage example.\n",
+            encoding="utf-8",
+        )
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -3240,8 +3277,56 @@ class CodeReferencesTests(unittest.TestCase):
         self.assertTrue(any("caller.py" in p for p in paths))
 
     def test_python_references_returns_ast_method(self):
-        result = self.srv.code_references_response(self.root, "MyClass")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            src = root / "src"
+            src.mkdir(parents=True, exist_ok=True)
+            (src / "caller.py").write_text(
+                "from mymodule import MyClass\n\ndef caller():\n    obj = MyClass()\n    return obj\n",
+                encoding="utf-8",
+            )
+            result = self.srv.code_references_response(root, "MyClass")
         self.assertEqual(result["data"].get("method"), "ast")
+
+    def test_references_are_bucketed_and_ordered(self):
+        result = self.srv.code_references_response(self.root, "MyClass")
+        refs = result["data"]["references"]
+        self.assertEqual(refs[0]["reference_kind"], "call_sites")
+        self.assertIn("counts", result["data"])
+        self.assertIn("matched_counts", result["data"])
+        self.assertGreaterEqual(result["data"]["counts"]["call_sites"], 1)
+        self.assertGreaterEqual(result["data"]["counts"]["tests"], 1)
+        self.assertGreaterEqual(result["data"]["counts"]["docs"], 1)
+        self.assertEqual(result["data"]["count"], result["data"]["total_count"])
+        self.assertEqual(result["data"]["count"], sum(result["data"]["counts"].values()))
+        self.assertEqual(result["data"]["matched_count"], sum(result["data"]["matched_counts"].values()))
+        self.assertGreaterEqual(result["data"]["matched_count"], result["data"]["count"])
+        self.assertIn("call_sites", result["data"]["buckets"])
+
+    def test_filters_can_exclude_tests_and_docs(self):
+        result = self.srv.code_references_response(self.root, "MyClass", exclude_tests=True, exclude_docs=True)
+        kinds = {r["reference_kind"] for r in result["data"]["references"]}
+        self.assertNotIn("tests", kinds)
+        self.assertNotIn("docs", kinds)
+        self.assertTrue(kinds)
+        self.assertTrue(result["data"]["exclude_tests"])
+        self.assertTrue(result["data"]["exclude_docs"])
+
+    def test_call_sites_only_filters_to_calls(self):
+        result = self.srv.code_references_response(self.root, "MyClass", call_sites_only=True)
+        self.assertTrue(result["data"]["references"])
+        self.assertTrue(all(r["reference_kind"] == "call_sites" for r in result["data"]["references"]))
+        self.assertEqual(result["data"]["counts"]["call_sites"], result["data"]["count"])
+        self.assertGreaterEqual(result["data"]["total_count"], result["data"]["count"])
+
+    def test_limit_caps_returned_results(self):
+        result = self.srv.code_references_response(self.root, "MyClass", limit=2)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["limit"], 2)
+        self.assertLessEqual(result["data"]["count"], 2)
+        self.assertLessEqual(sum(result["data"]["counts"].values()), 2)
+        self.assertGreater(result["data"]["matched_count"], result["data"]["count"])
+        self.assertGreaterEqual(result["data"]["total_count"], result["data"]["matched_count"])
 
     def test_empty_results_when_no_match(self):
         result = self.srv.code_references_response(self.root, "ZZZNOREFERENCEYYY")
@@ -4960,8 +5045,8 @@ class DocSummaryKindFilterTests(unittest.TestCase):
         self.assertTrue(index_obj._doc_matches_kind(chunk, "doc-summary"))
 
 
-class CodeDefinitionFallbackTests(unittest.TestCase):
-    """AC-6 (12d4h): code_definition falls back to keyword for non-Python files."""
+class CodeDefinitionMultiLanguageTests(unittest.TestCase):
+    """AC-6: code_definition uses tree-sitter-backed lookup for selected languages."""
 
     def setUp(self):
         self.srv = load_server()
@@ -4973,22 +5058,72 @@ class CodeDefinitionFallbackTests(unittest.TestCase):
             "export function MyComponent() { return null; }\n",
             encoding="utf-8",
         )
+        (src / "lib.js").write_text(
+            "export function useWidget() { return true; }\n",
+            encoding="utf-8",
+        )
+        (src / "Handler.java").write_text(
+            "public class Handler {\n    public void handleRequest() {}\n}\n",
+            encoding="utf-8",
+        )
+        (src / "Widget.cs").write_text(
+            "public class Widget {\n    public void Render() {}\n}\n",
+            encoding="utf-8",
+        )
+        (src / "util.go").write_text(
+            "package sample\n\nfunc SharedThing() {}\n",
+            encoding="utf-8",
+        )
+        (src / "SharedThing.ts").write_text(
+            "export function SharedThing() { return true; }\n",
+            encoding="utf-8",
+        )
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_ts_file_returns_keyword_fallback(self):
+    def test_ts_file_returns_treesitter_definition(self):
         result = self.srv.code_definition_response(self.root, "MyComponent")
         self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["data"]["method"], "keyword_fallback")
+        self.assertEqual(result["data"]["method"], "treesitter")
         self.assertTrue(any("App.tsx" in d["path"] for d in result["data"]["definitions"]))
+        self.assertTrue(any(d.get("language") == "typescript" for d in result["data"]["definitions"]))
+        self.assertTrue(all(d.get("method") == "treesitter" for d in result["data"]["definitions"]))
+
+    def test_js_file_returns_treesitter_definition(self):
+        result = self.srv.code_definition_response(self.root, "useWidget")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["method"], "treesitter")
+        self.assertTrue(any(d.get("language") == "javascript" for d in result["data"]["definitions"]))
+
+    def test_java_file_returns_treesitter_definition(self):
+        result = self.srv.code_definition_response(self.root, "Handler")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["method"], "treesitter")
+        self.assertTrue(any(d.get("language") == "java" for d in result["data"]["definitions"]))
+
+    def test_csharp_file_returns_treesitter_definition(self):
+        result = self.srv.code_definition_response(self.root, "Widget")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["method"], "treesitter")
+        self.assertTrue(any(d.get("language") == "csharp" for d in result["data"]["definitions"]))
 
     def test_fallback_definitions_have_path_and_line(self):
         result = self.srv.code_definition_response(self.root, "MyComponent")
         for d in result["data"]["definitions"]:
             self.assertIn("path", d)
             self.assertIn("line", d)
-            self.assertEqual(d["method"], "keyword_fallback")
+            self.assertEqual(d["method"], "treesitter")
+            self.assertIn("language", d)
+
+    def test_mixed_language_definition_aggregates_treesitter_and_fallback(self):
+        result = self.srv.code_definition_response(self.root, "SharedThing")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["method"], "multi_language")
+        self.assertIn("typescript", result["data"]["languages"])
+        self.assertIn("go", result["data"]["languages"])
+        langs = {d["language"] for d in result["data"]["definitions"]}
+        self.assertTrue({"typescript", "go"}.issubset(langs))
 
     def test_not_found_returns_empty_list(self):
         result = self.srv.code_definition_response(self.root, "ZZZNODEFINITIONYYY")
@@ -4998,7 +5133,7 @@ class CodeDefinitionFallbackTests(unittest.TestCase):
 
 
 class CodeReferencesFallbackTests(unittest.TestCase):
-    """AC-5 (12d4h): code_references falls back to keyword for non-Python symbols."""
+    """AC-5: code_references uses tree-sitter-backed lookup for selected languages."""
 
     def setUp(self):
         self.srv = load_server()
@@ -5006,27 +5141,76 @@ class CodeReferencesFallbackTests(unittest.TestCase):
         self.root = _make_repo(Path(self.tmp.name))
         src = self.root / "src"
         src.mkdir(parents=True, exist_ok=True)
-        (src / "utils.go").write_text(
-            "func HandleRequest(w http.ResponseWriter, r *http.Request) {}\n",
+        (src / "App.tsx").write_text(
+            "export function MyComponent() { return null; }\nconst x = MyComponent();\n",
+            encoding="utf-8",
+        )
+        (src / "lib.js").write_text(
+            "export function useWidget() { return true; }\nconst ok = useWidget();\n",
+            encoding="utf-8",
+        )
+        (src / "Handler.java").write_text(
+            "public class Handler {\n    public void handleRequest() {}\n    public void call() { handleRequest(); }\n}\n",
+            encoding="utf-8",
+        )
+        (src / "Widget.cs").write_text(
+            "public class Widget {\n    public void Render() {}\n}\npublic class UseWidget {\n    public void Draw() { new Widget().Render(); }\n}\n",
+            encoding="utf-8",
+        )
+        (src / "util.go").write_text(
+            "package sample\n\nfunc SharedThing() {}\n\nfunc UseSharedThing() { SharedThing() }\n",
+            encoding="utf-8",
+        )
+        (src / "SharedThing.ts").write_text(
+            "export function SharedThing() { return true; }\nconst ok = SharedThing();\n",
             encoding="utf-8",
         )
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_go_symbol_returns_keyword_fallback(self):
-        result = self.srv.code_references_response(self.root, "HandleRequest")
+    def test_typescript_symbol_returns_treesitter_method(self):
+        result = self.srv.code_references_response(self.root, "MyComponent")
         self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["data"]["method"], "keyword_fallback")
+        self.assertEqual(result["data"]["method"], "treesitter")
         self.assertGreater(result["data"]["count"], 0)
+        self.assertIn("typescript", result["data"]["languages"])
 
-    def test_keyword_fallback_result_shape(self):
-        result = self.srv.code_references_response(self.root, "HandleRequest")
+    def test_javascript_symbol_returns_treesitter_method(self):
+        result = self.srv.code_references_response(self.root, "useWidget")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["method"], "treesitter")
+        self.assertIn("javascript", result["data"]["languages"])
+
+    def test_java_symbol_returns_treesitter_method(self):
+        result = self.srv.code_references_response(self.root, "handleRequest")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["method"], "treesitter")
+        self.assertIn("java", result["data"]["languages"])
+
+    def test_csharp_symbol_returns_treesitter_method(self):
+        result = self.srv.code_references_response(self.root, "Widget")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["method"], "treesitter")
+        self.assertIn("csharp", result["data"]["languages"])
+
+    def test_treesitter_reference_result_shape(self):
+        result = self.srv.code_references_response(self.root, "handleRequest")
         for ref in result["data"]["references"]:
             self.assertIn("path", ref)
             self.assertIn("line", ref)
             self.assertIn("snippet", ref)
-            self.assertEqual(ref["method"], "keyword_fallback")
+            self.assertTrue(ref["method"].startswith("treesitter"))
+            self.assertIn("language", ref)
+
+    def test_mixed_language_references_aggregate_treesitter_and_fallback(self):
+        result = self.srv.code_references_response(self.root, "SharedThing")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["method"], "multi_language")
+        self.assertIn("typescript", result["data"]["languages"])
+        self.assertIn("go", result["data"]["languages"])
+        langs = {ref["language"] for ref in result["data"]["references"]}
+        self.assertTrue({"typescript", "go"}.issubset(langs))
 
 
 class CodeDependenciesTests(unittest.TestCase):

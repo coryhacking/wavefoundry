@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-05-12
 
 ## The Problem
 
@@ -93,18 +93,17 @@ Layers are only merged if their vector dimensions and model names match. A misma
 
 All file walks reuse the same ignore/exclusion rules as the indexer (`walk_repo()`, `.gitignore`, `.aiignore`, hardcoded excludes) to keep results consistent.
 
-### Decision 6: Symbol navigation starts Python-only with cross-language keyword fallback
+### Decision 6: Symbol navigation uses Python AST plus targeted tree-sitter-backed languages
 
-Language-aware symbol navigation (jump-to-definition, find-references) requires parsing, which requires language-specific infrastructure. The implementation uses a two-tier approach:
+Language-aware symbol navigation (jump-to-definition, find-references) benefits from parsing where available, but the tool surface does not need to wait for full LSP coverage. The implementation uses a tiered approach:
 
 - **Python**: AST-based, using `ast.walk()` to find `FunctionDef`, `AsyncFunctionDef`, and `ClassDef` nodes by name. Reliable and dependency-free. Returns `method: "ast"`.
-- **Other languages**: keyword fallback — walks all repo files with a word-boundary regex (`\b<symbol>\b`) and returns matching lines with `method: "keyword_fallback"`. Less precise than AST but universally available and consistently shaped.
+- **Tree-sitter-backed languages**: JavaScript, TypeScript, Java, and C# use the existing chunker parser stack for structural definitions and identifier-level references. Returns `method: "treesitter"` or per-result `treesitter_*`.
+- **Additional supported definition languages**: Go, Rust, Kotlin, and Swift use structural regex matching for top-level symbols. Returns `method: "regex"`.
+- **References across the remaining known code languages**: language-filtered text matching. Returns `method: "text"`.
+- **Fallback**: broad repo keyword matching when no structural/text layer finds a result. Returns `method: "keyword_fallback"`.
 
-Both tiers return the same response structure (`definitions` / `references` list with `path`, `line`, `method`). This means callers never need to branch on language — they just inspect `method` to understand provenance.
-
-`code_dependencies` provides an import graph for a specific file. Python uses `ast.parse` for reliable import extraction; JS/TS/Go/Rust use regex patterns. Response: `{path, imports: [{module, resolved_path?, resolved: bool}], method: "ast" | "regex" | "unsupported"}`.
-
-Future expansion (tree-sitter, LSP integration) is a natural extension of this layer without changing the public tool API.
+These tiers keep one public tool API while making provenance explicit via the `method` field. Future tree-sitter or LSP upgrades can improve precision without changing the tool names or call shape.
 
 ### Decision 7: Orientation chunks (`code-summary`, `doc-summary`) enable fast first-pass retrieval
 
