@@ -82,13 +82,49 @@ function relativeAge(isoString) {
   } catch { return null; }
 }
 
+function dashboardTitle(snapshot) {
+  const project = snapshot?.project || {};
+  const repo = String(project.repo_basename || project.name || "").trim();
+  return repo ? `${repo} - Wavefoundry` : "Wavefoundry";
+}
+
 // ── Status classification ──────────────────────────────────────────────────────
 
-const DONE_STATUSES = new Set(["complete", "completed", "done", "implemented", "approved"]);
+const DONE_STATUSES = new Set(["complete", "completed", "done", "implemented", "approved", "closed"]);
 function isDone(status) { return DONE_STATUSES.has(String(status || "").toLowerCase()); }
 function waveStatus(w) { return String(w.status || "").toLowerCase(); }
 function activeWaves(waves)  { return waves.filter(w => waveStatus(w) === "active"); }
 function pendingWaves(waves) { return waves.filter(w => waveStatus(w) !== "active" && waveStatus(w) !== "closed" && waveStatus(w) !== "completed"); }
+function dialogScope(waves) { return activeWaves(waves).length > 0 ? "active" : "pending"; }
+function sortPendingFirst(items, isItemDone) {
+  return [...items].sort((a, b) => Number(isItemDone(a)) - Number(isItemDone(b)));
+}
+
+function dialogChangesForScope(snapshot) {
+  const waves = snapshot.waves || [];
+  const inWaves = snapshot.changes?.in_waves || [];
+  const scope = dialogScope(waves);
+  if (scope === "active") {
+    const activeWaveIds = new Set(activeWaves(waves).map(w => w.wave_id));
+    return {
+      scope,
+      changes: sortPendingFirst(inWaves.filter(c => activeWaveIds.has(c.wave_id)), c => isDone(c.status)),
+    };
+  }
+  const openOrClosedIds = new Set(
+    waves.filter(w => waveStatus(w) === "active" || waveStatus(w) === "closed" || waveStatus(w) === "completed").map(w => w.wave_id)
+  );
+  return {
+    scope,
+    changes: sortPendingFirst(
+      [
+        ...inWaves.filter(c => !openOrClosedIds.has(c.wave_id)),
+        ...(snapshot.changes?.staged || []).filter(c => !openOrClosedIds.has(c.wave_id)),
+      ],
+      c => isDone(c.status),
+    ),
+  };
+}
 
 function badgeClass(status) {
   const key = String(status || "unknown").toLowerCase();
@@ -132,6 +168,22 @@ function waveStats(waveChanges) {
     }
   }
   return { tasksTotal, tasksDone, acTotals, acDone };
+}
+
+function visibleAcItems(change) {
+  return (change.ac_items || []).filter(ac => ac.priority !== "not-this-scope");
+}
+
+function acProgressStats(changes) {
+  let total = 0;
+  let done = 0;
+  for (const change of changes || []) {
+    for (const ac of visibleAcItems(change)) {
+      total += 1;
+      if (ac.done) done += 1;
+    }
+  }
+  return { total, done, pending: Math.max(0, total - done) };
 }
 
 function stripScopePrefix(scope) {
@@ -227,17 +279,12 @@ function StateBadge({ snapshot }) {
 
 function Header({ snapshot, dark, onToggleDark }) {
   const project = snapshot.project || {};
-  const version = project.framework_version || project.framework_revision || null;
   return h("header", { className: "site-header" },
     h("div", { className: "header-brand" },
       h("div", { className: "header-logo", "aria-hidden": "true" },
         h("div", { className: "header-logo-mark" }),
       ),
       h("span", { className: "header-repo" }, project.name || project.repo_basename || "Repository"),
-      version ? h(React.Fragment, null,
-        h("span", { className: "header-sep", "aria-hidden": "true" }, "/"),
-        h("span", { className: "header-framework" }, `v${version}`),
-      ) : null,
     ),
     h("div", { className: "header-actions" },
       h(ThemeToggle, { dark, onToggle: onToggleDark }),
@@ -246,9 +293,10 @@ function Header({ snapshot, dark, onToggleDark }) {
 }
 
 function ProgressRow({ label, done, total, variant }) {
-  if (!total) return null;
-  const pct = Math.round((done / total) * 100);
-  const complete = done >= total;
+  const safeTotal = Number(total) || 0;
+  const safeDone = Number(done) || 0;
+  const pct = safeTotal > 0 ? Math.round((safeDone / safeTotal) * 100) : 0;
+  const complete = safeTotal > 0 && safeDone >= safeTotal;
   const cls = ["progress-row", variant && `progress-row--${variant}`, complete && "progress-row--complete"]
     .filter(Boolean).join(" ");
   return h("div", { className: cls },
@@ -260,37 +308,47 @@ function ProgressRow({ label, done, total, variant }) {
         "aria-valuenow": pct,
         "aria-valuemin": 0,
         "aria-valuemax": 100,
-        "aria-label": `${label}: ${pct}%`,
+        "aria-label": safeTotal > 0 ? `${label}: ${pct}%` : `${label}: 0 of 0`,
       },
         h("div", { className: "progress-bar-fill", style: { width: `${pct}%` } }),
       ),
     ),
-    h("div", { className: "progress-row-fraction" }, `${done}/${total}`),
+    h("div", { className: "progress-row-fraction" }, `${safeDone}/${safeTotal}`),
   );
 }
 
-function ProgressCard({ snapshot }) {
+function ProgressCard({ snapshot, scopeChanges }) {
   const waves      = snapshot.waves || [];
-  const allChanges = snapshot.changes?.in_waves || [];
+  const allInWaves = snapshot.changes?.in_waves || [];
+  const progressChanges = scopeChanges || allInWaves;
 
-  const closedWaves = waves.filter(w => waveStatus(w) === "closed").length;
+  const closedWaves = waves.filter(w => waveStatus(w) === "closed" || waveStatus(w) === "completed").length;
   const totalWaves  = waves.length;
-  const closedWaveIds = new Set(waves.filter(w => waveStatus(w) === "closed").map(w => w.wave_id));
+  const closedWaveIds = new Set(waves.filter(w => waveStatus(w) === "closed" || waveStatus(w) === "completed").map(w => w.wave_id));
 
-  const { done: changesDone, total: changesTotal } = computeProgress(allChanges);
+  // CHANGES: use wave.change_count for admitted in-wave changes from closed waves (handles
+  // waves whose change doc files no longer exist on disk). progressChanges contains only
+  // open-wave docs (pendingChanges already excludes staged docs referencing closed waves),
+  // so openProgressChanges === progressChanges in practice; the filter is a safety guard.
+  const closedChangesDone   = waves.filter(w => closedWaveIds.has(w.wave_id)).reduce((s, w) => s + (Number(w.change_count) || 0), 0);
+  const openProgressChanges = progressChanges.filter(c => !closedWaveIds.has(c.wave_id));
+  const changesDone  = closedChangesDone + openProgressChanges.filter(c => isDone(c.status)).length;
+  const changesTotal = closedChangesDone + openProgressChanges.length;
 
-  // Closed-wave changes: all tasks/ACs count as done (wave accepted = work complete).
-  // Open-wave changes: use actual checked state.
-  const tasksTotal = allChanges.reduce((s, c) => s + (Number(c.tasks_total) || 0), 0);
-  const tasksDone  = allChanges.reduce((s, c) =>
+  // TASKS & ACS: combine open-scope changes with closed-wave in-wave change docs so all
+  // historical work is included regardless of scope.
+  const closedInWaves = allInWaves.filter(c => closedWaveIds.has(c.wave_id));
+  const allCountedChanges = [...openProgressChanges, ...closedInWaves];
+
+  const tasksTotal = allCountedChanges.reduce((s, c) => s + (Number(c.tasks_total) || 0), 0);
+  const tasksDone  = allCountedChanges.reduce((s, c) =>
     s + (closedWaveIds.has(c.wave_id) ? (Number(c.tasks_total) || 0) : (Number(c.tasks_completed) || 0)), 0);
 
-  const acTotal = allChanges.reduce((s, c) =>
-    s + Object.values(c.ac_priority_counts || {}).reduce((a, v) => a + v, 0), 0);
-  const acDone = allChanges.reduce((s, c) =>
-    s + (closedWaveIds.has(c.wave_id)
-      ? Object.values(c.ac_priority_counts  || {}).reduce((a, v) => a + v, 0)
-      : Object.values(c.ac_completed_counts || {}).reduce((a, v) => a + v, 0)), 0);
+  const acTotal = allCountedChanges.reduce((s, c) => s + visibleAcItems(c).length, 0);
+  const acDone  = allCountedChanges.reduce((s, c) => {
+    const items = visibleAcItems(c);
+    return s + (closedWaveIds.has(c.wave_id) ? items.length : items.filter(a => a.done).length);
+  }, 0);
 
   return h("article", { className: "progress-card" },
     h("div", { className: "progress-header" },
@@ -299,8 +357,8 @@ function ProgressCard({ snapshot }) {
     h("div", { className: "progress-rows" },
       h(ProgressRow, { label: "Waves",   done: closedWaves, total: totalWaves,   variant: "waves" }),
       h(ProgressRow, { label: "Changes", done: changesDone, total: changesTotal, variant: "changes" }),
-      acTotal    ? h(ProgressRow, { label: "ACs",   done: acDone,    total: acTotal,    variant: "acs" })   : null,
-      tasksTotal ? h(ProgressRow, { label: "Tasks", done: tasksDone, total: tasksTotal, variant: "tasks" }) : null,
+      h(ProgressRow, { label: "ACs",   done: acDone,    total: acTotal,    variant: "acs" }),
+      h(ProgressRow, { label: "Tasks", done: tasksDone, total: tasksTotal, variant: "tasks" }),
     ),
   );
 }
@@ -328,12 +386,15 @@ function WaveTasks({ tasksTotal, tasksDone }) {
   );
 }
 
-function WaveAcs({ acTotals, acDone = {} }) {
+function WaveAcs({ acTotals, acDone = {}, acStats = { total: 0, done: 0 } }) {
   const ordered = ["required", "important", "nice-to-have", "not-this-scope"];
   const entries = ordered.filter(k => acTotals[k]);
-  if (!entries.length) return null;
-  const total = entries.reduce((s, k) => s + acTotals[k], 0);
-  const done  = entries.reduce((s, k) => s + (acDone[k] || 0), 0);
+  const priorityTotal = entries.reduce((s, k) => s + acTotals[k], 0);
+  const priorityDone  = entries.reduce((s, k) => s + (acDone[k] || 0), 0);
+  const hasVisibleStats = acStats.total > 0 || acStats.done > 0;
+  const total = hasVisibleStats ? acStats.total : priorityTotal;
+  const done  = hasVisibleStats ? acStats.done : priorityDone;
+  if (!entries.length && total === 0) return null;
   return h("div", { className: "wip-section wip-section--acs" },
     h("div", { className: "wip-section-label" },
       "Acceptance criteria",
@@ -401,6 +462,7 @@ function WaveChangeList({ changes }) {
 function OpenWaveCard({ wave, allChanges, handoffWaveId }) {
   const waveChanges = allChanges.filter(c => c.wave_id === wave.wave_id);
   const { tasksTotal, tasksDone, acTotals, acDone } = waveStats(waveChanges);
+  const acStats = acProgressStats(waveChanges);
   const isHandoff = handoffWaveId && wave.wave_id === handoffWaveId;
   return h("div", { className: "open-wave-card" },
     h("div", { className: "status-row" },
@@ -415,7 +477,7 @@ function OpenWaveCard({ wave, allChanges, handoffWaveId }) {
       ),
     ),
     h(WaveChangeList, { changes: wave.changes }),
-    h(WaveAcs, { acTotals, acDone }),
+    h(WaveAcs, { acTotals, acDone, acStats }),
     h(WaveTasks, { tasksTotal, tasksDone }),
     h(WaveEvidence, { evidence: wave.review_evidence }),
     h(WaveLanes, { participants: wave.participants }),
@@ -455,37 +517,36 @@ function WavesCard({ waves, allChanges, handoffWaveId }) {
   );
 }
 
-function Metrics({ snapshot, onWavesClick, onChangesClick, onAcsClick, onTasksClick, onFilesClick, onIndexClick }) {
+function Metrics({ snapshot, scopeChanges, onWavesClick, onChangesClick, onAcsClick, onTasksClick, onFilesClick, onIndexClick }) {
   const waves = snapshot.waves || [];
-  const inWaves = snapshot.changes?.in_waves || [];
   const git = snapshot.git || {};
   const health = snapshot.health || {};
   // active = on active wave(s); pending = on non-active waves + staged plans not yet in a wave
-  const staged = snapshot.changes?.staged || [];
 
   const waveActive  = activeWaves(waves).length;
   const wavePending = pendingWaves(waves).length;
   const waveTotal   = waves.length;
-
-  const activeWaveIds  = new Set(activeWaves(waves).map(w => w.wave_id));
-  const pendingWaveIds = new Set(pendingWaves(waves).map(w => w.wave_id));
-  const activeChanges  = inWaves.filter(c => activeWaveIds.has(c.wave_id));
-  const pendingChanges = [...inWaves.filter(c => pendingWaveIds.has(c.wave_id)), ...staged];
-  const changeActive   = activeChanges.length;
-  const changePending  = pendingChanges.length;
-  const changeTotal    = inWaves.length + staged.length;
-
-  const allTasksTotal   = [...inWaves, ...staged].reduce((s, c) => s + (Number(c.tasks_total) || 0), 0);
-  const allTasksActive  = activeChanges.reduce((s, c) => s + Math.max(0, (Number(c.tasks_total) || 0) - (Number(c.tasks_completed) || 0)), 0);
-  const allTasksPending = pendingChanges.reduce((s, c) => s + (Number(c.tasks_total) || 0), 0);
-
-  const countAcs = (changes) => changes.reduce((s, c) =>
-    s + Object.values(c.ac_priority_counts || {}).reduce((a, v) => a + v, 0), 0);
-  const countCompletedAcs = (changes) => changes.reduce((s, c) =>
-    s + Object.values(c.ac_completed_counts || {}).reduce((a, v) => a + v, 0), 0);
-  const acTotal   = countAcs([...inWaves, ...staged]);
-  const acActive  = Math.max(0, countAcs(activeChanges)  - countCompletedAcs(activeChanges));
-  const acPending = Math.max(0, countAcs(pendingChanges) - countCompletedAcs(pendingChanges));
+  const waveMode = waveActive > 0 ? "active" : "pending";
+  const waveMetricCount = waveMode === "active" ? waveActive : wavePending;
+  const waveMetricLabel = waveMode === "active"
+    ? p(waveActive, "Active wave", "Active waves")
+    : p(wavePending, "Pending wave", "Pending waves");
+  const scopeMetricLabel = waveMode === "active" ? "Active" : "Pending";
+  const changeMetrics = {
+    total: (scopeChanges || []).length,
+    pending: (scopeChanges || []).reduce((s, c) => s + (isDone(c.status) ? 0 : 1), 0),
+  };
+  const acMetrics = acProgressStats(scopeChanges);
+  const taskMetrics = {
+    total: (scopeChanges || []).reduce((s, c) => s + (Number(c.tasks_total) || 0), 0),
+    pending: (scopeChanges || []).reduce((s, c) => s + Math.max(0, (Number(c.tasks_total) || 0) - (Number(c.tasks_completed) || 0)), 0),
+  };
+  const currentWaveMetrics = snapshot.metrics || {};
+  const waveMetrics = currentWaveMetrics.waves || {
+    active: waveActive,
+    pending: wavePending,
+    total: waveTotal,
+  };
   const gitFileCount = Number(git.files_changed) || 0;
   const gitLinesAdded = Number(git.lines_added) || 0;
   const gitLinesRemoved = Number(git.lines_removed) || 0;
@@ -500,10 +561,10 @@ function Metrics({ snapshot, onWavesClick, onChangesClick, onAcsClick, onTasksCl
       : "clean working tree";
 
   const metrics = [
-    { label: p(waveActive,  "Active wave",   "Active waves"),   value: waveActive,   note: `${wavePending} pending · ${waveTotal} total`,          onClick: onWavesClick,   variant: "waves" },
-    { label: p(changeActive,"Active change", "Active changes"), value: changeActive, note: `${changePending} pending · ${changeTotal} total`,       onClick: onChangesClick, variant: "changes" },
-    { label: p(acActive,    "Active AC",     "Active ACs"),     value: acActive,     note: `${acPending} pending · ${acTotal} total`,               onClick: onAcsClick,     variant: "acs" },
-    { label: p(allTasksActive, "Active task","Active tasks"),   value: allTasksActive, note: `${allTasksPending} pending · ${allTasksTotal} total`, onClick: onTasksClick,   variant: "tasks" },
+    { label: waveMetricLabel, value: waveMetricCount, note: `${waveMetrics.pending} pending · ${waveMetrics.total} total`, onClick: onWavesClick, variant: "waves" },
+    { label: p(changeMetrics.pending, `${scopeMetricLabel} change`, `${scopeMetricLabel} changes`), value: changeMetrics.pending, note: `pending, ${changeMetrics.total} total`, onClick: onChangesClick, variant: "changes" },
+    { label: p(acMetrics.pending,    `${scopeMetricLabel} AC`,     `${scopeMetricLabel} ACs`),     value: acMetrics.pending,     note: `pending, ${acMetrics.total} total`, onClick: onAcsClick,     variant: "acs" },
+    { label: p(taskMetrics.pending, `${scopeMetricLabel} task`, `${scopeMetricLabel} tasks`),   value: taskMetrics.pending, note: `pending, ${taskMetrics.total} total`, onClick: onTasksClick,   variant: "tasks" },
     { label: p(gitFileCount, "File changed", "Files changed"), value: gitFileCount, note: fileNote, onClick: onFilesClick, variant: "files" },
     (() => {
       const projectIdx = health.index?.project || {};
@@ -518,16 +579,16 @@ function Metrics({ snapshot, onWavesClick, onChangesClick, onAcsClick, onTasksCl
       const isStale = projectIdx.stale === true || frameworkIdx.stale === true;
       const state = buildStatus === "running" ? "running" : buildStatus === "failed" ? "failed" : isStale ? "stale" : null;
       const statusText = buildStatus === "running"
-        ? "Indexing…"
+        ? "Indexing..."
         : buildStatus === "failed"
           ? "Index build failed"
           : isStale
-            ? "Stale"
+            ? "Stale..."
             : (!projectIdx.present && !frameworkIdx.present)
               ? "Not yet built"
               : null;
       const note = h(React.Fragment, null,
-        h("div", { className: "metric-subnote" }, `files / ${totalChunks.toLocaleString()} chunks`),
+        h("div", { className: "metric-subnote" }, `files, ${totalChunks.toLocaleString()} chunks`),
         h("div", { className: "metric-status-line" }, statusText || "\u00A0"),
       );
       const value = totalFiles ? totalFiles.toLocaleString() : (buildStatus === "running" ? "Indexing…" : "Missing");
@@ -615,7 +676,7 @@ function DialogFrame({ className, title, subtitle, onClose, children }) {
 function WavesDialog({ snapshot, onClose }) {
   const waves = snapshot.waves || [];
   const active = activeWaves(waves);
-  return h(DialogFrame, { title: p(active.length, "Active Wave", "Active Waves"), onClose },
+  return h(DialogFrame, { title: p(active.length, "Active Waves", "Pending Waves"), onClose },
     active.length ? active.map(wave =>
       h("div", { key: wave.wave_id, className: "metric-dialog-card" },
         h("div", { className: "metric-dialog-card-header" },
@@ -625,17 +686,17 @@ function WavesDialog({ snapshot, onClose }) {
         h("div", { className: "metric-dialog-card-title" }, wave.title),
         wave.objective ? h("div", { className: "metric-dialog-card-desc" }, wave.objective) : null,
       )
-    ) : h("div", { className: "empty-state" }, "No active waves."),
+    ) : h("div", { className: "empty-state" }, "No pending waves."),
   );
 }
 
 function ChangesDialog({ snapshot, onClose }) {
-  const waves = snapshot.waves || [];
-  const inWaves = snapshot.changes?.in_waves || [];
-  const activeWaveIds = new Set(activeWaves(waves).map(w => w.wave_id));
-  const active = inWaves.filter(c => activeWaveIds.has(c.wave_id));
-  return h(DialogFrame, { title: p(active.length, "Active Change", "Active Changes"), onClose },
-    active.length ? active.map(c =>
+  const { scope, changes } = dialogChangesForScope(snapshot);
+  const title = scope === "active"
+    ? p(changes.length, "Active Change", "Active Changes")
+    : p(changes.length, "Pending Change", "Pending Changes");
+  return h(DialogFrame, { title, onClose },
+    changes.length ? changes.map(c =>
       h("div", { key: c.change_id, className: "metric-dialog-card" },
         h("div", { className: "metric-dialog-card-header" },
           h("span", { className: "wave-change-id" }, c.change_id),
@@ -644,19 +705,16 @@ function ChangesDialog({ snapshot, onClose }) {
         h("div", { className: "metric-dialog-card-title" }, c.title),
         c.description ? h("div", { className: "metric-dialog-card-desc" }, c.description) : null,
       )
-    ) : h("div", { className: "empty-state" }, "No active changes."),
+    ) : h("div", { className: "empty-state" }, scope === "active" ? "No active changes." : "No pending changes."),
   );
 }
 
 function AcsDialog({ snapshot, onClose }) {
-  const waves = snapshot.waves || [];
-  const inWaves = snapshot.changes?.in_waves || [];
-  const activeWaveIds = new Set(activeWaves(waves).map(w => w.wave_id));
-  const activeChanges = inWaves.filter(c => activeWaveIds.has(c.wave_id));
+  const { scope, changes } = dialogChangesForScope(snapshot);
   const PRIORITY_BADGE = { required: "status-blocked", important: "status-warn", "nice-to-have": "status-neutral", unknown: "status-unknown" };
-  return h(DialogFrame, { title: "Active ACs", onClose },
-    activeChanges.length ? activeChanges.map(c => {
-      const items = (c.ac_items || []).filter(ac => ac.priority !== "not-this-scope");
+  return h(DialogFrame, { title: scope === "active" ? "Active ACs" : "Pending ACs", onClose },
+    changes.length ? changes.map(c => {
+      const items = sortPendingFirst(visibleAcItems(c), ac => Boolean(ac.done));
       if (!items.length) return null;
       return h("div", { key: c.change_id, className: "metric-dialog-card" },
         h("div", { className: "metric-dialog-card-header" },
@@ -675,18 +733,15 @@ function AcsDialog({ snapshot, onClose }) {
           ),
         ),
       );
-    }).filter(Boolean) : h("div", { className: "empty-state" }, "No active ACs."),
+    }).filter(Boolean) : h("div", { className: "empty-state" }, scope === "active" ? "No active ACs." : "No pending ACs."),
   );
 }
 
 function TasksDialog({ snapshot, onClose }) {
-  const waves = snapshot.waves || [];
-  const inWaves = snapshot.changes?.in_waves || [];
-  const activeWaveIds = new Set(activeWaves(waves).map(w => w.wave_id));
-  const activeChanges = inWaves.filter(c => activeWaveIds.has(c.wave_id));
-  return h(DialogFrame, { title: "Active Tasks", onClose },
-    activeChanges.length ? activeChanges.map(c => {
-      const items = c.tasks_items || [];
+  const { scope, changes } = dialogChangesForScope(snapshot);
+  return h(DialogFrame, { title: scope === "active" ? "Active Tasks" : "Pending Tasks", onClose },
+    changes.length ? changes.map(c => {
+      const items = sortPendingFirst(c.tasks_items || [], task => Boolean(task.done));
       if (!items.length) return null;
       return h("div", { key: c.change_id, className: "metric-dialog-card" },
         h("div", { className: "metric-dialog-card-header" },
@@ -702,7 +757,7 @@ function TasksDialog({ snapshot, onClose }) {
           ),
         ),
       );
-    }).filter(Boolean) : h("div", { className: "empty-state" }, "No active tasks."),
+    }).filter(Boolean) : h("div", { className: "empty-state" }, scope === "active" ? "No active tasks." : "No pending tasks."),
   );
 }
 
@@ -764,23 +819,43 @@ function IndexDialog({ health, onClose }) {
 
 function IndexSection({ label, idx }) {
   const buildStatus = idx.build_status;
-  const buildBadge = (buildStatus === "running")
-    ? h("div", { className: "index-build-status" },
-        h("span", { className: "index-build-badge index-build-badge--running" }, "Indexing…"),
-      )
+  const buildKind = label === "Framework" ? "Framework docs index" : "Project index";
+  const buildAction = idx.mode === "update"
+    ? "updating"
+    : idx.mode === "rebuild"
+      ? "rebuilding"
+      : (idx.source === "background" ? "updating" : "rebuilding");
+  const buildDetail = buildStatus === "running"
+    ? `${buildKind} ${buildAction}${idx.progress ? ` · ${idx.progress}` : ""}`
     : buildStatus === "failed"
-      ? h("div", { className: "index-build-status" },
-          h("span", { className: "index-build-badge index-build-badge--failed" }, "Index build failed"),
-        )
+      ? "Index build failed"
       : idx.stale === true
-        ? h("div", { className: "index-build-status" },
-            h("span", { className: "index-build-badge index-build-badge--stale" }, "Stale"),
-          )
+        ? "Index is stale"
+        : null;
+  const buildBadgeText = buildStatus === "running"
+    ? `Indexing… · ${buildDetail}`
+    : buildStatus === "failed"
+      ? "Index build failed"
+      : idx.stale === true
+        ? "Stale · Index is stale"
         : idx.stale === false
-          ? h("div", { className: "index-build-status" },
-              h("span", { className: "index-build-badge index-build-badge--current" }, "Up to date"),
-            )
+          ? "Up to date"
           : null;
+  const buildBadge = buildBadgeText
+    ? h("div", { className: "index-build-status" },
+        h("span", {
+          className: `index-build-badge ${
+            buildStatus === "running"
+              ? "index-build-badge--running"
+              : buildStatus === "failed"
+                ? "index-build-badge--failed"
+                : idx.stale === true
+                  ? "index-build-badge--stale"
+                  : "index-build-badge--current"
+          }`,
+        }, buildBadgeText),
+      )
+    : null;
 
   if (!idx.present) {
     return h("div", { className: "index-section index-section--missing" },
@@ -1033,18 +1108,24 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
   const [showAllFiles, setShowAllFiles] = useState(false);
 
   const project    = snapshot.project    || {};
+  const frameworkVersion = project.framework_version || project.framework_revision || "unknown";
   const waves      = snapshot.waves      || [];
   const allChanges = snapshot.changes?.in_waves || [];
   const agents     = snapshot.agents     || [];
   const handoffWaveId = snapshot.activity?.session_handoff_active_wave || "";
 
   const openOrClosedIds = new Set(
-    waves.filter(w => waveStatus(w) === "active" || waveStatus(w) === "closed").map(w => w.wave_id)
+    waves.filter(w => waveStatus(w) === "active" || waveStatus(w) === "closed" || waveStatus(w) === "completed").map(w => w.wave_id)
   );
+  const activeWaveIds = new Set(activeWaves(waves).map(w => w.wave_id));
+  const activeChanges = allChanges.filter(c => activeWaveIds.has(c.wave_id));
   const pendingChanges = [
     ...allChanges.filter(c => !openOrClosedIds.has(c.wave_id)),
-    ...(snapshot.changes?.staged || []),
+    ...(snapshot.changes?.staged || []).filter(c => !openOrClosedIds.has(c.wave_id)),
   ];
+  const scopeChanges = activeWaves(waves).length > 0
+    ? activeChanges
+    : pendingChanges;
 
   return h(React.Fragment, null,
     h(Header, { snapshot, dark, onToggleDark }),
@@ -1055,7 +1136,7 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
             h("span", { className: "meta-pill" }, `Repository: ${project.repo_basename || ""}`),
             h(GitPills, { git: snapshot.git }),
           ),
-          h(Metrics, { snapshot,
+          h(Metrics, { snapshot, scopeChanges,
             onWavesClick:   () => setShowWaves(true),
             onChangesClick: () => setShowChanges(true),
             onAcsClick:     () => setShowAcs(true),
@@ -1063,7 +1144,7 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
             onFilesClick:   () => setShowAllFiles(true),
             onIndexClick:   () => setShowIndex(true),
           }),
-          h(ProgressCard, { snapshot }),
+          h(ProgressCard, { snapshot, scopeChanges }),
           agents.length ? h(Agents, { agents, onSelectAgent: setSelectedAgent }) : null,
         ),
       ),
@@ -1082,12 +1163,13 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
       ),
 
       h("footer", { className: "site-footer" },
-        h("span", null,
-          `Updated ${localDateTime(snapshot.generated_at)} · `,
+        h("div", { className: "site-footer-left" },
+          h("span", { className: "site-footer-brand" }, `Wavefoundry v${frameworkVersion}`),
           sseConnected
             ? h("span", { className: "sse-live", title: "Server-sent events connected — updates are pushed in real time" }, "Live")
-            : `Next refresh in ${POLL_STEPS[pollIdx] / 1000}s`,
+            : h("span", { className: "site-footer-refresh" }, `Next refresh in ${POLL_STEPS[pollIdx] / 1000}s`),
         ),
+        h("span", { className: "site-footer-updated" }, `Updated ${localDateTime(snapshot.generated_at)}`),
       ),
     ),
     selectedAgent ? h(AgentDialog, { agent: selectedAgent, onClose: () => setSelectedAgent(null) }) : null,
@@ -1123,6 +1205,10 @@ function App() {
   const timerRef      = useRef(null);
   const sseActiveRef  = useRef(false);   // ref so refresh() can read it without re-creating
   const [pollIdx, setPollIdx] = useState(0);
+
+  useEffect(() => {
+    document.title = dashboardTitle(snapshot);
+  }, [snapshot?.project?.repo_basename, snapshot?.project?.name, error]);
 
   const refresh = useCallback(async () => {
     try {

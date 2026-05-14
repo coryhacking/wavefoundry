@@ -226,26 +226,32 @@ def _parse_tasks(tasks_section: str, change_status: str) -> dict[str, Any]:
     }
 
 
-_AC_LINE_RE = re.compile(r"^\s*-\s+(?:(?:\[(?P<mark>[ xX])\])\s+)?(?P<text>.+?)\s*$", re.MULTILINE)
+_AC_LINE_RE = re.compile(r"^\s*(?:-|\d+\.)\s+(?:(?:\[(?P<mark>[ xX])\])\s+)?(?P<text>.+?)\s*$", re.MULTILINE)
 
 
 def _parse_ac_items(ac_section: str, priority_section: str, change_status: str) -> list[dict[str, Any]]:
     """Return individual AC items with text, completion status, and priority."""
+    priority_rows: list[str] = []
     priority_map: dict[str, str] = {}
     for row in _markdown_table_rows(priority_section)[1:]:
         if len(row) >= 2:
             ac_id = row[0].strip()
             priority = row[1].strip().lower().replace(" ", "-")
+            priority_rows.append(priority)
             priority_map[ac_id] = priority
 
     items = []
-    for match in _AC_LINE_RE.finditer(ac_section):
+    for index, match in enumerate(_AC_LINE_RE.finditer(ac_section)):
         mark = (match.group("mark") or "").strip().lower()
         done = mark == "x" if mark else _is_terminal_change_status(change_status)
         text = match.group("text").strip()
         id_match = _AC_ID_RE.search(text)
         ac_id = id_match.group(1) if id_match else ""
-        priority = priority_map.get(ac_id, "unknown") if ac_id else "unknown"
+        priority = priority_map.get(ac_id)
+        if priority is None and index < len(priority_rows):
+            priority = priority_rows[index]
+        if priority is None:
+            priority = "unknown"
         items.append({"id": ac_id, "text": text, "done": done, "priority": priority})
     return items
 
@@ -258,6 +264,95 @@ def _completed_ac_counts(items: list[dict[str, Any]]) -> dict[str, int]:
         priority = str(item.get("priority") or "unknown")
         counts[priority] = counts.get(priority, 0) + 1
     return counts
+
+
+def _sum_change_ac_counts(changes: list[dict[str, Any]], key: str) -> int:
+    return sum(sum(int(v) for v in (c.get(key) or {}).values()) for c in changes)
+
+
+def _visible_ac_items(change: dict[str, Any]) -> list[dict[str, Any]]:
+    items = change.get("ac_items") or []
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict) and item.get("priority") != "not-this-scope"]
+
+
+def _sum_visible_ac_counts(changes: list[dict[str, Any]]) -> tuple[int, int]:
+    total = 0
+    done = 0
+    for change in changes:
+        for item in _visible_ac_items(change):
+            total += 1
+            if item.get("done"):
+                done += 1
+    return total, done
+
+
+def _sum_change_task_counts(changes: list[dict[str, Any]], key: str) -> int:
+    return sum(int(c.get(key) or 0) for c in changes)
+
+
+def _wave_only_metric_counts(
+    waves: list[dict[str, Any]],
+    wave_changes: list[dict[str, Any]],
+    plan_changes: list[dict[str, Any]],
+    current_wave_id: str | None,
+) -> dict[str, Any]:
+    active_wave_ids = {wave["wave_id"] for wave in waves if wave.get("status") == "active"}
+    if active_wave_ids:
+        active_changes = [c for c in wave_changes if c.get("wave_id") in active_wave_ids]
+        current_wave_changes = [c for c in active_changes if c.get("wave_id") == current_wave_id] if current_wave_id else active_changes
+        scope = "active_wave"
+    else:
+        pending_wave_ids = {
+            wave["wave_id"]
+            for wave in waves
+            if wave.get("status") not in {"active", "closed", "completed"}
+        }
+        current_wave_changes = [
+            *[c for c in wave_changes if c.get("wave_id") in pending_wave_ids],
+            *plan_changes,
+        ]
+        scope = "pending_changes"
+
+    closed_wave_ids = {wave["wave_id"] for wave in waves if wave.get("status") in {"closed", "completed"}}
+
+    change_total = len(current_wave_changes)
+    change_done = sum(
+        1 for c in current_wave_changes
+        if _is_terminal_change_status(str(c.get("status") or "")) or c.get("wave_id") in closed_wave_ids
+    )
+    task_total = _sum_change_task_counts(current_wave_changes, "tasks_total")
+    task_done = sum(
+        int(c.get("tasks_total") or 0) if c.get("wave_id") in closed_wave_ids
+        else int(c.get("tasks_completed") or 0)
+        for c in current_wave_changes
+    )
+    ac_total = 0
+    ac_done = 0
+    for c in current_wave_changes:
+        items = _visible_ac_items(c)
+        ac_total += len(items)
+        ac_done += len(items) if c.get("wave_id") in closed_wave_ids else sum(1 for item in items if item.get("done"))
+
+    return {
+        "changes": {
+            "total": change_total,
+            "done": change_done,
+            "pending": max(0, change_total - change_done),
+        },
+        "tasks": {
+            "total": task_total,
+            "done": task_done,
+            "pending": max(0, task_total - task_done),
+        },
+        "acs": {
+            "total": ac_total,
+            "done": ac_done,
+            "pending": max(0, ac_total - ac_done),
+        },
+        "scope": scope,
+    }
 
 
 def _parse_participants(section_text: str) -> list[dict[str, str]]:
@@ -315,7 +410,9 @@ def parse_change_doc(root: Path, change_path: Path) -> ChangeRecord:
     except OSError:
         text = ""
     change_match = server._CHANGE_ID_PATTERN.search(text)
-    status_match = server._CHANGE_STATUS_PATTERN.search(text)
+    # Accept both "Change Status: `value`" (canonical) and plain "Status: value" (fallback for
+    # projects that omit the "Change" prefix and backticks).
+    status_match = server._CHANGE_STATUS_PATTERN.search(text) or server._STATUS_PATTERN.search(text)
     title_match = _TITLE_RE.search(text)
     owner_match = _OWNER_RE.search(text)
     wave_match = _WAVE_RE.search(text)
@@ -550,11 +647,27 @@ def collect_health(root: Path, wave_count: int, change_sets: dict[str, list[dict
     index_stats      = _read_json(index_dir    / "index-build-stats.json", {})
     fw_index_meta    = _read_json(fw_index_dir / "meta.json", {})
     fw_index_stats   = _read_json(fw_index_dir / "index-build-stats.json", {})
+    project_build    = server.wave_index_build_status_response(root, layer="project").get("data", {})
+    framework_build  = server.wave_index_build_status_response(root, layer="framework").get("data", {})
+    project_health   = _index_stats(index_meta,    index_stats,    index_dir)
+    framework_health = _index_stats(fw_index_meta, fw_index_stats, fw_index_dir)
+    if isinstance(project_build, dict):
+        project_state = str(project_build.get("build_status") or project_build.get("state") or "").strip().lower()
+        if project_state in {"running", "failed"}:
+            if "state" in project_build and "build_status" not in project_build:
+                project_build = {**project_build, "build_status": project_build.get("state")}
+            project_health.update(project_build)
+    if isinstance(framework_build, dict):
+        framework_state = str(framework_build.get("build_status") or framework_build.get("state") or "").strip().lower()
+        if framework_state in {"running", "failed"}:
+            if "state" in framework_build and "build_status" not in framework_build:
+                framework_build = {**framework_build, "build_status": framework_build.get("state")}
+            framework_health.update(framework_build)
     return {
         "docs_lint": {"status": "unknown", "reason": "Run on demand outside the dashboard poll loop."},
         "index": {
-            "project":   _index_stats(index_meta,    index_stats,    index_dir),
-            "framework": _index_stats(fw_index_meta, fw_index_stats, fw_index_dir),
+            "project": project_health,
+            "framework": framework_health,
         },
         "counts": {
             "waves": wave_count,
@@ -746,6 +859,12 @@ def collect_dashboard_snapshot(root: Path, skip_git: bool = False) -> dict[str, 
     manifest = read_prompt_manifest(root)
     project_name = derive_project_name(root)
     change_lookup = {c["change_id"]: c for c in change_sets["wave"]}
+    metrics = _wave_only_metric_counts(
+        waves,
+        change_sets["wave"],
+        change_sets["plan"],
+        current.get("wave_id") if isinstance(current, dict) else None,
+    )
     for wave in waves:
         wave["changes"] = [
             {
@@ -784,6 +903,14 @@ def collect_dashboard_snapshot(root: Path, skip_git: bool = False) -> dict[str, 
         "changes": {
             "in_waves": change_sets["wave"],
             "staged": change_sets["plan"],
+        },
+        "metrics": {
+            "waves": {
+                "active": len([wave for wave in waves if wave["status"] == "active"]),
+                "pending": len([wave for wave in waves if wave["status"] != "active" and wave["status"] != "closed" and wave["status"] != "completed"]),
+                "total": len(waves),
+            },
+            **metrics,
         },
         "activity": collect_activity(root, change_sets),
         "health": collect_health(root, len(waves), change_sets),

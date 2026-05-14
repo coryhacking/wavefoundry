@@ -129,7 +129,7 @@ class WaveIndex:
         self._code_embedder = None
         self._meta: dict = {}
         self._loaded = False
-        self._loaded_built_at: dict[str, str] = {}  # layer -> built_at stamp when last loaded
+        self._loaded_meta_signature: dict[str, tuple[int, int] | None] = {}
         self._docs_tag_index: dict[str, list[int]] = {}
         self._code_tag_index: dict[str, list[int]] = {}
         self._docs_kind_index: dict[str, list[int]] = {}
@@ -353,20 +353,21 @@ class WaveIndex:
         ranked.sort(key=lambda chunk: (-float(chunk["score"]), str(chunk.get("path") or ""), str(chunk.get("section") or "")))
         return ranked[:top_n]
 
-    def _index_built_at(self, index_dir: Path) -> str:
+    def _index_meta_signature(self, index_dir: Path) -> tuple[int, int] | None:
         meta_path = index_dir / "meta.json"
         try:
-            return json.loads(meta_path.read_text(encoding="utf-8")).get("built_at", "")
-        except (OSError, json.JSONDecodeError):
-            return ""
+            st = meta_path.stat()
+        except OSError:
+            return None
+        return (int(getattr(st, "st_mtime_ns", 0) or 0), int(getattr(st, "st_size", 0) or 0))
 
     def _ensure_loaded(self) -> None:
         if self._loaded:
             # Invalidate if either index has been rebuilt since we last loaded.
-            project_built_at = self._index_built_at(self.index_dir)
-            framework_built_at = self._index_built_at(self.framework_index_dir)
-            if (project_built_at != self._loaded_built_at.get("project", "")
-                    or framework_built_at != self._loaded_built_at.get("framework", "")):
+            project_signature = self._index_meta_signature(self.index_dir)
+            framework_signature = self._index_meta_signature(self.framework_index_dir)
+            if (project_signature != self._loaded_meta_signature.get("project")
+                    or framework_signature != self._loaded_meta_signature.get("framework")):
                 self._loaded = False
         if self._loaded:
             return
@@ -490,9 +491,9 @@ class WaveIndex:
             "project": project_meta,
             "framework": framework_meta,
         }
-        self._loaded_built_at = {
-            "project": project_meta.get("built_at", ""),
-            "framework": framework_meta.get("built_at", ""),
+        self._loaded_meta_signature = {
+            "project": self._index_meta_signature(self.index_dir),
+            "framework": self._index_meta_signature(self.framework_index_dir),
         }
         docs_tag_index: dict[str, list[int]] = {}
         docs_kind_index: dict[str, list[int]] = {}
@@ -828,7 +829,7 @@ def _workflow_project_include_prefixes(root: Path) -> dict[str, tuple[str, ...]]
 _WAVE_ID_PATTERN = re.compile(r"^wave-id:\s+`([^`]+)`", re.MULTILINE)
 _STATUS_PATTERN = re.compile(r"^Status:\s+(\S+)", re.MULTILINE)
 _CHANGE_ID_PATTERN = re.compile(r"^Change ID:\s+`([^`]+)`", re.MULTILINE)
-_CHANGE_STATUS_PATTERN = re.compile(r"^Change Status:\s+`([^`]+)`", re.MULTILINE)
+_CHANGE_STATUS_PATTERN = re.compile(r"^(?:Change|Item) Status:\s+`([^`]+)`", re.MULTILINE)
 _TITLE_PATTERN = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 
 
@@ -1290,6 +1291,8 @@ def _help_catalog() -> dict[str, Any]:
             "wave_index_build",
             "wave_audit",
             "wave_dashboard_start",
+            "wave_dashboard_stop",
+            "wave_dashboard_restart",
         ],
         "compatibility_tools": [
             "wave_new_feature",
@@ -1496,6 +1499,22 @@ def _background_build_status(root: Path) -> str:
         return "completed"
 
 
+def _background_build_progress(root: Path) -> str:
+    """Return the latest non-empty line from the background build log, if any."""
+    log_path = _project_background_build_log_path(root)
+    if not log_path.exists():
+        return ""
+    try:
+        log_text = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    for line in reversed(log_text.splitlines()):
+        text = line.strip()
+        if text:
+            return text
+    return ""
+
+
 def _infer_tags(path: str) -> list[str]:
     """Return classification tags for a file path. Delegates to _tag_utils — single source of truth."""
     return _load_script("_tag_utils").infer_tags(path)
@@ -1695,6 +1714,10 @@ def _index_build_log_path(root: Path, layer: str) -> Path:
     return root / ".wavefoundry" / "index" / "index-build.log"
 
 
+def _project_background_build_log_path(root: Path) -> Path:
+    return root / ".wavefoundry" / "index" / "background-build.log"
+
+
 def _index_build_stats_path(root: Path, layer: str) -> Path:
     if layer == "framework":
         return root / ".wavefoundry" / "framework" / "index" / "index-build-stats.json"
@@ -1720,6 +1743,144 @@ def _write_index_build_stats_file(root: Path, layer: str, stats: dict[str, Any])
         path.write_text(json.dumps(stats), encoding="utf-8")
     except Exception:
         pass
+
+
+def _parse_finished_build_stats_from_log(
+    root: Path,
+    layer: str,
+    log_path: Path,
+    *,
+    state_path: Optional[Path] = None,
+    fallback_stats: Optional[dict[str, Any]] = None,
+) -> Optional[tuple[dict[str, Any], float]]:
+    """Return parsed build stats plus the log mtime, or None if the log is not terminal."""
+    if not isinstance(root, Path):
+        return None
+    try:
+        active = _index_build_active(root, layer)
+    except Exception:
+        active = False
+    if active or not log_path.exists():
+        return None
+
+    try:
+        log_text = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    if not log_text:
+        return None
+    if not (
+        re.search(r"done\s*[—-]+\s*\d+\s+files? indexed,\s*\d+\s+doc chunks?,\s*\d+\s+code chunks?", log_text)
+        or re.search(r"index is up to date", log_text)
+    ):
+        return None
+
+    files_indexed: Optional[int] = None
+    doc_chunks: Optional[int] = None
+    code_chunks: Optional[int] = None
+    m = re.search(r"done\s*[—-]+\s*(\d+)\s+files? indexed,\s*(\d+)\s+doc chunks?,\s*(\d+)\s+code chunks?", log_text)
+    if m:
+        files_indexed, doc_chunks, code_chunks = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if files_indexed is None:
+        return None
+
+    prev_state: dict[str, Any] = {}
+    if state_path is not None:
+        try:
+            if state_path.exists():
+                prev_state = json.loads(state_path.read_text(encoding="utf-8"))
+        except Exception:
+            prev_state = {}
+    if not prev_state and isinstance(fallback_stats, dict):
+        prev_state = dict(fallback_stats)
+
+    started_at = prev_state.get("started_at")
+    try:
+        finished_ts = log_path.stat().st_mtime
+    except OSError:
+        finished_ts = None
+    elapsed = (
+        int(float(finished_ts) - float(started_at))
+        if finished_ts is not None and isinstance(started_at, (int, float))
+        else prev_state.get("elapsed_seconds") if isinstance(prev_state.get("elapsed_seconds"), int) else None
+    )
+    stats = {
+        "elapsed_seconds": elapsed,
+        "files_indexed": files_indexed,
+        "doc_chunks": doc_chunks,
+        "code_chunks": code_chunks,
+        "built_at": (
+            datetime.datetime.utcfromtimestamp(finished_ts).isoformat() + "Z"
+            if finished_ts is not None else prev_state.get("built_at")
+        ),
+        "content": prev_state.get("content"),
+        "mode": "rebuild" if prev_state.get("full") else prev_state.get("mode", "update"),
+    }
+    return stats, float(finished_ts or 0.0)
+
+
+def _refresh_index_build_stats_from_finished_log(
+    root: Path,
+    layer: str,
+    *,
+    log_path: Optional[Path] = None,
+    state_path: Optional[Path] = None,
+    fallback_stats: Optional[dict[str, Any]] = None,
+) -> Optional[dict[str, Any]]:
+    """Persist build stats from a finished build log, if available."""
+    candidate_log = log_path or _index_build_log_path(root, layer)
+    parsed = _parse_finished_build_stats_from_log(
+        root,
+        layer,
+        candidate_log,
+        state_path=state_path or _index_build_state_path(root, layer),
+        fallback_stats=fallback_stats,
+    )
+    if parsed is None:
+        return None
+    stats, _ = parsed
+    _write_index_build_stats_file(root, layer, stats)
+    return stats
+
+
+def _refresh_index_build_stats_from_finished_logs(root: Path, layer: str) -> Optional[dict[str, Any]]:
+    """Persist build stats from the freshest finished build log for a layer."""
+    if not isinstance(root, Path):
+        return None
+    try:
+        active = _index_build_active(root, layer)
+    except Exception:
+        active = False
+    if active:
+        return None
+
+    fallback_stats = _read_index_build_stats_file(root, layer) or {}
+    candidates: list[tuple[Path, Optional[Path]]] = []
+    if layer == "project":
+        candidates.append((_project_background_build_log_path(root), None))
+    candidates.append((_index_build_log_path(root, layer), _index_build_state_path(root, layer)))
+
+    best_stats: Optional[dict[str, Any]] = None
+    best_ts = -1.0
+    for candidate_log, candidate_state in candidates:
+        parsed = _parse_finished_build_stats_from_log(
+            root,
+            layer,
+            candidate_log,
+            state_path=candidate_state,
+            fallback_stats=fallback_stats,
+        )
+        if parsed is None:
+            continue
+        stats, finished_ts = parsed
+        if finished_ts >= best_ts:
+            best_ts = finished_ts
+            best_stats = stats
+
+    if best_stats is None:
+        return None
+    _write_index_build_stats_file(root, layer, best_stats)
+    return best_stats
 
 
 def _index_build_active(root: Path, layer: str) -> bool:
@@ -3719,6 +3880,7 @@ def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
             )
         )
 
+    _refresh_index_build_stats_from_finished_logs(index.root, "project")
     # Always return "ok" when health data was successfully computed — agents
     # read ``readiness_overview`` and ``diagnostics`` to decide whether to
     # reindex.  Reserve ``status: "error"`` for the except branch above (i.e.
@@ -4057,8 +4219,45 @@ def wave_index_build_status_response(root: Path, layer: str = "project") -> dict
         return _response("error", {"layer": layer}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported layer '{layer}'. Use 'project' or 'framework'.")])
     state_path = _index_build_state_path(root, layer_s)
     log_path = _index_build_log_path(root, layer_s)
+    background_status = _background_build_status(root) if layer_s == "project" else "none"
 
     if not state_path.exists():
+        if background_status == "running":
+            pid_path = root / ".wavefoundry" / "index" / "background-build.pid"
+            background_pid: Optional[int] = None
+            background_started_at: Optional[float] = None
+            try:
+                background_pid = int(pid_path.read_text(encoding="utf-8").strip())
+            except (OSError, ValueError):
+                background_pid = None
+            try:
+                background_started_at = pid_path.stat().st_mtime
+            except OSError:
+                background_started_at = None
+            now = _time.time()
+            background_elapsed = (
+                int(now - float(background_started_at))
+                if isinstance(background_started_at, (int, float))
+                else None
+            )
+            running_data: dict[str, Any] = {
+                "layer": layer_s,
+                "state": "running",
+                "source": "background",
+                "pid": background_pid,
+                "started_at": background_started_at,
+                "elapsed_seconds": background_elapsed,
+                "progress": _background_build_progress(root),
+            }
+            _running_prev = _read_index_build_stats_file(root, layer_s)
+            if _running_prev is not None:
+                running_data["previous_stats"] = _running_prev
+            return _response(
+                "ok",
+                running_data,
+                next_tools=["wave_index_build_status"],
+                usage="wave_index_build_status()",
+            )
         return _response("ok", {"layer": layer_s, "state": "idle"}, next_tools=["wave_index_build"], usage="wave_index_build()")
 
     try:
@@ -4090,8 +4289,52 @@ def wave_index_build_status_response(root: Path, layer: str = "project") -> dict
         re.search(r"index is up to date", log_text)
     )
 
+    if layer_s == "project" and background_status == "running":
+        pid_path = root / ".wavefoundry" / "index" / "background-build.pid"
+        background_pid: Optional[int] = None
+        background_started_at: Optional[float] = None
+        try:
+            background_pid = int(pid_path.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            background_pid = None
+        try:
+            background_started_at = pid_path.stat().st_mtime
+        except OSError:
+            background_started_at = None
+        background_elapsed = (
+            int(now - float(background_started_at))
+            if isinstance(background_started_at, (int, float))
+            else None
+        )
+        running_data: dict[str, Any] = {
+            "layer": layer_s,
+            "state": "running",
+            "source": "background",
+            "pid": background_pid,
+            "started_at": background_started_at,
+            "elapsed_seconds": background_elapsed,
+            "progress": _background_build_progress(root),
+        }
+        _running_prev = _read_index_build_stats_file(root, layer_s)
+        if _running_prev is not None:
+            running_data["previous_stats"] = _running_prev
+        return _response(
+            "ok",
+            running_data,
+            next_tools=["wave_index_build_status"],
+            usage="wave_index_build_status()",
+        )
+
     if not log_done and isinstance(pid, int) and _pid_is_running(pid):
-        running_data: dict[str, Any] = {"layer": layer_s, "state": "running", "pid": pid, "started_at": started_at, "elapsed_seconds": elapsed, "progress": last_line}
+        running_data: dict[str, Any] = {
+            "layer": layer_s,
+            "state": "running",
+            "source": "foreground",
+            "pid": pid,
+            "started_at": started_at,
+            "elapsed_seconds": elapsed,
+            "progress": last_line,
+        }
         _running_prev = _read_index_build_stats_file(root, layer_s)
         if _running_prev is not None:
             running_data["previous_stats"] = _running_prev
@@ -4103,6 +4346,7 @@ def wave_index_build_status_response(root: Path, layer: str = "project") -> dict
         )
 
     # Process not running (or log confirms done) — build finished (or crashed). Parse summary from log.
+    _refresh_index_build_stats_from_finished_log(root, layer_s)
     finished_at = None
     if log_path.exists():
         try:
@@ -4134,6 +4378,7 @@ def wave_dashboard_start_response(root: Path) -> dict[str, Any]:
     """Start the local dashboard server (with browser open) or return its URL if already running."""
     import subprocess
     import time as _time
+    import dashboard_lib
 
     meta_path = root / ".wavefoundry" / "dashboard-server.json"
 
@@ -4198,6 +4443,137 @@ def wave_dashboard_start_response(root: Path) -> dict[str, Any]:
         )
 
     return _response("ok", {"started": True, "pid": proc.pid, "url": url}, usage=url)
+
+
+def _dashboard_process_metadata(root: Path) -> tuple[Path, dict[str, Any]]:
+    import dashboard_lib
+
+    meta_path = dashboard_lib.dashboard_metadata_path(root)
+    return meta_path, dashboard_lib.read_dashboard_metadata(root)
+
+
+def _remove_dashboard_metadata(meta_path: Path) -> bool:
+    try:
+        meta_path.unlink()
+        return True
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return False
+
+
+def _terminate_dashboard_pid(pid: int) -> bool:
+    import subprocess
+    import time as _time
+
+    if pid <= 0:
+        return True
+
+    if os.name == "nt":
+        try:
+            completed = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        except OSError:
+            return False
+        return completed.returncode == 0 or not _pid_is_running(pid)
+
+    import signal
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False
+
+    deadline = _time.monotonic() + 5.0
+    while _time.monotonic() < deadline:
+        if not _pid_is_running(pid):
+            return True
+        try:
+            ended_pid, _ = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            ended_pid = 0
+        except OSError:
+            ended_pid = 0
+        if ended_pid == pid:
+            return True
+        _time.sleep(0.1)
+
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False
+
+    deadline = _time.monotonic() + 2.0
+    while _time.monotonic() < deadline:
+        if not _pid_is_running(pid):
+            return True
+        try:
+            ended_pid, _ = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            ended_pid = 0
+        except OSError:
+            ended_pid = 0
+        if ended_pid == pid:
+            return True
+        _time.sleep(0.1)
+
+    return not _pid_is_running(pid)
+
+
+def wave_dashboard_stop_response(root: Path) -> dict[str, Any]:
+    meta_path, meta = _dashboard_process_metadata(root)
+    pid = meta.get("pid")
+    url = meta.get("url", "")
+
+    summary: dict[str, Any] = {
+        "pid": pid if isinstance(pid, int) else None,
+        "url": url if isinstance(url, str) else "",
+    }
+    if not isinstance(pid, int):
+        summary.update({"already_stopped": True, "metadata_removed": _remove_dashboard_metadata(meta_path)})
+        return _response("ok", summary, usage="wave_dashboard_stop()")
+
+    if not _pid_is_running(pid):
+        summary.update({"already_stopped": True, "metadata_removed": _remove_dashboard_metadata(meta_path)})
+        return _response("ok", summary, usage="wave_dashboard_stop()")
+
+    if not _terminate_dashboard_pid(pid):
+        return _response(
+            "error",
+            summary,
+            diagnostics=[_diagnostic("stop_failed", f"Dashboard process {pid} for this repository did not exit cleanly.")],
+            usage="wave_dashboard_stop()",
+        )
+
+    summary.update({"stopped": True, "metadata_removed": _remove_dashboard_metadata(meta_path)})
+    return _response("ok", summary, usage="wave_dashboard_stop()")
+
+
+def wave_dashboard_restart_response(root: Path) -> dict[str, Any]:
+    stop_env = wave_dashboard_stop_response(root)
+    if stop_env.get("status") != "ok":
+        return stop_env
+    start_env = wave_dashboard_start_response(root)
+    if start_env.get("status") != "ok":
+        return start_env
+    data = dict(stop_env.get("data", {}))
+    data.update(start_env.get("data", {}))
+    data["restarted"] = True
+    return _response(
+        "ok",
+        data,
+        diagnostics=list(stop_env.get("diagnostics", [])) + list(start_env.get("diagnostics", [])),
+        next_tools=list(start_env.get("next_tools", [])),
+        usage=start_env.get("usage", ""),
+    )
 
 
 def wave_run_sensors_response(root: Path) -> dict[str, Any]:
@@ -4991,6 +5367,9 @@ Wave: TBD
 
 ## Acceptance Criteria
 
+- AC-1:
+- AC-2:
+
 ## Tasks
 
 ## Affected Architecture Docs
@@ -5164,7 +5543,7 @@ _EXT_TO_LANG: dict[str, str] = {
     ".sh": "shell", ".bash": "shell", ".zsh": "shell", ".fish": "fish",
     ".kt": "kotlin", ".kts": "kotlin", ".groovy": "groovy", ".scala": "scala",
     ".css": "css", ".scss": "scss",
-    ".sql": "sql", ".xml": "xml",
+    ".sql": "sql", ".psql": "sql", ".pgsql": "sql", ".ddl": "sql", ".dml": "sql", ".tsql": "sql", ".hql": "sql", ".xml": "xml",
     ".html": "html", ".htm": "html",
     ".swift": "swift",
     ".json": "json", ".jsonc": "json",
@@ -5190,12 +5569,12 @@ _LANG_CATEGORIES: dict[str, frozenset] = {
     "script":   frozenset({"python", "ruby", "shell", "fish"}),
 }
 
-_TREE_SITTER_DEFINITION_LANGS = {"javascript", "typescript", "java", "csharp"}
-_TREE_SITTER_REFERENCE_LANGS = {"javascript", "typescript", "java", "csharp"}
+_TREE_SITTER_DEFINITION_LANGS = {"javascript", "typescript", "java", "csharp", "sql"}
+_TREE_SITTER_REFERENCE_LANGS = {"javascript", "typescript", "java", "csharp", "sql"}
 _CHUNKER_MOD = None
 
 _SUPPORTED_DEFINITION_LANGS = {
-    "python", "javascript", "typescript", "go", "rust", "java", "csharp", "kotlin", "swift",
+    "python", "javascript", "typescript", "go", "rust", "java", "csharp", "kotlin", "swift", "sql",
 }
 _SUPPORTED_REFERENCE_LANGS = set(_LANG_TO_EXTS)
 
@@ -5207,9 +5586,61 @@ _TS_CALL_PARENT_TYPES: dict[str, set[str]] = {
     "typescript": {"call_expression", "new_expression"},
     "java": {"method_invocation", "object_creation_expression"},
     "csharp": {"invocation_expression", "object_creation_expression"},
+    "sql": {"function_call", "call", "call_expression", "routine_invocation"},
+}
+
+_TS_IMPORT_PARENT_TYPES: dict[str, set[str]] = {
+    "javascript": {"import_statement", "import_clause", "import_specifier", "named_imports", "namespace_import"},
+    "typescript": {"import_statement", "import_clause", "import_specifier", "named_imports", "namespace_import"},
+    "java": {"import_declaration"},
+    "csharp": {"using_directive"},
+    "sql": {"with_clause"},
 }
 
 _IDENTIFIER_SYMBOL_RE = re.compile(r"^[A-Za-z_]\w*$")
+
+
+def _sql_symbol_variants(symbol: str) -> set[str]:
+    symbol_s = symbol.strip()
+    variants = {symbol_s}
+    if "." in symbol_s:
+        variants.add(symbol_s.rsplit(".", 1)[-1])
+    return variants
+
+
+def _sql_symbol_matches(candidate: str, symbol: str) -> bool:
+    candidate_s = candidate.strip()
+    symbol_s = symbol.strip()
+    if candidate_s == symbol_s:
+        return True
+    candidate_base = candidate_s.rsplit(".", 1)[-1]
+    symbol_base = symbol_s.rsplit(".", 1)[-1]
+    if candidate_base != symbol_base:
+        return False
+    candidate_qualified = "." in candidate_s
+    symbol_qualified = "." in symbol_s
+    return candidate_qualified != symbol_qualified
+
+
+def _sql_schema_retry_symbol(symbol: str) -> Optional[str]:
+    symbol_s = symbol.strip()
+    if "." not in symbol_s:
+        return None
+    retry = symbol_s.rsplit(".", 1)[-1].strip()
+    return retry if retry and retry != symbol_s else None
+
+
+def _sql_schema_doc_mention_refs(root: Path, symbol: str) -> list[dict[str, Any]]:
+    """Return doc/mention hits for a schema-qualified SQL symbol using the bare name."""
+    retry_symbol = _sql_schema_retry_symbol(symbol)
+    if retry_symbol is None:
+        return []
+    refs: list[dict[str, Any]] = []
+    for ref in _non_python_references(root, retry_symbol):
+        if ref.get("reference_kind") in {"docs", "mention"}:
+            ref["sql_query_symbol"] = retry_symbol
+            refs.append(ref)
+    return refs
 
 # Regex-based structural definition patterns for languages where we have a
 # reliable top-level symbol shape but no AST/LSP navigation in the MCP layer.
@@ -5309,6 +5740,25 @@ def _symbol_search_pattern(symbol: str) -> re.Pattern:
     return re.compile(re.escape(symbol))
 
 
+def _definition_match_kind(name: str, symbol: str) -> str:
+    return "exact" if name == symbol else "partial"
+
+
+def _definition_sort_key(defn: dict[str, Any], symbol: str) -> tuple[int, int, int, int, str, int]:
+    match_rank = 0 if str(defn.get("name", "")) == symbol else 1
+    method_rank = {"ast": 0, "treesitter": 1, "regex": 2, "keyword_fallback": 3}.get(str(defn.get("method", "")), 4)
+    language_rank = 0 if str(defn.get("language", "")) == "python" else 1
+    kind_rank = {"class": 0, "interface": 1, "enum": 2, "struct": 3, "record": 4, "method": 5, "function": 6, "variable": 7, "symbol": 8}.get(str(defn.get("kind", "symbol")), 9)
+    return (
+        match_rank,
+        method_rank,
+        language_rank,
+        kind_rank,
+        str(defn.get("path", "")),
+        int(defn.get("line", 0) or 0),
+    )
+
+
 def _python_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
     """Find function/class definitions matching *symbol* in Python files via AST."""
     import ast as _ast
@@ -5335,6 +5785,7 @@ def _python_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
                     "name": name,
                     "language": "python",
                     "method": "ast",
+                    "match_kind": _definition_match_kind(name, symbol),
                 })
     return results
 
@@ -5422,6 +5873,7 @@ def _treesitter_definition_results(root: Path, symbol: str) -> list[dict[str, An
         "typescript": chunker.chunk_js_ts_treesitter,
         "java": chunker.chunk_java_treesitter,
         "csharp": chunker.chunk_csharp_treesitter,
+        "sql": chunker.chunk_sql,
     }
     results: list[dict[str, Any]] = []
     root_r = root.resolve()
@@ -5455,14 +5907,16 @@ def _treesitter_definition_results(root: Path, symbol: str) -> list[dict[str, An
                 match_name = local_id[: -len(".__decl__")]
                 if lang in {"java", "csharp"}:
                     kind = "class"
+                elif lang == "sql":
+                    kind = "object"
                 else:
                     kind = "class"
             elif "." in local_id:
                 match_name = local_id.split(".")[-1]
                 kind = "method"
             else:
-                kind = "function"
-            if match_name == symbol or symbol in match_name:
+                kind = "object" if lang == "sql" else "function"
+            if (lang == "sql" and _sql_symbol_matches(match_name, symbol)) or match_name == symbol or symbol in match_name:
                 results.append({
                     "path": rel,
                     "line": line,
@@ -5471,6 +5925,7 @@ def _treesitter_definition_results(root: Path, symbol: str) -> list[dict[str, An
                     "language": lang,
                     "method": "treesitter",
                     "section": section,
+                    "match_kind": _definition_match_kind(match_name, symbol),
                 })
     return results
 
@@ -5480,6 +5935,7 @@ _TS_IDENTIFIER_NODE_TYPES: dict[str, set[str]] = {
     "typescript": {"identifier", "property_identifier", "type_identifier"},
     "java": {"identifier"},
     "csharp": {"identifier"},
+    "sql": {"identifier", "bare_identifier", "quoted_identifier", "object_reference", "column_reference"},
 }
 
 _TS_DEFINITION_PARENT_TYPES: dict[str, set[str]] = {
@@ -5529,7 +5985,7 @@ def _treesitter_references(root: Path, symbol: str) -> list[dict[str, Any]]:
             node = stack.pop()
             if getattr(node, "type", "") in id_types:
                 text = source_lines[node.start_point[0]][node.start_point[1]:node.end_point[1]]
-                if text == symbol:
+                if (lang == "sql" and _sql_symbol_matches(text, symbol)) or text == symbol:
                     line = node.start_point[0] + 1
                     snippet = source_lines[node.start_point[0]].rstrip()
                     parent = getattr(node, "parent", None)
@@ -5578,6 +6034,7 @@ def _regex_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
                         "name": name,
                         "language": lang,
                         "method": "regex",
+                        "match_kind": _definition_match_kind(name, symbol),
                     })
                 break
     return results
@@ -5588,6 +6045,7 @@ def _non_python_references(root: Path, symbol: str) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     root_r = root.resolve()
     pattern = _symbol_search_pattern(symbol)
+    sql_variants = _sql_symbol_variants(symbol) if "." in symbol else {symbol}
     for p in _walk_repo_for_navigation(root):
         lang = _detect_language(str(p))
         if lang == "python":
@@ -5598,7 +6056,14 @@ def _non_python_references(root: Path, symbol: str) -> list[dict[str, Any]]:
             continue
         rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
         for lineno, line in enumerate(source.splitlines(), 1):
-            if pattern.search(line):
+            if lang == "sql" and sql_variants:
+                matched = any(
+                    re.search(rf"(?<!\w){re.escape(variant)}(?!\w)", line)
+                    for variant in sql_variants
+                )
+            else:
+                matched = bool(pattern.search(line))
+            if matched:
                 results.append({
                     "path": rel,
                     "line": lineno,
@@ -5634,6 +6099,7 @@ def _keyword_fallback_definitions(root: Path, symbol: str) -> list[dict[str, Any
                     "snippet": line.rstrip(),
                     "language": _detect_language(rel),
                     "method": "keyword_fallback",
+                    "match_kind": "exact" if pattern.search(line) and re.search(rf"\b{re.escape(symbol)}\b", line) else "partial",
                 })
                 if len(results) >= _KEYWORD_FALLBACK_RESULT_CAP:
                     break
@@ -5656,7 +6122,7 @@ def _dedupe_navigation_results(results: list[dict[str, Any]], key_fields: tuple[
 def _reference_counts(refs: list[dict[str, Any]]) -> dict[str, int]:
     counts = {"call_sites": 0, "other": 0, "docs": 0, "tests": 0}
     for ref in refs:
-        counts[_reference_bucket(str(ref.get("reference_kind", "other")))] += 1
+        counts[_reference_bucket(str(ref.get("reference_bucket", ref.get("reference_kind", "other"))))] += 1
     return counts
 
 
@@ -5677,15 +6143,23 @@ def _text_reference_kind(path: str, line: str, symbol: str) -> str:
         return "docs"
     stripped = line.strip()
     if not stripped:
-        return "other"
-    if stripped.startswith(("def ", "class ", "func ", "function ", "const ", "let ", "var ", "type ", "interface ", "enum ", "record ", "struct ", "import ", "from ", "export ")):
-        return "other"
+        return "mention"
+    if stripped.startswith(("import ", "from ", "export ", "using ", "package ")):
+        return "import"
+    if re.match(rf"^(?:def|class|func|function|const|let|var|type|interface|enum|record|struct)\s+{re.escape(symbol)}\b", stripped):
+        return "definition"
+    if re.match(rf"^(?:public|private|protected|internal|static|final|abstract|sealed|export)\b", stripped) and symbol in stripped:
+        return "definition"
     if re.search(rf"\b{re.escape(symbol)}\s*\(", line):
         return "call_sites"
-    return "other"
+    if re.search(rf"\b{re.escape(symbol)}\b", line):
+        return "mention"
+    return "mention"
 
 
 def _tree_sitter_reference_kind(lang: str, node: Any, symbol: str, source_lines: list[str]) -> str:
+    if lang == "sql":
+        return _sql_tree_sitter_reference_kind(node, symbol, source_lines)
     path = getattr(node, "parent", None)
     ancestor = path
     depth = 0
@@ -5694,12 +6168,43 @@ def _tree_sitter_reference_kind(lang: str, node: Any, symbol: str, source_lines:
             return "call_sites"
         ancestor = getattr(ancestor, "parent", None)
         depth += 1
+    ancestor = path
+    depth = 0
+    while ancestor is not None and depth < 4:
+        if getattr(ancestor, "type", "") in _TS_IMPORT_PARENT_TYPES.get(lang, set()):
+            return "import"
+        ancestor = getattr(ancestor, "parent", None)
+        depth += 1
     if path is not None and getattr(path, "type", "") in _TS_DEFINITION_PARENT_TYPES.get(lang, set()):
-        return "other"
+        return "definition"
     line_idx = getattr(node, "start_point", (0, 0))[0]
     if 0 <= line_idx < len(source_lines):
         return _text_reference_kind("", source_lines[line_idx], symbol)
-    return "other"
+    return "mention"
+
+
+def _sql_tree_sitter_reference_kind(node: Any, symbol: str, source_lines: list[str]) -> str:
+    ancestor = getattr(node, "parent", None)
+    depth = 0
+    while ancestor is not None and depth < 4:
+        ancestor_type = getattr(ancestor, "type", "").lower()
+        if any(token in ancestor_type for token in ("call", "function", "routine")):
+            return "call_sites"
+        if any(token in ancestor_type for token in ("create", "alter", "drop", "declare", "definition", "table", "view", "procedure", "index", "schema", "trigger", "type")):
+            return "definition"
+        ancestor = getattr(ancestor, "parent", None)
+        depth += 1
+    line_idx = getattr(node, "start_point", (0, 0))[0]
+    if 0 <= line_idx < len(source_lines):
+        line = source_lines[line_idx]
+        stripped = line.strip()
+        if re.match(rf"^(?:CREATE|ALTER|DROP)\b.*\b{re.escape(symbol)}\b", stripped, re.IGNORECASE):
+            return "definition"
+        if re.search(rf"\b{re.escape(symbol)}\s*\(", line):
+            return "call_sites"
+        if re.search(rf"\b{re.escape(symbol)}\b", line):
+            return "mention"
+    return "mention"
 
 
 def _reference_bucket(kind: str) -> str:
@@ -5711,9 +6216,16 @@ def _reference_bucket(kind: str) -> str:
         return "docs"
     return "other"
 
-
 def _reference_sort_key(ref: dict[str, Any]) -> tuple[int, int, int, str, int, str]:
-    kind_rank = {"call_sites": 0, "other": 1, "docs": 2, "tests": 3}.get(str(ref.get("reference_kind", "other")), 1)
+    kind_rank = {
+        "call_sites": 0,
+        "definition": 1,
+        "import": 2,
+        "mention": 3,
+        "other": 4,
+        "docs": 5,
+        "tests": 6,
+    }.get(str(ref.get("reference_kind", "other")), 4)
     language_rank = 0 if ref.get("language") == "python" else 1
     method_rank = 0 if str(ref.get("method", "")).startswith("treesitter") else 1
     return (
@@ -5726,36 +6238,51 @@ def _reference_sort_key(ref: dict[str, Any]) -> tuple[int, int, int, str, int, s
     )
 
 
+def _reference_detail_counts(refs: list[dict[str, Any]]) -> dict[str, int]:
+    counts = {"call_sites": 0, "definition": 0, "import": 0, "mention": 0, "docs": 0, "tests": 0, "other": 0}
+    for ref in refs:
+        kind = str(ref.get("reference_kind", "other"))
+        counts[kind] = counts.get(kind, 0) + 1
+    return counts
+
+
 def _apply_reference_filters(
     refs: list[dict[str, Any]],
     *,
     exclude_tests: bool = False,
     exclude_docs: bool = False,
     call_sites_only: bool = False,
-) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, int]]:
+) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, int], dict[str, int], dict[str, int]]:
     """Normalize reference kinds, sort by signal, and apply optional filters."""
     all_counts = {"call_sites": 0, "other": 0, "docs": 0, "tests": 0}
     filtered_counts = {"call_sites": 0, "other": 0, "docs": 0, "tests": 0}
+    detail_all_counts = {"call_sites": 0, "definition": 0, "import": 0, "mention": 0, "docs": 0, "tests": 0, "other": 0}
+    detail_filtered_counts = {"call_sites": 0, "definition": 0, "import": 0, "mention": 0, "docs": 0, "tests": 0, "other": 0}
     filtered: list[dict[str, Any]] = []
     for ref in refs:
-        kind = _reference_bucket(str(ref.get("reference_kind", "other")))
-        ref["reference_kind"] = kind
-        all_counts[kind] += 1
-        if call_sites_only and kind != "call_sites":
+        detail_kind = str(ref.get("reference_kind", "other"))
+        broad_kind = _reference_bucket(detail_kind)
+        ref["reference_kind"] = detail_kind
+        ref["reference_bucket"] = broad_kind
+        all_counts[broad_kind] += 1
+        detail_all_counts[detail_kind] = detail_all_counts.get(detail_kind, 0) + 1
+        if call_sites_only and broad_kind != "call_sites":
             continue
-        if exclude_tests and kind == "tests":
+        if exclude_tests and broad_kind == "tests":
             continue
-        if exclude_docs and kind == "docs":
+        if exclude_docs and broad_kind == "docs":
             continue
-        filtered_counts[kind] += 1
+        filtered_counts[broad_kind] += 1
+        detail_filtered_counts[detail_kind] = detail_filtered_counts.get(detail_kind, 0) + 1
         filtered.append(ref)
     filtered.sort(key=_reference_sort_key)
-    return filtered, filtered_counts, all_counts
+    return filtered, filtered_counts, all_counts, detail_filtered_counts, detail_all_counts
 
 
 def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[str, Any]:
     """Find definition(s) for a symbol across Python AST and supported non-Python regex matchers."""
     symbol = symbol_or_path_position.strip()
+    retry_symbol = _sql_schema_retry_symbol(symbol)
     if not symbol:
         return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("invalid_arguments", "Symbol must be a non-empty string.")], next_tools=["code_keyword_search"], usage="code_keyword_search(query='MyClass')")
     try:
@@ -5768,6 +6295,21 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
         python_definitions + treesitter_definitions + regex_definitions,
         ("path", "line", "language", "name"),
     )
+    note = None
+    if not definitions and retry_symbol is not None:
+        try:
+            python_definitions = _python_definitions(root, retry_symbol)
+            treesitter_definitions = _treesitter_definition_results(root, retry_symbol)
+            regex_definitions = _regex_definitions(root, retry_symbol)
+        except Exception as exc:
+            return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Definition search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
+        definitions = _dedupe_navigation_results(
+            python_definitions + treesitter_definitions + regex_definitions,
+            ("path", "line", "language", "name"),
+        )
+        if definitions:
+            note = f"Retried lookup with schema-stripped SQL symbol '{retry_symbol}'."
+    definitions.sort(key=lambda d: _definition_sort_key(d, symbol))
     if definitions:
         languages = sorted({d.get("language") for d in definitions if d.get("language")})
         definition_methods = {d.get("method") for d in definitions}
@@ -5775,7 +6317,7 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
         if definition_methods == {"ast"}:
             return _response(
                 "ok",
-                {"symbol": symbol, "language": "python", "definitions": definitions, "supported_languages": sorted(_SUPPORTED_DEFINITION_LANGS), "method": "ast"},
+                {"symbol": symbol, "language": "python", "definitions": definitions, "supported_languages": sorted(_SUPPORTED_DEFINITION_LANGS), "method": "ast", **({"note": note} if note else {})},
                 next_tools=["code_read"],
                 usage=f"code_read(path={definitions[0]['path']!r}, start_line={definitions[0]['line']}, end_line={definitions[0]['line'] + 20})",
             )
@@ -5785,19 +6327,21 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
             method = "regex"
         return _response(
             "ok",
-            {
-                "symbol": symbol,
-                "definitions": definitions,
-                "supported_languages": sorted(_SUPPORTED_DEFINITION_LANGS),
-                "method": method,
-                "languages": languages,
-            },
-            next_tools=["code_read"],
-            usage=f"code_read(path={definitions[0]['path']!r}, start_line={definitions[0]['line']}, end_line={definitions[0]['line'] + 20})",
-        )
+                {
+                    "symbol": symbol,
+                    "definitions": definitions,
+                    "supported_languages": sorted(_SUPPORTED_DEFINITION_LANGS),
+                    "method": method,
+                    "languages": languages,
+                    **({"note": note} if note else {}),
+                },
+                next_tools=["code_read"],
+                usage=f"code_read(path={definitions[0]['path']!r}, start_line={definitions[0]['line']}, end_line={definitions[0]['line'] + 20})",
+            )
+    fallback_symbol = retry_symbol or symbol
     # No structural definitions found — run keyword fallback across all files.
     try:
-        fallback = _keyword_fallback_definitions(root, symbol)
+        fallback = _keyword_fallback_definitions(root, fallback_symbol)
     except Exception as exc:
         return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Fallback search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
     if not fallback:
@@ -5810,7 +6354,7 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
         )
     return _response(
         "ok",
-        {"symbol": symbol, "definitions": fallback, "method": "keyword_fallback", "note": "No structural definition matcher found a result. Returning broad keyword matches across the repo."},
+        {"symbol": symbol, "definitions": fallback, "method": "keyword_fallback", "note": note or (f"Retried lookup with schema-stripped SQL symbol '{retry_symbol}'." if retry_symbol else "No structural definition matcher found a result. Returning broad keyword matches across the repo.")},
         next_tools=["code_read"],
         usage=f"code_read(path={fallback[0]['path']!r}, start_line={fallback[0]['line']}, end_line={fallback[0]['line'] + 20})",
     )
@@ -5827,6 +6371,7 @@ def code_references_response(
 ) -> dict[str, Any]:
     """Find references to a symbol across known code languages with structural call-site detection where available."""
     symbol = symbol_or_path_position.strip()
+    retry_symbol = _sql_schema_retry_symbol(symbol)
     if not symbol:
         return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("invalid_arguments", "Symbol must be a non-empty string.")], next_tools=["code_keyword_search"], usage="code_keyword_search(query='my_func')")
     if limit is not None and limit < 0:
@@ -5841,8 +6386,16 @@ def code_references_response(
         python_refs + treesitter_refs + other_refs,
         ("path", "line", "language", "snippet"),
     )
+    note = None
+    sql_doc_refs = _sql_schema_doc_mention_refs(root, symbol)
+    if sql_doc_refs:
+        refs = _dedupe_navigation_results(
+            refs + sql_doc_refs,
+            ("path", "line", "language", "snippet"),
+        )
+        note = f"Included docs and mention matches from schema-stripped SQL symbol '{_sql_schema_retry_symbol(symbol)}'."
     if refs:
-        refs, filtered_counts, all_counts = _apply_reference_filters(
+        refs, filtered_counts, all_counts, detail_filtered_counts, detail_all_counts = _apply_reference_filters(
             refs,
             exclude_tests=exclude_tests,
             exclude_docs=exclude_docs,
@@ -5853,9 +6406,25 @@ def code_references_response(
         if limit is not None and limit > 0:
             refs = refs[:limit]
         returned_counts = _reference_counts(refs)
+        detail_returned_counts = _reference_detail_counts(refs)
         languages = sorted({r.get("language") for r in refs if r.get("language")})
         ref_methods = {r.get("method") for r in refs}
         method = "multi_language"
+        broad_buckets = {
+            "call_sites": [r for r in refs if _reference_bucket(str(r["reference_kind"])) == "call_sites"],
+            "other": [r for r in refs if _reference_bucket(str(r["reference_kind"])) == "other"],
+            "docs": [r for r in refs if _reference_bucket(str(r["reference_kind"])) == "docs"],
+            "tests": [r for r in refs if _reference_bucket(str(r["reference_kind"])) == "tests"],
+        }
+        detail_buckets = {
+            "call_sites": [r for r in refs if r["reference_kind"] == "call_sites"],
+            "definition": [r for r in refs if r["reference_kind"] == "definition"],
+            "import": [r for r in refs if r["reference_kind"] == "import"],
+            "mention": [r for r in refs if r["reference_kind"] == "mention"],
+            "docs": [r for r in refs if r["reference_kind"] == "docs"],
+            "tests": [r for r in refs if r["reference_kind"] == "tests"],
+            "other": [r for r in refs if r["reference_kind"] == "other"],
+        }
         if languages == ["python"] and ref_methods.issubset({"ast", "text"}):
             return _response(
                 "ok",
@@ -5868,13 +6437,12 @@ def code_references_response(
                     "counts": returned_counts,
                     "matched_counts": matched_counts,
                     "all_counts": all_counts,
+                    "detail_counts": detail_returned_counts,
+                    "detail_matched_counts": detail_filtered_counts,
+                    "detail_all_counts": detail_all_counts,
                     "references": refs,
-                    "buckets": {
-                        "call_sites": [r for r in refs if r["reference_kind"] == "call_sites"],
-                        "other": [r for r in refs if r["reference_kind"] == "other"],
-                        "docs": [r for r in refs if r["reference_kind"] == "docs"],
-                        "tests": [r for r in refs if r["reference_kind"] == "tests"],
-                    },
+                    "buckets": broad_buckets,
+                    "detail_buckets": detail_buckets,
                     "method": "ast",
                     "supported_languages": sorted(_SUPPORTED_REFERENCE_LANGS),
                     "exclude_tests": exclude_tests,
@@ -5899,16 +6467,16 @@ def code_references_response(
                 "counts": returned_counts,
                 "matched_counts": matched_counts,
                 "all_counts": all_counts,
+                "detail_counts": detail_returned_counts,
+                "detail_matched_counts": detail_filtered_counts,
+                "detail_all_counts": detail_all_counts,
                 "references": refs,
-                "buckets": {
-                    "call_sites": [r for r in refs if r["reference_kind"] == "call_sites"],
-                    "other": [r for r in refs if r["reference_kind"] == "other"],
-                    "docs": [r for r in refs if r["reference_kind"] == "docs"],
-                    "tests": [r for r in refs if r["reference_kind"] == "tests"],
-                },
+                "buckets": broad_buckets,
+                "detail_buckets": detail_buckets,
                 "method": method,
                 "supported_languages": sorted(_SUPPORTED_REFERENCE_LANGS),
                 "languages": languages,
+                **({"note": note} if note else {}),
                 "exclude_tests": exclude_tests,
                 "exclude_docs": exclude_docs,
                 "call_sites_only": call_sites_only,
@@ -5917,9 +6485,122 @@ def code_references_response(
             next_tools=["code_read"],
             usage=f"code_read(path='...', start_line=N, end_line=N+20)",
         )
+    if retry_symbol is not None:
+        try:
+            python_refs = _python_references(root, retry_symbol)
+            treesitter_refs = _treesitter_references(root, retry_symbol)
+            other_refs = _non_python_references(root, retry_symbol)
+        except Exception as exc:
+            return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Reference search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
+        refs = _dedupe_navigation_results(
+            python_refs + treesitter_refs + other_refs,
+            ("path", "line", "language", "snippet"),
+        )
+        sql_doc_refs = _sql_schema_doc_mention_refs(root, symbol)
+        if sql_doc_refs:
+            refs = _dedupe_navigation_results(
+                refs + sql_doc_refs,
+                ("path", "line", "language", "snippet"),
+            )
+            note = f"Included docs and mention matches from schema-stripped SQL symbol '{retry_symbol}'."
+        if refs:
+            if note is None:
+                note = f"Retried lookup with schema-stripped SQL symbol '{retry_symbol}'."
+            refs, filtered_counts, all_counts, detail_filtered_counts, detail_all_counts = _apply_reference_filters(
+                refs,
+                exclude_tests=exclude_tests,
+                exclude_docs=exclude_docs,
+                call_sites_only=call_sites_only,
+            )
+            matched_count = len(refs)
+            matched_counts = dict(filtered_counts)
+            if limit is not None and limit > 0:
+                refs = refs[:limit]
+            returned_counts = _reference_counts(refs)
+            detail_returned_counts = _reference_detail_counts(refs)
+            languages = sorted({r.get("language") for r in refs if r.get("language")})
+            ref_methods = {r.get("method") for r in refs}
+            method = "multi_language"
+            broad_buckets = {
+                "call_sites": [r for r in refs if _reference_bucket(str(r["reference_kind"])) == "call_sites"],
+                "other": [r for r in refs if _reference_bucket(str(r["reference_kind"])) == "other"],
+                "docs": [r for r in refs if _reference_bucket(str(r["reference_kind"])) == "docs"],
+                "tests": [r for r in refs if _reference_bucket(str(r["reference_kind"])) == "tests"],
+            }
+            detail_buckets = {
+                "call_sites": [r for r in refs if r["reference_kind"] == "call_sites"],
+                "definition": [r for r in refs if r["reference_kind"] == "definition"],
+                "import": [r for r in refs if r["reference_kind"] == "import"],
+                "mention": [r for r in refs if r["reference_kind"] == "mention"],
+                "docs": [r for r in refs if r["reference_kind"] == "docs"],
+                "tests": [r for r in refs if r["reference_kind"] == "tests"],
+                "other": [r for r in refs if r["reference_kind"] == "other"],
+            }
+            if languages == ["python"] and ref_methods.issubset({"ast", "text"}):
+                return _response(
+                    "ok",
+                    {
+                        "symbol": symbol,
+                        "language": "python",
+                        "count": len(refs),
+                        "matched_count": matched_count,
+                        "total_count": sum(all_counts.values()),
+                        "counts": returned_counts,
+                        "matched_counts": matched_counts,
+                        "all_counts": all_counts,
+                        "detail_counts": detail_returned_counts,
+                        "detail_matched_counts": detail_filtered_counts,
+                        "detail_all_counts": detail_all_counts,
+                        "references": refs,
+                        "buckets": broad_buckets,
+                        "detail_buckets": detail_buckets,
+                        "method": "ast",
+                        "supported_languages": sorted(_SUPPORTED_REFERENCE_LANGS),
+                        "exclude_tests": exclude_tests,
+                        "exclude_docs": exclude_docs,
+                        "call_sites_only": call_sites_only,
+                        "limit": limit,
+                        **({"note": note} if note else {}),
+                    },
+                    next_tools=["code_read"],
+                    usage=f"code_read(path='...', start_line=N, end_line=N+20)",
+                )
+            if all(str(m).startswith("treesitter") for m in ref_methods):
+                method = "treesitter"
+            elif ref_methods == {"text"}:
+                method = "text"
+            return _response(
+                "ok",
+                {
+                    "symbol": symbol,
+                    "count": len(refs),
+                    "matched_count": matched_count,
+                    "total_count": sum(all_counts.values()),
+                    "counts": returned_counts,
+                    "matched_counts": matched_counts,
+                    "all_counts": all_counts,
+                    "detail_counts": detail_returned_counts,
+                    "detail_matched_counts": detail_filtered_counts,
+                    "detail_all_counts": detail_all_counts,
+                    "references": refs,
+                    "buckets": broad_buckets,
+                    "detail_buckets": detail_buckets,
+                    "method": method,
+                    "supported_languages": sorted(_SUPPORTED_REFERENCE_LANGS),
+                    "languages": languages,
+                    **({"note": note} if note else {}),
+                    "exclude_tests": exclude_tests,
+                    "exclude_docs": exclude_docs,
+                    "call_sites_only": call_sites_only,
+                    "limit": limit,
+                },
+                next_tools=["code_read"],
+                usage=f"code_read(path='...', start_line=N, end_line=N+20)",
+            )
+    fallback_symbol = retry_symbol or symbol
     # No known-language references — run broad keyword fallback across all files.
     try:
-        fallback = _keyword_fallback_definitions(root, symbol)
+        fallback = _keyword_fallback_definitions(root, fallback_symbol)
     except Exception as exc:
         return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Fallback search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
     if not fallback:
@@ -5931,7 +6612,7 @@ def code_references_response(
             usage=f"code_keyword_search(query={symbol!r})",
         )
     fallback_total = len(fallback)
-    fallback, fallback_counts, fallback_all_counts = _apply_reference_filters(
+    fallback, fallback_counts, fallback_all_counts, fallback_detail_counts, fallback_detail_all_counts = _apply_reference_filters(
         fallback,
         exclude_tests=exclude_tests,
         exclude_docs=exclude_docs,
@@ -5942,6 +6623,22 @@ def code_references_response(
     if limit is not None and limit > 0:
         fallback = fallback[:limit]
     fallback_returned_counts = _reference_counts(fallback)
+    fallback_detail_returned_counts = _reference_detail_counts(fallback)
+    fallback_buckets = {
+        "call_sites": [r for r in fallback if _reference_bucket(str(r["reference_kind"])) == "call_sites"],
+        "other": [r for r in fallback if _reference_bucket(str(r["reference_kind"])) == "other"],
+        "docs": [r for r in fallback if _reference_bucket(str(r["reference_kind"])) == "docs"],
+        "tests": [r for r in fallback if _reference_bucket(str(r["reference_kind"])) == "tests"],
+    }
+    fallback_detail_buckets = {
+        "call_sites": [r for r in fallback if r["reference_kind"] == "call_sites"],
+        "definition": [r for r in fallback if r["reference_kind"] == "definition"],
+        "import": [r for r in fallback if r["reference_kind"] == "import"],
+        "mention": [r for r in fallback if r["reference_kind"] == "mention"],
+        "docs": [r for r in fallback if r["reference_kind"] == "docs"],
+        "tests": [r for r in fallback if r["reference_kind"] == "tests"],
+        "other": [r for r in fallback if r["reference_kind"] == "other"],
+    }
     return _response(
         "ok",
         {
@@ -5953,12 +6650,11 @@ def code_references_response(
             "counts": fallback_returned_counts,
             "matched_counts": fallback_matched_counts,
             "all_counts": fallback_all_counts,
-            "buckets": {
-                "call_sites": [r for r in fallback if r["reference_kind"] == "call_sites"],
-                "other": [r for r in fallback if r["reference_kind"] == "other"],
-                "docs": [r for r in fallback if r["reference_kind"] == "docs"],
-                "tests": [r for r in fallback if r["reference_kind"] == "tests"],
-            },
+            "detail_counts": fallback_detail_returned_counts,
+            "detail_matched_counts": fallback_detail_counts,
+            "detail_all_counts": fallback_detail_all_counts,
+            "buckets": fallback_buckets,
+            "detail_buckets": fallback_detail_buckets,
             "method": "keyword_fallback",
             "exclude_tests": exclude_tests,
             "exclude_docs": exclude_docs,
@@ -6878,6 +7574,32 @@ def build_server(root: Path):
         if bad is not None:
             return bad
         return wave_dashboard_start_response(root)
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_dashboard_stop(**kwargs: Any) -> dict[str, Any]:
+        """Stop the local dashboard server for this repository.
+
+        The command targets the dashboard process recorded for the current
+        repository only, so dashboards in other repositories are unaffected.
+        If the dashboard is already stopped, the command reports that state and
+        clears stale repo-local metadata when present.
+        """
+        bad = _ensure_no_extra_args("wave_dashboard_stop", kwargs)
+        if bad is not None:
+            return bad
+        return wave_dashboard_stop_response(root)
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_dashboard_restart(**kwargs: Any) -> dict[str, Any]:
+        """Restart the local dashboard server for this repository.
+
+        The command stops the current repository dashboard, then starts a new
+        one with the same repo root and browser-open behavior.
+        """
+        bad = _ensure_no_extra_args("wave_dashboard_restart", kwargs)
+        if bad is not None:
+            return bad
+        return wave_dashboard_restart_response(root)
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_validate(**kwargs: Any) -> dict[str, Any]:

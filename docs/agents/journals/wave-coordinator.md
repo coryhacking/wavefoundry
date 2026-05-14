@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-12
+Last verified: 2026-05-14
 
 Actor: wave-coordinator
 Schema version: 1.0
@@ -49,6 +49,14 @@ wave-id: `12ec2 index-build-stats-persistence`
 wave-id: `12dv9 chunk-tags`
 
 - Closed 2026-05-10: `tags: list[str]` field on Chunk, path-pattern heuristics in `_tag_utils.py`, `tags` filter on `docs_search`/`code_search`, CHUNKER_VERSION bumped, seed-211 Tags Filter section complete.
+
+wave-id: `12m9w dashboard-closed-wave-progress-fixes`
+
+- Closed 2026-05-14: progress bar accuracy for closed/completed waves (JS + Python); `Item Status:` and bare `Status:` parser fallbacks; AC-N scaffold standard in seed-170, plan-template, and MCP scaffold. Code-reviewer caught missing "completed" in `dialogChangesForScope` — fixed before close.
+
+wave-id: `12m6b dashboard-ac-numbered-list-parser`
+
+- Closed 2026-05-14: extended `_AC_LINE_RE` to `(?:-|\d+\.)` prefix; numbered-list ACs now parsed with checkbox support; 2 new tests added.
 
 wave-id: `12hsd dashboard-completed-wave-pending-filter`
 

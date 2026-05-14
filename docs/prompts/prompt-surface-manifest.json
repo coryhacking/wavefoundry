@@ -6,7 +6,7 @@
     "wave_lifecycle",
     "platform_hooks"
   ],
-  "framework_revision": "2026-04-29a",
+  "framework_revision": "2026-05-13f",
   "generated_artifacts": [
     "docs/prompts/prompt-surface-manifest.json",
     "docs/agents/session-handoff.md",
@@ -14,13 +14,13 @@
     "docs/agents/journals/",
     "docs/agents/personas/"
   ],
-  "generated_at": "2026-04-29",
+  "generated_at": "2026-05-13",
   "generated_personas": [
     "docs/agents/personas/framework-operator.md",
     "docs/agents/personas/wave-coordinator.md"
   ],
   "journal_root": "docs/agents/journals/",
-  "last_gardened_at": "2026-05-12",
+  "last_gardened_at": "2026-05-14",
   "public_prompt_surface": [
     {
       "doc": "docs/prompts/install-wavefoundry.prompt.md",
@@ -29,6 +29,14 @@
     {
       "doc": "docs/prompts/start-dashboard.prompt.md",
       "shortcut": "Start dashboard"
+    },
+    {
+      "doc": "docs/prompts/stop-dashboard.prompt.md",
+      "shortcut": "Stop dashboard"
+    },
+    {
+      "doc": "docs/prompts/restart-dashboard.prompt.md",
+      "shortcut": "Restart dashboard"
     },
     {
       "doc": "docs/prompts/upgrade-wavefoundry.prompt.md",

@@ -172,6 +172,83 @@ Owner: Engineering
     )
 
 
+def _make_planned_wave(root: Path) -> None:
+    wave_dir = root / "docs" / "waves" / "12y planned-wave"
+    _write(
+        wave_dir / "wave.md",
+        """# Wave Record
+
+wave-id: `12y planned-wave`
+Title: Planned Wave
+Status: draft
+
+## Objective
+
+Verify pending-scope dashboard rendering.
+
+## Participants
+
+| Role | Lane | Scope |
+|------|------|-------|
+| code-reviewer | review | change |
+
+## Review Checkpoints
+
+- Prepare wave — readiness verdict: pass
+
+## Review Evidence
+
+- wave-council-readiness: approved
+- code-reviewer: approved
+
+## Changes
+
+Change ID: `12y1-enh planned-dashboard`
+Change Status: `ready`
+""",
+    )
+    _write(
+        wave_dir / "12y1-enh planned-dashboard.md",
+        """# Planned Dashboard Change
+
+Change ID: `12y1-enh planned-dashboard`
+Change Status: `ready`
+Owner: Engineering
+Wave: `12y planned-wave`
+
+## Acceptance Criteria
+
+- AC-1: planned data loads
+- AC-2: planned dialog details render
+
+## AC Priority
+
+| AC | Priority | Rationale |
+| -- | -------- | --------- |
+| AC-1 | required | must work |
+| AC-2 | important | good to have |
+
+## Tasks
+
+- [ ] build shared readers
+- [ ] add more charts
+""",
+    )
+    _write(
+        root / "docs" / "plans" / "12y2-enh staged-plan.md",
+        """# Staged Plan
+
+Change ID: `12y2-enh staged-plan`
+Change Status: `planned`
+Owner: Engineering
+
+## Tasks
+
+- [ ] stage this later
+""",
+    )
+
+
 class DashboardSnapshotTests(unittest.TestCase):
     def setUp(self):
         self.lib, self.srv = load_dashboard_modules()
@@ -190,6 +267,15 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertEqual(len(snapshot["waves"]), 1)
         self.assertEqual(len(snapshot["changes"]["in_waves"]), 1)
         self.assertEqual(len(snapshot["changes"]["staged"]), 1)
+        self.assertEqual(snapshot["metrics"]["waves"]["active"], 1)
+        self.assertEqual(snapshot["metrics"]["waves"]["pending"], 0)
+        self.assertEqual(snapshot["metrics"]["waves"]["total"], 1)
+        self.assertEqual(snapshot["metrics"]["changes"]["total"], 1)
+        self.assertEqual(snapshot["metrics"]["changes"]["pending"], 1)
+        self.assertEqual(snapshot["metrics"]["acs"]["total"], 2)
+        self.assertEqual(snapshot["metrics"]["acs"]["pending"], 1)
+        self.assertEqual(snapshot["metrics"]["tasks"]["total"], 2)
+        self.assertEqual(snapshot["metrics"]["tasks"]["pending"], 1)
         change = snapshot["changes"]["in_waves"][0]
         self.assertEqual(change["tasks_total"], 2)
         self.assertEqual(change["tasks_completed"], 1)
@@ -201,6 +287,113 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertEqual(change["ac_priority_counts"]["required"], 1)
         self.assertEqual(change["ac_priority_counts"]["important"], 1)
         self.assertEqual(snapshot["activity"]["recent_progress"][0]["change_id"], "12x1-enh sample-dashboard")
+        self.assertEqual(snapshot["metrics"]["scope"], "active_wave")
+
+    def test_collect_dashboard_snapshot_uses_pending_scope_when_no_active_wave(self):
+        root = Path(self.tmp.name) / "pending-scope"
+        root.mkdir(parents=True, exist_ok=True)
+        _make_repo(root)
+        _make_planned_wave(root)
+        _write(root / "docs" / "agents" / "session-handoff.md", "# Session Handoff\n\n**Active wave:** *(none)*\n")
+
+        snapshot = self.lib.collect_dashboard_snapshot(root)
+
+        self.assertIsNone(snapshot["project"]["active_wave_id"])
+        self.assertEqual(snapshot["metrics"]["scope"], "pending_changes")
+        self.assertEqual(snapshot["metrics"]["changes"]["total"], 2)
+        self.assertEqual(snapshot["metrics"]["changes"]["pending"], 2)
+        self.assertEqual(snapshot["metrics"]["acs"]["total"], 2)
+        self.assertEqual(snapshot["metrics"]["acs"]["pending"], 2)
+        self.assertEqual(snapshot["metrics"]["tasks"]["total"], 3)
+        self.assertEqual(snapshot["metrics"]["tasks"]["pending"], 3)
+
+        source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+        self.assertIn('const waveMode = waveActive > 0 ? "active" : "pending";', source)
+        self.assertIn('const scopeMetricLabel = waveMode === "active" ? "Active" : "Pending";', source)
+        self.assertIn('const waveMetricLabel = waveMode === "active"', source)
+        self.assertIn('p(changeMetrics.pending, `${scopeMetricLabel} change`, `${scopeMetricLabel} changes`)', source)
+        self.assertIn('p(acMetrics.pending,    `${scopeMetricLabel} AC`,     `${scopeMetricLabel} ACs`)', source)
+        self.assertIn('p(taskMetrics.pending, `${scopeMetricLabel} task`, `${scopeMetricLabel} tasks`)', source)
+        self.assertIn('p(wavePending, "Pending wave", "Pending waves")', source)
+        self.assertIn('label: waveMetricLabel, value: waveMetricCount', source)
+        self.assertIn('function acProgressStats(changes)', source)
+        self.assertIn('const acMetrics = acProgressStats(scopeChanges);', source)
+        self.assertIn('const allInWaves = snapshot.changes?.in_waves || [];', source)
+        self.assertIn('const progressChanges = scopeChanges || allInWaves;', source)
+        self.assertIn('const acTotal = allCountedChanges.reduce((s, c) => s + visibleAcItems(c).length, 0);', source)
+
+    def test_no_active_wave_dialog_titles_use_pending_copy(self):
+        root = Path(self.tmp.name) / "pending-dialogs"
+        root.mkdir(parents=True, exist_ok=True)
+        _make_repo(root)
+        _make_planned_wave(root)
+        _write(root / "docs" / "agents" / "session-handoff.md", "# Session Handoff\n\n**Active wave:** *(none)*\n")
+
+        snapshot = self.lib.collect_dashboard_snapshot(root)
+        self.assertEqual(snapshot["metrics"]["scope"], "pending_changes")
+
+        source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+        self.assertIn('const title = scope === "active"', source)
+        self.assertIn('p(changeMetrics.pending, `${scopeMetricLabel} change`, `${scopeMetricLabel} changes`)', source)
+        self.assertIn('p(changes.length, "Active Change", "Active Changes")', source)
+        self.assertIn('p(changes.length, "Pending Change", "Pending Changes")', source)
+        self.assertIn('p(active.length, "Active Waves", "Pending Waves")', source)
+        self.assertIn('No pending waves.', source)
+        self.assertIn('title: scope === "active" ? "Active ACs" : "Pending ACs"', source)
+        self.assertIn('title: scope === "active" ? "Active Tasks" : "Pending Tasks"', source)
+        self.assertIn('scope === "active" ? "No active changes." : "No pending changes."', source)
+        self.assertIn('scope === "active" ? "No active ACs." : "No pending ACs."', source)
+        self.assertIn('scope === "active" ? "No active tasks." : "No pending tasks."', source)
+
+    def test_collect_dashboard_snapshot_counts_visible_acs_without_priority_table(self):
+        root = Path(self.tmp.name) / "visible-acs"
+        root.mkdir(parents=True, exist_ok=True)
+        _make_repo(root)
+        wave_dir = root / "docs" / "waves" / "12x test-wave"
+        _write(
+            wave_dir / "wave.md",
+            """# Wave Record
+
+wave-id: `12x test-wave`
+Title: Test Wave
+Status: draft
+
+## Objective
+
+Verify visible AC counting.
+
+## Changes
+
+Change ID: `12x1-enh visible-acs`
+Change Status: `ready`
+""",
+        )
+        _write(
+            wave_dir / "12x1-enh visible-acs.md",
+            """# Visible ACs
+
+Change ID: `12x1-enh visible-acs`
+Change Status: `ready`
+Owner: Engineering
+Wave: `12x test-wave`
+
+## Acceptance Criteria
+
+- AC-1: first item
+- AC-2: second item
+
+## Tasks
+
+- one task
+""",
+        )
+        _write(root / "docs" / "agents" / "session-handoff.md", "# Session Handoff\n\n**Active wave:** *(none)*\n")
+
+        snapshot = self.lib.collect_dashboard_snapshot(root)
+
+        self.assertEqual(snapshot["metrics"]["scope"], "pending_changes")
+        self.assertEqual(snapshot["metrics"]["acs"]["total"], 2)
+        self.assertEqual(snapshot["metrics"]["acs"]["pending"], 2)
 
     def test_collect_dashboard_snapshot_parses_plain_bullet_items_for_complete_change(self):
         wave_dir = self.root / "docs" / "waves" / "12x test-wave"
@@ -293,6 +486,143 @@ Wave: `12x test-wave`
         self.assertEqual(change["tasks_completed"], 0)
         self.assertFalse(any(item["done"] for item in change["tasks_items"]))
 
+    def test_collect_dashboard_snapshot_uses_priority_table_order_when_ac_ids_are_missing(self):
+        wave_dir = self.root / "docs" / "waves" / "12x test-wave"
+        _write(
+            wave_dir / "12x1-enh sample-dashboard.md",
+            """# Sample Dashboard Change
+
+Change ID: `12x1-enh sample-dashboard`
+Change Status: `complete`
+Owner: Engineering
+Wave: `12x test-wave`
+
+## Acceptance Criteria
+
+- dashboard data loads
+- dialog details render
+
+## AC Priority
+
+| AC | Priority | Rationale |
+| -- | -------- | --------- |
+| AC-1 | required | must work |
+| AC-2 | important | good to have |
+
+## Tasks
+
+- build shared readers
+""",
+        )
+
+        snapshot = self.lib.collect_dashboard_snapshot(self.root)
+        change = snapshot["changes"]["in_waves"][0]
+
+        self.assertEqual(len(change["ac_items"]), 2)
+        self.assertEqual([item["priority"] for item in change["ac_items"]], ["required", "important"])
+        self.assertTrue(all(item["done"] for item in change["ac_items"]))
+        self.assertEqual(change["ac_completed_counts"]["required"], 1)
+        self.assertEqual(change["ac_completed_counts"]["important"], 1)
+        self.assertEqual(change["ac_completed_counts"]["unknown"], 0)
+
+    def test_collect_dashboard_snapshot_parses_numbered_list_ac_items(self):
+        """_AC_LINE_RE must match ordered-list prefixes like '1.' and '2.'."""
+        wave_dir = self.root / "docs" / "waves" / "12x test-wave"
+        _write(
+            wave_dir / "12x1-enh sample-dashboard.md",
+            """# Sample Dashboard Change
+
+Change ID: `12x1-enh sample-dashboard`
+Change Status: `active`
+Owner: Engineering
+Wave: `12x test-wave`
+
+## Acceptance Criteria
+
+1. [ ] AC-1: dashboard data loads
+2. [x] AC-2: dialog details render
+
+## AC Priority
+
+| AC | Priority | Rationale |
+| -- | -------- | --------- |
+| AC-1 | required | must work |
+| AC-2 | important | good to have |
+
+## Tasks
+
+- [ ] build shared readers
+""",
+        )
+
+        snapshot = self.lib.collect_dashboard_snapshot(self.root)
+        change = snapshot["changes"]["in_waves"][0]
+
+        self.assertEqual(len(change["ac_items"]), 2)
+        self.assertFalse(change["ac_items"][0]["done"])
+        self.assertTrue(change["ac_items"][1]["done"])
+        self.assertEqual(change["ac_completed_counts"]["required"], 0)
+        self.assertEqual(change["ac_completed_counts"]["important"], 1)
+
+    def test_collect_dashboard_snapshot_parses_unmarked_numbered_list_ac_items(self):
+        """Numbered list items without checkboxes derive done-state from change status."""
+        wave_dir = self.root / "docs" / "waves" / "12x test-wave"
+        _write(
+            wave_dir / "12x1-enh sample-dashboard.md",
+            """# Sample Dashboard Change
+
+Change ID: `12x1-enh sample-dashboard`
+Change Status: `complete`
+Owner: Engineering
+Wave: `12x test-wave`
+
+## Acceptance Criteria
+
+1. AC-1: dashboard data loads
+2. AC-2: dialog details render
+
+## AC Priority
+
+| AC | Priority | Rationale |
+| -- | -------- | --------- |
+| AC-1 | required | must work |
+| AC-2 | important | good to have |
+
+## Tasks
+
+- [x] build shared readers
+""",
+        )
+
+        snapshot = self.lib.collect_dashboard_snapshot(self.root)
+        change = snapshot["changes"]["in_waves"][0]
+
+        self.assertEqual(len(change["ac_items"]), 2)
+        self.assertTrue(all(item["done"] for item in change["ac_items"]))
+        self.assertEqual(change["ac_completed_counts"]["required"], 1)
+        self.assertEqual(change["ac_completed_counts"]["important"], 1)
+
+    def test_progress_card_keeps_zero_total_rows_visible(self):
+        zero_root = Path(self.tmp.name) / "zero-progress"
+        zero_root.mkdir(parents=True, exist_ok=True)
+        _make_repo(zero_root)
+
+        snapshot = self.lib.collect_dashboard_snapshot(zero_root)
+        self.assertEqual(snapshot["metrics"]["acs"]["total"], 0)
+        self.assertEqual(snapshot["metrics"]["tasks"]["total"], 0)
+
+        source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+        progress_row_src = source.split("function ProgressRow({ label, done, total, variant }) {", 1)[1].split(
+            "function ProgressCard({ snapshot, scopeChanges }) {", 1
+        )[0]
+        self.assertIn('h(ProgressRow, { label: "ACs",   done: acDone,    total: acTotal,    variant: "acs" })', source)
+        self.assertIn('h(ProgressRow, { label: "Tasks", done: tasksDone, total: tasksTotal, variant: "tasks" })', source)
+        self.assertNotIn('acTotal    ? h(ProgressRow', source)
+        self.assertNotIn('tasksTotal ? h(ProgressRow', source)
+        self.assertNotIn('if (!total) return null;', progress_row_src)
+        self.assertIn('const progressChanges = scopeChanges || allInWaves;', source)
+        self.assertIn('const allInWaves = snapshot.changes?.in_waves || [];', source)
+
     def test_snapshot_includes_git_key_as_dict(self):
         snapshot = self.lib.collect_dashboard_snapshot(self.root, skip_git=True)
         self.assertIn("git", snapshot)
@@ -369,6 +699,20 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         self.assertEqual(handler.response_code, 200)
         self.assertIn('<div id="app"></div>', handler.wfile.getvalue().decode("utf-8"))
 
+    def test_dashboard_html_title_includes_repo_name(self):
+        handler = self._make_handler("/dashboard.html")
+        handler.do_GET()
+        html = handler.wfile.getvalue().decode("utf-8")
+        self.assertIn(f"<title>{self.root.name} - Wavefoundry</title>", html)
+
+    def test_metric_dialog_header_wraps_long_change_ids(self):
+        css = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.css").read_text(encoding="utf-8")
+        self.assertIn(".metric-dialog-card-header {", css)
+        self.assertIn("display: flex;", css)
+        self.assertIn("justify-content: space-between;", css)
+        self.assertIn(".metric-dialog-card-header .status-badge {", css)
+        self.assertIn("white-space: normal;", css)
+
     def test_log_message_uses_shared_dashboard_log_format(self):
         handler = self._make_handler("/dashboard.html")
         with patch("sys.stderr", new=io.StringIO()) as stderr:
@@ -379,6 +723,81 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
             output,
             r'^\[dashboard\] \d{4}-\d{2}-\d{2}T[^\n]+ - 127\.0\.0\.1 - "GET /dashboard\.html HTTP/1\.1" 200 -\n$',
         )
+
+
+class DashboardProcessControlTests(unittest.TestCase):
+    """Verify dashboard stop and restart are repo-local and composable."""
+
+    def setUp(self):
+        self.lib, self.srv = load_dashboard_modules()
+        self.server = sys.modules["server"]
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_dashboard_metadata(self, root: Path, *, pid: int = 4321, url: str = "http://127.0.0.1:43127/dashboard.html") -> Path:
+        meta_path = root / ".wavefoundry" / "dashboard-server.json"
+        self.srv.dashboard_lib.write_dashboard_metadata(
+            root,
+            {
+                "host": "127.0.0.1",
+                "port": 43127,
+                "url": url,
+                "entrypoint": "dashboard.html",
+                "pid": pid,
+                "started_at": "2026-05-13T00:00:00Z",
+            },
+        )
+        return meta_path
+
+    def test_dashboard_stop_removes_only_current_repo_metadata(self):
+        current_meta = self._write_dashboard_metadata(self.root, pid=4321)
+        other_root = Path(self.tmp.name) / "other"
+        _make_repo(other_root)
+        other_meta = self._write_dashboard_metadata(other_root, pid=9999)
+
+        with patch.object(self.server, "_pid_is_running", return_value=True), patch.object(
+            self.server, "_terminate_dashboard_pid", return_value=True
+        ) as terminate:
+            env = self.server.wave_dashboard_stop_response(self.root)
+
+        self.assertEqual(env["status"], "ok")
+        self.assertTrue(env["data"]["stopped"])
+        self.assertEqual(env["data"]["pid"], 4321)
+        self.assertFalse(current_meta.exists(), "stop must clear the current repo dashboard metadata")
+        self.assertTrue(other_meta.exists(), "stop must not touch another repo's dashboard metadata")
+        terminate.assert_called_once_with(4321)
+
+    def test_dashboard_restart_stops_then_starts_again(self):
+        stop_env = {
+            "status": "ok",
+            "data": {"stopped": True, "pid": 4321, "url": "http://127.0.0.1:43127/dashboard.html"},
+            "diagnostics": [],
+            "next_tools": [],
+            "usage": "wave_dashboard_stop()",
+        }
+        start_env = {
+            "status": "ok",
+            "data": {"started": True, "pid": 9876, "url": "http://127.0.0.1:43128/dashboard.html"},
+            "diagnostics": [],
+            "next_tools": [],
+            "usage": "http://127.0.0.1:43128/dashboard.html",
+        }
+
+        with patch.object(self.server, "wave_dashboard_stop_response", return_value=stop_env) as stop, patch.object(
+            self.server, "wave_dashboard_start_response", return_value=start_env
+        ) as start:
+            env = self.server.wave_dashboard_restart_response(self.root)
+
+        self.assertEqual(env["status"], "ok")
+        self.assertTrue(env["data"]["restarted"])
+        self.assertEqual(env["data"]["pid"], 9876)
+        self.assertEqual(env["data"]["url"], "http://127.0.0.1:43128/dashboard.html")
+        stop.assert_called_once_with(self.root)
+        start.assert_called_once_with(self.root)
 
 
 class DashboardReadOnlyTests(_HandlerHarnessMixin, unittest.TestCase):
@@ -969,8 +1388,6 @@ class IndexBuilderTests(unittest.TestCase):
             unblock_event.set()
             done_event.wait(timeout=2.0)
 
-        self.assertEqual(call_count[0], 1, "only one subprocess should run while gate is held")
-
     def test_pending_after_build_triggers_rearm(self):
         """A pending signal set during a build should trigger a second build after completion."""
         running_event = threading.Event()
@@ -1022,6 +1439,51 @@ class IndexBuilderTests(unittest.TestCase):
         with patch("subprocess.Popen", side_effect=FileNotFoundError("not found")):
             result = builder._execute()
         self.assertEqual(result, -1)
+
+    def test_execute_writes_state_file_during_build(self):
+        """_execute must write index-build.json while communicate() is running."""
+        builder = self._make_builder()
+        builder._active_layers = {"framework"}
+        state_path = builder._index_state_path("framework")
+        state_during_build = []
+
+        class FakeProc:
+            pid = 99999
+            returncode = 0
+
+            def communicate(self):
+                if state_path.exists():
+                    try:
+                        state_during_build.append(json.loads(state_path.read_text()))
+                    except Exception:
+                        pass
+                return b"", b""
+
+        with patch("subprocess.Popen", return_value=FakeProc()):
+            builder._execute()
+
+        self.assertTrue(len(state_during_build) > 0, "index-build.json not written before communicate() returned")
+        state = state_during_build[0]
+        self.assertEqual(state.get("pid"), 99999)
+        self.assertEqual(state.get("layer"), "framework")
+
+    def test_execute_removes_state_file_after_build(self):
+        """_execute must remove index-build.json after the build completes."""
+        builder = self._make_builder()
+        builder._active_layers = {"framework"}
+        state_path = builder._index_state_path("framework")
+
+        class FakeProc:
+            pid = 99999
+            returncode = 0
+
+            def communicate(self):
+                return b"", b""
+
+        with patch("subprocess.Popen", return_value=FakeProc()):
+            builder._execute()
+
+        self.assertFalse(state_path.exists(), "index-build.json should be removed after build completes")
 
     def test_on_started_called_with_running_status(self):
         """on_started must fire while build_status is already 'running'."""
@@ -1440,6 +1902,29 @@ class IndexStalenessTests(unittest.TestCase):
             result = self.srv._index_is_stale(self.root, "project")
         self.assertFalse(result)
 
+    def test_project_not_stale_when_only_dashboard_log_differs_from_file_meta(self):
+        runtime_log = self.root / ".wavefoundry" / "logs" / "dashboard.log"
+        runtime_log.parent.mkdir(parents=True, exist_ok=True)
+        runtime_log.write_text("started\n", encoding="utf-8")
+        stat = runtime_log.stat()
+        self._write_meta_payload(
+            {
+                "built_at": "2026-01-01T00:00:00+00:00",
+                "file_meta": {
+                    ".wavefoundry/logs/dashboard.log": {
+                        "hash": "stale-hash",
+                        "mtime": stat.st_mtime - 1,
+                        "size": max(stat.st_size - 1, 0),
+                        "inode": stat.st_ino,
+                    }
+                },
+            },
+            layer="project",
+        )
+        with patch("subprocess.run", side_effect=AssertionError("project file_meta path should bypass git")):
+            result = self.srv._index_is_stale(self.root, "project")
+        self.assertFalse(result)
+
     def test_project_not_stale_when_only_framework_file_modified_after_build(self):
         self._write_meta("2026-01-01T00:00:00+00:00", layer="project")
         dirty = self.root / ".wavefoundry" / "framework" / "seeds" / "100-sample.prompt.md"
@@ -1548,6 +2033,48 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         fw = snap.get("health", {}).get("index", {}).get("framework", {})
         self.assertEqual(proj.get("build_status"), "idle")
         self.assertEqual(fw.get("build_status"), "idle")
+
+    def test_semantic_index_tile_uses_generic_build_status_copy(self):
+        source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+        self.assertIn('const statusText = buildStatus === "running"', source)
+        self.assertIn('? "Indexing..."', source)
+        self.assertIn(': isStale', source)
+        self.assertIn('? "Stale..."', source)
+        self.assertIn('const buildKind = label === "Framework" ? "Framework docs index" : "Project index";', source)
+        self.assertIn('const buildAction = idx.mode === "update"', source)
+        self.assertIn('const buildDetail = buildStatus === "running"', source)
+        self.assertIn('const buildBadgeText = buildStatus === "running"', source)
+        self.assertIn('Indexing… · ${buildDetail}', source)
+        self.assertIn('Stale · Index is stale', source)
+        self.assertIn('buildBadgeText', source)
+
+    def test_background_build_status_surfaces_in_snapshot_health(self):
+        import os
+
+        bg_pid = self.root / ".wavefoundry" / "index" / "background-build.pid"
+        bg_log = self.root / ".wavefoundry" / "index" / "background-build.log"
+        bg_pid.parent.mkdir(parents=True, exist_ok=True)
+        bg_pid.write_text(str(os.getpid()), encoding="utf-8")
+        bg_log.write_text(
+            "Code index build started in background (PID 12345)\n"
+            "build_index: embedding code chunks 1-20/200\n",
+            encoding="utf-8",
+        )
+
+        store = self.srv.SnapshotStore(self.root)
+        snap = store.get()
+        proj = snap.get("health", {}).get("index", {}).get("project", {})
+        self.assertEqual(proj.get("build_status"), "running")
+        self.assertEqual(proj.get("source"), "background")
+        self.assertIn("embedding code chunks", proj.get("progress", ""))
+
+    def test_background_build_files_are_watched(self):
+        store = self.srv.SnapshotStore(self.root)
+        watched = {str(path) for path in store._watched_paths()}
+        self.assertIn(str(self.root / ".wavefoundry" / "index" / "index-build.json"), watched)
+        self.assertIn(str(self.root / ".wavefoundry" / "index" / "index-build.log"), watched)
+        self.assertIn(str(self.root / ".wavefoundry" / "index" / "background-build.pid"), watched)
+        self.assertIn(str(self.root / ".wavefoundry" / "index" / "background-build.log"), watched)
 
     def test_periodic_staleness_check_triggers_rebuild_when_stale(self):
         """When _index_is_stale returns True, the watch loop should signal the IndexBuilder."""

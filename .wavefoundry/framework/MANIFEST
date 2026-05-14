@@ -9,7 +9,6 @@ dashboard/react.production.min.js
 index/docs.json
 index/docs.npy
 index/index-build-stats.json
-index/index-build.json
 index/index-build.log
 index/meta.json
 scripts/.gitignore
@@ -65,6 +64,8 @@ seeds/130-agent-journal-bootstrap.prompt.md
 seeds/140-reindex-ongoing.prompt.md
 seeds/150-refresh-wavefoundry.prompt.md
 seeds/152-start-dashboard.prompt.md
+seeds/153-stop-dashboard.prompt.md
+seeds/154-restart-dashboard.prompt.md
 seeds/160-upgrade-wavefoundry.prompt.md
 seeds/170-plan-feature.prompt.md
 seeds/175-interrogate-plan.prompt.md
