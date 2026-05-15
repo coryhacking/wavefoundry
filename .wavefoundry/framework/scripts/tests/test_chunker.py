@@ -1182,6 +1182,20 @@ class SqlChunkerTests(unittest.TestCase):
         self.assertTrue(len(code) >= 1)
         self.assertIn("schema > orders", code[0].section)
 
+    def test_sql_schema_qualified_definition_uses_qualified_chunk_name(self):
+        source = textwrap.dedent("""\
+            CREATE OR REPLACE PROCEDURE aceiss.create_schema_objects(_tenant text)
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                CALL aceiss.create_schema_objects(_tenant);
+            END;
+            $$;
+        """)
+        chunks = self.chunker.chunk_sql(source, "db/migrations.sql")
+        code = [c for c in chunks if c.kind == "code" and c.language == "sql"]
+        self.assertTrue(any("aceiss.create_schema_objects" in c.id for c in code))
+
     def test_sql_comment_before_ddl_is_doc_chunk(self):
         # AC-20: comment immediately before DDL → doc chunk
         source = textwrap.dedent("""\
@@ -1192,6 +1206,34 @@ class SqlChunkerTests(unittest.TestCase):
         doc = [c for c in chunks if c.kind == "doc"]
         self.assertTrue(len(doc) >= 1)
         self.assertIn("Order tracking table", doc[0].text)
+
+    def test_sql_alias_extension_routes_to_sql_chunker(self):
+        source = "CREATE TABLE alias_test (id INT);\n"
+        chunks = self.chunker.chunk_file(source, "db/schema.psql")
+        self.assertTrue(any(c.language == "sql" and c.kind == "code" for c in chunks))
+
+    def test_sql_anonymous_do_blocks_are_chunked(self):
+        source = textwrap.dedent("""\
+            do
+            $$
+                declare
+                    _tenant text := 't_616023_app_devcory';
+                begin
+                    raise notice 'first';
+                end
+            $$ language plpgsql;
+
+            do $tenant$
+            begin
+                raise notice 'second';
+            end
+            $tenant$ language plpgsql;
+        """)
+        chunks = self.chunker.chunk_sql(source, "db/migrations.sql")
+        anon = [c for c in chunks if c.kind == "code" and "anonymous_block@line_" in c.id]
+        self.assertEqual(len(anon), 2)
+        self.assertTrue(all(c.language == "sql" for c in anon))
+        self.assertTrue(all("anonymous_block@line_" in c.section for c in anon))
 
 
 class CCppChunkerTests(unittest.TestCase):
@@ -2710,7 +2752,7 @@ class InferTagsTests(unittest.TestCase):
         self.assertIn("wave", tags)
 
     def test_agent_tag_from_prompts_agents(self):
-        tags = self.chunker._infer_tags("docs/prompts/agents/code-insight-agent.prompt.md")
+        tags = self.chunker._infer_tags("docs/prompts/agents/performance-reviewer.prompt.md")
         self.assertIn("agent", tags)
         self.assertIn("prompt", tags)
 
@@ -2789,6 +2831,134 @@ class InferTagsTests(unittest.TestCase):
         self.assertIn("seed", tags)
         self.assertIn("framework", tags)
         self.assertGreaterEqual(len(tags), 2)
+
+
+class JupyterChunkerTests(unittest.TestCase):
+    """Tests for chunk_jupyter — .ipynb notebook chunking."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _nb(self, cells, metadata=None):
+        """Build a minimal notebook JSON string."""
+        import json
+        nb = {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": metadata if metadata is not None else {"kernelspec": {"language": "python"}},
+            "cells": cells,
+        }
+        return json.dumps(nb)
+
+    def _cell(self, cell_type, source, metadata=None):
+        return {"cell_type": cell_type, "source": source, "metadata": metadata or {}}
+
+    # 1. Markdown cell → doc chunk
+    def test_markdown_cell_produces_doc_chunk(self):
+        source = self._nb([self._cell("markdown", "# Hello\nsome text")])
+        chunks = self.chunker.chunk_jupyter(source, "nb.ipynb")
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].kind, "doc")
+        self.assertEqual(chunks[0].text, "# Hello\nsome text")
+
+    # 2. Code cell → code chunk with language
+    def test_code_cell_produces_code_chunk(self):
+        source = self._nb([self._cell("code", "x = 1")])
+        chunks = self.chunker.chunk_jupyter(source, "nb.ipynb")
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].kind, "code")
+        self.assertEqual(chunks[0].language, "python")
+
+    # 3. Empty cell is skipped
+    def test_empty_cell_skipped(self):
+        source = self._nb([
+            self._cell("code", "   \n  "),
+            self._cell("code", "x = 1"),
+        ])
+        chunks = self.chunker.chunk_jupyter(source, "nb.ipynb")
+        self.assertEqual(len(chunks), 1)
+
+    # 4. Heading-based breadcrumb
+    def test_heading_breadcrumb(self):
+        source = self._nb([self._cell("markdown", "# My Heading\ntext")])
+        chunks = self.chunker.chunk_jupyter(source, "nb.ipynb")
+        self.assertEqual(chunks[0].section, "notebook > My Heading")
+
+    # 5. Cell-index breadcrumb (no heading)
+    def test_cell_index_breadcrumb(self):
+        source = self._nb([self._cell("markdown", "Just some prose without a heading")])
+        chunks = self.chunker.chunk_jupyter(source, "nb.ipynb")
+        self.assertEqual(chunks[0].section, "notebook > Cell 1")
+
+    # 6. Language from kernelspec
+    def test_language_from_kernelspec(self):
+        meta = {"kernelspec": {"language": "r"}}
+        source = self._nb([self._cell("code", "print('hi')")], metadata=meta)
+        chunks = self.chunker.chunk_jupyter(source, "nb.ipynb")
+        self.assertEqual(chunks[0].language, "r")
+
+    # 7. Language default fallback
+    def test_language_default_fallback(self):
+        source = self._nb([self._cell("code", "x = 1")], metadata={})
+        chunks = self.chunker.chunk_jupyter(source, "nb.ipynb")
+        self.assertEqual(chunks[0].language, "python")
+
+    # 8. Malformed JSON falls back gracefully
+    def test_malformed_json_fallback(self):
+        chunks = self.chunker.chunk_jupyter("{not valid json", "nb.ipynb")
+        self.assertGreater(len(chunks), 0)
+
+    # 9. Raw cell is skipped
+    def test_raw_cell_skipped(self):
+        source = self._nb([
+            self._cell("raw", "some raw content"),
+            self._cell("code", "x = 1"),
+        ])
+        chunks = self.chunker.chunk_jupyter(source, "nb.ipynb")
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].kind, "code")
+
+    # 10. Virtual line offsets non-overlapping
+    def test_virtual_line_offsets_non_overlapping(self):
+        source = self._nb([
+            self._cell("code", "line1\nline2"),
+            self._cell("code", "line3"),
+        ])
+        chunks = self.chunker.chunk_jupyter(source, "nb.ipynb")
+        self.assertEqual(len(chunks), 2)
+        first_end = chunks[0].lines[1]
+        second_start = chunks[1].lines[0]
+        self.assertGreater(second_start, first_end)
+
+    # 11. Single-line cell: start_line == end_line
+    def test_single_line_cell(self):
+        source = self._nb([self._cell("code", "x = 1")])
+        chunks = self.chunker.chunk_jupyter(source, "nb.ipynb")
+        self.assertEqual(chunks[0].lines[0], chunks[0].lines[1])
+
+    # 12. Notebook with no `cells` key → empty list
+    def test_no_cells_key(self):
+        import json
+        source = json.dumps({})
+        chunks = self.chunker.chunk_jupyter(source, "nb.ipynb")
+        self.assertEqual(chunks, [])
+
+    # 13. Source as list joined correctly
+    def test_source_as_list(self):
+        source = self._nb([self._cell("code", ["line1\n", "line2"])])
+        chunks = self.chunker.chunk_jupyter(source, "nb.ipynb")
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].text, "line1\nline2")
+
+    # 14. Dispatch routing via chunk_file
+    def test_dispatch_routing(self):
+        source = self._nb([self._cell("code", "x = 1")])
+        chunks = self.chunker.chunk_file(source, "analysis.ipynb")
+        self.assertGreater(len(chunks), 0)
+        # Should not produce raw JSON line-window chunks — first chunk language should not be None
+        code_chunks = [c for c in chunks if c.kind == "code"]
+        self.assertGreater(len(code_chunks), 0)
+        self.assertEqual(code_chunks[0].language, "python")
 
 
 if __name__ == "__main__":

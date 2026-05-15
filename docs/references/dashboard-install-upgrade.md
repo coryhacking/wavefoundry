@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-11
+Last verified: 2026-05-14
 
 Reference doc covering how the local dashboard feature moves from the Wavefoundry framework pack into target repositories. Addresses packaging (build_pack.py), install (seed-010), upgrade (seed-160), and the sibling-directory runtime option.
 
@@ -24,6 +24,8 @@ dashboard/react-dom.production.min.js
 scripts/dashboard_lib.py
 scripts/dashboard_server.py
 seeds/152-start-dashboard.prompt.md
+seeds/153-stop-dashboard.prompt.md
+seeds/154-restart-dashboard.prompt.md
 ```
 
 These paths are tracked in `.wavefoundry/framework/MANIFEST`. The build script regenerates MANIFEST on every run, so removing or renaming a dashboard file automatically drops it from future distributions. The zip file itself is gitignored; do not commit it.
@@ -38,7 +40,7 @@ These paths are tracked in `.wavefoundry/framework/MANIFEST`. The build script r
 unzip -o wavefoundry-<date>.zip -d <repo-root>
 ```
 
-The `-o` flag overwrites existing files without prompting. After unpacking, seed-010 seeds the `docs/prompts/start-dashboard.prompt.md` public prompt doc. This prompt documents the operator-facing `Start dashboard` command and is the canonical entry point for dashboard discovery.
+The `-o` flag overwrites existing files without prompting. After unpacking, seed-010 seeds the dashboard public prompt docs: `docs/prompts/start-dashboard.prompt.md`, `docs/prompts/stop-dashboard.prompt.md`, and `docs/prompts/restart-dashboard.prompt.md`. These prompts document the operator-facing dashboard control commands and are the canonical entry points for dashboard discovery.
 
 **Config seeding:** `docs/workflow-config.json` must include a `dashboard` block after install. The minimum valid config:
 
@@ -77,10 +79,10 @@ If a `dashboard` block already exists in `workflow-config.json`, seed-010 preser
 
 1. The server script (`dashboard_server.py`) and shared reader (`dashboard_lib.py`) are replaced with the new version.
 2. The browser assets (`dashboard.js`, `dashboard.css`, `dashboard.html`, React bundles) are replaced.
-3. The `docs/prompts/start-dashboard.prompt.md` public prompt doc is refreshed if the seed content changed.
+3. The `docs/prompts/start-dashboard.prompt.md`, `docs/prompts/stop-dashboard.prompt.md`, and `docs/prompts/restart-dashboard.prompt.md` public prompt docs are refreshed if the seed content changed.
 4. Operator-customized values in `docs/workflow-config.json` `dashboard` block are preserved. Seed-160 backfills any new fields added in the upgraded version without touching existing values.
 
-If the upgraded pack includes the dashboard feature for the first time (i.e. the prior version did not ship it), seed-160 seeds `start-dashboard.prompt.md` and prompts the operator to add the `dashboard` config block to `workflow-config.json`.
+If the upgraded pack includes the dashboard feature for the first time (i.e. the prior version did not ship it), seed-160 seeds the dashboard prompt docs and prompts the operator to add the `dashboard` config block to `workflow-config.json`.
 
 **Config field backfill for auto-index:** When upgrading from a version that predates auto-index support, seed-160 backfills the following fields into the existing `dashboard` block without touching any existing values:
 
@@ -107,14 +109,26 @@ The `--root` argument tells the server where to read project state from. The das
 
 ## Operator-Facing Command
 
-Both the operator command and the low-level script must always print the final bound URL (including port). The operator-facing command opens the browser by default:
+The operator-facing dashboard controls are:
 
 ```bash
 # Via public prompt shortcut (preferred):
 Start dashboard
 
+# Via public prompt shortcut:
+Stop dashboard
+
+# Via public prompt shortcut:
+Restart dashboard
+
 # Via MCP tool (agent-facing):
 wave_dashboard_start
+
+# Via MCP tool (agent-facing):
+wave_dashboard_stop
+
+# Via MCP tool (agent-facing):
+wave_dashboard_restart
 
 # Via bin shortcut (if installed — see below):
 .wavefoundry/bin/wave_dashboard
@@ -128,16 +142,27 @@ python3 .wavefoundry/framework/scripts/dashboard_server.py --root .
 
 The `--open` flag is appropriate for interactive operator sessions. Automation, tests, and headless environments should use the startup-only form.
 
-## wave_dashboard_start MCP Tool
+`Start dashboard` and `Restart dashboard` always print the final bound URL after the dashboard is ready. `Stop dashboard` reports the repo-local process state it stopped or found absent.
 
-`wave_dashboard_start` is an MCP tool registered in `scripts/server.py`. It is part of the framework pack and available after any install or upgrade that includes `server.py`. No additional config is required.
+## wave_dashboard_start / wave_dashboard_stop / wave_dashboard_restart MCP Tools
 
-Behavior:
+`wave_dashboard_start`, `wave_dashboard_stop`, and `wave_dashboard_restart` are MCP tools registered in `scripts/server.py`. They are part of the framework pack and available after any install or upgrade that includes `server.py`. No additional config is required.
+
+Start behavior:
 - Checks `.wavefoundry/dashboard-server.json` for an already-running process (by PID). If running, returns the existing URL immediately.
 - If not running, spawns `dashboard_server.py --root <repo> --open` as a detached background process.
 - Polls the metadata file for up to 5 seconds for the bound URL, then returns it.
 
-This tool is the preferred agent-facing entry point when an agent needs to start or surface the dashboard URL programmatically.
+Stop behavior:
+- Targets the dashboard process recorded for the current repository only.
+- Stops the current repository dashboard and clears stale repo-local metadata when appropriate.
+
+Restart behavior:
+- Stops the current repository dashboard first.
+- Starts a fresh dashboard process for the same repository root.
+- Returns the new final URL once the restarted dashboard is ready.
+
+These tools are the preferred agent-facing entry points when an agent needs to control the dashboard programmatically.
 
 ## bin/wave_dashboard Shortcut
 
@@ -178,3 +203,5 @@ After install or upgrade, confirm the dashboard is functional:
 - `.wavefoundry/framework/scripts/build_pack.py` — packaging script
 - `.wavefoundry/framework/MANIFEST` — canonical packed-file list
 - `docs/prompts/start-dashboard.prompt.md` — operator-facing command doc
+- `docs/prompts/stop-dashboard.prompt.md` — operator-facing stop command doc
+- `docs/prompts/restart-dashboard.prompt.md` — operator-facing restart command doc

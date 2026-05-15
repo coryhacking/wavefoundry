@@ -121,13 +121,16 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             # bin launchers created by render_bin_launchers (called unconditionally from main)
             bin_lint = repo_root / ".wavefoundry" / "bin" / "docs-lint"
             bin_gardener = repo_root / ".wavefoundry" / "bin" / "docs-gardener"
+            bin_dashboard = repo_root / ".wavefoundry" / "bin" / "wave_dashboard"
             bin_codex = repo_root / ".wavefoundry" / "bin" / "register-codex-mcp"
             self.assertTrue(bin_lint.exists(), ".wavefoundry/bin/docs-lint should be created")
             self.assertTrue(bin_gardener.exists(), ".wavefoundry/bin/docs-gardener should be created")
+            self.assertTrue(bin_dashboard.exists(), ".wavefoundry/bin/wave_dashboard should be created")
             self.assertTrue(bin_codex.exists(), ".wavefoundry/bin/register-codex-mcp should be created")
             if os.name != "nt":
                 self.assertTrue(os.access(bin_lint, os.X_OK), "docs-lint should be executable")
                 self.assertTrue(os.access(bin_gardener, os.X_OK), "docs-gardener should be executable")
+                self.assertTrue(os.access(bin_dashboard, os.X_OK), "wave_dashboard should be executable")
                 self.assertTrue(os.access(bin_codex, os.X_OK), "register-codex-mcp should be executable")
             self.assertIn(
                 ".wavefoundry/framework/scripts/docs_lint.py",
@@ -137,6 +140,11 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
                 ".wavefoundry/framework/scripts/docs_gardener.py",
                 bin_gardener.read_text(encoding="utf-8"),
             )
+            dashboard_src = bin_dashboard.read_text(encoding="utf-8")
+            self.assertIn("nohup", dashboard_src)
+            self.assertIn("--open", dashboard_src)
+            self.assertIn(".wavefoundry/logs/dashboard.log", dashboard_src)
+            self.assertIn("Wave dashboard started", dashboard_src)
             codex_src = bin_codex.read_text(encoding="utf-8")
             self.assertIn("codex mcp add", codex_src)
             self.assertIn("repo_suffix()", codex_src)
@@ -161,20 +169,26 @@ class RenderBinLaunchersTests(unittest.TestCase):
             rps.render_bin_launchers(root)
             bin_lint = root / ".wavefoundry" / "bin" / "docs-lint"
             bin_gardener = root / ".wavefoundry" / "bin" / "docs-gardener"
+            bin_dashboard = root / ".wavefoundry" / "bin" / "wave_dashboard"
             bin_codex = root / ".wavefoundry" / "bin" / "register-codex-mcp"
             self.assertTrue(bin_lint.exists())
             self.assertTrue(bin_gardener.exists())
+            self.assertTrue(bin_dashboard.exists())
             self.assertTrue(bin_codex.exists())
             lint_src = bin_lint.read_text(encoding="utf-8")
             gardener_src = bin_gardener.read_text(encoding="utf-8")
+            dashboard_src = bin_dashboard.read_text(encoding="utf-8")
             codex_src = bin_codex.read_text(encoding="utf-8")
         self.assertIn("docs_lint.py", lint_src)
         self.assertIn("docs_gardener.py", gardener_src)
+        self.assertIn("nohup", dashboard_src)
+        self.assertIn(".wavefoundry/logs/dashboard.log", dashboard_src)
         self.assertIn("codex mcp add", codex_src)
         self.assertIn("repo_suffix()", codex_src)
         self.assertIn('SERVER_NAME="wavefoundry-$(repo_suffix "$REPO_ROOT")"', codex_src)
         self.assertIn("#!/usr/bin/env bash", lint_src)
         self.assertIn("#!/usr/bin/env bash", gardener_src)
+        self.assertIn("#!/usr/bin/env bash", dashboard_src)
         self.assertIn("#!/usr/bin/env bash", codex_src)
 
     def test_bin_launchers_are_executable(self):
@@ -186,9 +200,11 @@ class RenderBinLaunchersTests(unittest.TestCase):
             rps.render_bin_launchers(root)
             bin_lint = root / ".wavefoundry" / "bin" / "docs-lint"
             bin_gardener = root / ".wavefoundry" / "bin" / "docs-gardener"
+            bin_dashboard = root / ".wavefoundry" / "bin" / "wave_dashboard"
             bin_codex = root / ".wavefoundry" / "bin" / "register-codex-mcp"
             self.assertTrue(os.access(bin_lint, os.X_OK))
             self.assertTrue(os.access(bin_gardener, os.X_OK))
+            self.assertTrue(os.access(bin_dashboard, os.X_OK))
             self.assertTrue(os.access(bin_codex, os.X_OK))
 
     def test_render_bin_launchers_is_idempotent(self):

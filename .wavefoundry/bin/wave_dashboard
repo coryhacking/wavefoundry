@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Dashboard launcher — .wavefoundry/bin/wave_dashboard
-# Starts the local dashboard server and opens it in the default browser.
+# Persistent dashboard launcher — .wavefoundry/bin/wave_dashboard
+# Starts the local dashboard server under nohup so it survives shell exit.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$REPO_ROOT"
-exec python3 ".wavefoundry/framework/scripts/dashboard_server.py" --open "$@"
+LOG="$REPO_ROOT/.wavefoundry/logs/dashboard.log"
+mkdir -p "$(dirname "$LOG")"
+nohup python3 "$REPO_ROOT/.wavefoundry/framework/scripts/dashboard_server.py" --root "$REPO_ROOT" --open "$@" >"$LOG" 2>&1 &
+echo "Wave dashboard started (pid $!). Log: $LOG"

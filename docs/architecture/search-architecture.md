@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-12
+Last verified: 2026-05-14
 
 ## The Problem
 
@@ -191,4 +191,4 @@ The `text` field is what was embedded. The `path` and `lines` fields are what th
 - **`embedding-model.md`** — the specific model choice, its properties, regression tests, and upgrade procedure
 - **`data-and-control-flow.md`** — the runtime control paths for index build and MCP query calls
 - **`current-state.md`** — the deployed MCP topology, including which tools belong to each search layer
-- **`docs/prompts/agents/code-insight-agent.prompt.md`** — the CIA agent prompt: retrieval loop, citation format, confidence model, and per-specialist-agent usage guidance
+- **`docs/agents/code-insight-agent.md`** — the CIA agent role doc: retrieval loop, citation format, confidence model, and per-agent usage guidance

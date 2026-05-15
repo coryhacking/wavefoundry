@@ -82,6 +82,30 @@ class FileWalkerTests(unittest.TestCase):
         files = self.bi.walk_repo(self.root)
         self.assertFalse(any("node_modules" in str(f) for f in files))
 
+    def test_prunes_excluded_directories_without_rglob(self):
+        _make_repo(self.root, {
+            "src/foo.py": "x = 1\n",
+            "node_modules/pkg/index.js": "module.exports = {};\n",
+            ".git/config": "[core]\nrepositoryformatversion = 0\n",
+            "dist/bundle.js": "console.log('ignored');\n",
+        })
+        with patch.object(Path, "rglob", side_effect=AssertionError("walk_repo should not use rglob")):
+            files = self.bi.walk_repo(self.root)
+        rels = {str(f.relative_to(self.root)).replace("\\", "/") for f in files}
+        self.assertEqual(rels, {"docs/workflow-config.json", "src/foo.py"})
+
+    def test_walk_repo_returns_sorted_paths(self):
+        _make_repo(self.root, {
+            "z.txt": "z\n",
+            "a.txt": "a\n",
+            "src/b.txt": "b\n",
+            "src/a.txt": "a\n",
+            "src/nested/c.txt": "c\n",
+        })
+        files = self.bi.walk_repo(self.root)
+        rels = [str(f.relative_to(self.root)).replace("\\", "/") for f in files]
+        self.assertEqual(rels, sorted(rels))
+
     def test_excludes_pycache(self):
         _make_repo(self.root, {"src/foo.py": "x = 1\n"})
         cache = self.root / "src" / "__pycache__" / "foo.cpython-312.pyc"
@@ -216,10 +240,13 @@ class FileWalkerTests(unittest.TestCase):
         _make_repo(self.root, {"src/foo.py": "x = 1\n"})
         (self.root / ".wavefoundry" / "dashboard-server.json").parent.mkdir(parents=True, exist_ok=True)
         (self.root / ".wavefoundry" / "dashboard-server.json").write_text('{"pid": 1}\n', encoding="utf-8")
+        (self.root / ".wavefoundry" / "logs").mkdir(parents=True, exist_ok=True)
+        (self.root / ".wavefoundry" / "logs" / "dashboard.log").write_text("started\n", encoding="utf-8")
         (self.root / ".wavefoundry" / "guard-overrides.json").write_text('{"seed_edit_allowed": {"enabled": false}}\n', encoding="utf-8")
         files = self.bi.walk_repo(self.root)
         rel_strs = {str(f.relative_to(self.root)).replace("\\", "/") for f in files}
         self.assertNotIn(".wavefoundry/dashboard-server.json", rel_strs)
+        self.assertNotIn(".wavefoundry/logs/dashboard.log", rel_strs)
         self.assertNotIn(".wavefoundry/guard-overrides.json", rel_strs)
 
     def test_returns_paths_with_forward_slashes(self):
@@ -292,8 +319,8 @@ class FileWalkerTests(unittest.TestCase):
             self.assertIn(name, names, f"{name} should be included")
 
     def test_new_code_extensions_in_source_set(self):
-        """AC-7: .xml, .graphql, .gql, .proto, .sql are in SOURCE_CODE_EXTENSIONS."""
-        for ext in (".xml", ".graphql", ".gql", ".proto", ".sql"):
+        """AC-7: .xml, .graphql, .gql, .proto, .sql and common SQL aliases are in SOURCE_CODE_EXTENSIONS."""
+        for ext in (".xml", ".graphql", ".gql", ".proto", ".sql", ".psql", ".pgsql", ".ddl", ".dml", ".tsql", ".hql"):
             self.assertIn(ext, self.bi.SOURCE_CODE_EXTENSIONS, f"{ext} missing from SOURCE_CODE_EXTENSIONS")
 
 

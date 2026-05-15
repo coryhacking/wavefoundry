@@ -46,3 +46,14 @@ Guardrails:
 - Personas should challenge designs and surface edge cases, not rubber-stamp them. Ground their feedback in their specific workflows and failure modes.
 - Persona salience triggers must be job-specific and evidence-based. Do not invent emotional states; record operational impact signals that affect software delivery, acceptance, trust, or supportability.
 - Do not promote repeated historical guidance into persona docs unless it is specifically about the user's experience — system-level lessons belong in core memory and agent journals.
+
+
+## Persona Doc Structure
+
+Persona docs have a fixed section structure. Use only these sections:
+
+**Who** · **Goals** · **Workflows** · **Failure modes** · **Invocation signals** · **Operating identity** · **Salience triggers** · **Associated journal**
+
+**Do not add a `## Scope` section.** `## Scope` is a plan/change doc concept — it describes what a wave or change covers. It has no meaning in a persona doc, which defines a user or operator role, not a delivery boundary.
+
+**Do not include wave-id references in persona doc content.** A wave-id records when a persona was synthesized — it is synthesis metadata, not part of the persona's definition. Wave-id references belong in wave records and change docs, not in persona docs. A persona's evidence should be embedded inline in the **Who** and **Goals** sections where it is contextually useful (e.g. "Evidence: E2E fixtures distinguish admin vs. non-admin users in `apps/aceiss/e2e/...`").

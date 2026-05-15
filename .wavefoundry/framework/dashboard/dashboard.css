@@ -1502,7 +1502,7 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
 /* ── Agent dialog ────────────────────────────────────────────────────────── */
 
 .agent-dialog {
-  width: min(640px, 92vw);
+  width: min(800px, 92vw);
   max-height: 82vh;
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-lg);
@@ -1569,8 +1569,78 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
   padding: var(--space-5) var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-3);
 }
+
+.agent-dialog-body h2 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: var(--space-4) 0 var(--space-1) 0;
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-dialog-body h2:first-child { margin-top: 0; }
+
+.agent-dialog-body h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin: var(--space-3) 0 var(--space-1) 0;
+}
+
+.agent-dialog-body p { font-size: 0.92rem; line-height: 1.6; margin: 0; }
+
+.agent-dialog-body ul { margin: 0; padding-left: 1.25em; }
+
+.agent-dialog-body li { font-size: 0.92rem; line-height: 1.55; }
+
+.agent-dialog-body pre {
+  background: var(--neutral-soft);
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  padding: var(--space-2) var(--space-3);
+  margin: var(--space-1) 0;
+  min-width: 0;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.agent-dialog-body pre code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink);
+}
+
+.agent-dialog-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  margin: var(--space-2) 0;
+}
+.agent-dialog-body th,
+.agent-dialog-body td {
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--panel-border);
+  vertical-align: top;
+  line-height: 1.45;
+}
+.agent-dialog-body th {
+  font-weight: 600;
+  background: var(--neutral-soft);
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.agent-dialog-body tbody tr:last-child td { border-bottom: 1px solid var(--panel-border); }
+.agent-dialog-body tbody tr:hover td { background: rgba(25, 118, 210, 0.06); }
 
 .file-tree {
   list-style: none;

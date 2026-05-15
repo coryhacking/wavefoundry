@@ -163,7 +163,7 @@ Include the following topics in plain language:
    - Pointer to the repo-local lifecycle companion: `docs/contributing/feature-wave-lifecycle-overview.md` (and shared model `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md`).
 
 3. **Commands and trigger phrases**
-   - The operator uses natural-language shortcuts listed in `AGENTS.md` and `docs/prompts/index.md` (for example **`Init wave framework`** / **`Init wave context`**, **`Upgrade wave framework`** / **`Upgrade wave context`**, **`Start dashboard`**, `Plan feature`, `Prepare wave`, `Close wave`).
+   - The operator uses natural-language shortcuts listed in `AGENTS.md` and `docs/prompts/index.md` (for example **`Init wave framework`** / **`Init wave context`**, **`Upgrade wave framework`** / **`Upgrade wave context`**, **`Start dashboard`**, **`Stop dashboard`**, **`Restart dashboard`**, `Plan feature`, `Prepare wave`, `Close wave`).
    - **`Install wave framework`** (legacy: **`Install wave context`**) is a convenience alias: init runs detection first; if the repo is already seeded, hand off to **`Upgrade wave framework`** (legacy: **`Upgrade wave context`**).
    - Lifecycle IDs: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>` (and change IDs per seeded policy).
 
@@ -273,6 +273,7 @@ Required outputs:
 - root wrappers (hooks / CI / CLI; **agents** prefer MCP **`wave_validate`** / **`wave_garden`** — `seed-050`):
   - `.wavefoundry/bin/docs-lint`
   - `.wavefoundry/bin/docs-gardener`
+  - `.wavefoundry/bin/wave_dashboard` — persistent-process launcher for `dashboard_server.py`; opens the browser by default (`--open` baked in); logs to `.wavefoundry/logs/dashboard.log`; see `seed-152` task 2 for the full creation contract
 - agent entry files and thin pointers:
   - `AGENTS.md` (includes **Git commits (operator-owned)** per `seed-050` — agents must not `git commit` unless the operator explicitly instructs them in the **current** request; includes **Implementation guard (product code)** when the project ships product implementation source in the repository, per `050`; otherwise a short note that the guard can be added when implementation directories appear)
   - `CLAUDE.md`
@@ -284,6 +285,8 @@ Required outputs:
   - `docs/prompts/index.md` — public catalog of shortcut phrases, purposes, and **Usage Notes** (must stay consistent with `AGENTS.md` and `prompt-surface-manifest.json`)
   - `docs/prompts/install-wavefoundry.prompt.md`
   - `docs/prompts/start-dashboard.prompt.md`
+  - `docs/prompts/stop-dashboard.prompt.md`
+  - `docs/prompts/restart-dashboard.prompt.md`
   - `docs/prompts/upgrade-wavefoundry.prompt.md`
   - `docs/prompts/plan-feature.prompt.md`
   - `docs/prompts/create-wave.prompt.md`

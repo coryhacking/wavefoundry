@@ -30,6 +30,7 @@ LOCK_STALE_SECONDS = 60 * 60
 
 DOCS_MODEL = "BAAI/bge-base-en-v1.5"
 CODE_MODEL = "BAAI/bge-base-en-v1.5"
+RERANKER_MODEL = "BAAI/bge-reranker-base"
 CONTENT_CHOICES = ("docs", "code", "all")
 SOURCE_CODE_EXTENSIONS = {
     ".py",
@@ -39,6 +40,7 @@ SOURCE_CODE_EXTENSIONS = {
     ".yaml", ".yml", ".toml", ".json", ".jsonc",
     ".html", ".css", ".scss", ".sass",
     ".xml", ".graphql", ".gql", ".proto", ".sql",
+    ".psql", ".pgsql", ".ddl", ".dml", ".tsql", ".hql",
     ".ps1", ".psm1",
     ".bat", ".cmd",
     ".tf", ".tfvars", ".hcl",
@@ -82,6 +84,7 @@ HARDCODED_EXCLUDE_DIRS = {
 HARDCODED_EXCLUDE_PREFIXES = (
     ".wavefoundry/index/",
     ".wavefoundry/framework/index/",
+    ".wavefoundry/logs/",
 )
 HARDCODED_EXCLUDE_PATHS = frozenset({
     ".wavefoundry/dashboard-server.json",
@@ -89,6 +92,7 @@ HARDCODED_EXCLUDE_PATHS = frozenset({
 })
 PROJECT_INDEX_EXCLUDE_PREFIXES = (
     ".wavefoundry/framework/",
+    ".wavefoundry/logs/",
 )
 
 BINARY_EXTENSIONS = frozenset({
@@ -133,6 +137,7 @@ _KNOWN_TEXT_EXTENSIONS = frozenset(SOURCE_CODE_EXTENSIONS) | {
     ".md", ".markdown",
     ".txt",
     ".graphql", ".gql", ".proto",
+    ".psql", ".pgsql", ".ddl", ".dml", ".tsql", ".hql",
     ".tf", ".tfvars", ".hcl", ".tpl",
     ".ps1", ".psm1",
     ".bat", ".cmd",
@@ -141,12 +146,13 @@ _KNOWN_TEXT_EXTENSIONS = frozenset(SOURCE_CODE_EXTENSIONS) | {
 # Dot-directories that are always excluded from the walk.
 # The blanket rule (name starts with ".") handles new tools automatically;
 # only paths under .wavefoundry/ are permitted through the dot-dir filter.
+_DOT_DIR_ALLOWLIST = ".wavefoundry"
 _DOT_DIR_ALLOWLIST_PREFIX = ".wavefoundry/"
 
 # Bump when walk_repo() filter logic changes (binary exclusions, generated file exclusions,
 # null-byte/magic-byte sniff changes). A version mismatch forces a full rebuild so that
 # files newly excluded by the filter are removed from existing indexes automatically.
-WALKER_VERSION = "4"
+WALKER_VERSION = "5"
 
 # ---------------------------------------------------------------------------
 # Ignore file parsing
@@ -191,95 +197,120 @@ def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
     ignore_patterns = _load_ignore_patterns(root) if respect_ignore else []
     result: list[Path] = []
 
-    for path in sorted(root.rglob("*")):
-        if not path.is_file():
-            continue
-
+    for dirpath, dirnames, filenames in os.walk(root):
+        dir_path = Path(dirpath)
         try:
-            rel = path.relative_to(root)
+            rel_dir = dir_path.relative_to(root)
         except ValueError:
             continue
 
-        rel_str = str(rel).replace("\\", "/")
+        dirnames.sort()
+        filenames.sort()
 
-        if rel_str in HARDCODED_EXCLUDE_PATHS:
-            continue
+        rel_dir_str = str(rel_dir).replace("\\", "/")
+        keep_dirnames: list[str] = []
+        for dirname in dirnames:
+            if dirname in HARDCODED_EXCLUDE_DIRS:
+                continue
+            child_rel = dirname if rel_dir_str == "." else f"{rel_dir_str}/{dirname}"
+            if not (
+                child_rel == _DOT_DIR_ALLOWLIST
+                or child_rel.startswith(_DOT_DIR_ALLOWLIST_PREFIX)
+            ) and dirname.startswith("."):
+                continue
+            keep_dirnames.append(dirname)
+        dirnames[:] = keep_dirnames
 
-        # Check hardcoded prefix excludes
-        if any(rel_str.startswith(prefix) for prefix in HARDCODED_EXCLUDE_PREFIXES):
-            continue
-
-        parts = rel_str.split("/")
-
-        # Blanket dot-dir exclusion: skip any path component that starts with "."
-        # unless the entire prefix starts with the .wavefoundry allowlist.
-        if not rel_str.startswith(_DOT_DIR_ALLOWLIST_PREFIX):
-            if any(part.startswith(".") for part in parts[:-1]):
+        for filename in filenames:
+            path = dir_path / filename
+            if not path.is_file():
                 continue
 
-        # Check remaining hardcoded dir-name excludes (non-dot dirs like node_modules).
-        # Only check directory components (parts[:-1]) so filenames like ".env" aren't
-        # blocked by the ".env" virtualenv dir entry.
-        if any(part in HARDCODED_EXCLUDE_DIRS for part in parts[:-1]):
-            continue
-
-        filename = parts[-1]
-        suffix = path.suffix.lower()
-
-        # .env files: allow through — chunker redacts all values, indexes variable names only.
-        # Must be checked before the gitignore check and binary sniff since .env has no
-        # recognised extension and is typically listed in .gitignore.
-        if filename == ".env" or (filename.startswith(".env.") and len(filename) > 5):
-            result.append(path)
-            continue
-
-        # Exact-filename exclusions (generated lock files)
-        if filename in HARDCODED_EXCLUDE_FILENAMES:
-            continue
-
-        # Binary extensions
-        if suffix in BINARY_EXTENSIONS:
-            continue
-
-        # Generated-file extension exclusions (snapshots, diagrams)
-        if suffix in _GENERATED_EXCLUDE_EXTENSIONS:
-            continue
-
-        # Allow extensionless docs files (README, LICENSE, etc.) before extension check
-        if not path.suffix and filename in DOCS_EXTENSIONLESS_NAMES:
-            result.append(path)
-            continue
-
-        # Allow extensionless code files (Jenkinsfile, Makefile, etc.) before extension check
-        if not path.suffix and filename in CODE_EXTENSIONLESS_NAMES:
-            result.append(path)
-            continue
-
-        # Binary sniff for extensionless files and files with unrecognized extensions.
-        # Checks magic-byte signatures first (ELF, Mach-O, PE, class files), then falls
-        # back to a null-byte scan which catches most binary formats not covered above.
-        if not suffix or suffix not in _KNOWN_TEXT_EXTENSIONS:
             try:
-                header = path.read_bytes()[:8192]
-                if (
-                    header[:4] == b"\x7fELF"           # ELF (Linux/ARM executables)
-                    or header[:4] in (b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf",
-                                      b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe")  # Mach-O
-                    or header[:2] == b"MZ"             # PE/COFF (.exe, .dll)
-                    or header[:4] == b"\xca\xfe\xba\xbe"  # Java .class / fat Mach-O
-                    or b"\x00" in header
-                ):
-                    continue
-            except OSError:
+                rel = path.relative_to(root)
+            except ValueError:
                 continue
 
-        # .gitignore / .aiignore
-        if _matches_ignore(rel_str, ignore_patterns):
-            continue
+            rel_str = str(rel).replace("\\", "/")
 
-        result.append(path)
+            if rel_str in HARDCODED_EXCLUDE_PATHS:
+                continue
 
-    return result
+            # Check hardcoded prefix excludes
+            if any(rel_str.startswith(prefix) for prefix in HARDCODED_EXCLUDE_PREFIXES):
+                continue
+
+            parts = rel_str.split("/")
+
+            # Blanket dot-dir exclusion: skip any path component that starts with "."
+            # unless the entire prefix starts with the .wavefoundry allowlist.
+            if not rel_str.startswith(_DOT_DIR_ALLOWLIST_PREFIX):
+                if any(part.startswith(".") for part in parts[:-1]):
+                    continue
+
+            # Check remaining hardcoded dir-name excludes (non-dot dirs like node_modules).
+            # Only check directory components (parts[:-1]) so filenames like ".env" aren't
+            # blocked by the ".env" virtualenv dir entry.
+            if any(part in HARDCODED_EXCLUDE_DIRS for part in parts[:-1]):
+                continue
+
+            filename = parts[-1]
+            suffix = path.suffix.lower()
+
+            # .env files: allow through — chunker redacts all values, indexes variable names only.
+            # Must be checked before the gitignore check and binary sniff since .env has no
+            # recognised extension and is typically listed in .gitignore.
+            if filename == ".env" or (filename.startswith(".env.") and len(filename) > 5):
+                result.append(path)
+                continue
+
+            # Exact-filename exclusions (generated lock files)
+            if filename in HARDCODED_EXCLUDE_FILENAMES:
+                continue
+
+            # Binary extensions
+            if suffix in BINARY_EXTENSIONS:
+                continue
+
+            # Generated-file extension exclusions (snapshots, diagrams)
+            if suffix in _GENERATED_EXCLUDE_EXTENSIONS:
+                continue
+
+            # Allow extensionless docs files (README, LICENSE, etc.) before extension check
+            if not path.suffix and filename in DOCS_EXTENSIONLESS_NAMES:
+                result.append(path)
+                continue
+
+            # Allow extensionless code files (Jenkinsfile, Makefile, etc.) before extension check
+            if not path.suffix and filename in CODE_EXTENSIONLESS_NAMES:
+                result.append(path)
+                continue
+
+            # Binary sniff for extensionless files and files with unrecognized extensions.
+            # Checks magic-byte signatures first (ELF, Mach-O, PE, class files), then falls
+            # back to a null-byte scan which catches most binary formats not covered above.
+            if not suffix or suffix not in _KNOWN_TEXT_EXTENSIONS:
+                try:
+                    header = path.read_bytes()[:8192]
+                    if (
+                        header[:4] == b"\x7fELF"           # ELF (Linux/ARM executables)
+                        or header[:4] in (b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf",
+                                          b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe")  # Mach-O
+                        or header[:2] == b"MZ"             # PE/COFF (.exe, .dll)
+                        or header[:4] == b"\xca\xfe\xba\xbe"  # Java .class / fat Mach-O
+                        or b"\x00" in header
+                    ):
+                        continue
+                except OSError:
+                    continue
+
+            # .gitignore / .aiignore
+            if _matches_ignore(rel_str, ignore_patterns):
+                continue
+
+            result.append(path)
+
+    return sorted(result)
 
 
 # ---------------------------------------------------------------------------

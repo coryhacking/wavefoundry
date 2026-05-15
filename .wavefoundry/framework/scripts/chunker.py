@@ -53,6 +53,12 @@ def _get_ts_lang(key: str):
         return _TS_LANGS[key]
     # tree-sitter >=0.24 grammar packages expose `.language` (callable, no-arg).
     # tree_sitter_typescript is the exception: exposes language_typescript / language_tsx.
+    if key == "sql":
+        lang = _ts_language("tree_sitter_sql", "language")
+        if lang is None:
+            lang = _ts_language("tree_sitter_sql", "language_sql")
+        _TS_LANGS[key] = lang
+        return lang
     mapping = {
         "typescript": ("tree_sitter_typescript", "language_typescript"),
         "javascript": ("tree_sitter_javascript", "language"),
@@ -144,7 +150,7 @@ def _ts_collapse_body(text: str, max_lines: int = 150) -> str:
     return "\n".join(lines[:max_lines])
 
 
-CHUNKER_VERSION = "18"
+CHUNKER_VERSION = "20"
 
 # Lines per window and overlap for the line-window fallback chunker.
 WINDOW_SIZE = 120
@@ -181,7 +187,7 @@ CODE_EXTENSIONLESS_NAMES = {
     "Jenkinsfile", "Makefile", "Dockerfile", "Vagrantfile", "Brewfile",
     "Fastfile", "Appfile", "Podfile", "Gemfile", "Procfile",
 }
-SQL_EXTENSIONS = {".sql"}
+SQL_EXTENSIONS = {".sql", ".psql", ".pgsql", ".ddl", ".dml", ".tsql", ".hql"}
 XML_EXTENSIONS = {".xml", ".jsp", ".xsd", ".xsl", ".xslt", ".svg"}
 KOTLIN_EXTENSIONS = {".kt", ".kts"}
 CODE_EXTENSIONS = {
@@ -197,6 +203,7 @@ CODE_EXTENSIONS = {
 
 SWIFT_EXTENSIONS = {".swift"}
 OBJC_EXTENSIONS = {".m", ".mm"}
+IPYNB_EXTENSIONS = {".ipynb"}
 
 # Maps raw file extensions to canonical language names used in chunk metadata.
 # Ensures code_search(language=...) filters match stored chunk language values.
@@ -230,6 +237,8 @@ _EXT_TO_LANGUAGE: dict[str, str] = {
     **{ext: "terraform" for ext in TERRAFORM_EXTENSIONS},
     **{ext: "hcl" for ext in HCL_EXTENSIONS},
     **{ext: "helm" for ext in HELM_EXTENSIONS},
+    ".psql": "sql", ".pgsql": "sql", ".ddl": "sql", ".dml": "sql", ".tsql": "sql", ".hql": "sql",
+    ".ipynb": "jupyter",
 }
 
 
@@ -2348,15 +2357,79 @@ def chunk_shell(source: str, path: str) -> list[Chunk]:
 # ---------------------------------------------------------------------------
 
 _SQL_DDL_RE = re.compile(
-    r"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW|FUNCTION|PROCEDURE|INDEX)\s+(?:\w+\.)?(\w+)",
+    r"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW|FUNCTION|PROCEDURE|INDEX)\s+((?:\w+\.)?\w+)",
     re.IGNORECASE | re.MULTILINE,
 )
 _SQL_COMMENT_RE = re.compile(r"((?:[ \t]*--[^\n]*\n)+|/\*.*?\*/)", re.DOTALL)
+_SQL_ANON_BLOCK_RE = re.compile(
+    r"(?ims)^[ \t]*DO\b\s*(?P<tag>\$\$|\$[A-Za-z_][\w]*\$)(?P<body>.*?)(?P=tag)(?:\s+LANGUAGE\s+\w+)?\s*;",
+)
+_SQL_STRUCTURAL_NAME_PATTERNS = [
+    re.compile(r"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW|FUNCTION|PROCEDURE|INDEX|SCHEMA|TRIGGER|TYPE)\s+((?:\w+\.)?\w+)", re.IGNORECASE),
+    re.compile(r"^\s*ALTER\s+(?:TABLE|VIEW|FUNCTION|PROCEDURE|INDEX|SCHEMA|TRIGGER|TYPE)\s+((?:\w+\.)?\w+)", re.IGNORECASE),
+    re.compile(r"^\s*DROP\s+(?:TABLE|VIEW|FUNCTION|PROCEDURE|INDEX|SCHEMA|TRIGGER|TYPE)\s+((?:\w+\.)?\w+)", re.IGNORECASE),
+]
 
 
-def chunk_sql(source: str, path: str) -> list[Chunk]:
+def _sql_statement_name(text: str, fallback: str) -> str:
+    for pattern in _SQL_STRUCTURAL_NAME_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return match.group(1)
+    return fallback
+
+
+def _sql_anonymous_block_chunks(source: str, path: str, stem: str, doc_ends: dict[int, str]) -> tuple[list[Chunk], list[tuple[int, int]]]:
+    chunks: list[Chunk] = []
+    ranges: list[tuple[int, int]] = []
+    for index, match in enumerate(_SQL_ANON_BLOCK_RE.finditer(source)):
+        start = source[:match.start()].count("\n") + 1
+        end = source[:match.end()].count("\n") + 1
+        ranges.append((start, end))
+        name = f"anonymous_block@line_{start}"
+        breadcrumb = f"{stem} > {name}"
+        doc_text = doc_ends.get(start - 1)
+        if doc_text:
+            chunks.append(Chunk(
+                id=f"{path}::{name}.__doc__",
+                path=path,
+                kind="doc",
+                language="sql",
+                lines=(max(1, start - 1), start),
+                section=breadcrumb,
+                text=f"{breadcrumb}\n\n{doc_text}",
+            ))
+        chunks.append(Chunk(
+            id=f"{path}::{name}",
+            path=path,
+            kind="code",
+            language="sql",
+            lines=(start, end),
+            section=breadcrumb,
+            text=match.group(0),
+        ))
+    return chunks, ranges
+
+
+def _sql_overlaps_ranges(start: int, end: int, ranges: list[tuple[int, int]]) -> bool:
+    return any(not (end < range_start or start > range_end) for range_start, range_end in ranges)
+
+
+def _sort_sql_chunks(chunks: list[Chunk]) -> list[Chunk]:
+    return sorted(
+        chunks,
+        key=lambda c: (
+            c.lines[0] if getattr(c, "lines", None) else 0,
+            c.lines[1] if getattr(c, "lines", None) else 0,
+            0 if getattr(c, "kind", "") == "doc" else 1,
+            getattr(c, "id", ""),
+        ),
+    )
+
+
+def _chunk_sql_treesitter(source: str, path: str, tree) -> list[Chunk]:
     stem = _file_stem(path)
-    lines = source.splitlines()
+    source_lines = source.splitlines()
     chunks: list[Chunk] = []
 
     doc_ends: dict[int, str] = {}
@@ -2369,6 +2442,77 @@ def chunk_sql(source: str, path: str) -> list[Chunk]:
             ).strip()
         else:
             doc_ends[end_line] = re.sub(r"/\*|\*/", "", raw).strip()
+
+    anonymous_chunks, anonymous_ranges = _sql_anonymous_block_chunks(source, path, stem, doc_ends)
+    chunks.extend(anonymous_chunks)
+
+    def _walk(node):
+        node_type = getattr(node, "type", "")
+        if node_type in {"comment", "block_comment", "line_comment"}:
+            return
+        children = list(getattr(node, "children", []) or [])
+        if children:
+            statement_like = (
+                "statement" in node_type
+                or "declaration" in node_type
+                or node_type in {"select", "insert", "update", "delete", "query"}
+            )
+            if statement_like and getattr(node, "parent", None) is not None:
+                yield node
+                return
+            for child in children:
+                yield from _walk(child)
+        elif getattr(node, "parent", None) is not None and any(token in node_type for token in ("statement", "clause", "definition")):
+            yield node
+
+    seen: set[tuple[int, int, str]] = set()
+    for index, node in enumerate(_walk(tree.root_node)):
+        start, end = _ts_node_lines(node)
+        if start <= 0 or end <= 0:
+            continue
+        if _sql_overlaps_ranges(start, end, anonymous_ranges):
+            continue
+        text = _ts_node_text(node, source_lines)
+        if not text.strip():
+            continue
+        name = _sql_statement_name(text, f"statement_{index + 1}")
+        key = (start, end, name)
+        if key in seen:
+            continue
+        seen.add(key)
+        breadcrumb = f"{stem} > {name}"
+        doc_text = doc_ends.get(start - 1)
+        if doc_text:
+            chunks.append(Chunk(
+                id=f"{path}::{name}.__doc__",
+                path=path,
+                kind="doc",
+                language="sql",
+                lines=(max(1, start - 1), start),
+                section=breadcrumb,
+                text=f"{breadcrumb}\n\n{doc_text}",
+            ))
+        chunks.append(Chunk(
+            id=f"{path}::{name}",
+            path=path,
+                kind="code",
+                language="sql",
+                lines=(start, end),
+                section=breadcrumb,
+                text=text,
+        ))
+
+    if not chunks:
+        return _chunk_sql_regex(source, path, stem, doc_ends)
+    return split_large_code_chunks(_merge_small_chunks(_sort_sql_chunks(chunks), scoped=True))
+
+
+def _chunk_sql_regex(source: str, path: str, stem: str, doc_ends: dict[int, str]) -> list[Chunk]:
+    lines = source.splitlines()
+    chunks: list[Chunk] = []
+
+    anonymous_chunks, _ = _sql_anonymous_block_chunks(source, path, stem, doc_ends)
+    chunks.extend(anonymous_chunks)
 
     i = 0
     try:
@@ -2413,7 +2557,28 @@ def chunk_sql(source: str, path: str) -> list[Chunk]:
 
     if not chunks:
         return _fallback_with_stem(source, path, "sql")
-    return split_large_code_chunks(chunks)
+    return split_large_code_chunks(_sort_sql_chunks(chunks))
+
+
+def chunk_sql(source: str, path: str) -> list[Chunk]:
+    stem = _file_stem(path)
+    tree = _ts_parse("sql", source)
+    if tree is not None:
+        try:
+            return _chunk_sql_treesitter(source, path, tree)
+        except Exception:
+            pass
+    doc_ends: dict[int, str] = {}
+    for m in _SQL_COMMENT_RE.finditer(source):
+        end_line = source[:m.end()].count("\n")
+        raw = m.group(0)
+        if raw.startswith("--"):
+            doc_ends[end_line] = "\n".join(
+                re.sub(r"^--\s?", "", l.strip()) for l in raw.splitlines()
+            ).strip()
+        else:
+            doc_ends[end_line] = re.sub(r"/\*|\*/", "", raw).strip()
+    return _chunk_sql_regex(source, path, stem, doc_ends)
 
 
 # ---------------------------------------------------------------------------
@@ -3531,6 +3696,88 @@ def _chunk_doc_summary(source: str, path: str, kind: str) -> Optional[Chunk]:
     )
 
 
+def chunk_jupyter(source: str, path: str) -> list[Chunk]:
+    """Chunk a Jupyter notebook into typed chunks — one per non-empty cell.
+
+    markdown cells → kind="doc"
+    code cells     → kind="code"
+    raw/unknown    → skipped
+    """
+    import json
+
+    path = _normalize_path(path)
+
+    try:
+        nb = json.loads(source)
+    except (json.JSONDecodeError, ValueError):
+        return chunk_line_window(source, path)
+
+    cells = nb.get("cells", [])
+
+    # Detect kernel language from notebook metadata
+    meta = nb.get("metadata", {})
+    language = (
+        meta.get("kernelspec", {}).get("language")
+        or meta.get("language_info", {}).get("name")
+        or "python"
+    )
+
+    chunks: list[Chunk] = []
+    virtual_line = 1  # cumulative line offset across all cells
+
+    for cell_index, cell in enumerate(cells):
+        cell_type = cell.get("cell_type", "")
+
+        cell_source = cell.get("source", "")
+        if isinstance(cell_source, list):
+            cell_source = "".join(cell_source)
+
+        if cell_type not in ("markdown", "code"):
+            # skip raw and unknown cell types — still advance virtual line counter
+            cell_lines = len(cell_source.splitlines()) or 1
+            virtual_line += cell_lines
+            continue
+
+        # Skip empty/whitespace-only cells
+        if not cell_source.strip():
+            continue
+
+        cell_lines_list = cell_source.splitlines()
+        line_count = len(cell_lines_list) if cell_lines_list else 1
+        start_line = virtual_line
+        end_line = virtual_line + line_count - 1
+        virtual_line = end_line + 1
+
+        # Build section breadcrumb
+        n = len(chunks) + 1  # 1-based index among emitted chunks
+        if cell_type == "markdown":
+            first_line = next((ln for ln in cell_lines_list if ln.strip()), "")
+            if first_line.startswith("#"):
+                heading = first_line.lstrip("#").strip()
+                section = f"notebook > {heading}"
+            else:
+                section = f"notebook > Cell {n}"
+            kind = "doc"
+            cell_language = None
+        else:
+            section = f"notebook > Cell {n}"
+            kind = "code"
+            cell_language = language
+
+        chunk = Chunk(
+            id=f"{path}#cell-{cell_index}",
+            path=path,
+            kind=kind,
+            language=cell_language,
+            lines=(start_line, end_line),
+            section=section,
+            text=cell_source,
+        )
+        chunks.append(chunk)
+
+    return chunks
+
+
 def chunk_file(source: str, path: str) -> list[Chunk]:
     """Dispatch to the appropriate chunker based on file path and extension."""
     normalized = _normalize_path(path)
@@ -3650,6 +3897,9 @@ def chunk_file(source: str, path: str) -> list[Chunk]:
         return chunk_secrets_file(source, normalized, language="terraform")
     if stem == ".env" or stem.startswith(".env."):
         return chunk_secrets_file(source, normalized, language="env")
+
+    if suffix in IPYNB_EXTENSIONS:
+        return chunk_jupyter(source, normalized)
 
     if suffix in CODE_EXTENSIONS:
         return chunk_line_window(source, normalized, language=_ext_language(suffix) or None,

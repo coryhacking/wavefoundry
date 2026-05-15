@@ -14,7 +14,6 @@ repo_suffix() {
 }
 
 SERVER_NAME="wavefoundry-$(repo_suffix "$REPO_ROOT")"
-
 if ! command -v codex >/dev/null 2>&1; then
   echo "codex CLI not found on PATH." >&2
   exit 127

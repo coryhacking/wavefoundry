@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-05-14
 
 Shortcut: **`Start dashboard`**
 
@@ -12,11 +12,16 @@ Start the local Wavefoundry dashboard for the current repository. This is a loop
 
 ## Default Operator Path
 
-Open the dashboard in the default browser and always print the final URL:
+Open the dashboard in the default browser via the persistent bin launcher and always print the final URL:
 
 ```bash
-python3 .wavefoundry/framework/scripts/dashboard_server.py --root . --open
+.wavefoundry/bin/wave_dashboard
 ```
+
+## Related Commands
+
+- **Stop dashboard** — stop the current repository dashboard process.
+- **Restart dashboard** — stop and then start the current repository dashboard process again.
 
 ## Low-Level Script Path
 
@@ -27,6 +32,7 @@ python3 .wavefoundry/framework/scripts/dashboard_server.py --root .
 ```
 
 Both paths always print the final bound URL, including host and port.
+The bin launcher survives shell exit, writes logs to `.wavefoundry/logs/dashboard.log`, and keeps `--open` baked in so operators do not need to remember the browser flag.
 
 ## Runtime Contract
 

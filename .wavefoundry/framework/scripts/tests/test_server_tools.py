@@ -188,7 +188,8 @@ class LayeredIndexTests(unittest.TestCase):
         import numpy as np
         with patch.object(index, "_indexer_constant", return_value="test-model"):
             with patch.object(index, "_embed_query", return_value=np.array([1, 0], dtype=np.float32)):
-                results = index.search_docs("framework project", top_n=5)
+                with patch.object(index, "_get_reranker", return_value=None):
+                    results, _ = index.search_docs("framework project", top_n=5)
 
         paths = {result["path"] for result in results}
         self.assertIn("docs/project.md", paths)
@@ -267,7 +268,8 @@ class LayeredIndexTests(unittest.TestCase):
         import numpy as np
         with patch.object(index, "_indexer_constant", return_value="test-model"):
             with patch.object(index, "_embed_query", return_value=np.array([1, 0], dtype=np.float32)):
-                results = index.search_docs("project", top_n=5)
+                with patch.object(index, "_get_reranker", return_value=None):
+                    results, _ = index.search_docs("project", top_n=5)
 
         self.assertEqual([result["path"] for result in results], ["docs/project.md"])
 
@@ -291,7 +293,8 @@ class LayeredIndexTests(unittest.TestCase):
         import numpy as np
         with patch.object(index, "_indexer_constant", return_value="test-model"):
             with patch.object(index, "_embed_query", return_value=np.array([1, 0], dtype=np.float32)):
-                results = index.search_docs("install", top_n=5)
+                with patch.object(index, "_get_reranker", return_value=None):
+                    results, _ = index.search_docs("install", top_n=5)
 
         self.assertEqual(results, [])
         self.assertEqual(
@@ -329,7 +332,8 @@ class LayeredIndexTests(unittest.TestCase):
         import numpy as np
         with patch.object(index, "_indexer_constant", return_value="test-model"):
             with patch.object(index, "_embed_query", return_value=np.array([1, 0], dtype=np.float32)):
-                results = index.search_docs("one", top_n=5)
+                with patch.object(index, "_get_reranker", return_value=None):
+                    results, _ = index.search_docs("one", top_n=5)
 
         self.assertEqual(results, [])
 
@@ -602,9 +606,9 @@ class GuidedContractTests(unittest.TestCase):
 
     def test_docs_search_normalizes_kind_case(self):
         index = MagicMock()
-        index.search_docs.return_value = []
+        index.search_docs.return_value = ([], False)
         self.srv.docs_search_response(index, "q", "Doc")
-        index.search_docs.assert_called_with("q", kind="doc", top_n=5, tags=None)
+        index.search_docs.assert_called_with("q", kind="doc", top_n=7, tags=None)
 
     def test_wave_help_catalog_is_browseable(self):
         self.srv._cached_help_catalog_json.cache_clear()
@@ -649,7 +653,7 @@ class GuidedContractTests(unittest.TestCase):
 
     def test_docs_search_response_includes_result_id_and_trust_label(self):
         index = MagicMock()
-        index.search_docs.return_value = [{
+        index.search_docs.return_value = ([{
             "id": "chunk-1",
             "path": ".wavefoundry/framework/seeds/010-install-wavefoundry.prompt.md",
             "kind": "seed",
@@ -657,7 +661,7 @@ class GuidedContractTests(unittest.TestCase):
             "lines": [1, 10],
             "text": "install seed body",
             "score": 0.99,
-        }]
+        }], False)
 
         result = self.srv.docs_search_response(index, "install", "seed")
 
@@ -685,13 +689,13 @@ class GuidedContractTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["search_mode"], "lexical_fallback")
         self.assertEqual(result["diagnostics"][0]["code"], "semantic_model_unavailable_offline")
-        index.search_docs_lexical.assert_called_once_with("agent catalog", kind="doc", top_n=5)
+        index.search_docs_lexical.assert_called_once_with("agent catalog", kind="doc", top_n=7)
         index.docs_health.assert_not_called()
 
     def test_docs_search_calls_semantic_search_directly_without_health_preflight(self):
         # docs_health() must not be called on the search hot path regardless of index state.
         index = MagicMock()
-        index.search_docs.return_value = [{
+        index.search_docs.return_value = ([{
             "id": "chunk-1",
             "path": "docs/plans/129nj.md",
             "kind": "doc",
@@ -699,13 +703,13 @@ class GuidedContractTests(unittest.TestCase):
             "lines": [1, 5],
             "text": "agent catalog expansion",
             "score": 0.95,
-        }]
+        }], False)
 
         result = self.srv.docs_search_response(index, "agent catalog", "doc")
 
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["search_mode"], "semantic")
-        index.search_docs.assert_called_once_with("agent catalog", kind="doc", top_n=5, tags=None)
+        index.search_docs.assert_called_once_with("agent catalog", kind="doc", top_n=7, tags=None)
         index.docs_health.assert_not_called()
 
     def test_docs_search_falls_back_to_lexical_on_index_not_ready(self):
@@ -727,7 +731,7 @@ class GuidedContractTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["search_mode"], "lexical_fallback")
         self.assertEqual(result["diagnostics"][0]["code"], "index_not_ready")
-        index.search_docs_lexical.assert_called_once_with("agent catalog", kind="doc", top_n=5)
+        index.search_docs_lexical.assert_called_once_with("agent catalog", kind="doc", top_n=7)
         index.docs_health.assert_not_called()
 
     def test_code_search_response_handles_index_not_ready(self):
@@ -750,7 +754,7 @@ class CodeSearchLanguageNormalizationTests(unittest.TestCase):
 
     def _index_with_results(self, results):
         index = MagicMock()
-        index.search_code.return_value = results
+        index.search_code.return_value = (results, False)
         return index
 
     def _fake_result(self):
@@ -769,30 +773,45 @@ class CodeSearchLanguageNormalizationTests(unittest.TestCase):
         index = self._index_with_results(self._fake_result())
         result = self.srv.code_search_response(index, "render", "typescript")
         self.assertEqual(result["data"]["language"], "typescript")
-        index.search_code.assert_called_once_with("render", language="typescript", top_n=5, kind=None, max_per_file=None, tags=None)
+        index.search_code.assert_called_once_with("render", language="typescript", top_n=7, kind=None, max_per_file=None, tags=None)
 
     def test_raw_extension_without_dot_is_normalized(self):
         index = self._index_with_results(self._fake_result())
         result = self.srv.code_search_response(index, "render", "tsx")
         self.assertEqual(result["data"]["language"], "typescript")
-        index.search_code.assert_called_once_with("render", language="typescript", top_n=5, kind=None, max_per_file=None, tags=None)
+        index.search_code.assert_called_once_with("render", language="typescript", top_n=7, kind=None, max_per_file=None, tags=None)
 
     def test_raw_extension_with_dot_is_normalized(self):
         index = self._index_with_results(self._fake_result())
         result = self.srv.code_search_response(index, "render", ".tsx")
         self.assertEqual(result["data"]["language"], "typescript")
-        index.search_code.assert_called_once_with("render", language="typescript", top_n=5, kind=None, max_per_file=None, tags=None)
+        index.search_code.assert_called_once_with("render", language="typescript", top_n=7, kind=None, max_per_file=None, tags=None)
 
     def test_js_extension_normalizes_to_javascript(self):
         index = self._index_with_results(self._fake_result())
         result = self.srv.code_search_response(index, "fetch", "js")
         self.assertEqual(result["data"]["language"], "javascript")
-        index.search_code.assert_called_once_with("fetch", language="javascript", top_n=5, kind=None, max_per_file=None, tags=None)
+        index.search_code.assert_called_once_with("fetch", language="javascript", top_n=7, kind=None, max_per_file=None, tags=None)
 
     def test_ts_extension_normalizes_to_typescript(self):
         index = self._index_with_results(self._fake_result())
         result = self.srv.code_search_response(index, "parse", "ts")
         self.assertEqual(result["data"]["language"], "typescript")
+
+    def test_sql_alias_extensions_normalize_to_sql(self):
+        index = self._index_with_results([{
+            "id": "src/schema.psql::orders",
+            "path": "src/schema.psql",
+            "kind": "code",
+            "language": "sql",
+            "section": "schema > orders",
+            "lines": [1, 5],
+            "text": "CREATE TABLE orders (id INT);",
+            "score": 0.9,
+        }])
+        for ext in ("psql", ".pgsql", "ddl", ".dml", "tsql", ".hql"):
+            result = self.srv.code_search_response(index, "select", ext)
+            self.assertEqual(result["data"]["language"], "sql")
 
     def test_sh_extension_normalizes_to_shell(self):
         index = self._index_with_results(self._fake_result())
@@ -872,7 +891,7 @@ class CodeSearchLanguageCategoryTests(unittest.TestCase):
 
     def _index_with_results(self, results):
         index = MagicMock()
-        index.search_code.return_value = results
+        index.search_code.return_value = (results, False)
         return index
 
     def _fake_result(self, language="typescript"):
@@ -1414,6 +1433,12 @@ class WaveReopenTests(unittest.TestCase):
         self.srv.wave_reopen_response(self.root, "1200a test-wave")
         self.assertNotIn("Completed At:", self.wave_md.read_text(encoding="utf-8"))
 
+    def test_reopen_paused_wave_sets_status_active(self):
+        self._write_wave("paused")
+        result = self.srv.wave_reopen_response(self.root, "1200a test-wave")
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("Status: active", self.wave_md.read_text(encoding="utf-8"))
+
     def test_reopen_non_closed_wave_returns_error(self):
         self._write_wave("active")
         result = self.srv.wave_reopen_response(self.root, "1200a test-wave")
@@ -1572,6 +1597,21 @@ class IndexBuildStatusTests(unittest.TestCase):
         self.assertIn("elapsed_seconds", result["data"])
         self.assertEqual(result["data"]["progress"], "build_index: embedding doc chunks 100-200/500")
 
+    def test_background_running_when_background_pid_active(self):
+        import os
+        bg_pid = self.index_dir / "background-build.pid"
+        bg_log = self.index_dir / "background-build.log"
+        bg_pid.write_text(str(os.getpid()), encoding="utf-8")
+        bg_log.write_text(
+            "Code index build started in background (PID 12345)\n"
+            "build_index: scanning source files\n",
+            encoding="utf-8",
+        )
+        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        self.assertEqual(result["data"]["state"], "running")
+        self.assertEqual(result["data"]["source"], "background")
+        self.assertEqual(result["data"]["progress"], "build_index: scanning source files")
+
     def test_finished_when_pid_dead(self):
         import time
         self._write_state(99999999, time.time() - 120)
@@ -1639,7 +1679,9 @@ class IndexBuildStatusTests(unittest.TestCase):
         result = self.srv.wave_index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "finished")
         self.assertIn("previous_stats", result["data"])
-        self.assertEqual(result["data"]["previous_stats"]["elapsed_seconds"], 420)
+        self.assertEqual(result["data"]["previous_stats"]["files_indexed"], 300)
+        self.assertEqual(result["data"]["previous_stats"]["doc_chunks"], 2000)
+        self.assertEqual(result["data"]["previous_stats"]["code_chunks"], 1800)
 
     def test_previous_stats_included_in_running_response(self):
         import json, os, time
@@ -1661,7 +1703,8 @@ class IndexBuildStatusTests(unittest.TestCase):
         )
         result = self.srv.wave_index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "finished")
-        self.assertNotIn("previous_stats", result["data"])
+        self.assertIn("previous_stats", result["data"])
+        self.assertEqual(result["data"]["previous_stats"]["files_indexed"], 300)
 
     def test_corrupt_stats_file_not_included(self):
         import time
@@ -1673,7 +1716,8 @@ class IndexBuildStatusTests(unittest.TestCase):
         (self.index_dir / "index-build-stats.json").write_text("not valid json{{", encoding="utf-8")
         result = self.srv.wave_index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "finished")
-        self.assertNotIn("previous_stats", result["data"])
+        self.assertIn("previous_stats", result["data"])
+        self.assertEqual(result["data"]["previous_stats"]["files_indexed"], 300)
 
 
 class IndexBuildStatsTests(unittest.TestCase):
@@ -2429,6 +2473,30 @@ class WaveIndexHealthTests(unittest.TestCase):
         finally:
             tmp.cleanup()
 
+    def test_previous_build_stats_refreshes_from_background_build_log(self):
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmp.name)
+            index_dir = root / ".wavefoundry" / "index"
+            index_dir.mkdir(parents=True, exist_ok=True)
+            stats = {"elapsed_seconds": 1, "files_indexed": 1, "doc_chunks": 1, "code_chunks": 1, "built_at": "2026-05-06T10:00:00Z", "content": "docs", "mode": "update"}
+            (index_dir / "index-build-stats.json").write_text(json.dumps(stats), encoding="utf-8")
+            (index_dir / "background-build.log").write_text(
+                "build_index: done — 77 files indexed, 88 doc chunks, 99 code chunks\n",
+                encoding="utf-8",
+            )
+            index = MagicMock()
+            index.root = root
+            index.docs_health.return_value = {"semantic_ready": True, "stale_layers": [], "missing_layers": [], "has_any_index": True, "compatible_chunks": True, "readiness_overview": "ready", "chunker_version_mismatch_layers": []}
+            result = self.srv.wave_index_health_response(index)
+            stats = result["data"]["previous_build_stats"]
+            self.assertEqual(stats["files_indexed"], 77)
+            self.assertEqual(stats["doc_chunks"], 88)
+            self.assertEqual(stats["code_chunks"], 99)
+            self.assertNotEqual(stats["built_at"], "2026-05-06T10:00:00Z")
+        finally:
+            tmp.cleanup()
+
     def test_previous_build_stats_absent_when_no_stats_file(self):
         tmp = tempfile.TemporaryDirectory()
         try:
@@ -2451,7 +2519,7 @@ class WaveIndexHealthTests(unittest.TestCase):
     def test_docs_health_not_called_during_docs_search(self):
         # Regression: docs_health must NOT be called on the search hot path.
         index = MagicMock()
-        index.search_docs.return_value = []
+        index.search_docs.return_value = ([], False)
         self.srv.docs_search_response(index, "query")
         index.docs_health.assert_not_called()
 
@@ -2702,6 +2770,9 @@ class ServerToolRegistrationTests(unittest.TestCase):
             "wave_index_health",
             "wave_index_build",
             "wave_audit",
+            "wave_dashboard_start",
+            "wave_dashboard_stop",
+            "wave_dashboard_restart",
             "code_list_files",
             "code_read",
             "code_keyword_search",
@@ -3194,7 +3265,7 @@ class CodeDefinitionTests(unittest.TestCase):
         src = self.root / "src"
         src.mkdir(parents=True, exist_ok=True)
         (src / "mymodule.py").write_text(
-            "class MyClass:\n    pass\n\ndef my_function():\n    pass\n\nasync def my_async():\n    pass\n",
+            "class MyClass:\n    pass\n\nclass MyClassTest:\n    pass\n\ndef my_function():\n    pass\n\nasync def my_async():\n    pass\n",
             encoding="utf-8",
         )
 
@@ -3205,7 +3276,10 @@ class CodeDefinitionTests(unittest.TestCase):
         result = self.srv.code_definition_response(self.root, "MyClass")
         self.assertEqual(result["status"], "ok")
         defs = result["data"]["definitions"]
+        self.assertEqual(defs[0]["name"], "MyClass")
+        self.assertEqual(defs[0]["match_kind"], "exact")
         self.assertTrue(any(d["name"] == "MyClass" and d["kind"] == "class" for d in defs))
+        self.assertTrue(any(d["name"] == "MyClassTest" and d["match_kind"] == "partial" for d in defs))
 
     def test_finds_function_definition(self):
         result = self.srv.code_definition_response(self.root, "my_function")
@@ -3249,8 +3323,12 @@ class CodeReferencesTests(unittest.TestCase):
         self.root = _make_repo(Path(self.tmp.name))
         src = self.root / "src"
         src.mkdir(parents=True, exist_ok=True)
+        (src / "mymodule.py").write_text(
+            "class MyClass:\n    pass\n\nclass MyClassTest:\n    pass\n",
+            encoding="utf-8",
+        )
         (src / "caller.py").write_text(
-            "from mymodule import MyClass\n\ndef caller():\n    obj = MyClass()\n    return obj\n",
+            "from mymodule import MyClass\n\n# MyClass mention for reference classification\n\ndef caller():\n    obj = MyClass()\n    return obj\n",
             encoding="utf-8",
         )
         tests_dir = self.root / "tests"
@@ -3294,14 +3372,22 @@ class CodeReferencesTests(unittest.TestCase):
         self.assertEqual(refs[0]["reference_kind"], "call_sites")
         self.assertIn("counts", result["data"])
         self.assertIn("matched_counts", result["data"])
+        self.assertIn("detail_counts", result["data"])
+        self.assertIn("detail_buckets", result["data"])
         self.assertGreaterEqual(result["data"]["counts"]["call_sites"], 1)
         self.assertGreaterEqual(result["data"]["counts"]["tests"], 1)
         self.assertGreaterEqual(result["data"]["counts"]["docs"], 1)
+        self.assertGreaterEqual(result["data"]["detail_counts"]["definition"], 1)
+        self.assertGreaterEqual(result["data"]["detail_counts"]["import"], 1)
+        self.assertGreaterEqual(result["data"]["detail_counts"]["mention"], 1)
         self.assertEqual(result["data"]["count"], result["data"]["total_count"])
         self.assertEqual(result["data"]["count"], sum(result["data"]["counts"].values()))
         self.assertEqual(result["data"]["matched_count"], sum(result["data"]["matched_counts"].values()))
         self.assertGreaterEqual(result["data"]["matched_count"], result["data"]["count"])
         self.assertIn("call_sites", result["data"]["buckets"])
+        self.assertIn("definition", result["data"]["detail_buckets"])
+        self.assertIn("import", result["data"]["detail_buckets"])
+        self.assertIn("mention", result["data"]["detail_buckets"])
 
     def test_filters_can_exclude_tests_and_docs(self):
         result = self.srv.code_references_response(self.root, "MyClass", exclude_tests=True, exclude_docs=True)
@@ -3327,6 +3413,13 @@ class CodeReferencesTests(unittest.TestCase):
         self.assertLessEqual(sum(result["data"]["counts"].values()), 2)
         self.assertGreater(result["data"]["matched_count"], result["data"]["count"])
         self.assertGreaterEqual(result["data"]["total_count"], result["data"]["matched_count"])
+
+    def test_detail_buckets_survive_filters(self):
+        result = self.srv.code_references_response(self.root, "MyClass", exclude_tests=True, exclude_docs=True)
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"]["detail_counts"]["definition"] >= 1)
+        self.assertTrue(result["data"]["detail_counts"]["import"] >= 1)
+        self.assertNotIn("tests", {r["reference_bucket"] for r in result["data"]["references"]})
 
     def test_empty_results_when_no_match(self):
         result = self.srv.code_references_response(self.root, "ZZZNOREFERENCEYYY")
@@ -3930,13 +4023,13 @@ class DocsSearchModeFieldTests(unittest.TestCase):
 
     def test_mode_field_present_on_semantic_results(self):
         index = MagicMock()
-        index.search_docs.return_value = []
+        index.search_docs.return_value = ([], False)
         resp = self.srv.docs_search_response(index, "test query")
         self.assertIn("mode", resp.get("data", {}))
 
     def test_mode_field_is_semantic_when_search_succeeds(self):
         index = MagicMock()
-        index.search_docs.return_value = []
+        index.search_docs.return_value = ([], False)
         resp = self.srv.docs_search_response(index, "test query")
         self.assertEqual(resp["data"]["mode"], "semantic")
 
@@ -4228,7 +4321,8 @@ class SemanticEmbeddingRegressionTests(unittest.TestCase):
                     shutil.copy(str(idx_dir / fname), str(project_idx / fname))
 
                 index = self.srv.WaveIndex(root)
-                results = index.search_docs("how do I validate and prepare a wave?", top_n=1)
+                with patch.object(index, "_get_reranker", return_value=None):
+                    results, _ = index.search_docs("how do I validate and prepare a wave?", top_n=1)
 
         self.assertEqual(len(results), 1, "Expected exactly one result from top_n=1.")
         self.assertEqual(
@@ -4274,7 +4368,8 @@ class SemanticEmbeddingRegressionTests(unittest.TestCase):
 
             index = self.srv.WaveIndex(root)
             # search_docs triggers _ensure_loaded; stale layer should be skipped → no results
-            results = index.search_docs("stale content", top_n=5)
+            with patch.object(index, "_get_reranker", return_value=None):
+                results, _ = index.search_docs("stale content", top_n=5)
 
         self.assertEqual(
             results,
@@ -4900,7 +4995,7 @@ class BackgroundRefreshActiveTests(unittest.TestCase):
 
 
 class WaveIndexAutoReloadTests(unittest.TestCase):
-    """WaveIndex._ensure_loaded reloads when built_at changes on disk."""
+    """WaveIndex._ensure_loaded reloads when meta.json file signature changes."""
 
     def setUp(self):
         self.server = load_server()
@@ -4910,15 +5005,19 @@ class WaveIndexAutoReloadTests(unittest.TestCase):
     def tearDown(self):
         self._td.cleanup()
 
-    def _make_index(self, index_dir: Path, built_at: str) -> None:
+    def _make_index(self, index_dir: Path, built_at: str, *, extra: dict[str, object] | None = None) -> None:
         index_dir.mkdir(parents=True, exist_ok=True)
-        (index_dir / "meta.json").write_text(
-            json.dumps({"built_at": built_at, "content": [], "model_versions": {}, "chunker_versions": {}}),
-            encoding="utf-8",
-        )
+        payload = {"built_at": built_at, "content": [], "model_versions": {}, "chunker_versions": {}}
+        if extra:
+            payload.update(extra)
+        (index_dir / "meta.json").write_text(json.dumps(payload), encoding="utf-8")
 
-    def test_ensure_loaded_reloads_when_project_built_at_changes(self):
-        """_ensure_loaded re-reads index when project meta.json built_at changes."""
+    def _meta_signature(self, index_dir: Path) -> tuple[int, int]:
+        st = (index_dir / "meta.json").stat()
+        return (getattr(st, "st_mtime_ns", 0), st.st_size)
+
+    def test_ensure_loaded_reloads_when_project_meta_signature_changes(self):
+        """_ensure_loaded re-reads index when project meta.json signature changes."""
         root = self.tmp
         project_idx = root / ".wavefoundry" / "index"
         framework_idx = root / ".wavefoundry" / "framework" / "index"
@@ -4927,34 +5026,19 @@ class WaveIndexAutoReloadTests(unittest.TestCase):
 
         idx = self.server.WaveIndex(root)
         idx._loaded = True
-        idx._loaded_built_at = {"project": "2026-01-01T00:00:00Z", "framework": "2026-01-01T00:00:00Z"}
+        idx._loaded_meta_signature = {
+            "project": self._meta_signature(project_idx),
+            "framework": self._meta_signature(framework_idx),
+        }
 
-        # Simulate a rebuild by writing a newer built_at
-        self._make_index(project_idx, "2026-02-01T00:00:00Z")
-
-        # _ensure_loaded detects the change, reloads, and stamps the new built_at
-        idx._ensure_loaded()
-        self.assertEqual(idx._loaded_built_at["project"], "2026-02-01T00:00:00Z")
-
-    def test_ensure_loaded_reloads_when_framework_built_at_changes(self):
-        """_ensure_loaded re-reads index when framework meta.json built_at changes."""
-        root = self.tmp
-        project_idx = root / ".wavefoundry" / "index"
-        framework_idx = root / ".wavefoundry" / "framework" / "index"
-        self._make_index(project_idx, "2026-01-01T00:00:00Z")
-        self._make_index(framework_idx, "2026-01-01T00:00:00Z")
-
-        idx = self.server.WaveIndex(root)
-        idx._loaded = True
-        idx._loaded_built_at = {"project": "2026-01-01T00:00:00Z", "framework": "2026-01-01T00:00:00Z"}
-
-        self._make_index(framework_idx, "2026-02-01T00:00:00Z")
+        # Simulate a rebuild by changing the meta file size without changing built_at.
+        self._make_index(project_idx, "2026-01-01T00:00:00Z", extra={"refresh_marker": "project"})
 
         idx._ensure_loaded()
-        self.assertEqual(idx._loaded_built_at["framework"], "2026-02-01T00:00:00Z")
+        self.assertEqual(idx._loaded_meta_signature["project"], self._meta_signature(project_idx))
 
-    def test_ensure_loaded_does_not_reload_when_built_at_unchanged(self):
-        """_ensure_loaded skips reload when built_at is unchanged on disk."""
+    def test_ensure_loaded_reloads_when_framework_meta_signature_changes(self):
+        """_ensure_loaded re-reads index when framework meta.json signature changes."""
         root = self.tmp
         project_idx = root / ".wavefoundry" / "index"
         framework_idx = root / ".wavefoundry" / "framework" / "index"
@@ -4963,7 +5047,30 @@ class WaveIndexAutoReloadTests(unittest.TestCase):
 
         idx = self.server.WaveIndex(root)
         idx._loaded = True
-        idx._loaded_built_at = {"project": "2026-01-01T00:00:00Z", "framework": "2026-01-01T00:00:00Z"}
+        idx._loaded_meta_signature = {
+            "project": self._meta_signature(project_idx),
+            "framework": self._meta_signature(framework_idx),
+        }
+
+        self._make_index(framework_idx, "2026-01-01T00:00:00Z", extra={"refresh_marker": "framework"})
+
+        idx._ensure_loaded()
+        self.assertEqual(idx._loaded_meta_signature["framework"], self._meta_signature(framework_idx))
+
+    def test_ensure_loaded_does_not_reload_when_meta_signature_unchanged(self):
+        """_ensure_loaded skips reload when meta.json signature is unchanged."""
+        root = self.tmp
+        project_idx = root / ".wavefoundry" / "index"
+        framework_idx = root / ".wavefoundry" / "framework" / "index"
+        self._make_index(project_idx, "2026-01-01T00:00:00Z")
+        self._make_index(framework_idx, "2026-01-01T00:00:00Z")
+
+        idx = self.server.WaveIndex(root)
+        idx._loaded = True
+        idx._loaded_meta_signature = {
+            "project": self._meta_signature(project_idx),
+            "framework": self._meta_signature(framework_idx),
+        }
 
         # No changes — should remain loaded
         idx._ensure_loaded()
@@ -4976,7 +5083,7 @@ class CodeSummaryChunkSearchTests(unittest.TestCase):
     def _make_index(self, chunks):
         srv = load_server()
         index = MagicMock()
-        index.search_code.return_value = chunks
+        index.search_code.return_value = (chunks, False)
         return srv, index
 
     def _make_chunk(self, path, kind, score=0.9):
@@ -4990,7 +5097,7 @@ class CodeSummaryChunkSearchTests(unittest.TestCase):
         result = srv.code_search_response(index, "auth module", kind="code-summary")
         self.assertEqual(result["status"], "ok")
         index.search_code.assert_called_once_with(
-            "auth module", language=None, top_n=5, kind="code-summary", max_per_file=None, tags=None
+            "auth module", language=None, top_n=7, kind="code-summary", max_per_file=None, tags=None
         )
 
     def test_max_per_file_caps_results(self):
@@ -5002,7 +5109,7 @@ class CodeSummaryChunkSearchTests(unittest.TestCase):
         result = srv.code_search_response(index, "query", max_per_file=1)
         self.assertEqual(result["status"], "ok")
         index.search_code.assert_called_once_with(
-            "query", language=None, top_n=5, kind=None, max_per_file=1, tags=None
+            "query", language=None, top_n=7, kind=None, max_per_file=1, tags=None
         )
 
     def test_no_kind_filter_returns_all(self):
@@ -5010,7 +5117,7 @@ class CodeSummaryChunkSearchTests(unittest.TestCase):
         result = srv.code_search_response(index, "query")
         self.assertEqual(result["status"], "ok")
         index.search_code.assert_called_once_with(
-            "query", language=None, top_n=5, kind=None, max_per_file=None, tags=None
+            "query", language=None, top_n=7, kind=None, max_per_file=None, tags=None
         )
 
 
@@ -5020,7 +5127,7 @@ class DocSummaryKindFilterTests(unittest.TestCase):
     def _make_index(self, doc_chunks):
         srv = load_server()
         index = MagicMock()
-        index.search_docs.return_value = doc_chunks
+        index.search_docs.return_value = (doc_chunks, False)
         return srv, index
 
     def test_doc_summary_kind_filter(self):
@@ -5029,7 +5136,7 @@ class DocSummaryKindFilterTests(unittest.TestCase):
         ])
         result = srv.docs_search_response(index, "search architecture", "doc-summary")
         self.assertEqual(result["status"], "ok")
-        index.search_docs.assert_called_once_with("search architecture", kind="doc-summary", top_n=5, tags=None)
+        index.search_docs.assert_called_once_with("search architecture", kind="doc-summary", top_n=7, tags=None)
 
     def test_doc_summary_not_returned_for_doc_kind(self):
         # _doc_matches_kind should not match "doc-summary" for kind="doc"
@@ -5212,6 +5319,95 @@ class CodeReferencesFallbackTests(unittest.TestCase):
         langs = {ref["language"] for ref in result["data"]["references"]}
         self.assertTrue({"typescript", "go"}.issubset(langs))
 
+    def test_sql_tree_sitter_is_used_when_grammar_available(self):
+        source = "CREATE TABLE orders (id INT);\n"
+        tree = self.srv._get_chunker_module()._ts_parse("sql", source)
+        if tree is None:
+            self.skipTest("SQL tree-sitter grammar is not installed in this environment")
+        chunks = self.srv._get_chunker_module().chunk_sql(source, "db/schema.sql")
+        self.assertTrue(any(c.language == "sql" and c.kind == "code" for c in chunks))
+
+
+class SqlSchemaQualifiedFallbackTests(unittest.TestCase):
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name), {
+            "libs/migrations/aceiss/A005__new_tenant_routines.sql": (
+                "CREATE OR REPLACE PROCEDURE create_schema_objects(_tenant text)\n"
+                "LANGUAGE plpgsql\n"
+                "AS $$\n"
+                "BEGIN\n"
+                "    CALL create_schema_objects(_tenant);\n"
+                "END;\n"
+                "$$;\n"
+            ),
+            "docs/release-runbook.md": (
+                "# Release Runbook\n\n"
+                "Call create_schema_objects during tenant bootstrap.\n"
+            ),
+            "docs/waves/sql-notes.md": (
+                "# SQL Notes\n\n"
+                "Remember create_schema_objects when backfilling tenants.\n"
+            ),
+        })
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_sql_schema_qualified_definition_retries_unqualified_symbol(self):
+        result = self.srv.code_definition_response(self.root, "aceiss.create_schema_objects")
+        self.assertEqual(result["status"], "ok")
+        self.assertNotEqual(result["data"]["method"], "keyword_fallback")
+        defs = result["data"]["definitions"]
+        self.assertGreater(len(defs), 0)
+        self.assertIn("A005__new_tenant_routines.sql", defs[0]["path"])
+        self.assertGreater(defs[0]["line"], 0)
+        self.assertEqual(defs[0]["name"], "create_schema_objects")
+
+    def test_sql_schema_qualified_references_retries_unqualified_symbol(self):
+        result = self.srv.code_references_response(self.root, "aceiss.create_schema_objects")
+        self.assertEqual(result["status"], "ok")
+        self.assertGreater(result["data"]["count"], 0)
+        self.assertGreater(result["data"]["counts"]["docs"], 0)
+        self.assertGreater(len(result["data"]["detail_buckets"]["docs"]), 0)
+        first = result["data"]["references"][0]
+        self.assertIn("create_schema_objects", first["snippet"])
+        self.assertIn("A005__new_tenant_routines.sql", first["path"])
+
+
+class WaveIndexHealthRefreshTests(unittest.TestCase):
+    def setUp(self):
+        self.srv = load_server()
+
+    def test_previous_build_stats_refresh_from_finished_log(self):
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmp.name)
+            index_dir = root / ".wavefoundry" / "index"
+            index_dir.mkdir(parents=True, exist_ok=True)
+            state = {"pid": 999999, "started_at": 1710000000.0, "content": "docs", "full": False}
+            (index_dir / "index-build.json").write_text(json.dumps(state), encoding="utf-8")
+            (index_dir / "index-build.log").write_text(
+                "build_index: done — 123 files indexed, 456 doc chunks, 789 code chunks\n",
+                encoding="utf-8",
+            )
+            (index_dir / "index-build-stats.json").write_text(
+                json.dumps({"elapsed_seconds": 1, "files_indexed": 1, "doc_chunks": 1, "code_chunks": 1, "built_at": "2026-01-01T00:00:00Z", "content": "docs", "mode": "update"}),
+                encoding="utf-8",
+            )
+            index = MagicMock()
+            index.root = root
+            index.docs_health.return_value = {"semantic_ready": True, "stale_layers": [], "missing_layers": [], "has_any_index": True, "compatible_chunks": True, "readiness_overview": "ready", "chunker_version_mismatch_layers": []}
+            result = self.srv.wave_index_health_response(index)
+            stats = result["data"]["previous_build_stats"]
+            self.assertEqual(stats["files_indexed"], 123)
+            self.assertEqual(stats["doc_chunks"], 456)
+            self.assertEqual(stats["code_chunks"], 789)
+            self.assertEqual(stats["mode"], "update")
+        finally:
+            tmp.cleanup()
+
 
 class CodeDependenciesTests(unittest.TestCase):
     """AC-7/AC-8/AC-9 (12d4h): code_dependencies parses imports on demand."""
@@ -5299,8 +5495,9 @@ class CodeAskTests(unittest.TestCase):
 
     def _make_index(self, code_results=None, doc_results=None):
         index = MagicMock()
-        index.search_code.return_value = code_results or []
-        index.search_docs.return_value = doc_results or []
+        # code_ask_response now uses search_combined; provide combined results
+        combined = (code_results or []) + (doc_results or [])
+        index.search_combined.return_value = (combined, False)
         index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
         return index
 
@@ -5413,11 +5610,11 @@ class MaxPerFileFilterDirectTests(unittest.TestCase):
             self._chunk("src/auth.py", 0.85),
             self._chunk("src/billing.py", 0.80),
         ]
-        index.search_code.return_value = chunks
+        index.search_code.return_value = (chunks, False)
         result = srv.code_search_response(index, "auth", max_per_file=1)
         self.assertEqual(result["status"], "ok")
         # The response passes through the index.search_code result — verify the index was asked
-        index.search_code.assert_called_once_with("auth", language=None, top_n=5, kind=None, max_per_file=1, tags=None)
+        index.search_code.assert_called_once_with("auth", language=None, top_n=7, kind=None, max_per_file=1, tags=None)
 
     def test_search_code_max_per_file_cap_enforced_by_index(self):
         """AC-2 (12d5s): WaveIndex.search_code with max_per_file=2 returns at most 2 chunks per file."""
@@ -5435,8 +5632,9 @@ class MaxPerFileFilterDirectTests(unittest.TestCase):
         with patch.object(index, "_ensure_loaded"), \
              patch.object(index, "_embed_query", return_value=None), \
              patch.object(index, "_indexer_constant", return_value="model"), \
-             patch.object(index, "_cosine_search", return_value=raw):
-            results = index.search_code("query", max_per_file=2, top_n=10)
+             patch.object(index, "_cosine_search", return_value=raw), \
+             patch.object(index, "_get_reranker", return_value=None):
+            results, _ = index.search_code("query", max_per_file=2, top_n=10)
         auth_results = [r for r in results if r["path"] == "src/auth.py"]
         billing_results = [r for r in results if r["path"] == "src/billing.py"]
         self.assertLessEqual(len(auth_results), 2)
@@ -5457,8 +5655,9 @@ class MaxPerFileFilterDirectTests(unittest.TestCase):
         with patch.object(index, "_ensure_loaded"), \
              patch.object(index, "_embed_query", return_value=None), \
              patch.object(index, "_indexer_constant", return_value="model"), \
-             patch.object(index, "_cosine_search", return_value=raw):
-            results = index.search_code("query", max_per_file=1, top_n=10)
+             patch.object(index, "_cosine_search", return_value=raw), \
+             patch.object(index, "_get_reranker", return_value=None):
+            results, _ = index.search_code("query", max_per_file=1, top_n=10)
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["score"], 0.95)
 
@@ -5483,7 +5682,7 @@ class InferTagsServerTests(unittest.TestCase):
 
     def test_docs_search_response_passes_tags_to_index(self):
         index = MagicMock()
-        index.search_docs.return_value = []
+        index.search_docs.return_value = ([], False)
         self.srv.docs_search_response(index, "query", tags=["wave"])
         index.search_docs.assert_called_once()
         _, kwargs = index.search_docs.call_args
@@ -5491,14 +5690,14 @@ class InferTagsServerTests(unittest.TestCase):
 
     def test_docs_search_response_empty_tags_passes_none(self):
         index = MagicMock()
-        index.search_docs.return_value = []
+        index.search_docs.return_value = ([], False)
         self.srv.docs_search_response(index, "query", tags=[])
         _, kwargs = index.search_docs.call_args
         self.assertIsNone(kwargs.get("tags"))
 
     def test_code_search_response_passes_tags_to_index(self):
         index = MagicMock()
-        index.search_code.return_value = []
+        index.search_code.return_value = ([], False)
         self.srv.code_search_response(index, "query", tags=["test"])
         index.search_code.assert_called_once()
         _, kwargs = index.search_code.call_args
@@ -5558,7 +5757,8 @@ class InferTagsServerTests(unittest.TestCase):
             # Patch embed so we don't need actual model
             idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
             idx._ensure_loaded()
-            results = idx.search_docs("anything", tags=["wave"], top_n=5)
+            with patch.object(idx, "_get_reranker", return_value=None):
+                results, _ = idx.search_docs("anything", tags=["wave"], top_n=5)
             ids = [r["id"] for r in results]
             self.assertIn("w1", ids)
             self.assertNotIn("o1", ids)
@@ -5593,7 +5793,8 @@ class InferTagsServerTests(unittest.TestCase):
             idx = self.srv.WaveIndex(root)
             idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
             idx._ensure_loaded()
-            results = idx.search_docs("anything", kind="doc", tags=["wave"], top_n=5)
+            with patch.object(idx, "_get_reranker", return_value=None):
+                results, _ = idx.search_docs("anything", kind="doc", tags=["wave"], top_n=5)
             ids = [r["id"] for r in results]
             self.assertIn("w1", ids)       # wave-tagged + kind=doc ✓
             self.assertNotIn("w2", ids)    # wave-tagged but kind=doc-summary ✗
@@ -5623,7 +5824,8 @@ class InferTagsServerTests(unittest.TestCase):
             idx = self.srv.WaveIndex(root)
             idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
             idx._ensure_loaded()
-            results = idx.search_docs("wave summary", kind="doc-summary", top_n=5)
+            with patch.object(idx, "_get_reranker", return_value=None):
+                results, _ = idx.search_docs("wave summary", kind="doc-summary", top_n=5)
             ids = [r["id"] for r in results]
             self.assertIn("s1", ids)    # doc-summary ✓
             self.assertIn("s2", ids)    # doc-summary ✓
@@ -5652,7 +5854,8 @@ class InferTagsServerTests(unittest.TestCase):
             idx = self.srv.WaveIndex(root)
             idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
             idx._ensure_loaded()
-            results = idx.search_docs("anything", tags=None, top_n=5)
+            with patch.object(idx, "_get_reranker", return_value=None):
+                results, _ = idx.search_docs("anything", tags=None, top_n=5)
             ids = [r["id"] for r in results]
             self.assertIn("w1", ids)
             self.assertIn("o1", ids)
@@ -6049,6 +6252,410 @@ class HarnessCoverageAuditTests(unittest.TestCase):
         result = self.srv._audit_harness_coverage(self.root)
         self.assertEqual(result["covered_count"], 3)
         self.assertEqual(result["coverage_ratio"], "3/3")
+
+
+class RerankerTests(unittest.TestCase):
+    """12mha-enh: cross-encoder reranker integration tests."""
+
+    def setUp(self):
+        self.srv = load_server()
+
+    def _make_mock_reranker(self, n_docs):
+        """Return a mock reranker whose rerank() returns ascending floats (last doc ranks highest)."""
+        reranker = MagicMock()
+        reranker.rerank.side_effect = lambda query, docs: [float(i) for i in range(len(docs))]
+        return reranker
+
+    def _make_index_with_docs(self, docs_chunks, code_chunks=None):
+        """Create a WaveIndex backed by in-memory numpy arrays."""
+        import numpy as np
+        import tempfile, json
+        srv = self.srv
+        tmp = tempfile.TemporaryDirectory()
+        root = Path(tmp.name)
+        (root / ".wavefoundry" / "index").mkdir(parents=True)
+        (root / ".wavefoundry" / "framework" / "index").mkdir(parents=True)
+        # Build docs index
+        n_docs_chunks = len(docs_chunks)
+        vecs = np.ones((max(n_docs_chunks, 1), 4), dtype=np.float32)
+        np.save(str(root / ".wavefoundry" / "index" / "docs.npy"), vecs)
+        (root / ".wavefoundry" / "index" / "docs.json").write_text(json.dumps(docs_chunks), encoding="utf-8")
+        # Build code index if provided
+        if code_chunks:
+            code_vecs = np.ones((len(code_chunks), 4), dtype=np.float32)
+            np.save(str(root / ".wavefoundry" / "index" / "code.npy"), code_vecs)
+            (root / ".wavefoundry" / "index" / "code.json").write_text(json.dumps(code_chunks), encoding="utf-8")
+        meta = {"model_versions": {"docs": "BAAI/bge-base-en-v1.5", "code": "BAAI/bge-base-en-v1.5"}, "built_at": "2026-01-01"}
+        (root / ".wavefoundry" / "index" / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        idx = srv.WaveIndex(root)
+        import numpy as np
+        idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
+        idx._ensure_loaded()
+        self._tmp = tmp  # keep alive
+        return idx
+
+    def _fake_doc_chunk(self, id, text="sample text"):
+        return {"id": id, "path": f"docs/{id}.md", "kind": "doc", "text": text, "lines": [1, 5]}
+
+    def _fake_code_chunk(self, id, text="def foo(): pass"):
+        return {"id": id, "path": f"src/{id}.py", "kind": "code", "language": "python", "text": text, "lines": [1, 10]}
+
+    def tearDown(self):
+        if hasattr(self, "_tmp"):
+            self._tmp.cleanup()
+
+    # --- docs_search ---
+
+    def test_docs_search_returns_reranked_true_when_reranker_available(self):
+        """docs_search returns (results, True) when reranker is available."""
+        chunks = [self._fake_doc_chunk(f"d{i}") for i in range(3)]
+        idx = self._make_index_with_docs(chunks)
+        mock_reranker = self._make_mock_reranker(3)
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            results, reranked = idx.search_docs("query", top_n=3)
+        self.assertTrue(reranked)
+
+    def test_docs_search_returns_reranked_false_when_reranker_unavailable(self):
+        """docs_search returns (results, False) when reranker returns None."""
+        chunks = [self._fake_doc_chunk(f"d{i}") for i in range(3)]
+        idx = self._make_index_with_docs(chunks)
+        with patch.object(idx, "_get_reranker", return_value=None):
+            results, reranked = idx.search_docs("query", top_n=3)
+        self.assertFalse(reranked)
+
+    def test_docs_search_result_count_does_not_exceed_top_n(self):
+        """docs_search never returns more than top_n results."""
+        chunks = [self._fake_doc_chunk(f"d{i}") for i in range(10)]
+        idx = self._make_index_with_docs(chunks)
+        mock_reranker = self._make_mock_reranker(10)
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            results, _ = idx.search_docs("query", top_n=3)
+        self.assertLessEqual(len(results), 3)
+
+    def test_docs_search_response_includes_reranked_field(self):
+        """docs_search_response includes 'reranked' in response data."""
+        index = MagicMock()
+        index.search_docs.return_value = ([], False)
+        resp = self.srv.docs_search_response(index, "test query")
+        self.assertIn("reranked", resp.get("data", {}))
+
+    def test_docs_search_response_reranked_true_propagates(self):
+        """docs_search_response propagates reranked=True from index."""
+        chunk = self._fake_doc_chunk("d1")
+        chunk["score"] = 0.9
+        index = MagicMock()
+        index.search_docs.return_value = ([chunk], True)
+        resp = self.srv.docs_search_response(index, "test query")
+        self.assertTrue(resp["data"]["reranked"])
+
+    def test_docs_search_lexical_fallback_reranked_false(self):
+        """Lexical fallback path leaves reranked=False."""
+        index = MagicMock()
+        index.search_docs.side_effect = self.srv.IndexNotReadyError("index missing")
+        index.search_docs_lexical.return_value = []
+        resp = self.srv.docs_search_response(index, "query")
+        self.assertFalse(resp["data"].get("reranked", True))
+
+    # --- code_search ---
+
+    def test_code_search_returns_reranked_true_when_reranker_available(self):
+        """code_search returns (results, True) when reranker is available."""
+        chunks = [self._fake_doc_chunk(f"d{i}") for i in range(3)]
+        idx = self._make_index_with_docs([], code_chunks=[self._fake_code_chunk(f"c{i}") for i in range(3)])
+        mock_reranker = self._make_mock_reranker(3)
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            results, reranked = idx.search_code("query", top_n=3)
+        self.assertTrue(reranked)
+
+    def test_code_search_returns_reranked_false_when_reranker_unavailable(self):
+        """code_search returns (results, False) when reranker returns None."""
+        idx = self._make_index_with_docs([], code_chunks=[self._fake_code_chunk(f"c{i}") for i in range(3)])
+        with patch.object(idx, "_get_reranker", return_value=None):
+            results, reranked = idx.search_code("query", top_n=3)
+        self.assertFalse(reranked)
+
+    def test_code_search_result_count_does_not_exceed_top_n(self):
+        """code_search never returns more than top_n results."""
+        idx = self._make_index_with_docs([], code_chunks=[self._fake_code_chunk(f"c{i}") for i in range(10)])
+        mock_reranker = self._make_mock_reranker(10)
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            results, _ = idx.search_code("query", top_n=3)
+        self.assertLessEqual(len(results), 3)
+
+    def test_code_search_response_includes_reranked_field(self):
+        """code_search_response includes 'reranked' in response data."""
+        index = MagicMock()
+        index.search_code.return_value = ([], False)
+        resp = self.srv.code_search_response(index, "query")
+        self.assertIn("reranked", resp.get("data", {}))
+
+    def test_code_search_response_reranked_true_propagates(self):
+        """code_search_response propagates reranked=True from index."""
+        chunk = self._fake_code_chunk("c1")
+        chunk["score"] = 0.9
+        index = MagicMock()
+        index.search_code.return_value = ([chunk], True)
+        resp = self.srv.code_search_response(index, "query")
+        self.assertTrue(resp["data"]["reranked"])
+
+    # --- search_combined ---
+
+    def test_search_combined_returns_reranked_true_when_reranker_available(self):
+        """search_combined returns reranked=True when reranker succeeds."""
+        docs = [self._fake_doc_chunk(f"d{i}") for i in range(3)]
+        code = [self._fake_code_chunk(f"c{i}") for i in range(3)]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        mock_reranker = self._make_mock_reranker(6)
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            results, reranked = idx.search_combined("query", top_n=5)
+        self.assertTrue(reranked)
+        self.assertLessEqual(len(results), 5)
+
+    def test_search_combined_returns_reranked_false_with_rrf_fallback(self):
+        """search_combined returns reranked=False and uses RRF when reranker unavailable."""
+        docs = [self._fake_doc_chunk(f"d{i}") for i in range(3)]
+        code = [self._fake_code_chunk(f"c{i}") for i in range(3)]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        with patch.object(idx, "_get_reranker", return_value=None):
+            results, reranked = idx.search_combined("query", top_n=5)
+        self.assertFalse(reranked)
+        self.assertLessEqual(len(results), 5)
+
+    def test_search_combined_result_count_does_not_exceed_top_n(self):
+        """search_combined never returns more than top_n."""
+        docs = [self._fake_doc_chunk(f"d{i}") for i in range(5)]
+        code = [self._fake_code_chunk(f"c{i}") for i in range(5)]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        mock_reranker = self._make_mock_reranker(10)
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            results, _ = idx.search_combined("query", top_n=3)
+        self.assertLessEqual(len(results), 3)
+
+    def test_code_ask_response_includes_reranked_field(self):
+        """code_ask_response includes 'reranked' in response data."""
+        index = MagicMock()
+        index.search_combined.return_value = ([], False)
+        index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            result = self.srv.code_ask_response(index, root, "how does billing work?")
+        self.assertIn("reranked", result.get("data", {}))
+
+    # --- _get_reranker caching ---
+
+    def test_get_reranker_does_not_cache_none(self):
+        """_get_reranker must not set self._reranker when load fails (no-cache-None rule)."""
+        idx = self.srv.WaveIndex.__new__(self.srv.WaveIndex)
+        idx._reranker = None
+        # Simulate failed load by making import fail
+        with patch.dict("sys.modules", {"fastembed.rerank.cross_encoder": None}):
+            result = idx._get_reranker()
+        # After failure, _reranker must still be None
+        self.assertIsNone(idx._reranker)
+
+    def test_get_reranker_caches_on_success(self):
+        """_get_reranker caches the reranker on successful load."""
+        idx = self.srv.WaveIndex.__new__(self.srv.WaveIndex)
+        idx._reranker = None
+        mock_reranker = MagicMock()
+        mock_encoder_cls = MagicMock(return_value=mock_reranker)
+
+        import types
+        fake_module = types.ModuleType("fastembed.rerank.cross_encoder")
+        fake_module.TextCrossEncoder = mock_encoder_cls
+
+        with patch.dict("sys.modules", {"fastembed.rerank.cross_encoder": fake_module}):
+            with patch.object(idx, "_indexer_constant", return_value="BAAI/bge-reranker-base"):
+                with patch.object(idx, "_offline_model_env", return_value=__import__("contextlib").nullcontext()):
+                    result = idx._get_reranker()
+
+        self.assertIsNotNone(idx._reranker)
+        self.assertEqual(idx._reranker, mock_reranker)
+
+    # --- _rerank sort order ---
+
+    def test_rerank_sorts_descending_by_score(self):
+        """_rerank returns candidates sorted descending by reranker score."""
+        idx = self.srv.WaveIndex.__new__(self.srv.WaveIndex)
+        # reranker returns ascending scores: doc at index i gets score i
+        # so highest-scored doc is the last one
+        mock_reranker = MagicMock()
+        mock_reranker.rerank.side_effect = lambda query, docs: [float(i) for i in range(len(docs))]
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            candidates = [{"id": f"c{i}", "text": f"doc {i}"} for i in range(4)]
+            results = idx._rerank("query", candidates, top_n=2)
+        # highest score is index 3 (score 3.0), then index 2 (score 2.0)
+        self.assertEqual(results[0]["id"], "c3")
+        self.assertEqual(results[1]["id"], "c2")
+
+
+# ---------------------------------------------------------------------------
+# Background model download tests (12mhv-enh)
+# ---------------------------------------------------------------------------
+
+class BackgroundModelDownloadTests(unittest.TestCase):
+    """Tests for _start_background_model_downloads() and _ensure_model_cached()."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_index(self):
+        """Return a bare WaveIndex without triggering __init__ side effects."""
+        idx = self.srv.WaveIndex.__new__(self.srv.WaveIndex)
+        idx.root = self.root
+        idx.index_dir = self.root / ".wavefoundry" / "index"
+        idx.framework_index_dir = self.root / ".wavefoundry" / "framework" / "index"
+        idx._docs_vecs = None
+        idx._code_vecs = None
+        idx._docs_chunks = []
+        idx._all_docs_chunks = []
+        idx._code_chunks = []
+        idx._docs_embedder = None
+        idx._code_embedder = None
+        idx._reranker = None
+        idx._model_downloads_started = False
+        idx._meta = {}
+        idx._loaded = False
+        idx._loaded_meta_signature = {}
+        idx._docs_tag_index = {}
+        idx._code_tag_index = {}
+        idx._docs_kind_index = {}
+        idx._code_kind_index = {}
+        return idx
+
+    def test_hf_hub_offline_suppresses_thread(self):
+        """When HF_HUB_OFFLINE=1, no thread is spawned and _model_downloads_started stays False."""
+        idx = self._make_index()
+        with patch.dict(os.environ, {"HF_HUB_OFFLINE": "1"}):
+            with patch("threading.Thread") as mock_thread:
+                idx._start_background_model_downloads()
+        mock_thread.assert_not_called()
+        self.assertFalse(idx._model_downloads_started)
+
+    def test_double_spawn_guard_spawns_only_one_thread(self):
+        """Calling _start_background_model_downloads() twice only starts one thread."""
+        idx = self._make_index()
+        env = {k: v for k, v in os.environ.items() if k != "HF_HUB_OFFLINE"}
+        with patch.dict(os.environ, env, clear=True):
+            with patch("threading.Thread") as mock_thread:
+                mock_thread.return_value = MagicMock()
+                idx._start_background_model_downloads()
+                idx._start_background_model_downloads()
+        self.assertEqual(mock_thread.call_count, 1)
+
+    def test_thread_is_daemon(self):
+        """The spawned thread must be a daemon thread."""
+        idx = self._make_index()
+        env = {k: v for k, v in os.environ.items() if k != "HF_HUB_OFFLINE"}
+        captured_kwargs = {}
+        def capture_thread(**kwargs):
+            captured_kwargs.update(kwargs)
+            t = MagicMock()
+            return t
+        with patch.dict(os.environ, env, clear=True):
+            with patch("threading.Thread", side_effect=capture_thread):
+                idx._start_background_model_downloads()
+        self.assertTrue(captured_kwargs.get("daemon"), "Thread must be started with daemon=True")
+
+    def test_worker_continues_after_per_model_failure(self):
+        """If _ensure_model_cached raises for the first model, subsequent models are still attempted."""
+        idx = self._make_index()
+        call_log = []
+
+        def fake_ensure(model_name, model_type):
+            call_log.append(model_name)
+            if len(call_log) == 1:
+                raise RuntimeError("simulated download failure")
+
+        env = {k: v for k, v in os.environ.items() if k != "HF_HUB_OFFLINE"}
+        with patch.dict(os.environ, env, clear=True):
+            with patch.object(idx, "_indexer_constant", side_effect=["model-A", "model-B", "reranker-X"]):
+                with patch.object(self.srv, "_ensure_model_cached", side_effect=fake_ensure):
+                    import threading
+                    threads = []
+                    orig_thread = threading.Thread
+
+                    def capture_and_run(*args, **kwargs):
+                        t = orig_thread(*args, **kwargs)
+                        threads.append(t)
+                        return t
+
+                    with patch("threading.Thread", side_effect=capture_and_run):
+                        idx._start_background_model_downloads()
+
+                    if threads:
+                        threads[0].join(timeout=5)
+
+        # Both models should have been attempted (first fails, second and third still called)
+        self.assertGreaterEqual(len(call_log), 2)
+
+    def test_get_reranker_does_not_cache_none_on_failure(self):
+        """_get_reranker() must leave self._reranker as None when it cannot load the model."""
+        idx = self._make_index()
+        with patch.dict(
+            "sys.modules",
+            {"fastembed": None, "fastembed.rerank": None, "fastembed.rerank.cross_encoder": None},
+        ):
+            result1 = idx._get_reranker()
+            result2 = idx._get_reranker()
+        self.assertIsNone(result1)
+        self.assertIsNone(result2)
+        self.assertIsNone(idx._reranker)
+
+    def test_build_server_calls_start_background_model_downloads(self):
+        """build_server() must call _start_background_model_downloads() exactly once."""
+        call_count = [0]
+        original_init = self.srv.WaveIndex.__init__
+
+        def patched_start(self_inner):
+            call_count[0] += 1
+
+        try:
+            mcp = None
+            with patch.object(self.srv.WaveIndex, "_start_background_model_downloads", patched_start):
+                mcp = self.srv.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+
+        self.assertEqual(call_count[0], 1, "_start_background_model_downloads must be called once in build_server()")
+
+    def test_ensure_model_cached_embedding_already_cached(self):
+        """_ensure_model_cached prints 'already cached' when offline probe succeeds."""
+        import contextlib
+        import io
+
+        mock_embedder = MagicMock()
+
+        def fake_text_embedding(model_name, local_files_only=None, **kwargs):
+            return mock_embedder
+
+        with patch.dict(os.environ, {}, clear=False):
+            with patch("fastembed.TextEmbedding", side_effect=fake_text_embedding):
+                buf = io.StringIO()
+                with patch("sys.stdout", buf):
+                    self.srv._ensure_model_cached("test-embedding-model", "embedding")
+                output = buf.getvalue()
+
+        self.assertIn("already cached", output)
+        self.assertIn("test-embedding-model", output)
+
+    def test_ensure_model_cached_reranker_import_error(self):
+        """_ensure_model_cached skips gracefully when fastembed.rerank is not available."""
+        import io
+
+        with patch.dict("sys.modules", {"fastembed.rerank": None, "fastembed.rerank.cross_encoder": None}):
+            buf = io.StringIO()
+            with patch("sys.stdout", buf):
+                self.srv._ensure_model_cached("reranker-model", "reranker")
+            output = buf.getvalue()
+
+        self.assertIn("skipping", output)
 
 
 if __name__ == "__main__":

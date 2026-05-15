@@ -4,7 +4,7 @@ Change ID: `12jv3-enh reference-filtering`
 Change Status: `complete`
 Owner: Engineering
 Status: complete
-Last verified: 2026-05-12
+Last verified: 2026-05-14
 Wave: `12jnb project-index-stale-use-index-inputs`
 
 ## Rationale
@@ -61,6 +61,7 @@ Wave: `12jnb project-index-stale-use-index-inputs`
 | AC-4 | required | Fallback coverage keeps the tool usable outside structured languages |
 | AC-5 | required | Default responses must stay evidence-complete so the broad mode does not regress |
 | AC-6 | important | Category counts make the new response shape easier to interpret quickly |
+| AC-7 | required | Regression coverage keeps the ordering and filtering behavior honest |
 
 ## Risks
 

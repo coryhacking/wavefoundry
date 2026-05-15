@@ -11,17 +11,26 @@ Canonical public prompt doc to generate in the target repository:
 Tasks:
 
 1. Generate a public prompt doc that describes the dashboard as a **local-only**, **read-only**, **loopback HTTP** surface backed by `.wavefoundry/framework/scripts/dashboard_server.py`.
-2. In the public prompt surface and any agent-oriented body, make the operator-facing command **`Start dashboard`** open the browser by default by invoking the low-level script with `--open`:
+2. Create `.wavefoundry/bin/wave_dashboard` as a persistent-process launcher that wraps `dashboard_server.py` with `nohup` so the server survives shell exit. The script must:
+   - resolve `REPO_ROOT` from its own location using the same pattern as `.wavefoundry/bin/docs-gardener` (`cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd`)
+   - write logs to `.wavefoundry/logs/dashboard.log` (create the directory with `mkdir -p` if needed)
+   - launch `dashboard_server.py` with `--root "$REPO_ROOT"` and `--open` baked in so the browser opens by default
+   - pass `"$@"` after the fixed flags so callers can append extra arguments
+   - print `Wave dashboard started (pid $!). Log: $LOG` after forking
+   - be made executable (`chmod +x`)
+
+3. In the public prompt surface and any agent-oriented body, make the operator-facing command **`Start dashboard`** use the bin launcher:
 
    ```bash
-   python3 .wavefoundry/framework/scripts/dashboard_server.py --root . --open
+   .wavefoundry/bin/wave_dashboard
    ```
 
-3. Document that the low-level script is still composable and startup-only by default:
+   The bin launcher opens the browser automatically — no `--open` flag is needed in the public docs. Document that the low-level no-browser fallback is to call the script directly:
 
    ```bash
    python3 .wavefoundry/framework/scripts/dashboard_server.py --root .
    ```
+   Also note `Stop dashboard` and `Restart dashboard` as related repo-local control commands in the public prompt surface.
 
 4. Require both paths to **always print the final bound URL** including host and port, even when the browser is opened automatically.
 5. Describe the runtime contract:

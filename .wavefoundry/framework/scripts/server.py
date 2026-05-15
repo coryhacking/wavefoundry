@@ -66,6 +66,7 @@ UNTRUSTED_PROJECT_CONTENT = "untrusted_project_content"
 VALID_CHANGE_KINDS = {"bug", "feat", "enh", "change", "doc", "debt", "ref", "task", "maint", "ops"}
 MCP_TOOL_PREFIXES = ("wave_", "docs_", "code_", "seed_")
 DOCS_SEARCH_KINDS = frozenset({"doc", "seed", "architecture", "prompt", "doc-summary"})
+VECTOR_TOP_K = 40  # candidates fetched per index before reranking
 _PROMPT_MISS = object()
 """Sentinel used by ``McpRepoCache.get_prompt_text_cached`` to cache a None
 result (i.e. prompt not found) without storing Python ``None``, which cannot
@@ -113,6 +114,78 @@ def _index_readiness_overview(
     return "ready"
 
 
+@contextlib.contextmanager
+def _offline_model_env():
+    """Module-level context manager: sets HF_HUB_OFFLINE=1 and restores on exit."""
+    prior = os.environ.get("HF_HUB_OFFLINE")
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    try:
+        yield
+    finally:
+        if prior is None:
+            os.environ.pop("HF_HUB_OFFLINE", None)
+        else:
+            os.environ["HF_HUB_OFFLINE"] = prior
+
+
+def _ensure_model_cached(model_name: str, model_type: str) -> None:
+    """Download model files to cache without loading into server working memory.
+
+    The instantiated model object is immediately discarded — this function's
+    sole purpose is to populate the on-disk cache so subsequent _get_embedder()
+    or _get_reranker() calls succeed offline.
+    """
+    import os
+
+    if model_type == "reranker":
+        try:
+            from fastembed.rerank.cross_encoder import TextCrossEncoder
+        except ImportError:
+            print(f"[wavefoundry] fastembed.rerank not available; skipping {model_name}", flush=True)
+            return
+
+        # Check if already cached (offline probe)
+        try:
+            with _offline_model_env():
+                try:
+                    TextCrossEncoder(model_name=model_name, local_files_only=True)
+                except TypeError:
+                    TextCrossEncoder(model_name=model_name)
+            print(f"[wavefoundry] Reranker already cached: {model_name}", flush=True)
+            return
+        except Exception:
+            pass
+
+        # Not cached — download (object is discarded after)
+        try:
+            TextCrossEncoder(model_name=model_name, local_files_only=False)
+        except TypeError:
+            TextCrossEncoder(model_name=model_name)
+        print(f"[wavefoundry] Model cached: {model_name}", flush=True)
+
+    else:  # embedding
+        from fastembed import TextEmbedding
+
+        # Check if already cached (offline probe)
+        try:
+            with _offline_model_env():
+                try:
+                    TextEmbedding(model_name=model_name, local_files_only=True)
+                except TypeError:
+                    TextEmbedding(model_name=model_name)
+            print(f"[wavefoundry] Embedding model already cached: {model_name}", flush=True)
+            return
+        except Exception:
+            pass
+
+        # Not cached — download (object discarded)
+        try:
+            TextEmbedding(model_name=model_name, local_files_only=False)
+        except TypeError:
+            TextEmbedding(model_name=model_name)
+        print(f"[wavefoundry] Model cached: {model_name}", flush=True)
+
+
 class WaveIndex:
     """Loaded in-memory index for semantic search."""
 
@@ -125,8 +198,8 @@ class WaveIndex:
         self._docs_chunks: list[dict] = []
         self._all_docs_chunks: list[dict] = []
         self._code_chunks: list[dict] = []
-        self._docs_embedder = None
-        self._code_embedder = None
+        self._reranker = None
+        self._model_downloads_started: bool = False
         self._meta: dict = {}
         self._loaded = False
         self._loaded_meta_signature: dict[str, tuple[int, int] | None] = {}
@@ -259,15 +332,8 @@ class WaveIndex:
 
     @contextlib.contextmanager
     def _offline_model_env(self):
-        prior = os.environ.get("HF_HUB_OFFLINE")
-        os.environ["HF_HUB_OFFLINE"] = "1"
-        try:
+        with _offline_model_env():
             yield
-        finally:
-            if prior is None:
-                os.environ.pop("HF_HUB_OFFLINE", None)
-            else:
-                os.environ["HF_HUB_OFFLINE"] = prior
 
     def _live_docs_chunks(self) -> list[dict[str, Any]]:
         """Walk the repo and chunk all doc files on the fly (no index required).
@@ -576,6 +642,90 @@ class WaveIndex:
                 "Run: python3 .wavefoundry/framework/scripts/setup_index.py --root ."
             ) from exc
 
+    def _get_reranker(self):
+        if self._reranker is not None:
+            return self._reranker
+        try:
+            from fastembed.rerank.cross_encoder import TextCrossEncoder
+        except ImportError:
+            return None
+        try:
+            RERANKER_MODEL = self._indexer_constant("RERANKER_MODEL")
+            with self._offline_model_env():
+                reranker = TextCrossEncoder(model_name=RERANKER_MODEL, local_files_only=True)
+            self._reranker = reranker
+            return self._reranker
+        except TypeError:
+            try:
+                RERANKER_MODEL = self._indexer_constant("RERANKER_MODEL")
+                with self._offline_model_env():
+                    reranker = TextCrossEncoder(model_name=RERANKER_MODEL)
+                self._reranker = reranker
+                return self._reranker
+            except Exception:
+                return None
+        except Exception:
+            return None
+
+    def _start_background_model_downloads(self) -> None:
+        import os
+        import threading
+
+        if os.environ.get("HF_HUB_OFFLINE") == "1":
+            print("[wavefoundry] HF_HUB_OFFLINE set; skipping background model download", flush=True)
+            return
+
+        if self._model_downloads_started:
+            return
+        self._model_downloads_started = True
+
+        def _download_worker() -> None:
+            try:
+                docs_model = self._indexer_constant("DOCS_MODEL")
+                code_model = self._indexer_constant("CODE_MODEL")
+                reranker_model = self._indexer_constant("RERANKER_MODEL")
+            except Exception as exc:
+                print(f"[wavefoundry] Background model download: could not read model constants: {exc}", flush=True)
+                return
+
+            # Deduplicate
+            embedding_models = list(dict.fromkeys([docs_model, code_model]))
+            all_models = [("embedding", m) for m in embedding_models] + [("reranker", reranker_model)]
+
+            for model_type, model_name in all_models:
+                try:
+                    _ensure_model_cached(model_name, model_type)
+                except Exception as exc:
+                    print(f"[wavefoundry] Background download failed for {model_name}: {exc}", flush=True)
+
+        thread = threading.Thread(target=_download_worker, daemon=True, name="wavefoundry-model-download")
+        thread.start()
+
+    def _rerank(self, query: str, candidates: list[dict], top_n: int) -> list[dict]:
+        reranker = self._get_reranker()
+        if not reranker or not candidates:
+            return candidates[:top_n]
+        try:
+            texts = [c.get("text", "") for c in candidates]
+            scores = list(reranker.rerank(query, texts))
+            scored = sorted(zip(scores, candidates), key=lambda x: x[0], reverse=True)
+            return [c for _, c in scored[:top_n]]
+        except Exception:
+            return candidates[:top_n]
+
+    def _rrf_merge(self, ranked_lists: list[list[dict]], top_n: int, k: int = 60) -> list[dict]:
+        scores: dict[str, float] = {}
+        chunks_by_id: dict[str, dict] = {}
+        for ranked in ranked_lists:
+            if not ranked:
+                continue
+            for rank, chunk in enumerate(ranked):
+                chunk_id = str(chunk.get("id") or str(chunk.get("path", "")) + str(chunk.get("lines", "")))
+                scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.0 / (k + rank)
+                chunks_by_id[chunk_id] = chunk
+        sorted_ids = sorted(scores, key=lambda cid: scores[cid], reverse=True)
+        return [chunks_by_id[cid] for cid in sorted_ids[:top_n]]
+
     def _indexer_constant(self, name: str) -> str:
         mod = _load_script("indexer")
         return getattr(mod, name)
@@ -602,7 +752,7 @@ class WaveIndex:
             if scores[i] > 0
         ]
 
-    def search_docs(self, query: str, kind: Optional[str] = None, top_n: int = 5, tags: Optional[list] = None) -> list[dict]:
+    def search_docs(self, query: str, kind: Optional[str] = None, top_n: int = 7, tags: Optional[list] = None) -> tuple[list[dict], bool]:
         self._ensure_loaded()
         DOCS_MODEL = self._indexer_constant("DOCS_MODEL")
         qvec = self._embed_query(query, DOCS_MODEL)
@@ -615,12 +765,18 @@ class WaveIndex:
                 indices &= set(self._docs_kind_index.get(kind, []))
             sorted_indices = sorted(indices)
             if not sorted_indices:
-                return []
+                return [], False
             vecs = vecs[sorted_indices]
             chunks = [chunks[i] for i in sorted_indices]
-        return self._cosine_search(qvec, vecs, chunks, top_n)
+        fetch_n = max(top_n, VECTOR_TOP_K)
+        candidates = self._cosine_search(qvec, vecs, chunks, fetch_n)
+        reranker = self._get_reranker()
+        if reranker is not None:
+            results = self._rerank(query, candidates, top_n)
+            return results, True
+        return candidates[:top_n], False
 
-    def search_code(self, query: str, language: Optional[str] = None, top_n: int = 5, kind: Optional[str] = None, max_per_file: Optional[int] = None, tags: Optional[list] = None) -> list[dict]:
+    def search_code(self, query: str, language: Optional[str] = None, top_n: int = 7, kind: Optional[str] = None, max_per_file: Optional[int] = None, tags: Optional[list] = None) -> tuple[list[dict], bool]:
         self._ensure_loaded()
         CODE_MODEL = self._indexer_constant("CODE_MODEL")
         qvec = self._embed_query(query, CODE_MODEL)
@@ -633,11 +789,12 @@ class WaveIndex:
                 indices &= set(self._code_kind_index.get(kind, []))
             sorted_indices = sorted(indices)
             if not sorted_indices:
-                return []
+                return [], False
             vecs = vecs[sorted_indices]
             chunks = [chunks[i] for i in sorted_indices]
-        n = top_n * 4 if language or max_per_file is not None else top_n
-        results = self._cosine_search(qvec, vecs, chunks, n)
+        fetch_n_base = top_n * 4 if language or max_per_file is not None else top_n
+        fetch_n = max(fetch_n_base, VECTOR_TOP_K)
+        results = self._cosine_search(qvec, vecs, chunks, fetch_n)
         if language:
             results = [r for r in results if r.get("language") == language]
         if max_per_file is not None:
@@ -650,7 +807,30 @@ class WaveIndex:
                     seen[p] = count + 1
                     filtered.append(r)
             results = filtered
-        return results[:top_n]
+        reranker = self._get_reranker()
+        if reranker is not None:
+            results = self._rerank(query, results, top_n)
+            return results, True
+        return results[:top_n], False
+
+    def search_combined(self, query: str, top_n: int = 7) -> tuple[list[dict], bool]:
+        self._ensure_loaded()
+        DOCS_MODEL = self._indexer_constant("DOCS_MODEL")
+        CODE_MODEL = self._indexer_constant("CODE_MODEL")
+        docs_qvec = self._embed_query(query, DOCS_MODEL)
+        code_qvec = self._embed_query(query, CODE_MODEL)
+        docs_candidates = self._cosine_search(docs_qvec, self._docs_vecs, self._docs_chunks, VECTOR_TOP_K)
+        code_candidates = self._cosine_search(code_qvec, self._code_vecs, self._code_chunks, VECTOR_TOP_K)
+        all_candidates = docs_candidates + code_candidates
+        reranker = self._get_reranker()
+        if reranker is not None:
+            try:
+                results = self._rerank(query, all_candidates, top_n)
+                return results, True
+            except Exception:
+                pass
+        results = self._rrf_merge([docs_candidates, code_candidates], top_n)
+        return results, False
 
     def get_seed(self, name: str) -> Optional[dict]:
         self._ensure_loaded()
@@ -2091,7 +2271,7 @@ def run_index_rebuild(
     }
 
 
-def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: int = 5, tags: Optional[list] = None) -> dict[str, Any]:
+def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: int = 7, tags: Optional[list] = None) -> dict[str, Any]:
     k = (kind or "").strip().lower()
     n = max(1, min(int(limit), 20))  # clamp to [1, 20]
     if k and k not in DOCS_SEARCH_KINDS:
@@ -2114,9 +2294,10 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
     search_mode = "semantic"
     results: list[dict[str, Any]] = []
     fallback_reason = ""
+    reranked = False
     try:
         # Attempt semantic search; exception handlers below switch to lexical fallback.
-        results = index.search_docs(query, kind=k or None, top_n=n, tags=tags or None)
+        results, reranked = index.search_docs(query, kind=k or None, top_n=n, tags=tags or None)
     except SemanticModelUnavailableOfflineError as exc:
         search_mode = "lexical_fallback"
         fallback_reason = "semantic_model_unavailable_offline"
@@ -2166,7 +2347,7 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
         _mode = "lexical" if search_mode != "semantic" else "semantic"
         return _response(
             "ok",
-            {"query": query, "kind": k, "mode": _mode, "search_mode": search_mode, "results": []},
+            {"query": query, "kind": k, "mode": _mode, "search_mode": search_mode, "reranked": reranked, "results": []},
             diagnostics=diagnostics,
             next_tools=["wave_help"],
             usage=f"docs_search(query={query!r})",
@@ -2179,6 +2360,7 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
             "kind": k,
             "mode": _mode,
             "search_mode": search_mode,
+            "reranked": reranked,
             "results": [_search_result("doc", result) for result in results],
         },
         diagnostics=diagnostics,
@@ -2187,7 +2369,7 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
     )
 
 
-def code_search_response(index: WaveIndex, query: str, language: str = "", limit: int = 5, kind: Optional[str] = None, max_per_file: Optional[int] = None, tags: Optional[list] = None) -> dict[str, Any]:
+def code_search_response(index: WaveIndex, query: str, language: str = "", limit: int = 7, kind: Optional[str] = None, max_per_file: Optional[int] = None, tags: Optional[list] = None) -> dict[str, Any]:
     n = max(1, min(int(limit), 20))  # clamp to [1, 20]
 
     # Resolve language input → either a category (set of langs) or a single canonical name.
@@ -2213,20 +2395,21 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
         lang_resolved = None
         lang_exts = _LANG_TO_EXTS.get(language) if language else None
 
-    def _data(results: list) -> dict:
-        d: dict[str, Any] = {"query": query, "language": language or None, "results": results}
+    def _data(results: list, reranked: bool = False) -> dict:
+        d: dict[str, Any] = {"query": query, "language": language or None, "reranked": reranked, "results": results}
         if lang_resolved is not None:
             d["language_resolved"] = lang_resolved
         d["language_extensions"] = lang_exts
         return d
 
+    reranked = False
     try:
         if category_langs is not None:
             # Fetch unfiltered results then post-filter to the category set.
-            raw = index.search_code(query, language=None, top_n=n * len(category_langs), kind=kind, max_per_file=max_per_file, tags=tags or None)
+            raw, reranked = index.search_code(query, language=None, top_n=n * len(category_langs), kind=kind, max_per_file=max_per_file, tags=tags or None)
             results = [r for r in raw if r.get("language") in category_langs][:n]
         else:
-            results = index.search_code(query, language=language or None, top_n=n, kind=kind, max_per_file=max_per_file, tags=tags or None)
+            results, reranked = index.search_code(query, language=language or None, top_n=n, kind=kind, max_per_file=max_per_file, tags=tags or None)
     except SemanticModelUnavailableOfflineError as exc:
         return _response(
             "error",
@@ -2260,7 +2443,7 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
     if not results:
         return _response(
             "ok",
-            _data([]),
+            _data([], reranked=reranked),
             diagnostics=[
                 _diagnostic(
                     "no_results",
@@ -2274,7 +2457,7 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
         )
     return _response(
         "ok",
-        _data([_search_result("code", result) for result in results]),
+        _data([_search_result("code", result) for result in results], reranked=reranked),
         next_tools=["wave_help"],
         usage=f"code_search(query={query!r}, language={language!r})" if language else "",
     )
@@ -5332,8 +5515,8 @@ def wave_reopen_response(root: Path, wave_id: str) -> dict[str, Any]:
     text = wave_md.read_text(encoding="utf-8")
     status_match = _STATUS_PATTERN.search(text)
     current_status = status_match.group(1).lower() if status_match else ""
-    if current_status != "closed":
-        return _response("error", {"wave_id": wave_id, "current_status": current_status}, diagnostics=[_diagnostic("wave_not_closed", f"Wave '{wave_id}' has status '{current_status}' — only closed waves can be reopened.", recovery_tools=["wave_current"], recovery_usage="wave_current()")], next_tools=["wave_current"], usage="wave_current()")
+    if current_status not in ("closed", "paused"):
+        return _response("error", {"wave_id": wave_id, "current_status": current_status}, diagnostics=[_diagnostic("wave_not_closed", f"Wave '{wave_id}' has status '{current_status}' — only closed or paused waves can be reopened.", recovery_tools=["wave_current"], recovery_usage="wave_current()")], next_tools=["wave_current"], usage="wave_current()")
     # Set status back to active
     text = text[:status_match.start(1)] + "active" + text[status_match.end(1):]
     # Remove any "Completed At: ..." line stamped by wave_close
@@ -6827,18 +7010,13 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str) -> dict[str
         is_stale = False
     index_freshness = "stale" if is_stale else "current"
 
-    # Broad pass: semantic search over code and docs
+    # Broad pass: combined semantic search with reranking
+    combined_reranked = False
     try:
-        code_results = index.search_code(question, top_n=5, max_per_file=2)
+        combined_results, combined_reranked = index.search_combined(question, top_n=7)
     except Exception:
-        code_results = []
-        gaps.append("code index unavailable")
-
-    try:
-        doc_results = index.search_docs(question, top_n=3)
-    except Exception:
-        doc_results = []
-        gaps.append("docs index unavailable")
+        combined_results = []
+        gaps.append("search index unavailable")
 
     def _to_citation(r: dict) -> dict:
         path = r.get("path", "")
@@ -6853,7 +7031,7 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str) -> dict[str
             "kind": r.get("kind"),
         }
 
-    broad_hits = code_results + doc_results
+    broad_hits = combined_results
     citations = [_to_citation(r) for r in broad_hits]
 
     # Targeted pass: keyword and structural lookup when broad pass is thin
@@ -6900,6 +7078,7 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str) -> dict[str
             "confidence": confidence,
             "gaps": gaps,
             "index_freshness": index_freshness,
+            "reranked": combined_reranked,
         },
         next_tools=["code_read", "docs_search"],
         usage=f"code_read(path={citations[0]['path']!r}, start_line={citations[0]['lines'][0] if citations[0]['lines'] else 1})" if citations else "code_search(query=...)",
@@ -6915,6 +7094,7 @@ def build_server(root: Path):
 
     mcp = FastMCP("wavefoundry_mcp")
     index = WaveIndex(root)
+    index._start_background_model_downloads()
     cache = McpRepoCache(root, index=index)
 
     # Tool annotation constants — passed to @mcp.tool(annotations={...}).
@@ -7054,16 +7234,26 @@ def build_server(root: Path):
     def code_ask(question: str, **kwargs: Any) -> dict[str, Any]:
         """Ask a natural-language question about the codebase and receive a grounded, cited answer.
 
+        Prefer when: the question spans multiple files or layers ("how does X work end-to-end?",
+        "what calls Y?", "where is Z implemented?"). Use code_search or docs_search directly when
+        you want raw result lists to browse rather than a pre-assembled answer.
+
         Performs mechanical retrieval routing: broad semantic pass (code_search + docs_search) followed by
         targeted keyword pass. Returns a structured response with citations, confidence, and gaps.
         No LLM synthesis occurs in this tool — the calling agent synthesizes from the returned citations.
 
         Response fields:
-        - answer: Short answer with primary citation reference(s)
-        - citations: List of {ref, path, lines, excerpt, score, kind}
+        - answer: Navigation pointer ("Based on indexed sources: see X") — ignore this field; synthesize
+          directly from citations.
+        - citations: List of {ref, path, lines, excerpt, score, kind}. kind="keyword" means the semantic
+          pass was thin and keyword fallback fired — results are still relevant but ranked by term overlap,
+          not vector similarity.
+        - reranked: true means cross-encoder reranking ran and ranking is high-quality; false means RRF
+          fallback fired (index or model unavailable) and ranking is slightly lower quality.
         - confidence: "high" (2+ citations), "medium" (1 citation), "low" (no evidence)
         - gaps: Retrieval gaps or index unavailability notices
-        - question_type: "navigational" | "explanatory" | "instructional"
+        - question_type: "navigational" | "explanatory" | "instructional". Influences retrieval pool
+          weighting — navigational questions bias toward code results.
         - index_freshness: "current" | "stale"
 
         Args:

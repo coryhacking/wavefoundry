@@ -18,7 +18,7 @@ REQUIRED_IMPORTS = {
     "fastembed": "fastembed",
     "numpy": "numpy",
     "mcp[cli]": "mcp",
-    # Tree-sitter grammars for AST-accurate code chunking (JS/TS, Go, Rust, Java, C/C++, C#, Bash).
+    # Tree-sitter grammars for AST-accurate code chunking (JS/TS, Go, Rust, Java, C/C++, C#, Bash, SQL).
     # chunker.py falls back to regex chunkers if these are absent, so they are technically optional
     # at runtime — but including them here ensures they are installed alongside fastembed/numpy.
     "tree-sitter>=0.24,<0.26": "tree_sitter",
@@ -32,6 +32,7 @@ REQUIRED_IMPORTS = {
     "tree-sitter-c-sharp": "tree_sitter_c_sharp",
     "tree-sitter-bash": "tree_sitter_bash",
     "tree-sitter-kotlin": "tree_sitter_kotlin",
+    "tree-sitter-sql": "tree_sitter_sql",
 }
 
 INDEXING_WORKFLOW_KEY = "indexing"
@@ -110,6 +111,15 @@ def _indexer_models(include_code: bool) -> list[str]:
     return deduped
 
 
+def _indexer_reranker_model() -> str:
+    indexer_path = SCRIPTS_DIR / "indexer.py"
+    spec = importlib.util.spec_from_file_location("wavefoundry_indexer_for_setup", indexer_path)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod.RERANKER_MODEL
+
+
 @contextlib.contextmanager
 def _offline_env():
     prior = os.environ.get("HF_HUB_OFFLINE")
@@ -130,6 +140,15 @@ def _warm_model(model_name: str, *, local_files_only: bool) -> None:
     next(iter(embedding.embed(["wavefoundry cache verification"])))
 
 
+def _warm_reranker(model_name: str, *, local_files_only: bool) -> None:
+    from fastembed.rerank.cross_encoder import TextCrossEncoder
+    try:
+        reranker = TextCrossEncoder(model_name=model_name, local_files_only=local_files_only)
+    except TypeError:
+        reranker = TextCrossEncoder(model_name=model_name)
+    list(reranker.rerank("verification query", ["verification document"]))
+
+
 def prewarm_models(*, include_code: bool) -> None:
     models = _indexer_models(include_code)
     for model_name in models:
@@ -138,6 +157,13 @@ def prewarm_models(*, include_code: bool) -> None:
         with _offline_env():
             _warm_model(model_name, local_files_only=True)
         print(f"Verified offline semantic model cache: {model_name}", flush=True)
+
+    reranker_model = _indexer_reranker_model()
+    print(f"Prewarming reranker model cache: {reranker_model}", flush=True)
+    _warm_reranker(reranker_model, local_files_only=False)
+    with _offline_env():
+        _warm_reranker(reranker_model, local_files_only=True)
+    print(f"Verified offline reranker model cache: {reranker_model}", flush=True)
 
 
 def _spawn_background_code_build(root: Path, args: argparse.Namespace) -> None:

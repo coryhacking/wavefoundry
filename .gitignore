@@ -16,6 +16,7 @@ build/
 
 # Wavefoundry dashboard runtime state (host-local: pid, port, url — never commit)
 .wavefoundry/dashboard-server.json
+.wavefoundry/logs/
 
 # Wavefoundry semantic index (binary + per-machine, never commit)
 .wavefoundry/index/

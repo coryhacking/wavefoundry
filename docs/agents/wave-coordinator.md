@@ -2,7 +2,8 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Role: wave-coordinator
+Last verified: 2026-05-14
 
 ## Operating Identity
 

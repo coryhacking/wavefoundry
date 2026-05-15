@@ -53,6 +53,14 @@ Init and upgrade should synthesize or refresh project persona docs under:
 
 The local persona README and generated persona docs should define actual evidence, usage patterns, failure modes, invocation signals, and associated journals for that project.
 
+## Persona Doc Section Structure
+
+Persona docs use a fixed set of sections. Do not add sections from other doc types:
+
+**Who** · **Goals** · **Workflows** · **Failure modes** · **Invocation signals** · **Operating identity** · **Salience triggers** · **Associated journal**
+
+`## Scope` is a plan/change doc concept and must not appear in persona docs. Persona docs define a user or operator role — they do not have a delivery boundary or wave anchor. Evidence supporting a persona's existence belongs inline in **Who** and **Goals**, not in a separate section.
+
 ## Related Docs
 
 - `.wavefoundry/framework/seeds/120-project-persona-synthesis.prompt.md`

@@ -4,34 +4,39 @@ Owner: Engineering
 Status: active
 Last verified: 2026-03-21
 
-## Scope
+## Who
 
-- Coordinate wave execution.
+- A developer or engineering lead who runs wave lifecycle commands: Plan feature, Create wave, Prepare wave, Implement wave, Review wave, Close wave.
+
+## Goals
+
+- Coordinate wave execution and preserve delivery gates.
 - wave-id: `00057 routine-behavior-contract`
 - Change ID: `00058-bug fixture-core`
 
-## Operating Identity
-
-- Persona perspective for a wave coordinator role that protects admission, sequencing, and review discipline.
-
-## Salience Triggers
-
-- Critical/high: operator directives, compaction-sensitive blockers, review routing drift, and regression-prone wave-contract changes.
-- Medium: follow-up review or migration watchpoints that affect later wave execution.
-
-## Planning Duties
+## Workflows
 
 - Plan admission, sequence follow-up review, and coordinate low-noise validation work.
 
-## Review Triggers
+## Failure modes
+
+- Skipping Prepare wave before implementation violates the stage gate.
+- AC priority not recorded blocks review-wave reconciliation.
+
+## Invocation signals
 
 - Review active wave artifacts and journal watchpoints before dispatch.
 - Trigger extra review when change summaries or dependency sequencing drift from the active wave contract.
 
-## Escalation Conditions
+## Operating identity
 
-- Escalate cross-change sequencing conflicts to Engineering.
+- Persona perspective for a wave coordinator role that protects admission, sequencing, and review discipline.
 
-## Associated Journal
+## Salience triggers
+
+- Critical/high: operator directives, compaction-sensitive blockers, review routing drift, and regression-prone wave-contract changes.
+- Medium: follow-up review or migration watchpoints that affect later wave execution.
+
+## Associated journal
 
 - Journal: `docs/agents/journals/wave-coordinator.md`

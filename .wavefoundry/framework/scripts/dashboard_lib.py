@@ -677,20 +677,34 @@ def collect_health(root: Path, wave_count: int, change_sets: dict[str, list[dict
     }
 
 
-_AGENT_STATUS_RE = re.compile(r"^Status:\s+(.+)$", re.MULTILINE)
 _AGENT_ROLE_RE   = re.compile(r"^Role:\s+(.+)$", re.MULTILINE)
 
+_HEADER_STRIP_PREFIXES = (
+    "Owner:", "Status:", "Last verified:", "Role:", "Actor:",
+    "Schema version:", "Last distilled:",
+)
 
-_DETAIL_SECTIONS = [
-    "Operating Identity",
-    "Who",
-    "Goals",
-    "Responsibilities",
-    "Default Stance",
-    "Focus Areas",
-    "Scope",
-    "Failure Modes",
-]
+
+def _strip_agent_header(text: str) -> str:
+    """Strip the metadata header block from an agent doc, returning the body.
+
+    Tolerates blank lines within the header block (common in journal files).
+    Stops at the first non-blank line that does not match a known metadata prefix.
+    """
+    lines = text.splitlines()
+    i = 0
+    if lines and lines[i].startswith("# "):
+        i += 1
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if not stripped:
+            i += 1
+            continue
+        if any(stripped.startswith(p) for p in _HEADER_STRIP_PREFIXES):
+            i += 1
+            continue
+        break
+    return "\n".join(lines[i:]).strip()
 
 
 _REVIEW_SUFFIXES = ("-reviewer", "-auditor", "-tester")
@@ -709,6 +723,8 @@ def _classify_agent_category(stem: str, group: str) -> str:
         return "operate"
     if group == "journal":
         return "journal"
+    if group == "specialist":
+        return "specialist"
     if stem in _REVIEW_STEMS or any(stem.endswith(s) for s in _REVIEW_SUFFIXES):
         return "review"
     if stem in _COORDINATE_STEMS or any(stem.endswith(s) for s in _COORDINATE_SUFFIXES):
@@ -742,29 +758,24 @@ def _collect_agents_from_dir(
             text = path.read_text(encoding="utf-8")
         except OSError:
             continue
-        title_m  = _TITLE_RE.search(text)
-        status_m = _AGENT_STATUS_RE.search(text)
-        role_m   = _AGENT_ROLE_RE.search(text)
+        role_m = _AGENT_ROLE_RE.search(text)
+        if not role_m:
+            continue  # No Role: field — not an agent role doc
+        title_m = _TITLE_RE.search(text)
         title = title_m.group(1).strip() if title_m else path.stem.replace("-", " ").title()
         for prefix in ("Persona — ", "Journal — ", "Specialist — "):
             if title.startswith(prefix):
                 title = title[len(prefix):]
                 break
-        details: list[dict[str, str]] = []
-        for section in _DETAIL_SECTIONS:
-            body = _extract_section(text, section).strip()
-            if body:
-                details.append({"heading": section, "body": body})
         usage = (usage_map or {}).get(path.stem, 0)
         results.append({
             "name": title,
             "group": group,
             "category": _classify_agent_category(path.stem, group),
-            "status": status_m.group(1).strip() if status_m else "unknown",
-            "role": role_m.group(1).strip() if role_m else "",
+            "role": role_m.group(1).strip(),
             "usage_count": usage,
             "path": str(path.relative_to(path.parent.parent.parent)).replace("\\", "/"),
-            "details": details,
+            "body": _strip_agent_header(text),
         })
     return results
 

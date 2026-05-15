@@ -50,6 +50,14 @@ wave-id: `12dv9 chunk-tags`
 
 - Closed 2026-05-10: `tags: list[str]` field on Chunk, path-pattern heuristics in `_tag_utils.py`, `tags` filter on `docs_search`/`code_search`, CHUNKER_VERSION bumped, seed-211 Tags Filter section complete.
 
+wave-id: `12mc3 agent-detail-panel-blank-section-mismatch`
+
+- Implemented 2026-05-14: replaced `_DETAIL_SECTIONS` allowlist with full-doc markdown render; added `Role:` gate; specialist group fix; status field removed; WavesDialog pending fix; seed-050/006 canonical headings; persona Scope removed from lint; wave-doc path-based detector. Awaiting operator close signoff.
+
+wave-id: `12mgm dashboard-table-render`
+
+- Active 2026-05-14: extend `renderMarkdownish` to render markdown tables as HTML `<table>` elements; single change, small scope.
+
 wave-id: `12m9w dashboard-closed-wave-progress-fixes`
 
 - Closed 2026-05-14: progress bar accuracy for closed/completed waves (JS + Python); `Item Status:` and bare `Status:` parser fallbacks; AC-N scaffold standard in seed-170, plan-template, and MCP scaffold. Code-reviewer caught missing "completed" in `dialogChangesForScope` — fixed before close.

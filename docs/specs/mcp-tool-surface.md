@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-12
+Last verified: 2026-05-14
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -199,7 +199,7 @@ once envelope migration is complete.
 `code_search(query: str, language: str = "", kind: str = "", max_per_file: int = 0, tags: list[str] = [], limit: int = 5)`
 
 - Semantic search over indexed source code chunks.
-- Optional `language`: category name, canonical language name, or raw file extension (with or without leading dot) — all accepted. e.g. `"typescript"`, `"tsx"`, and `".tsx"` are all equivalent single-language filters. Category filters expand to a set of languages and return `language_resolved` (the expanded language list) and `language_extensions` (all covered extensions). Single-language filters return `language_extensions` only; `language_resolved` is absent. Categories: `java` (java, kotlin, scala, groovy), `web` (typescript, javascript, html, css, scss), `systems` (c, cpp, rust, go), `script` (python, ruby, shell, fish), `data` (sql), `sparksql` (sql alias for SparkSQL queries), `dotnet` (csharp). Canonical names and their extensions: `typescript` (.ts, .tsx), `javascript` (.js, .jsx, .mjs, .cjs), `python` (.py), `go` (.go), `rust` (.rs), `java` (.java), `kotlin` (.kt, .kts), `scala` (.scala), `groovy` (.groovy), `ruby` (.rb), `csharp` (.cs), `cpp` (.cpp, .hpp), `c` (.c, .h), `shell` (.sh, .bash, .zsh), `fish` (.fish), `sql` (.sql), `xml` (.xml), `html` (.html, .htm), `css` (.css), `scss` (.scss), `swift` (.swift), `json` (.json, .jsonc), `toml` (.toml), `yaml` (.yaml, .yml). Use `wave_help(goal='search_code')` to rediscover this list at runtime.
+- Optional `language`: category name, canonical language name, or raw file extension (with or without leading dot) — all accepted. e.g. `"typescript"`, `"tsx"`, and `".tsx"` are all equivalent single-language filters. Category filters expand to a set of languages and return `language_resolved` (the expanded language list) and `language_extensions` (all covered extensions). Single-language filters return `language_extensions` only; `language_resolved` is absent. Categories: `java` (java, kotlin, scala, groovy), `web` (typescript, javascript, html, css, scss), `systems` (c, cpp, rust, go), `script` (python, ruby, shell, fish), `data` (sql), `sparksql` (sql alias for SparkSQL queries), `dotnet` (csharp). Canonical names and their extensions: `typescript` (.ts, .tsx), `javascript` (.js, .jsx, .mjs, .cjs), `python` (.py), `go` (.go), `rust` (.rs), `java` (.java), `kotlin` (.kt, .kts), `scala` (.scala), `groovy` (.groovy), `ruby` (.rb), `csharp` (.cs), `cpp` (.cpp, .hpp), `c` (.c, .h), `shell` (.sh, .bash, .zsh), `fish` (.fish), `sql` (.sql, .psql, .pgsql, .ddl, .dml, .tsql, .hql), `xml` (.xml), `html` (.html, .htm), `css` (.css), `scss` (.scss), `swift` (.swift), `json` (.json, .jsonc), `toml` (.toml), `yaml` (.yaml, .yml). Use `wave_help(goal='search_code')` to rediscover this list at runtime.
 - Optional `kind`: chunk-kind filter. Use `code-summary` for file-level orientation chunks only.
 - Optional `max_per_file`: cap results per file path (`0` means no cap). Use `1` for orientation passes when you want breadth over repeated hits from one file.
 - Optional `tags`: pre-filter the search space before semantic ranking. Current tags: `wave`, `agent`, `journal`, `lifecycle`, `reference`, `prompt`, `seed`, `framework`, `test`, `config`.
@@ -397,8 +397,8 @@ is enforced; structured diagnostics are returned for rejected paths.
 - `code_keyword_search` — exact substring search, always available, no index required
 - `code_read` — read a file by repo-relative path with optional line range
 - `code_list_files` — list repo files with optional glob filter
-- `code_definition` — symbol definition lookup across Python AST, tree-sitter-backed Java/C#/JS/TS navigation, and supported non-Python structural matchers; falls back to broad keyword matches when no structural definition is found
-- `code_references` — symbol reference search across Python plus tree-sitter-backed Java/C#/JS/TS navigation, with language-aware text matching and broad keyword fallback for the rest
+- `code_definition` — symbol definition lookup across Python AST, tree-sitter-backed Java/C#/JS/TS/SQL navigation, and supported non-Python structural matchers; falls back to broad keyword matches when no structural definition is found
+- `code_references` — symbol reference search across Python plus tree-sitter-backed Java/C#/JS/TS/SQL navigation, with language-aware text matching and broad keyword fallback for the rest. Supports `exclude_tests`, `exclude_docs`, `call_sites_only`, and `limit`; the default response remains evidence-complete, while filtered responses preserve excluded counts so agents can see how much signal was removed. The response also surfaces richer detail buckets for definitions, imports, and mentions alongside the broad call-site/doc/test breakdown.
 
 ## Tool Selection Guide
 
@@ -471,6 +471,7 @@ Use this table to select the right tool for a query type.
 - You already know the symbol name and need call sites, usages, or mentions.
 - You are reviewing blast radius before a change.
 - You want a references-first workflow rather than conceptual discovery.
+- If you want to suppress test noise, pass `exclude_tests=true` rather than inventing a separate production-only mode; inspect the returned counts to see how many test hits were excluded.
 
 **Use `docs_search` instead of `code_search` when:**
 - The answer is in a markdown spec, architecture doc, prompt, or seed — not in source code.

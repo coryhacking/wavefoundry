@@ -38,6 +38,7 @@ class SetupIndexTests(unittest.TestCase):
         missing_arg = mock_install.call_args[0][0]
         self.assertIn("fastembed", missing_arg)
         self.assertIn("numpy", missing_arg)
+        self.assertIn("tree-sitter-sql", missing_arg)
         # Still exits 2 because _installed still returns False after mock install
         self.assertEqual(raised.exception.code, 2)
 
@@ -125,6 +126,10 @@ class SetupIndexTests(unittest.TestCase):
         self.assertIn("docs/external", cmd)
         self.assertIn(".wavefoundry/framework/scripts", cmd)
         self.assertIn("vendor/docs", cmd)
+
+    def test_required_imports_include_sql_tree_sitter(self):
+        self.assertIn("tree-sitter-sql", self.mod.REQUIRED_IMPORTS)
+        self.assertEqual(self.mod.REQUIRED_IMPORTS["tree-sitter-sql"], "tree_sitter_sql")
 
     def test_prewarm_models_warms_then_verifies_offline(self):
         with patch.object(self.mod, "_indexer_models", return_value=["model-a", "model-b"]):

@@ -83,13 +83,14 @@ JOURNAL_REQUIRED_SECTIONS = (
 )
 
 PERSONA_REQUIRED_SECTIONS = (
-    "## Scope",
-    "## Operating Identity",
-    "## Salience Triggers",
-    "## Planning Duties",
-    "## Review Triggers",
-    "## Escalation Conditions",
-    "## Associated Journal",
+    "## Who",
+    "## Goals",
+    "## Workflows",
+    "## Failure modes",
+    "## Invocation signals",
+    "## Operating identity",
+    "## Salience triggers",
+    "## Associated journal",
 )
 
 # Root wrapper names that must not exist at the repository root.

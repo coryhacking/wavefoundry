@@ -61,6 +61,20 @@ Write "operator frustration was observed" or "trust-risk signal" rather than "th
 - During finalization, promote durable lessons into canonical docs, persona guidance, or workflow memory when appropriate.
 - Journal maintenance is part of the lifecycle, not an optional closure afterthought.
 
+## Canonical Journal Section Headings
+
+All journal docs must use the following exact H2 heading strings to ensure consistent tooling and cross-project readability:
+
+- `## Operating Identity` — the role's stance, priorities, and what success looks like in this project context
+- `## Salience Triggers` — operational signals that should cause the agent to stop and record before context is lost
+- `## Distillation` — durable, validated lessons promoted from active signals; survives wave cycles
+- `## Active Signals` — current wave-scoped observations, incidents, and open questions (cleared or promoted at wave closure)
+- `## Promotion Evidence` — record of lessons promoted to `docs/references/project-context-memory.md` or equivalent durable memory
+- `## Retirement And Supersession` — entries retired because the constraint no longer applies or has been structurally resolved
+- `## Governance` — journal hygiene rules: no secrets/PII, distill at wave closure, promote repeated validated lessons
+
+Use these headings exactly as shown. Capitalize "And" in `## Retirement And Supersession`. Do not introduce variant spellings (e.g. "Retirement and Supersession") — consistent capitalization across all journals enables reliable tooling.
+
 ## Seeded Repository Expectations
 
 Init and upgrade should seed or refresh journal homes in the repository under:

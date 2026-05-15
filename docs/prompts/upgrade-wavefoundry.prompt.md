@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-12
+Last verified: 2026-05-14
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -79,7 +79,7 @@ See `docs/contributing/build-and-verification.md` **Wave framework pack upgrade 
 
 ## Optional Dashboard Verification
 
-If the upgraded pack includes the local dashboard feature, verify the surface starts cleanly:
+If the upgraded pack includes the local dashboard feature, verify the Start / Stop / Restart dashboard surfaces exist and the start path opens cleanly:
 
 ```bash
 python3 .wavefoundry/framework/scripts/dashboard_server.py --root . --open

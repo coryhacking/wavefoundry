@@ -676,8 +676,11 @@ function DialogFrame({ className, title, subtitle, onClose, children }) {
 function WavesDialog({ snapshot, onClose }) {
   const waves = snapshot.waves || [];
   const active = activeWaves(waves);
-  return h(DialogFrame, { title: p(active.length, "Active Waves", "Pending Waves"), onClose },
-    active.length ? active.map(wave =>
+  const pending = pendingWaves(waves);
+  const displayWaves = active.length ? active : pending;
+  const title = active.length ? "Active Waves" : "Pending Waves";
+  return h(DialogFrame, { title, onClose },
+    displayWaves.length ? displayWaves.map(wave =>
       h("div", { key: wave.wave_id, className: "metric-dialog-card" },
         h("div", { className: "metric-dialog-card-header" },
           h("span", { className: "open-wave-id" }, wave.wave_id),
@@ -819,25 +822,17 @@ function IndexDialog({ health, onClose }) {
 
 function IndexSection({ label, idx }) {
   const buildStatus = idx.build_status;
-  const buildKind = label === "Framework" ? "Framework docs index" : "Project index";
   const buildAction = idx.mode === "update"
-    ? "updating"
+    ? "Updating"
     : idx.mode === "rebuild"
-      ? "rebuilding"
-      : (idx.source === "background" ? "updating" : "rebuilding");
-  const buildDetail = buildStatus === "running"
-    ? `${buildKind} ${buildAction}${idx.progress ? ` · ${idx.progress}` : ""}`
-    : buildStatus === "failed"
-      ? "Index build failed"
-      : idx.stale === true
-        ? "Index is stale"
-        : null;
+      ? "Rebuilding"
+      : (idx.source === "background" ? "Updating" : "Rebuilding");
   const buildBadgeText = buildStatus === "running"
-    ? `Indexing… · ${buildDetail}`
+    ? `${buildAction} index…`
     : buildStatus === "failed"
-      ? "Index build failed"
+      ? "Build failed"
       : idx.stale === true
-        ? "Stale · Index is stale"
+        ? "Index stale"
         : idx.stale === false
           ? "Up to date"
           : null;
@@ -992,10 +987,28 @@ function Activity({ activity }) {
   );
 }
 
+function renderInline(str) {
+  const parts = [];
+  const inlineRe = /(\*\*([^*]+)\*\*|`([^`]+)`)/g;
+  let lastIndex = 0;
+  let partKey = 0;
+  let match;
+  while ((match = inlineRe.exec(str)) !== null) {
+    if (match.index > lastIndex) parts.push(str.slice(lastIndex, match.index));
+    if (match[2] !== undefined) parts.push(h("strong", { key: partKey++ }, match[2]));
+    else if (match[3] !== undefined) parts.push(h("code", { key: partKey++ }, match[3]));
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < str.length) parts.push(str.slice(lastIndex));
+  return parts.length === 1 && typeof parts[0] === "string" ? parts[0] : parts;
+}
+
 function renderMarkdownish(text) {
   const lines = text.split("\n");
   const result = [];
   let listItems = [];
+  let tableLines = [];
+  let codeLines = null; // null = not in a code block; [] = collecting
   let key = 0;
 
   const flushList = () => {
@@ -1005,16 +1018,95 @@ function renderMarkdownish(text) {
     }
   };
 
+  const isSeparatorRow = (line) => /^\|[-:| ]+\|$/.test(line);
+
+  const parseTableCells = (line) => {
+    const stripped = line.replace(/^\||\|$/g, "");
+    const cells = [];
+    let current = "";
+    let inCode = false;
+    for (let i = 0; i < stripped.length; i++) {
+      const ch = stripped[i];
+      if (ch === "`") { inCode = !inCode; current += ch; }
+      else if (ch === "|" && !inCode) { cells.push(current.trim()); current = ""; }
+      else { current += ch; }
+    }
+    cells.push(current.trim());
+    return cells;
+  };
+
+  const flushTable = () => {
+    if (!tableLines.length) return;
+    const rows = tableLines;
+    tableLines = [];
+    if (rows.length < 1) return;
+    const headerCells = parseTableCells(rows[0]);
+    const thead = h("thead", { key: "thead" },
+      h("tr", { key: "tr" },
+        headerCells.map((cell, i) => h("th", { key: i }, renderInline(cell)))
+      )
+    );
+    const bodyRows = [];
+    for (let i = 1; i < rows.length; i++) {
+      if (isSeparatorRow(rows[i])) continue;
+      const cells = parseTableCells(rows[i]);
+      bodyRows.push(h("tr", { key: i },
+        cells.map((cell, j) => h("td", { key: j }, renderInline(cell)))
+      ));
+    }
+    result.push(h("table", { key: key++ },
+      thead,
+      bodyRows.length ? h("tbody", { key: "tbody" }, bodyRows) : null
+    ));
+  };
+
   for (const raw of lines) {
     const line = raw.trim();
-    if (line.startsWith("- ")) {
-      listItems.push(h("li", { key: key++ }, line.slice(2)));
+
+    // Fenced code block handling
+    if (codeLines !== null) {
+      if (line.startsWith("```")) {
+        // Closing fence — emit the block
+        result.push(h("pre", { key: key++ }, h("code", null, codeLines.join("\n"))));
+        codeLines = null;
+      } else {
+        codeLines.push(raw); // preserve original indentation inside the block
+      }
+      continue;
+    }
+    if (line.startsWith("```")) {
+      flushList();
+      flushTable();
+      codeLines = [];
+      continue;
+    }
+
+    if (line.startsWith("|")) {
+      flushList();
+      tableLines.push(line);
+    } else if (line.startsWith("### ")) {
+      flushList();
+      flushTable();
+      result.push(h("h3", { key: key++ }, renderInline(line.slice(4))));
+    } else if (line.startsWith("## ")) {
+      flushList();
+      flushTable();
+      result.push(h("h2", { key: key++ }, renderInline(line.slice(3))));
+    } else if (line.startsWith("- ")) {
+      flushTable();
+      listItems.push(h("li", { key: key++ }, renderInline(line.slice(2))));
     } else {
       flushList();
-      if (line) result.push(h("p", { key: key++ }, line));
+      flushTable();
+      if (line) result.push(h("p", { key: key++ }, renderInline(line)));
     }
   }
   flushList();
+  flushTable();
+  // Unclosed fence — emit whatever was collected
+  if (codeLines !== null && codeLines.length) {
+    result.push(h("pre", { key: key++ }, h("code", null, codeLines.join("\n"))));
+  }
   return result;
 }
 
@@ -1039,23 +1131,19 @@ function AgentDialog({ agent, onClose }) {
     operate: "Operate", specialist: "Specialist", journal: "Journal",
   }[agent.category] || agent.category;
 
+  const bodyContent = agent.body && agent.body.trim()
+    ? renderMarkdownish(agent.body)
+    : h("p", { className: "muted" }, "No details available.");
+
   return h("dialog", { ref: dialogRef, className: "agent-dialog", onClick: handleBackdropClick },
     h("div", { className: `agent-dialog-header agent-dialog-header--${agent.category}` },
       h("div", null,
         h("h2", { className: "agent-dialog-title" }, agent.name),
         h("span", { className: `hero-agent-pill hero-agent-pill--${agent.category}` }, categoryLabel),
-        agent.status !== "active" ? h("span", { className: badgeClass(agent.status) }, agent.status) : null,
       ),
       h("button", { className: "agent-dialog-close", "aria-label": "Close", onClick: onClose }, "×"),
     ),
-    h("div", { className: "agent-dialog-body" },
-      (agent.details || []).map((d, i) =>
-        h("section", { key: i, className: "agent-detail-section" },
-          h("h3", null, d.heading),
-          h("div", { className: "agent-detail-body" }, renderMarkdownish(d.body)),
-        )
-      ),
-    ),
+    h("div", { className: "agent-dialog-body" }, bodyContent),
   );
 }
 

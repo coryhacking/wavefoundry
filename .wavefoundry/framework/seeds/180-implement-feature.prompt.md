@@ -31,6 +31,7 @@ Core execution model:
 - scoped **work** is done when all admitted changes are implemented and required reviews are clean, or changes are explicitly deferred, moved, or superseded — **formal wave closure** (terminal metadata and closure artifacts) still requires **operator-confirmed** `Close wave` / `Finalize feature` per project prompt docs (for example `docs/prompts/` and `AGENTS.md`)
 - the committed result is the wave as a whole — individual changes do not ship outside a wave
 - incomplete changes carry forward into the next wave under the same `Change ID`; create a new change only when the remaining work is materially different and that split is made explicit
+- if the operator requests a follow-up that still belongs to the current wave and the scope fits an admitted change, update that existing change's ACs and tasks instead of opening a new change; create a new change only when the new work is materially different or needs separate tracking
 
 Implement loop execution model:
 

@@ -78,6 +78,82 @@ def _contains_any(text: str, markers: Iterable[str]) -> bool:
     return any(marker in lowered for marker in markers)
 
 
+_AC_PRIORITY_VALUES = {"required", "important", "nice-to-have", "not-this-scope"}
+_AC_LINE_RE = re.compile(r"^\s*-\s+(?:(?:\[(?P<mark>[ xX])\])\s+)?(?P<text>.+?)\s*$", re.MULTILINE)
+_AC_ID_RE = re.compile(r"(AC-[\w\-]+)")
+
+
+def _markdown_table_rows(section_text: str) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for raw in section_text.splitlines():
+        line = raw.strip()
+        if not line.startswith("|") or line.count("|") < 2:
+            continue
+        if set(line.replace("|", "").replace("-", "").replace(":", "").strip()) == set():
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        rows.append(cells)
+    return rows
+
+
+def _normalize_ac_priority(raw_priority: str) -> str:
+    normalized = raw_priority.strip().lower().replace(" ", "-")
+    return normalized if normalized in _AC_PRIORITY_VALUES else "unknown"
+
+
+def _parse_ac_items_for_lint(ac_section: str, priority_section: str) -> tuple[list[str], list[str]]:
+    """Return AC priorities in bullet order plus the raw priority table rows."""
+    priority_rows: list[str] = []
+    priority_map: dict[str, str] = {}
+    for row in _markdown_table_rows(priority_section)[1:]:
+        if len(row) < 2:
+            continue
+        ac_id = row[0].strip()
+        priority = _normalize_ac_priority(row[1])
+        priority_rows.append(priority)
+        if ac_id:
+            priority_map[ac_id] = priority
+
+    ac_priorities: list[str] = []
+    for index, match in enumerate(_AC_LINE_RE.finditer(ac_section)):
+        text = match.group("text").strip()
+        id_match = _AC_ID_RE.search(text)
+        ac_id = id_match.group(1) if id_match else ""
+        priority = priority_map.get(ac_id)
+        if priority is None and index < len(priority_rows):
+            priority = priority_rows[index]
+        if priority is None:
+            priority = "unknown"
+        ac_priorities.append(priority)
+    return ac_priorities, priority_rows
+
+
+def _check_ac_priority_alignment(text: str, rel: str) -> list[str]:
+    failures: list[str] = []
+    sections = _extract_sections(text)
+    ac_section = sections.get("## Acceptance Criteria", "")
+    priority_section = sections.get("## AC Priority", "")
+    if not ac_section or not priority_section:
+        return failures
+
+    ac_priorities, priority_rows = _parse_ac_items_for_lint(ac_section, priority_section)
+    if len(ac_priorities) != len(priority_rows):
+        failures.append(
+            f"{rel}: AC Priority table must have one row per Acceptance Criteria bullet "
+            f"(found {len(ac_priorities)} AC bullets and {len(priority_rows)} AC priority rows); "
+            "unknown ACs are not allowed"
+        )
+
+    unknown_count = sum(1 for priority in ac_priorities if priority == "unknown")
+    if unknown_count:
+        failures.append(
+            f"{rel}: AC Priority table left {unknown_count} Acceptance Criteria bullet(s) uncategorized; "
+            "unknown ACs are not allowed"
+        )
+
+    return failures
+
+
 def _metadata_value(text: str, key: str) -> str | None:
     prefix = f"{key}:"
     for raw_line in text.splitlines():
@@ -385,50 +461,57 @@ def check_wave_docs(root: Path) -> list[str]:
         if path.name == "README.md":
             continue
         text = read_text(path)
-        if "wave-id:" not in text and "Item ID:" not in text:
-            continue
-        wave_matches = WAVE_ID_PATTERN.findall(text)
-        if not wave_matches:
-            failures.append(f"{rel}: missing stable `wave-id` declaration")
-        elif len(wave_matches) > 1:
-            failures.append(f"{rel}: multiple `wave-id` declarations found")
-        else:
-            wave_id = wave_matches[0]
-            existing = seen_wave_ids.get(wave_id)
-            if existing is not None:
-                failures.append(f"{rel}: duplicate `wave-id` `{wave_id}` across wave artifacts (already declared in {existing})")
-            else:
-                seen_wave_ids[wave_id] = rel
-        for section in WAVE_REQUIRED_SECTIONS:
-            if section not in text:
-                failures.append(f"{rel}: missing required section `{section}`")
-        if not _metadata_value(text, "Title"):
-            failures.append(f"{rel}: wave doc must declare `Title:` metadata (displayed in the dashboard wave card)")
-        if "## Objective" not in text:
-            failures.append(f"{rel}: wave doc must declare `## Objective` section (displayed in the dashboard wave card)")
-        sections = _extract_sections(text)
-        watchpoints = sections.get("## Journal Watchpoints", "")
-        if watchpoints and not _section_has_bullets(watchpoints):
-            failures.append(f"{rel}: `## Journal Watchpoints` must include at least one bullet")
+        is_wave_record = path.name == "wave.md"
+        wave_matches: list[str] = []
+        watchpoints = ""
 
-        forward_wave = _wave_requires_wave_owned_change_docs(text)
+        if is_wave_record:
+            # Wave record checks: wave-id, required sections, Title, Objective, Watchpoints, Changes
+            wave_matches = WAVE_ID_PATTERN.findall(text)
+            if not wave_matches:
+                failures.append(f"{rel}: missing stable `wave-id` declaration")
+            elif len(wave_matches) > 1:
+                failures.append(f"{rel}: multiple `wave-id` declarations found")
+            else:
+                wave_id = wave_matches[0]
+                existing = seen_wave_ids.get(wave_id)
+                if existing is not None:
+                    failures.append(f"{rel}: duplicate `wave-id` `{wave_id}` across wave artifacts (already declared in {existing})")
+                else:
+                    seen_wave_ids[wave_id] = rel
+            for section in WAVE_REQUIRED_SECTIONS:
+                if section not in text:
+                    failures.append(f"{rel}: missing required section `{section}`")
+            if not _metadata_value(text, "Title"):
+                failures.append(f"{rel}: wave doc must declare `Title:` metadata (displayed in the dashboard wave card)")
+            if "## Objective" not in text:
+                failures.append(f"{rel}: wave doc must declare `## Objective` section (displayed in the dashboard wave card)")
+            sections = _extract_sections(text)
+            watchpoints = sections.get("## Journal Watchpoints", "")
+            if watchpoints and not _section_has_bullets(watchpoints):
+                failures.append(f"{rel}: `## Journal Watchpoints` must include at least one bullet")
+
+        forward_wave = _wave_requires_wave_owned_change_docs(text) if is_wave_record else False
         change_records = _parse_change_records(text, rel)
         legacy_item_records = _parse_legacy_item_records(text, rel)
         work_records = change_records or legacy_item_records
-        if forward_wave and legacy_item_records:
-            failures.append(f"{rel}: ready or active wave records must use `Change ID` / `Change Status`, not `Item ID` / `Item Status`")
-        if forward_wave and "## Changes" not in text:
-            failures.append(f"{rel}: ready or active wave records must include `## Changes`")
-        if not forward_wave and not change_records and not legacy_item_records:
-            failures.append(f"{rel}: missing stable `Change ID` declaration")
-        if forward_wave and not change_records:
-            failures.append(f"{rel}: missing stable `Change ID` declaration")
 
-        for record in work_records:
-            if record.record_id in seen_item_ids:
-                label = "Change ID" if record.anchor_type == "change" else "Item ID"
-                failures.append(f"{rel}: duplicate {label} `{record.record_id}` across wave artifacts")
-            seen_item_ids.add(record.record_id)
+        if is_wave_record:
+            if forward_wave and legacy_item_records:
+                failures.append(f"{rel}: ready or active wave records must use `Change ID` / `Change Status`, not `Item ID` / `Item Status`")
+            if forward_wave and "## Changes" not in text:
+                failures.append(f"{rel}: ready or active wave records must include `## Changes`")
+            if not forward_wave and not change_records and not legacy_item_records:
+                failures.append(f"{rel}: missing stable `Change ID` declaration")
+            if forward_wave and not change_records:
+                failures.append(f"{rel}: missing stable `Change ID` declaration")
+
+        if is_wave_record:
+            for record in work_records:
+                if record.record_id in seen_item_ids:
+                    label = "Change ID" if record.anchor_type == "change" else "Item ID"
+                    failures.append(f"{rel}: duplicate {label} `{record.record_id}` across wave artifacts")
+                seen_item_ids.add(record.record_id)
         for raw_line in [line for line in text.splitlines() if line.startswith("Item ID:")]:
             if not ITEM_ID_PATTERN.match(raw_line):
                 item_value = _extract_backtick_value(raw_line)
@@ -511,6 +594,7 @@ def check_wave_docs(root: Path) -> list[str]:
                 else:
                     change_text = read_text(expected)
                     change_rel = relative_to_root(root, expected)
+                    failures.extend(_check_ac_priority_alignment(change_text, change_rel))
                     if not _H1_TITLE_RE.search(change_text):
                         failures.append(f"{change_rel}: change doc must have an H1 title (`# Title text`) — used by the dashboard")
                     for section in _CHANGE_DOC_REQUIRED_SECTIONS:
@@ -615,41 +699,38 @@ def check_persona_docs(root: Path) -> list[str]:
         for section in PERSONA_REQUIRED_SECTIONS:
             if section not in text:
                 failures.append(f"{rel}: missing required section `{section}`")
+        if "## Scope" in text:
+            failures.append(f"{rel}: persona docs must not contain `## Scope` (plan/change doc concept — use `## Who` and `## Goals` for evidence)")
         for section in (
-            "## Scope",
-            "## Operating Identity",
-            "## Salience Triggers",
-            "## Planning Duties",
-            "## Review Triggers",
-            "## Escalation Conditions",
-            "## Associated Journal",
+            "## Who",
+            "## Goals",
+            "## Workflows",
+            "## Failure modes",
+            "## Invocation signals",
+            "## Operating identity",
+            "## Salience triggers",
+            "## Associated journal",
         ):
             section_text = sections.get(section)
             if section_text and not _section_has_bullets(section_text):
                 failures.append(f"{rel}: `{section}` must include at least one bullet")
-        identity_text = sections.get("## Operating Identity", "")
+        identity_text = sections.get("## Operating identity", "")
         if identity_text and not _contains_any(identity_text, ("persona", "perspective", "role", "evaluate", "protect")):
-            failures.append(f"{rel}: `## Operating Identity` must describe the persona perspective or role")
-        salience_text = sections.get("## Salience Triggers", "")
+            failures.append(f"{rel}: `## Operating identity` must describe the persona perspective or role")
+        salience_text = sections.get("## Salience triggers", "")
         if salience_text and not _contains_any(salience_text, JOURNAL_SALIENCE_MARKERS):
-            failures.append(f"{rel}: `## Salience Triggers` must include operational salience cues")
+            failures.append(f"{rel}: `## Salience triggers` must include operational salience cues")
         journal_paths = JOURNAL_PATH_PATTERN.findall(text)
         if not journal_paths:
             failures.append(f"{rel}: persona doc must reference an associated journal path")
         for journal_path in journal_paths:
             if not (root / journal_path).exists():
                 failures.append(f"{rel}: persona doc references missing journal `{journal_path}`")
-        scope_text = sections.get("## Scope", "")
-        if scope_text and "wave-id:" not in scope_text:
-            failures.append(f"{rel}: `## Scope` should anchor the persona to a stable `wave-id`")
-        planning_text = sections.get("## Planning Duties", "")
-        if planning_text and not _contains_any(planning_text, ("plan", "admission", "coordinate", "sequence")):
-            failures.append(f"{rel}: `## Planning Duties` must describe concrete planning or coordination responsibilities")
         if _contains_any(text, FACTOR_REVIEW_MARKERS):
-            review_text = sections.get("## Review Triggers", "")
-            escalation_text = sections.get("## Escalation Conditions", "")
-            if not _contains_any(review_text + "\n" + escalation_text, FACTOR_REVIEW_MARKERS):
-                failures.append(f"{rel}: factor-review expectations must be captured in `## Review Triggers` or `## Escalation Conditions`")
+            invocation_text = sections.get("## Invocation signals", "")
+            workflows_text = sections.get("## Workflows", "")
+            if not _contains_any(invocation_text + "\n" + workflows_text, FACTOR_REVIEW_MARKERS):
+                failures.append(f"{rel}: factor-review expectations must be captured in `## Invocation signals` or `## Workflows`")
     return failures
 
 

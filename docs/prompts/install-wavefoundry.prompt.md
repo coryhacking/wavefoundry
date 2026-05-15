@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-12
+Last verified: 2026-05-14
 
 Shortcut: **`Install Wavefoundry`** | Legacy: **`Init wave framework`** / **`Init wave context`**
 
@@ -90,7 +90,7 @@ Register each additional Wavefoundry repo with a separate `wavefoundry-<hash>` e
 
 **Docs validation (agents):** After MCP is enabled, use **`wave_validate`** and **`wave_garden`** for the docs gate instead of shelling out to `.wavefoundry/bin/docs-lint` / `.wavefoundry/bin/docs-gardener`. Use the bin launchers only when MCP is not attached (CI, hooks, bare terminal).
 
-**Optional local dashboard:** After install, the repository can expose the local dashboard surface with **`Start dashboard`**, which runs:
+**Optional local dashboard:** After install, the repository can expose the local dashboard surface with **`Start dashboard`**, **`Stop dashboard`**, and **`Restart dashboard`**. The start command runs:
 
 ```bash
 python3 .wavefoundry/framework/scripts/dashboard_server.py --root . --open

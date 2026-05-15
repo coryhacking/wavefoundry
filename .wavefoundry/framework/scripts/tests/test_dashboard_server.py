@@ -337,7 +337,7 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertIn('p(changeMetrics.pending, `${scopeMetricLabel} change`, `${scopeMetricLabel} changes`)', source)
         self.assertIn('p(changes.length, "Active Change", "Active Changes")', source)
         self.assertIn('p(changes.length, "Pending Change", "Pending Changes")', source)
-        self.assertIn('p(active.length, "Active Waves", "Pending Waves")', source)
+        self.assertIn('const title = active.length ? "Active Waves" : "Pending Waves"', source)
         self.assertIn('No pending waves.', source)
         self.assertIn('title: scope === "active" ? "Active ACs" : "Pending ACs"', source)
         self.assertIn('title: scope === "active" ? "Active Tasks" : "Pending Tasks"', source)
@@ -968,13 +968,13 @@ class DashboardAgentCollectionTests(unittest.TestCase):
         _make_repo(self.root)
         agents_root = self.root / "docs" / "agents"
         _write(agents_root / "code-reviewer.md",
-               "# Code Reviewer\n\nOwner: Engineering\nStatus: active\n\n## Operating Identity\n\nReviews code quality.\n\n## Responsibilities\n\n- Check style\n- Check correctness\n")
+               "# Code Reviewer\n\nOwner: Engineering\nRole: code-reviewer\n\n## Operating Identity\n\nReviews code quality.\n\n## Responsibilities\n\n- Check style\n- Check correctness\n")
         _write(agents_root / "personas" / "wave-coordinator.md",
-               "# Persona — Wave Coordinator\n\nOwner: Engineering\nStatus: active\n\n## Who\n\nCoordinates waves.\n\n## Goals\n\n- Keep waves moving\n")
+               "# Persona — Wave Coordinator\n\nOwner: Engineering\nRole: wave-coordinator\n\n## Who\n\nCoordinates waves.\n\n## Goals\n\n- Keep waves moving\n")
         _write(agents_root / "specialists" / "software-architect.md",
-               "# Software Architect\n\nOwner: Engineering\nStatus: active\n\n## Operating Identity\n\nDesigns system boundaries.\n")
+               "# Software Architect\n\nOwner: Engineering\nRole: software-architect\n\n## Operating Identity\n\nDesigns system boundaries.\n")
         _write(agents_root / "journals" / "planner.md",
-               "# Journal — Planner\n\nOwner: Engineering\nStatus: active\n\n## Operating Identity\n\nPlanning journal.\n")
+               "# Journal — Planner\n\nOwner: Engineering\nRole: planner\n\n## Operating Identity\n\nPlanning journal.\n")
         _write(agents_root / "README.md", "# Agents\n")
 
     def tearDown(self):
@@ -1005,19 +1005,37 @@ class DashboardAgentCollectionTests(unittest.TestCase):
         journal = next(a for a in agents if a["group"] == "journal")
         self.assertFalse(journal["name"].startswith("Journal —"))
 
-    def test_details_extracted(self):
+    def test_body_field_present(self):
         agents = self.lib.collect_agents(self.root)
         agent = next(a for a in agents if a["group"] == "agent")
-        headings = [d["heading"] for d in agent["details"]]
-        self.assertIn("Operating Identity", headings)
-        self.assertIn("Responsibilities", headings)
+        self.assertIn("body", agent)
+        self.assertNotIn("details", agent)
+        self.assertIn("Operating Identity", agent["body"])
+        self.assertIn("Responsibilities", agent["body"])
 
-    def test_inactive_agents_included_in_collection(self):
-        _write(self.root / "docs" / "agents" / "retired.md",
-               "# Retired Agent\n\nOwner: Engineering\nStatus: inactive\n")
+    def test_body_strips_metadata_header(self):
+        agents = self.lib.collect_agents(self.root)
+        agent = next(a for a in agents if a["group"] == "agent")
+        self.assertNotIn("Owner:", agent["body"])
+        self.assertNotIn("Role:", agent["body"])
+        self.assertFalse(agent["body"].startswith("# "), "H1 title must be stripped from body")
+
+    def test_empty_body_stub(self):
+        agents_root = self.root / "docs" / "agents"
+        _write(agents_root / "stub-agent.md",
+               "# Stub Agent\n\nOwner: Engineering\nRole: stub-agent\n")
+        agents = self.lib.collect_agents(self.root)
+        stub = next((a for a in agents if a["name"] == "Stub Agent"), None)
+        self.assertIsNotNone(stub)
+        self.assertEqual(stub["body"], "")
+
+    def test_no_role_field_excluded(self):
+        agents_root = self.root / "docs" / "agents"
+        _write(agents_root / "session-handoff.md",
+               "# Session Handoff\n\nOwner: Engineering\n\n## Current State\n\nActive wave: foo\n")
         agents = self.lib.collect_agents(self.root)
         names = [a["name"] for a in agents]
-        self.assertIn("Retired Agent", names)
+        self.assertNotIn("Session Handoff", names)
 
 
 class AgentClassificationTests(unittest.TestCase):
@@ -1039,21 +1057,33 @@ class AgentClassificationTests(unittest.TestCase):
         # "implementer" would be build for group=agent, but persona wins.
         self.assertEqual(self.classify("implementer", "persona"), "operate")
 
+    def test_specialist_group_beats_review_stem(self):
+        # "reality-checker" is in _REVIEW_STEMS but specialist group must win.
+        self.assertEqual(self.classify("reality-checker", "specialist"), "specialist")
+
+    def test_specialist_group_beats_coordinate_stem(self):
+        # "council-moderator" is in _COORDINATE_STEMS but specialist group must win.
+        self.assertEqual(self.classify("council-moderator", "specialist"), "specialist")
+
+    def test_specialist_group_beats_build_suffix(self):
+        # An agent in specialists/ with a build-like name still gets "specialist".
+        self.assertEqual(self.classify("custom-engineer", "specialist"), "specialist")
+
     # ── build suffixes ────────────────────────────────────────────────────────
 
     def test_engineer_suffix_is_build(self):
         for stem in ("data-engineer", "ml-engineer", "qa-engineer", "devops-engineer"):
             with self.subTest(stem=stem):
-                self.assertEqual(self.classify(stem, "specialist"), "build")
+                self.assertEqual(self.classify(stem, "agent"), "build")
 
     def test_developer_suffix_is_build(self):
         for stem in ("ios-developer", "android-developer", "frontend-developer"):
             with self.subTest(stem=stem):
-                self.assertEqual(self.classify(stem, "specialist"), "build")
+                self.assertEqual(self.classify(stem, "agent"), "build")
 
     def test_builder_automator_suffix_is_build(self):
-        self.assertEqual(self.classify("mobile-app-builder", "specialist"), "build")
-        self.assertEqual(self.classify("devops-automator", "specialist"), "build")
+        self.assertEqual(self.classify("mobile-app-builder", "agent"), "build")
+        self.assertEqual(self.classify("devops-automator", "agent"), "build")
 
     def test_implementer_exact_stem_is_build(self):
         self.assertEqual(self.classify("implementer", "agent"), "build")
@@ -1066,8 +1096,8 @@ class AgentClassificationTests(unittest.TestCase):
                 self.assertEqual(self.classify(stem, "agent"), "review")
 
     def test_auditor_tester_suffix_is_review(self):
-        self.assertEqual(self.classify("accessibility-auditor", "specialist"), "review")
-        self.assertEqual(self.classify("api-tester", "specialist"), "review")
+        self.assertEqual(self.classify("accessibility-auditor", "agent"), "review")
+        self.assertEqual(self.classify("api-tester", "agent"), "review")
 
     def test_reality_checker_exact_stem_is_review(self):
         self.assertEqual(self.classify("reality-checker", "agent"), "review")
@@ -2040,12 +2070,11 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         self.assertIn('? "Indexing..."', source)
         self.assertIn(': isStale', source)
         self.assertIn('? "Stale..."', source)
-        self.assertIn('const buildKind = label === "Framework" ? "Framework docs index" : "Project index";', source)
         self.assertIn('const buildAction = idx.mode === "update"', source)
-        self.assertIn('const buildDetail = buildStatus === "running"', source)
         self.assertIn('const buildBadgeText = buildStatus === "running"', source)
-        self.assertIn('Indexing… · ${buildDetail}', source)
-        self.assertIn('Stale · Index is stale', source)
+        self.assertIn('`${buildAction} index…`', source)
+        self.assertIn('"Index stale"', source)
+        self.assertIn('"Build failed"', source)
         self.assertIn('buildBadgeText', source)
 
     def test_background_build_status_surfaces_in_snapshot_health(self):

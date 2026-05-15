@@ -95,8 +95,8 @@ Execution flow:
    - `AGENTS.md` and thin pointers so **Implementation guard (product code)** matches `seed-050` when the repo ships product code; backfill when inventory or repo-profile indicates implementation directories but the section is missing
    - tracked platform hook/config surfaces via `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` so generated hook entrypoints stay aligned with the current framework contract
    - repo-local prompt docs
-   - `docs/prompts/agents/` prompt bodies when the repository keeps checked-in project-context/planning helper prompts; backfill missing specialist agent bodies introduced in `seed-211` through `seed-214` when not present:
-     - `docs/prompts/agents/code-insight-agent.prompt.md` (CIA / `code_ask` retrieval agent — `seed-211`)
+   - `docs/agents/code-insight-agent.md` — CIA role doc (`seed-211`); backfill when missing. **Migration note:** prior versions of `seed-211` generated the CIA at `docs/prompts/agents/code-insight-agent.prompt.md`. During upgrade, if that file exists and `docs/agents/code-insight-agent.md` does not, relocate it: copy content to `docs/agents/code-insight-agent.md` (adding `Role: code-insight-agent` to the metadata header), then delete `docs/prompts/agents/code-insight-agent.prompt.md` and update any references to the old path in `AGENTS.md`, `docs/architecture/`, and `docs/prompts/index.md`. Ensure `docs/agents/code-insight-agent.md` has `Role:` so it appears in the dashboard Agents panel.
+   - `docs/prompts/agents/` prompt bodies when the repository keeps checked-in project-context/planning helper prompts; backfill missing specialist agent bodies introduced in `seed-212` through `seed-214` when not present:
      - `docs/prompts/agents/performance-reviewer.prompt.md` (`performance-reviewer` lane — `seed-212`)
      - `docs/prompts/agents/security-reviewer.prompt.md` (`security-reviewer` lane — `seed-213`)
      - `docs/prompts/agents/architecture-reviewer.prompt.md` (`architecture-reviewer` lane — `seed-214`)
@@ -122,6 +122,7 @@ Execution flow:
    - **`.wavefoundry/bin/docs-lint`**, **`.wavefoundry/bin/docs-gardener`**, and any legacy **`./package-wave-framework`** repo-root wrapper so they point to the **current** script filenames under `.wavefoundry/framework/scripts/` or are retired when packaging is not supported in a target repository. These **bin** launchers (and any repo-root packaging helper) are **not** overwritten blindly by pack unpack, so reconcile them explicitly during upgrade. Required invocations for packs at `2026-04-22a` and later in this repository:
      - `.wavefoundry/bin/docs-lint` must invoke `scripts/docs_lint.py` (underscore) — the retired `scripts/docs-lint.py` path must not be referenced
      - `.wavefoundry/bin/docs-gardener` must invoke `scripts/docs_gardener.py` (underscore) — the retired `scripts/docs-gardener.py` path must not be referenced
+     - `.wavefoundry/bin/wave_dashboard` must exist when `scripts/dashboard_server.py` is present in the pack; if missing, create it per `seed-152` task 2
      - `./package-wave-framework`, when intentionally retained in a source repository, must invoke `scripts/build_pack.py` — the retired `scripts/build_zip.py` path must not be referenced
 
      Launcher filenames under **`.wavefoundry/bin/`** remain hyphenated for conventional CLI ergonomics; only the Python module filenames moved to snake_case.
@@ -225,7 +226,7 @@ Include the following topics in plain language:
 
 4. **Commands and trigger phrases**
    - **`Upgrade wave framework`** vs **`Install wave framework`** (legacy: **`Install wave context`**; alias after detection); **`Init wave framework`** (legacy: **`Init wave context`**) for first-time or legacy baseline capture only when appropriate.
-   - If the upgraded pack includes the dashboard feature, call out **`Start dashboard`** as the operator-facing loopback UI command.
+   - If the upgraded pack includes the dashboard feature, call out **`Start dashboard`**, **`Stop dashboard`**, and **`Restart dashboard`** as the operator-facing loopback UI commands.
    - Lifecycle IDs remain `python3 .wavefoundry/framework/scripts/lifecycle_id.py`.
 
 5. **Agents and personas**

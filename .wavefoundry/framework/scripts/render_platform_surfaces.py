@@ -868,6 +868,17 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 exec python3 "$REPO_ROOT/.wavefoundry/framework/scripts/docs_gardener.py" "$@"
 """
+    wave_dashboard_src = """\
+#!/usr/bin/env bash
+# Persistent dashboard launcher — .wavefoundry/bin/wave_dashboard
+# Starts the local dashboard server under nohup so it survives shell exit.
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+LOG="$REPO_ROOT/.wavefoundry/logs/dashboard.log"
+mkdir -p "$(dirname "$LOG")"
+nohup python3 "$REPO_ROOT/.wavefoundry/framework/scripts/dashboard_server.py" --root "$REPO_ROOT" --open "$@" >"$LOG" 2>&1 &
+echo "Wave dashboard started (pid $!). Log: $LOG"
+"""
     codex_mcp_src = """\
 #!/usr/bin/env bash
 # Canonical Codex MCP bootstrap launcher — .wavefoundry/bin/register-codex-mcp
@@ -890,9 +901,10 @@ if ! command -v codex >/dev/null 2>&1; then
   exit 127
 fi
 exec codex mcp add "$SERVER_NAME" -- python3 "$REPO_ROOT/.wavefoundry/framework/scripts/server.py" --root "$REPO_ROOT"
-"""
+    """
     write_text(bin_dir / "docs-lint", docs_lint_src, executable=True)
     write_text(bin_dir / "docs-gardener", docs_gardener_src, executable=True)
+    write_text(bin_dir / "wave_dashboard", wave_dashboard_src, executable=True)
     write_text(bin_dir / "register-codex-mcp", codex_mcp_src, executable=True)
 
 

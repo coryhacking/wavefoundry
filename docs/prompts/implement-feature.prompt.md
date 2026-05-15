@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-04
+Last verified: 2026-05-14
 
 Shortcut: **`Implement feature`**
 
@@ -26,6 +26,7 @@ If any step is missing, stop and route back to **Plan feature**, **Create wave**
 4. After implementation: run framework tests, then prefer MCP **`wave_validate`** (and **`wave_garden`** if metadata needs refresh). **CLI fallback:** `.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint` when MCP is unavailable.
 5. Complete required review lanes before closing.
 6. Use **Finalize feature** to close the wave.
+7. If the operator requests a follow-up that still belongs to the current wave and the scope fits an admitted change, update that existing change's Acceptance Criteria and Tasks instead of opening a new change; create a new change only when the new work is materially different or needs separate tracking.
 
 ## Guardrails
 

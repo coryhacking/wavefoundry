@@ -2,7 +2,8 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-30
+Role: planner
+Last verified: 2026-05-14
 
 ## Operating Identity
 

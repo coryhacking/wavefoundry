@@ -20,7 +20,7 @@ class DocsLintFixtureTests(unittest.TestCase):
     BASELINE_WAVE_ID = "00000 wave-zero-plans-and-specs"
     VALID_CHANGE_ID = "00058-bug fixture-core"
     FOLLOW_UP_CHANGE_ID = "00059-enh fixture-follow-up"
-    WAVE_DOC_PATH = Path("docs/waves/waves/change-2026-03/refactor-wave.md")
+    WAVE_DOC_PATH = Path("docs/waves/waves/change-2026-03/wave.md")
     PERSONA_DOC_PATH = Path("docs/agents/personas/wave-coordinator.md")
 
     def copy_fixture(self) -> Path:
@@ -186,6 +186,42 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("wave artifact has unstable Change ID `bad fixture id`", result.stderr)
 
+    def test_ac_priority_row_count_mismatch_fails(self) -> None:
+        root = self.copy_fixture()
+        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc.write_text(
+            change_doc.read_text(encoding="utf-8").replace(
+                "## Acceptance Criteria\n\n- [x] AC-1: Fixture criterion satisfied.\n",
+                "## Acceptance Criteria\n\n- [x] AC-1: Fixture criterion satisfied.\n- [ ] AC-2: Second criterion missing a priority row.\n",
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("AC Priority table must have one row per Acceptance Criteria bullet", result.stderr)
+        self.assertIn("unknown ACs are not allowed", result.stderr)
+
+    def test_ac_priority_placeholder_priority_fails(self) -> None:
+        root = self.copy_fixture()
+        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc.write_text(
+            change_doc.read_text(encoding="utf-8").replace(
+                "| AC-1 | required |",
+                "| AC-1 | required / important / nice-to-have / not-this-scope |",
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("uncategorized", result.stderr)
+        self.assertIn("unknown ACs are not allowed", result.stderr)
+
     def test_activated_wave_requires_sibling_change_docs(self) -> None:
         root = self.copy_fixture()
         change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
@@ -259,7 +295,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         persona_doc = root / self.PERSONA_DOC_PATH
         persona_doc.write_text(
             persona_doc.read_text(encoding="utf-8").replace(
-                "## Salience Triggers\n\n"
+                "## Salience triggers\n\n"
                 "- Critical/high: operator directives, compaction-sensitive blockers, review routing drift, and regression-prone wave-contract changes.\n"
                 "- Medium: follow-up review or migration watchpoints that affect later wave execution.\n\n",
                 "",
@@ -271,7 +307,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         finally:
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 1)
-        self.assertIn("missing required section `## Salience Triggers`", result.stderr)
+        self.assertIn("missing required section `## Salience triggers`", result.stderr)
 
     def test_closed_wave_requires_completed_at(self) -> None:
         root = self.copy_fixture()
@@ -336,12 +372,12 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("missing required section `## Governance`", result.stderr)
 
-    def test_missing_persona_planning_duties_fails(self) -> None:
+    def test_missing_persona_workflows_fails(self) -> None:
         root = self.copy_fixture()
         persona_doc = root / self.PERSONA_DOC_PATH
         persona_doc.write_text(
             persona_doc.read_text(encoding="utf-8").replace(
-                "\n## Planning Duties\n\n- Plan admission, sequence follow-up review, and coordinate low-noise validation work.\n\n",
+                "\n## Workflows\n\n- Plan admission, sequence follow-up review, and coordinate low-noise validation work.\n\n",
                 "\n",
             ),
             encoding="utf-8",
@@ -351,7 +387,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         finally:
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 1)
-        self.assertIn("missing required section `## Planning Duties`", result.stderr)
+        self.assertIn("missing required section `## Workflows`", result.stderr)
 
     def test_journal_reference_to_unknown_change_fails(self) -> None:
         root = self.copy_fixture()
@@ -638,6 +674,57 @@ class DocsLintFixtureTests(unittest.TestCase):
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 1)
         self.assertIn("python bytecode cache should not be checked in", result.stderr)
+
+    def test_persona_scope_section_is_forbidden(self) -> None:
+        """## Scope is forbidden in persona docs — adding it should fail."""
+        root = self.copy_fixture()
+        persona_doc = root / self.PERSONA_DOC_PATH
+        persona_doc.write_text(
+            persona_doc.read_text(encoding="utf-8") + "\n## Scope\n\n- Forbidden scope section.\n",
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("persona docs must not contain `## Scope`", result.stderr)
+
+    def test_change_doc_with_wave_id_prose_not_flagged_as_wave_record(self) -> None:
+        """A change doc that mentions wave-id in prose must not be misclassified as a wave record."""
+        root = self.copy_fixture()
+        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc.write_text(
+            change_doc.read_text(encoding="utf-8")
+            + "\n## Notes\n\n"
+            "This change fixes a detector that previously used `wave-id:` string presence as a heuristic.\n"
+            "Any doc containing the string wave-id: followed by a backtick-value would be misclassified.\n",
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("docs-lint: ok", result.stdout)
+
+    def test_wave_md_still_checked_as_wave_record(self) -> None:
+        """A wave.md with no valid wave-id must still trigger wave-record validation."""
+        root = self.copy_fixture()
+        wave_doc = root / self.WAVE_DOC_PATH
+        wave_doc.write_text(
+            wave_doc.read_text(encoding="utf-8").replace(
+                f"wave-id: `{self.VALID_WAVE_ID}`",
+                "wave-id: `invalid-format no-wave-id-here`",
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("missing stable `wave-id` declaration", result.stderr)
 
 
 class CheckPycacheTests(unittest.TestCase):

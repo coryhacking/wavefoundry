@@ -1,10 +1,25 @@
 # Code Insight Agent (CIA)
 
+**Output path:** `docs/agents/code-insight-agent.md`
+
+Generate the CIA role doc at `docs/agents/code-insight-agent.md` — not under `docs/prompts/agents/`. The CIA is a canonical agent role doc and belongs alongside other agent roles (`planner.md`, `code-reviewer.md`, etc.). Use the metadata header below verbatim; include `Role: code-insight-agent` so the dashboard includes it in the Agents panel.
+
+Generated file header:
+
+```
+# Code Insight Agent
+
 Owner: Engineering
 Status: active
-Last verified: 2026-05-05
+Role: code-insight-agent
+Last verified: <YYYY-MM-DD>
+```
 
-Shortcut: **`Ask codebase`** | MCP tool: **`code_ask`**
+The content below is the full role definition. Write it to `docs/agents/code-insight-agent.md` with the header above. Do **not** create `docs/prompts/agents/code-insight-agent.prompt.md` — that path is retired.
+
+---
+
+Shortcut: **`Code insight`** | MCP tool: **`code_ask`**
 
 ## Purpose
 
@@ -36,6 +51,8 @@ Before choosing a retrieval strategy, classify the question:
 - Use `code_search` when the question is conceptual and the owning file or symbol is not known yet.
 - Use `code_definition` when the symbol is known and the next question is "where is this declared?"
 - Use `code_references` when the symbol is known and the next question is "where is this used?"
+- If the first `code_references` pass is noisy, rerun it with `exclude_tests=true`; keep the broad result set when you need complete evidence, then inspect the excluded counts before deciding something is unused.
+- If you need to distinguish declarations from imports and generic mentions, inspect the returned `detail_buckets` / `detail_counts` alongside the broad `buckets`.
 - Use `code_keyword_search` when the operator gives an exact token, import path, or string literal and expects deterministic coverage.
 - Use `code_read` after discovery to validate the actual implementation at the cited lines.
 
@@ -64,8 +81,8 @@ docs_search(query, limit=3)
 Run for specific symbols or file paths identified in earlier passes:
 
 ```
-code_definition(symbol)          # Python AST, tree-sitter-backed JS/TS/Java/C#, or supported structural fallback
-code_references(symbol)          # tree-sitter-backed JS/TS/Java/C# references, then broader fallback
+code_definition(symbol)          # Python AST, tree-sitter-backed JS/TS/Java/C#/SQL, or supported structural fallback
+code_references(symbol)          # Python plus tree-sitter-backed JS/TS/Java/C#/SQL references, then broader fallback
 code_keyword_search(symbol)      # exact token match — always available
 code_dependencies(path)          # import graph for a specific file
 ```
@@ -278,7 +295,7 @@ If the MCP server is not running or `code_ask` is not in the tool list, fall bac
 |---|---|
 | `code_search(query)` | `grep -r "keyword" .` scoped to likely directories |
 | `code_definition(symbol)` | `grep -rn "def symbol\|class symbol\|function symbol" .` |
-| `code_references(symbol)` | `grep -rn "symbol" .` (filter to call sites) |
+| `code_references(symbol)` | `grep -rn "symbol" .` (filter to call sites; if noisy, rerun with `exclude_tests=true`) |
 | `code_keyword_search(token)` | `grep -rn "token" .` |
 | `code_dependencies(path)` | `grep -n "^import\|^from\|require(" <path>` |
 | `docs_search(query)` | `grep -r "keyword" docs/` |

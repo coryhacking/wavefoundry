@@ -37,6 +37,7 @@ _FRAMEWORK_STALE_IGNORE_FILENAMES = {"MANIFEST", "VERSION"}
 _PROJECT_STALE_IGNORE_PATHS = {
     ".wavefoundry/dashboard-server.json",
     ".wavefoundry/guard-overrides.json",
+    ".wavefoundry/logs/dashboard.log",
 }
 
 
@@ -247,11 +248,11 @@ class IndexBuilder:
         with self._lock:
             active_layers = set(self._active_layers or {"project"})
         try:
-            commands: list[list[str]] = []
+            layer_cmds: list[tuple[str, list[str]]] = []
             if "project" in active_layers:
-                commands.append([sys.executable, str(indexer_path), "--root", str(self._root), "--content", "all"])
+                layer_cmds.append(("project", [sys.executable, str(indexer_path), "--root", str(self._root), "--content", "all"]))
             if "framework" in active_layers:
-                commands.append([
+                layer_cmds.append(("framework", [
                     sys.executable,
                     str(indexer_path),
                     "--root",
@@ -263,18 +264,31 @@ class IndexBuilder:
                     "--include-prefix",
                     ".wavefoundry/framework",
                     "--no-ignore-files",
-                ])
-            for cmd in commands:
-                proc = subprocess.Popen(
-                    cmd,
-                    start_new_session=True,
-                    close_fds=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
-                )
-                _, stderr_data = proc.communicate()
-                if proc.returncode != 0 and stderr_data:
-                    _dashboard_log(f"IndexBuilder stderr: {stderr_data.decode(errors='replace')[:400]}")
+                ]))
+            for layer, cmd in layer_cmds:
+                state_path = self._index_state_path(layer)
+                log_path = self._index_log_path(layer)
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                started_at = time.time()
+                try:
+                    with open(log_path, "w", encoding="utf-8") as log_file:
+                        proc = subprocess.Popen(
+                            cmd,
+                            start_new_session=True,
+                            close_fds=True,
+                            stdout=log_file,
+                            stderr=log_file,
+                        )
+                        state_path.write_text(
+                            json.dumps({"pid": proc.pid, "started_at": started_at, "content": "all" if layer == "project" else "docs", "layer": layer, "full": False}),
+                            encoding="utf-8",
+                        )
+                        proc.communicate()
+                finally:
+                    try:
+                        state_path.unlink(missing_ok=True)
+                    except Exception:  # noqa: BLE001
+                        pass
                 if proc.returncode != 0:
                     return proc.returncode
             return 0
@@ -284,6 +298,16 @@ class IndexBuilder:
         except Exception as exc:  # noqa: BLE001
             _dashboard_log(f"IndexBuilder error: {exc}")
             return -1
+
+    def _index_state_path(self, layer: str) -> Path:
+        if layer == "framework":
+            return self._root / ".wavefoundry" / "framework" / "index" / "index-build.json"
+        return self._root / ".wavefoundry" / "index" / "index-build.json"
+
+    def _index_log_path(self, layer: str) -> Path:
+        if layer == "framework":
+            return self._root / ".wavefoundry" / "framework" / "index" / "index-build.log"
+        return self._root / ".wavefoundry" / "index" / "index-build.log"
 
 
 def _path_matches_index_layer(path: str, layer: str) -> bool:
@@ -514,7 +538,13 @@ class SnapshotStore:
             r / "docs" / "workflow-config.json",
             r / "docs" / "agents" / "session-handoff.md",
             r / "docs" / "prompts" / "prompt-surface-manifest.json",
+            r / ".wavefoundry" / "index" / "index-build.json",
+            r / ".wavefoundry" / "index" / "index-build.log",
+            r / ".wavefoundry" / "index" / "background-build.pid",
+            r / ".wavefoundry" / "index" / "background-build.log",
             r / ".wavefoundry" / "index" / "index-build-stats.json",
+            r / ".wavefoundry" / "framework" / "index" / "index-build.json",
+            r / ".wavefoundry" / "framework" / "index" / "index-build.log",
             r / ".wavefoundry" / "framework" / "index" / "index-build-stats.json",
         ]
 
@@ -548,8 +578,15 @@ class SnapshotStore:
         proj = snap.setdefault("health", {}).setdefault("index", {}).setdefault("project", {})
         fw = snap.setdefault("health", {}).setdefault("index", {}).setdefault("framework", {})
         if self._index_builder is not None:
-            proj.update(self._index_builder.get_status("project"))
-            fw.update(self._index_builder.get_status("framework"))
+            proj_builder = self._index_builder.get_status("project")
+            fw_builder = self._index_builder.get_status("framework")
+            # When the builder is active, its status should win over the disk-derived
+            # snapshot so the dashboard reflects the build it owns. When it is idle,
+            # keep any externally observed running/failed state instead of overwriting it.
+            if proj_builder.get("build_status") != "idle" or proj.get("build_status") not in {"running", "failed"}:
+                proj.update(proj_builder)
+            if fw_builder.get("build_status") != "idle" or fw.get("build_status") not in {"running", "failed"}:
+                fw.update(fw_builder)
         if self._index_stale.get("project") is not None:
             proj["stale"] = self._index_stale["project"]
         if self._index_stale.get("framework") is not None:
@@ -645,6 +682,12 @@ def _asset_path(name: str) -> Path:
     return candidate
 
 
+def _dashboard_title(snapshot: dict[str, Any] | None = None) -> str:
+    project = (snapshot or {}).get("project", {})
+    repo_name = str(project.get("repo_basename") or project.get("name") or "").strip()
+    return f"{repo_name} - Wavefoundry" if repo_name else "Wavefoundry"
+
+
 def _is_port_free(host: str, port: int) -> bool:
     with contextlib.closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
         try:
@@ -717,7 +760,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _send_asset(self, rel_name: str, content_type: str) -> None:
         try:
             asset = _asset_path(rel_name)
-            data = asset.read_bytes()
+            if rel_name == "dashboard.html":
+                data = asset.read_text(encoding="utf-8").replace("__DASHBOARD_TITLE__", _dashboard_title(self._store.get()))
+                data = data.encode("utf-8")
+            else:
+                data = asset.read_bytes()
         except (FileNotFoundError, OSError):
             self.send_error(HTTPStatus.NOT_FOUND, f"Asset not found: {rel_name}")
             return

@@ -267,6 +267,60 @@ Junie does not ship the same hook surfaces as Cursor or Copilot. Rely on `AGENTS
 
 Do **not** add `.wavefoundry/framework/seeds/*.prompt.md` to `.aiignore` for Junie: in hosts that enforce `.aiignore`, that pattern blocks **reads** as well as writes, which hides canonical seeds from agents. The install renderer seeds `.aiignore` with **index directories only** (see `render_aiignore`).
 
+## Canonical Agent Doc Structure
+
+Agent docs in `docs/agents/` are rendered directly in the dashboard — write them for human readability, not just machine parsing. The dashboard renders the full document body with markdown formatting (headings, bold, bullet lists). Authors should treat `## Operating Identity` and `## Responsibilities` as the primary human-facing sections.
+
+### Required Metadata Fields
+
+Every agent role doc in `docs/agents/` must include the following metadata fields in the header block (after the H1 title, before the first H2 section):
+
+```
+Owner: <team or owner name>
+Status: active
+Role: <role-slug matching the filename without .md>
+Last verified: <YYYY-MM-DD>
+```
+
+`Role:` is required — it is the inclusion gate that tells the dashboard this file is an agent role doc. Files without `Role:` (e.g. `session-handoff.md`, `platform-mapping.md`, `README.md`) are not role docs and will be excluded from the Agents panel. The `Role:` value should match the filename slug (e.g. `Role: code-reviewer` for `code-reviewer.md`).
+
+### Canonical H2 Headings and Section Order
+
+Use the following heading strings exactly. Only include sections relevant to the role — omit sections that do not apply rather than leaving them empty.
+
+**Preferred section order:**
+
+1. `## Operating Identity` — 2–5 sentences describing the role's stance, priorities, and what success looks like. Do not duplicate content already in `AGENTS.md` or `020-run-contract`.
+2. `## Responsibilities` — what the role owns and does
+3. `## Salience Triggers` — signals that should cause the agent to stop and journal
+4. `## Default Stance` — how the role approaches uncertainty or conflict
+5. `## Review Dimensions` / `## Evidence Requirements` — reviewer roles only
+6. `## Output Shape` — what the role produces
+7. `## Do Not` — explicit guardrails
+8. `## Assumption Tracking` — how the role surfaces and records assumptions
+9. `## Memory Responsibilities` — what the role must capture in its journal
+10. `## Execution Contract` — role-relevant subset of run-contract rules (see section below)
+
+**Role-type applicability:**
+
+| Section | Generic roles | Reviewer roles | Coordinator roles |
+|---|---|---|---|
+| Operating Identity | required | required | required |
+| Responsibilities | required | required | required |
+| Salience Triggers | required | required | required |
+| Review Dimensions / Evidence Requirements | — | required | — |
+| Execution Contract | required | not required | required |
+| Others | as applicable | as applicable | as applicable |
+
+**Specialist roles** (defined in `docs/agents/specialists/`) follow their own domain-appropriate heading conventions. The canonical section order above applies to generic framework roles; do not impose it on specialist role docs.
+
+### Authoring Best Practices
+
+- **Focus and length:** Agent docs should be scannable. `## Operating Identity` must not exceed 5 sentences — if it is longer, trim to the core stance and move details to `## Responsibilities`.
+- **Non-duplication:** Do not repeat content from `AGENTS.md` or `020-run-contract`. The Execution Contract section should contain only the role-relevant subset of run-contract rules, not all six rules.
+- **Dashboard awareness:** The dashboard renders the full agent doc. Write identity and responsibilities sections as if a human reader will see them directly in the UI — avoid internal shorthand or implementation references that only make sense in code context.
+- **Evidence-based salience triggers:** Salience triggers must be operational impact signals, not emotional states. Ground them in the role's specific workflows and failure modes.
+
 ## Execution Contract in Canonical Role Docs
 
 When canonical role docs exist under `docs/agents/`, ensure each active role doc includes an **Execution contract** section with the role-relevant subset of rules from `.wavefoundry/framework/seeds/020-run-contract.prompt.md`. Backfill when missing on init or upgrade.
@@ -286,15 +340,15 @@ Ensure each of the following role docs includes an **MCP tools** section (or **C
 
 MCP is not active at init time — it is registered separately via **Enable Wavefoundry MCP** after the framework is seeded. The role doc section should reflect this by framing the tools as available once MCP is set up, e.g. "When the Wavefoundry MCP server is available, use these tools as your first orientation pass before reading files."
 
-- **`implementer.md`** — Before writing or modifying code, use `code_search(topic, kind="code-summary", max_per_file=1)` when the owning file or symbol is not known yet, then use `code_definition(symbol)` to confirm whether the target already exists, `code_references(symbol)` to find all call sites, and `code_keyword_search(pattern)` to find similar implementations. Follow `docs/prompts/agents/code-insight-agent.prompt.md` **Implementer guidance** for the standard pre-implementation orientation pass.
+- **`implementer.md`** — Before writing or modifying code, use `code_search(topic, kind="code-summary", max_per_file=1)` when the owning file or symbol is not known yet, then use `code_definition(symbol)` to confirm whether the target already exists, `code_references(symbol)` to find all call sites, and `code_keyword_search(pattern)` to find similar implementations. If `code_references` is noisy, rerun it with `exclude_tests=true`; inspect `detail_buckets` / `detail_counts` when you need to separate definitions, imports, and mentions. Follow `docs/agents/code-insight-agent.md` **Implementer guidance** for the standard pre-implementation orientation pass.
 
-- **`planner.md`** — Before drafting a change doc, run a `code_search(topic, kind="code-summary", max_per_file=1)` module inventory and `code_ask("how does X currently work?")` to ground the rationale and affected-architecture sections in indexed evidence. Follow `docs/prompts/agents/code-insight-agent.prompt.md` **Planner guidance** for the standard pre-planning orientation pass.
+- **`planner.md`** — Before drafting a change doc, run a `code_search(topic, kind="code-summary", max_per_file=1)` module inventory and `code_ask("how does X currently work?")` to ground the rationale and affected-architecture sections in indexed evidence. When the subject symbol is already known, use `code_definition(symbol)` and `code_references(symbol)` to confirm exact declarations and usages, including SQL where structural support is available. Follow `docs/agents/code-insight-agent.md` **Planner guidance** for the standard pre-planning orientation pass.
 
-- **`wave-coordinator.md`** — During scope assessment and readiness review, use `code_ask` and `code_search(topic, kind="code-summary", max_per_file=1)` to answer "what does X currently do?" and "which files are affected?" without launching full file reads. When the relevant symbol is already known, switch to `code_definition(symbol)` or `code_references(symbol)` before broad file reads. `code_dependencies(path)` is the fastest path to understanding what a changed file touches.
+- **`wave-coordinator.md`** — During scope assessment and readiness review, use `code_ask` and `code_search(topic, kind="code-summary", max_per_file=1)` to answer "what does X currently do?" and "which files are affected?" without launching full file reads. When the relevant symbol is already known, switch to `code_definition(symbol)` or `code_references(symbol)` before broad file reads. If you are validating call-site signal, remember that `exclude_tests=true` is available for quieter reads without losing the broad mode. `code_dependencies(path)` is the fastest path to understanding what a changed file touches.
 
-When role docs for persona agents exist under `docs/agents/personas/`, add the same orientation guidance — persona agents should ground answers to user questions in `code_ask` / `docs_search` results, not memory recall. Reference `docs/prompts/agents/code-insight-agent.prompt.md` **Persona guidance**.
+When role docs for persona agents exist under `docs/agents/personas/`, add the same orientation guidance — persona agents should ground answers to user questions in `code_ask` / `docs_search` results, not memory recall. Reference `docs/agents/code-insight-agent.md` **Persona guidance**.
 
-**CIA journal:** When seeding the CIA agent surface, also create `docs/agents/journals/code-insight-agent.md` if it does not already exist. Use the same journal contract as other role journals (Operating Identity, Salience Triggers, Distillation, Active Signals, Index Gaps, Promotion Evidence, Retirement, Governance). The CIA journal is the recording surface for durable discoveries, index gaps, edge cases, and operator Q&A answers. Seed it with the CIA's operating identity and salience triggers from `docs/prompts/agents/code-insight-agent.prompt.md` (or `seed-211`).
+**CIA journal:** When seeding the CIA agent surface, also create `docs/agents/journals/code-insight-agent.md` if it does not already exist. Use the same journal contract as other role journals (Operating Identity, Salience Triggers, Distillation, Active Signals, Index Gaps, Promotion Evidence, Retirement, Governance). The CIA journal is the recording surface for durable discoveries, index gaps, edge cases, and operator Q&A answers. Seed it with the CIA's operating identity and salience triggers from `docs/agents/code-insight-agent.md` (or `seed-211`).
 
 ## Cleanup and Destructive Operations
 

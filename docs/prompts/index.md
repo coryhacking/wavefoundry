@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-05-14
 
 Public shortcut phrase catalog for Wavefoundry. See `AGENTS.md` for the routing table.
 
@@ -21,6 +21,8 @@ This prompt surface follows `.wavefoundry/framework/seeds/020-run-contract.promp
 |--------|---------|-----|
 | **Init wave framework** | Initialize Wave Framework in a target repository | `docs/prompts/install-wavefoundry.prompt.md` |
 | **Start dashboard** | Start the local repository dashboard and open it in the browser | `docs/prompts/start-dashboard.prompt.md` |
+| **Stop dashboard** | Stop the local repository dashboard for the current checkout | `docs/prompts/stop-dashboard.prompt.md` |
+| **Restart dashboard** | Restart the local repository dashboard for the current checkout | `docs/prompts/restart-dashboard.prompt.md` |
 | **Enable Wavefoundry MCP** | Register the local MCP server in Claude Code, Cursor, Junie, Copilot, Codex, or Air | `docs/prompts/install-wavefoundry.prompt.md#mcp--wavefoundry-server` |
 | **Upgrade wave framework** | Upgrade Wave Framework in a target repository | `docs/prompts/upgrade-wavefoundry.prompt.md` |
 | **Plan feature** | Author a consolidated change document | `docs/prompts/plan-feature.prompt.md` |
@@ -37,7 +39,7 @@ This prompt surface follows `.wavefoundry/framework/seeds/020-run-contract.promp
 | **Close wave** | Finalize wave with closure reconciliation | `docs/prompts/close-wave.prompt.md` |
 | **Finalize feature** | Single-change closure path | `docs/prompts/finalize-feature.prompt.md` |
 | **Interrogate this plan** | Stress-test a change doc before admission | `docs/prompts/interrogate-plan.prompt.md` |
-| **Ask codebase** | Ask a natural-language question about the codebase; returns cited answer | `docs/prompts/agents/code-insight-agent.prompt.md` — MCP: `code_ask(question)` |
+| **Code insight** | Ask a natural-language question about the codebase; returns cited answer | `docs/agents/code-insight-agent.md` — MCP: `code_ask(question)` |
 
 ## Wavefoundry Maintainer Commands
 
@@ -56,6 +58,7 @@ The following phrases are accepted for backwards compatibility but redirect to p
 | Upgrade wave context | Upgrade wave framework |
 | Install wave framework / Install wave context | Init wave framework (greenfield) or Upgrade wave framework (already seeded) |
 | Package wave framework / Package wave context | Package Wavefoundry |
+| Ask codebase / Ask CIA | Code insight |
 
 ## Usage Notes
 
@@ -72,7 +75,7 @@ Supporting agent-oriented prompt bodies live under `docs/prompts/agents/`. These
 
 | File | Lane |
 |------|------|
-| `docs/prompts/agents/code-insight-agent.prompt.md` | CIA / `code_ask` retrieval agent |
+| `docs/agents/code-insight-agent.md` | CIA / `code_ask` retrieval agent — canonical role doc |
 | `docs/prompts/agents/performance-reviewer.prompt.md` | `performance-reviewer` |
 | `docs/prompts/agents/security-reviewer.prompt.md` | `security-reviewer` |
 
