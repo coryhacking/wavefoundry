@@ -1040,16 +1040,21 @@ html[data-theme="dark"] .metric-diff-removed { color: #f87171; }
 }
 
 .index-stat-grid {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
+  justify-content: flex-start;
   gap: var(--space-3) var(--space-5);
   margin-bottom: var(--space-2);
+  width: fit-content;
 }
 
 .index-stat {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  align-items: flex-start;
+  text-align: left;
+  width: max-content;
 }
 
 .index-stat-value {

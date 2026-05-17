@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-14
+Last verified: 2026-05-15
 
 ## The Problem
 
@@ -22,7 +22,7 @@ The MCP search surface is organized into three layers, each solving a narrower a
 
 ```
 Layer 1: Semantic search   — docs_search, code_search
-Layer 2: Exact navigation  — code_keyword_search, code_read, code_list_files
+Layer 2: Exact navigation  — code_keyword, code_constants, code_pattern, code_outline, code_read, code_list_files
 Layer 3: Symbol navigation — code_definition, code_references, code_dependencies
 Layer 4: Codebase Q&A      — code_ask
 ```
@@ -60,15 +60,30 @@ When semantic search is unavailable, `docs_search` automatically falls back to `
 
 The fallback is intentional rather than accidental: a useful-but-lower-quality answer is better than an error. But it must be transparent.
 
-### Decision 3: No external search service
+### Decision 3: Embedded vector store (LanceDB) with numpy fallback
 
-A vector database (Pinecone, Weaviate, Chroma, etc.) would offer richer query features, filtering, and scaling. It was rejected because:
+The vector retrieval layer uses **LanceDB** — an Apache 2.0 embedded in-process vector database — as its primary backend, with a numpy cosine scan as a fallback when Lance tables are absent.
 
-1. **Wavefoundry is a local developer tool.** There is no server to host an external service, and requiring one would make installation significantly more complex.
-2. **The corpus is small.** A Wavefoundry docs corpus tops out at a few thousand chunks. Cosine search over a float32 numpy matrix is fast enough at this scale that query latency is dominated by model embedding time, not the search itself.
-3. **Operational simplicity beats features.** A `.npy` file and a `.json` file can be inspected, deleted, and rebuilt with a single command. A running database process cannot.
+**Why LanceDB:**
 
-The current implementation is explicitly designed to be replaceable. The `WaveIndex` class encapsulates the semantic search path; `search_docs` and `search_code` are the only entry points. If the corpus grows to a size where numpy cosine search is measurably slow, swapping in a vector DB behind those methods is straightforward.
+1. **Memory-mapped files, not full matrix loads.** The legacy numpy path loaded the full `.npy` matrix into RAM on every cold start. LanceDB memory-maps Lance columnar files — only pages touched by a query are read.
+2. **Native HNSW index above threshold.** When a table reaches `LANCEDB_INDEX_THRESHOLD = 1000` rows, an `IVF_HNSW_SQ` index is built automatically. Below that threshold, LanceDB performs a flat scan (comparable to numpy) with no index overhead.
+3. **True deletion path.** The numpy backend had no deletion path — a file removal required a full rebuild. LanceDB supports `table.delete("path = '...'"`) for incremental updates.
+4. **Predicate pushdown.** `where` SQL predicates are pushed into the scan layer, avoiding loading filtered-out rows. The numpy path filtered post-scan.
+5. **Operational simplicity retained.** LanceDB is embedded (no server process) and stores tables as directories under `.wavefoundry/index/lancedb/`. The directory can be deleted and rebuilt with a single `setup_index.py` run.
+
+**Lifecycle:**
+
+- `_build_lance_tables` writes `docs` and `code` tables under `index_dir/lancedb/`.
+- On full rebuild (`--full`), `_cleanup_legacy_index_files` verifies the Lance tables are non-empty and then deletes `docs.npy`, `docs.json`, `code.npy`, `code.json`. `meta.json` is never deleted.
+- During incremental updates, `_update_lance_table` deletes-then-adds rows for changed files. `_optimize_lance_table` compacts the table when the fragment count exceeds `LANCEDB_COMPACT_THRESHOLD = 20`.
+- If lancedb is not installed (e.g. CI without the extra dep), the numpy files are written and the numpy fallback path in `WaveIndex._ensure_loaded` is used transparently.
+
+**Fallback path:**
+
+`WaveIndex._ensure_loaded` checks for `index_dir/lancedb/docs.lance/` (a directory). If present: opens LanceDB tables and sets `_using_lance = True`. If absent: emits a one-time migration warning to stderr and loads the numpy index. The `search_docs`, `search_code`, and `search_combined` methods branch on `_using_lance` with the numpy path as the `else` branch.
+
+**Score convention:** LanceDB's cosine metric returns `_distance = 1 - cosine_similarity`. `_lance_search` converts this to `score = 1 - distance` so higher scores always mean more similar — matching the numpy path's convention.
 
 ### Decision 4: Two-layer index (project + framework)
 
@@ -83,9 +98,9 @@ Layers are only merged if their vector dimensions and model names match. A misma
 
 ### Decision 5: Exact navigation uses live file walks, not an index
 
-`code_keyword_search`, `code_read`, and `code_list_files` operate directly on the filesystem rather than querying a pre-built index. This was a deliberate choice:
+`code_keyword`, `code_constants`, `code_pattern`, `code_outline`, `code_read`, and `code_list_files` operate directly on the filesystem rather than querying a pre-built index. This was a deliberate choice:
 
-**Staleness is not acceptable for exact navigation.** An agent using `code_keyword_search` to find a function definition must get the current state of the file, not a cached state from the last index build. Doc search can tolerate some staleness; exact code navigation cannot.
+**Staleness is not acceptable for exact navigation.** An agent using `code_keyword` to find a function definition must get the current state of the file, not a cached state from the last index build. Doc search can tolerate some staleness; exact code navigation cannot.
 
 **The cost is acceptable.** A `rg`-style substring walk over a typical repository is fast enough (milliseconds to low seconds) that the simplicity of no-index-required outweighs the marginal latency cost.
 
@@ -118,18 +133,134 @@ Both kinds are prepended to their file's chunk list so they appear first in retr
 
 `code_ask` is a structured routing tool, not an LLM-in-the-loop summarizer. Given a question, it:
 
-1. Classifies the question type (navigational / explanatory / instructional) using a keyword heuristic
-2. Runs a broad semantic pass (`code_search` + `docs_search`)
-3. If fewer than 2 citations, runs a keyword fallback pass (`code_keyword_search`)
-4. Returns `{answer, citations, confidence, gaps, question_type, index_freshness}`
+1. Classifies the question type (`navigational` / `explanatory` / `instructional`) using the `_classify_question` keyword heuristic
+2. Runs a broad semantic pass via `search_combined()` — fetches from both docs and code indexes, applies cross-encoder reranking, returns a unified ranked list
+3. If fewer than 2 citations, runs a targeted keyword fallback pass (`code_keyword`)
+4. Returns `{answer, citations, confidence, gaps, question_type, index_freshness, reranked, partition_applied, demotion_count, total_ms, vector_ms, rerank_ms, definition_boosted, second_hop_symbols}` and per-citation metadata including `score`, `final_rank`, `demoted`, and `partition_reason`
 
 The `answer` field is mechanically assembled from the top citation — it names the file and line range, not a synthesized prose response. This is intentional: the tool is designed to be called by an agent that will read the cited sources and reason over them, not to replace that reasoning. Synthesis is the caller's job; retrieval and citation is `code_ask`'s job.
 
 `confidence` is heuristic: `high` = 2+ citations, `medium` = 1 citation, `low` = 0. `index_freshness` is `"stale"` when any indexed chunker version differs from the current `CHUNKER_VERSION`.
 
+`code_ask` citations preserve the pre-partition reranker `score`, but `final_rank` reflects the actual output order after the soft partition rules run. When `demoted: true` is present, the lower position is intentional and `partition_reason` explains whether the citation was demoted as `seed`, `feedback`, or a journal/report-style path.
+
+**Question-type-aware retrieval in `search_combined`:**
+
+- `navigational`: code-index candidates receive a `RRF_NAVIGATIONAL_CODE_WEIGHT` (1.5×) multiplier in RRF scoring to bias toward code results
+- `explanatory`: after reranking, results whose path contains any segment from `INFRASTRUCTURE_PATH_SEGMENTS` (scaffolding-layer paths: CDK constructs/stacks, Terraform modules/resources, Spring config/beans, Express/NestJS routes/wiring, generic infra/infrastructure) are stable-partitioned to the end of the result list. This prevents CDK scaffolding and wiring files from displacing business-logic files for multi-hop explanatory questions.
+- `instructional` and default: no weight bias; no partition
+
+**Dynamic `VECTOR_TOP_K`:**
+
+The candidate pool size scales with question type:
+- `explanatory`: `VECTOR_TOP_K_EXPLANATORY = 50` candidates per index (100 total) — larger pool improves recall for multi-hop call chains where the correct answer spans multiple layers
+- All other types: `VECTOR_TOP_K = 30` candidates per index (60 total)
+
+The tradeoff: the cross-encoder reranker scales approximately linearly with candidate count, so smaller pools should reduce rerank cost. On GPU-enabled hardware the ceiling is 500ms; on CPU this is infeasible regardless of TOP_K (see `12mns-enh dynamic-vector-top-k` for the benchmark).
+
+**Per-query timing:**
+
+`search_combined` returns `(results, reranked, vector_ms, rerank_ms, definition_boosted, second_hop_symbols)`. `code_ask_response` adds `total_ms` (wall-clock for the entire handler). All three timing values are emitted in the MCP response and printed to the server log per invocation as `[wavefoundry] code_ask timing: total=Xms vector=Yms rerank=Zms`.
+
+**`search_combined` execution pipeline (reranker path):**
+
+```
+1. Vector fetch (timed as vector_ms)
+   ├─ Embed query with DOCS_MODEL → cosine search over docs index → top_k candidates
+   ├─ Embed query with CODE_MODEL → cosine search over code index → top_k candidates
+   └─ top_k = VECTOR_TOP_K_EXPLANATORY (50) if explanatory; VECTOR_TOP_K (30) otherwise
+
+2. Definition-file boosting
+   └─ For each DEFINITION_BOOST_RULES entry whose vocabulary matches the query:
+      keyword-search on the most specific matching term, inject ≤ DEFINITION_BOOST_CANDIDATES (5)
+      hits with score=0.0 into the combined pool; record rule label in definition_boosted
+
+3. First rerank (rerank_ms starts here)
+   └─ _rerank(query, all_candidates, top_n) — cross-encoder scores each [query, text] pair
+
+4. Two-hop symbol expansion (explanatory only — see Decision 11)
+   └─ Extract symbols from top-3 non-infra citations → keyword-search each →
+      inject ≤ MAX_SECOND_HOP_CANDIDATES (10) new candidates with score=0.0
+
+5. Second rerank (if second-hop produced candidates)
+   └─ _rerank(query, results + second_hop_candidates, top_n)
+
+6. Infrastructure partition (explanatory only)
+   └─ _partition_infra(): stable-push INFRASTRUCTURE_PATH_SEGMENTS citations to end
+
+7. Return (results, True, vector_ms, rerank_ms, definition_boosted, second_hop_symbols)
+```
+
+**`search_combined` RRF fallback path (reranker unavailable):**
+
+```
+1. Same vector fetch phase (same top_k logic)
+
+2. _rrf_merge([docs_candidates, code_candidates], top_n, weights)
+   Formula: score += w / (k + rank)  where k=60
+   Navigational: weights=[1.0, 1.5] (code-index boosted); all other types: weights=None (equal)
+
+3. Infrastructure partition (explanatory only, same as reranker path)
+
+4. Return (results, False, vector_ms, rerank_ms, [], [])
+   — definition_boosted and second_hop_symbols are always empty in the RRF path
+```
+
+Two-hop is skipped in the RRF path because cross-encoder scoring is required to evaluate the injected candidates on content merit; positional append without reranking produces unpredictable results.
+
+### Decision 9: `max_per_file` cap in `code_search` for result diversity
+
 ### Decision 9: `max_per_file` cap in `code_search` for result diversity
 
 Without a per-file cap, `code_search` can return many chunks from a single large file when that file dominates cosine similarity scores — useful for deep dives into one file, but unhelpful for orientation across the codebase. The `max_per_file` parameter caps how many chunks from the same file can appear in results. Order is: rank (cosine score descending) → language filter → kind filter → per-file cap → `[:top_n]`. The highest-scoring chunk per file is always retained when the cap is applied.
+
+### Decision 10: Definition-file boosting uses an extensible rule table, not hardcoded logic
+
+When a query vocabulary signals that schema-language files are relevant, `search_combined` injects candidates from those files before reranking via `DEFINITION_BOOST_RULES`. Each rule is a dict with three fields:
+
+```python
+{
+    "vocabulary": frozenset({"sql", "stored procedure", "proc", ...}),
+    "extensions": [".sql"],
+    "label": "sql",
+}
+```
+
+When any vocabulary term appears in the lowercased query, the rule fires: `code_keyword` runs on the most specific matching term (longest vocabulary term > 3 chars present in the query), and up to `DEFINITION_BOOST_CANDIDATES = 5` matching files are injected into the candidate pool with `score=0.0`. The cross-encoder then evaluates them on content merit alongside vector candidates.
+
+`score=0.0` means the injected candidates enter at the bottom of any pre-rerank order, so the reranker promotes them only if their content is genuinely relevant. This avoids false promotion of unrelated schema files when the vocabulary fires incidentally.
+
+The rule fires only when injection produces at least one candidate; the `definition_boosted` response field is non-empty only when files were actually injected. Adding a new schema language (GraphQL, protobuf, OpenAPI) requires appending one entry to `DEFINITION_BOOST_RULES` — no logic changes.
+
+**Note:** In the RRF fallback path (reranker unavailable), injected definition candidates are currently dropped because `_rrf_merge` operates on `docs_candidates` and `code_candidates` separately. Definition-boost candidates only appear in results when the cross-encoder reranker is available.
+
+### Decision 11: Two-hop symbol expansion follows call chains across vocabulary gaps
+
+Vector search retrieves what the original query vocabulary can reach. For explanatory questions tracing a multi-layer call chain ("how does a new tenant get created?"), the API handler and service layer typically surface in the top-5 results, but the repository layer and SQL schema do not — they share less lexical overlap with the query than the shallower layers. Two-hop expansion follows the symbol references found in the first hop to reach layers the query could not name.
+
+**Gate condition**: fires only when `question_type == "explanatory"` and the cross-encoder reranker is available. The second hop is skipped entirely in the RRF fallback path (see Decision 8 pipeline above) and when no symbols can be extracted from the top citations.
+
+**Extraction scope**: top-3 results after first rerank, filtered to non-infra citations only (INFRASTRUCTURE_PATH_SEGMENTS). Infrastructure-layer files (CDK constructs, Terraform modules, Spring config, NestJS routes) import many application symbols and would bias expansion toward wiring files rather than business logic.
+
+**Symbol extraction** — tiered by language support:
+
+| Strategy | Languages | How |
+|---|---|---|
+| AST | Python | `ast.parse()` → walk `Call` / `Attribute` nodes for callee names; `Import` / `ImportFrom` for imported names |
+| Tree-sitter | JS, TS, Java, C#, Go, Rust, C, C++, Kotlin, Bash, SQL | `_ts_parse(lang, text)` + `_extract_symbols_ts()` — walks call/invocation node types, extracts callee identifier; lazy-loaded via `_get_chunker_module()` at first use |
+| Regex fallback | All others, or when parse fails | `r'\b([A-Za-z_][A-Za-z0-9_]{3,})\s*\('` (calls), `r'\b(?:EXEC\|EXECUTE\|CALL)\s+([A-Za-z_][A-Za-z0-9_.]{3,})\b'` (SQL), `r'\bimport\s+([A-Za-z_][A-Za-z0-9_]{3,})'` (imports) |
+
+**Post-filter** (all paths): deduplicate, require length ≥ 4, remove `_SYMBOL_BLOCKLIST` entries (common built-ins: `get`, `set`, `run`, `init`, `main`, `self`, `this`, `true`, `false`, `null`, `new`, `return`, `create`, `update`, `delete`, `list`, `find`, etc.), cap at `MAX_SYMBOLS_EXTRACTED = 5`.
+
+**Second hop**: for each extracted symbol, call `code_keyword_response(root, symbol)`. Skip any result whose `(path, start_line)` is already in `first_hop_keys` (built from the full first-hop pool, not just top-N). Inject new candidates with `score=0.0`. Stop when `MAX_SECOND_HOP_CANDIDATES = 10` total is reached across all symbols.
+
+**Second rerank**: re-run `_rerank(query, results + second_hop_candidates, top_n)`. The cross-encoder evaluates second-hop candidates against the original query on content merit. `score=0.0` injection ensures injected candidates are promoted only if their content is genuinely relevant to the question.
+
+**Output**: `second_hop_symbols` in the `code_ask` response lists the symbol names that triggered retrieval. Present and non-empty only when the second hop produced at least one candidate that survived deduplication. When non-empty, the citation set already includes results from the second hop — callers should not re-chase those symbols manually.
+
+**Cap constants** (module-level in `server.py`): `MAX_SYMBOLS_EXTRACTED = 5`, `MAX_SECOND_HOP_CANDIDATES = 10`. These are security-relevant: they bound the server work a crafted repository file can trigger. See `docs/agents/security-reviewer.md` for the security reviewer's check procedure.
+
+**Tree-sitter coupling**: the chunker's tree-sitter parser stack is a runtime dependency of this path, loaded lazily at query time. This coupling is documented in `docs/architecture/domain-map.md` under MCP Server "Inbound Deps." Any change to `_TS_SYMBOL_LANG_MAP` (the set of languages routed through tree-sitter for extraction) must update that entry.
 
 ---
 

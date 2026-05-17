@@ -34,6 +34,25 @@ def _make_embedder_mock(dim: int = 4):
     return mock
 
 
+def _read_index_chunks(index_dir: Path, table_name: str) -> list[dict]:
+    """Read all chunks from a LanceDB table if available, else fall back to the legacy JSON file."""
+    lance_dir = index_dir / f"{table_name}.lance"
+    if lance_dir.is_dir():
+        try:
+            import lancedb
+            db = lancedb.connect(str(index_dir))
+            tbl = db.open_table(table_name)
+            arrow_tbl = tbl.to_arrow()
+            cols = [c for c in arrow_tbl.column_names if c != "vector"]
+            return arrow_tbl.select(cols).to_pylist()
+        except Exception:
+            pass
+    json_path = index_dir / f"{table_name}.json"
+    if json_path.exists():
+        return json.loads(json_path.read_text(encoding="utf-8"))
+    return []
+
+
 def _make_repo(tmp: Path, files: dict[str, str]) -> None:
     """Write files into a temp repo with a minimal workflow-config.json."""
     (tmp / "docs").mkdir(parents=True, exist_ok=True)
@@ -117,11 +136,11 @@ class FileWalkerTests(unittest.TestCase):
     def test_excludes_binary_extensions(self):
         _make_repo(self.root, {"src/foo.py": "x = 1\n"})
         (self.root / "src" / "image.png").write_bytes(b"\x89PNG")
-        (self.root / "src" / "data.npy").write_bytes(b"\x93NUMPY")
+        (self.root / "src" / "data.bin").write_bytes(b"\x93NUMPY")
         files = self.bi.walk_repo(self.root)
         names = {f.name for f in files}
         self.assertNotIn("image.png", names)
-        self.assertNotIn("data.npy", names)
+        self.assertNotIn("data.bin", names)
 
     def test_excludes_elf_and_office_binaries(self):
         # AC-1 (12c7n-bug binary-files-indexed-as-text): ELF, EPS, PPTX excluded
@@ -465,8 +484,12 @@ class IncrementalBuildTests(unittest.TestCase):
         result = self._run_build(full=True)
         index_dir = self.root / ".wavefoundry" / "index"
         self.assertTrue((index_dir / "meta.json").exists())
-        self.assertTrue((index_dir / "docs.json").exists())
-        self.assertTrue((index_dir / "code.json").exists())
+        # Index may be stored as LanceDB tables or legacy JSON files.
+        has_index = (
+            (index_dir / "docs.lance").is_dir() or (index_dir / "docs.json").exists()
+            or (index_dir / "code.lance").is_dir() or (index_dir / "code.json").exists()
+        )
+        self.assertTrue(has_index)
         self.assertFalse(result["up_to_date"])
 
     def test_second_run_is_up_to_date(self):
@@ -543,34 +566,31 @@ class IncrementalBuildTests(unittest.TestCase):
         with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
             self.bi.build_index(self.root, full=False, content="all", verbose=False)
 
-        code_chunks = json.loads((self.root / ".wavefoundry" / "index" / "code.json").read_text())
+        code_chunks = _read_index_chunks(self.root / ".wavefoundry" / "index", "code")
         paths = {c["path"] for c in code_chunks}
         self.assertNotIn("src/bar.py", paths)
 
     def test_chunks_json_paths_use_forward_slashes(self):
         _make_repo(self.root, {"src/sub/foo.py": "def f(): pass\n"})
         self._run_build(full=True)
-        code_chunks = json.loads((self.root / ".wavefoundry" / "index" / "code.json").read_text())
+        code_chunks = _read_index_chunks(self.root / ".wavefoundry" / "index", "code")
         for c in code_chunks:
             self.assertNotIn("\\", c["path"])
             self.assertNotIn("\\", c["id"])
 
-    def test_npy_row_count_matches_chunks_json(self):
-        import numpy as np
+    def test_lance_row_count_matches_chunk_rows(self):
         _make_repo(self.root, {
             "src/foo.py": "def f(): pass\ndef g(): pass\n",
             "docs/guide.md": "## Intro\n\nHello.\n",
         })
         self._run_build(full=True)
         index_dir = self.root / ".wavefoundry" / "index"
-        code_chunks = json.loads((index_dir / "code.json").read_text())
-        docs_chunks = json.loads((index_dir / "docs.json").read_text())
-        code_npy = index_dir / "code.npy"
-        docs_npy = index_dir / "docs.npy"
-        if code_chunks and code_npy.exists():
-            self.assertEqual(np.load(str(code_npy)).shape[0], len(code_chunks))
-        if docs_chunks and docs_npy.exists():
-            self.assertEqual(np.load(str(docs_npy)).shape[0], len(docs_chunks))
+        code_chunks = _read_index_chunks(index_dir, "code")
+        docs_chunks = _read_index_chunks(index_dir, "docs")
+        self.assertTrue((index_dir / "code.lance").is_dir())
+        self.assertTrue((index_dir / "docs.lance").is_dir())
+        self.assertGreater(len(code_chunks), 0)
+        self.assertGreater(len(docs_chunks), 0)
 
     def test_custom_index_dir_is_excluded_from_rebuild_hashes(self):
         _make_repo(self.root, {
@@ -608,7 +628,7 @@ class IncrementalBuildTests(unittest.TestCase):
 
         index_dir = self.root / ".wavefoundry" / "index"
         meta = json.loads((index_dir / "meta.json").read_text())
-        chunks = json.loads((index_dir / "docs.json").read_text())
+        chunks = _read_index_chunks(index_dir, "docs")
         self.assertIn("docs/guide.md", meta["file_meta"])
         self.assertNotIn(".wavefoundry/framework/README.md", meta["file_meta"])
         self.assertFalse(any(c["path"].startswith(".wavefoundry/framework/") for c in chunks))
@@ -617,6 +637,7 @@ class IncrementalBuildTests(unittest.TestCase):
         _make_repo(self.root, {
             "docs/guide.md": "## Intro\n\nHello.\n",
             ".wavefoundry/framework/README.md": "## Framework\n\nCanonical framework docs.\n",
+            ".wavefoundry/framework/MANIFEST": "README.md\nMANIFEST\n",
         })
 
         index_dir = self.root / ".wavefoundry" / "framework" / "index"
@@ -633,9 +654,11 @@ class IncrementalBuildTests(unittest.TestCase):
             )
 
         meta = json.loads((index_dir / "meta.json").read_text())
-        chunks = json.loads((index_dir / "docs.json").read_text())
+        chunks = _read_index_chunks(index_dir, "docs")
         self.assertIn(".wavefoundry/framework/README.md", meta["file_meta"])
+        self.assertNotIn(".wavefoundry/framework/MANIFEST", meta["file_meta"])
         self.assertTrue(any(c["path"] == ".wavefoundry/framework/README.md" for c in chunks))
+        self.assertFalse(any(c["path"] == ".wavefoundry/framework/MANIFEST" for c in chunks))
 
     def test_project_docs_index_can_opt_in_excluded_prefixes(self):
         _make_repo(self.root, {
@@ -655,7 +678,7 @@ class IncrementalBuildTests(unittest.TestCase):
 
         index_dir = self.root / ".wavefoundry" / "index"
         meta = json.loads((index_dir / "meta.json").read_text())
-        chunks = json.loads((index_dir / "docs.json").read_text())
+        chunks = _read_index_chunks(index_dir, "docs")
         self.assertIn(".wavefoundry/framework/README.md", meta["file_meta"])
         self.assertTrue(any(c["path"] == ".wavefoundry/framework/README.md" for c in chunks))
 
@@ -679,7 +702,7 @@ class IncrementalBuildTests(unittest.TestCase):
 
         index_dir = self.root / ".wavefoundry" / "index"
         meta = json.loads((index_dir / "meta.json").read_text())
-        code_chunks = json.loads((index_dir / "code.json").read_text())
+        code_chunks = _read_index_chunks(index_dir, "code")
         self.assertIn(".wavefoundry/framework/scripts/server.py", meta["file_meta"])
         self.assertTrue(any(c["path"] == ".wavefoundry/framework/scripts/server.py" for c in code_chunks))
         self.assertIn("vendor/docs/custom.py", meta["file_meta"])

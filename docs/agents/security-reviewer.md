@@ -3,7 +3,7 @@
 Owner: Engineering
 Status: active
 Role: security-reviewer
-Last verified: 2026-05-14
+Last verified: 2026-05-15
 
 ## Operating Identity
 
@@ -18,6 +18,15 @@ Reviews trust boundary and safety changes. Stance: enforce the threat model; cat
 - Review distribution zip gitignore coverage
 - Update `docs/architecture/threat-model.md` when new boundaries are introduced
 
+## Symbol Extraction Check (Two-Hop Retrieval Path)
+
+`_extract_symbols_from_citations` reads symbol names from repository file content and passes them to `code_keyword_response`. This is a content-driven server behavior trigger — untrusted file content controls which secondary searches execute. When reviewing any change to this path:
+
+- Extracted symbol names must **not** be interpolated into shell commands or `subprocess` calls.
+- If symbols are passed to any regex operation, `re.escape()` must be applied first.
+- `MAX_SYMBOLS_EXTRACTED = 5` and `MAX_SECOND_HOP_CANDIDATES = 10` are DoS controls bounding server work per request — any relaxation requires explicit security review.
+- `_SYMBOL_BLOCKLIST` weakening (removing entries) widens the keyword search surface driven by untrusted content — treat removals as security-relevant changes requiring justification.
+
 ## Default Stance
 
 Assume trust boundaries are fragile until access control, allowed-root enforcement, and operator-safety behavior are explicitly verified.
@@ -29,6 +38,7 @@ Assume trust boundaries are fragile until access control, allowed-root enforceme
 - secrets, credentials, and sensitive-data handling
 - mutation safety and accidental-destructive behavior
 - threat-model and trust-boundary documentation drift
+- symbol extraction from repository content (two-hop retrieval path)
 
 ## Do Not
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-14
+Last verified: 2026-05-15
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -15,6 +15,16 @@ agents can inspect project state, search indexed content, create change document
 and run framework maintenance without rediscovering shell commands every session.
 
 **Agent default:** Prefer `**wave_validate`**, `**wave_garden**`, and `**wave_audit**` for docs validation, metadata refresh, and combined health checks instead of invoking `**.wavefoundry/bin/docs-lint**` / `**.wavefoundry/bin/docs-gardener**` from a shell. Reserve the bin launchers for hooks, CI, and hosts where MCP is not attached.
+
+Recommended first choices:
+
+- `wave_audit` when you want a read-only post-mutation landing check that bundles wave state, validation, and index health
+- `wave_validate` when you only need docs / manifest validation
+- `wave_garden` when you only need metadata timestamp refresh
+- `wave_index_health` when you need to know whether search is ready, stale, missing, or degraded
+- `wave_index_build_status` when a background refresh or detached code build is still running and you want to poll it
+- `wave_index_build` when you need a deterministic update or rebuild
+- `code_ask` when you want a cited natural-language answer about the codebase instead of a raw candidate list
 
 The MCP surface is a product contract. Tool names, argument semantics, response
 shape, safety metadata, and retry behavior must be planned and reviewed before
@@ -69,6 +79,7 @@ Initial core set:
 | `wave_garden`        | Run docs gardening and report changed files                                                     |
 | `wave_sync_surfaces` | Regenerate agent/platform surfaces                                                              |
 | `wave_index_health`  | Check semantic index health and surface stale/missing layers                                    |
+| `wave_index_build_status` | Poll a detached background index refresh                                                    |
 | `wave_index_build`   | Run a synchronous index build: `**mode='update'**` (incremental) or `**mode='rebuild'**` (full) |
 
 
@@ -211,6 +222,15 @@ once envelope migration is complete.
 
 - Resolves a framework seed by name or partial slug.
 - Returns canonical seed content and labels it as trusted framework content.
+
+`code_ask(question: str)`
+
+- Natural-language codebase Q&A entry point for cited answers that may span docs and code.
+- Use when you want an explanation, ownership trace, or “where should I look next?” guidance rather than an exact token match.
+- Returns citations plus retrieval metadata; treat the `answer` field as a navigation pointer and validate from the cited chunks.
+- Citation `score` is the pre-partition reranker score. `final_rank` is the post-partition output order. If `partition_applied` is true, some citations were intentionally moved behind non-demoted evidence.
+- Demoted citations carry `demoted: true` and `partition_reason` (`seed`, `feedback`, or `journal/report`-style path). This preserves the relevance signal without hiding the policy decision.
+- Check `reranked`, `confidence`, `question_type`, `second_hop_symbols`, and `index_freshness` before relying on the result.
 
 ### Wave Inspection
 
@@ -394,7 +414,10 @@ for the project layer, or rerun the framework-targeted `indexer.py` command if a
 All navigation tools are shipped. Path containment and allowed-root validation
 is enforced; structured diagnostics are returned for rejected paths.
 
-- `code_keyword_search` — exact substring search, always available, no index required
+- `code_keyword` — exact substring search (single `query` or batch `queries` list), always available, no index required; batch mode merges results deduplicated by (path, line) with `matched_query` tagging
+- `code_constants` — batch constant value lookup by name; returns name/value/file/line/kind per match; handles multiline container literals (frozenset, list, dict); not-found symbols included with null value; `glob` parameter scopes search to matching file paths
+- `code_pattern` — regex pattern search across repository files; `pattern` is a Python `re`-compatible string; results capped at `max_results` (default 50) with `truncated`/`total_matches_found` fields; `ignore_case` flag; files over 1 MB skipped (ReDoS guard)
+- `code_outline` — structural symbol map of a source file; tiered: Python AST → tree-sitter (11 languages) → regex fallback; returns `{name, kind, start_line, end_line, docstring}` per symbol with `parser_used` field
 - `code_read` — read a file by repo-relative path with optional line range
 - `code_list_files` — list repo files with optional glob filter
 - `code_definition` — symbol definition lookup across Python AST, tree-sitter-backed Java/C#/JS/TS/SQL navigation, and supported non-Python structural matchers; falls back to broad keyword matches when no structural definition is found
@@ -406,11 +429,14 @@ Use this table to select the right tool for a query type.
 
 | Query type | Recommended tool | Fallback |
 | --- | --- | --- |
-| Search docs/arch/prompts/seeds by concept or intent | `docs_search` | `code_keyword_search` with glob `*.md` |
-| Search code by concept, behavior, or intent | `code_search` | `code_keyword_search` |
-| Search for exact token, symbol name, or string | `code_keyword_search` | — |
-| Look up where a symbol is defined | `code_definition` | `code_keyword_search` |
-| Find all call sites for a symbol | `code_references` | `code_keyword_search` |
+| Search docs/arch/prompts/seeds by concept or intent | `docs_search` | `code_keyword` with glob `*.md` |
+| Search code by concept, behavior, or intent | `code_search` | `code_keyword` |
+| Search for exact token, symbol name, or string | `code_keyword` | — |
+| Look up the current value of named constants | `code_constants` | `code_keyword` |
+| Regex/pattern search across files | `code_pattern` | `code_keyword` |
+| Structural overview of a file (functions, classes) | `code_outline` | `code_keyword` |
+| Look up where a symbol is defined | `code_definition` | `code_keyword` |
+| Find all call sites for a symbol | `code_references` | `code_keyword` |
 | Fetch a seed prompt by name | `seed_get` | `docs_search` with `kind=seed` |
 | Navigate from a search result anchor to a file | `wave_map` | `code_read` with the path directly |
 | Check current wave and admitted changes | `wave_current` | `wave_list_waves` |
@@ -426,7 +452,7 @@ Use this table to select the right tool for a query type.
 | Find code by concept or behavior and you do not know the exact symbol or file | `code_search` | Semantic discovery across indexed code |
 | Find the defining declaration for a known symbol | `code_definition` | Structural symbol navigation beats broad search |
 | Find call sites or usages of a known symbol | `code_references` | Reference-oriented structural lookup |
-| Find an exact token, import path, or string literal | `code_keyword_search` | Deterministic exhaustive substring search |
+| Find an exact token, import path, or string literal | `code_keyword` | Deterministic exhaustive substring search |
 | Read the actual implementation once you know the file | `code_read` | Source-of-truth file content with line numbers |
 | Search markdown docs, prompts, specs, or seeds instead of source code | `docs_search` | Semantic retrieval over docs, not code |
 
@@ -457,7 +483,7 @@ Use this table to select the right tool for a query type.
 
 > **React / TypeScript note:** `.tsx` and `.ts` files are indexed under the same canonical label `"typescript"`. There is no separate `tsx` language in the index. `language="tsx"`, `language=".tsx"`, and `language="typescript"` are all equivalent single-language filters. Use `language="web"` to include JavaScript, HTML, CSS, and SCSS alongside TypeScript.
 
-**Use `code_keyword_search` instead of `code_search` when:**
+**Use `code_keyword` instead of `code_search` when:**
 - You know the exact function name, variable, import path, or string literal.
 - The semantic index is unavailable (`wave_index_health` reports not ready).
 - You need deterministic, exhaustive results (semantic search scores by relevance, not completeness).

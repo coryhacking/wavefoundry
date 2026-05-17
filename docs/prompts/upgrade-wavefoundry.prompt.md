@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-14
+Last verified: 2026-05-16
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -67,13 +67,13 @@ See `docs/contributing/build-and-verification.md` **Wave framework pack upgrade 
    - `wave_audit` returns a combined `wave` + `validation` + `index` payload
    - `wave_server_info` returns the current `repo_root` and deterministic Codex server label for that checkout path
    - `wave_index_build` is available for deterministic project/framework index rebuilds
-6. **Restart MCP and update indexes:** Restart the MCP server so the upgraded server and any newly rendered hook/config surfaces take effect. Then update both index layers:
+6. **Restart MCP and update indexes:** Restart the MCP server so the upgraded server and any newly rendered hook/config surfaces take effect. Then update the project index:
    ```
    wave_index_build(content="docs", mode="update")                          ← project
-   wave_index_build(content="docs", mode="update", layer="framework")       ← framework (self-hosting)
    ```
-   If `CHUNKER_VERSION` changed (step 4), use `mode="rebuild"` instead. See `docs/contributing/build-and-verification.md` **Update vs rebuild — decision table**.
-   - Treat this as part of the upgrade, not optional cleanup. Until restart + index update happen, the repository may still be running old MCP code or stale search state.
+   If `CHUNKER_VERSION` changed (step 4), use `mode="rebuild"` instead. The framework index is shipped inside the pack; do not rebuild it during an ordinary upgrade unless the pack itself invalidated it or you are intentionally reindexing the Wavefoundry source repo. See `docs/contributing/build-and-verification.md` **Upgrade index rule**.
+   - If the refresh is detached or backgrounded, poll `wave_index_build_status(layer?)` until it finishes before you rely on the refreshed search state.
+   - Treat the restart + project index update as part of the upgrade, not optional cleanup. Until restart happens, the repository may still be running old MCP code or stale search state.
 7. Review diff of pack changes, hooks, `docs/prompts/`, manifests
 8. Commit (operator-owned)
 

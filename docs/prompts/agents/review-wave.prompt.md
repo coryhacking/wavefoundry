@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-05-15
 
 ## Context
 
@@ -31,7 +31,7 @@ All reviewer lanes have direct access to CIA tools — use them to verify claims
 | Jump to a symbol definition | `code_definition(symbol)` |
 | Find all call sites | `code_references(symbol)` |
 | Check module boundaries and imports | `code_dependencies(path)` |
-| Confirm test coverage for a symbol exists | `code_keyword_search(symbol)` |
+| Confirm test coverage for a symbol exists | `code_keyword(symbol)` |
 | Orient to module shape before reviewing | `code_search(topic, kind="code-summary")` |
 
 If MCP is not available, use `grep -rn "symbol" .` for references and `grep -n "^import\|^from" <path>` for dependencies. Cite results as `path:line_number`.

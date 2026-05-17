@@ -131,6 +131,23 @@ def collect_files(framework_dir: Path) -> list[tuple[Path, str]]:
     return entries
 
 
+def _framework_index_source_files(framework_dir: Path) -> list[Path]:
+    """Return the pack-shipped framework source files used to build the index."""
+    source_files: list[Path] = []
+    for abs_path, arcname in collect_files(framework_dir):
+        if not arcname.startswith(FRAMEWORK_REL + "/"):
+            continue
+        rel_path = arcname[len(FRAMEWORK_REL) + 1 :]
+        if rel_path == "VERSION":
+            continue
+        if rel_path == "MANIFEST" or rel_path.startswith("MANIFEST.pre-"):
+            continue
+        if rel_path == "index" or rel_path.startswith("index/"):
+            continue
+        source_files.append(abs_path)
+    return source_files
+
+
 def write_manifest(framework_dir: Path, entries: list[tuple[Path, str]]) -> Path:
     """Write MANIFEST listing all packed paths (relative to framework root).
 
@@ -163,8 +180,13 @@ def _load_indexer():
     return mod
 
 
-def build_framework_index(framework_dir: Path, *, verbose: bool = False) -> None:
-    """Build the packaged framework docs/seed index under framework/index/."""
+def build_framework_index(
+    framework_dir: Path,
+    *,
+    source_files: list[Path] | None = None,
+    verbose: bool = False,
+) -> None:
+    """Update the packaged framework docs/seed index under framework/index/."""
     indexer = _load_indexer()
     framework_dir = framework_dir.resolve()
     root = framework_dir
@@ -182,8 +204,35 @@ def build_framework_index(framework_dir: Path, *, verbose: bool = False) -> None
         index_dir=framework_dir / "index",
         include_prefixes=include_prefixes,
         respect_ignore=False,
+        files=source_files,
         verbose=verbose,
     )
+
+
+def _compact_framework_index(framework_dir: Path, *, verbose: bool = False) -> None:
+    """Compact the packaged framework LanceDB tables after updating them."""
+    indexer = _load_indexer()
+    index_dir = framework_dir / "index"
+    if not index_dir.is_dir():
+        return
+    try:
+        db = indexer._get_lance_db(index_dir)
+    except Exception as exc:
+        raise RuntimeError(f"unable to open framework index for compaction ({exc})") from exc
+    for table_name in ("docs", "code"):
+        table_dir = index_dir / f"{table_name}.lance"
+        if not table_dir.is_dir():
+            continue
+        try:
+            table = db.open_table(table_name)
+            indexer._optimize_lance_table(table)
+            if verbose:
+                print(
+                    f"build_pack: compacted framework index table '{table_name}'",
+                    flush=True,
+                )
+        except Exception as exc:
+            raise RuntimeError(f"framework index compaction failed for '{table_name}' ({exc})") from exc
 
 
 def build_zip(
@@ -206,7 +255,9 @@ def build_zip(
         write_pack_version(fw, date_str, suffix)
 
     if prebuild_index:
-        build_framework_index(fw, verbose=verbose)
+        source_files = _framework_index_source_files(fw)
+        build_framework_index(fw, source_files=source_files, verbose=verbose)
+        _compact_framework_index(fw, verbose=verbose)
 
     # Remove .DS_Store files from the repo root before collecting files.
     repo_root = fw.parent.parent if fw.parent.name == ".wavefoundry" else fw.parent
@@ -258,7 +309,7 @@ def main():
     parser.add_argument(
         "--skip-framework-index",
         action="store_true",
-        help="Skip rebuilding framework/index before packaging.",
+        help="Skip updating and compacting framework/index before packaging.",
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Print index build progress")
     args = parser.parse_args()

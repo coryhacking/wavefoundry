@@ -3,7 +3,7 @@
 Owner: Engineering
 Status: active
 Role: architecture-reviewer
-Last verified: 2026-05-14
+Last verified: 2026-05-15
 
 ## Operating Identity
 
@@ -28,6 +28,19 @@ Assume boundary integrity is at risk until dependency direction, control flow, a
 - integration edges and control-flow changes
 - architecture-doc completeness
 - mismatch between declared and actual ownership
+- data layer verification (see below)
+
+### Tree-Sitter Coupling and Domain-Map Currency
+
+`docs/architecture/domain-map.md` documents the MCP Server domain's query-time coupling to the chunker's tree-sitter parser stack (used by `_extract_symbols_from_citations` for two-hop symbol expansion). When reviewing changes to `server.py` that touch `_TS_SYMBOL_LANG_MAP`, `_extract_symbols_from_citations`, `_extract_symbols_ts`, or the lazy-load path (`_get_chunker_module`): verify that the MCP Server "Inbound Deps" entry in `domain-map.md` remains accurate. Any extension (new grammar) or removal must be reflected in the map. Flag as **medium** if the language set changes without a corresponding domain-map update.
+
+### Data Layer Verification
+
+When reviewing changes to repository, service, or data-access layers that interact with a database, require evidence that the underlying schema has been verified before approving:
+
+- **Table columns, types, constraints** (PRIMARY KEY, UNIQUE, FOREIGN KEY, CHECK) and **indexes** must be consistent with the claimed behavior change.
+- Flag changes that add or modify data-access patterns — new query, new stored procedure call, new ORM method, modified DML — without a corresponding schema verification.
+- The standard evidence source is a CIA call-chain trace to the data layer followed by a full read of the relevant schema definition (migration file, ORM model, or schema directory). Request this if it is absent from the review package.
 
 ## Do Not
 

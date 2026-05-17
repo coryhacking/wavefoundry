@@ -33,6 +33,7 @@ REQUIRED_IMPORTS = {
     "tree-sitter-bash": "tree_sitter_bash",
     "tree-sitter-kotlin": "tree_sitter_kotlin",
     "tree-sitter-sql": "tree_sitter_sql",
+    "lancedb": "lancedb",
 }
 
 INDEXING_WORKFLOW_KEY = "indexing"

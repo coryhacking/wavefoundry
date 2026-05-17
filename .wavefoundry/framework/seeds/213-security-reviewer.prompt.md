@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-04
+Last verified: 2026-05-15
 
 ## Context
 
@@ -19,6 +19,15 @@ You are running **security-reviewer** on Wavefoundry. This lane checks that new 
 - File content read from the repository and returned to callers should be treated as untrusted. Verify it is not interpreted as code or commands (e.g., no `eval`, no `subprocess` with user-controlled strings).
 - Regex patterns applied to untrusted file content: verify symbols are passed through `re.escape()` before interpolation into a pattern string.
 - MCP tool argument strings used in shell commands: verify they are never passed via string interpolation; use argument lists.
+
+### Symbol extraction from repository content (two-hop retrieval path)
+
+`_extract_symbols_from_citations` in `server.py` reads symbol names directly from repository file content and passes them to `code_keyword_response`. This is a content-driven server behavior trigger — untrusted file content controls which secondary searches are executed. When reviewing any change to this path:
+
+- Verify extracted symbol names are **not** interpolated into shell commands or `subprocess` calls at any point in the keyword search path.
+- Verify `re.escape()` is applied if extracted symbols are passed to `re.compile()`, `re.search()`, or any regex operation. Crafted symbol names containing regex metacharacters could otherwise corrupt match patterns.
+- `MAX_SYMBOLS_EXTRACTED = 5` and `MAX_SECOND_HOP_CANDIDATES = 10` are explicit DoS controls — they bound the server work triggered by a single crafted file. Any relaxation of these constants requires security review: higher values increase the latency amplification a malicious repository file can cause.
+- `_SYMBOL_BLOCKLIST` is a secondary control that filters overly broad symbols before they reach keyword search. Weakening it (removing entries) widens the keyword search surface driven by untrusted content — treat removals as security-relevant changes requiring justification.
 
 ### Allowed-roots enforcement
 - MCP tools that expose file system access must enforce the project root as the allowed boundary. Confirm the root is established from a trusted source (the MCP server's startup path) and not overridable by a caller argument.

@@ -1,5 +1,6 @@
 """Tests for prune_framework.py."""
 
+import json
 import sys
 import tempfile
 import unittest
@@ -37,6 +38,12 @@ class PruneFrameworkTests(unittest.TestCase):
     def _new_manifest(self, *entries: str) -> None:
         (self.fw / "MANIFEST").write_text("\n".join(entries) + "\n", encoding="utf-8")
 
+    def _write_meta(self, payload: dict) -> Path:
+        meta_path = self.fw / "index" / "meta.json"
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        meta_path.write_text(json.dumps(payload), encoding="utf-8")
+        return meta_path
+
     # ------------------------------------------------------------------
 
     def test_file_removed_from_new_pack_is_deleted(self):
@@ -60,6 +67,28 @@ class PruneFrameworkTests(unittest.TestCase):
         prune_framework.prune(self.fw, old)
         self.assertTrue((self.fw / "index" / "local-index.json").exists())
 
+    def test_file_meta_entries_removed_from_meta_json(self):
+        self._write("scripts/keep_me.py")
+        self._write("scripts/old_tool.py")
+        self._write_meta(
+            {
+                "built_at": "2026-01-01T00:00:00Z",
+                "content": ["docs"],
+                "file_meta": {
+                    "scripts/keep_me.py": {"hash": "keep"},
+                    "scripts/old_tool.py": {"hash": "old"},
+                },
+            }
+        )
+        old = self._old_manifest("scripts/keep_me.py", "scripts/old_tool.py")
+        self._new_manifest("scripts/keep_me.py")
+
+        prune_framework.prune(self.fw, old)
+
+        meta = json.loads((self.fw / "index" / "meta.json").read_text(encoding="utf-8"))
+        self.assertIn("scripts/keep_me.py", meta["file_meta"])
+        self.assertNotIn("scripts/old_tool.py", meta["file_meta"])
+
     def test_empty_dir_removed_after_prune(self):
         self._write("scripts/tests/test_old.py")
         old = self._old_manifest("scripts/tests/test_old.py")
@@ -76,6 +105,28 @@ class PruneFrameworkTests(unittest.TestCase):
         self.assertFalse((self.fw / "scripts" / "tests" / "test_old.py").exists())
         self.assertTrue((self.fw / "scripts" / "tests" / "test_kept.py").exists())
         self.assertTrue((self.fw / "scripts" / "tests").is_dir())
+
+    def test_file_hashes_entries_removed_from_meta_json(self):
+        self._write("scripts/keep_me.py")
+        self._write("scripts/old_tool.py")
+        self._write_meta(
+            {
+                "built_at": "2026-01-01T00:00:00Z",
+                "content": ["docs"],
+                "file_hashes": {
+                    "scripts/keep_me.py": "keep",
+                    "scripts/old_tool.py": "old",
+                },
+            }
+        )
+        old = self._old_manifest("scripts/keep_me.py", "scripts/old_tool.py")
+        self._new_manifest("scripts/keep_me.py")
+
+        prune_framework.prune(self.fw, old)
+
+        meta = json.loads((self.fw / "index" / "meta.json").read_text(encoding="utf-8"))
+        self.assertIn("scripts/keep_me.py", meta["file_hashes"])
+        self.assertNotIn("scripts/old_tool.py", meta["file_hashes"])
 
     def test_dry_run_does_not_delete(self):
         self._write("scripts/old_tool.py")
@@ -116,12 +167,25 @@ class PruneFrameworkTests(unittest.TestCase):
         self.assertFalse((self.fw / "scripts" / "render_hooks.py").exists())
 
     def test_legacy_removes_tests_directory(self):
+        self._write_meta(
+            {
+                "built_at": "2026-01-01T00:00:00Z",
+                "content": ["docs"],
+                "file_meta": {
+                    "scripts/tests/test_foo.py": {"hash": "old"},
+                    "scripts/keep_me.py": {"hash": "keep"},
+                },
+            }
+        )
         tests_dir = self.fw / "scripts" / "tests"
         tests_dir.mkdir(parents=True)
         (tests_dir / "test_foo.py").write_text("x", encoding="utf-8")
         self._new_manifest("scripts/build_pack.py")
         prune_framework.prune(self.fw, None)
         self.assertFalse(tests_dir.exists())
+        meta = json.loads((self.fw / "index" / "meta.json").read_text(encoding="utf-8"))
+        self.assertNotIn("scripts/tests/test_foo.py", meta["file_meta"])
+        self.assertIn("scripts/keep_me.py", meta["file_meta"])
 
     def test_legacy_dry_run_does_not_delete(self):
         self._write("scripts/run_tests.py")

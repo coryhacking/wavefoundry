@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-12
+Last verified: 2026-05-15
 
 ## Runtime Topology
 
@@ -40,7 +40,7 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
               ├── wave_open_gate / wave_close_gate
               │       └── .wavefoundry/guard-overrides.json (read/write); error on double-open, advisory on double-close
               │       [wave_pause/wave_close create: auto-close all open gates + gates_forced_closed advisory; wave_close dry-run: advisory only, no write]
-              ├── code_list_files / code_read / code_keyword_search
+              ├── code_list_files / code_read / code_keyword
               │       └── repo files (read-only; respects gitignore/aiignore/hardcoded excludes)
               ├── code_definition / code_references
               │       └── Python AST definitions + tree-sitter-backed Java/C#/JS/TS navigation + structural/text fallback for other supported non-Python languages
@@ -99,7 +99,7 @@ dashboard_server.py
 | Search index drift or missing cache | Hook-driven indexing is not guaranteed in every agent environment, and query embedding must remain offline-safe | `docs_search` falls back to lexical search with structured diagnostics when the index is not ready or the semantic model is unavailable offline; per-query repo hash walks were removed to avoid O(repo) latency on every search; mutating MCP doc tools now request background incremental refresh for affected docs in non-hook environments; additional project index roots are explicit in `docs/workflow-config.json` `indexing.project_include_prefixes` rather than hidden repo-specific toggles |
 | Loopback dashboard port collisions | Multiple local Wave Framework repositories can run dashboards concurrently on one workstation | Dashboard host/port preferences live in `docs/workflow-config.json`; the server reuses host-local metadata when valid and scans a bounded fallback range when the preferred port is busy |
 | Lifecycle mutation drift between docs and files | Admitted change docs can drift between `docs/plans/` and wave folders when operators or tools bypass the normal lifecycle path | `wave_add_change`, `wave_remove_change`, and `wave_prepare` now relocate or repair placement and emit explicit diagnostics for duplicates or mismatched wave ownership |
-| MCP contract migration complete for initial surface | Discovery, `wave_map`, envelopes, consolidated creation, prefix checks, `docs_search` kind validation, per-process caches (wave/plan lists, prompt resolution, `wave_help` catalogue snapshot, index reload on mutation), `resolve_path_under_root`, server-side rejection of unexpected tool kwargs, MCP resources/templates, `wave_server_info`, and code navigation tools (`code_keyword_search`, `code_list_files`, `code_read`, `code_definition`, `code_references`) are all in place. Symbol navigation now uses a mixed strategy: Python AST definitions, tree-sitter-backed Java/C#/JS/TS navigation, structural regex definitions for several other non-Python languages, and cross-language text fallbacks; future LSP integration can deepen precision without changing the public tool API. | `docs/specs/mcp-tool-surface.md` is the governing contract for follow-on MCP work |
+| MCP contract migration complete for initial surface | Discovery, `wave_map`, envelopes, consolidated creation, prefix checks, `docs_search` kind validation, per-process caches (wave/plan lists, prompt resolution, `wave_help` catalogue snapshot, index reload on mutation), `resolve_path_under_root`, server-side rejection of unexpected tool kwargs, MCP resources/templates, `wave_server_info`, and code navigation tools (`code_keyword`, `code_list_files`, `code_read`, `code_definition`, `code_references`) are all in place. Symbol navigation now uses a mixed strategy: Python AST definitions, tree-sitter-backed Java/C#/JS/TS navigation, structural regex definitions for several other non-Python languages, and cross-language text fallbacks; future LSP integration can deepen precision without changing the public tool API. | `docs/specs/mcp-tool-surface.md` is the governing contract for follow-on MCP work |
 
 ## Verification Sources
 

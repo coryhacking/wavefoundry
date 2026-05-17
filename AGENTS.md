@@ -15,7 +15,7 @@ Before editing any repository code or framework seeds, read the **Stage Gate (re
 
 Wavefoundry is the repository for the Wave Framework and its local MCP server.
 
-It owns the canonical framework source and provides local tooling for framework-aware work across target repositories. The MCP tool surface covers semantic search, wave inspection, change creation, and framework operations (lint, garden, sync surfaces).
+It owns the canonical framework source and provides local tooling for framework-aware work across target repositories. The MCP tool surface covers semantic search, cited codebase Q&A, wave inspection, change creation, and framework operations (lint, garden, audit, index health/build, sync surfaces).
 
 Each target repository still owns its rendered local operating surface: `AGENTS.md`, `docs/prompts/`, `docs/agents/`, `docs/waves/`, `docs/plans/`, project specs, architecture docs, and workflow config.
 
@@ -150,7 +150,7 @@ python3 .wavefoundry/framework/scripts/setup_index.py
 
 This checks for the required runtime packages (`fastembed`, `numpy`, `mcp[cli]`) and builds the docs/seed index. If dependencies are missing, it prints an isolated tool-venv install command instead of modifying the system Python. Pass `--root <path>` to target a different repository. Semantic code embeddings are optional and slower; add `--include-code` only when needed. Code indexing defaults to source files only and skips tests/generated platform hooks; add `--include-tests` or `--include-generated` when those are useful. Wavefoundry framework internals under `.wavefoundry/framework/scripts/tests/` are never included in the semantic code index. The setup wrapper runs docs and code indexing in separate subprocesses to keep each pass isolated.
 
-The project-local index is stored at `.wavefoundry/index/` (gitignored). Packaged framework docs/seeds are indexed at `.wavefoundry/framework/index/` during `Package Wavefoundry`, then searched as a read-only framework layer. The project-local index is rebuilt incrementally — the post-edit hook fires `indexer.py` as a background process after each file edit.
+The project-local index is stored at `.wavefoundry/index/` (gitignored). Packaged framework docs/seeds are indexed at `.wavefoundry/framework/index/` during `Package Wavefoundry`, then searched as a read-only framework layer. The project-local index is refreshed incrementally — the post-edit hook fires `indexer.py` as a background process after each file edit. Use `wave_index_health()` to check whether a layer is ready, `wave_index_build_status(layer?)` to poll background refreshes, and `wave_index_build(content=..., mode=...)` when you need a deterministic update or rebuild.
 
 ### MCP / Wavefoundry server — enabling per host
 
@@ -177,9 +177,11 @@ The project-local index is stored at `.wavefoundry/index/` (gitignored). Package
 }
 ```
 
-**Available tools:** `wave_help`, `wave_server_info`, `wave_audit`, `wave_map`, `docs_search`, `code_search`, `code_ask`, `seed_get`, `wave_current`, `wave_list_waves`, `wave_list_plans`, `wave_get_change`, `wave_get_prompt`, `wave_get_handoff`, `wave_set_handoff`, `wave_open_gate`, `wave_close_gate`, `wave_create_wave`, `wave_add_change`, `wave_remove_change`, `wave_prepare`, `wave_pause`, `wave_review`, `wave_close`, `wave_new_feature`, `wave_new_bug`, `wave_new_enhancement`, `wave_new_refactor`, `wave_new_change`, `wave_new_documentation`, `wave_new_tech_debt`, `wave_new_task`, `wave_new_maintenance`, `wave_new_operations`, `wave_validate`, `wave_garden`, `wave_sync_surfaces`, `wave_index_health`, `wave_index_build`, `wave_dashboard_start`, `wave_dashboard_stop`, `wave_dashboard_restart`, `code_list_files`, `code_read`, `code_keyword_search`, `code_definition`, `code_references`, `code_dependencies`.
+**Available tools:** `wave_help`, `wave_server_info`, `wave_audit`, `wave_map`, `docs_search`, `code_search`, `code_ask`, `seed_get`, `wave_current`, `wave_list_waves`, `wave_list_plans`, `wave_get_change`, `wave_get_prompt`, `wave_get_handoff`, `wave_set_handoff`, `wave_open_gate`, `wave_close_gate`, `wave_create_wave`, `wave_add_change`, `wave_remove_change`, `wave_prepare`, `wave_pause`, `wave_review`, `wave_close`, `wave_new_feature`, `wave_new_bug`, `wave_new_enhancement`, `wave_new_refactor`, `wave_new_change`, `wave_new_documentation`, `wave_new_tech_debt`, `wave_new_task`, `wave_new_maintenance`, `wave_new_operations`, `wave_validate`, `wave_garden`, `wave_sync_surfaces`, `wave_index_health`, `wave_index_build_status`, `wave_index_build`, `wave_dashboard_start`, `wave_dashboard_stop`, `wave_dashboard_restart`, `code_list_files`, `code_read`, `code_keyword`, `code_constants`, `code_pattern`, `code_outline`, `code_definition`, `code_references`, `code_dependencies`.
 
-**Codebase Q&A shortcut:** `code_ask(question)` — ask a cross-cutting natural-language question about the codebase; returns `{answer, citations, reranked, confidence, gaps, question_type, index_freshness}`. Synthesize from `citations` directly — the `answer` field is a navigation pointer, not a synthesized answer. `reranked: true` means cross-encoder ranking ran (trust the order); `reranked: false` means RRF fallback (index/model unavailable, slightly lower quality). Use `code_search`/`docs_search` instead when you want raw results to browse. See `docs/agents/code-insight-agent.md` for retrieval loop, citation format, and uncertainty protocol.
+**Codebase Q&A shortcut:** `code_ask(question)` — ask a cross-cutting natural-language question about the codebase; returns `{answer, citations, reranked, confidence, gaps, question_type, index_freshness, partition_applied, demotion_count, second_hop_symbols, total_ms, vector_ms, rerank_ms}`. Each citation may also include `final_rank`, `demoted`, and `partition_reason`. Synthesize from `citations` directly — the `answer` field is a navigation pointer, not a synthesized answer. `score` is the pre-partition reranker score; `final_rank` is the post-partition output order. `reranked: true` means cross-encoder ranking ran (trust the order unless a citation is explicitly `demoted: true`); `reranked: false` means RRF fallback (index/model unavailable, slightly lower quality). Use `code_search`/`docs_search` instead when you want raw results to browse. See `docs/agents/code-insight-agent.md` for retrieval loop, citation format, and uncertainty protocol.
+
+**Retrieval signal notes for `code_ask`:** `confidence` is a retrieval signal (High = 2+ citations, Medium = 1, Low = 0) — not an answer-quality guarantee. Evaluate citations by path and content layer, not score alone. For explanatory questions, citations from scaffolding-layer paths (constructs/, stacks/, routes/, config/, modules/) confirm wiring only — always follow up with reads of the actual handler or service layer before synthesizing. When `question_type == "explanatory"` and `reranked: true`, the tool automatically performs two-hop symbol expansion: symbol names are extracted from top citations and a second keyword retrieval pass fetches their definitions. `second_hop_symbols` (when present) lists the symbols that were chased — do not re-chase them manually; start the next retrieval pass from the layer they represent. If `partition_applied` is true, the visible citation order intentionally differs from score order; trust `final_rank` over `score` when deciding which citation is primary.
 
 For change-plan creation, use the **`wave_new_<kind>` tools** — one call per kind, no `kind` argument needed: `wave_new_feature`, `wave_new_bug`, `wave_new_enhancement`, `wave_new_refactor`, `wave_new_change`, `wave_new_documentation`, `wave_new_tech_debt`, `wave_new_task`, `wave_new_maintenance`, `wave_new_operations`. All MCP creation tools wrap lifecycle ID generation and scaffold `docs/plans/<change-id>.md` in one call. Use `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>` only as a CLI fallback when MCP is unavailable, or for wave-folder IDs until lifecycle mutation tools exist.
 
@@ -217,31 +219,38 @@ Do not guess across similarly named Codex entries. The launcher is the source of
 
 The MCP server exposes three complementary code-navigation layers — use the right layer for the task:
 
+> **Naming rule:** a tool carries the `_search` suffix **if and only if it uses the semantic index** (vector embeddings + reranker). Tools that operate by filesystem scan, regex, AST, or exact-key lookup do not carry `_search`. Use this to infer retrieval strategy from the tool name alone.
 
 | Layer                 | Tools                                                 | When to use                                                                                                                                                                            |
 | --------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Semantic search**   | `docs_search`, `code_search`                          | Find conceptually related content when you don't know the exact text; great for orientation and discovery                                                                              |
-| **Exact navigation**  | `code_keyword_search`, `code_read`, `code_list_files` | Deterministic lookup when you know the exact text, function name, or file; use for code review, implementation, debugging                                                              |
-| **Symbol navigation** | `code_definition`, `code_references`                  | Jump-to-definition and find-references across Python plus supported non-Python languages; Python uses AST, Java/C#/JS/TS use tree-sitter-backed navigation, broader language support uses structural/text fallback |
+| **Exact navigation**  | `code_keyword`, `code_constants`, `code_read`, `code_list_files` | Deterministic lookup when you know the exact text, function name, constant name, or file; use for code review, implementation, debugging                                        |
+| **Symbol navigation** | `code_definition`, `code_references`                  | Jump-to-definition and find-references across Python plus supported non-Python languages; Python uses AST, JS/TS/Java/C#/Go/Rust/C/C++/Kotlin/Bash/SQL use tree-sitter-backed navigation, broader language support uses structural/text fallback |
 
 
 **Exact navigation tools:**
 
 - `code_list_files(glob?)` — list all repo-relative file paths; respects `.gitignore`/`.aiignore` and hardcoded excludes
 - `code_read(path, start_line?, end_line?)` — read a file with line-numbered output; rejects absolute and traversal paths
-- `code_keyword_search(query, glob?)` — exact substring search returning path/line/snippet; use `glob` to scope to a subtree or extension
+- `code_keyword(query?, glob?, queries?)` — exact substring search; single `query` or batch `queries` list; batch mode merges results with `matched_query` tagging; `glob` applies across all queries
+- `code_constants(symbols, glob?)` — batch constant value lookup; returns name/value/file/line/kind for each symbol; supports scalar and multiline values (frozenset, list, dict); not-found symbols included with null value
+- `code_pattern(pattern, glob?, max_results?, ignore_case?)` — Python regex search across repository files; invalid patterns return structured error; files over 1 MB skipped; results include `truncated`/`total_matches_found`
+- `code_outline(path)` — structural symbol map of a file; tiered parser (Python AST → tree-sitter → regex); returns functions, classes, methods, constants with line ranges and docstrings
 
 **Symbol navigation tools (milestone 2):**
 
-- `code_definition(symbol)` — finds Python definitions via AST, Java/C#/JS/TS definitions via tree-sitter-backed navigation when available, and other supported non-Python definitions via structural fallback; falls back to broad keyword matches when no structural definition is found
-- `code_references(symbol)` — finds Python references plus tree-sitter-backed Java/C#/JS/TS references, then falls back to language-aware text matching and broad keyword matches when needed
+- `code_definition(symbol)` — finds Python definitions via AST, JS/TS/Java/C#/Go/Rust/C/C++/Kotlin/Bash/SQL definitions via tree-sitter-backed navigation when available, and other supported non-Python definitions via structural fallback; falls back to broad keyword matches when no structural definition is found
+- `code_references(symbol)` — finds Python references plus tree-sitter-backed JS/TS/Java/C#/Go/Rust/C/C++/Kotlin/Bash/SQL references, then falls back to language-aware text matching and broad keyword matches when needed
 
 **Quick chooser:**
 
 - Use `code_search` when you know the behavior or concept but not the exact symbol or file.
 - Use `code_definition` when you know the symbol and want its defining declaration.
 - Use `code_references` when you know the symbol and want call sites or usages.
-- Use `code_keyword_search` when you need exact-token or exact-string matches.
+- Use `code_keyword` when you need exact-token or exact-string matches; use `queries=[...]` for multiple patterns in one call.
+- Use `code_constants` when you need the current value of one or more named constants without parsing raw grep output.
+- Use `code_pattern` when you need regex matching (non-literal patterns like `def .*handler`).
+- Use `code_outline` when you need the structural shape of a file before deciding what to read.
 - Use `code_read` after any of the above once you know which file to inspect directly.
 
 ### MCP Resources and Resource Templates

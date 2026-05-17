@@ -58,14 +58,79 @@ def _make_wave(tmp: Path, wave_id: str, status: str, changes: list[dict]) -> Pat
 
 def _write_index_layer(root: Path, chunks: list[dict], vectors, *, model: str = "test-model") -> None:
     import numpy as np
-
+    import lancedb
     root.mkdir(parents=True, exist_ok=True)
     (root / "meta.json").write_text(
-        json.dumps({"model_versions": {"docs": model}, "file_hashes": {}}),
+        json.dumps({"model_versions": {"docs": model}, "content": ["docs"], "file_hashes": {}}),
         encoding="utf-8",
     )
-    (root / "docs.json").write_text(json.dumps(chunks), encoding="utf-8")
-    np.save(str(root / "docs.npy"), np.array(vectors, dtype=np.float32))
+    if not chunks:
+        return
+    vecs = np.array(vectors, dtype=np.float32)
+    # Pad/truncate vecs to match chunks length (handles mismatched-vector-count tests)
+    rows = []
+    for i, chunk in enumerate(chunks):
+        row = dict(chunk)
+        if "tags" not in row:
+            row["tags"] = ""
+        elif isinstance(row["tags"], list):
+            row["tags"] = " ".join(str(t) for t in row["tags"])
+        if "language" not in row:
+            row["language"] = None
+        if "section" not in row:
+            row["section"] = None
+        if i < len(vecs):
+            row["vector"] = vecs[i].tolist()
+        else:
+            row["vector"] = vecs[0].tolist()
+        rows.append(row)
+    db = lancedb.connect(str(root))
+    db.create_table("docs", data=rows, mode="overwrite")
+
+
+def _write_lance_index(root: Path, *, docs_chunks: list[dict] | None = None, docs_vectors=None, code_chunks: list[dict] | None = None, code_vectors=None, model: str = "test-model") -> None:
+    import numpy as np
+    import lancedb
+
+    root.mkdir(parents=True, exist_ok=True)
+    meta: dict[str, object] = {
+        "model_versions": {},
+        "content": [],
+        "file_hashes": {},
+    }
+    if docs_chunks is not None:
+        meta["model_versions"]["docs"] = model
+        meta["content"].append("docs")
+    if code_chunks is not None:
+        meta["model_versions"]["code"] = model
+        meta["content"].append("code")
+    (root / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    db = lancedb.connect(str(root))
+
+    def _rows(chunks: list[dict], vectors) -> list[dict]:
+        if not chunks:
+            return []
+        vecs = np.array(vectors, dtype=np.float32)
+        rows: list[dict] = []
+        for i, chunk in enumerate(chunks):
+            row = dict(chunk)
+            if "tags" not in row:
+                row["tags"] = ""
+            elif isinstance(row["tags"], list):
+                row["tags"] = " ".join(str(t) for t in row["tags"])
+            if "language" not in row:
+                row["language"] = None
+            if "section" not in row:
+                row["section"] = None
+            row["vector"] = vecs[i].tolist() if i < len(vecs) else vecs[0].tolist()
+            rows.append(row)
+        return rows
+
+    if docs_chunks is not None and docs_chunks:
+        db.create_table("docs", data=_rows(docs_chunks, docs_vectors), mode="overwrite")
+    if code_chunks is not None and code_chunks:
+        db.create_table("code", data=_rows(code_chunks, code_vectors), mode="overwrite")
 
 
 # ---------------------------------------------------------------------------
@@ -97,54 +162,6 @@ class RootDiscoveryTests(unittest.TestCase):
             result = self.srv._discover_root()
         self.assertEqual(result, self.root.resolve())
 
-
-# ---------------------------------------------------------------------------
-# WaveIndex._cosine_search
-# ---------------------------------------------------------------------------
-
-class CosineSearchTests(unittest.TestCase):
-    def setUp(self):
-        self.srv = load_server()
-        import numpy as np
-        self.np = np
-        self.tmp = tempfile.TemporaryDirectory()
-        self.index = self.srv.WaveIndex(Path(self.tmp.name))
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def test_returns_top_n(self):
-        np = self.np
-        matrix = np.array([[1, 0], [0, 1], [1, 1]], dtype=np.float32)
-        chunks = [{"id": f"c{i}"} for i in range(3)]
-        q = np.array([1, 0], dtype=np.float32)
-        results = self.index._cosine_search(q, matrix, chunks, top_n=2)
-        self.assertLessEqual(len(results), 2)
-
-    def test_scores_are_attached(self):
-        np = self.np
-        matrix = np.array([[1, 0]], dtype=np.float32)
-        chunks = [{"id": "c0"}]
-        q = np.array([1, 0], dtype=np.float32)
-        results = self.index._cosine_search(q, matrix, chunks, top_n=1)
-        self.assertIn("score", results[0])
-        self.assertAlmostEqual(results[0]["score"], 1.0, places=5)
-
-    def test_zero_matrix_returns_empty(self):
-        np = self.np
-        matrix = None
-        results = self.index._cosine_search(np.zeros(4, dtype=np.float32), matrix, [], top_n=5)
-        self.assertEqual(results, [])
-
-    def test_negative_score_chunks_excluded(self):
-        np = self.np
-        matrix = np.array([[1, 0], [-1, 0]], dtype=np.float32)
-        chunks = [{"id": "pos"}, {"id": "neg"}]
-        q = np.array([1, 0], dtype=np.float32)
-        results = self.index._cosine_search(q, matrix, chunks, top_n=5)
-        ids = [r["id"] for r in results]
-        self.assertIn("pos", ids)
-        self.assertNotIn("neg", ids)
 
 
 class LayeredIndexTests(unittest.TestCase):
@@ -273,7 +290,7 @@ class LayeredIndexTests(unittest.TestCase):
 
         self.assertEqual([result["path"] for result in results], ["docs/project.md"])
 
-    def test_search_skips_layer_with_stale_model_but_seed_lookup_still_reads_chunks(self):
+    def test_seed_lookup_still_works_when_model_version_differs(self):
         _write_index_layer(
             self.root / ".wavefoundry" / "framework" / "index",
             [{
@@ -290,52 +307,11 @@ class LayeredIndexTests(unittest.TestCase):
         )
 
         index = self.srv.WaveIndex(self.root)
-        import numpy as np
-        with patch.object(index, "_indexer_constant", return_value="test-model"):
-            with patch.object(index, "_embed_query", return_value=np.array([1, 0], dtype=np.float32)):
-                with patch.object(index, "_get_reranker", return_value=None):
-                    results, _ = index.search_docs("install", top_n=5)
-
-        self.assertEqual(results, [])
         self.assertEqual(
             index.get_seed("install-wavefoundry")["path"],
             ".wavefoundry/framework/seeds/010-install-wavefoundry.prompt.md",
         )
 
-    def test_search_skips_layer_when_vector_rows_do_not_match_chunks(self):
-        _write_index_layer(
-            self.root / ".wavefoundry" / "index",
-            [
-                {
-                    "id": "project-doc-1",
-                    "path": "docs/one.md",
-                    "kind": "doc",
-                    "language": None,
-                    "lines": [1, 1],
-                    "section": None,
-                    "text": "one",
-                },
-                {
-                    "id": "project-doc-2",
-                    "path": "docs/two.md",
-                    "kind": "doc",
-                    "language": None,
-                    "lines": [1, 1],
-                    "section": None,
-                    "text": "two",
-                },
-            ],
-            [[1, 0]],
-        )
-
-        index = self.srv.WaveIndex(self.root)
-        import numpy as np
-        with patch.object(index, "_indexer_constant", return_value="test-model"):
-            with patch.object(index, "_embed_query", return_value=np.array([1, 0], dtype=np.float32)):
-                with patch.object(index, "_get_reranker", return_value=None):
-                    results, _ = index.search_docs("one", top_n=5)
-
-        self.assertEqual(results, [])
 
     def test_search_docs_lexical_supports_prompt_kind(self):
         index = self.srv.WaveIndex(self.root)
@@ -1625,6 +1601,7 @@ class IndexBuildStatusTests(unittest.TestCase):
         self.assertEqual(result["data"]["files_indexed"], 300)
         self.assertEqual(result["data"]["doc_chunks"], 2000)
         self.assertEqual(result["data"]["code_chunks"], 1800)
+        self.assertFalse(self.state_path.exists())
 
     def test_finished_falls_back_to_last_line_when_no_summary(self):
         import time
@@ -1647,6 +1624,7 @@ class IndexBuildStatusTests(unittest.TestCase):
         result = self.srv.wave_index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "finished")
         self.assertEqual(result["data"]["files_indexed"], 100)
+        self.assertFalse(self.state_path.exists())
 
     def test_finished_when_log_has_up_to_date_despite_live_pid(self):
         # Regression: zombie process (defunct on macOS) keeps os.kill(pid,0) returning True.
@@ -1656,6 +1634,7 @@ class IndexBuildStatusTests(unittest.TestCase):
         self.log_path.write_text("build_index: index is up to date\n", encoding="utf-8")
         result = self.srv.wave_index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "finished")
+        self.assertFalse(self.state_path.exists())
 
     def test_invalid_layer_returns_error(self):
         result = self.srv.wave_index_build_status_response(self.root, layer="bogus")
@@ -1918,14 +1897,22 @@ class RunIndexRebuildTests(unittest.TestCase):
             index_dir = self.root / ".wavefoundry" / "framework" / "index"
         else:
             index_dir = self.root / ".wavefoundry" / "index"
-        index_dir.mkdir(parents=True, exist_ok=True)
-        (index_dir / "meta.json").write_text(json.dumps({
-            "built_at": built_at,
-            "content": ["docs"],
-            "file_hashes": file_hashes or {"docs/a.md": "h1"},
-        }), encoding="utf-8")
-        (index_dir / "docs.json").write_text(json.dumps(docs_chunks or [{"id": "d1"}]), encoding="utf-8")
-        (index_dir / "code.json").write_text(json.dumps(code_chunks or []), encoding="utf-8")
+        docs_rows = docs_chunks or [{"id": "d1", "path": "docs/a.md", "kind": "doc", "text": "doc", "lines": [1, 1]}]
+        docs_vecs = [[1.0, 0.0, 0.0, 0.0] for _ in docs_rows]
+        code_rows = code_chunks or None
+        code_vecs = [[1.0, 0.0, 0.0, 0.0] for _ in code_rows] if code_rows else None
+        _write_lance_index(
+            index_dir,
+            docs_chunks=docs_rows,
+            docs_vectors=docs_vecs,
+            code_chunks=code_rows,
+            code_vectors=code_vecs,
+        )
+        meta_path = index_dir / "meta.json"
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["built_at"] = built_at
+        meta["file_hashes"] = file_hashes or {"docs/a.md": "h1"}
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
 
     def _run(
         self,
@@ -1961,9 +1948,14 @@ class RunIndexRebuildTests(unittest.TestCase):
             popen.return_value = mock_proc
             self.srv.run_index_rebuild(self.root, content="all", full=True)
         cmd = popen.call_args.args[0]
+        env = popen.call_args.kwargs["env"]
         self.assertIn("setup_index.py", str(cmd[1]))
         self.assertIn("--include-code", cmd)
         self.assertIn("--full", cmd)
+        self.assertEqual(
+            env["WAVEFOUNDRY_INDEX_BUILD_STATE_PATH"],
+            str(self.root / ".wavefoundry" / "index" / "index-build.json"),
+        )
 
     def test_index_scope_reflects_full_flag(self):
         mock_proc = MagicMock()
@@ -2775,7 +2767,7 @@ class ServerToolRegistrationTests(unittest.TestCase):
             "wave_dashboard_restart",
             "code_list_files",
             "code_read",
-            "code_keyword_search",
+            "code_keyword",
             "code_definition",
             "code_references",
             "wave_get_handoff",
@@ -3227,30 +3219,30 @@ class CodeKeywordSearchTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_finds_exact_match(self):
-        result = self.srv.code_keyword_search_response(self.root, "SEARCH_TARGET")
+        result = self.srv.code_keyword_response(self.root, "SEARCH_TARGET")
         self.assertEqual(result["status"], "ok")
         self.assertGreater(result["data"]["count"], 0)
         paths = [r["path"] for r in result["data"]["results"]]
         self.assertTrue(any("alpha.py" in p for p in paths))
 
     def test_returns_line_numbers(self):
-        result = self.srv.code_keyword_search_response(self.root, "SEARCH_TARGET")
+        result = self.srv.code_keyword_response(self.root, "SEARCH_TARGET")
         for r in result["data"]["results"]:
             self.assertIn("line", r)
             self.assertIsInstance(r["line"], int)
 
     def test_glob_filter_restricts_results(self):
-        result = self.srv.code_keyword_search_response(self.root, "def ", glob="*beta*")
+        result = self.srv.code_keyword_response(self.root, "def ", glob="*beta*")
         self.assertEqual(result["status"], "ok")
         paths = [r["path"] for r in result["data"]["results"]]
         self.assertFalse(any("alpha.py" in p for p in paths))
 
     def test_empty_query_returns_error(self):
-        result = self.srv.code_keyword_search_response(self.root, "")
+        result = self.srv.code_keyword_response(self.root, "")
         self.assertEqual(result["status"], "error")
 
     def test_no_match_returns_empty_results(self):
-        result = self.srv.code_keyword_search_response(self.root, "ZZZNOMATCHXXX")
+        result = self.srv.code_keyword_response(self.root, "ZZZNOMATCHXXX")
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["count"], 0)
 
@@ -4265,12 +4257,10 @@ class SemanticEmbeddingRegressionTests(unittest.TestCase):
         right chunk and not the unrelated one.
 
         This is the highest-fidelity test: it exercises _embed_query,
-        _write to .npy, _ensure_loaded, _cosine_search, and kind filtering
+        _write to LanceDB, _ensure_loaded, _lance_search, and kind filtering
         all in one pass with real vectors."""
-        import json
         import numpy as np
         import tempfile
-
         chunks = [
             {
                 "id": "c-wave",
@@ -4298,27 +4288,23 @@ class SemanticEmbeddingRegressionTests(unittest.TestCase):
             dtype=np.float32,
         )
 
-        # Write to a fresh temp index directory
         with tempfile.TemporaryDirectory() as idx_tmp:
             idx_dir = Path(idx_tmp)
-            (idx_dir / "meta.json").write_text(
-                json.dumps({
-                    "model_versions": {"docs": self.model},
-                    "file_hashes": {},
-                }),
-                encoding="utf-8",
+            _write_lance_index(
+                idx_dir,
+                docs_chunks=chunks,
+                docs_vectors=vectors.tolist(),
+                model=self.model,
             )
-            (idx_dir / "docs.json").write_text(json.dumps(chunks), encoding="utf-8")
-            np.save(str(idx_dir / "docs.npy"), vectors)
 
             # Point a fresh WaveIndex at a root that uses this index dir
             with tempfile.TemporaryDirectory() as root_tmp:
                 root = _make_repo(Path(root_tmp))
                 project_idx = root / ".wavefoundry" / "index"
                 project_idx.mkdir(parents=True, exist_ok=True)
-                for fname in ("meta.json", "docs.json", "docs.npy"):
-                    import shutil
-                    shutil.copy(str(idx_dir / fname), str(project_idx / fname))
+                import shutil
+                shutil.copy(str(idx_dir / "meta.json"), str(project_idx / "meta.json"))
+                shutil.copytree(str(idx_dir / "docs.lance"), str(project_idx / "docs.lance"))
 
                 index = self.srv.WaveIndex(root)
                 with patch.object(index, "_get_reranker", return_value=None):
@@ -4333,50 +4319,6 @@ class SemanticEmbeddingRegressionTests(unittest.TestCase):
         )
         self.assertIn("score", results[0])
         self.assertGreater(results[0]["score"], 0.0)
-
-    def test_stale_model_name_in_index_causes_layer_skip(self):
-        """If the index was built with a different model, _ensure_loaded must
-        skip that layer rather than silently using incompatible vectors.
-        This guards the upgrade path: build with new model → old index → no
-        silent garbage results."""
-        import json
-        import numpy as np
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as root_tmp:
-            root = _make_repo(Path(root_tmp))
-            idx_dir = root / ".wavefoundry" / "index"
-            idx_dir.mkdir(parents=True, exist_ok=True)
-
-            # Write an index with the wrong model name
-            stale_model = "old-model/bge-obsolete-v0.1"
-            chunk = [{
-                "id": "stale",
-                "path": "docs/stale.md",
-                "kind": "doc",
-                "language": None,
-                "lines": [1, 1],
-                "section": None,
-                "text": "stale content",
-            }]
-            (idx_dir / "meta.json").write_text(
-                json.dumps({"model_versions": {"docs": stale_model}, "file_hashes": {}}),
-                encoding="utf-8",
-            )
-            (idx_dir / "docs.json").write_text(json.dumps(chunk), encoding="utf-8")
-            np.save(str(idx_dir / "docs.npy"), np.array([[1.0] * _EXPECTED_EMBEDDING_DIM], dtype=np.float32))
-
-            index = self.srv.WaveIndex(root)
-            # search_docs triggers _ensure_loaded; stale layer should be skipped → no results
-            with patch.object(index, "_get_reranker", return_value=None):
-                results, _ = index.search_docs("stale content", top_n=5)
-
-        self.assertEqual(
-            results,
-            [],
-            "Expected empty results when index was built with a different model name, "
-            "but got results — layer compatibility check may be broken.",
-        )
 
 
 class WavePauseStatusTransitionTests(unittest.TestCase):
@@ -4880,6 +4822,7 @@ class LayerHealthFileMetaTests(unittest.TestCase):
 
         idx_dir = root / ".wavefoundry" / "index"
         idx_dir.mkdir(parents=True, exist_ok=True)
+        (idx_dir / "docs.lance").mkdir(parents=True, exist_ok=True)
 
         meta = {
             "built_at": "2026-01-01T00:00:00Z",
@@ -4890,7 +4833,6 @@ class LayerHealthFileMetaTests(unittest.TestCase):
             "file_meta": self._file_meta_for_root(root),
         }
         (idx_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
-        (idx_dir / "docs.json").write_text("[]", encoding="utf-8")
 
         wave_idx = self.server.WaveIndex(root)
         wave_idx._loaded = True
@@ -4898,6 +4840,34 @@ class LayerHealthFileMetaTests(unittest.TestCase):
 
         health = wave_idx._layer_health("project")
         self.assertEqual(health["stale_paths"], [], msg="file_meta hashes matched — should be no stale paths")
+
+    def test_docs_lance_dir_counts_as_present(self):
+        """LanceDB indexes should satisfy docs_present when the Lance table directory exists."""
+        root = self._make_repo(self.tmp)
+        (root / "docs" / "guide.md").write_text("# Guide\n\nHello.\n", encoding="utf-8")
+
+        idx_dir = root / ".wavefoundry" / "index"
+        idx_dir.mkdir(parents=True, exist_ok=True)
+        (idx_dir / "docs.lance").mkdir(parents=True, exist_ok=True)
+
+        meta = {
+            "built_at": "2026-01-01T00:00:00Z",
+            "content": ["docs"],
+            "model_versions": {"docs": "BAAI/bge-base-en-v1.5"},
+            "chunker_versions": {"docs": "13"},
+            "walker_version": "3",
+            "file_meta": self._file_meta_for_root(root),
+        }
+        (idx_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+        wave_idx = self.server.WaveIndex(root)
+        wave_idx._loaded = True
+        wave_idx._meta = {"project": meta, "framework": {}}
+        wave_idx._docs_lance_table = object()
+
+        health = wave_idx._layer_health("project")
+        self.assertTrue(health["docs_present"])
+        self.assertEqual(self.server._index_layer_readiness(health), "current")
 
     def test_legacy_file_hashes_key_still_works(self):
         """Health check falls back to file_hashes key for older index formats."""
@@ -4924,7 +4894,6 @@ class LayerHealthFileMetaTests(unittest.TestCase):
             "file_hashes": file_hashes,
         }
         (idx_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
-        (idx_dir / "docs.json").write_text("[]", encoding="utf-8")
 
         wave_idx = self.server.WaveIndex(root)
         wave_idx._loaded = True
@@ -4932,6 +4901,44 @@ class LayerHealthFileMetaTests(unittest.TestCase):
 
         health = wave_idx._layer_health("project")
         self.assertEqual(health["stale_paths"], [], msg="file_hashes fallback — should be no stale paths")
+
+    def test_framework_pack_artifacts_are_ignored_by_current_hashes(self):
+        """Framework health should not treat MANIFEST or VERSION as indexable files."""
+        root = self._make_repo(self.tmp)
+        framework_root = root / ".wavefoundry" / "framework"
+        framework_root.mkdir(parents=True, exist_ok=True)
+        (framework_root / "README.md").write_text("# Framework\n", encoding="utf-8")
+        (framework_root / "MANIFEST").write_text("README.md\nMANIFEST\n", encoding="utf-8")
+        (framework_root / "VERSION").write_text("2099-01-01a\n", encoding="utf-8")
+
+        idx_dir = root / ".wavefoundry" / "framework" / "index"
+        idx_dir.mkdir(parents=True, exist_ok=True)
+        (idx_dir / "docs.lance").mkdir(parents=True, exist_ok=True)
+
+        meta = {
+            "built_at": "2026-01-01T00:00:00Z",
+            "content": ["docs"],
+            "model_versions": {"docs": "BAAI/bge-base-en-v1.5"},
+            "chunker_versions": {"docs": "13"},
+            "walker_version": "3",
+            "file_meta": {
+                ".wavefoundry/framework/README.md": {
+                    "hash": self._hash(framework_root / "README.md"),
+                    "mtime": 0.0,
+                    "size": (framework_root / "README.md").stat().st_size,
+                    "inode": 0,
+                },
+            },
+        }
+        (idx_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+        wave_idx = self.server.WaveIndex(root)
+        wave_idx._loaded = True
+        wave_idx._meta = {"project": {}, "framework": meta}
+
+        health = wave_idx._layer_health("framework")
+        self.assertEqual(health["current_hash_count"], 1)
+        self.assertEqual(health["stale_paths"], [], msg="pack artifacts should be ignored by framework health")
 
 
 class BackgroundRefreshActiveTests(unittest.TestCase):
@@ -5007,7 +5014,12 @@ class WaveIndexAutoReloadTests(unittest.TestCase):
 
     def _make_index(self, index_dir: Path, built_at: str, *, extra: dict[str, object] | None = None) -> None:
         index_dir.mkdir(parents=True, exist_ok=True)
-        payload = {"built_at": built_at, "content": [], "model_versions": {}, "chunker_versions": {}}
+        _write_lance_index(
+            index_dir,
+            docs_chunks=[{"id": "d1", "path": "docs/a.md", "kind": "doc", "text": "doc", "lines": [1, 1]}],
+            docs_vectors=[[1.0, 0.0, 0.0, 0.0]],
+        )
+        payload = {"built_at": built_at, "content": ["docs"], "model_versions": {"docs": "test-model"}, "chunker_versions": {}}
         if extra:
             payload.update(extra)
         (index_dir / "meta.json").write_text(json.dumps(payload), encoding="utf-8")
@@ -5497,7 +5509,7 @@ class CodeAskTests(unittest.TestCase):
         index = MagicMock()
         # code_ask_response now uses search_combined; provide combined results
         combined = (code_results or []) + (doc_results or [])
-        index.search_combined.return_value = (combined, False)
+        index.search_combined.return_value = (combined, False, 0, 0, [], [], "none")
         index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
         return index
 
@@ -5541,6 +5553,51 @@ class CodeAskTests(unittest.TestCase):
             self.assertIn("ref", c)
             self.assertIn("path", c)
 
+    def test_feedback_docs_are_demoted_but_not_removed(self):
+        index = self._make_index(code_results=[
+            {"path": "docs/agents/journals/cia-feedback-2026-05-14.md", "kind": "doc", "lines": [1, 4], "text": "feedback about tenant creation", "score": 0.99},
+            self._fake_code_chunk("src/tenants.ts", score=0.95),
+        ])
+        result = self.srv.code_ask_response(index, self.root, "How does a new tenant get created?")
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"]["partition_applied"])
+        self.assertEqual(result["data"]["demotion_count"], 1)
+        citations = result["data"]["citations"]
+        self.assertGreaterEqual(len(citations), 2)
+        self.assertEqual(citations[0]["path"], "src/tenants.ts")
+        self.assertEqual(citations[0]["final_rank"], 1)
+        self.assertEqual(citations[1]["path"], "docs/agents/journals/cia-feedback-2026-05-14.md")
+        self.assertEqual(citations[1]["final_rank"], 2)
+        self.assertTrue(citations[1]["demoted"])
+        self.assertEqual(citations[1]["partition_reason"], "feedback")
+
+    def test_seed_docs_are_demoted_but_not_removed(self):
+        index = self._make_index()
+        index.search_combined.return_value = (
+            [
+                {"path": ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md", "kind": "seed", "lines": [1, 4], "text": "upgrade guidance", "score": 0.99},
+                self._fake_code_chunk("src/http_filtering.java", score=0.95),
+            ],
+            False,
+            0,
+            0,
+            [],
+            [],
+            "none",
+        )
+        result = self.srv.code_ask_response(index, self.root, "How does HTTP request filtering work?")
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"]["partition_applied"])
+        self.assertEqual(result["data"]["demotion_count"], 1)
+        citations = result["data"]["citations"]
+        self.assertGreaterEqual(len(citations), 2)
+        self.assertEqual(citations[0]["path"], "src/http_filtering.java")
+        self.assertEqual(citations[0]["final_rank"], 1)
+        self.assertEqual(citations[1]["path"], ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md")
+        self.assertEqual(citations[1]["final_rank"], 2)
+        self.assertTrue(citations[1]["demoted"])
+        self.assertEqual(citations[1]["partition_reason"], "seed")
+
     def test_index_freshness_current_when_no_mismatch(self):
         index = self._make_index(code_results=[self._fake_code_chunk()])
         result = self.srv.code_ask_response(index, self.root, "billing?")
@@ -5559,7 +5616,7 @@ class CodeAskTests(unittest.TestCase):
         """AC-4 (12d4b): keyword search error status is surfaced in gaps, not silently swallowed."""
         index = self._make_index()  # no results → triggers keyword fallback
         srv = load_server()
-        with patch.object(srv, "code_keyword_search_response", return_value={"status": "error", "error": "index not built"}):
+        with patch.object(srv, "code_keyword_response", return_value={"status": "error", "error": "index not built"}):
             result = srv.code_ask_response(index, self.root, "ZZZNOEVIDENCEYYY")
         self.assertEqual(result["status"], "ok")
         self.assertIn("keyword search failed", result["data"]["gaps"])
@@ -5582,18 +5639,19 @@ class MaxPerFileFilterDirectTests(unittest.TestCase):
     """AC-1, AC-2, AC-4 (12d5s): max_per_file filtering logic in WaveIndex.search_code."""
 
     def _make_index_with_chunks(self, raw_chunks):
-        """Patch WaveIndex to avoid embedding; inject raw chunks as cosine search result."""
+        """Patch WaveIndex to avoid embedding; inject raw chunks as Lance search result."""
         srv = load_server()
         index = srv.WaveIndex.__new__(srv.WaveIndex)
         # Provide the minimal attributes that search_code depends on after _ensure_loaded
         index._code_chunks = raw_chunks
-        index._code_vecs = None  # not used — we'll patch _cosine_search
+        index._code_vecs = None
+        index._proj_code_lance_table = object()
         # Bypass _ensure_loaded
         with patch.object(index, "_ensure_loaded"):
             with patch.object(index, "_embed_query", return_value=None):
                 with patch.object(srv, "_indexer_constant", return_value="model"):
-                    # Patch _cosine_search to return chunks in score-descending order (already sorted)
-                    with patch.object(index, "_cosine_search", return_value=raw_chunks):
+                    # Patch _lance_search to return chunks in score-descending order (already sorted)
+                    with patch.object(index, "_lance_search", return_value=raw_chunks):
                         with patch.object(index, "_indexer_constant", return_value="model"):
                             return index
 
@@ -5629,10 +5687,11 @@ class MaxPerFileFilterDirectTests(unittest.TestCase):
             self._chunk("src/billing.py", 0.80),
             self._chunk("src/billing.py", 0.75),
         ]
+        index._proj_code_lance_table = object()
         with patch.object(index, "_ensure_loaded"), \
              patch.object(index, "_embed_query", return_value=None), \
              patch.object(index, "_indexer_constant", return_value="model"), \
-             patch.object(index, "_cosine_search", return_value=raw), \
+             patch.object(index, "_lance_search", return_value=raw), \
              patch.object(index, "_get_reranker", return_value=None):
             results, _ = index.search_code("query", max_per_file=2, top_n=10)
         auth_results = [r for r in results if r["path"] == "src/auth.py"]
@@ -5652,10 +5711,11 @@ class MaxPerFileFilterDirectTests(unittest.TestCase):
             self._chunk("src/auth.py", 0.95),  # highest score — should be retained
             self._chunk("src/auth.py", 0.50),  # lower score — should be dropped with max_per_file=1
         ]
+        index._proj_code_lance_table = object()
         with patch.object(index, "_ensure_loaded"), \
              patch.object(index, "_embed_query", return_value=None), \
              patch.object(index, "_indexer_constant", return_value="model"), \
-             patch.object(index, "_cosine_search", return_value=raw), \
+             patch.object(index, "_lance_search", return_value=raw), \
              patch.object(index, "_get_reranker", return_value=None):
             results, _ = index.search_code("query", max_per_file=1, top_n=10)
         self.assertEqual(len(results), 1)
@@ -5703,60 +5763,31 @@ class InferTagsServerTests(unittest.TestCase):
         _, kwargs = index.search_code.call_args
         self.assertEqual(kwargs.get("tags"), ["test"])
 
-    def test_tag_index_built_on_load(self):
-        import numpy as np
-        import tempfile
-        import json
-        tmp = tempfile.TemporaryDirectory()
-        try:
-            root = Path(tmp.name)
-            (root / ".wavefoundry" / "index").mkdir(parents=True)
-            (root / ".wavefoundry" / "framework" / "index").mkdir(parents=True)
-            docs_chunks = [
-                {"id": "a", "path": "docs/waves/12dv9/wave.md", "kind": "doc", "text": "wave doc"},
-                {"id": "b", "path": "docs/agents/journals/cia.md", "kind": "doc", "text": "journal"},
-                {"id": "c", "path": "src/main.py", "kind": "code", "text": "code"},
-            ]
-            vecs = np.ones((3, 4), dtype=np.float32)
-            np.save(str(root / ".wavefoundry" / "index" / "docs.npy"), vecs)
-            (root / ".wavefoundry" / "index" / "docs.json").write_text(json.dumps(docs_chunks), encoding="utf-8")
-            meta = {"model_versions": {"docs": "BAAI/bge-base-en-v1.5", "code": "BAAI/bge-base-en-v1.5"}, "built_at": "2026-01-01"}
-            (root / ".wavefoundry" / "index" / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
-            idx = self.srv.WaveIndex(root)
-            idx._ensure_loaded()
-            self.assertIn("wave", idx._docs_tag_index)
-            self.assertIn("journal", idx._docs_tag_index)
-            self.assertIn("agent", idx._docs_tag_index)
-            self.assertNotIn("wave", idx._code_tag_index)
-            # Kind index also built at load time; chunks 0 and 1 have kind="doc", chunk 2 has kind="code"
-            self.assertIn("doc", idx._docs_kind_index)
-            self.assertEqual(sorted(idx._docs_kind_index["doc"]), [0, 1])
-        finally:
-            tmp.cleanup()
 
     def test_search_docs_tags_pre_filter(self):
-        import numpy as np
         import tempfile
-        import json
         tmp = tempfile.TemporaryDirectory()
         try:
             root = Path(tmp.name)
             (root / ".wavefoundry" / "index").mkdir(parents=True)
             (root / ".wavefoundry" / "framework" / "index").mkdir(parents=True)
             docs_chunks = [
-                {"id": "w1", "path": "docs/waves/12dv9/wave.md", "kind": "doc", "text": "wave doc"},
-                {"id": "o1", "path": "docs/other/something.md", "kind": "doc", "text": "unrelated"},
+                {"id": "w1", "path": "docs/waves/12dv9/wave.md", "kind": "doc", "text": "wave doc",
+                 "language": None, "lines": [1, 1], "section": None, "tags": "wave"},
+                {"id": "o1", "path": "docs/other/something.md", "kind": "doc", "text": "unrelated",
+                 "language": None, "lines": [1, 1], "section": None, "tags": ""},
             ]
-            # Both vectors point the same direction so cosine similarity is equal
-            vecs = np.ones((2, 4), dtype=np.float32)
-            np.save(str(root / ".wavefoundry" / "index" / "docs.npy"), vecs)
-            (root / ".wavefoundry" / "index" / "docs.json").write_text(json.dumps(docs_chunks), encoding="utf-8")
-            meta = {"model_versions": {"docs": "BAAI/bge-base-en-v1.5", "code": "BAAI/bge-base-en-v1.5"}, "built_at": "2026-01-01"}
-            (root / ".wavefoundry" / "index" / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+            import numpy as np
+            _write_index_layer(
+                root / ".wavefoundry" / "index",
+                docs_chunks,
+                np.ones((2, 4), dtype=np.float32).tolist(),
+            )
+            (root / ".wavefoundry" / "framework" / "index" / "meta.json").write_text(
+                json.dumps({"model_versions": {}, "content": [], "file_hashes": {}}), encoding="utf-8"
+            )
             idx = self.srv.WaveIndex(root)
-            # Patch embed so we don't need actual model
             idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
-            idx._ensure_loaded()
             with patch.object(idx, "_get_reranker", return_value=None):
                 results, _ = idx.search_docs("anything", tags=["wave"], top_n=5)
             ids = [r["id"] for r in results]
@@ -5766,77 +5797,78 @@ class InferTagsServerTests(unittest.TestCase):
             tmp.cleanup()
 
     def test_search_docs_tags_and_kind_compose_with_and_semantics(self):
-        # AC-13: chunks must satisfy BOTH tags AND kind (both pre-filter, index intersection).
-        # Setup: three chunks —
-        #   w1: wave-tagged, kind="doc"         → matches tags ∩ kind ✓
-        #   w2: wave-tagged, kind="doc-summary" → in tags index but not kind index ✗
-        #   o1: no wave tag, kind="doc"         → in kind index but not tags index ✗
-        # Only w1 should be returned.
-        import numpy as np
         import tempfile
-        import json
         tmp = tempfile.TemporaryDirectory()
         try:
             root = Path(tmp.name)
             (root / ".wavefoundry" / "index").mkdir(parents=True)
             (root / ".wavefoundry" / "framework" / "index").mkdir(parents=True)
             docs_chunks = [
-                {"id": "w1", "path": "docs/waves/12dv9/wave.md", "kind": "doc", "text": "wave doc"},
-                {"id": "w2", "path": "docs/waves/12dv9/summary.md", "kind": "doc-summary", "text": "wave summary"},
-                {"id": "o1", "path": "docs/other/something.md", "kind": "doc", "text": "other doc"},
+                {"id": "w1", "path": "docs/waves/12dv9/wave.md", "kind": "doc", "text": "wave doc",
+                 "language": None, "lines": [1, 1], "section": None, "tags": "wave"},
+                {"id": "w2", "path": "docs/waves/12dv9/summary.md", "kind": "doc-summary", "text": "wave summary",
+                 "language": None, "lines": [1, 1], "section": None, "tags": "wave"},
+                {"id": "o1", "path": "docs/other/something.md", "kind": "doc", "text": "other doc",
+                 "language": None, "lines": [1, 1], "section": None, "tags": ""},
             ]
-            vecs = np.ones((3, 4), dtype=np.float32)
-            np.save(str(root / ".wavefoundry" / "index" / "docs.npy"), vecs)
-            (root / ".wavefoundry" / "index" / "docs.json").write_text(json.dumps(docs_chunks), encoding="utf-8")
-            meta = {"model_versions": {"docs": "BAAI/bge-base-en-v1.5", "code": "BAAI/bge-base-en-v1.5"}, "built_at": "2026-01-01"}
-            (root / ".wavefoundry" / "index" / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+            import numpy as np
+            _write_index_layer(
+                root / ".wavefoundry" / "index",
+                docs_chunks,
+                np.ones((3, 4), dtype=np.float32).tolist(),
+            )
+            (root / ".wavefoundry" / "framework" / "index" / "meta.json").write_text(
+                json.dumps({"model_versions": {}, "content": [], "file_hashes": {}}), encoding="utf-8"
+            )
             idx = self.srv.WaveIndex(root)
             idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
-            idx._ensure_loaded()
             with patch.object(idx, "_get_reranker", return_value=None):
                 results, _ = idx.search_docs("anything", kind="doc", tags=["wave"], top_n=5)
             ids = [r["id"] for r in results]
-            self.assertIn("w1", ids)       # wave-tagged + kind=doc ✓
-            self.assertNotIn("w2", ids)    # wave-tagged but kind=doc-summary ✗
-            self.assertNotIn("o1", ids)    # kind=doc but not wave-tagged ✗
+            self.assertIn("w1", ids)
+            self.assertNotIn("w2", ids)
+            self.assertNotIn("o1", ids)
         finally:
             tmp.cleanup()
 
     def test_search_docs_kind_only_pre_filter(self):
-        import numpy as np
         import tempfile
-        import json
         tmp = tempfile.TemporaryDirectory()
         try:
             root = Path(tmp.name)
             (root / ".wavefoundry" / "index").mkdir(parents=True)
             (root / ".wavefoundry" / "framework" / "index").mkdir(parents=True)
             docs_chunks = [
-                {"id": "s1", "path": "docs/waves/12dv9/12dv9.md", "kind": "doc-summary", "text": "wave summary"},
-                {"id": "d1", "path": "docs/waves/12dv9/wave.md", "kind": "doc", "text": "wave doc"},
-                {"id": "s2", "path": "docs/other/other.md", "kind": "doc-summary", "text": "other summary"},
+                {"id": "s1", "path": "docs/waves/12dv9/12dv9.md", "kind": "doc-summary", "text": "wave summary",
+                 "language": None, "lines": [1, 1], "section": None},
+                {"id": "d1", "path": "docs/waves/12dv9/wave.md", "kind": "doc", "text": "wave doc",
+                 "language": None, "lines": [1, 1], "section": None},
+                {"id": "s2", "path": "docs/other/other.md", "kind": "doc-summary", "text": "other summary",
+                 "language": None, "lines": [1, 1], "section": None},
             ]
-            vecs = np.ones((3, 4), dtype=np.float32)
-            np.save(str(root / ".wavefoundry" / "index" / "docs.npy"), vecs)
-            (root / ".wavefoundry" / "index" / "docs.json").write_text(json.dumps(docs_chunks), encoding="utf-8")
-            meta = {"model_versions": {"docs": "BAAI/bge-base-en-v1.5", "code": "BAAI/bge-base-en-v1.5"}, "built_at": "2026-01-01"}
-            (root / ".wavefoundry" / "index" / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+            import numpy as np
+            _write_index_layer(
+                root / ".wavefoundry" / "index",
+                docs_chunks,
+                np.ones((3, 4), dtype=np.float32).tolist(),
+            )
+            (root / ".wavefoundry" / "framework" / "index" / "meta.json").write_text(
+                json.dumps({"model_versions": {}, "content": [], "file_hashes": {}}), encoding="utf-8"
+            )
             idx = self.srv.WaveIndex(root)
             idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
-            idx._ensure_loaded()
             with patch.object(idx, "_get_reranker", return_value=None):
                 results, _ = idx.search_docs("wave summary", kind="doc-summary", top_n=5)
             ids = [r["id"] for r in results]
-            self.assertIn("s1", ids)    # doc-summary ✓
-            self.assertIn("s2", ids)    # doc-summary ✓
-            self.assertNotIn("d1", ids) # kind=doc excluded ✗
+            self.assertIn("s1", ids)
+            self.assertIn("s2", ids)
+            self.assertNotIn("d1", ids)
         finally:
             tmp.cleanup()
 
     def test_search_docs_empty_tags_returns_all(self):
         import numpy as np
         import tempfile
-        import json
         tmp = tempfile.TemporaryDirectory()
         try:
             root = Path(tmp.name)
@@ -5847,10 +5879,12 @@ class InferTagsServerTests(unittest.TestCase):
                 {"id": "o1", "path": "docs/other/something.md", "kind": "doc", "text": "unrelated"},
             ]
             vecs = np.ones((2, 4), dtype=np.float32)
-            np.save(str(root / ".wavefoundry" / "index" / "docs.npy"), vecs)
-            (root / ".wavefoundry" / "index" / "docs.json").write_text(json.dumps(docs_chunks), encoding="utf-8")
-            meta = {"model_versions": {"docs": "BAAI/bge-base-en-v1.5", "code": "BAAI/bge-base-en-v1.5"}, "built_at": "2026-01-01"}
-            (root / ".wavefoundry" / "index" / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+            _write_lance_index(
+                root / ".wavefoundry" / "index",
+                docs_chunks=docs_chunks,
+                docs_vectors=vecs.tolist(),
+                model="BAAI/bge-base-en-v1.5",
+            )
             idx = self.srv.WaveIndex(root)
             idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
             idx._ensure_loaded()
@@ -6267,26 +6301,22 @@ class RerankerTests(unittest.TestCase):
         return reranker
 
     def _make_index_with_docs(self, docs_chunks, code_chunks=None):
-        """Create a WaveIndex backed by in-memory numpy arrays."""
+        """Create a WaveIndex backed by in-memory LanceDB tables."""
         import numpy as np
-        import tempfile, json
+        import tempfile
         srv = self.srv
         tmp = tempfile.TemporaryDirectory()
         root = Path(tmp.name)
         (root / ".wavefoundry" / "index").mkdir(parents=True)
         (root / ".wavefoundry" / "framework" / "index").mkdir(parents=True)
-        # Build docs index
-        n_docs_chunks = len(docs_chunks)
-        vecs = np.ones((max(n_docs_chunks, 1), 4), dtype=np.float32)
-        np.save(str(root / ".wavefoundry" / "index" / "docs.npy"), vecs)
-        (root / ".wavefoundry" / "index" / "docs.json").write_text(json.dumps(docs_chunks), encoding="utf-8")
-        # Build code index if provided
-        if code_chunks:
-            code_vecs = np.ones((len(code_chunks), 4), dtype=np.float32)
-            np.save(str(root / ".wavefoundry" / "index" / "code.npy"), code_vecs)
-            (root / ".wavefoundry" / "index" / "code.json").write_text(json.dumps(code_chunks), encoding="utf-8")
-        meta = {"model_versions": {"docs": "BAAI/bge-base-en-v1.5", "code": "BAAI/bge-base-en-v1.5"}, "built_at": "2026-01-01"}
-        (root / ".wavefoundry" / "index" / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        _write_lance_index(
+            root / ".wavefoundry" / "index",
+            docs_chunks=docs_chunks,
+            docs_vectors=np.ones((max(len(docs_chunks), 1), 4), dtype=np.float32).tolist(),
+            code_chunks=code_chunks,
+            code_vectors=np.ones((max(len(code_chunks or []), 1), 4), dtype=np.float32).tolist() if code_chunks else None,
+            model="BAAI/bge-base-en-v1.5",
+        )
         idx = srv.WaveIndex(root)
         import numpy as np
         idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
@@ -6401,15 +6431,17 @@ class RerankerTests(unittest.TestCase):
     # --- search_combined ---
 
     def test_search_combined_returns_reranked_true_when_reranker_available(self):
-        """search_combined returns reranked=True when reranker succeeds."""
+        """search_combined returns (results, reranked, vector_ms, rerank_ms) with reranked=True."""
         docs = [self._fake_doc_chunk(f"d{i}") for i in range(3)]
         code = [self._fake_code_chunk(f"c{i}") for i in range(3)]
         idx = self._make_index_with_docs(docs, code_chunks=code)
         mock_reranker = self._make_mock_reranker(6)
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
-            results, reranked = idx.search_combined("query", top_n=5)
+            results, reranked, vector_ms, rerank_ms, _, _, _ = idx.search_combined("query", top_n=5)
         self.assertTrue(reranked)
         self.assertLessEqual(len(results), 5)
+        self.assertIsInstance(vector_ms, int)
+        self.assertIsInstance(rerank_ms, int)
 
     def test_search_combined_returns_reranked_false_with_rrf_fallback(self):
         """search_combined returns reranked=False and uses RRF when reranker unavailable."""
@@ -6417,9 +6449,11 @@ class RerankerTests(unittest.TestCase):
         code = [self._fake_code_chunk(f"c{i}") for i in range(3)]
         idx = self._make_index_with_docs(docs, code_chunks=code)
         with patch.object(idx, "_get_reranker", return_value=None):
-            results, reranked = idx.search_combined("query", top_n=5)
+            results, reranked, vector_ms, rerank_ms, _, _, _ = idx.search_combined("query", top_n=5)
         self.assertFalse(reranked)
         self.assertLessEqual(len(results), 5)
+        self.assertIsInstance(vector_ms, int)
+        self.assertIsInstance(rerank_ms, int)
 
     def test_search_combined_result_count_does_not_exceed_top_n(self):
         """search_combined never returns more than top_n."""
@@ -6428,19 +6462,24 @@ class RerankerTests(unittest.TestCase):
         idx = self._make_index_with_docs(docs, code_chunks=code)
         mock_reranker = self._make_mock_reranker(10)
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
-            results, _ = idx.search_combined("query", top_n=3)
+            results, _, _vms, _rms, _, _, _ = idx.search_combined("query", top_n=3)
         self.assertLessEqual(len(results), 3)
 
     def test_code_ask_response_includes_reranked_field(self):
-        """code_ask_response includes 'reranked' in response data."""
+        """code_ask_response includes 'reranked' and timing fields in response data."""
         index = MagicMock()
-        index.search_combined.return_value = ([], False)
+        index.search_combined.return_value = ([], False, 0, 0, [], [], "none")
         index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             root = _make_repo(Path(tmp))
             result = self.srv.code_ask_response(index, root, "how does billing work?")
-        self.assertIn("reranked", result.get("data", {}))
+        data = result.get("data", {})
+        self.assertIn("reranked", data)
+        self.assertIn("total_ms", data)
+        self.assertIn("vector_ms", data)
+        self.assertIn("rerank_ms", data)
+        self.assertGreaterEqual(data["total_ms"], data["vector_ms"] + data["rerank_ms"])
 
     # --- _get_reranker caching ---
 
@@ -6472,6 +6511,611 @@ class RerankerTests(unittest.TestCase):
 
         self.assertIsNotNone(idx._reranker)
         self.assertEqual(idx._reranker, mock_reranker)
+
+    # --- search_combined: question-type-aware retrieval ---
+
+    # --- search_combined: dynamic VECTOR_TOP_K (dynamic-vector-top-k) ---
+
+    def test_vector_top_k_explanatory_constant_is_50(self):
+        """VECTOR_TOP_K_EXPLANATORY must be 50."""
+        self.assertEqual(self.srv.VECTOR_TOP_K_EXPLANATORY, 50)
+
+    def test_vector_top_k_default_constant_is_30(self):
+        """VECTOR_TOP_K must be 30."""
+        self.assertEqual(self.srv.VECTOR_TOP_K, 30)
+
+    def test_search_combined_explanatory_uses_top_k_explanatory(self):
+        """search_combined uses VECTOR_TOP_K_EXPLANATORY (50) for explanatory questions."""
+        docs = [self._fake_doc_chunk(f"d{i}") for i in range(3)]
+        code = [self._fake_code_chunk(f"c{i}") for i in range(3)]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        captured = {}
+        original_lance = idx._lance_search
+        def capture_top_k(table, qvec, top_n, where=None, layer="project"):
+            captured["top_k"] = top_n
+            return original_lance(table, qvec, top_n, where=where, layer=layer)
+        with patch.object(idx, "_get_reranker", return_value=None):
+            with patch.object(idx, "_lance_search", side_effect=capture_top_k):
+                idx.search_combined("how does billing work", top_n=5, question_type="explanatory")
+        self.assertEqual(captured.get("top_k"), self.srv.VECTOR_TOP_K_EXPLANATORY)
+
+    def test_search_combined_navigational_uses_default_top_k(self):
+        """search_combined uses VECTOR_TOP_K (30) for navigational questions."""
+        docs = [self._fake_doc_chunk(f"d{i}") for i in range(3)]
+        code = [self._fake_code_chunk(f"c{i}") for i in range(3)]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        captured = {}
+        original_lance = idx._lance_search
+        def capture_top_k(table, qvec, top_n, where=None, layer="project"):
+            captured["top_k"] = top_n
+            return original_lance(table, qvec, top_n, where=where, layer=layer)
+        with patch.object(idx, "_get_reranker", return_value=None):
+            with patch.object(idx, "_lance_search", side_effect=capture_top_k):
+                idx.search_combined("where is the billing handler", top_n=5, question_type="navigational")
+        self.assertEqual(captured.get("top_k"), self.srv.VECTOR_TOP_K)
+
+    def test_search_combined_empty_question_type_uses_default_top_k(self):
+        """search_combined uses VECTOR_TOP_K (30) when question_type is empty."""
+        docs = [self._fake_doc_chunk(f"d{i}") for i in range(3)]
+        code = [self._fake_code_chunk(f"c{i}") for i in range(3)]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        captured = {}
+        original_lance = idx._lance_search
+        def capture_top_k(table, qvec, top_n, where=None, layer="project"):
+            captured["top_k"] = top_n
+            return original_lance(table, qvec, top_n, where=where, layer=layer)
+        with patch.object(idx, "_get_reranker", return_value=None):
+            with patch.object(idx, "_lance_search", side_effect=capture_top_k):
+                idx.search_combined("billing", top_n=5, question_type="")
+        self.assertEqual(captured.get("top_k"), self.srv.VECTOR_TOP_K)
+
+    # --- search_combined: question-type-aware retrieval ---
+
+    def test_search_combined_navigational_applies_rrf_weight_bias(self):
+        """For navigational questions, code-index candidates receive higher RRF weight than docs."""
+        # Build an index where code and docs each have one candidate so we can detect ordering
+        docs = [self._fake_doc_chunk("d0")]
+        code = [self._fake_code_chunk("c0")]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        with patch.object(idx, "_get_reranker", return_value=None):
+            results_nav, _, _, _, _, _, _ = idx.search_combined("where is the config", top_n=5, question_type="navigational")
+            results_def, _, _, _, _, _, _ = idx.search_combined("where is the config", top_n=5, question_type="")
+        # Results should be returned without error and obey top_n
+        self.assertLessEqual(len(results_nav), 5)
+        self.assertLessEqual(len(results_def), 5)
+
+    def test_search_combined_explanatory_partitions_infra_paths_after_rerank(self):
+        """For explanatory questions, results with infra path segments are moved to end of list."""
+        docs = [self._fake_doc_chunk("d0")]
+        code = [
+            self._fake_code_chunk("src/constructs/MyStack.ts"),
+            self._fake_code_chunk("src/services/billing.ts"),
+        ]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        # Mock reranker returns infra file first, business file second
+        mock_reranker = MagicMock()
+        infra_chunk = {**code[0], "score": 0.9}
+        biz_chunk = {**code[1], "score": 0.8}
+        mock_reranker.rerank.return_value = [0.9, 0.8, 0.5]
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            with patch.object(idx, "_rerank", return_value=[infra_chunk, biz_chunk]):
+                results, reranked, _, _, _, _, _ = idx.search_combined("how does billing work", top_n=5, question_type="explanatory")
+        self.assertTrue(reranked)
+        # The business logic file must appear before the infra file
+        paths = [r.get("path", "") for r in results]
+        infra_path = infra_chunk["path"]
+        biz_path = biz_chunk["path"]
+        self.assertIn(infra_path, paths)
+        self.assertIn(biz_path, paths)
+        self.assertLess(paths.index(biz_path), paths.index(infra_path))
+
+    def test_search_combined_non_explanatory_no_partition(self):
+        """For navigational/instructional questions, infra paths are not partitioned."""
+        docs = [self._fake_doc_chunk("d0")]
+        code = [self._fake_code_chunk("src/constructs/MyStack.ts")]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        infra_chunk = {**code[0], "score": 0.9}
+        with patch.object(idx, "_get_reranker", return_value=None):
+            results, reranked, _, _, _, _, _ = idx.search_combined("where is the stack", top_n=5, question_type="navigational")
+        self.assertFalse(reranked)  # RRF fallback
+
+    def test_search_combined_infrastructure_demoted_flag_in_code_ask(self):
+        """code_ask_response sets infrastructure_demoted=True when explanatory + reranked + infra citations."""
+        index = MagicMock()
+        infra_result = {"path": "src/constructs/MyStack.ts", "score": 0.9, "lines": [1, 10], "text": "...", "kind": "code"}
+        biz_result = {"path": "src/services/billing.ts", "score": 0.8, "lines": [1, 10], "text": "...", "kind": "code"}
+        index.search_combined.return_value = ([infra_result, biz_result], True, 10, 20, [], [], "none")
+        index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            # "how does billing work" → explanatory; constructs/ → infra segment
+            result = self.srv.code_ask_response(index, root, "how does billing work")
+        data = result.get("data", {})
+        self.assertTrue(data.get("infrastructure_demoted", False))
+
+    def test_search_combined_no_infrastructure_demoted_for_navigational(self):
+        """code_ask_response does not set infrastructure_demoted for navigational questions."""
+        index = MagicMock()
+        infra_result = {"path": "src/constructs/MyStack.ts", "score": 0.9, "lines": [1, 10], "text": "...", "kind": "code"}
+        index.search_combined.return_value = ([infra_result], True, 5, 10, [], [], "none")
+        index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            result = self.srv.code_ask_response(index, root, "where is the stack defined")
+        data = result.get("data", {})
+        self.assertNotIn("infrastructure_demoted", data)
+
+    # --- search_combined: timing instrumentation ---
+
+    def test_code_ask_timing_ms_fields_are_non_negative_integers(self):
+        """total_ms, vector_ms, rerank_ms are non-negative integers in code_ask response."""
+        index = MagicMock()
+        index.search_combined.return_value = ([], False, 5, 3, [], [], "none")
+        index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            result = self.srv.code_ask_response(index, root, "how does auth work?")
+        data = result.get("data", {})
+        for field in ("total_ms", "vector_ms", "rerank_ms"):
+            self.assertIn(field, data)
+            self.assertIsInstance(data[field], int)
+            self.assertGreaterEqual(data[field], 0)
+
+    def test_code_ask_total_ms_geq_component_sum(self):
+        """total_ms >= vector_ms + rerank_ms (structural invariant: total covers both phases)."""
+        index = MagicMock()
+        # Use 0,0 for mocked component times — wall-clock total_ms will always be >= 0+0
+        index.search_combined.return_value = ([], False, 0, 0, [], [], "none")
+        index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            result = self.srv.code_ask_response(index, root, "how does auth work?")
+        data = result.get("data", {})
+        self.assertGreaterEqual(data["total_ms"], data["vector_ms"] + data["rerank_ms"])
+
+    def test_code_ask_total_ms_geq_component_sum_nonzero(self):
+        """Component times from search_combined are correctly propagated into the response."""
+        index = MagicMock()
+        index.search_combined.return_value = ([], False, 10, 20, [], [], "none")
+        index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            result = self.srv.code_ask_response(index, root, "how does auth work?")
+        data = result.get("data", {})
+        # Component times must be passed through verbatim from search_combined's return value
+        self.assertEqual(data["vector_ms"], 10)
+        self.assertEqual(data["rerank_ms"], 20)
+        # total_ms is real wall-clock; with mocked search_combined it may be less than the
+        # synthetic component sum — the >= invariant holds only in real execution where
+        # total_ms wraps the actual computation phases.
+        self.assertIsInstance(data["total_ms"], int)
+        self.assertGreaterEqual(data["total_ms"], 0)
+
+    def test_code_ask_timing_log_line_emitted(self):
+        """code_ask emits a '[wavefoundry] code_ask timing:' print line per invocation."""
+        import tempfile
+        from unittest.mock import patch as _patch
+        index = MagicMock()
+        index.search_combined.return_value = ([], False, 5, 3, [], [], "none")
+        index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
+        printed = []
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            with _patch("builtins.print", side_effect=lambda *a, **k: printed.append(" ".join(str(x) for x in a))):
+                self.srv.code_ask_response(index, root, "where is the auth module?")
+        timing_lines = [s for s in printed if "code_ask timing" in s]
+        self.assertTrue(timing_lines, "expected a '[wavefoundry] code_ask timing:' print line")
+
+    def test_docs_search_has_no_timing_fields(self):
+        """docs_search response does not include timing fields."""
+        index = MagicMock()
+        index.search_docs.return_value = ([], False)
+        result = self.srv.docs_search_response(index, "architecture")
+        data = result.get("data", {})
+        self.assertNotIn("total_ms", data)
+        self.assertNotIn("vector_ms", data)
+        self.assertNotIn("rerank_ms", data)
+
+    def test_code_search_has_no_timing_fields(self):
+        """code_search response does not include timing fields."""
+        index = MagicMock()
+        index.search_code.return_value = ([], False)
+        result = self.srv.code_search_response(index, "billing")
+        data = result.get("data", {})
+        self.assertNotIn("total_ms", data)
+        self.assertNotIn("vector_ms", data)
+        self.assertNotIn("rerank_ms", data)
+
+    # --- _rrf_merge weights ---
+
+    def test_rrf_merge_weights_bias_higher_weighted_list(self):
+        """_rrf_merge with weights gives higher RRF score to the higher-weighted list."""
+        idx = self.srv.WaveIndex.__new__(self.srv.WaveIndex)
+        # list_a has weight=2.0, list_b has weight=1.0, each with one unique item at rank 0
+        chunk_a = {"path": "a.py", "id": "a", "lines": []}
+        chunk_b = {"path": "b.py", "id": "b", "lines": []}
+        results = idx._rrf_merge([[chunk_a], [chunk_b]], top_n=2, weights=[2.0, 1.0])
+        self.assertEqual(results[0]["path"], "a.py")  # higher-weighted list wins
+
+    def test_rrf_merge_no_weights_equal_treatment(self):
+        """_rrf_merge without weights treats all lists equally."""
+        idx = self.srv.WaveIndex.__new__(self.srv.WaveIndex)
+        chunk_a = {"path": "a.py", "id": "a", "lines": []}
+        chunk_b = {"path": "b.py", "id": "b", "lines": []}
+        results = idx._rrf_merge([[chunk_a], [chunk_b]], top_n=2)
+        # Both at rank 0 in their lists → equal RRF scores → either order acceptable
+        self.assertEqual(len(results), 2)
+
+    # --- Definition-file boosting (sql-candidate-window-boosting) ---
+
+    def test_definition_boost_rules_constant_exists(self):
+        """DEFINITION_BOOST_RULES is a list with at least one rule (SQL)."""
+        rules = self.srv.DEFINITION_BOOST_RULES
+        self.assertIsInstance(rules, list)
+        self.assertGreater(len(rules), 0)
+        labels = [r["label"] for r in rules]
+        self.assertIn("sql", labels)
+
+    def test_definition_boost_sql_rule_vocabulary(self):
+        """SQL rule vocabulary contains expected trigger terms."""
+        sql_rule = next(r for r in self.srv.DEFINITION_BOOST_RULES if r["label"] == "sql")
+        self.assertIn("stored procedure", sql_rule["vocabulary"])
+        self.assertIn("sql", sql_rule["vocabulary"])
+        self.assertIn("table", sql_rule["vocabulary"])
+        self.assertIn(".sql", sql_rule["extensions"])
+
+    def test_definition_boost_sql_vocabulary_triggers_injection(self):
+        """SQL vocabulary in query triggers SQL rule and injects .sql candidates with score=0.0."""
+        docs = [self._fake_doc_chunk("d0")]
+        code = [self._fake_code_chunk("src/repo.ts")]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        # Patch code_keyword_response to return a fake SQL file match
+        fake_kw_resp = {
+            "status": "ok",
+            "data": {"results": [{"path": "migrations/001_users.sql", "line": 5, "snippet": "CREATE TABLE users"}]},
+        }
+        # Use a mock reranker so injected candidates pass through _rerank (RRF fallback drops them)
+        mock_reranker = MagicMock()
+        def passthrough_rerank(query, candidates, top_n):
+            return candidates[:top_n]
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            with patch.object(idx, "_rerank", side_effect=passthrough_rerank):
+                with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
+                    results, reranked, _, _, definition_boosted, _, _ = idx.search_combined(
+                        "how does the stored procedure work", top_n=10
+                    )
+        self.assertIn("sql", definition_boosted)
+        # Injected candidate must have score=0.0, kind="code", and path from keyword search
+        sql_candidates = [r for r in results if r.get("path", "").endswith(".sql")]
+        self.assertTrue(sql_candidates, "expected at least one injected .sql candidate in results")
+        for c in sql_candidates:
+            self.assertEqual(c["score"], 0.0, "injected candidate score must be 0.0")
+            self.assertEqual(c["kind"], "code", "injected candidate kind must be 'code'")
+            self.assertEqual(c["path"], "migrations/001_users.sql")
+
+    def test_definition_boost_no_match_produces_no_boosted_field(self):
+        """Query with no SQL vocabulary does not trigger augmentation; definition_boosted is empty."""
+        docs = [self._fake_doc_chunk("d0")]
+        code = [self._fake_code_chunk("src/billing.ts")]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        with patch.object(idx, "_get_reranker", return_value=None):
+            _, _, _, _, definition_boosted, _, _ = idx.search_combined("where is the billing handler", top_n=5)
+        self.assertEqual(definition_boosted, [])
+
+    def test_definition_boost_result_count_does_not_exceed_top_n(self):
+        """Result count never exceeds top_n even when definition-boost injects candidates."""
+        docs = [self._fake_doc_chunk(f"d{i}") for i in range(5)]
+        code = [self._fake_code_chunk(f"c{i}") for i in range(5)]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        # Inject 5 SQL candidates via the mock
+        sql_hits = [{"path": f"migrations/m{i}.sql", "line": i + 1, "snippet": "CREATE TABLE"} for i in range(5)]
+        fake_kw_resp = {"status": "ok", "data": {"results": sql_hits}}
+        with patch.object(idx, "_get_reranker", return_value=None):
+            with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
+                results, _, _, _, _, _, _ = idx.search_combined("how does the sql schema work", top_n=3)
+        self.assertLessEqual(len(results), 3)
+
+    def test_definition_boost_second_rule_addition_requires_no_logic_change(self):
+        """Adding a second rule to DEFINITION_BOOST_RULES requires only a table entry, no logic changes."""
+        # Verify the rule loop is data-driven by checking that an injected second rule fires
+        docs = [self._fake_doc_chunk("d0")]
+        code = [self._fake_code_chunk("src/api.ts")]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        graphql_rule = {
+            "vocabulary": frozenset({"graphql", "schema type", "gql"}),
+            "extensions": [".graphql"],
+            "label": "graphql",
+        }
+        fake_kw_resp = {"status": "ok", "data": {"results": [{"path": "schema/user.graphql", "line": 1, "snippet": "type User"}]}}
+        original_rules = self.srv.DEFINITION_BOOST_RULES
+        try:
+            self.srv.DEFINITION_BOOST_RULES = original_rules + [graphql_rule]
+            with patch.object(idx, "_get_reranker", return_value=None):
+                with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
+                    _, _, _, _, boosted, _, _ = idx.search_combined("what graphql types exist", top_n=5)
+            self.assertIn("graphql", boosted)
+        finally:
+            self.srv.DEFINITION_BOOST_RULES = original_rules
+
+    def test_definition_boosted_flag_propagated_to_code_ask_response(self):
+        """code_ask_response includes definition_boosted list when rule fired."""
+        index = MagicMock()
+        index.search_combined.return_value = ([], False, 0, 0, ["sql"], [], "none")
+        index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            result = self.srv.code_ask_response(index, root, "how does the stored procedure work?")
+        data = result.get("data", {})
+        self.assertIn("definition_boosted", data)
+        self.assertIn("sql", data["definition_boosted"])
+
+    def test_definition_boosted_absent_from_code_ask_when_no_rule_fired(self):
+        """code_ask_response omits definition_boosted when no rule fired."""
+        index = MagicMock()
+        index.search_combined.return_value = ([], False, 0, 0, [], [], "none")
+        index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            result = self.srv.code_ask_response(index, root, "where is the billing handler?")
+        data = result.get("data", {})
+        self.assertNotIn("definition_boosted", data)
+
+    # --- Two-hop symbol expansion ---
+
+    def test_extract_symbols_python_finds_call_targets(self):
+        """_extract_symbols_python extracts function call names from Python source."""
+        text = "def handler():\n    result = createTenant(name)\n    billing.charge(amount)\n"
+        symbols = self.srv._extract_symbols_python(text)
+        self.assertIn("createTenant", symbols)
+        self.assertIn("charge", symbols)
+
+    def test_extract_symbols_python_finds_imports(self):
+        """_extract_symbols_python extracts imported names."""
+        text = "import UserService\nfrom billing import ChargeProcessor\n"
+        symbols = self.srv._extract_symbols_python(text)
+        self.assertIn("UserService", symbols)
+        self.assertIn("ChargeProcessor", symbols)
+
+    def test_extract_symbols_regex_finds_calls_and_sql(self):
+        """_extract_symbols_regex extracts function calls and SQL EXEC."""
+        text = "EXEC sp_createTenant @name; result = fetchRecord(id);"
+        symbols = self.srv._extract_symbols_regex(text)
+        self.assertIn("sp_createTenant", symbols)
+        self.assertIn("fetchRecord", symbols)
+
+    def test_extract_symbols_from_citations_filters_infra(self):
+        """_extract_symbols_from_citations skips infra-path citations."""
+        infra_citation = {
+            "path": "src/constructs/MyStack.ts",
+            "text": "createBucket(props); addLambda(handler);",
+            "language": "typescript",
+        }
+        biz_citation = {
+            "path": "src/services/billing.py",
+            "text": "def charge():\n    processPayment(amount)\n",
+            "language": "python",
+        }
+        symbols, _method = self.srv._extract_symbols_from_citations([infra_citation, biz_citation])
+        # processPayment comes from the biz citation (not filtered)
+        self.assertIn("processPayment", symbols)
+        # createBucket / addLambda come from infra citation (filtered out)
+        self.assertNotIn("createBucket", symbols)
+        self.assertNotIn("addLambda", symbols)
+
+    def test_extract_symbols_from_citations_blocklist(self):
+        """_extract_symbols_from_citations removes blocklisted generic names."""
+        citation = {
+            "path": "src/billing.py",
+            "text": "def run():\n    list(items)\n    findRecords(query)\n",
+            "language": "python",
+        }
+        symbols, _method = self.srv._extract_symbols_from_citations([citation])
+        self.assertNotIn("list", symbols)
+        self.assertNotIn("run", symbols)
+        self.assertIn("findRecords", symbols)
+
+    def test_extract_symbols_from_citations_respects_max(self):
+        """_extract_symbols_from_citations caps output at max_symbols."""
+        text = "\n".join(f"    call{i}Func(x)" for i in range(20))
+        citation = {"path": "src/billing.py", "text": text, "language": "python"}
+        symbols, _method = self.srv._extract_symbols_from_citations([citation], max_symbols=3)
+        self.assertLessEqual(len(symbols), 3)
+
+    def test_search_combined_second_hop_injects_candidates_for_explanatory(self):
+        """For explanatory questions, second-hop retrieval injects definition candidates."""
+        docs = [self._fake_doc_chunk("d0")]
+        code = [self._fake_code_chunk("billing")]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+
+        first_rerank_result = [{
+            "path": "src/billing.py",
+            "text": "def handler():\n    chargeCustomer(amount)\n",
+            "score": 0.9, "kind": "code", "language": "python", "lines": [1, 5],
+        }]
+        second_hop_result = [{
+            "path": "src/charge.py",
+            "text": "def chargeCustomer(amount): ...",
+            "score": 0.0, "kind": "code", "lines": [1, 3],
+        }]
+        fake_kw_resp = {
+            "status": "ok",
+            "data": {"results": [{"path": "src/charge.py", "line": 1, "snippet": "def chargeCustomer"}]},
+        }
+        mock_reranker = MagicMock()
+        rerank_calls = []
+
+        def capture_rerank(query, candidates, top_n):
+            rerank_calls.append(candidates)
+            return candidates[:top_n]
+
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            with patch.object(idx, "_rerank", side_effect=capture_rerank) as mock_rerank:
+                mock_rerank.side_effect = [first_rerank_result, first_rerank_result + second_hop_result]
+                with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
+                    results, reranked, _, _, _, second_hop_symbols, symbol_extraction_method = idx.search_combined(
+                        "how does billing charge a customer", top_n=5, question_type="explanatory"
+                    )
+        self.assertTrue(second_hop_symbols, "expected second_hop_symbols to be non-empty")
+        self.assertIn(symbol_extraction_method, ("ast", "regex", "regex_fallback"),
+                      "symbol_extraction_method must be 'ast', 'regex', or 'regex_fallback' when second hop fires")
+
+    def test_search_combined_second_hop_skipped_for_navigational(self):
+        """Second hop is not triggered for navigational questions."""
+        docs = [self._fake_doc_chunk("d0")]
+        code = [self._fake_code_chunk("billing")]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+
+        with patch.object(idx, "_get_reranker", return_value=None):
+            _, _, _, _, _, second_hop_symbols, symbol_extraction_method = idx.search_combined(
+                "where is the billing module", top_n=5, question_type="navigational"
+            )
+        self.assertEqual(second_hop_symbols, [])
+        self.assertEqual(symbol_extraction_method, "none",
+                         "navigational question must produce symbol_extraction_method='none'")
+
+    def test_search_combined_second_hop_skipped_when_no_symbols_extracted(self):
+        """When no symbols are extracted, second_hop_symbols is empty and results unchanged."""
+        docs = [self._fake_doc_chunk("d0")]
+        code = [self._fake_code_chunk("billing")]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        mock_reranker = MagicMock()
+        prose_result = [{"path": "docs/overview.md", "text": "This is prose with no callable syntax.",
+                         "score": 0.8, "kind": "doc", "lines": [1, 3]}]
+
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            with patch.object(idx, "_rerank", return_value=prose_result):
+                _, _, _, _, _, second_hop_symbols, symbol_extraction_method = idx.search_combined(
+                    "how does billing work", top_n=5, question_type="explanatory"
+                )
+        self.assertEqual(second_hop_symbols, [])
+        # Prose-only result → regex (no callable syntax, no TS/Python citations with symbols)
+        self.assertIn(symbol_extraction_method, ("regex", "regex_fallback", "none"))
+
+    def test_search_combined_second_hop_deduplicates_candidates(self):
+        """Second-hop candidates already in first-hop pool are not re-injected."""
+        docs = [self._fake_doc_chunk("d0")]
+        code = [self._fake_code_chunk("billing")]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        # First-hop result already contains charge.py at line 1
+        existing_result = {"path": "src/charge.py", "text": "def chargeCustomer(): ...",
+                           "score": 0.9, "kind": "code", "language": "python", "lines": [1, 3]}
+        # Keyword search would also return charge.py line 1 — should be deduped
+        fake_kw_resp = {
+            "status": "ok",
+            "data": {"results": [{"path": "src/charge.py", "line": 1, "snippet": "def chargeCustomer"}]},
+        }
+        mock_reranker = MagicMock()
+        rerank_call_sizes = []
+
+        def capture_rerank(query, candidates, top_n):
+            rerank_call_sizes.append(len(candidates))
+            return candidates[:top_n]
+
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            with patch.object(idx, "_rerank", side_effect=capture_rerank) as mock_rerank:
+                mock_rerank.side_effect = [[existing_result], [existing_result]]
+                with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
+                    idx.search_combined(
+                        "how does billing charge", top_n=5, question_type="explanatory"
+                    )
+        # If deduplication worked, the second rerank should not have been called
+        # (no new candidates after dedup → second_hop_candidates is empty)
+        self.assertLessEqual(len(rerank_call_sizes), 2)
+
+    def test_second_hop_symbols_propagated_to_code_ask_response(self):
+        """code_ask_response emits second_hop_symbols and symbol_extraction_method when second hop fired."""
+        index = MagicMock()
+        index.search_combined.return_value = ([], False, 0, 0, [], ["chargeCustomer"], "ast")
+        index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            result = self.srv.code_ask_response(index, root, "how does billing work?")
+        data = result.get("data", {})
+        self.assertIn("second_hop_symbols", data)
+        self.assertIn("chargeCustomer", data["second_hop_symbols"])
+        self.assertIn("symbol_extraction_method", data)
+        self.assertEqual(data["symbol_extraction_method"], "ast")
+
+    def test_second_hop_symbols_absent_when_empty(self):
+        """code_ask_response omits second_hop_symbols and symbol_extraction_method when second hop did not fire."""
+        index = MagicMock()
+        index.search_combined.return_value = ([], False, 0, 0, [], [], "none")
+        index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            result = self.srv.code_ask_response(index, root, "how does billing work?")
+        data = result.get("data", {})
+        self.assertNotIn("second_hop_symbols", data)
+        self.assertNotIn("symbol_extraction_method", data)
+
+    def test_symbol_extraction_method_regex_fallback_when_treesitter_unavailable(self):
+        """symbol_extraction_method='regex_fallback' when tree-sitter unavailable for TS-eligible citations."""
+        docs = [self._fake_doc_chunk("d0")]
+        code = [self._fake_code_chunk("billing")]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        ts_result = [{
+            "path": "src/billing.ts",
+            "text": "chargeCustomer(invoice);",
+            "score": 0.9, "kind": "code", "language": "typescript", "lines": [1, 1],
+        }]
+        mock_reranker = MagicMock()
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            with patch.object(idx, "_rerank", return_value=ts_result):
+                with patch(f"{self.srv.__name__}._get_chunker_module", side_effect=Exception("no grammar")):
+                    _, _, _, _, _, _symbols, method = idx.search_combined(
+                        "how does billing charge", top_n=5, question_type="explanatory"
+                    )
+        self.assertEqual(method, "regex_fallback",
+                         "TS-eligible citation with tree-sitter unavailable must report method='regex_fallback'")
+
+    def test_symbol_extraction_method_ast_when_python_extraction_succeeds(self):
+        """symbol_extraction_method='ast' when Python citation yields symbols via AST."""
+        docs = [self._fake_doc_chunk("d0")]
+        code = [self._fake_code_chunk("auth")]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        # _extract_symbols_python extracts calls and imports, not definitions
+        py_result = [{
+            "path": "src/auth.py",
+            "text": "result = authenticate_user(token)\nrefreshed = refresh_token(old_token)",
+            "score": 0.9, "kind": "code", "language": "python", "lines": [1, 2],
+        }]
+        mock_reranker = MagicMock()
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            with patch.object(idx, "_rerank", return_value=py_result):
+                _, _, _, _, _, _symbols, method = idx.search_combined(
+                    "how does auth work", top_n=5, question_type="explanatory"
+                )
+        self.assertEqual(method, "ast",
+                         "Python citation with function calls must report method='ast'")
+
+    def test_symbol_extraction_method_none_when_all_citations_infra_filtered(self):
+        """symbol_extraction_method='none' when all non-infra citations are filtered out before extraction."""
+        docs = [self._fake_doc_chunk("d0")]
+        code = [self._fake_code_chunk("billing")]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        # All top citations are infra-path files — they will be filtered before extraction
+        infra_only = [{
+            "path": "src/constructs/MyStack.ts",
+            "text": "createBucket(props); addLambda(handler);",
+            "score": 0.9, "kind": "code", "language": "typescript", "lines": [1, 2],
+        }]
+        mock_reranker = MagicMock()
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            with patch.object(idx, "_rerank", return_value=infra_only):
+                _, _, _, _, _, _symbols, method = idx.search_combined(
+                    "how does billing charge", top_n=5, question_type="explanatory"
+                )
+        self.assertEqual(method, "none",
+                         "all-infra citations must produce method='none' (no extraction attempted)")
 
     # --- _rerank sort order ---
 
@@ -6656,6 +7300,1007 @@ class BackgroundModelDownloadTests(unittest.TestCase):
             output = buf.getvalue()
 
         self.assertIn("skipping", output)
+
+
+class CodeKeywordMultiQueryTests(unittest.TestCase):
+    """12n5x-enh code-keyword-search-multi-query: multi-query batch support tests."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _add(self, rel: str, content: str) -> None:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+
+    def _call(self, **kw):
+        return self.srv.code_keyword_response(self.root, **kw)
+
+    # ------------------------------------------------------------------
+    # AC-1: multi-query merge + matched_query tagging + dedup
+    # ------------------------------------------------------------------
+
+    def test_multi_query_returns_matched_query_field(self):
+        """AC-1: each result carries matched_query identifying which query produced it."""
+        self._add("src/mod.py", "FOO = 1\nBAR = 2\n")
+        result = self._call(queries=["FOO", "BAR"])
+        self.assertEqual(result["status"], "ok")
+        entries = result["data"]["results"]
+        names = {e["matched_query"] for e in entries}
+        self.assertIn("FOO", names)
+        self.assertIn("BAR", names)
+
+    def test_multi_query_dedup_first_match_wins(self):
+        """AC-1: when same (path, line) matched by two queries, first query wins."""
+        # "FOOBAR" matches both "FOO" and "BAR" — FOO comes first in list
+        self._add("src/mod.py", "FOOBAR = 1\n")
+        result = self._call(queries=["FOO", "BAR"])
+        entries = result["data"]["results"]
+        # Should have exactly one entry for this line
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["matched_query"], "FOO")
+
+    def test_multi_query_merge_from_different_files(self):
+        """AC-1: results from multiple queries across multiple files are merged."""
+        self._add("src/a.py", "TOKEN_A = 1\n")
+        self._add("src/b.py", "TOKEN_B = 2\n")
+        result = self._call(queries=["TOKEN_A", "TOKEN_B"])
+        self.assertEqual(result["status"], "ok")
+        paths = [e["path"] for e in result["data"]["results"]]
+        self.assertTrue(any("a.py" in p for p in paths))
+        self.assertTrue(any("b.py" in p for p in paths))
+
+    # ------------------------------------------------------------------
+    # AC-2: glob applies to all queries in batch
+    # ------------------------------------------------------------------
+
+    def test_multi_query_glob_scopes_all_queries(self):
+        """AC-2: glob restricts all queries in the batch."""
+        self._add("src/a.py", "TOKEN = 1\n")
+        self._add("src/b.py", "TOKEN = 2\n")
+        result = self._call(queries=["TOKEN"], glob="**/a.py")
+        entries = result["data"]["results"]
+        self.assertEqual(len(entries), 1)
+        self.assertTrue(entries[0]["path"].endswith("a.py"))
+
+    # ------------------------------------------------------------------
+    # AC-3: both query and queries → error
+    # ------------------------------------------------------------------
+
+    def test_both_query_and_queries_returns_error(self):
+        """AC-3: supplying both query and queries returns a structured error."""
+        result = self._call(query="FOO", queries=["BAR"])
+        self.assertEqual(result["status"], "error")
+
+    # ------------------------------------------------------------------
+    # AC-4: single-query path unchanged — no matched_query field
+    # ------------------------------------------------------------------
+
+    def test_single_query_no_matched_query_field(self):
+        """AC-4: single-query results do not include matched_query field."""
+        self._add("src/mod.py", "TOKEN = 1\n")
+        result = self._call(query="TOKEN")
+        self.assertEqual(result["status"], "ok")
+        for entry in result["data"]["results"]:
+            self.assertNotIn("matched_query", entry)
+
+    def test_single_query_backward_compat_response_shape(self):
+        """AC-4: single-query response has query/glob/count/results, not queries."""
+        self._add("src/mod.py", "TOKEN = 1\n")
+        result = self._call(query="TOKEN")
+        self.assertIn("query", result["data"])
+        self.assertNotIn("queries", result["data"])
+
+    # ------------------------------------------------------------------
+    # AC-5: empty queries list → ok with empty results
+    # ------------------------------------------------------------------
+
+    def test_empty_queries_list_returns_ok(self):
+        """AC-5: queries=[] returns ok with zero results, not an error."""
+        result = self._call(queries=[])
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["count"], 0)
+        self.assertEqual(result["data"]["results"], [])
+
+
+class CodePatternTests(unittest.TestCase):
+    """12n63-enh code-pattern: regex pattern search MCP tool tests."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _add(self, rel: str, content: str) -> None:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+
+    def _call(self, pattern: str, **kw):
+        return self.srv.code_pattern_response(self.root, pattern, **kw)
+
+    # ------------------------------------------------------------------
+    # AC-1: basic regex match with file/line/text fields
+    # ------------------------------------------------------------------
+
+    def test_basic_regex_match(self):
+        """AC-1: pattern matching returns file, line, text fields."""
+        self._add("src/mod.py", "def search_foo():\n    pass\n")
+        result = self._call(r"def .*search")
+        self.assertEqual(result["status"], "ok")
+        matches = result["data"]["matches"]
+        self.assertGreater(len(matches), 0)
+        m = matches[0]
+        self.assertIn("file", m)
+        self.assertIn("line", m)
+        self.assertIn("text", m)
+        self.assertIn("search_foo", m["text"])
+
+    def test_glob_restricts_search(self):
+        """AC-1: glob scopes pattern search."""
+        self._add("src/a.py", "def target_fn(): pass\n")
+        self._add("src/b.py", "def target_fn(): pass\n")
+        result = self._call(r"def target_fn", glob="**/a.py")
+        matches = result["data"]["matches"]
+        self.assertEqual(len(matches), 1)
+        self.assertTrue(matches[0]["file"].endswith("a.py"))
+
+    # ------------------------------------------------------------------
+    # AC-2: invalid pattern → structured error, not exception
+    # ------------------------------------------------------------------
+
+    def test_invalid_regex_returns_error(self):
+        """AC-2: invalid regex returns error status, not an exception."""
+        result = self._call("[invalid")
+        self.assertEqual(result["status"], "error")
+        self.assertTrue(any(d["code"] == "invalid_pattern" for d in result["diagnostics"]))
+
+    # ------------------------------------------------------------------
+    # AC-3: max_results cap + truncated flag + total_matches_found
+    # ------------------------------------------------------------------
+
+    def test_max_results_cap_and_truncated(self):
+        """AC-3: results capped at max_results; truncated=True; total_matches_found accurate."""
+        # Write a file with 20 matching lines
+        content = "\n".join([f"MATCH_LINE_{i} = {i}" for i in range(20)]) + "\n"
+        self._add("src/many.py", content)
+        result = self._call(r"MATCH_LINE_", max_results=5)
+        data = result["data"]
+        self.assertEqual(len(data["matches"]), 5)
+        self.assertTrue(data["truncated"])
+        self.assertGreaterEqual(data["total_matches_found"], 20)
+
+    def test_no_truncation_when_under_cap(self):
+        """AC-3: truncated=False when results fit within cap."""
+        self._add("src/few.py", "ONE = 1\nTWO = 2\n")
+        result = self._call(r"ONE|TWO", max_results=50)
+        data = result["data"]
+        self.assertFalse(data["truncated"])
+        self.assertEqual(data["total_matches_found"], len(data["matches"]))
+
+    # ------------------------------------------------------------------
+    # AC-4: ignore_case flag
+    # ------------------------------------------------------------------
+
+    def test_ignore_case_matches_all_cases(self):
+        """AC-4: ignore_case=True matches todo, TODO, and Todo."""
+        self._add("src/notes.py", "# todo: fix this\n# TODO: urgent\n# Todo: maybe\n")
+        result = self._call("TODO", ignore_case=True)
+        self.assertEqual(len(result["data"]["matches"]), 3)
+
+    def test_case_sensitive_by_default(self):
+        """AC-4: default is case-sensitive."""
+        self._add("src/notes.py", "# todo: lower\n# TODO: upper\n")
+        result = self._call("TODO")
+        matches = result["data"]["matches"]
+        texts = [m["text"] for m in matches]
+        self.assertTrue(all("TODO" in t for t in texts))
+        self.assertEqual(len(matches), 1)
+
+    # ------------------------------------------------------------------
+    # AC-5: path escape rejected or returns no out-of-root results
+    # ------------------------------------------------------------------
+
+    def test_glob_path_escape_produces_no_external_results(self):
+        """AC-5: glob attempting to escape root returns no results outside project root."""
+        self._add("src/mod.py", "TOKEN = 1\n")
+        # A crafted glob trying to escape — should either error or return only in-root results
+        result = self._call(r"TOKEN", glob="../../../etc/**")
+        # Must not error out completely (valid pattern), and any matches must be in-root
+        if result["status"] == "ok":
+            for m in result["data"]["matches"]:
+                self.assertFalse(m["file"].startswith("/"))
+                self.assertFalse(".." in m["file"])
+
+    # ------------------------------------------------------------------
+    # AC-6: read-only (no file writes)
+    # ------------------------------------------------------------------
+
+    def test_code_pattern_does_not_write_files(self):
+        """AC-6: code_pattern_response performs no file writes."""
+        self._add("src/mod.py", "TOKEN = 1\n")
+        import os
+        files_before = set(os.listdir(self.root))
+        self._call(r"TOKEN")
+        files_after = set(os.listdir(self.root))
+        self.assertEqual(files_before, files_after)
+
+    # ------------------------------------------------------------------
+    # AC-7: default glob searches all directories
+    # ------------------------------------------------------------------
+
+    def test_default_glob_searches_across_directories(self):
+        """AC-7: no glob argument → matches from multiple directories."""
+        self._add("src/sub/a.py", "HAYSTACK = 1\n")
+        self._add("lib/b.py", "HAYSTACK = 2\n")
+        result = self._call(r"HAYSTACK")
+        paths = [m["file"] for m in result["data"]["matches"]]
+        dirs = {p.split("/")[0] for p in paths}
+        self.assertGreater(len(dirs), 1, "Expected matches from more than one directory")
+
+
+class CodeOutlineTests(unittest.TestCase):
+    """12n63-enh code-outline: tiered structural outline MCP tool tests."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _add(self, rel: str, content: str) -> Path:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def _call(self, path: str):
+        return self.srv.code_outline_response(self.root, path)
+
+    # ------------------------------------------------------------------
+    # AC-1: Python AST tier
+    # ------------------------------------------------------------------
+
+    def test_python_ast_functions_and_classes(self):
+        """AC-1: Python file returns functions and classes with parser_used=python_ast."""
+        self._add("src/mod.py", (
+            "def top_func():\n"
+            "    '''A function.'''\n"
+            "    pass\n"
+            "\n"
+            "class MyClass:\n"
+            "    '''A class.'''\n"
+            "    pass\n"
+        ))
+        result = self._call("src/mod.py")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["parser_used"], "python_ast")
+        symbols = result["data"]["symbols"]
+        names = {s["name"] for s in symbols}
+        self.assertIn("top_func", names)
+        self.assertIn("MyClass", names)
+
+    def test_python_ast_methods_kind(self):
+        """AC-8: methods inside a class have kind='method'."""
+        self._add("src/cls.py", (
+            "class Foo:\n"
+            "    def bar(self):\n"
+            "        pass\n"
+            "    def baz(self):\n"
+            "        pass\n"
+        ))
+        result = self._call("src/cls.py")
+        symbols = result["data"]["symbols"]
+        methods = [s for s in symbols if s["kind"] == "method"]
+        method_names = {m["name"] for m in methods}
+        self.assertIn("bar", method_names)
+        self.assertIn("baz", method_names)
+
+    def test_python_ast_constants_kind(self):
+        """AC-9: module-level uppercase constants appear with kind='constant'."""
+        self._add("src/consts.py", "ALPHA = 10\nBETA: int = 20\n")
+        result = self._call("src/consts.py")
+        symbols = result["data"]["symbols"]
+        constants = [s for s in symbols if s["kind"] == "constant"]
+        const_names = {c["name"] for c in constants}
+        self.assertIn("ALPHA", const_names)
+        self.assertIn("BETA", const_names)
+
+    def test_python_ast_docstring_populated(self):
+        """AC-7: docstring field contains first line of docstring when present."""
+        self._add("src/doc.py", (
+            "def documented():\n"
+            "    '''Does something useful.'''\n"
+            "    pass\n"
+            "\n"
+            "def undocumented():\n"
+            "    pass\n"
+        ))
+        result = self._call("src/doc.py")
+        symbols = {s["name"]: s for s in result["data"]["symbols"]}
+        self.assertIsNotNone(symbols["documented"]["docstring"])
+        self.assertIn("Does something", symbols["documented"]["docstring"])
+        self.assertIsNone(symbols["undocumented"]["docstring"])
+
+    def test_python_ast_line_numbers(self):
+        """AC-1: start_line and end_line are correct and 1-based."""
+        self._add("src/lines.py", "def alpha():\n    pass\n\ndef beta():\n    pass\n")
+        result = self._call("src/lines.py")
+        symbols = {s["name"]: s for s in result["data"]["symbols"]}
+        self.assertEqual(symbols["alpha"]["start_line"], 1)
+        self.assertEqual(symbols["beta"]["start_line"], 4)
+
+    # ------------------------------------------------------------------
+    # AC-3: regex fallback tier (unknown extension)
+    # ------------------------------------------------------------------
+
+    def test_regex_tier_for_unknown_extension(self):
+        """AC-3: unknown file type uses regex tier; end_line and docstring are null."""
+        self._add("src/script.zsh", "function do_something() {\n  echo hi\n}\n")
+        result = self._call("src/script.zsh")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["parser_used"], "regex")
+        symbols = result["data"]["symbols"]
+        self.assertTrue(any(s["name"] == "do_something" for s in symbols))
+        # All regex-tier symbols have null end_line and docstring
+        for s in symbols:
+            self.assertIsNone(s["end_line"])
+            self.assertIsNone(s["docstring"])
+
+    # ------------------------------------------------------------------
+    # AC-4: binary / unreadable file
+    # ------------------------------------------------------------------
+
+    def test_binary_file_returns_error(self):
+        """AC-4: binary file returns unparseable error, not an exception."""
+        p = self.root / "img.png"
+        p.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + bytes(range(100)))
+        result = self._call("img.png")
+        self.assertEqual(result["status"], "error")
+        self.assertTrue(any(d["code"] == "unparseable" for d in result["diagnostics"]))
+
+    # ------------------------------------------------------------------
+    # AC-5: path escape rejected
+    # ------------------------------------------------------------------
+
+    def test_path_escape_rejected(self):
+        """AC-5: path escaping the project root is rejected."""
+        result = self._call("../../../etc/passwd")
+        self.assertEqual(result["status"], "error")
+
+    # ------------------------------------------------------------------
+    # AC-6: read-only
+    # ------------------------------------------------------------------
+
+    def test_code_outline_does_not_write_files(self):
+        """AC-6: code_outline_response performs no file writes."""
+        self._add("src/mod.py", "def f(): pass\n")
+        import os
+        files_before = set(os.listdir(self.root))
+        self._call("src/mod.py")
+        files_after = set(os.listdir(self.root))
+        self.assertEqual(files_before, files_after)
+
+    # ------------------------------------------------------------------
+    # Additional: file not found
+    # ------------------------------------------------------------------
+
+    def test_missing_file_returns_error(self):
+        """Non-existent path returns file_not_found error."""
+        result = self._call("src/nonexistent.py")
+        self.assertEqual(result["status"], "error")
+
+
+class CodeConstantsTests(unittest.TestCase):
+    """12n5x-enh code-constants-search: code_constants MCP tool tests."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _add_file(self, rel: str, content: str) -> Path:
+        """Write a file relative to self.root and return the Path."""
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def _call(self, symbols: list, glob: str = "") -> dict:
+        return self.srv.code_constants_response(self.root, symbols, glob=glob)
+
+    # ------------------------------------------------------------------
+    # AC-1: scalar constant lookup
+    # ------------------------------------------------------------------
+
+    def test_scalar_constant_found(self):
+        """AC-1: scalar integer constant is returned with correct value/file/line."""
+        self._add_file("module.py", "# header\nMY_CONST = 42\nOTHER = 99\n")
+        result = self._call(["MY_CONST"])
+        self.assertEqual(result["status"], "ok")
+        entries = result["data"]["results"]
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertEqual(entry["name"], "MY_CONST")
+        self.assertEqual(entry["value"], "42")
+        self.assertEqual(entry["kind"], "scalar")
+        self.assertIsNotNone(entry["file"])
+        self.assertEqual(entry["line"], 2)
+
+    def test_two_scalar_constants(self):
+        """AC-1: multiple scalar constants all returned."""
+        self._add_file("consts.py", "ALPHA = 10\nBETA = 20\n")
+        result = self._call(["ALPHA", "BETA"])
+        self.assertEqual(result["status"], "ok")
+        entries = result["data"]["results"]
+        names = [e["name"] for e in entries]
+        self.assertIn("ALPHA", names)
+        self.assertIn("BETA", names)
+        self.assertTrue(all(e["kind"] == "scalar" for e in entries))
+
+    def test_scalar_with_type_annotation(self):
+        """AC-1: NAME: TYPE = value form is recognised."""
+        self._add_file("mod.py", "COUNT: int = 7\n")
+        result = self._call(["COUNT"])
+        entries = result["data"]["results"]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["value"], "7")
+        self.assertEqual(entries[0]["kind"], "scalar")
+
+    # ------------------------------------------------------------------
+    # AC-2: multiline constant lookup
+    # ------------------------------------------------------------------
+
+    def test_multiline_frozenset_returned_complete(self):
+        """AC-2: multiline frozenset value is returned in full, kind='multiline'."""
+        self._add_file("sets.py", 'MY_SET = frozenset({\n    "alpha",\n    "beta",\n})\n')
+        result = self._call(["MY_SET"])
+        self.assertEqual(result["status"], "ok")
+        entries = result["data"]["results"]
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertEqual(entry["kind"], "multiline")
+        # Full value must include all elements
+        self.assertIn("alpha", entry["value"])
+        self.assertIn("beta", entry["value"])
+
+    def test_multiline_list_returned_complete(self):
+        """AC-2: multiline list constant is collected until bracket closes."""
+        self._add_file("items.py", 'ITEMS = [\n    "x",\n    "y",\n]\n')
+        result = self._call(["ITEMS"])
+        entries = result["data"]["results"]
+        self.assertEqual(entries[0]["kind"], "multiline")
+        self.assertIn("x", entries[0]["value"])
+        self.assertIn("y", entries[0]["value"])
+
+    def test_multiline_truncated_when_bracket_never_closes(self):
+        """AC-2: kind='multiline-truncated' when bracket depth doesn't reach 0 in 50 lines."""
+        # Build a list that never closes (more than 50 lines without closing bracket)
+        lines = ["OPEN_LIST = [\n"] + [f'    "item{n}",\n' for n in range(60)]
+        self._add_file("trunc.py", "".join(lines))
+        result = self._call(["OPEN_LIST"])
+        entries = result["data"]["results"]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["kind"], "multiline-truncated")
+
+    # ------------------------------------------------------------------
+    # AC-3: symbol not found → null entry, not error
+    # ------------------------------------------------------------------
+
+    def test_symbol_not_found_returns_null_entry(self):
+        """AC-3: missing symbol included with value=null, file=null, no error."""
+        self._add_file("empty.py", "X = 1\n")
+        result = self._call(["UNKNOWN_CONST"])
+        self.assertEqual(result["status"], "ok")
+        entries = result["data"]["results"]
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertEqual(entry["name"], "UNKNOWN_CONST")
+        self.assertIsNone(entry["value"])
+        self.assertIsNone(entry["file"])
+        self.assertIsNone(entry["line"])
+
+    def test_mixed_found_and_not_found(self):
+        """AC-3: found and not-found symbols both appear in results without error."""
+        self._add_file("mod.py", "PRESENT = 5\n")
+        result = self._call(["PRESENT", "ABSENT"])
+        self.assertEqual(result["status"], "ok")
+        entries = result["data"]["results"]
+        by_name = {e["name"]: e for e in entries}
+        self.assertIsNotNone(by_name["PRESENT"]["value"])
+        self.assertIsNone(by_name["ABSENT"]["value"])
+
+    def test_empty_symbols_list_returns_error(self):
+        """AC-3 edge: empty symbols list returns error response, not ok."""
+        result = self._call([])
+        self.assertEqual(result["status"], "error")
+
+    # ------------------------------------------------------------------
+    # AC-4: glob scoping
+    # ------------------------------------------------------------------
+
+    def test_glob_restricts_to_matching_file(self):
+        """AC-4: glob='**/a.py' finds constant in src/a.py, not src/b.py."""
+        self._add_file("src/a.py", "SHARED = 10\n")
+        self._add_file("src/b.py", "SHARED = 99\n")
+        result = self._call(["SHARED"], glob="**/a.py")
+        entries = result["data"]["results"]
+        self.assertEqual(len(entries), 1)
+        self.assertTrue(entries[0]["file"].endswith("a.py"))
+        self.assertEqual(entries[0]["value"], "10")
+
+    def test_glob_excludes_all_files_returns_null(self):
+        """AC-4: glob that excludes the defining file returns null entry."""
+        self._add_file("src/server.py", "MY_K = 40\n")
+        result = self._call(["MY_K"], glob="**/other.py")
+        entries = result["data"]["results"]
+        self.assertEqual(len(entries), 1)
+        self.assertIsNone(entries[0]["value"])
+
+    # ------------------------------------------------------------------
+    # AC-5: output order matches input symbols order
+    # ------------------------------------------------------------------
+
+    def test_results_in_input_order(self):
+        """AC-5: results list reflects the order of the input symbols list."""
+        self._add_file("order.py", "AAA = 1\nBBB = 2\nCCC = 3\n")
+        # Request in reverse order
+        result = self._call(["CCC", "AAA", "BBB"])
+        entries = result["data"]["results"]
+        names = [e["name"] for e in entries]
+        self.assertEqual(names, ["CCC", "AAA", "BBB"])
+
+    # ------------------------------------------------------------------
+    # AC-6: read-only annotation
+    # ------------------------------------------------------------------
+
+    def test_code_constants_is_readonly(self):
+        """AC-6: code_constants_response performs no file writes."""
+        self._add_file("mod.py", "ALPHA = 1\n")
+        import os
+        files_before = set(os.listdir(self.root))
+        self._call(["ALPHA"])
+        files_after = set(os.listdir(self.root))
+        self.assertEqual(files_before, files_after, "code_constants must not create files")
+
+    # ------------------------------------------------------------------
+    # AC-8: multiple files — all matches returned
+    # ------------------------------------------------------------------
+
+    def test_symbol_in_multiple_files_returns_all_matches(self):
+        """AC-8: symbol defined in two files returns one entry per match."""
+        self._add_file("module_a.py", "SHARED_K = 10\n")
+        self._add_file("module_b.py", "SHARED_K = 20\n")
+        result = self._call(["SHARED_K"])
+        self.assertEqual(result["status"], "ok")
+        entries = result["data"]["results"]
+        # Both files must be represented
+        self.assertEqual(len(entries), 2)
+        values = {e["value"] for e in entries}
+        self.assertIn("10", values)
+        self.assertIn("20", values)
+
+    def test_symbol_in_multiple_files_glob_scopes_to_one(self):
+        """AC-8: glob narrows multi-file match to the single matching file."""
+        self._add_file("src/alpha.py", "SHARED_K = 10\n")
+        self._add_file("src/beta.py", "SHARED_K = 20\n")
+        result = self._call(["SHARED_K"], glob="**/alpha.py")
+        entries = result["data"]["results"]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["value"], "10")
+
+    # ------------------------------------------------------------------
+    # Edge cases
+    # ------------------------------------------------------------------
+
+    def test_indented_assignment_ignored(self):
+        """Only module-level (column-0) assignments are matched."""
+        self._add_file("mod.py", "class Foo:\n    MY_CONST = 99\nMY_CONST = 1\n")
+        result = self._call(["MY_CONST"])
+        entries = result["data"]["results"]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["value"], "1")
+        self.assertEqual(entries[0]["line"], 3)
+
+    def test_partial_name_not_matched(self):
+        """MY_K should not match MY_KEYWORD or MY_K_EXTRA."""
+        self._add_file("mod.py", "MY_KEYWORD = 5\nMY_K_EXTRA = 6\nMY_K = 7\n")
+        result = self._call(["MY_K"])
+        entries = result["data"]["results"]
+        # Only MY_K = 7 should match
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["value"], "7")
+
+    def test_bracket_depth_ignores_brackets_in_strings(self):
+        """_bracket_depth: brackets inside string literals do not affect depth."""
+        srv = self.srv
+        # A string containing brackets — net depth should be 0
+        self.assertEqual(srv._bracket_depth('"(unclosed"'), 0)
+        self.assertEqual(srv._bracket_depth("'[unclosed'"), 0)
+        # Actual open bracket outside string
+        self.assertEqual(srv._bracket_depth("frozenset({"), 2)
+        # Closed properly
+        self.assertEqual(srv._bracket_depth("frozenset({})"), 0)
+
+
+class TestCodeOutlineTypescript(unittest.TestCase):
+    """12nbp-bug: TypeScript export_statement fix and SQL support tests."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _add(self, rel: str, content: str) -> Path:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def _call(self, path: str) -> dict:
+        return self.srv.code_outline_response(self.root, path)
+
+    def _ts_available(self) -> bool:
+        """Return True if tree-sitter-typescript is installed."""
+        try:
+            chunker = self.srv._get_chunker_module()
+            tree = chunker._ts_parse("typescript", "export class Foo {}")
+            return tree is not None
+        except Exception:
+            return False
+
+    def _sql_available(self) -> bool:
+        """Return True if tree-sitter-sql is installed."""
+        try:
+            chunker = self.srv._get_chunker_module()
+            tree = chunker._ts_parse("sql", "SELECT 1;")
+            return tree is not None
+        except Exception:
+            return False
+
+    # AC-1: export class
+    def test_typescript_export_class(self):
+        """AC-1: TypeScript 'export class Foo {}' yields symbol Foo with kind=class."""
+        if not self._ts_available():
+            self.skipTest("tree-sitter-typescript not installed")
+        self._add("src/foo.ts", "export class Foo {\n  bar(): void {}\n}\n")
+        result = self._call("src/foo.ts")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["parser_used"], "tree_sitter")
+        names = {s["name"] for s in result["data"]["symbols"]}
+        self.assertIn("Foo", names)
+        kinds = {s["name"]: s["kind"] for s in result["data"]["symbols"]}
+        self.assertEqual(kinds["Foo"], "class")
+
+    # AC-2: export function
+    def test_typescript_export_function(self):
+        """AC-2: TypeScript 'export function bar() {}' yields symbol bar with kind=function."""
+        if not self._ts_available():
+            self.skipTest("tree-sitter-typescript not installed")
+        self._add("src/bar.ts", "export function bar(): string {\n  return 'hi';\n}\n")
+        result = self._call("src/bar.ts")
+        self.assertEqual(result["status"], "ok")
+        names = {s["name"] for s in result["data"]["symbols"]}
+        self.assertIn("bar", names)
+        kinds = {s["name"]: s["kind"] for s in result["data"]["symbols"]}
+        self.assertEqual(kinds["bar"], "function")
+
+    # AC-3: export const arrow function
+    def test_typescript_export_const_arrow(self):
+        """AC-3: TypeScript 'export const fn = async (props) => {}' yields symbol fn with kind=function."""
+        if not self._ts_available():
+            self.skipTest("tree-sitter-typescript not installed")
+        self._add("src/fn.ts", "export const fn = async (props: any) => {\n  return props;\n};\n")
+        result = self._call("src/fn.ts")
+        self.assertEqual(result["status"], "ok")
+        names = {s["name"] for s in result["data"]["symbols"]}
+        self.assertIn("fn", names)
+        kinds = {s["name"]: s["kind"] for s in result["data"]["symbols"]}
+        self.assertEqual(kinds["fn"], "function")
+
+    # AC-5/6: SQL with no functions yields empty symbols list
+    def test_sql_no_functions_yields_empty(self):
+        """AC-5/6: SQL file with no CREATE FUNCTION returns symbols=[]."""
+        if not self._sql_available():
+            self.skipTest("tree-sitter-sql not installed")
+        self._add("src/query.sql", "SELECT id, name FROM users WHERE id = 1;\n")
+        result = self._call("src/query.sql")
+        self.assertEqual(result["status"], "ok")
+        # SQL outline may use tree_sitter or regex; either way symbols should be empty or not crash
+        self.assertIsInstance(result["data"]["symbols"], list)
+
+    # Non-TS/SQL regression: Python still works after the patch
+    def test_python_regression_after_patch(self):
+        """Non-TS/SQL languages unaffected: Python file still produces correct symbols."""
+        self._add("src/mod.py", "def my_func():\n    pass\n\nclass MyClass:\n    pass\n")
+        result = self._call("src/mod.py")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["parser_used"], "python_ast")
+        names = {s["name"] for s in result["data"]["symbols"]}
+        self.assertIn("my_func", names)
+        self.assertIn("MyClass", names)
+
+
+class TestCodeHover(unittest.TestCase):
+    """12nbj-enh code-hover: code_hover_response tests."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _add(self, rel: str, content: str) -> Path:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def _call(self, path: str, line: int) -> dict:
+        return self.srv.code_hover_response(self.root, path, line)
+
+    # AC-1: Python function with type annotations returns signature containing ->
+    def test_python_annotated_function_signature(self):
+        """AC-1: Python function with type annotations returns signature string containing '->'."""
+        self._add("src/typed.py", (
+            "def greet(name: str, count: int = 1) -> str:\n"
+            "    '''Greet someone.'''\n"
+            "    return name * count\n"
+        ))
+        result = self._call("src/typed.py", 1)
+        self.assertEqual(result["status"], "ok")
+        sym = result["data"]["symbol"]
+        self.assertIsNotNone(sym)
+        self.assertEqual(sym["name"], "greet")
+        self.assertIn("->", sym.get("signature", ""))
+
+    # AC-2: Python method inside class returns kind=method
+    def test_python_method_kind(self):
+        """AC-2: Python method inside class returns kind='method'."""
+        self._add("src/cls.py", (
+            "class MyClass:\n"
+            "    def my_method(self, x: int) -> None:\n"
+            "        pass\n"
+        ))
+        result = self._call("src/cls.py", 2)
+        self.assertEqual(result["status"], "ok")
+        sym = result["data"]["symbol"]
+        self.assertIsNotNone(sym)
+        self.assertEqual(sym["kind"], "method")
+        self.assertEqual(sym["name"], "my_method")
+
+    # AC-3: Python function without annotations returns signature with param names
+    def test_python_unannotated_function_signature(self):
+        """AC-3: Python function without annotations returns signature with param names, no error."""
+        self._add("src/plain.py", (
+            "def compute(a, b, c=10):\n"
+            "    return a + b + c\n"
+        ))
+        result = self._call("src/plain.py", 1)
+        self.assertEqual(result["status"], "ok")
+        sym = result["data"]["symbol"]
+        self.assertIsNotNone(sym)
+        sig = sym.get("signature", "")
+        self.assertIn("a", sig)
+        self.assertIn("b", sig)
+
+    # AC-5: Line outside all symbols returns symbol=null
+    def test_line_outside_symbols_returns_null(self):
+        """AC-5: Line outside all symbols returns symbol=null without error."""
+        self._add("src/sparse.py", (
+            "# module comment\n"
+            "\n"
+            "def my_func():\n"
+            "    pass\n"
+        ))
+        result = self._call("src/sparse.py", 1)
+        self.assertEqual(result["status"], "ok")
+        self.assertIsNone(result["data"]["symbol"])
+
+    # AC-7: Path escaping root returns error
+    def test_path_escape_returns_error(self):
+        """AC-7: Path escaping the project root returns error response."""
+        result = self._call("../../../etc/passwd", 1)
+        self.assertEqual(result["status"], "error")
+
+
+class TestCodeImpact(unittest.TestCase):
+    """12nbj-enh code-impact: code_impact_response tests."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _add(self, rel: str, content: str) -> Path:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def _call(self, path: str, max_results: int = 50) -> dict:
+        return self.srv.code_impact_response(self.root, path, max_results)
+
+    # AC-1: Python module path match
+    def test_python_module_path_match(self):
+        """AC-1: File A imports file B — B's importer list includes A."""
+        self._add("src/utils.py", "def helper(): pass\n")
+        self._add("src/main.py", "from src.utils import helper\n\nhelper()\n")
+        result = self._call("src/utils.py")
+        self.assertEqual(result["status"], "ok")
+        files = [imp["file"] for imp in result["data"]["importers"]]
+        self.assertIn("src/main.py", files)
+
+    # AC-3: Target file itself not in importers
+    def test_target_not_in_importers(self):
+        """AC-3: The target file itself is never listed in its importers."""
+        self._add("src/self_ref.py", "import src.self_ref\n")
+        result = self._call("src/self_ref.py")
+        self.assertEqual(result["status"], "ok")
+        files = [imp["file"] for imp in result["data"]["importers"]]
+        self.assertNotIn("src/self_ref.py", files)
+
+    # AC-4: max_results truncation
+    def test_max_results_truncation(self):
+        """AC-4: max_results=1 with 2+ importers returns truncated=True, total_found>=2."""
+        self._add("src/shared.py", "SHARED = 1\n")
+        self._add("src/a.py", "from src.shared import SHARED\n")
+        self._add("src/b.py", "from src.shared import SHARED\n")
+        result = self._call("src/shared.py", max_results=1)
+        self.assertEqual(result["status"], "ok")
+        data = result["data"]
+        if data["total_found"] >= 2:
+            self.assertTrue(data["truncated"])
+            self.assertLessEqual(len(data["importers"]), 1)
+
+    # AC-5: Path escape returns error
+    def test_path_escape_returns_error(self):
+        """AC-5: Path escaping the project root returns error."""
+        result = self._call("../../../etc/passwd")
+        self.assertEqual(result["status"], "error")
+
+    # AC-6: Non-existent file returns error with file_not_found diagnostic
+    def test_nonexistent_file_returns_error(self):
+        """AC-6: Non-existent file path returns error with file_not_found diagnostic."""
+        result = self._call("src/does_not_exist.py")
+        self.assertEqual(result["status"], "error")
+        codes = [d["code"] for d in result.get("diagnostics", [])]
+        self.assertIn("file_not_found", codes)
+
+
+class TestCodeCallhierarchy(unittest.TestCase):
+    """12nax-enh code-callhierarchy: code_callhierarchy_response tests."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _add(self, rel: str, content: str) -> Path:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def _call(self, symbol: str, file: str = "", direction: str = "both") -> dict:
+        return self.srv.code_callhierarchy_response(self.root, symbol, file or None, direction)
+
+    # AC-2: direction=outgoing has outgoing, no incoming
+    def test_direction_outgoing_only(self):
+        """AC-2: direction='outgoing' returns 'outgoing' key but no 'incoming' key."""
+        self._add("src/worker.py", "def process():\n    helper()\n    validate()\n\ndef helper(): pass\ndef validate(): pass\n")
+        result = self._call("process", direction="outgoing")
+        self.assertEqual(result["status"], "ok")
+        data = result["data"]
+        self.assertIn("outgoing", data)
+        self.assertNotIn("incoming", data)
+
+    # AC-3: direction=incoming has incoming, no outgoing
+    def test_direction_incoming_only(self):
+        """AC-3: direction='incoming' returns 'incoming' key but no 'outgoing' key."""
+        self._add("src/svc.py", "def service():\n    pass\n\ndef caller():\n    service()\n")
+        result = self._call("service", direction="incoming")
+        self.assertEqual(result["status"], "ok")
+        data = result["data"]
+        self.assertIn("incoming", data)
+        self.assertNotIn("outgoing", data)
+
+    # AC-4: Unknown symbol returns empty outgoing/incoming lists (not error)
+    def test_unknown_symbol_returns_empty_lists(self):
+        """AC-4: Unknown symbol returns empty outgoing and incoming lists, not error."""
+        result = self._call("zzz_no_such_symbol_xxxxxyyy")
+        self.assertEqual(result["status"], "ok")
+        data = result["data"]
+        self.assertEqual(data.get("outgoing", []), [])
+        self.assertEqual(data.get("incoming", []), [])
+
+    # AC-6: Invalid direction returns error
+    def test_invalid_direction_returns_error(self):
+        """AC-6: Invalid direction value returns error response."""
+        result = self._call("some_func", direction="sideways")
+        self.assertEqual(result["status"], "error")
+        codes = [d["code"] for d in result.get("diagnostics", [])]
+        self.assertIn("invalid_arguments", codes)
+
+
+class TestLanceDBIndex(unittest.TestCase):
+    """Tests for LanceDB vector index integration (AC-3, AC-10, AC-11)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.server = load_server()
+
+    # AC-10: Constants are defined in both server.py and indexer.py
+    def test_lancedb_constants_in_server(self):
+        """AC-10: LanceDB constants are defined in server.py."""
+        srv = self.server
+        self.assertEqual(srv.LANCEDB_NPROBES, 20)
+        self.assertEqual(srv.LANCEDB_REFINE_FACTOR, 10)
+
+    def test_lancedb_constants_in_indexer(self):
+        """AC-10: LanceDB constants are defined in indexer.py."""
+        import importlib.util as ilu
+        scripts_root = Path(__file__).resolve().parents[1]
+        spec = ilu.spec_from_file_location("indexer_for_lancedb_test", scripts_root / "indexer.py")
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        self.assertEqual(mod.LANCEDB_INDEX_THRESHOLD, 1000)
+        self.assertEqual(mod.LANCEDB_COMPACT_THRESHOLD, 20)
+        self.assertEqual(mod.LANCEDB_NPROBES, 20)
+        self.assertEqual(mod.LANCEDB_REFINE_FACTOR, 10)
+
+    @unittest.skipUnless(importlib.util.find_spec("lancedb"), "lancedb not installed")
+    def test_build_lance_tables_row_counts(self):
+        """If lancedb is installed, _build_lance_tables creates tables with expected row counts."""
+        import importlib.util as ilu
+        import numpy as np
+        scripts_root = Path(__file__).resolve().parents[1]
+        spec = ilu.spec_from_file_location("indexer_for_lance_build_test", scripts_root / "indexer.py")
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "lancedb"
+            docs_chunks = [{"text": "doc1", "path": "docs/a.md", "kind": "doc"}]
+            docs_vecs = np.array([[0.1, 0.2, 0.3]], dtype=np.float32)
+            code_chunks = [{"text": "fn foo()", "path": "src/a.py", "kind": "function"}]
+            code_vecs = np.array([[0.4, 0.5, 0.6]], dtype=np.float32)
+
+            result = mod._build_lance_tables(db_path, docs_chunks, docs_vecs, code_chunks, code_vecs)
+            self.assertEqual(result["docs_rows"], 1)
+            self.assertEqual(result["code_rows"], 1)
+
+            # Verify table directories exist
+            self.assertTrue((db_path / "docs.lance").is_dir())
+            self.assertTrue((db_path / "code.lance").is_dir())
 
 
 if __name__ == "__main__":

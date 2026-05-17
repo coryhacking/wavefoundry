@@ -12,6 +12,12 @@ sys.dont_write_bytecode = True
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _TESTS_DIR = _SCRIPT_DIR / "tests"
 
+# Ensure scripts/ is on sys.path explicitly — tests/  __init__.py handles this
+# for individual-file runs; repeat it here so run_tests.py is self-contained
+# and does not rely on Python's implicit entry-point path insertion.
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
 
 def main() -> int:
     argv = [

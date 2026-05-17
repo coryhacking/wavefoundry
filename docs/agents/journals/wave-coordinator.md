@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-14
+Last verified: 2026-05-15
 
 Actor: wave-coordinator
 Schema version: 1.0
@@ -49,6 +49,10 @@ wave-id: `12ec2 index-build-stats-persistence`
 wave-id: `12dv9 chunk-tags`
 
 - Closed 2026-05-10: `tags: list[str]` field on Chunk, path-pattern heuristics in `_tag_utils.py`, `tags` filter on `docs_search`/`code_search`, CHUNKER_VERSION bumped, seed-211 Tags Filter section complete.
+
+wave-id: `12mns code-ask-retrieval-quality`
+
+- Planned 2026-05-14: five retrieval quality improvements from CDK monorepo field feedback — question-type-aware candidate weighting (CDK path penalty, RRF bias), timing instrumentation, agent guidance (layer recognition, call chain, SQL follow-up), SQL candidate boosting, dynamic VECTOR_TOP_K.
 
 wave-id: `12mc3 agent-detail-panel-blank-section-mismatch`
 
@@ -98,6 +102,11 @@ wave-id: `12g47 dashboard-framework`
 - Sensitive coordinator findings (e.g., trust boundary violations, security-relevant decisions): redact detail; note that the full record is in a secure channel.
 - Review: distill at every wave closure; promote repeated, validated lessons to `docs/references/project-context-memory.md`.
 - Retire entries when the constraint is no longer load-bearing. Delete retired entries after one wave cycle.
+
+## Active Waves
+
+wave-id: `12nbr code-intelligence-expansion`
+- Five code-intelligence changes: `code_callhierarchy`, LanceDB vector index, `code_hover`, `code_impact`, `code_outline` TS/SQL bug fix. Status: planned. Bug fix (`12nbp`) is independently deployable and highest-priority.
 
 ## Active Watchpoints
 

@@ -50,7 +50,7 @@ Before drafting the change doc, run an orientation pass to ground the plan in in
 
 ```
 code_search(topic, kind="code-summary", limit=5)   # which modules are relevant?
-code_ask("how does X currently work?")              # existing behavior
+code_ask("how does X currently work?")              # existing behavior; inspect partition_applied/final_rank when present
 code_dependencies(path)                             # what does the target file depend on?
 ```
 

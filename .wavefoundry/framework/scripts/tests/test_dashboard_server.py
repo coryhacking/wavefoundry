@@ -172,6 +172,29 @@ Owner: Engineering
     )
 
 
+def _write_dashboard_lance_index(root: Path, *, docs_chunks: list[dict] | None = None, code_chunks: list[dict] | None = None) -> None:
+    import lancedb
+
+    index_dir = root / ".wavefoundry" / "index"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    meta: dict[str, object] = {
+        "built_at": "2026-05-16T00:00:00Z",
+        "model_versions": {"docs": "BAAI/bge-base-en-v1.5", "code": "BAAI/bge-base-en-v1.5"},
+        "content": [],
+        "file_meta": {},
+    }
+    if docs_chunks is not None:
+        meta["content"].append("docs")
+    if code_chunks is not None:
+        meta["content"].append("code")
+    (index_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    db = lancedb.connect(str(index_dir))
+    if docs_chunks:
+        db.create_table("docs", data=[{**chunk, "vector": [0.0, 0.0, 0.0, 0.0]} for chunk in docs_chunks], mode="overwrite")
+    if code_chunks:
+        db.create_table("code", data=[{**chunk, "vector": [0.0, 0.0, 0.0, 0.0]} for chunk in code_chunks], mode="overwrite")
+
+
 def _make_planned_wave(root: Path) -> None:
     wave_dir = root / "docs" / "waves" / "12y planned-wave"
     _write(
@@ -394,6 +417,24 @@ Wave: `12x test-wave`
         self.assertEqual(snapshot["metrics"]["scope"], "pending_changes")
         self.assertEqual(snapshot["metrics"]["acs"]["total"], 2)
         self.assertEqual(snapshot["metrics"]["acs"]["pending"], 2)
+
+    def test_collect_dashboard_snapshot_reads_lance_chunk_counts_without_legacy_json(self):
+        root = Path(self.tmp.name) / "lance-stats"
+        root.mkdir(parents=True, exist_ok=True)
+        _make_repo(root)
+        _make_wave(root)
+        _write_dashboard_lance_index(
+            root,
+            docs_chunks=[{"path": "docs/guide.md", "text": "Doc chunk", "kind": "doc"}],
+            code_chunks=[{"path": "src/app.py", "text": "def app(): pass", "kind": "code"}],
+        )
+
+        snapshot = self.lib.collect_dashboard_snapshot(root)
+        project = snapshot["health"]["index"]["project"]
+
+        self.assertEqual(project["doc_chunks"], 1)
+        self.assertEqual(project["code_chunks"], 1)
+        self.assertEqual(project["files_indexed"], 2)
 
     def test_collect_dashboard_snapshot_parses_plain_bullet_items_for_complete_change(self):
         wave_dir = self.root / "docs" / "waves" / "12x test-wave"

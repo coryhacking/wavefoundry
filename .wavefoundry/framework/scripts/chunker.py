@@ -10,7 +10,19 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Optional
 
-from _tag_utils import infer_tags as _infer_tags
+try:
+    from _tag_utils import infer_tags as _infer_tags
+except ImportError:  # pragma: no cover - exercised when chunker is loaded as a standalone script module
+    import importlib.util
+    from pathlib import Path
+
+    _tag_utils_path = Path(__file__).resolve().with_name("_tag_utils.py")
+    _tag_utils_spec = importlib.util.spec_from_file_location("_tag_utils", _tag_utils_path)
+    if _tag_utils_spec is None or _tag_utils_spec.loader is None:
+        raise
+    _tag_utils_mod = importlib.util.module_from_spec(_tag_utils_spec)
+    _tag_utils_spec.loader.exec_module(_tag_utils_mod)
+    _infer_tags = _tag_utils_mod.infer_tags
 
 _log = logging.getLogger(__name__)
 

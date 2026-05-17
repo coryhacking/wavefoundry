@@ -27,7 +27,7 @@ python3 .wavefoundry/framework/scripts/build_pack.py
 python3 -B .wavefoundry/framework/scripts/run_tests.py
 ```
 
-3. Run the packaging command once. It stamps `.wavefoundry/framework/VERSION`, rebuilds `.wavefoundry/framework/index/` by default, and creates the zip.
+3. Run the packaging command once. It stamps `.wavefoundry/framework/VERSION`, updates `.wavefoundry/framework/index/` by default, compacts the LanceDB tables, and creates the zip.
 4. Review the produced zip name and stamped `VERSION` for consistency.
 5. Hand off diff + suggested commit message unless the operator explicitly asks to finalize the commit in this request.
 
@@ -47,7 +47,7 @@ wavefoundry-YYYY-MM-DDx.zip
 
 - `--output <dir>`: write zip to an existing directory.
 - `--date <YYYY-MM-DD>`: override date for filename, suffix scan, and `VERSION` stamp (tests/exceptional rebuilds only).
-- `--skip-framework-index`: skip rebuilding `.wavefoundry/framework/index/` (emergency use only).
+- `--skip-framework-index`: skip updating and compacting `.wavefoundry/framework/index/` (emergency use only).
 
 ## Upgrade Path Coverage
 

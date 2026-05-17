@@ -17,7 +17,7 @@ Treat the Wave Framework as complete enough for active use only when all of the 
 6. The framework includes example flows that demonstrate the intended operating model end to end.
 7. The repo-local specialization story is explicit: shared docs stay generic, while seeded repositories hold local reviewers, personas, exact artifact paths, and operating exceptions.
 8. The docs gate passes after framework doc changes.
-9. Maintainer docs and seeded `package-wavefoundry` / `build-and-verification` text stay aligned with `scripts/build_pack.py`: packaging date defaults to **today**; the new zip’s suffix letter is the **successor of the max letter already used for that date** in the output directory; before the final zip build, `docs/prompts/prompt-surface-manifest.json` **`framework_revision`** is updated to the revision being packaged; then `VERSION` is stamped to that same revision before the zip is written.
+9. Maintainer docs and seeded `package-wavefoundry` / `build-and-verification` text stay aligned with `scripts/build_pack.py`: packaging date defaults to **today**; the new zip’s suffix letter is the **successor of the max letter already used for that date** in the output directory; before the final zip build, `docs/prompts/prompt-surface-manifest.json` **`framework_revision`** is updated to the revision being packaged; then `VERSION` is stamped to that same revision and `framework/index/` is updated and compacted before the zip is written.
 
 When one or more items above are false, treat the framework as still hardening rather than complete.
 

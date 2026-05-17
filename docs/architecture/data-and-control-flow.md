@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-12
+Last verified: 2026-05-15
 
 ## Primary Control Paths
 
@@ -78,7 +78,7 @@ Last verified: 2026-05-12
 4. **Anchor tool** (`wave_map`): resolves `doc:` / `code:` / `seed:` addresses against the repo root (shared containment rules with future file-navigation tools) and returns trust metadata plus excerpts
 5. **Inspection tools** (`wave_current`, `wave_list_waves`, `wave_list_plans`, `wave_get_change`, `wave_get_prompt`): read `docs/waves/`, `docs/plans/`, and `docs/prompts/` via regex parsing and return structured data plus recovery hints (with per-process caching for wave/plan lists and prompt resolution keyed by prompt file mtimes); `wave_current` returns all non-closed waves as `data.waves[]` (ordered active → planned → paused, with per-entry `next_action` — `implement_wave` / `prepare_wave` / `resume_wave`) and runs advisory drift detection against the active wave only; `wave_get_change(wave_id=...)` supports bulk mode returning all admitted changes for a wave in one call; `docs_search` responses include a `mode` field (`"semantic"` or `"lexical"`) for fallback transparency
 5b. **Session handoff tools** (`wave_get_handoff`, `wave_set_handoff`): read and write `docs/agents/session-handoff.md` for cross-session state continuity; `wave_set_handoff` triggers a background docs-index refresh after successful writes
-6. **Code navigation tools — exact layer** (`code_list_files`, `code_read`, `code_keyword_search`): walk repo files using indexer's ignore/exclusion rules, perform substring search or ranged file reads; all paths validated against repo root to prevent traversal; return deterministic path/line/snippet results
+6. **Code navigation tools — exact layer** (`code_list_files`, `code_read`, `code_keyword`): walk repo files using indexer's ignore/exclusion rules, perform substring search or ranged file reads; all paths validated against repo root to prevent traversal; return deterministic path/line/snippet results
 6b. **Code navigation tools — symbol layer** (`code_definition`, `code_references`): Python AST definitions plus tree-sitter-backed Java/C#/JS/TS navigation, with structural/text fallback for other supported non-Python languages and broad keyword fallback when unmatched
 7. **Creation tools** (`wave_new_*`): import `lifecycle_id.py` directly, generate change ID, scaffold docs in `docs/plans/`, and return repeat-safe diagnostics when the artifact already exists
 8. **Lifecycle mutation tools** (`wave_add_change`, `wave_remove_change`, `wave_prepare`): update the wave record and keep admitted change docs in the wave folder; add-change relocates immediately and inserts the new `Change ID:` block inside the wave's `## Changes` section (tail-append, preserving admission order), remove-change moves active docs back to `docs/plans/`, and prepare validates or repairs placement drift; `wave_prepare` enforces the single-active-wave invariant by returning an `another_wave_active` diagnostic (with `wave_pause` recovery) when any other wave is already `active`; successful write paths request a detached background docs-index refresh so non-hook clients do not depend on editor hooks for search freshness

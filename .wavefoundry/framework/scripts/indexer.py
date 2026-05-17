@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 from contextlib import contextmanager
@@ -20,17 +21,20 @@ sys.dont_write_bytecode = True
 # ---------------------------------------------------------------------------
 
 INDEX_DIR_NAME = ".wavefoundry/index"
-DOCS_NPY = "docs.npy"
-DOCS_JSON = "docs.json"
-CODE_NPY = "code.npy"
-CODE_JSON = "code.json"
 META_JSON = "meta.json"
 LOCK_DIR_NAME = ".build.lock"
 LOCK_STALE_SECONDS = 60 * 60
 
 DOCS_MODEL = "BAAI/bge-base-en-v1.5"
 CODE_MODEL = "BAAI/bge-base-en-v1.5"
-RERANKER_MODEL = "BAAI/bge-reranker-base"
+
+# LanceDB vector index constants
+# Tables are stored directly inside the index directory (e.g. .wavefoundry/index/docs.lance/).
+LANCEDB_INDEX_THRESHOLD = 1000   # rows; below: flat scan; at/above: IVF_HNSW_SQ index
+LANCEDB_COMPACT_THRESHOLD = 20   # fragment count threshold; triggers optimize() after add/delete
+LANCEDB_NPROBES = 20             # ANN search probes (recall vs latency)
+LANCEDB_REFINE_FACTOR = 10       # reranking candidates multiplier
+RERANKER_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
 CONTENT_CHOICES = ("docs", "code", "all")
 SOURCE_CODE_EXTENSIONS = {
     ".py",
@@ -69,6 +73,8 @@ GENERATED_CODE_PREFIXES = (
 FRAMEWORK_TEST_PREFIXES = (
     ".wavefoundry/framework/scripts/tests/",
 )
+FRAMEWORK_PACK_ARTIFACT_NAMES = {"MANIFEST", "VERSION"}
+FRAMEWORK_PACK_ARTIFACT_PREFIXES = ("MANIFEST.pre-",)
 TEST_DIR_NAMES = {"test", "tests", "__tests__"}
 
 # Directories and patterns always excluded regardless of .gitignore/.aiignore
@@ -153,6 +159,10 @@ _DOT_DIR_ALLOWLIST_PREFIX = ".wavefoundry/"
 # null-byte/magic-byte sniff changes). A version mismatch forces a full rebuild so that
 # files newly excluded by the filter are removed from existing indexes automatically.
 WALKER_VERSION = "5"
+
+# Environment variable used by the MCP server to tell the background indexer
+# which state file to remove once the process exits.
+INDEX_BUILD_STATE_PATH_ENV = "WAVEFOUNDRY_INDEX_BUILD_STATE_PATH"
 
 # ---------------------------------------------------------------------------
 # Ignore file parsing
@@ -441,6 +451,20 @@ def _filter_project_index_excludes(
     ]
 
 
+def _filter_framework_pack_artifacts(files: list[Path], root: Path) -> list[Path]:
+    """Exclude packaging artifacts from the framework layer index."""
+    filtered: list[Path] = []
+    for path in files:
+        rel = str(path.relative_to(root)).replace("\\", "/")
+        name = path.name
+        if name in FRAMEWORK_PACK_ARTIFACT_NAMES:
+            continue
+        if any(name.startswith(prefix) for prefix in FRAMEWORK_PACK_ARTIFACT_PREFIXES):
+            continue
+        filtered.append(path)
+    return filtered
+
+
 def _normalize_prefixes(prefixes: tuple[str, ...]) -> tuple[str, ...]:
     normalized: list[str] = []
     for raw in prefixes:
@@ -518,25 +542,8 @@ def _save_meta(index_dir: Path, meta: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Chunk I/O (without numpy — for walker-only mode)
+# Atomic file write helper
 # ---------------------------------------------------------------------------
-
-def _load_chunks(index_dir: Path, name: str) -> list[dict]:
-    p = index_dir / name
-    if p.is_file():
-        try:
-            return json.loads(p.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
-    return []
-
-
-def _save_chunks(index_dir: Path, name: str, chunks: list[dict]) -> None:
-    _atomic_write_text(
-        index_dir / name,
-        json.dumps(chunks, indent=2, ensure_ascii=False),
-    )
-
 
 def _atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -545,11 +552,165 @@ def _atomic_write_text(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
-def _save_npy_atomic(index_dir: Path, name: str, array: "np.ndarray", np_module) -> None:
-    path = index_dir / name
-    tmp = index_dir / f".{name}.{os.getpid()}.tmp.npy"
-    np_module.save(str(tmp), array)
-    os.replace(tmp, path)
+# ---------------------------------------------------------------------------
+# LanceDB vector index helpers
+# ---------------------------------------------------------------------------
+
+def _auto_install_lancedb() -> None:
+    """Install lancedb automatically when missing, mirroring setup_index.py install behaviour."""
+    print("build_index: lancedb not installed — installing automatically ...", flush=True)
+    cmd = [sys.executable, "-m", "pip", "install", "lancedb"]
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        # Retry with --break-system-packages for Homebrew / externally-managed envs (PEP 668).
+        result = subprocess.run(cmd + ["--break-system-packages"], check=False)
+    if result.returncode != 0:
+        raise ImportError(
+            "lancedb auto-install failed. "
+            "Run manually: python3 .wavefoundry/framework/scripts/setup_index.py"
+        )
+    print("build_index: lancedb installed successfully.", flush=True)
+
+
+def _get_lance_db(db_path: Path):
+    try:
+        import lancedb
+    except ImportError:
+        _auto_install_lancedb()
+        import lancedb  # retry after install
+    db_path.mkdir(parents=True, exist_ok=True)
+    return lancedb.connect(str(db_path))
+
+
+def _build_lance_tables(db_path, docs_chunks, docs_vecs, code_chunks, code_vecs, verbose=False):
+    """Write docs and code as LanceDB tables under db_path.
+
+    Returns a dict with row counts: {"docs_rows": int, "code_rows": int}.
+    """
+    db = _get_lance_db(db_path)
+
+    results = {}
+    for table_name, chunks, vecs in (
+        ("docs", docs_chunks, docs_vecs),
+        ("code", code_chunks, code_vecs),
+    ):
+        rows = _make_lance_rows(chunks, vecs)
+
+        results[f"{table_name}_rows"] = len(rows)
+
+        if not rows:
+            continue
+
+        table = db.create_table(table_name, data=rows, mode="overwrite")
+
+        if len(rows) >= LANCEDB_INDEX_THRESHOLD:
+            try:
+                table.create_index(metric="cosine", index_type="IVF_HNSW_SQ", replace=True)
+                if verbose:
+                    print(
+                        f"build_index: LanceDB IVF_HNSW_SQ index created for '{table_name}' ({len(rows)} rows)",
+                        flush=True,
+                    )
+            except Exception as exc:
+                print(
+                    f"build_index: LanceDB index creation for '{table_name}' skipped ({exc})",
+                    file=sys.stderr,
+                )
+
+    return results
+
+
+def _optimize_lance_table(table) -> None:
+    """Compact a LanceDB table, swallowing errors (advisory)."""
+    try:
+        from datetime import timedelta
+        table.optimize(cleanup_older_than=timedelta(seconds=0))
+    except Exception as exc:
+        print(f"build_index: LanceDB optimize failed ({exc})", file=sys.stderr)
+
+
+def _lance_fragment_count(table) -> int:
+    """Best-effort fragment count; returns 0 on failure."""
+    try:
+        stats = table.stats()
+        if isinstance(stats, dict):
+            return int(stats.get("num_fragments", 0))
+    except Exception:
+        pass
+    try:
+        return len(table.list_versions())
+    except Exception:
+        pass
+    return 0
+
+
+def _update_lance_table(db_path: Path, table_name: str, file_path: str, new_rows: list) -> None:
+    """Delete existing rows for file_path and add new_rows; compact if needed."""
+    db = _get_lance_db(db_path)
+    table = db.open_table(table_name)
+    safe_path = file_path.replace("'", "''")
+    table.delete(f"path = '{safe_path}'")
+    if new_rows:
+        table.add(new_rows)
+    if _lance_fragment_count(table) > LANCEDB_COMPACT_THRESHOLD:
+        _optimize_lance_table(table)
+
+
+def _delete_lance_chunks(db_path: Path, table_name: str, file_path: str) -> None:
+    """Delete all rows for file_path from a LanceDB table; compact if needed."""
+    db = _get_lance_db(db_path)
+    table = db.open_table(table_name)
+    safe_path = file_path.replace("'", "''")
+    table.delete(f"path = '{safe_path}'")
+    if _lance_fragment_count(table) > LANCEDB_COMPACT_THRESHOLD:
+        _optimize_lance_table(table)
+
+
+def _make_lance_rows(chunks: list[dict], vecs: "np.ndarray") -> list[dict]:
+    """Convert chunk dicts + vector array into LanceDB row dicts."""
+    rows = []
+    for chunk, vec in zip(chunks, vecs):
+        row = dict(chunk)
+        if isinstance(row.get("tags"), list):
+            row["tags"] = " ".join(str(t) for t in row["tags"])
+        row["vector"] = vec.tolist()
+        rows.append(row)
+    return rows
+
+
+def _lance_incremental_write(
+    db_path: Path,
+    stale: set[str],
+    new_doc_chunks: list[dict],
+    new_doc_vecs: "Optional[np.ndarray]",
+    new_code_chunks: list[dict],
+    new_code_vecs: "Optional[np.ndarray]",
+    build_docs: bool,
+    build_code: bool,
+    verbose: bool = False,
+) -> None:
+    """Delete stale rows and add new rows to existing Lance tables."""
+    db = _get_lance_db(db_path)
+    for table_name, build_flag, chunks, vecs in (
+        ("docs", build_docs, new_doc_chunks, new_doc_vecs),
+        ("code", build_code, new_code_chunks, new_code_vecs),
+    ):
+        if not build_flag:
+            continue
+        table_dir = db_path / f"{table_name}.lance"
+        if not table_dir.is_dir():
+            # Table absent — create with new rows only (shouldn't happen after upgrade guard).
+            if chunks and vecs is not None:
+                db.create_table(table_name, data=_make_lance_rows(chunks, vecs), mode="create")
+            continue
+        table = db.open_table(table_name)
+        for file_path in stale:
+            safe_path = file_path.replace("'", "''")
+            table.delete(f"path = '{safe_path}'")
+        if chunks and vecs is not None:
+            table.add(_make_lance_rows(chunks, vecs))
+        if _lance_fragment_count(table) > LANCEDB_COMPACT_THRESHOLD:
+            _optimize_lance_table(table)
 
 
 @contextmanager
@@ -678,6 +839,7 @@ def build_index(
     include_tests: bool = False,
     include_generated: bool = False,
     project_include_prefixes: tuple[str, ...] = (),
+    files: Optional[list[Path]] = None,
     verbose: bool = False,
     dry_run: bool = False,
 ) -> dict:
@@ -696,6 +858,7 @@ def build_index(
             include_tests=include_tests,
             include_generated=include_generated,
             project_include_prefixes=project_include_prefixes,
+            files=files,
             verbose=verbose,
             dry_run=dry_run,
         )
@@ -712,6 +875,7 @@ def _build_index_locked(
     include_tests: bool = False,
     include_generated: bool = False,
     project_include_prefixes: tuple[str, ...] = (),
+    files: Optional[list[Path]] = None,
     verbose: bool = False,
     dry_run: bool = False,
 ) -> dict:
@@ -755,19 +919,25 @@ def _build_index_locked(
     model_changed = False
     chunker_changed = False
     walker_changed = old_walker_version != WALKER_VERSION
+    # meta["content"] records which layers were built last time (even if 0 chunks were produced).
+    previously_built_content = set(meta.get("content", []))
     if build_docs:
         model_changed = model_changed or old_model_versions.get("docs") != DOCS_MODEL
-        model_changed = model_changed or not (index_dir / DOCS_JSON).exists()
-        if (index_dir / DOCS_JSON).exists() and _load_chunks(index_dir, DOCS_JSON):
-            model_changed = model_changed or not (index_dir / DOCS_NPY).exists()
+        docs_index_exists = (
+            (index_dir / "docs.lance").is_dir()
+            or "docs" in previously_built_content
+        )
+        model_changed = model_changed or not docs_index_exists
         chunker_changed = chunker_changed or (
             current_chunker_version and old_chunker_versions.get("docs") != current_chunker_version
         )
     if build_code:
         model_changed = model_changed or old_model_versions.get("code") != CODE_MODEL
-        model_changed = model_changed or not (index_dir / CODE_JSON).exists()
-        if (index_dir / CODE_JSON).exists() and _load_chunks(index_dir, CODE_JSON):
-            model_changed = model_changed or not (index_dir / CODE_NPY).exists()
+        code_index_exists = (
+            (index_dir / "code.lance").is_dir()
+            or "code" in previously_built_content
+        )
+        model_changed = model_changed or not code_index_exists
         chunker_changed = chunker_changed or (
             current_chunker_version and old_chunker_versions.get("code") != current_chunker_version
         )
@@ -787,18 +957,40 @@ def _build_index_locked(
         full = True
         old_file_meta = {}
 
-    # Walk repo
-    files = walk_repo(root, respect_ignore=respect_ignore)
-    files = [path for path in files if not _is_relative_to(path, index_dir)]
-    files = _filter_by_prefixes(files, root, include_prefixes)
-    content_for_filter = "all" if build_docs and build_code else ("docs" if build_docs else "code")
-    resolved_project_includes = _content_project_include_prefixes(content_for_filter, project_include_prefixes)
-    files = _filter_project_index_excludes(
-        files,
-        root,
-        include_prefixes,
-        project_include_prefixes=resolved_project_includes,
-    )
+    if files is None:
+        # Walk repo
+        files = walk_repo(root, respect_ignore=respect_ignore)
+        files = [path for path in files if not _is_relative_to(path, index_dir)]
+        files = _filter_by_prefixes(files, root, include_prefixes)
+        if str(index_dir).replace("\\", "/").endswith("/.wavefoundry/framework/index"):
+            files = _filter_framework_pack_artifacts(files, root)
+        content_for_filter = "all" if build_docs and build_code else ("docs" if build_docs else "code")
+        resolved_project_includes = _content_project_include_prefixes(content_for_filter, project_include_prefixes)
+        files = _filter_project_index_excludes(
+            files,
+            root,
+            include_prefixes,
+            project_include_prefixes=resolved_project_includes,
+        )
+    else:
+        normalized_files: list[Path] = []
+        seen: set[str] = set()
+        for path in files:
+            candidate = path if path.is_absolute() else root / path
+            try:
+                candidate.relative_to(root)
+            except ValueError:
+                continue
+            if not candidate.is_file():
+                continue
+            rel = str(candidate.relative_to(root)).replace("\\", "/")
+            if rel in seen:
+                continue
+            seen.add(rel)
+            normalized_files.append(candidate)
+        files = sorted(normalized_files, key=lambda p: str(p.relative_to(root)).replace("\\", "/"))
+        if str(index_dir).replace("\\", "/").endswith("/.wavefoundry/framework/index"):
+            files = _filter_framework_pack_artifacts(files, root)
     files_for_content = files
     if build_code and not build_docs:
         files_for_content = _filter_code_files(
@@ -858,54 +1050,25 @@ def _build_index_locked(
                     flush=True,
                 )
 
-    # Load existing chunks (empty on full rebuild)
-    existing_docs: list[dict] = [] if full else [
-        c for c in _load_chunks(index_dir, DOCS_JSON)
-        if c["path"] not in stale
-    ]
-    existing_codes: list[dict] = [] if full else [
-        c for c in _load_chunks(index_dir, CODE_JSON)
-        if c["path"] not in stale
-    ]
-
-    # Load existing embeddings, filtering stale rows
-    def _load_npy(name: str) -> Optional["np.ndarray"]:
-        p = index_dir / name
-        if p.is_file():
-            try:
-                return np.load(str(p))
-            except Exception:
-                pass
-        return None
-
-    if full:
-        existing_doc_vecs = None
-        existing_code_vecs = None
-    else:
-        # We need to know which rows to keep by aligning with existing chunk lists
-        all_old_docs = _load_chunks(index_dir, DOCS_JSON)
-        all_old_codes = _load_chunks(index_dir, CODE_JSON)
-        old_doc_vecs = _load_npy(DOCS_NPY)
-        old_code_vecs = _load_npy(CODE_NPY)
-
-        if old_doc_vecs is not None and len(old_doc_vecs) == len(all_old_docs):
-            keep_doc_idx = [i for i, c in enumerate(all_old_docs) if c["path"] not in stale]
-            existing_doc_vecs = old_doc_vecs[keep_doc_idx] if keep_doc_idx else None
-        else:
-            existing_doc_vecs = None
-
-        if old_code_vecs is not None and len(old_code_vecs) == len(all_old_codes):
-            keep_code_idx = [i for i, c in enumerate(all_old_codes) if c["path"] not in stale]
-            existing_code_vecs = old_code_vecs[keep_code_idx] if keep_code_idx else None
-        else:
-            existing_code_vecs = None
-
-    if not build_docs:
-        existing_docs = _load_chunks(index_dir, DOCS_JSON)
-        existing_doc_vecs = None
-    if not build_code:
-        existing_codes = []
-        existing_code_vecs = None
+    # If no Lance tables exist yet (first build or upgrade from legacy), force a full rebuild
+    # so tables are created from the complete corpus.
+    if not full:
+        has_lance = (index_dir / "docs.lance").is_dir() or (index_dir / "code.lance").is_dir()
+        if not has_lance:
+            print(
+                "build_index: no LanceDB tables found — full rebuild to create index",
+                flush=True,
+            )
+            full = True
+            current_file_meta = {}
+            for f in files:
+                rel = str(f.relative_to(root)).replace("\\", "/")
+                mtime, size, inode = _stat_entry(f)
+                digest = _sha256(f)
+                current_file_meta[rel] = {"hash": digest, "mtime": mtime, "size": size, "inode": inode}
+            changed = set(current_file_meta.keys())
+            removed = set()
+            stale = changed
 
     # Chunk new/changed files
     new_doc_chunks: list[dict] = []
@@ -973,34 +1136,41 @@ def _build_index_locked(
     new_doc_vecs = _embed_chunks("doc", new_doc_chunks, docs_embedder) if build_docs else None
     new_code_vecs = _embed_chunks("code", new_code_chunks, code_embedder) if build_code else None
 
-    # Merge existing + new
-    all_doc_chunks = (existing_docs + new_doc_chunks) if build_docs else existing_docs
-    all_code_chunks = (existing_codes + new_code_chunks) if build_code else existing_codes
-
-    def _concat(a: Optional["np.ndarray"], b: Optional["np.ndarray"]) -> Optional["np.ndarray"]:
-        if a is None and b is None:
-            return None
-        if a is None:
-            return b
-        if b is None:
-            return a
-        return np.concatenate([a, b], axis=0)
-
-    all_doc_vecs = _concat(existing_doc_vecs, new_doc_vecs)
-    all_code_vecs = _concat(existing_code_vecs, new_code_vecs)
-
-    # Write
-    if build_docs:
-        _save_chunks(index_dir, DOCS_JSON, all_doc_chunks)
-    if build_code:
-        _save_chunks(index_dir, CODE_JSON, all_code_chunks)
-
-    if all_doc_vecs is not None:
-        _progress(verbose, f"build_index: writing {DOCS_NPY}")
-        _save_npy_atomic(index_dir, DOCS_NPY, all_doc_vecs, np)
-    if all_code_vecs is not None:
-        _progress(verbose, f"build_index: writing {CODE_NPY}")
-        _save_npy_atomic(index_dir, CODE_NPY, all_code_vecs, np)
+    # Write to LanceDB — the only index format.
+    lance_db_path = index_dir
+    try:
+        import numpy as _np
+        if full:
+            _build_lance_tables(
+                lance_db_path,
+                new_doc_chunks if new_doc_vecs is not None else [],
+                new_doc_vecs if new_doc_vecs is not None else _np.empty((0, 1), dtype=_np.float32),
+                new_code_chunks if new_code_vecs is not None else [],
+                new_code_vecs if new_code_vecs is not None else _np.empty((0, 1), dtype=_np.float32),
+                verbose=verbose,
+            )
+        else:
+            _lance_incremental_write(
+                lance_db_path, stale,
+                new_doc_chunks, new_doc_vecs,
+                new_code_chunks, new_code_vecs,
+                build_docs=build_docs, build_code=build_code, verbose=verbose,
+            )
+        # Get total chunk counts from Lance tables for the summary.
+        total_doc_chunks = 0
+        total_code_chunks = 0
+        try:
+            db = _get_lance_db(index_dir)
+            if (index_dir / "docs.lance").is_dir():
+                total_doc_chunks = db.open_table("docs").count_rows()
+            if (index_dir / "code.lance").is_dir():
+                total_code_chunks = db.open_table("code").count_rows()
+        except Exception:
+            total_doc_chunks = len(new_doc_chunks)
+            total_code_chunks = len(new_code_chunks)
+    except Exception as exc:
+        print(f"build_index: LanceDB write failed: {exc}", file=sys.stderr)
+        raise
 
     new_model_versions = dict(old_model_versions)
     if build_docs:
@@ -1030,8 +1200,8 @@ def _build_index_locked(
     summary = {
         "files_indexed": len(files_to_index),
         "files_total": len(files),
-        "doc_chunks": len(all_doc_chunks),
-        "code_chunks": len(all_code_chunks),
+        "doc_chunks": total_doc_chunks,
+        "code_chunks": total_code_chunks,
         "up_to_date": False,
     }
     if verbose:
@@ -1159,24 +1329,32 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     root = args.root.resolve() if args.root else _discover_root()
 
-    if args.watch:
-        watch_index(root, verbose=args.verbose)
-        return 0
+    try:
+        if args.watch:
+            watch_index(root, verbose=args.verbose)
+            return 0
 
-    build_index(
-        root,
-        full=args.full,
-        content=args.content,
-        index_dir=args.index_dir,
-        include_prefixes=tuple(args.include_prefix),
-        respect_ignore=not args.no_ignore_files,
-        include_tests=args.include_tests,
-        include_generated=args.include_generated,
-        project_include_prefixes=tuple(args.project_include_prefix),
-        verbose=args.verbose,
-        dry_run=args.dry_run,
-    )
-    return 0
+        build_index(
+            root,
+            full=args.full,
+            content=args.content,
+            index_dir=args.index_dir,
+            include_prefixes=tuple(args.include_prefix),
+            respect_ignore=not args.no_ignore_files,
+            include_tests=args.include_tests,
+            include_generated=args.include_generated,
+            project_include_prefixes=tuple(args.project_include_prefix),
+            verbose=args.verbose,
+            dry_run=args.dry_run,
+        )
+        return 0
+    finally:
+        state_path = os.environ.get(INDEX_BUILD_STATE_PATH_ENV)
+        if state_path:
+            try:
+                Path(state_path).unlink()
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":

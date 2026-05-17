@@ -131,6 +131,10 @@ class SetupIndexTests(unittest.TestCase):
         self.assertIn("tree-sitter-sql", self.mod.REQUIRED_IMPORTS)
         self.assertEqual(self.mod.REQUIRED_IMPORTS["tree-sitter-sql"], "tree_sitter_sql")
 
+    def test_required_imports_include_lancedb(self):
+        self.assertIn("lancedb", self.mod.REQUIRED_IMPORTS)
+        self.assertEqual(self.mod.REQUIRED_IMPORTS["lancedb"], "lancedb")
+
     def test_prewarm_models_warms_then_verifies_offline(self):
         with patch.object(self.mod, "_indexer_models", return_value=["model-a", "model-b"]):
             with patch.object(self.mod, "_warm_model") as warm:

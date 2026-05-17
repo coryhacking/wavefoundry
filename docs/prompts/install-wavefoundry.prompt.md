@@ -29,7 +29,7 @@ See `.wavefoundry/framework/seeds/010-install-wavefoundry.prompt.md` for the com
 
 ## MCP / Wavefoundry Server
 
-After installing Wave Framework, enable the local MCP server in your agent host so tools like `wave_help`, `docs_search`, and `wave_audit` are available.
+After installing Wave Framework, enable the local MCP server in your agent host so tools like `wave_help`, `docs_search`, `code_ask`, `wave_audit`, and `wave_index_health` are available.
 
 **Step 1 — Build the semantic index:**
 
@@ -111,6 +111,8 @@ wave_index_build(content="docs", mode="update", layer="framework")
 ```
 
 See `docs/contributing/build-and-verification.md` **Update vs rebuild — decision table** for when to use `mode="update"` vs `mode="rebuild"`.
+
+If you launched a detached background code build, poll `wave_index_build_status(layer?)` until it finishes before assuming code search is current.
 
 ## Aliases
 

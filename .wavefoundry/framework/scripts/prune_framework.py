@@ -26,6 +26,7 @@ present in the current pack.
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -79,6 +80,45 @@ def _prune_legacy(framework_dir: Path, *, dry_run: bool = False) -> list[str]:
     return deleted
 
 
+def _prune_meta_json(framework_dir: Path, removed: set[str], *, dry_run: bool = False) -> bool:
+    """Remove pruned paths from framework index meta.json.
+
+    Returns True when the file was updated.
+    """
+    if not removed:
+        return False
+    meta_path = framework_dir / "index" / "meta.json"
+    if not meta_path.is_file():
+        return False
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(meta, dict):
+        return False
+
+    changed = False
+    for key_name in ("file_meta", "file_hashes"):
+        raw = meta.get(key_name)
+        if not isinstance(raw, dict) or not raw:
+            continue
+        kept = {}
+        for path, value in raw.items():
+            should_remove = any(path == rel or path.startswith(rel + "/") for rel in removed)
+            if should_remove:
+                changed = True
+                continue
+            kept[path] = value
+        if changed:
+            meta[key_name] = kept
+
+    if not changed or dry_run:
+        return changed
+
+    meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    return True
+
+
 def prune(
     framework_dir: Path,
     old_manifest_path: Path | None,
@@ -91,6 +131,7 @@ def prune(
     legacy removal list covering packs 2026-04-29a through 2026-05-02d.
     """
     new_manifest_path = framework_dir / "MANIFEST"
+    meta_cleanup_targets: set[str] = set()
 
     # Fall back to legacy list when no old manifest is available.
     if old_manifest_path is None or not old_manifest_path.exists():
@@ -106,42 +147,47 @@ def prune(
             "(packs 2026-04-29a through 2026-05-02d)",
             file=sys.stderr,
         )
-        return _prune_legacy(framework_dir, dry_run=dry_run)
+        deleted = _prune_legacy(framework_dir, dry_run=dry_run)
+        meta_cleanup_targets = {rel.rstrip("/") for rel in _LEGACY_REMOVALS}
+    else:
+        if not new_manifest_path.exists():
+            print(
+                f"warning: {new_manifest_path} not found — "
+                "pack may pre-date MANIFEST support; skipping prune",
+                file=sys.stderr,
+            )
+            return []
 
-    if not new_manifest_path.exists():
-        print(
-            f"warning: {new_manifest_path} not found — "
-            "pack may pre-date MANIFEST support; skipping prune",
-            file=sys.stderr,
-        )
-        return []
+        old_entries = _read_manifest(old_manifest_path)
+        new_entries = _read_manifest(new_manifest_path)
+        removed = old_entries - new_entries
+        meta_cleanup_targets = set(removed)
 
-    old_entries = _read_manifest(old_manifest_path)
-    new_entries = _read_manifest(new_manifest_path)
-    removed = old_entries - new_entries
+        deleted = []
+        for rel in sorted(removed):
+            target = framework_dir / rel
+            if target.exists() and target.is_file():
+                if dry_run:
+                    print(f"[dry-run] would delete: {target}")
+                else:
+                    target.unlink()
+                    print(f"deleted: {target}")
+                deleted.append(str(target))
 
-    deleted: list[str] = []
-    for rel in sorted(removed):
-        target = framework_dir / rel
-        if target.exists() and target.is_file():
-            if dry_run:
-                print(f"[dry-run] would delete: {target}")
-            else:
-                target.unlink()
-                print(f"deleted: {target}")
-            deleted.append(str(target))
+        # Remove directories that became empty (bottom-up).
+        if not dry_run:
+            dirs_to_check: set[Path] = set()
+            for rel in removed:
+                dirs_to_check.add((framework_dir / rel).parent)
+            for d in sorted(dirs_to_check, key=lambda p: len(p.parts), reverse=True):
+                try:
+                    if d.is_dir() and not any(d.iterdir()):
+                        d.rmdir()
+                except OSError:
+                    pass
 
-    # Remove directories that became empty (bottom-up).
-    if not dry_run:
-        dirs_to_check: set[Path] = set()
-        for rel in removed:
-            dirs_to_check.add((framework_dir / rel).parent)
-        for d in sorted(dirs_to_check, key=lambda p: len(p.parts), reverse=True):
-            try:
-                if d.is_dir() and not any(d.iterdir()):
-                    d.rmdir()
-            except OSError:
-                pass
+    if _prune_meta_json(framework_dir, meta_cleanup_targets, dry_run=dry_run):
+        print(f"updated: {framework_dir / 'index' / 'meta.json'}", file=sys.stderr)
 
     return deleted
 

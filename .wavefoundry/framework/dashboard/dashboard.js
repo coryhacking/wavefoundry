@@ -569,8 +569,12 @@ function Metrics({ snapshot, scopeChanges, onWavesClick, onChangesClick, onAcsCl
     (() => {
       const projectIdx = health.index?.project || {};
       const frameworkIdx = health.index?.framework || {};
-      const totalChunks = (projectIdx.doc_chunks || 0) + (projectIdx.code_chunks || 0) + (frameworkIdx.doc_chunks || 0) + (frameworkIdx.code_chunks || 0);
-      const totalFiles = (projectIdx.files_indexed || 0) + (frameworkIdx.files_indexed || 0);
+      const projectDocChunks = Number(projectIdx.doc_chunks) || 0;
+      const projectCodeChunks = Number(projectIdx.code_chunks) || 0;
+      const frameworkDocChunks = Number(frameworkIdx.doc_chunks) || 0;
+      const frameworkCodeChunks = Number(frameworkIdx.code_chunks) || 0;
+      const totalChunks = projectDocChunks + projectCodeChunks + frameworkDocChunks + frameworkCodeChunks;
+      const totalFiles = (Number(projectIdx.files_indexed) || 0) + (Number(frameworkIdx.files_indexed) || 0);
       const buildStatus = projectIdx.build_status === "running" || frameworkIdx.build_status === "running"
         ? "running"
         : projectIdx.build_status === "failed" || frameworkIdx.build_status === "failed"
@@ -589,6 +593,9 @@ function Metrics({ snapshot, scopeChanges, onWavesClick, onChangesClick, onAcsCl
               : null;
       const note = h(React.Fragment, null,
         h("div", { className: "metric-subnote" }, `files, ${totalChunks.toLocaleString()} chunks`),
+        frameworkCodeChunks > 0
+          ? h("div", { className: "metric-subnote" }, `framework code, ${frameworkCodeChunks.toLocaleString()} chunks`)
+          : null,
         h("div", { className: "metric-status-line" }, statusText || "\u00A0"),
       );
       const value = totalFiles ? totalFiles.toLocaleString() : (buildStatus === "running" ? "Indexing…" : "Missing");
@@ -859,7 +866,10 @@ function IndexSection({ label, idx }) {
       buildBadge,
     );
   }
-  const totalChunks = (idx.doc_chunks || 0) + (idx.code_chunks || 0);
+  const filesIndexed = Number(idx.files_indexed) || 0;
+  const docChunks = Number(idx.doc_chunks) || 0;
+  const codeChunks = Number(idx.code_chunks) || 0;
+  const totalChunks = docChunks + codeChunks;
   const age = relativeAge(idx.built_at);
   const elapsed = idx.elapsed_seconds
     ? (idx.elapsed_seconds >= 60
@@ -870,19 +880,19 @@ function IndexSection({ label, idx }) {
     h("div", { className: "index-section-label" }, label),
     h("div", { className: "index-stat-grid" },
       h("div", { className: "index-stat" },
-        h("span", { className: "index-stat-value" }, (idx.files_indexed || 0).toLocaleString()),
+        h("span", { className: "index-stat-value" }, filesIndexed.toLocaleString()),
         h("span", { className: "index-stat-label" }, "files"),
       ),
       h("div", { className: "index-stat" },
         h("span", { className: "index-stat-value" }, totalChunks.toLocaleString()),
         h("span", { className: "index-stat-label" }, "chunks"),
       ),
-      idx.doc_chunks ? h("div", { className: "index-stat" },
-        h("span", { className: "index-stat-value" }, idx.doc_chunks.toLocaleString()),
+      docChunks > 0 ? h("div", { className: "index-stat" },
+        h("span", { className: "index-stat-value" }, docChunks.toLocaleString()),
         h("span", { className: "index-stat-label" }, "doc"),
       ) : null,
-      idx.code_chunks ? h("div", { className: "index-stat" },
-        h("span", { className: "index-stat-value" }, idx.code_chunks.toLocaleString()),
+      codeChunks > 0 ? h("div", { className: "index-stat" },
+        h("span", { className: "index-stat-value" }, codeChunks.toLocaleString()),
         h("span", { className: "index-stat-label" }, "code"),
       ) : null,
     ),

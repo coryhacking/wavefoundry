@@ -38,7 +38,7 @@ During scope assessment (step 2), use the CIA to answer "what does X currently d
 ```
 code_search(topic, kind="code-summary", limit=5)   # which modules are in scope?
 code_dependencies(path)                             # what does the target file import/export?
-code_ask("what are the entry points for X?")        # cross-cutting questions
+code_ask("what are the entry points for X?")        # cross-cutting questions; use final_rank/demoted to interpret reordered citations
 ```
 
 This speeds up the Affected Architecture Docs check and helps select accurate review lanes. If MCP is not available, use `grep -n "^import\|^from" <path>` for dependencies and `grep -r "keyword" .` for module discovery.

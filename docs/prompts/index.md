@@ -35,11 +35,11 @@ This prompt surface follows `.wavefoundry/framework/seeds/020-run-contract.promp
 | **Pause wave** | Park session state in handoff artifact | `docs/prompts/pause-wave.prompt.md` |
 | **Review wave** | Run required review lanes with AC reconciliation | `docs/prompts/review-wave.prompt.md` |
 | **Reopen wave** | Reopen a prematurely closed wave | MCP: `wave_reopen(wave_id)` |
-| **Index build status** | Check background index rebuild progress | MCP: `wave_index_build_status(layer?)` — suitable for `/loop` polling |
+| **Index build status** | Poll background index refresh progress | MCP: `wave_index_build_status(layer?)` — use after `setup_index.py --background-code` or any detached refresh |
 | **Close wave** | Finalize wave with closure reconciliation | `docs/prompts/close-wave.prompt.md` |
 | **Finalize feature** | Single-change closure path | `docs/prompts/finalize-feature.prompt.md` |
 | **Interrogate this plan** | Stress-test a change doc before admission | `docs/prompts/interrogate-plan.prompt.md` |
-| **Code insight** | Ask a natural-language question about the codebase; returns cited answer | `docs/agents/code-insight-agent.md` — MCP: `code_ask(question)` |
+| **Code insight** | Ask a natural-language question about the codebase; returns cited answer, next-hop citations, and rank metadata (`final_rank`, `demoted`) | `docs/agents/code-insight-agent.md` — MCP: `code_ask(question)` |
 
 ## Wavefoundry Maintainer Commands
 
@@ -67,6 +67,8 @@ The following phrases are accepted for backwards compatibility but redirect to p
 - **Implement wave vs Implement feature:** Use **Implement wave** for multiple admitted changes; use **Implement feature** for a single docs-first change.
 - **Concurrency and protected surfaces:** See `docs/prompts/agent-routing-concurrency.prompt.md` for read-only vs write-owning lane rules.
 - **Stress-testing plans:** After **Plan feature**, use **Interrogate this plan** to walk unresolved decision branches before admission.
+- **MCP freshness workflow:** Use `wave_audit` for a combined read-only post-change check; `wave_validate` for docs lint; `wave_garden` for metadata-only refresh; `wave_index_health` to decide whether search is ready, stale, missing, or degraded; `wave_index_build_status` only to poll a detached refresh; `wave_index_build` when you need a deterministic update or rebuild.
+- **Code insight output:** `code_ask` citations preserve the reranker `score`, but `final_rank` reflects the post-partition order. When `demoted: true` is present, the citation was intentionally pushed behind stronger implementation evidence. Do not treat score order and output order as the same thing.
 - **Wavefoundry self-hosting:** When editing framework seeds, use **Package Wavefoundry** to produce a distribution and **Upgrade wave framework** in a target repo to consume it.
 
 ## Internal Agent-Oriented Prompt Bodies

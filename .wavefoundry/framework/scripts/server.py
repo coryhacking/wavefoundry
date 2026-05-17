@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 import datetime
 import functools
@@ -11,6 +12,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any, Iterable, Literal, Optional
 
@@ -66,7 +68,117 @@ UNTRUSTED_PROJECT_CONTENT = "untrusted_project_content"
 VALID_CHANGE_KINDS = {"bug", "feat", "enh", "change", "doc", "debt", "ref", "task", "maint", "ops"}
 MCP_TOOL_PREFIXES = ("wave_", "docs_", "code_", "seed_")
 DOCS_SEARCH_KINDS = frozenset({"doc", "seed", "architecture", "prompt", "doc-summary"})
-VECTOR_TOP_K = 40  # candidates fetched per index before reranking
+VECTOR_TOP_K = 30  # candidates fetched per index before reranking (navigational/instructional/default)
+VECTOR_TOP_K_EXPLANATORY = 50  # candidates per index for explanatory/flow questions (dynamic-vector-top-k)
+
+# LanceDB vector index constants (must match indexer.py)
+# Tables live directly in the index directory: index_dir/docs.lance/, index_dir/code.lance/
+LANCEDB_NPROBES = 20        # ANN search probes (recall vs latency)
+LANCEDB_REFINE_FACTOR = 10  # reranking candidates multiplier
+
+# RRF source-weight bias applied when question_type == "navigational" (question-type-aware-retrieval)
+RRF_NAVIGATIONAL_CODE_WEIGHT = 1.5
+RRF_NAVIGATIONAL_DOCS_WEIGHT = 1.0
+
+# Path segments that identify scaffolding/wiring layers across framework families.
+# Citations from these layers confirm a connection exists but do not contain business logic.
+# Cloud IaC: CDK, Terraform — Node/TS: Express, NestJS — JVM: Spring — generic infra labels.
+INFRASTRUCTURE_PATH_SEGMENTS: frozenset = frozenset({
+    "constructs", "stacks", "api-gateways",          # CDK
+    "infra", "infrastructure", "cdk",                 # CDK / generic IaC
+    "modules", "resources", "providers",              # Terraform
+    "config", "beans",                                # Spring
+    "routes", "wiring",                               # Express / NestJS
+    "scaffolding",                                    # generic
+})
+
+# Feedback/journal artifacts are still useful evidence, but they should not outrank
+# implementation sources for code-oriented questions unless they are the only available signal.
+CODE_ASK_FEEDBACK_PATH_SEGMENTS: frozenset = frozenset({
+    "journals",
+    "reports",
+})
+CODE_ASK_FEEDBACK_KINDS: frozenset = frozenset({
+    "seed",
+})
+# Definition-file boosting: vocabulary-triggered keyword augmentation for schema languages.
+# Each rule fires when any vocabulary term appears in the lowercased query.
+# Injected candidates receive score=0.0 so the reranker evaluates them on content merit only.
+# Add new rules (GraphQL, protobuf, OpenAPI) by appending to this list — no logic changes required.
+DEFINITION_BOOST_RULES: list[dict] = [
+    {
+        "vocabulary": frozenset({
+            "sql", "stored procedure", "proc", "migration", "schema",
+            "insert", "query", "database", "db", "routine",
+            "table", "column",
+        }),
+        "extensions": [".sql"],
+        "label": "sql",
+    },
+]
+DEFINITION_BOOST_CANDIDATES = 5   # maximum candidates injected per rule per query
+MAX_SYMBOLS_EXTRACTED = 5         # maximum symbol names extracted from first-hop citations
+MAX_SECOND_HOP_CANDIDATES = 10    # maximum total candidates injected via second hop
+
+# Tree-sitter node types used during symbol extraction
+_TS_CALL_TYPES = frozenset({
+    "call", "call_expression", "method_invocation",
+    "invocation_expression", "function_call",
+})
+_TS_IDENTIFIER_TYPES = frozenset({
+    "identifier", "name", "simple_name", "property_identifier",
+    "type_identifier",  # TypeScript class/interface/type names
+})
+_TS_MEMBER_TYPES = frozenset({
+    "attribute", "member_expression",
+    "member_access_expression", "field_access",
+})
+# Node types used by code_outline to identify class/struct definitions
+_TS_OUTLINE_CLASS_TYPES = frozenset({
+    "class_declaration", "class_definition", "class_specifier",
+    "interface_declaration", "interface_definition",
+    "struct_item", "struct_specifier", "struct_declaration",
+    "impl_item", "trait_item", "trait_definition",
+    "object_declaration", "type_declaration",
+})
+# Node types used by code_outline to identify function/method definitions
+_TS_OUTLINE_FUNC_TYPES = frozenset({
+    "function_declaration", "function_definition", "function_item",
+    "function_expression", "arrow_function",
+    "method_declaration", "method_definition", "method_item",
+    "constructor_declaration", "constructor_definition",
+    # SQL: confirmed via tree-sitter-sql grammar parse tree inspection
+    "create_function",
+})
+# Languages mapped to the tree-sitter lang key used by the chunker
+_TS_SYMBOL_LANG_MAP: dict[str, str] = {
+    "javascript": "javascript",
+    "typescript": "typescript",
+    "java": "java",
+    "csharp": "csharp",
+    "go": "go",
+    "rust": "rust",
+    "c": "c",
+    "cpp": "cpp",
+    "kotlin": "kotlin",
+    "bash": "bash",
+    "sql": "sql",
+}
+# Common built-in names filtered out of symbol extraction results
+_SYMBOL_BLOCKLIST = frozenset({
+    "get", "set", "run", "init", "main", "self", "this", "true", "false",
+    "null", "new", "return", "create", "update", "delete", "list", "find",
+    "print", "none", "super", "async", "await", "with", "open", "next",
+    "type", "repr", "hash", "iter", "copy", "bool", "dict", "join",
+})
+
+# Regex patterns for symbol extraction fallback
+_RE_CALL = re.compile(r'\b([A-Za-z_][A-Za-z0-9_]{3,})\s*\(')
+_RE_SQL_EXEC = re.compile(
+    r'\b(?:EXEC|EXECUTE|CALL)\s+([A-Za-z_][A-Za-z0-9_.]{3,})\b', re.IGNORECASE
+)
+_RE_IMPORT = re.compile(r'\bimport\s+([A-Za-z_][A-Za-z0-9_]{3,})')
+
 _PROMPT_MISS = object()
 """Sentinel used by ``McpRepoCache.get_prompt_text_cached`` to cache a None
 result (i.e. prompt not found) without storing Python ``None``, which cannot
@@ -193,20 +305,13 @@ class WaveIndex:
         self.root = root
         self.index_dir = root / ".wavefoundry" / "index"
         self.framework_index_dir = root / ".wavefoundry" / "framework" / "index"
-        self._docs_vecs: Optional["np.ndarray"] = None
-        self._code_vecs: Optional["np.ndarray"] = None
-        self._docs_chunks: list[dict] = []
-        self._all_docs_chunks: list[dict] = []
-        self._code_chunks: list[dict] = []
+        self._docs_lance_table = None   # LanceDB Table object for docs, None if not loaded
+        self._code_lance_table = None   # LanceDB Table object for code, None if not loaded
         self._reranker = None
         self._model_downloads_started: bool = False
         self._meta: dict = {}
         self._loaded = False
         self._loaded_meta_signature: dict[str, tuple[int, int] | None] = {}
-        self._docs_tag_index: dict[str, list[int]] = {}
-        self._code_tag_index: dict[str, list[int]] = {}
-        self._docs_kind_index: dict[str, list[int]] = {}
-        self._code_kind_index: dict[str, list[int]] = {}
 
     def _indexer_module(self):
         return _load_script("indexer")
@@ -222,6 +327,7 @@ class WaveIndex:
             files = idx._filter_project_index_excludes(files, self.root, ())
         else:
             files = idx._filter_by_prefixes(files, self.root, (".wavefoundry/framework/",))
+            files = idx._filter_framework_pack_artifacts(files, self.root)
         return idx._build_file_hashes(files, self.root)
 
     def _layer_health(self, layer: str) -> dict[str, Any]:
@@ -236,7 +342,7 @@ class WaveIndex:
         """
         index_dir = self.index_dir if layer == "project" else self.framework_index_dir
         meta_path = index_dir / "meta.json"
-        docs_json_path = index_dir / "docs.json"
+        docs_lance_path = index_dir / "docs.lance"
         meta = self._meta.get(layer) if self._loaded else {}
         if not isinstance(meta, dict):
             meta = {}
@@ -266,7 +372,7 @@ class WaveIndex:
             if path not in current_hashes
         )
         stale_paths = sorted(set(modified_paths) | set(added_paths) | set(removed_paths))
-        docs_present = docs_json_path.exists()
+        docs_present = docs_lance_path.is_dir()
         meta_present = meta_path.exists()
         raw_chunker_versions = meta.get("chunker_versions", {})
         indexed_chunker_versions: dict[str, str] = (
@@ -295,7 +401,10 @@ class WaveIndex:
         framework = self._layer_health("framework")
         project["readiness"] = _index_layer_readiness(project)
         framework["readiness"] = _index_layer_readiness(framework)
-        compatible_chunks = bool(self._docs_chunks)
+        compatible_chunks = (
+            getattr(self, "_docs_lance_table", None) is not None
+            or getattr(self, "_code_lance_table", None) is not None
+        )
         has_any_index = project["meta_present"] or framework["meta_present"]
         stale_layers = [layer["layer"] for layer in (project, framework) if layer["stale_paths"]]
         missing_layers = [
@@ -437,12 +546,6 @@ class WaveIndex:
                 self._loaded = False
         if self._loaded:
             return
-        try:
-            import numpy as np
-        except ImportError:
-            raise IndexNotReadyError(
-                "numpy is not installed. Run: python3 .wavefoundry/framework/scripts/setup_index.py"
-            )
 
         if not (self.index_dir / "meta.json").exists() and not (self.framework_index_dir / "meta.json").exists():
             raise IndexNotReadyError(
@@ -450,31 +553,44 @@ class WaveIndex:
                 "Run: python3 .wavefoundry/framework/scripts/setup_index.py"
             )
 
-        def _load(index_dir: Path, npy_name: str, json_name: str, path_prefix: str = "") -> tuple:
-            npy_path = index_dir / npy_name
-            json_path = index_dir / json_name
+        def _load_lance_table(index_dir: Path, table_name: str):
+            """Return an open LanceDB Table, or None if the table directory is absent."""
+            table_path = index_dir / f"{table_name}.lance"
+            if not table_path.is_dir():
+                return None
             try:
-                vecs = np.load(str(npy_path)) if npy_path.exists() else None
+                import lancedb
+                db = lancedb.connect(str(index_dir))
+                return db.open_table(table_name)
+            except ImportError:
+                print(
+                    "[wavefoundry] LanceDB index found but lancedb is not installed — "
+                    "run: python3 .wavefoundry/framework/scripts/setup_index.py",
+                    file=sys.stderr,
+                )
+                return None
             except Exception:
-                vecs = None
-            try:
-                chunks = json.loads(json_path.read_text(encoding="utf-8")) if json_path.exists() else []
-            except (json.JSONDecodeError, OSError):
-                chunks = []
-            if path_prefix:
-                prefix = path_prefix.rstrip("/") + "/"
-                chunks = [
-                    {
-                        **chunk,
-                        "path": chunk.get("path", "")
-                        if chunk.get("path", "").startswith(prefix)
-                        else prefix + chunk.get("path", "").lstrip("/"),
-                    }
-                    for chunk in chunks
-                ]
-            return vecs, chunks
+                return None
 
-        def _load_meta(index_dir: Path) -> dict:
+        proj_docs_table = _load_lance_table(self.index_dir, "docs")
+        proj_code_table = _load_lance_table(self.index_dir, "code")
+        fw_docs_table = _load_lance_table(self.framework_index_dir, "docs")
+        fw_code_table = _load_lance_table(self.framework_index_dir, "code")
+
+        if not any(t is not None for t in (proj_docs_table, proj_code_table, fw_docs_table, fw_code_table)):
+            raise IndexNotReadyError(
+                "[wavefoundry] No index found. "
+                "Run: python3 .wavefoundry/framework/scripts/setup_index.py"
+            )
+
+        self._docs_lance_table = proj_docs_table or fw_docs_table
+        self._code_lance_table = proj_code_table or fw_code_table
+        self._proj_docs_lance_table = proj_docs_table
+        self._proj_code_lance_table = proj_code_table
+        self._fw_docs_lance_table = fw_docs_table
+        self._fw_code_lance_table = fw_code_table
+
+        def _load_meta_only(index_dir: Path) -> dict:
             meta_path = index_dir / "meta.json"
             if meta_path.exists():
                 try:
@@ -483,106 +599,14 @@ class WaveIndex:
                     return {}
             return {}
 
-        def _compatible_layer(
-            vecs: Optional["np.ndarray"],
-            chunks: list[dict],
-            meta: dict,
-            content_name: str,
-            expected_model: str,
-        ) -> tuple[Optional["np.ndarray"], list[dict]]:
-            if vecs is None or not chunks:
-                return None, []
-            model_versions = meta.get("model_versions", {})
-            if model_versions.get(content_name) != expected_model:
-                return None, []
-            if getattr(vecs, "ndim", 0) != 2 or vecs.shape[0] != len(chunks):
-                return None, []
-            return vecs, chunks
-
-        def _merge_layers(layers: list[tuple[Optional["np.ndarray"], list[dict]]]) -> tuple[Optional["np.ndarray"], list[dict]]:
-            valid_vecs = []
-            valid_chunks: list[dict] = []
-            dim = None
-            for vecs, chunks in layers:
-                if vecs is None or not chunks:
-                    continue
-                if dim is None:
-                    dim = vecs.shape[1]
-                elif vecs.shape[1] != dim:
-                    continue
-                valid_vecs.append(vecs)
-                valid_chunks.extend(chunks)
-            if not valid_vecs:
-                return None, []
-            if len(valid_vecs) == 1:
-                return valid_vecs[0], valid_chunks
-            return np.concatenate(valid_vecs, axis=0), valid_chunks
-
-        project_docs_vecs, project_docs_chunks = _load(self.index_dir, "docs.npy", "docs.json")
-        project_code_vecs, project_code_chunks = _load(self.index_dir, "code.npy", "code.json")
-        project_meta = _load_meta(self.index_dir)
-        framework_docs_vecs, framework_docs_chunks = _load(
-            self.framework_index_dir,
-            "docs.npy",
-            "docs.json",
-            ".wavefoundry/framework",
-        )
-        framework_code_vecs, framework_code_chunks = _load(
-            self.framework_index_dir,
-            "code.npy",
-            "code.json",
-            ".wavefoundry/framework",
-        )
-        framework_meta = _load_meta(self.framework_index_dir)
-
-        DOCS_MODEL = self._indexer_constant("DOCS_MODEL")
-        CODE_MODEL = self._indexer_constant("CODE_MODEL")
-        project_docs_layer = _compatible_layer(
-            project_docs_vecs, project_docs_chunks, project_meta, "docs", DOCS_MODEL
-        )
-        framework_docs_layer = _compatible_layer(
-            framework_docs_vecs, framework_docs_chunks, framework_meta, "docs", DOCS_MODEL
-        )
-        project_code_layer = _compatible_layer(
-            project_code_vecs, project_code_chunks, project_meta, "code", CODE_MODEL
-        )
-        framework_code_layer = _compatible_layer(
-            framework_code_vecs, framework_code_chunks, framework_meta, "code", CODE_MODEL
-        )
-
-        self._docs_vecs, self._docs_chunks = _merge_layers([project_docs_layer, framework_docs_layer])
-        self._code_vecs, self._code_chunks = _merge_layers([project_code_layer, framework_code_layer])
-        self._all_docs_chunks = project_docs_chunks + framework_docs_chunks
         self._meta = {
-            "project": project_meta,
-            "framework": framework_meta,
+            "project": _load_meta_only(self.index_dir),
+            "framework": _load_meta_only(self.framework_index_dir),
         }
         self._loaded_meta_signature = {
             "project": self._index_meta_signature(self.index_dir),
             "framework": self._index_meta_signature(self.framework_index_dir),
         }
-        docs_tag_index: dict[str, list[int]] = {}
-        docs_kind_index: dict[str, list[int]] = {}
-        for i, chunk in enumerate(self._docs_chunks):
-            for tag in _infer_tags(chunk.get("path", "")):
-                docs_tag_index.setdefault(tag, []).append(i)
-            chunk_kind = str(chunk.get("kind") or "")
-            docs_kind_index.setdefault(chunk_kind, []).append(i)
-            if chunk_kind == "doc":
-                p = str(chunk.get("path") or "").replace("\\", "/")
-                if p == "docs/ARCHITECTURE.md" or p.startswith("docs/architecture/"):
-                    docs_kind_index.setdefault("architecture", []).append(i)
-        self._docs_tag_index = docs_tag_index
-        self._docs_kind_index = docs_kind_index
-        code_tag_index: dict[str, list[int]] = {}
-        code_kind_index: dict[str, list[int]] = {}
-        for i, chunk in enumerate(self._code_chunks):
-            for tag in _infer_tags(chunk.get("path", "")):
-                code_tag_index.setdefault(tag, []).append(i)
-            chunk_kind = str(chunk.get("kind") or "")
-            code_kind_index.setdefault(chunk_kind, []).append(i)
-        self._code_tag_index = code_tag_index
-        self._code_kind_index = code_kind_index
         self._loaded = True
 
     # ------------------------------------------------------------------
@@ -713,15 +737,21 @@ class WaveIndex:
         except Exception:
             return candidates[:top_n]
 
-    def _rrf_merge(self, ranked_lists: list[list[dict]], top_n: int, k: int = 60) -> list[dict]:
+    def _rrf_merge(self, ranked_lists: list[list[dict]], top_n: int, k: int = 60, weights: Optional[list[float]] = None) -> list[dict]:
+        """Reciprocal Rank Fusion across ranked_lists.
+
+        ``weights`` is an optional per-list multiplier applied to each RRF term.
+        When omitted all lists are weighted equally (weight=1.0).
+        """
         scores: dict[str, float] = {}
         chunks_by_id: dict[str, dict] = {}
-        for ranked in ranked_lists:
+        for i, ranked in enumerate(ranked_lists):
             if not ranked:
                 continue
+            w = weights[i] if weights and i < len(weights) else 1.0
             for rank, chunk in enumerate(ranked):
                 chunk_id = str(chunk.get("id") or str(chunk.get("path", "")) + str(chunk.get("lines", "")))
-                scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.0 / (k + rank)
+                scores[chunk_id] = scores.get(chunk_id, 0.0) + w / (k + rank)
                 chunks_by_id[chunk_id] = chunk
         sorted_ids = sorted(scores, key=lambda cid: scores[cid], reverse=True)
         return [chunks_by_id[cid] for cid in sorted_ids[:top_n]]
@@ -730,46 +760,65 @@ class WaveIndex:
         mod = _load_script("indexer")
         return getattr(mod, name)
 
-    def _cosine_search(
-        self,
-        query_vec: "np.ndarray",
-        matrix: "np.ndarray",
-        chunks: list[dict],
-        top_n: int,
-    ) -> list[dict]:
-        import numpy as np
-        if matrix is None or len(chunks) == 0:
+    def _qualify_index_path(self, path: str, layer: str) -> str:
+        normalized = str(path or "").replace("\\", "/")
+        if layer == "framework" and normalized and not normalized.startswith(".wavefoundry/framework/"):
+            return f".wavefoundry/framework/{normalized.lstrip('/')}"
+        return normalized
+
+    def _lance_search(self, table, query_vec: "np.ndarray", top_n: int, where: Optional[str] = None, layer: str = "project") -> list[dict]:
+        """Search a LanceDB table with cosine metric.
+
+        Returns a list of chunk dicts with a ``score`` field (1 - distance, higher = more similar).
+        """
+        try:
+            q = table.search(query_vec.tolist()).metric("cosine").limit(top_n)
+            if where:
+                q = q.where(where, prefilter=True)
+            results = q.to_list()
+        except Exception:
             return []
-        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-        norms = np.where(norms == 0, 1e-10, norms)
-        normed = matrix / norms
-        q_norm = query_vec / (np.linalg.norm(query_vec) + 1e-10)
-        scores = normed @ q_norm
-        top_idx = np.argsort(scores)[::-1][:top_n]
-        return [
-            {**chunks[i], "score": float(scores[i])}
-            for i in top_idx
-            if scores[i] > 0
-        ]
+        out = []
+        for r in results:
+            d = dict(r)
+            score = d.pop("_distance", None)
+            d.pop("vector", None)
+            d["path"] = self._qualify_index_path(d.get("path", ""), layer)
+            if score is not None:
+                # LanceDB cosine distance = 1 - cosine_similarity; convert to similarity
+                d["score"] = float(1.0 - score)
+            else:
+                d["score"] = 0.0
+            out.append(d)
+        return out
 
     def search_docs(self, query: str, kind: Optional[str] = None, top_n: int = 7, tags: Optional[list] = None) -> tuple[list[dict], bool]:
         self._ensure_loaded()
         DOCS_MODEL = self._indexer_constant("DOCS_MODEL")
         qvec = self._embed_query(query, DOCS_MODEL)
-        vecs, chunks = self._docs_vecs, self._docs_chunks
-        if tags or kind:
-            indices: set[int] = set(range(len(self._docs_chunks)))
-            if tags:
-                indices &= set().union(*(self._docs_tag_index.get(t, []) for t in tags))
-            if kind:
-                indices &= set(self._docs_kind_index.get(kind, []))
-            sorted_indices = sorted(indices)
-            if not sorted_indices:
-                return [], False
-            vecs = vecs[sorted_indices]
-            chunks = [chunks[i] for i in sorted_indices]
+
+        where_parts = []
+        if kind:
+            safe_kind = kind.replace("'", "''")
+            where_parts.append(f"kind = '{safe_kind}'")
+        if tags:
+            tag_clauses = [f"tags LIKE '%{t.replace(chr(39), chr(39)*2)}%'" for t in tags]
+            where_parts.append(f"({' OR '.join(tag_clauses)})")
+        where = " AND ".join(where_parts) if where_parts else None
+        tables = [t for t in [
+            getattr(self, "_proj_docs_lance_table", None),
+            getattr(self, "_fw_docs_lance_table", None),
+        ] if t is not None]
+        if not tables:
+            return [], False
         fetch_n = max(top_n, VECTOR_TOP_K)
-        candidates = self._cosine_search(qvec, vecs, chunks, fetch_n)
+        all_candidates: list[dict] = []
+        if getattr(self, "_proj_docs_lance_table", None) is not None:
+            all_candidates.extend(self._lance_search(self._proj_docs_lance_table, qvec, fetch_n, where=where, layer="project"))
+        if getattr(self, "_fw_docs_lance_table", None) is not None:
+            all_candidates.extend(self._lance_search(self._fw_docs_lance_table, qvec, fetch_n, where=where, layer="framework"))
+        all_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+        candidates = all_candidates[:fetch_n]
         reranker = self._get_reranker()
         if reranker is not None:
             results = self._rerank(query, candidates, top_n)
@@ -780,21 +829,30 @@ class WaveIndex:
         self._ensure_loaded()
         CODE_MODEL = self._indexer_constant("CODE_MODEL")
         qvec = self._embed_query(query, CODE_MODEL)
-        vecs, chunks = self._code_vecs, self._code_chunks
-        if tags or kind:
-            indices: set[int] = set(range(len(self._code_chunks)))
-            if tags:
-                indices &= set().union(*(self._code_tag_index.get(t, []) for t in tags))
-            if kind:
-                indices &= set(self._code_kind_index.get(kind, []))
-            sorted_indices = sorted(indices)
-            if not sorted_indices:
-                return [], False
-            vecs = vecs[sorted_indices]
-            chunks = [chunks[i] for i in sorted_indices]
+
+        where_parts = []
+        if kind:
+            safe_kind = kind.replace("'", "''")
+            where_parts.append(f"kind = '{safe_kind}'")
+        if tags:
+            tag_clauses = [f"tags LIKE '%{t.replace(chr(39), chr(39)*2)}%'" for t in tags]
+            where_parts.append(f"({' OR '.join(tag_clauses)})")
+        where = " AND ".join(where_parts) if where_parts else None
+        tables = [t for t in [
+            getattr(self, "_proj_code_lance_table", None),
+            getattr(self, "_fw_code_lance_table", None),
+        ] if t is not None]
+        if not tables:
+            return [], False
         fetch_n_base = top_n * 4 if language or max_per_file is not None else top_n
         fetch_n = max(fetch_n_base, VECTOR_TOP_K)
-        results = self._cosine_search(qvec, vecs, chunks, fetch_n)
+        all_candidates: list[dict] = []
+        if getattr(self, "_proj_code_lance_table", None) is not None:
+            all_candidates.extend(self._lance_search(self._proj_code_lance_table, qvec, fetch_n, where=where, layer="project"))
+        if getattr(self, "_fw_code_lance_table", None) is not None:
+            all_candidates.extend(self._lance_search(self._fw_code_lance_table, qvec, fetch_n, where=where, layer="framework"))
+        all_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+        results = all_candidates[:fetch_n]
         if language:
             results = [r for r in results if r.get("language") == language]
         if max_per_file is not None:
@@ -813,35 +871,173 @@ class WaveIndex:
             return results, True
         return results[:top_n], False
 
-    def search_combined(self, query: str, top_n: int = 7) -> tuple[list[dict], bool]:
+    def search_combined(self, query: str, top_n: int = 7, question_type: str = "") -> tuple[list[dict], bool, int, int, list[str], list[str], str]:
+        """Combined semantic search across docs and code indexes.
+
+        Returns ``(results, reranked, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method)``.
+
+        - ``question_type`` influences retrieval weighting and post-rerank ordering:
+          - ``"navigational"``: code-index candidates receive a ``RRF_NAVIGATIONAL_CODE_WEIGHT``
+            multiplier in RRF scoring; docs-index receives ``RRF_NAVIGATIONAL_DOCS_WEIGHT``.
+          - ``"explanatory"``: after reranking, citations from ``INFRASTRUCTURE_PATH_SEGMENTS``
+            (scaffolding/wiring layers) are stable-partitioned to the end of the result list.
+            A second retrieval hop extracts symbol names from the top reranked citations and
+            injects their definition files as additional candidates before a second rerank.
+          - All other values (including ``""``) leave weighting and ordering unchanged.
+        - ``vector_ms``: wall time for the vector fetch phase (both indexes), in milliseconds.
+        - ``rerank_ms``: wall time for reranker inference or RRF merge, in milliseconds.
+        - ``definition_boosted``: list of rule labels that fired (e.g. ``["sql"]``); empty when no rule fired.
+        - ``second_hop_symbols``: list of symbol names that triggered second-hop retrieval; empty when
+          the second hop was skipped or produced no candidates.
+        - ``symbol_extraction_method``: extraction method used for the second-hop symbol pass —
+          ``"ast"`` (Python stdlib AST or tree-sitter produced symbols), ``"regex"`` (AST unavailable
+          or produced no symbols), or ``"none"`` (second hop not attempted, or all citations were
+          infra-filtered before extraction).
+        """
         self._ensure_loaded()
         DOCS_MODEL = self._indexer_constant("DOCS_MODEL")
         CODE_MODEL = self._indexer_constant("CODE_MODEL")
+
+        # --- Vector fetch phase (timed) ---
+        t_vector = time.monotonic()
+        top_k = VECTOR_TOP_K_EXPLANATORY if question_type == "explanatory" else VECTOR_TOP_K
         docs_qvec = self._embed_query(query, DOCS_MODEL)
         code_qvec = self._embed_query(query, CODE_MODEL)
-        docs_candidates = self._cosine_search(docs_qvec, self._docs_vecs, self._docs_chunks, VECTOR_TOP_K)
-        code_candidates = self._cosine_search(code_qvec, self._code_vecs, self._code_chunks, VECTOR_TOP_K)
+        docs_candidates = []
+        if getattr(self, "_proj_docs_lance_table", None) is not None:
+            docs_candidates.extend(self._lance_search(self._proj_docs_lance_table, docs_qvec, top_k, layer="project"))
+        if getattr(self, "_fw_docs_lance_table", None) is not None:
+            docs_candidates.extend(self._lance_search(self._fw_docs_lance_table, docs_qvec, top_k, layer="framework"))
+        docs_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+        code_candidates = []
+        if getattr(self, "_proj_code_lance_table", None) is not None:
+            code_candidates.extend(self._lance_search(self._proj_code_lance_table, code_qvec, top_k, layer="project"))
+        if getattr(self, "_fw_code_lance_table", None) is not None:
+            code_candidates.extend(self._lance_search(self._fw_code_lance_table, code_qvec, top_k, layer="framework"))
+        code_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+        vector_ms = round((time.monotonic() - t_vector) * 1000)
+
         all_candidates = docs_candidates + code_candidates
+
+        # --- Definition-file boosting: vocabulary-triggered keyword augmentation ---
+        q_lower = query.lower()
+        definition_boosted: list[str] = []
+        for rule in DEFINITION_BOOST_RULES:
+            if not any(term in q_lower for term in rule["vocabulary"]):
+                continue
+            # Most specific matching term: longest vocabulary term > 3 chars present in query
+            matching_terms = [t for t in rule["vocabulary"] if len(t) > 3 and t in q_lower]
+            search_term = max(matching_terms, key=len) if matching_terms else query
+            injected = 0
+            for ext in rule["extensions"]:
+                if injected >= DEFINITION_BOOST_CANDIDATES:
+                    break
+                try:
+                    kw_resp = code_keyword_response(self.root, search_term, glob=f"*{ext}")
+                    if kw_resp.get("status") == "ok":
+                        for r in kw_resp["data"]["results"]:
+                            if injected >= DEFINITION_BOOST_CANDIDATES:
+                                break
+                            all_candidates.append({
+                                "path": r.get("path", ""),
+                                "text": r.get("snippet", ""),
+                                "score": 0.0,
+                                "kind": "code",
+                                "lines": [r.get("line", 1), r.get("line", 1)],
+                            })
+                            injected += 1
+                except Exception:
+                    pass
+            if injected > 0:
+                definition_boosted.append(rule["label"])
+
+        # --- Rerank / RRF phase (timed) ---
+        t_rerank = time.monotonic()
         reranker = self._get_reranker()
+        second_hop_symbols: list[str] = []
+        symbol_extraction_method: str = "none"
         if reranker is not None:
             try:
                 results = self._rerank(query, all_candidates, top_n)
-                return results, True
+                rerank_ms = round((time.monotonic() - t_rerank) * 1000)
+
+                # --- Second-hop symbol expansion (explanatory questions only) ---
+                if question_type == "explanatory":
+                    symbols, symbol_extraction_method = _extract_symbols_from_citations(results)
+                    if symbols:
+                        # Track which (path, start_line) pairs are already in the pool
+                        first_hop_keys = {
+                            (r.get("path", ""), (r.get("lines") or [0])[0])
+                            for r in all_candidates
+                        }
+                        second_hop_candidates: list[dict] = []
+                        for sym in symbols:
+                            if len(second_hop_candidates) >= MAX_SECOND_HOP_CANDIDATES:
+                                break
+                            try:
+                                kw_resp = code_keyword_response(self.root, sym)
+                                if kw_resp.get("status") == "ok":
+                                    for r in kw_resp["data"]["results"]:
+                                        if len(second_hop_candidates) >= MAX_SECOND_HOP_CANDIDATES:
+                                            break
+                                        key = (r.get("path", ""), r.get("line", 0))
+                                        if key not in first_hop_keys:
+                                            second_hop_candidates.append({
+                                                "path": r.get("path", ""),
+                                                "text": r.get("snippet", ""),
+                                                "score": 0.0,
+                                                "kind": "code",
+                                                "lines": [r.get("line", 1), r.get("line", 1)],
+                                            })
+                                            first_hop_keys.add(key)
+                            except Exception:
+                                pass
+                        if second_hop_candidates:
+                            second_hop_symbols = symbols
+                            results = self._rerank(
+                                query, results + second_hop_candidates, top_n
+                            )
+
+                # Stable partition: push scaffolding-layer citations to end
+                if question_type == "explanatory":
+                    results = _partition_infra(results)
+                rerank_ms = round((time.monotonic() - t_rerank) * 1000)
+                return results, True, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method
             except Exception:
                 pass
-        results = self._rrf_merge([docs_candidates, code_candidates], top_n)
-        return results, False
+
+        # RRF fallback — apply navigational weight bias when appropriate
+        # (second hop is skipped in RRF path — unpredictable ordering without reranker)
+        rrf_weights = (
+            [RRF_NAVIGATIONAL_DOCS_WEIGHT, RRF_NAVIGATIONAL_CODE_WEIGHT]
+            if question_type == "navigational"
+            else None
+        )
+        results = self._rrf_merge([docs_candidates, code_candidates], top_n, weights=rrf_weights)
+        rerank_ms = round((time.monotonic() - t_rerank) * 1000)
+        if question_type == "explanatory":
+            results = _partition_infra(results)
+        return results, False, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method
 
     def get_seed(self, name: str) -> Optional[dict]:
         self._ensure_loaded()
         name_lower = name.lower().strip()
-        for chunk in self._all_docs_chunks:
-            if chunk.get("kind") != "seed":
-                continue
-            path = chunk.get("path", "")
-            section = chunk.get("section") or ""
-            if name_lower in path.lower() or name_lower in section.lower():
-                return chunk
+        # Query Lance docs table for seed chunks; fall back to empty if table absent.
+        for table in filter(None, [
+            getattr(self, "_proj_docs_lance_table", None),
+            getattr(self, "_fw_docs_lance_table", None),
+        ]):
+            try:
+                rows = table.search().where("kind = 'seed'", prefilter=True).to_list()
+            except Exception:
+                rows = []
+            for row in rows:
+                chunk = {k: v for k, v in row.items() if k != "vector"}
+                path = chunk.get("path", "")
+                section = chunk.get("section") or ""
+                if name_lower in path.lower() or name_lower in section.lower():
+                    chunk["path"] = self._qualify_index_path(path, "framework" if table is getattr(self, "_fw_docs_lance_table", None) else "project")
+                    return chunk
         return None
 
     def is_stale(self) -> bool:
@@ -1554,7 +1750,7 @@ def _help_catalog() -> dict[str, Any]:
                     "Use language='web' to include TypeScript, JavaScript, HTML, CSS, and SCSS in one filter. "
                     "Category searches return language_resolved listing the expanded language set."
                 ),
-                "fallback_tools": ["code_keyword_search"],
+                "fallback_tools": ["code_keyword"],
                 "next_step": "Run semantic code search. Omit language to search all languages, or use a category for broad filtering.",
                 "usage": "code_search(query='handle authentication errors', language='web')",
             },
@@ -1808,33 +2004,32 @@ def _index_dir_for_layer(root: Path, layer: str) -> Path:
 def _read_index_rebuild_stats(root: Path, layer: str) -> dict[str, Any]:
     index_dir = _index_dir_for_layer(root, layer)
     meta_path = index_dir / "meta.json"
-    docs_path = index_dir / "docs.json"
-    code_path = index_dir / "code.json"
 
     meta: dict[str, Any] = {}
-    docs_chunks: list[Any] = []
-    code_chunks: list[Any] = []
+    doc_chunks = 0
+    code_chunks = 0
 
     if meta_path.is_file():
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             meta = {}
-    if docs_path.is_file():
-        try:
-            docs_chunks = json.loads(docs_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            docs_chunks = []
-    if code_path.is_file():
-        try:
-            code_chunks = json.loads(code_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            code_chunks = []
+
+    # Try Lance tables for chunk counts; fall back to 0 if unavailable.
+    try:
+        import lancedb
+        db = lancedb.connect(str(index_dir))
+        if (index_dir / "docs.lance").is_dir():
+            doc_chunks = db.open_table("docs").count_rows()
+        if (index_dir / "code.lance").is_dir():
+            code_chunks = db.open_table("code").count_rows()
+    except Exception:
+        pass
 
     return {
         "files_total": len(meta.get("file_meta") or meta.get("file_hashes") or {}),
-        "doc_chunks": len(docs_chunks),
-        "code_chunks": len(code_chunks),
+        "doc_chunks": doc_chunks,
+        "code_chunks": code_chunks,
         "available_content": list(meta.get("content", [])),
         "built_at": meta.get("built_at", ""),
     }
@@ -1886,6 +2081,13 @@ def _index_build_state_path(root: Path, layer: str) -> Path:
     if layer == "framework":
         return root / ".wavefoundry" / "framework" / "index" / "index-build.json"
     return root / ".wavefoundry" / "index" / "index-build.json"
+
+
+def _clear_index_build_state(root: Path, layer: str) -> None:
+    try:
+        _index_build_state_path(root, layer).unlink()
+    except OSError:
+        pass
 
 
 def _index_build_log_path(root: Path, layer: str) -> Path:
@@ -2167,6 +2369,7 @@ def run_index_rebuild(
         }
 
     # Persist stats from the previous completed build before overwriting the log.
+    state_path = _index_build_state_path(root, layer)
     log_path = _index_build_log_path(root, layer)
     prev_log_text = ""
     if log_path.exists():
@@ -2217,7 +2420,11 @@ def run_index_rebuild(
             "stderr": log_file,
             "stdin": subprocess.DEVNULL,
             "cwd": str(root),
-            "env": {**os.environ, "PROJECT_ROOT": str(root)},
+            "env": {
+                **os.environ,
+                "PROJECT_ROOT": str(root),
+                "WAVEFOUNDRY_INDEX_BUILD_STATE_PATH": str(state_path),
+            },
         }
         if os.name == "nt":
             kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
@@ -2226,8 +2433,6 @@ def run_index_rebuild(
         proc = subprocess.Popen(cmd, **kwargs)
     finally:
         log_file.close()
-
-    state_path = _index_build_state_path(root, layer)
     state_path.write_text(
         json.dumps({"pid": proc.pid, "started_at": time.time(), "content": content, "layer": layer, "full": full}),
         encoding="utf-8",
@@ -2840,14 +3045,35 @@ def _index_chunk_matching_address(index: WaveIndex, address: str, parsed: dict[s
         return None
     scheme = parsed["scheme"]
     want = address.strip()
+    path = (parsed.get("path") or "").replace("\\", "/").replace("'", "''")
+    # Determine which Lance table(s) to scan and which prefix(es) to match.
     if scheme == "code":
-        seq: list[tuple[str, list[dict]]] = [("code", index._code_chunks)]
+        table_prefixes = [(getattr(index, "_code_lance_table", None), "code")]
     elif scheme == "seed":
-        seq = [("seed", index._docs_chunks), ("doc", index._docs_chunks)]
+        table_prefixes = [
+            (getattr(index, "_docs_lance_table", None), "seed"),
+            (getattr(index, "_docs_lance_table", None), "doc"),
+        ]
     else:
-        seq = [("doc", index._docs_chunks)]
-    for prefix, chunks in seq:
-        for ch in chunks:
+        table_prefixes = [(getattr(index, "_docs_lance_table", None), "doc")]
+    seen_tables: set[int] = set()
+    for table, prefix in table_prefixes:
+        if table is None:
+            continue
+        table_id = id(table)
+        if table_id in seen_tables:
+            continue
+        seen_tables.add(table_id)
+        try:
+            where = f"path = '{path}'" if path else None
+            q = table.search()
+            if where:
+                q = q.where(where, prefilter=True)
+            rows = q.to_list()
+        except Exception:
+            rows = []
+        for row in rows:
+            ch = {k: v for k, v in row.items() if k != "vector"}
             if _result_id(prefix, ch) == want:
                 return ch
     return None
@@ -4446,6 +4672,7 @@ def wave_index_build_status_response(root: Path, layer: str = "project") -> dict
     try:
         state = json.loads(state_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
+        _clear_index_build_state(root, layer_s)
         return _response("ok", {"layer": layer_s, "state": "idle"}, next_tools=["wave_index_build"], usage="wave_index_build()")
 
     pid = state.get("pid")
@@ -4530,6 +4757,7 @@ def wave_index_build_status_response(root: Path, layer: str = "project") -> dict
 
     # Process not running (or log confirms done) — build finished (or crashed). Parse summary from log.
     _refresh_index_build_stats_from_finished_log(root, layer_s)
+    _clear_index_build_state(root, layer_s)
     finished_at = None
     if log_path.exists():
         try:
@@ -5653,7 +5881,7 @@ def code_list_files_response(root: Path, glob: str = "") -> dict[str, Any]:
     else:
         paths = [str(p.resolve().relative_to(root_r)).replace("\\", "/") for p in all_files]
 
-    return _response("ok", {"glob": glob, "count": len(paths), "paths": paths}, next_tools=["code_read", "code_keyword_search"], usage="code_read(path='...', start_line=1, end_line=50)")
+    return _response("ok", {"glob": glob, "count": len(paths), "paths": paths}, next_tools=["code_read", "code_keyword"], usage="code_read(path='...', start_line=1, end_line=50)")
 
 
 def code_read_response(root: Path, path: str, start_line: Optional[int] = None, end_line: Optional[int] = None) -> dict[str, Any]:
@@ -5678,13 +5906,76 @@ def code_read_response(root: Path, path: str, start_line: Optional[int] = None, 
         return _response("error", {"path": path, "start_line": start_line, "end_line": end_line}, diagnostics=[_diagnostic("invalid_range", f"start_line ({lo}) is greater than end_line ({hi}) for file with {total} lines.")], next_tools=["code_read"], usage=f"code_read(path={path!r})")
     selected = lines[lo - 1:hi]
     numbered = "\n".join(f"{i + lo:5d}\t{line}" for i, line in enumerate(selected))
-    return _response("ok", {"path": path, "start_line": lo, "end_line": hi, "total_lines": total, "content": numbered}, next_tools=["code_keyword_search", "code_definition"], usage=f"code_keyword_search(query='...', glob='*.py')")
+    return _response("ok", {"path": path, "start_line": lo, "end_line": hi, "total_lines": total, "content": numbered}, next_tools=["code_keyword", "code_definition"], usage=f"code_keyword(query='...', glob='*.py')")
 
 
-def code_keyword_search_response(root: Path, query: str, glob: str = "") -> dict[str, Any]:
-    """Search repository files for an exact keyword/substring, returning path/line/snippet results."""
-    if not query.strip():
-        return _response("error", {"query": query}, diagnostics=[_diagnostic("invalid_arguments", "Search query must be a non-empty string.")], next_tools=["code_list_files"], usage="code_list_files()")
+def code_keyword_response(
+    root: Path,
+    query: str = "",
+    glob: str = "",
+    queries: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    """Search repository files for an exact keyword/substring, returning path/line/snippet results.
+
+    Pass either *query* (single string) or *queries* (list of strings); supplying both is an error.
+    When *queries* is used each result includes ``matched_query`` showing which entry produced it.
+    """
+    has_query = bool(query.strip())
+    has_queries = queries is not None
+
+    if has_query and has_queries:
+        return _response(
+            "error", {"query": query, "queries": queries},
+            diagnostics=[_diagnostic("invalid_arguments", "Provide either 'query' or 'queries', not both.")],
+            next_tools=["code_keyword"], usage="code_keyword(query='FOO')",
+        )
+
+    if not has_query and not has_queries:
+        return _response(
+            "error", {"query": query},
+            diagnostics=[_diagnostic("invalid_arguments", "Search query must be a non-empty string.")],
+            next_tools=["code_list_files"], usage="code_list_files()",
+        )
+
+    # --- multi-query path ---
+    if has_queries:
+        assert queries is not None  # for type checker
+        if not queries:
+            return _response("ok", {"queries": queries, "glob": glob, "count": 0, "results": []},
+                             next_tools=["code_read"], usage="code_read(path='...', start_line=N, end_line=N+20)")
+        try:
+            all_files = _walk_repo_for_navigation(root)
+        except Exception as exc:
+            return _response("error", {"queries": queries},
+                             diagnostics=[_diagnostic("navigation_error", f"File walk failed: {exc}")],
+                             next_tools=["wave_help"], usage="wave_help()")
+        root_r = root.resolve()
+        if glob:
+            import fnmatch
+            all_files = [
+                p for p in all_files
+                if fnmatch.fnmatch(str(p.resolve().relative_to(root_r)).replace("\\", "/"), glob)
+                or fnmatch.fnmatch(p.name, glob)
+            ]
+        seen: set[tuple[str, int]] = set()
+        merged: list[dict[str, Any]] = []
+        for q in queries:
+            for p in all_files:
+                try:
+                    text = p.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+                for lineno, line in enumerate(text.splitlines(), 1):
+                    if q in line:
+                        key = (rel, lineno)
+                        if key not in seen:
+                            seen.add(key)
+                            merged.append({"path": rel, "line": lineno, "snippet": line.rstrip(), "matched_query": q})
+        return _response("ok", {"queries": queries, "glob": glob, "count": len(merged), "results": merged},
+                         next_tools=["code_read"], usage="code_read(path='...', start_line=N, end_line=N+20)")
+
+    # --- single-query path (original behaviour) ---
     try:
         all_files = _walk_repo_for_navigation(root)
     except Exception as exc:
@@ -5710,7 +6001,666 @@ def code_keyword_search_response(root: Path, query: str, glob: str = "") -> dict
             if query in line:
                 results.append({"path": rel, "line": lineno, "snippet": line.rstrip()})
 
-    return _response("ok", {"query": query, "glob": glob, "count": len(results), "results": results}, next_tools=["code_read"], usage="code_read(path='...', start_line=N, end_line=N+20)")
+    return _response("ok", {"query": query, "glob": glob, "count": len(results), "results": results},
+                     next_tools=["code_read"], usage="code_read(path='...', start_line=N, end_line=N+20)")
+
+
+def _bracket_depth(text: str) -> int:
+    """Net open-bracket depth of ``text``, treating quoted strings as opaque.
+
+    Used by ``code_constants_response`` to detect multiline values.
+    Triple-quoted and single-quoted strings are skipped entirely so bracket
+    characters inside strings do not affect the depth count.
+    """
+    depth = 0
+    i = 0
+    n = len(text)
+    while i < n:
+        # Triple-quoted string — skip to closing triple-quote
+        if text[i:i + 3] in ('"""', "'''"):
+            q = text[i:i + 3]
+            i += 3
+            while i < n and text[i:i + 3] != q:
+                i += 1
+            i += 3
+        # Single-quoted string — skip to closing quote
+        elif text[i] in ('"', "'"):
+            q = text[i]
+            i += 1
+            while i < n and text[i] != q:
+                if text[i] == '\\':
+                    i += 1  # skip escaped character
+                i += 1
+            i += 1  # skip closing quote
+        elif text[i] in '([{':
+            depth += 1
+            i += 1
+        elif text[i] in ')]}':
+            depth -= 1
+            i += 1
+        else:
+            i += 1
+    return depth
+
+
+_CONSTANTS_MAX_CONTINUATION = 50
+
+
+def code_constants_response(root: Path, symbols: list[str], glob: str = "") -> dict[str, Any]:
+    """Look up module-level constant assignments by name, returning parsed values.
+
+    For each symbol, scans files for an assignment of the form::
+
+        NAME = <value>
+        NAME: TYPE = <value>
+
+    at column 0 (no leading indent). Collects multiline values (frozenset, list,
+    dict literals) by tracking bracket depth until depth returns to zero or
+    ``_CONSTANTS_MAX_CONTINUATION`` continuation lines are consumed.
+
+    Returns results in input ``symbols`` order. Symbols not found are included
+    with ``value: null``. When a symbol appears in multiple files all matches are
+    returned (one entry per match).
+    """
+    if not symbols:
+        return _response(
+            "error", {"symbols": symbols},
+            diagnostics=[_diagnostic("invalid_arguments", "symbols list must be non-empty.")],
+            next_tools=["code_keyword"], usage="code_keyword(query='CONSTANT_NAME')",
+        )
+    try:
+        all_files = _walk_repo_for_navigation(root)
+    except Exception as exc:
+        return _response(
+            "error", {"symbols": symbols},
+            diagnostics=[_diagnostic("navigation_error", f"File walk failed: {exc}")],
+            next_tools=["wave_help"], usage="wave_help()",
+        )
+
+    root_r = root.resolve()
+    if glob:
+        import fnmatch
+        all_files = [
+            p for p in all_files
+            if fnmatch.fnmatch(str(p.resolve().relative_to(root_r)).replace("\\", "/"), glob)
+            or fnmatch.fnmatch(p.name, glob)
+        ]
+
+    symbol_set = set(symbols)
+    # matches[sym] accumulates all file matches for that symbol
+    matches: dict[str, list[dict[str, Any]]] = {s: [] for s in symbol_set}
+
+    import re as _re
+    for p in all_files:
+        try:
+            lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            # Only consider unindented lines (module-level assignments)
+            if line and not line[0].isspace():
+                for sym in symbol_set:
+                    if not line.startswith(sym):
+                        continue
+                    # NAME must be followed by whitespace, ':', or '='
+                    after = line[len(sym):]
+                    if not after or after[0] not in (' ', ':', '=', '\t'):
+                        continue
+                    m = _re.match(
+                        r'^' + _re.escape(sym) + r'\s*(?::[^=]*)?\s*=\s*(.*)',
+                        line,
+                    )
+                    if not m:
+                        continue
+                    val_start = m.group(1).rstrip()
+                    lineno = i + 1
+                    depth = _bracket_depth(val_start)
+                    if depth == 0:
+                        matches[sym].append({
+                            "name": sym, "value": val_start,
+                            "file": rel, "line": lineno, "kind": "scalar",
+                        })
+                    else:
+                        val_lines = [val_start]
+                        j = i + 1
+                        count = 0
+                        while j < len(lines) and depth != 0 and count < _CONSTANTS_MAX_CONTINUATION:
+                            cont = lines[j].rstrip()
+                            depth += _bracket_depth(cont)
+                            val_lines.append(cont)
+                            j += 1
+                            count += 1
+                        kind = "multiline" if depth == 0 else "multiline-truncated"
+                        matches[sym].append({
+                            "name": sym, "value": "\n".join(val_lines),
+                            "file": rel, "line": lineno, "kind": kind,
+                        })
+            i += 1
+
+    # Assemble results in input order; emit all matches per symbol, or null if none
+    results: list[dict[str, Any]] = []
+    for sym in symbols:
+        sym_matches = matches.get(sym, [])
+        if sym_matches:
+            results.extend(sym_matches)
+        else:
+            results.append({"name": sym, "value": None, "file": None, "line": None, "kind": None})
+
+    matched_count = sum(1 for r in results if r["value"] is not None)
+    return _response(
+        "ok",
+        {"symbols": symbols, "matched": matched_count, "results": results},
+        next_tools=["code_read"],
+        usage="code_read(path='...', start_line=N, end_line=N+5)",
+    )
+
+
+# ---------------------------------------------------------------------------
+# code_pattern helpers
+# ---------------------------------------------------------------------------
+
+_PATTERN_MAX_FILE_BYTES = 1 * 1024 * 1024  # 1 MB — ReDoS guard: skip files larger than this
+
+
+def code_pattern_response(
+    root: Path,
+    pattern: str,
+    glob: str = "",
+    max_results: int = 50,
+    ignore_case: bool = False,
+) -> dict[str, Any]:
+    """Regex pattern search across repository files.
+
+    Skips files larger than ``_PATTERN_MAX_FILE_BYTES`` (1 MB) as a ReDoS
+    mitigation — per-line ``re.search()`` is unbounded within a single line,
+    so large generated files are excluded to prevent latency spikes from
+    pathological patterns. Callers using pathological patterns against
+    small files bear that risk themselves.
+    """
+    flags = re.IGNORECASE if ignore_case else 0
+    try:
+        compiled = re.compile(pattern, flags)
+    except re.error as exc:
+        return _response(
+            "error", {"pattern": pattern},
+            diagnostics=[_diagnostic("invalid_pattern", f"Invalid regex: {exc}")],
+            next_tools=["code_keyword"], usage="code_keyword(query='literal text')",
+        )
+
+    try:
+        all_files = _walk_repo_for_navigation(root)
+    except Exception as exc:
+        return _response(
+            "error", {"pattern": pattern},
+            diagnostics=[_diagnostic("navigation_error", f"File walk failed: {exc}")],
+            next_tools=["wave_help"], usage="wave_help()",
+        )
+
+    root_r = root.resolve()
+    if glob:
+        import fnmatch
+        all_files = [
+            p for p in all_files
+            if fnmatch.fnmatch(str(p.resolve().relative_to(root_r)).replace("\\", "/"), glob)
+            or fnmatch.fnmatch(p.name, glob)
+        ]
+
+    matches: list[dict[str, Any]] = []
+    total = 0
+    truncated = False
+
+    for p in all_files:
+        try:
+            if p.stat().st_size > _PATTERN_MAX_FILE_BYTES:
+                continue
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if compiled.search(line):
+                total += 1
+                if len(matches) < max_results:
+                    matches.append({"file": rel, "line": lineno, "text": line.rstrip()})
+                else:
+                    truncated = True
+
+    return _response(
+        "ok",
+        {"pattern": pattern, "glob": glob, "matches": matches,
+         "truncated": truncated, "total_matches_found": total},
+        next_tools=["code_read"], usage="code_read(path='...', start_line=N, end_line=N+5)",
+    )
+
+
+# ---------------------------------------------------------------------------
+# code_outline helpers
+# ---------------------------------------------------------------------------
+
+_OUTLINE_REGEX = re.compile(
+    r'^(?:pub\s+)?(?:async\s+)?'
+    r'(def|class|function|func|fn|sub|procedure)\s+'
+    r'([A-Za-z_][A-Za-z0-9_]*)',
+    re.IGNORECASE,
+)
+
+
+def _outline_ts_name(node: Any) -> str:
+    """Extract the identifier name from a tree-sitter definition node."""
+    for child in node.children:
+        if child.type in _TS_IDENTIFIER_TYPES:
+            return child.text.decode("utf-8", errors="replace").strip()
+    return ""
+
+
+def _outline_python(source: str, rel: str) -> dict[str, Any]:
+    """Python AST-based outline extraction."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        return _response("error", {"path": rel},
+                         diagnostics=[_diagnostic("unparseable", f"Python SyntaxError: {exc}")],
+                         next_tools=[], usage="")
+
+    def _end(node: ast.AST) -> int:
+        return getattr(node, "end_lineno", getattr(node, "lineno", 0))
+
+    def _docstring(node: ast.AST) -> Optional[str]:
+        body = getattr(node, "body", [])
+        if (body and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)):
+            return body[0].value.value.strip().splitlines()[0][:200]
+        return None
+
+    symbols: list[dict[str, Any]] = []
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            symbols.append({"name": node.name, "kind": "function",
+                            "start_line": node.lineno, "end_line": _end(node),
+                            "docstring": _docstring(node)})
+        elif isinstance(node, ast.ClassDef):
+            symbols.append({"name": node.name, "kind": "class",
+                            "start_line": node.lineno, "end_line": _end(node),
+                            "docstring": _docstring(node)})
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    symbols.append({"name": child.name, "kind": "method",
+                                    "start_line": child.lineno, "end_line": _end(child),
+                                    "docstring": _docstring(child)})
+        elif isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name) and t.id == t.id.upper() and t.id.replace("_", "").isalpha():
+                    symbols.append({"name": t.id, "kind": "constant",
+                                    "start_line": node.lineno, "end_line": _end(node),
+                                    "docstring": None})
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name):
+                n = node.target.id
+                if n == n.upper() and n.replace("_", "").isalpha():
+                    symbols.append({"name": n, "kind": "constant",
+                                    "start_line": node.lineno, "end_line": _end(node),
+                                    "docstring": None})
+
+    return _response("ok", {"file": rel, "parser_used": "python_ast", "symbols": symbols},
+                     next_tools=["code_read"], usage=f"code_read(path='{rel}', start_line=N, end_line=N+20)")
+
+
+def _outline_treesitter(source: str, rel: str, lang: str) -> Optional[dict[str, Any]]:
+    """Tree-sitter outline. Returns None on any failure so caller can fall through to regex."""
+    try:
+        chunker = _get_chunker_module()
+        tree = chunker._ts_parse(_TS_SYMBOL_LANG_MAP[lang], source)
+        if tree is None:
+            return None
+    except Exception:
+        return None
+
+    def _entry(node: Any, kind: str) -> Optional[dict[str, Any]]:
+        name = _outline_ts_name(node)
+        if not name:
+            return None
+        return {"name": name, "kind": kind,
+                "start_line": node.start_point[0] + 1,
+                "end_line": node.end_point[0] + 1,
+                "docstring": None}
+
+    symbols: list[dict[str, Any]] = []
+    for node in tree.root_node.children:
+        # Unwrap export_statement (TypeScript/JavaScript top-level exports)
+        inner = node
+        if node.type == "export_statement":
+            for child in node.children:
+                if child.type not in ("export", "default", "type"):
+                    inner = child
+                    break
+        # Also unwrap SQL statement wrapper (e.g. statement → create_function)
+        elif node.type == "statement":
+            for child in node.children:
+                if child.type not in (";",):
+                    inner = child
+                    break
+        if inner.type in _TS_OUTLINE_CLASS_TYPES:
+            e = _entry(inner, "class")
+            if e:
+                symbols.append(e)
+            # Walk one level into the class body for methods
+            for child in inner.children:
+                if child.type in _TS_OUTLINE_FUNC_TYPES:
+                    m = _entry(child, "method")
+                    if m:
+                        symbols.append(m)
+                elif hasattr(child, "children"):
+                    for gc in child.children:
+                        if gc.type in _TS_OUTLINE_FUNC_TYPES:
+                            m = _entry(gc, "method")
+                            if m:
+                                symbols.append(m)
+        elif inner.type in _TS_OUTLINE_FUNC_TYPES:
+            e = _entry(inner, "function")
+            if e:
+                symbols.append(e)
+        elif inner.type == "lexical_declaration":
+            # Arrow function exports: export const fn = async (props) => {}
+            for declarator in inner.children:
+                if declarator.type == "variable_declarator":
+                    value = next(
+                        (c for c in declarator.children if c.type == "arrow_function"), None
+                    )
+                    if value:
+                        name_node = next(
+                            (c for c in declarator.children if c.type == "identifier"), None
+                        )
+                        if name_node:
+                            symbols.append({
+                                "name": name_node.text.decode("utf-8", errors="replace").strip(),
+                                "kind": "function",
+                                "start_line": inner.start_point[0] + 1,
+                                "end_line": inner.end_point[0] + 1,
+                                "docstring": None,
+                            })
+
+    return _response("ok", {"file": rel, "parser_used": "tree_sitter", "symbols": symbols},
+                     next_tools=["code_read"], usage=f"code_read(path='{rel}', start_line=N, end_line=N+20)")
+
+
+def _outline_regex_tier(source: str, rel: str) -> dict[str, Any]:
+    """Regex-based outline for unsupported file types. end_line and docstring are always null."""
+    symbols: list[dict[str, Any]] = []
+    for lineno, line in enumerate(source.splitlines(), 1):
+        m = _OUTLINE_REGEX.match(line)
+        if m:
+            kw = m.group(1).lower()
+            kind = "class" if kw == "class" else "function"
+            symbols.append({"name": m.group(2), "kind": kind,
+                            "start_line": lineno, "end_line": None,
+                            "docstring": None})
+    return _response("ok", {"file": rel, "parser_used": "regex", "symbols": symbols},
+                     next_tools=["code_read"], usage=f"code_read(path='{rel}', start_line=N, end_line=N+20)")
+
+
+def code_outline_response(root: Path, path: str) -> dict[str, Any]:
+    """Return a structural symbol map of a source file using a tiered parser.
+
+    Tier 1 — Python AST (for ``.py``).
+    Tier 2 — tree-sitter for the 11 languages in ``_TS_SYMBOL_LANG_MAP``.
+    Tier 3 — regex fallback for all other file types.
+    """
+    resolved = _resolve_repo_path(root, path)
+    if resolved is None:
+        return _response("error", {"path": path},
+                         diagnostics=[_diagnostic("path_rejected", f"Path '{path}' is outside the project root or invalid.")],
+                         next_tools=["code_list_files"], usage="code_list_files()")
+    if not resolved.exists():
+        return _response("error", {"path": path},
+                         diagnostics=[_diagnostic("file_not_found", f"File '{path}' does not exist.")],
+                         next_tools=["code_list_files"], usage="code_list_files()")
+    if not resolved.is_file():
+        return _response("error", {"path": path},
+                         diagnostics=[_diagnostic("not_a_file", f"'{path}' is a directory.")],
+                         next_tools=["code_list_files"], usage=f"code_list_files(glob='{path}/**')")
+
+    root_r = root.resolve()
+    rel = str(resolved.relative_to(root_r)).replace("\\", "/")
+    lang = _EXT_TO_LANG.get(resolved.suffix.lower(), "")
+
+    try:
+        source = resolved.read_text(encoding="utf-8", errors="strict")
+    except (UnicodeDecodeError, OSError) as exc:
+        return _response("error", {"path": path},
+                         diagnostics=[_diagnostic("unparseable", f"Cannot read '{path}': {exc}")],
+                         next_tools=[], usage="")
+
+    if lang == "python":
+        return _outline_python(source, rel)
+    if lang in _TS_SYMBOL_LANG_MAP:
+        result = _outline_treesitter(source, rel, lang)
+        if result is not None:
+            return result
+    return _outline_regex_tier(source, rel)
+
+
+# ---------------------------------------------------------------------------
+# code_hover — symbol enclosing a given line number
+# ---------------------------------------------------------------------------
+
+
+def _innermost_symbol(symbols: list[dict[str, Any]], line: int) -> Optional[dict[str, Any]]:
+    """Return the innermost (smallest range) symbol that encloses *line*, or None."""
+    best: Optional[dict[str, Any]] = None
+    best_range: Optional[int] = None
+    for sym in symbols:
+        sl = sym.get("start_line")
+        el = sym.get("end_line")
+        if sl is None or el is None:
+            continue
+        if sl <= line <= el:
+            rng = el - sl
+            if best_range is None or rng < best_range:
+                best = sym
+                best_range = rng
+    return best
+
+
+def _hover_python(source: str, line: int) -> Optional[dict[str, Any]]:
+    """Find the symbol enclosing *line* in a Python source file."""
+    try:
+        outline_resp = _outline_python(source, "<hover>")
+        if outline_resp.get("status") != "ok":
+            return None
+        symbols = outline_resp["data"]["symbols"]
+        sym = _innermost_symbol(symbols, line)
+        if sym is None:
+            return None
+        # Re-parse to extract signature
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return {**sym, "signature": None}
+        target_name = sym["name"]
+        target_line = sym["start_line"]
+        matched_node = None
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if node.name == target_name and node.lineno == target_line:
+                    matched_node = node
+                    break
+        if matched_node is None:
+            return {**sym, "signature": None}
+        if isinstance(matched_node, ast.ClassDef):
+            return {**sym, "signature": None}
+        # Build signature for function/async function
+        fn = matched_node
+        args = fn.args
+        params: list[str] = []
+        # Build positional args with annotations and defaults
+        all_args = []
+        if args.posonlyargs:
+            all_args.extend(args.posonlyargs)
+        all_args.extend(args.args)
+        # Defaults are right-aligned in all_args
+        n_defaults = len(args.defaults)
+        n_all = len(all_args)
+        for i, arg in enumerate(all_args):
+            s = arg.arg
+            if arg.annotation is not None:
+                try:
+                    s += ": " + ast.unparse(arg.annotation)
+                except AttributeError:
+                    pass
+            default_idx = i - (n_all - n_defaults)
+            if default_idx >= 0:
+                try:
+                    s += " = " + ast.unparse(args.defaults[default_idx])
+                except AttributeError:
+                    pass
+            params.append(s)
+        if args.vararg:
+            s = "*" + args.vararg.arg
+            if args.vararg.annotation is not None:
+                try:
+                    s += ": " + ast.unparse(args.vararg.annotation)
+                except AttributeError:
+                    pass
+            params.append(s)
+        if args.kwonlyargs:
+            if not args.vararg:
+                params.append("*")
+            for i, arg in enumerate(args.kwonlyargs):
+                s = arg.arg
+                if arg.annotation is not None:
+                    try:
+                        s += ": " + ast.unparse(arg.annotation)
+                    except AttributeError:
+                        pass
+                if args.kw_defaults[i] is not None:
+                    try:
+                        s += " = " + ast.unparse(args.kw_defaults[i])
+                    except AttributeError:
+                        pass
+                params.append(s)
+        if args.kwarg:
+            s = "**" + args.kwarg.arg
+            if args.kwarg.annotation is not None:
+                try:
+                    s += ": " + ast.unparse(args.kwarg.annotation)
+                except AttributeError:
+                    pass
+            params.append(s)
+        sig = "(" + ", ".join(params) + ")"
+        if fn.returns is not None:
+            try:
+                sig += " -> " + ast.unparse(fn.returns)
+            except AttributeError:
+                pass
+        return {**sym, "signature": sig}
+    except Exception:
+        return None
+
+
+def _hover_treesitter(source: str, line: int, lang: str) -> Optional[dict[str, Any]]:
+    """Find the symbol enclosing *line* in a tree-sitter-supported source file."""
+    try:
+        outline_resp = _outline_treesitter(source, "<hover>", lang)
+        if outline_resp is None or outline_resp.get("status") != "ok":
+            return None
+        symbols = outline_resp["data"]["symbols"]
+        sym = _innermost_symbol(symbols, line)
+        if sym is None:
+            return None
+        # Re-parse to extract raw parameter text
+        try:
+            chunker = _get_chunker_module()
+            tree = chunker._ts_parse(_TS_SYMBOL_LANG_MAP[lang], source)
+            if tree is None:
+                return {**sym, "signature": None}
+        except Exception:
+            return {**sym, "signature": None}
+        target_start = sym["start_line"]
+        signature: Optional[str] = None
+
+        def _walk_for_func(node: Any) -> Optional[Any]:
+            if node.start_point[0] + 1 == target_start and node.type in _TS_OUTLINE_FUNC_TYPES:
+                return node
+            for child in node.children:
+                found = _walk_for_func(child)
+                if found is not None:
+                    return found
+            return None
+
+        func_node = _walk_for_func(tree.root_node)
+        if func_node is not None:
+            for child in func_node.children:
+                if child.type == "parameters" or child.type == "formal_parameters":
+                    signature = child.text.decode("utf-8", errors="replace").strip()
+                    break
+        return {**sym, "signature": signature}
+    except Exception:
+        return None
+
+
+def _hover_regex(source: str, line: int) -> Optional[dict[str, Any]]:
+    """Find the nearest preceding symbol to *line* using regex outline."""
+    try:
+        outline_resp = _outline_regex_tier(source, "<hover>")
+        symbols = outline_resp["data"]["symbols"]
+        best = None
+        for sym in symbols:
+            sl = sym.get("start_line")
+            if sl is not None and sl <= line:
+                best = sym
+        if best is None:
+            return None
+        return {**best, "signature": None}
+    except Exception:
+        return None
+
+
+def code_hover_response(root: Path, path: str, line: int) -> dict[str, Any]:
+    """Return the symbol enclosing a given 1-based line number."""
+    resolved = _resolve_repo_path(root, path)
+    if resolved is None:
+        return _response("error", {"path": path, "line": line},
+                         diagnostics=[_diagnostic("path_rejected", f"Path '{path}' is outside the project root or invalid.")],
+                         next_tools=["code_list_files"], usage="code_list_files()")
+    if not resolved.exists():
+        return _response("error", {"path": path, "line": line},
+                         diagnostics=[_diagnostic("file_not_found", f"File '{path}' does not exist.")],
+                         next_tools=["code_list_files"], usage="code_list_files()")
+
+    root_r = root.resolve()
+    rel = str(resolved.relative_to(root_r)).replace("\\", "/")
+
+    try:
+        source = resolved.read_text(encoding="utf-8", errors="strict")
+    except (UnicodeDecodeError, OSError) as exc:
+        return _response("ok", {"file": rel, "line": line, "symbol": None, "parser_used": "none"},
+                         diagnostics=[_diagnostic("unparseable", f"Cannot read '{path}': {exc}")])
+
+    lang = _EXT_TO_LANG.get(resolved.suffix.lower(), "")
+    symbol: Optional[dict[str, Any]] = None
+    parser_used = "regex"
+
+    try:
+        if lang == "python":
+            parser_used = "python_ast"
+            symbol = _hover_python(source, line)
+        elif lang in _TS_SYMBOL_LANG_MAP:
+            parser_used = "tree_sitter"
+            symbol = _hover_treesitter(source, line, lang)
+            if symbol is None:
+                parser_used = "regex"
+                symbol = _hover_regex(source, line)
+        else:
+            symbol = _hover_regex(source, line)
+    except Exception:
+        symbol = None
+
+    return _response("ok", {"file": rel, "line": line, "symbol": symbol, "parser_used": parser_used})
 
 
 # ---------------------------------------------------------------------------
@@ -6467,13 +7417,13 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
     symbol = symbol_or_path_position.strip()
     retry_symbol = _sql_schema_retry_symbol(symbol)
     if not symbol:
-        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("invalid_arguments", "Symbol must be a non-empty string.")], next_tools=["code_keyword_search"], usage="code_keyword_search(query='MyClass')")
+        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("invalid_arguments", "Symbol must be a non-empty string.")], next_tools=["code_keyword"], usage="code_keyword(query='MyClass')")
     try:
         python_definitions = _python_definitions(root, symbol)
         treesitter_definitions = _treesitter_definition_results(root, symbol)
         regex_definitions = _regex_definitions(root, symbol)
     except Exception as exc:
-        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Definition search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
+        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Definition search failed: {exc}")], next_tools=["code_keyword"], usage=f"code_keyword(query={symbol!r})")
     definitions = _dedupe_navigation_results(
         python_definitions + treesitter_definitions + regex_definitions,
         ("path", "line", "language", "name"),
@@ -6485,7 +7435,7 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
             treesitter_definitions = _treesitter_definition_results(root, retry_symbol)
             regex_definitions = _regex_definitions(root, retry_symbol)
         except Exception as exc:
-            return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Definition search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
+            return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Definition search failed: {exc}")], next_tools=["code_keyword"], usage=f"code_keyword(query={symbol!r})")
         definitions = _dedupe_navigation_results(
             python_definitions + treesitter_definitions + regex_definitions,
             ("path", "line", "language", "name"),
@@ -6526,14 +7476,14 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
     try:
         fallback = _keyword_fallback_definitions(root, fallback_symbol)
     except Exception as exc:
-        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Fallback search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
+        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Fallback search failed: {exc}")], next_tools=["code_keyword"], usage=f"code_keyword(query={symbol!r})")
     if not fallback:
         return _response(
             "ok",
             {"symbol": symbol, "definitions": [], "method": "keyword_fallback"},
-            diagnostics=[_diagnostic("not_found", f"No definition found for '{symbol}' in any language.", recovery_tools=["code_keyword_search"], recovery_usage=f"code_keyword_search(query={symbol!r})")],
-            next_tools=["code_keyword_search"],
-            usage=f"code_keyword_search(query={symbol!r})",
+            diagnostics=[_diagnostic("not_found", f"No definition found for '{symbol}' in any language.", recovery_tools=["code_keyword"], recovery_usage=f"code_keyword(query={symbol!r})")],
+            next_tools=["code_keyword"],
+            usage=f"code_keyword(query={symbol!r})",
         )
     return _response(
         "ok",
@@ -6556,7 +7506,7 @@ def code_references_response(
     symbol = symbol_or_path_position.strip()
     retry_symbol = _sql_schema_retry_symbol(symbol)
     if not symbol:
-        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("invalid_arguments", "Symbol must be a non-empty string.")], next_tools=["code_keyword_search"], usage="code_keyword_search(query='my_func')")
+        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("invalid_arguments", "Symbol must be a non-empty string.")], next_tools=["code_keyword"], usage="code_keyword(query='my_func')")
     if limit is not None and limit < 0:
         return _response("error", {"symbol": symbol, "limit": limit}, diagnostics=[_diagnostic("invalid_arguments", "limit must be a non-negative integer or omitted.")], next_tools=["code_help"], usage="code_help()")
     try:
@@ -6564,7 +7514,7 @@ def code_references_response(
         treesitter_refs = _treesitter_references(root, symbol)
         other_refs = _non_python_references(root, symbol)
     except Exception as exc:
-        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Reference search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
+        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Reference search failed: {exc}")], next_tools=["code_keyword"], usage=f"code_keyword(query={symbol!r})")
     refs = _dedupe_navigation_results(
         python_refs + treesitter_refs + other_refs,
         ("path", "line", "language", "snippet"),
@@ -6674,7 +7624,7 @@ def code_references_response(
             treesitter_refs = _treesitter_references(root, retry_symbol)
             other_refs = _non_python_references(root, retry_symbol)
         except Exception as exc:
-            return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Reference search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
+            return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Reference search failed: {exc}")], next_tools=["code_keyword"], usage=f"code_keyword(query={symbol!r})")
         refs = _dedupe_navigation_results(
             python_refs + treesitter_refs + other_refs,
             ("path", "line", "language", "snippet"),
@@ -6785,14 +7735,14 @@ def code_references_response(
     try:
         fallback = _keyword_fallback_definitions(root, fallback_symbol)
     except Exception as exc:
-        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Fallback search failed: {exc}")], next_tools=["code_keyword_search"], usage=f"code_keyword_search(query={symbol!r})")
+        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Fallback search failed: {exc}")], next_tools=["code_keyword"], usage=f"code_keyword(query={symbol!r})")
     if not fallback:
         return _response(
             "ok",
             {"symbol": symbol, "references": [], "count": 0, "method": "keyword_fallback"},
-            diagnostics=[_diagnostic("not_found", f"No references found for '{symbol}'.", recovery_tools=["code_keyword_search"], recovery_usage=f"code_keyword_search(query={symbol!r})")],
-            next_tools=["code_keyword_search"],
-            usage=f"code_keyword_search(query={symbol!r})",
+            diagnostics=[_diagnostic("not_found", f"No references found for '{symbol}'.", recovery_tools=["code_keyword"], recovery_usage=f"code_keyword(query={symbol!r})")],
+            next_tools=["code_keyword"],
+            usage=f"code_keyword(query={symbol!r})",
         )
     fallback_total = len(fallback)
     fallback, fallback_counts, fallback_all_counts, fallback_detail_counts, fallback_detail_all_counts = _apply_reference_filters(
@@ -6848,6 +7798,111 @@ def code_references_response(
         next_tools=["code_read"],
         usage=f"code_read(path='...', start_line=N, end_line=N+20)",
     )
+
+
+# ---------------------------------------------------------------------------
+# code_callhierarchy — call graph for a symbol (depth 1)
+# ---------------------------------------------------------------------------
+
+MAX_CALLHIERARCHY_OUTGOING = 30
+MAX_CALLHIERARCHY_INCOMING = 50
+
+
+def _extract_outgoing_calls(root: Path, symbol: str, definitions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Extract function calls made within the body of *symbol*."""
+    calls: dict[str, dict[str, Any]] = {}
+    for defn in definitions:
+        defn_path = defn.get("path", "")
+        start_line = defn.get("line", 1)
+        end_line = defn.get("end_line") or defn.get("line", start_line)
+        if not defn_path:
+            continue
+        abs_path = _resolve_repo_path(root, defn_path)
+        if abs_path is None:
+            continue
+        try:
+            source = abs_path.read_text(encoding="utf-8", errors="replace")
+        except (OSError, UnicodeDecodeError):
+            continue
+        lines = source.splitlines()
+        body_lines = lines[max(0, start_line - 1): end_line]
+        body = "\n".join(body_lines)
+        found: set[str] = set()
+        for m in _RE_CALL.finditer(body):
+            found.add(m.group(1))
+        for m in _RE_SQL_EXEC.finditer(body):
+            found.add(m.group(1))
+        for name in found:
+            if name in _SYMBOL_BLOCKLIST:
+                continue
+            if name == symbol:
+                continue
+            if name not in calls:
+                calls[name] = {"name": name, "file": defn_path, "line": None}
+        if len(calls) >= MAX_CALLHIERARCHY_OUTGOING:
+            break
+    return list(calls.values())[:MAX_CALLHIERARCHY_OUTGOING]
+
+
+def code_callhierarchy_response(
+    root: Path,
+    symbol: str,
+    file: Optional[str] = None,
+    direction: str = "both",
+) -> dict[str, Any]:
+    """Return the call hierarchy for a symbol: outgoing calls and/or incoming callers."""
+    if direction not in {"both", "outgoing", "incoming"}:
+        return _response(
+            "error", {"symbol": symbol, "direction": direction},
+            diagnostics=[_diagnostic("invalid_arguments", f"direction must be 'both', 'outgoing', or 'incoming'; got '{direction}'.")],
+            next_tools=[], usage="",
+        )
+    if not symbol or not symbol.strip():
+        return _response(
+            "error", {"symbol": symbol},
+            diagnostics=[_diagnostic("invalid_arguments", "symbol must be a non-empty string.")],
+            next_tools=[], usage="",
+        )
+    symbol = symbol.strip()
+
+    # Get definitions
+    def_resp = code_definition_response(root, symbol)
+    definitions: list[dict[str, Any]] = []
+    parser_used = "regex"
+    if def_resp.get("status") == "ok":
+        definitions = def_resp["data"].get("definitions", [])
+        parser_used = def_resp["data"].get("method", "regex")
+
+    if file:
+        definitions = [d for d in definitions if d.get("path", "") == file] or definitions
+
+    data: dict[str, Any] = {
+        "symbol": symbol,
+        "definition_file": definitions[0]["path"] if definitions else None,
+        "parser_used": parser_used,
+    }
+
+    if direction in {"both", "outgoing"}:
+        outgoing = _extract_outgoing_calls(root, symbol, definitions)
+        data["outgoing"] = outgoing
+
+    if direction in {"both", "incoming"}:
+        ref_resp = code_references_response(
+            root, symbol, call_sites_only=True, limit=MAX_CALLHIERARCHY_INCOMING
+        )
+        incoming: list[dict[str, Any]] = []
+        if ref_resp.get("status") == "ok":
+            refs = ref_resp["data"].get("references", [])
+            for ref in refs:
+                incoming.append({
+                    "name": symbol,
+                    "file": ref.get("path", ""),
+                    "line": ref.get("line"),
+                    "snippet": ref.get("snippet", ""),
+                })
+        data["incoming"] = incoming
+
+    return _response("ok", data, next_tools=["code_read"], usage="code_read(...)")
 
 
 # ---------------------------------------------------------------------------
@@ -6965,13 +8020,379 @@ def code_dependencies_response(root: Path, path: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# code_impact — reverse dependency / impact analysis
+# ---------------------------------------------------------------------------
+
+
+def _match_import_to_target(import_entry: dict[str, Any], target_rel: str, importing_file_rel: str) -> bool:
+    """Return True if *import_entry* appears to import *target_rel*."""
+    module = import_entry.get("module", "")
+    if not module:
+        return False
+
+    target_path = Path(target_rel)
+    target_stem = target_rel
+    for ext in (".py", ".ts", ".js", ".tsx", ".jsx"):
+        if target_stem.endswith(ext):
+            target_stem = target_stem[: -len(ext)]
+            break
+
+    # Heuristic 1: module path normalization
+    # Strip leading dots (relative Python imports) then normalize
+    stripped = module.lstrip(".")
+    normalized = stripped.replace(".", "/")
+    if (
+        normalized == target_stem
+        or target_rel.endswith("/" + normalized + ".py")
+        or target_rel.endswith("/" + normalized + ".ts")
+        or target_rel.endswith("/" + normalized + ".js")
+        or target_rel.endswith("/" + normalized + ".tsx")
+        or target_rel.endswith("/" + normalized + ".jsx")
+        or target_stem.endswith("/" + normalized)
+        or normalized == target_stem.split("/")[-1]
+    ):
+        return True
+
+    # Heuristic 2: filename stem match (≥ 4 chars)
+    module_parts = normalized.replace("/", ".").split(".")
+    module_last = module_parts[-1] if module_parts else ""
+    target_file_stem = target_path.stem
+    if len(module_last) >= 4 and module_last == target_file_stem:
+        return True
+
+    # Heuristic 3: relative path resolution for JS/TS ./.. imports
+    if module.startswith(("./", "../")):
+        importing_dir = Path(importing_file_rel).parent
+        try:
+            resolved_base = (importing_dir / module).as_posix()
+            # Normalize to remove .. components
+            resolved_parts = []
+            for part in resolved_base.split("/"):
+                if part == "..":
+                    if resolved_parts:
+                        resolved_parts.pop()
+                else:
+                    resolved_parts.append(part)
+            resolved_str = "/".join(resolved_parts)
+            # Ensure no escaping
+            if resolved_str.startswith(".."):
+                pass  # escaped repo, skip
+            else:
+                candidates = [
+                    resolved_str,
+                    resolved_str + ".ts",
+                    resolved_str + ".tsx",
+                    resolved_str + ".js",
+                    resolved_str + ".jsx",
+                    resolved_str + "/index.ts",
+                    resolved_str + "/index.js",
+                ]
+                if target_rel in candidates:
+                    return True
+        except Exception:
+            pass
+
+    return False
+
+
+def code_impact_response(root: Path, path: str, max_results: int = 50) -> dict[str, Any]:
+    """Find all files that import a given file (reverse dependency analysis)."""
+    resolved = _resolve_repo_path(root, path)
+    if resolved is None:
+        return _response(
+            "error", {"path": path},
+            diagnostics=[_diagnostic("path_rejected", f"Path '{path}' is outside the project root or invalid.")],
+            next_tools=["code_list_files"], usage="code_list_files()",
+        )
+    if not resolved.exists():
+        return _response(
+            "error", {"path": path},
+            diagnostics=[_diagnostic("file_not_found", f"File '{path}' does not exist.")],
+            next_tools=["code_list_files"], usage="code_list_files()",
+        )
+
+    root_r = root.resolve()
+    target_rel = str(resolved.relative_to(root_r)).replace("\\", "/")
+
+    importers: list[dict[str, Any]] = []
+    total = 0
+    limit_hit = max_results + 1
+
+    for p in _walk_repo_for_navigation(root):
+        file_rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+        if file_rel == target_rel:
+            continue
+        try:
+            source = p.read_text(encoding="utf-8", errors="replace")
+        except (OSError, UnicodeDecodeError):
+            continue
+
+        suffix = p.suffix.lower()
+        if suffix == ".py":
+            lang = "python"
+        elif suffix in _JS_TS_SUFFIXES:
+            lang = _EXT_TO_LANG.get(suffix, "javascript")
+        else:
+            lang = _EXT_TO_LANG.get(suffix, "")
+
+        parser_entry = _IMPORT_PARSERS.get(lang)
+        if not parser_entry:
+            continue
+
+        parser_fn, _ = parser_entry
+        try:
+            imports = parser_fn(source)
+        except Exception:
+            continue
+
+        for imp in imports:
+            if _match_import_to_target(imp, target_rel, file_rel):
+                total += 1
+                if len(importers) < max_results:
+                    importers.append({
+                        "file": file_rel,
+                        "import_statement": imp.get("module", ""),
+                        "kind": imp.get("kind", "import"),
+                    })
+                if total >= limit_hit:
+                    break
+        if total >= limit_hit:
+            break
+
+    return _response(
+        "ok",
+        {
+            "path": target_rel,
+            "importers": importers,
+            "truncated": total > max_results,
+            "total_found": total,
+            "method": "heuristic",
+        },
+        next_tools=["code_read"],
+        usage=f"code_read(path='{target_rel}')",
+    )
+
+
+# ---------------------------------------------------------------------------
 # code_ask — mechanical retrieval routing for codebase Q&A
 # ---------------------------------------------------------------------------
+
+def _partition_infra(results: list[dict]) -> list[dict]:
+    """Stable index-based partition: move scaffolding-layer results to the end.
+
+    Uses enumerate to avoid false drops from dict equality comparison when two
+    results share identical content (same path, text, score).
+    """
+    infra_idx = {
+        i for i, r in enumerate(results)
+        if any(seg in Path(r.get("path", "")).parts for seg in INFRASTRUCTURE_PATH_SEGMENTS)
+    }
+    non_infra = [r for i, r in enumerate(results) if i not in infra_idx]
+    infra = [r for i, r in enumerate(results) if i in infra_idx]
+    return non_infra + infra
+
+
+def _is_feedback_artifact(path: str) -> bool:
+    normalized = str(path or "").replace("\\", "/")
+    parts = Path(normalized).parts
+    if any(seg in parts for seg in CODE_ASK_FEEDBACK_PATH_SEGMENTS):
+        return True
+    name = Path(normalized).name.lower()
+    return "feedback" in name or "journal" in name
+
+
+def _is_code_ask_demoted_artifact(result: dict) -> bool:
+    kind = str(result.get("kind") or "").strip().lower()
+    if kind in CODE_ASK_FEEDBACK_KINDS:
+        return True
+    return _is_feedback_artifact(str(result.get("path", "")))
+
+
+def _partition_feedback_artifacts(results: list[dict]) -> list[dict]:
+    """Stable partition: keep feedback/journal docs searchable but behind implementation evidence."""
+    feedback_idx = {
+        i for i, r in enumerate(results)
+        if _is_code_ask_demoted_artifact(r)
+    }
+    if not feedback_idx or len(feedback_idx) == len(results):
+        return results
+    non_feedback = [r for i, r in enumerate(results) if i not in feedback_idx]
+    feedback = [r for i, r in enumerate(results) if i in feedback_idx]
+    return non_feedback + feedback
+
+
+def _extract_symbols_ts(tree: Any) -> list[str]:
+    """Walk a tree-sitter parse tree and extract called function/method names."""
+    symbols: list[str] = []
+
+    def walk(node: Any) -> None:
+        if node.type in _TS_CALL_TYPES:
+            for child in node.children:
+                if child.type in _TS_IDENTIFIER_TYPES:
+                    text = child.text.decode("utf-8", errors="replace").strip()
+                    if text:
+                        symbols.append(text)
+                    break
+                elif child.type in _TS_MEMBER_TYPES:
+                    for attr_child in reversed(child.children):
+                        if attr_child.type in _TS_IDENTIFIER_TYPES:
+                            text = attr_child.text.decode("utf-8", errors="replace").strip()
+                            if text:
+                                symbols.append(text)
+                            break
+                    break
+        for child in node.children:
+            walk(child)
+
+    walk(tree.root_node)
+    return symbols
+
+
+def _extract_symbols_python(text: str) -> list[str]:
+    """Use stdlib ast to extract called and imported names from Python source."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return []
+    symbols: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name):
+                symbols.append(func.id)
+            elif isinstance(func, ast.Attribute):
+                symbols.append(func.attr)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                symbols.append(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                symbols.append(alias.asname or alias.name)
+    return symbols
+
+
+def _extract_symbols_regex(text: str) -> list[str]:
+    """Regex-based symbol extraction for unsupported languages or parse failures."""
+    symbols = list(_RE_CALL.findall(text))
+    symbols += _RE_SQL_EXEC.findall(text)
+    symbols += _RE_IMPORT.findall(text)
+    return symbols
+
+
+def _extract_symbols_from_citations(
+    citations: list[dict],
+    max_symbols: int = MAX_SYMBOLS_EXTRACTED,
+) -> tuple[list[str], str]:
+    """Extract referenced symbol names from the top non-infra citation texts.
+
+    Strategy:
+    - Python chunks: stdlib ``ast.parse`` for accurate call/import extraction.
+    - JS/TS/Java/C# chunks: tree-sitter via the chunker module (lazy-loaded);
+      falls back to regex if unavailable or parse fails.
+    - All other languages: regex.
+
+    Filters infra-path citations before extraction (they import many symbols
+    and would bias second-hop expansion toward wiring/routing files).
+    Deduplicates, enforces min length ≥ 4, removes blocklisted names, caps at
+    ``max_symbols``.
+
+    Returns ``(symbols, symbol_extraction_method)`` where ``symbol_extraction_method``
+    is one of:
+
+    - ``"ast"`` — Python stdlib AST or tree-sitter produced at least one symbol.
+    - ``"regex"`` — regex was the effective extractor for all processed citations
+      and no TS-eligible language was present (regex is the expected path).
+    - ``"regex_fallback"`` — a TS-eligible language was present but tree-sitter
+      was unavailable or failed; regex ran as a degradation fallback.
+    - ``"none"`` — no citations survived the infra filter; no extraction was attempted.
+
+    ``"regex_fallback"`` signals silent tree-sitter grammar degradation: callers can
+    detect missing grammars at query time and alert operators.
+    ``"none"`` distinguishes the empty-top-citations case from ``"regex"``/``"regex_fallback"``
+    (where regex actually ran).
+    """
+    non_infra = [
+        r for r in citations
+        if not any(
+            seg in Path(r.get("path", "")).parts
+            for seg in INFRASTRUCTURE_PATH_SEGMENTS
+        )
+    ]
+    top = non_infra[:3]
+
+    if not top:
+        return [], "none"
+
+    raw: list[str] = []
+    chunker: Any = None  # None = not yet attempted; False = failed to load
+    ast_succeeded = False
+    ts_eligible_seen = False  # True if any citation was a TS-eligible language
+
+    for r in top:
+        text = r.get("text", "")
+        if not text:
+            continue
+        lang = r.get("language", "")
+
+        if lang == "python":
+            extracted = _extract_symbols_python(text)
+            if extracted:
+                ast_succeeded = True
+            else:
+                extracted = _extract_symbols_regex(text)
+            raw.extend(extracted)
+        elif lang in _TS_SYMBOL_LANG_MAP:
+            ts_eligible_seen = True
+            # Try tree-sitter primary
+            if chunker is None:
+                try:
+                    chunker = _get_chunker_module()
+                except Exception:
+                    chunker = False
+            extracted = []
+            if chunker:
+                try:
+                    tree = chunker._ts_parse(_TS_SYMBOL_LANG_MAP[lang], text)
+                    if tree is not None:
+                        extracted = _extract_symbols_ts(tree)
+                        if extracted:
+                            ast_succeeded = True
+                except Exception:
+                    pass
+            if not extracted:
+                extracted = _extract_symbols_regex(text)
+            raw.extend(extracted)
+        else:
+            raw.extend(_extract_symbols_regex(text))
+
+    # Post-filter: deduplicate, min length, blocklist, cap
+    seen: set[str] = set()
+    result: list[str] = []
+    for sym in raw:
+        sym = sym.strip()
+        if (
+            len(sym) >= 4
+            and sym.lower() not in _SYMBOL_BLOCKLIST
+            and sym.lower() not in seen
+        ):
+            seen.add(sym.lower())
+            result.append(sym)
+            if len(result) >= max_symbols:
+                break
+
+    if ast_succeeded:
+        method = "ast"
+    elif ts_eligible_seen:
+        method = "regex_fallback"  # TS-eligible language present but grammar unavailable/degraded
+    else:
+        method = "regex"           # no TS-eligible language — regex is the expected extractor
+    return result, method
+
 
 def _classify_question(question: str) -> str:
     """Heuristic question classifier: navigational | explanatory | instructional."""
     q = question.lower()
-    navigational_signals = ["where", "which file", "what file", "find", "locate", "path to"]
+    navigational_signals = ["where is", "where are", "where can i find", "which file", "what file", "find the", "find where", "locate the", "path to"]
     instructional_signals = ["how do i", "how to", "steps to", "how can i", "how should i", "how would i"]
     for sig in instructional_signals:
         if sig in q:
@@ -6992,6 +8413,8 @@ def _heuristic_confidence(citations: list[dict]) -> str:
 
 def code_ask_response(index: "WaveIndex", root: Path, question: str) -> dict[str, Any]:
     """Mechanical routing: broad retrieval pass → targeted pass → assemble structured response."""
+    t_start = time.monotonic()
+
     question = question.strip()
     if not question:
         return _response("error", {"question": question}, diagnostics=[_diagnostic("invalid_arguments", "question must be a non-empty string.")], next_tools=[], usage="")
@@ -7012,8 +8435,23 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str) -> dict[str
 
     # Broad pass: combined semantic search with reranking
     combined_reranked = False
+    vector_ms = 0
+    rerank_ms = 0
+    infrastructure_demoted = False
+    definition_boosted: list[str] = []
+    second_hop_symbols: list[str] = []
+    symbol_extraction_method: str = "none"
     try:
-        combined_results, combined_reranked = index.search_combined(question, top_n=7)
+        combined_results, combined_reranked, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method = index.search_combined(
+            question, top_n=7, question_type=question_type
+        )
+        # Detect whether the scaffolding-layer partition fired (explanatory questions only)
+        if question_type == "explanatory" and combined_reranked and combined_results:
+            infra_paths = {
+                r.get("path", "") for r in combined_results
+                if any(seg in Path(r.get("path", "")).parts for seg in INFRASTRUCTURE_PATH_SEGMENTS)
+            }
+            infrastructure_demoted = bool(infra_paths)
     except Exception:
         combined_results = []
         gaps.append("search index unavailable")
@@ -7032,12 +8470,25 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str) -> dict[str
         }
 
     broad_hits = combined_results
-    citations = [_to_citation(r) for r in broad_hits]
+    demotion_count = sum(1 for r in broad_hits if _is_code_ask_demoted_artifact(r))
+    partition_applied = bool(demotion_count)
+    broad_hits = _partition_feedback_artifacts(broad_hits)
+    citations = []
+    for final_rank, r in enumerate(broad_hits, start=1):
+        citation = _to_citation(r)
+        citation["final_rank"] = final_rank
+        if _is_code_ask_demoted_artifact(r):
+            citation["demoted"] = True
+            if str(r.get("kind") or "").strip().lower() == "seed":
+                citation["partition_reason"] = "seed"
+            else:
+                citation["partition_reason"] = "feedback"
+        citations.append(citation)
 
     # Targeted pass: keyword and structural lookup when broad pass is thin
     if len(citations) < 2:
         try:
-            kw_resp = code_keyword_search_response(root, question.split()[0] if question.split() else question)
+            kw_resp = code_keyword_response(root, question.split()[0] if question.split() else question)
             if kw_resp.get("status") != "ok":
                 gaps.append("keyword search failed")
             else:
@@ -7057,6 +8508,9 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str) -> dict[str
     if not citations:
         gaps.append(f"no indexed evidence found for: {question!r}")
 
+    for final_rank, citation in enumerate(citations, start=1):
+        citation["final_rank"] = final_rank
+
     confidence = _heuristic_confidence(citations)
 
     # Assemble answer text from top citations
@@ -7068,18 +8522,36 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str) -> dict[str
     else:
         answer = f"No indexed evidence found for this question. The topic may not be covered in the current index or may use different terminology."
 
+    total_ms = round((time.monotonic() - t_start) * 1000)
+    print(f"[wavefoundry] code_ask timing: total={total_ms}ms vector={vector_ms}ms rerank={rerank_ms}ms", flush=True)
+
+    data: dict[str, Any] = {
+        "question": question,
+        "question_type": question_type,
+        "answer": answer,
+        "citations": citations,
+        "confidence": confidence,
+        "gaps": gaps,
+        "index_freshness": index_freshness,
+        "reranked": combined_reranked,
+        "partition_applied": partition_applied,
+        "demotion_count": demotion_count,
+        "total_ms": total_ms,
+        "vector_ms": vector_ms,
+        "rerank_ms": rerank_ms,
+    }
+    if infrastructure_demoted:
+        data["infrastructure_demoted"] = True
+    if definition_boosted:
+        data["definition_boosted"] = definition_boosted
+    if second_hop_symbols:
+        data["second_hop_symbols"] = second_hop_symbols
+    if symbol_extraction_method != "none":
+        data["symbol_extraction_method"] = symbol_extraction_method
+
     return _response(
         "ok",
-        {
-            "question": question,
-            "question_type": question_type,
-            "answer": answer,
-            "citations": citations,
-            "confidence": confidence,
-            "gaps": gaps,
-            "index_freshness": index_freshness,
-            "reranked": combined_reranked,
-        },
+        data,
         next_tools=["code_read", "docs_search"],
         usage=f"code_read(path={citations[0]['path']!r}, start_line={citations[0]['lines'][0] if citations[0]['lines'] else 1})" if citations else "code_search(query=...)",
     )
@@ -7135,13 +8607,13 @@ def build_server(root: Path):
         query: str,
         kind: Literal["", "doc", "seed", "architecture", "prompt", "doc-summary"] = "",
         tags: list = [],
-        limit: int = 5,
+        limit: int = 7,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Semantic search over docs, architecture, prompts, seed chunks, and framework seeds at .wavefoundry/framework/seeds/.
 
         Prefer when: searching by concept, intent, or natural language across project and framework documentation.
-        Use code_keyword_search instead when the exact text is known.
+        Use code_keyword instead when the exact text is known.
         Degrades to lexical fallback when the semantic model or index is unavailable.
 
         Tags pre-filter the search space before cosine ranking. Use to scope results to a specific doc category.
@@ -7155,7 +8627,7 @@ def build_server(root: Path):
             query: Natural language search query.
             kind: Optional filter — one of: doc, seed, architecture, prompt, doc-summary.
             tags: Optional list of classification tags to pre-filter results. See tag vocabulary above.
-            limit: Maximum results to return (1–20, default 5).
+            limit: Maximum results to return (1–20, default 7).
         """
         bad = _ensure_no_extra_args("docs_search", kwargs)
         if bad is not None:
@@ -7163,11 +8635,11 @@ def build_server(root: Path):
         return docs_search_response(index, query, kind, limit=limit, tags=tags or None)
 
     @mcp.tool(annotations=_READONLY_TOOL)
-    def code_search(query: str, language: str = "", kind: str = "", max_per_file: int = 0, tags: list = [], limit: int = 5, **kwargs: Any) -> dict[str, Any]:
+    def code_search(query: str, language: str = "", kind: str = "", max_per_file: int = 0, tags: list = [], limit: int = 7, **kwargs: Any) -> dict[str, Any]:
         """Semantic search over indexed source code chunks. Requires a built code index (wave_index_build content='code').
 
         Prefer when: searching for code by concept, behavior, or intent (e.g. "React component with loading state").
-        Use code_keyword_search instead when the exact token, symbol, or string is known — always available, deterministic.
+        Use code_keyword instead when the exact token, symbol, or string is known — always available, deterministic.
         Use docs_search instead when the answer is in a spec, architecture doc, or prompt rather than source code.
         When the code index is absent: returns status='error' with a diagnostic — does not crash.
 
@@ -7194,7 +8666,7 @@ def build_server(root: Path):
             kind: Optional — filter to a specific chunk kind. Use "code-summary" for file-level orientation chunks only.
             max_per_file: Optional — cap results per file path (0 = no cap). Use 1 for orientation pass diversity.
             tags: Optional list of classification tags to pre-filter results. See tag vocabulary above.
-            limit: Maximum results to return (1–20, default 5).
+            limit: Maximum results to return (1–20, default 7).
         """
         bad = _ensure_no_extra_args("code_search", kwargs)
         if bad is not None:
@@ -7231,6 +8703,58 @@ def build_server(root: Path):
         return code_dependencies_response(root, path)
 
     @mcp.tool(annotations=_READONLY_TOOL)
+    def code_hover(path: str, line: int, **kwargs: Any) -> dict[str, Any]:
+        """Return the symbol (function, class, or method) enclosing a given line number.
+
+        Prefer when: you need the signature and docstring for the symbol at a specific
+        line without reading 50 lines of context. Faster than code_outline when you
+        already know the line number.
+
+        Response fields:
+        - file: repo-relative path
+        - line: requested line number (1-based)
+        - symbol: {name, kind, signature, docstring, start_line, end_line} or null if no symbol encloses the line
+        - parser_used: "python_ast" | "tree_sitter" | "regex"
+
+        Args:
+            path: Repo-relative file path, e.g. "src/server.py".
+            line: 1-based line number to look up.
+        """
+        bad = _ensure_no_extra_args("code_hover", kwargs)
+        if bad is not None:
+            return bad
+        return code_hover_response(root, path, line)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_impact(path: str, max_results: int = 50, **kwargs: Any) -> dict[str, Any]:
+        """Find all files that import a given file (reverse dependency / impact analysis).
+
+        Prefer when: assessing the blast radius of a change, planning a file deletion,
+        or tracing who depends on a module. Complements code_dependencies (which shows
+        what a file imports) with the reverse direction.
+
+        Matching is heuristic (not compiler-resolved): three strategies are tried —
+        module-path normalization, filename-stem match (≥4 chars), and relative
+        ./..  path resolution for JS/TS imports. Results include method="heuristic"
+        to signal approximate matching.
+
+        Response fields:
+        - path: repo-relative path of the target file
+        - importers: list of {file, import_statement, kind} — files that import the target
+        - truncated: true when more than max_results importers were found
+        - total_found: total importer count before truncation
+        - method: "heuristic"
+
+        Args:
+            path: Repo-relative path of the file to find importers for, e.g. "src/auth/user.py".
+            max_results: Maximum importers to return (default 50).
+        """
+        bad = _ensure_no_extra_args("code_impact", kwargs)
+        if bad is not None:
+            return bad
+        return code_impact_response(root, path, max_results)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
     def code_ask(question: str, **kwargs: Any) -> dict[str, Any]:
         """Ask a natural-language question about the codebase and receive a grounded, cited answer.
 
@@ -7250,11 +8774,34 @@ def build_server(root: Path):
           not vector similarity.
         - reranked: true means cross-encoder reranking ran and ranking is high-quality; false means RRF
           fallback fired (index or model unavailable) and ranking is slightly lower quality.
-        - confidence: "high" (2+ citations), "medium" (1 citation), "low" (no evidence)
+        - confidence: "high" (2+ citations), "medium" (1 citation), "low" (no evidence). Retrieval signal
+          only — not an answer-quality signal. Evaluate citations by path and content, not confidence alone;
+          high confidence with wrong-layer citations (e.g. infrastructure scaffolding for an explanatory
+          question) still requires follow-up reads of the actual handler or repository layer.
         - gaps: Retrieval gaps or index unavailability notices
         - question_type: "navigational" | "explanatory" | "instructional". Influences retrieval pool
-          weighting — navigational questions bias toward code results.
+          weighting and candidate window size. "explanatory" triggers two enhancements when the
+          cross-encoder reranker is available: (1) a wider candidate window (VECTOR_TOP_K_EXPLANATORY=60
+          per index vs 30 for other types), and (2) two-hop symbol expansion — symbol names are extracted
+          from the top reranked citations and a second keyword retrieval pass fetches their definitions,
+          reaching call-chain layers the original query vocabulary cannot reach. Navigational questions
+          bias toward code results via RRF weight adjustment.
+        - second_hop_symbols: list of symbol names that triggered second-hop retrieval for explanatory
+          questions. Only present when non-empty. When present: the citations already include candidates
+          surfaced by following these symbols one layer deeper; use this list to understand which call
+          chain references were automatically expanded rather than re-chasing them manually. Absent when
+          question_type != "explanatory", reranked=false, or no extractable symbols were found in the
+          top citations.
+        - symbol_extraction_method: extraction method used for the two-hop symbol pass. Present when
+          the second-hop gate fired and at least one citation survived the infra filter. Values: "ast"
+          — Python stdlib AST or tree-sitter produced at least one symbol; "regex" — AST was
+          unavailable or produced no symbols (regex was the effective extractor). Use this field to
+          detect silent grammar degradation: "regex" on a TypeScript-heavy codebase indicates the
+          tree-sitter grammar failed to load or produced no symbols.
         - index_freshness: "current" | "stale"
+        - vector_ms: milliseconds spent on vector retrieval across all indexes.
+        - rerank_ms: milliseconds spent on cross-encoder reranking (0 when reranked=false).
+        - total_ms: wall-clock milliseconds for the full code_ask call.
 
         Args:
             question: Natural-language question about the codebase, e.g. "where does billing handle failed payments?"
@@ -7876,22 +9423,137 @@ def build_server(root: Path):
         return code_read_response(root, path, start_line=start_line, end_line=end_line)
 
     @mcp.tool(annotations=_READONLY_TOOL)
-    def code_keyword_search(query: str, glob: str = "", **kwargs: Any) -> dict[str, Any]:
+    def code_keyword(
+        query: str = "",
+        glob: str = "",
+        queries: list[str] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         """Search repository files for an exact keyword or substring.
 
         Prefer when: the exact token, symbol name, or string pattern is known. Always available — no index required.
         Use docs_search or code_search instead when searching by concept or intent rather than exact text.
+        Use code_pattern when you need regex (non-literal) matching.
         Returns deterministic path/line/snippet results for each match.
         Respects the same ignore/exclusion rules as the semantic index.
 
+        Pass either ``query`` (single string) or ``queries`` (list of strings) — not both. When
+        ``queries`` is supplied, results from all entries are merged and deduplicated by (path, line);
+        each result includes ``matched_query`` identifying which query string produced it. The ``glob``
+        parameter applies uniformly across all queries in a batch.
+
         Args:
-            query: Exact text to search for (substring match).
+            query: Exact text to search for (substring match). Omit when using ``queries``.
             glob: Optional glob to restrict the search, e.g. "**/*.py" or "*.md".
+            queries: List of exact strings to search for in a single call. Omit when using ``query``.
         """
-        bad = _ensure_no_extra_args("code_keyword_search", kwargs)
+        bad = _ensure_no_extra_args("code_keyword", kwargs)
         if bad is not None:
             return bad
-        return code_keyword_search_response(root, query, glob=glob)
+        return code_keyword_response(root, query, glob=glob, queries=queries)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_constants(symbols: list[str], glob: str = "", **kwargs: Any) -> dict[str, Any]:
+        """Look up current values of named module-level constants in one call.
+
+        Prefer when: you need the current value of one or more named constants
+        (e.g. VECTOR_TOP_K, MAX_SYMBOLS_EXTRACTED) without manually parsing
+        grep output. Returns structured name/value/file/line/kind per match.
+        Use code_keyword when searching for arbitrary substrings rather than
+        constant assignments specifically.
+
+        Scans for unindented assignments of the form ``NAME = <value>`` or
+        ``NAME: TYPE = <value>``. Multiline values (frozenset, list, dict
+        literals) are collected until the bracket depth closes. A value that
+        does not close within 50 continuation lines is returned with
+        kind="multiline-truncated".
+
+        Symbols not found in the codebase are included in the result with
+        value=null so callers can verify every lookup was attempted. When a
+        symbol appears in multiple files, all matches are returned — use the
+        glob parameter to scope to a specific file.
+
+        Response fields per result entry:
+        - name: the requested symbol name
+        - value: right-hand-side of the assignment as a raw string, or null if not found
+        - file: repo-relative path, or null if not found
+        - line: 1-based line number, or null if not found
+        - kind: "scalar" | "multiline" | "multiline-truncated" | null
+
+        Args:
+            symbols: List of constant names to look up, e.g. ["VECTOR_TOP_K", "RRF_K"].
+            glob: Optional glob to restrict search, e.g. "**/server.py" or "**/*.py".
+        """
+        bad = _ensure_no_extra_args("code_constants", kwargs)
+        if bad is not None:
+            return bad
+        return code_constants_response(root, symbols, glob=glob)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_pattern(
+        pattern: str,
+        glob: str = "",
+        max_results: int = 50,
+        ignore_case: bool = False,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Search repository files using a Python regex pattern.
+
+        Prefer when: you need structured pattern matching (e.g. ``def .*search``,
+        ``TODO:.*urgent``) rather than exact substring matching. Use code_keyword
+        for literal exact-text matches — it is faster and simpler. Use code_search
+        when searching by concept or intent rather than a specific pattern.
+
+        Invalid patterns return a structured error (not an exception trace). Files
+        larger than 1 MB are skipped to guard against ReDoS latency.
+
+        Response fields:
+        - matches: list of {file, line, text} — file is repo-relative, line is 1-based
+        - truncated: true when the result cap was reached before all files were scanned
+        - total_matches_found: actual match count found (may exceed max_results when truncated)
+
+        Args:
+            pattern: Python ``re``-compatible regex string.
+            glob: Optional glob to restrict search, e.g. "**/*.py" or "src/**".
+            max_results: Maximum number of matches to return (default 50).
+            ignore_case: Apply re.IGNORECASE when True.
+        """
+        bad = _ensure_no_extra_args("code_pattern", kwargs)
+        if bad is not None:
+            return bad
+        return code_pattern_response(root, pattern, glob=glob,
+                                     max_results=max_results, ignore_case=ignore_case)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_outline(path: str, **kwargs: Any) -> dict[str, Any]:
+        """Return a structural symbol map of a source file.
+
+        Prefer when: you need to understand the shape of an unfamiliar file —
+        what functions, classes, methods, and constants it defines — without
+        reading the full implementation. Use code_read once you know which
+        symbol to inspect. Use code_definition when you know the symbol name
+        but not which file contains it.
+
+        Parsing is tiered for maximum accuracy:
+        - Python (.py): stdlib AST — functions, classes, methods, module-level constants
+        - JS/TS/Java/C#/Go/Rust/C/C++/Kotlin/Bash/SQL: tree-sitter-backed
+        - All other file types: regex fallback (end_line and docstring are null)
+
+        Response fields:
+        - file: repo-relative path
+        - parser_used: "python_ast" | "tree_sitter" | "regex"
+        - symbols: list of {name, kind, start_line, end_line, docstring}
+          - kind: "function" | "class" | "method" | "constant"
+          - end_line: null for regex tier
+          - docstring: first docstring line, or null
+
+        Args:
+            path: Repo-relative path to the file, e.g. "src/server.py".
+        """
+        bad = _ensure_no_extra_args("code_outline", kwargs)
+        if bad is not None:
+            return bad
+        return code_outline_response(root, path)
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_definition(symbol_or_path_position: str, **kwargs: Any) -> dict[str, Any]:
@@ -7900,7 +9562,7 @@ def build_server(root: Path):
         Prefer when: looking up where a function, class, interface, enum, or similar symbol is defined.
         Python uses AST-based lookup. Java, C#, JavaScript, and TypeScript use tree-sitter-backed navigation
         when parser support is available. Other supported non-Python languages use structural regex matchers.
-        If no structural definition is found, the response includes a broad code_keyword_search-style fallback.
+        If no structural definition is found, the response includes a broad code_keyword-style fallback.
 
         Supported languages:
         - Python: AST-based function/class/async-function definitions
@@ -7927,7 +9589,7 @@ def build_server(root: Path):
     ) -> dict[str, Any]:
         """Find references to a symbol across known code languages via text matching.
 
-        Prefer when: tracing call sites for a known symbol more directly than broad code_keyword_search.
+        Prefer when: tracing call sites for a known symbol more directly than broad code_keyword.
         Python uses AST-backed call-site detection plus text fallback for broader mentions. Java, C#, JavaScript,
         and TypeScript use tree-sitter-backed identifier traversal when parser support is available. Other known
         code languages use language-aware text matching.
@@ -7956,6 +9618,36 @@ def build_server(root: Path):
             call_sites_only=call_sites_only,
             limit=limit if limit and limit > 0 else None,
         )
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_callhierarchy(
+        symbol: str,
+        file: str = "",
+        direction: str = "both",
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Return the call hierarchy for a symbol: what it calls (outgoing) and what calls it (incoming).
+
+        Prefer when: tracing execution paths, understanding a function's callers and callees,
+        or planning a refactor that affects a specific symbol. Depth is always 1 — direct callers
+        and callees only. Chain calls for transitive analysis.
+
+        Response fields:
+        - symbol: the queried symbol name
+        - definition_file: path of the file where the symbol is defined (null if not found)
+        - outgoing: list of {name, file, line} — symbols called by this symbol (when direction includes "outgoing")
+        - incoming: list of {name, file, line, snippet} — symbols that call this symbol (when direction includes "incoming")
+        - parser_used: method used for definition lookup
+
+        Args:
+            symbol: Symbol name to query (e.g. "process_payment", "UserService").
+            file: Optional repo-relative file path to disambiguate when the symbol appears in multiple files.
+            direction: "both" (default), "outgoing" (callee direction only), or "incoming" (caller direction only).
+        """
+        bad = _ensure_no_extra_args("code_callhierarchy", kwargs)
+        if bad is not None:
+            return bad
+        return code_callhierarchy_response(root, symbol, file or None, direction)
 
     # --- Read-only MCP Resources ---
     # These expose stable context as MCP resources rather than tool calls.

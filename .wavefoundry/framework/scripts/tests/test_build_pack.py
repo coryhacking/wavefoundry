@@ -76,7 +76,7 @@ class BuildPackTests(unittest.TestCase):
         fw.mkdir(parents=True)
         (fw / "stub.txt").write_text("stub", encoding="utf-8")
 
-        def fake_prebuild(framework_dir, *, verbose=False):
+        def fake_prebuild(framework_dir, *, source_files=None, verbose=False):
             index_dir = framework_dir / "index"
             index_dir.mkdir(parents=True)
             (index_dir / "meta.json").write_text("{}", encoding="utf-8")
@@ -90,9 +90,111 @@ class BuildPackTests(unittest.TestCase):
                 prebuild_index=True,
             )
 
-        mocked.assert_called_once_with(fw, verbose=False)
+        mocked.assert_called_once()
+        self.assertEqual(mocked.call_args.args[0], fw)
+        self.assertEqual(mocked.call_args.kwargs["verbose"], False)
+        self.assertIn(fw / "stub.txt", mocked.call_args.kwargs["source_files"])
+        self.assertNotIn(fw / "MANIFEST", mocked.call_args.kwargs["source_files"])
         with zipfile.ZipFile(path) as zf:
             self.assertIn(".wavefoundry/framework/index/meta.json", zf.namelist())
+
+    def test_prebuild_index_uses_pack_filtered_source_files(self):
+        fw = self.tmp / "mini-fw"
+        fw.mkdir(parents=True)
+        (fw / "seed.md").write_text("seed", encoding="utf-8")
+        scripts_dir = fw / "scripts"
+        (scripts_dir / "tests").mkdir(parents=True)
+        (scripts_dir / "benchmarks").mkdir(parents=True)
+        (scripts_dir / "tests" / "test_foo.py").write_text("x", encoding="utf-8")
+        (scripts_dir / "benchmarks" / "bench.py").write_text("x", encoding="utf-8")
+        (scripts_dir / "run_tests.py").write_text("x", encoding="utf-8")
+
+        fake_indexer = MagicMock()
+
+        with patch.object(build_pack, "_load_indexer", return_value=fake_indexer), \
+             patch.object(build_pack, "_compact_framework_index"):
+            build_pack.build_zip(
+                self.tmp,
+                "2099-12-02",
+                framework_dir=fw,
+                write_version=True,
+                prebuild_index=True,
+            )
+
+        kwargs = fake_indexer.build_index.call_args.kwargs
+        source_files = {
+            str(Path(path).relative_to(fw)).replace("\\", "/")
+            for path in kwargs["files"]
+        }
+        self.assertIn("seed.md", source_files)
+        self.assertNotIn("scripts/tests/test_foo.py", source_files)
+        self.assertNotIn("scripts/benchmarks/bench.py", source_files)
+        self.assertNotIn("scripts/run_tests.py", source_files)
+        self.assertNotIn("VERSION", source_files)
+        self.assertNotIn("MANIFEST", source_files)
+        self.assertNotIn("index/meta.json", source_files)
+
+    def test_prebuild_index_compacts_lance_tables_before_zip(self):
+        fw = self.tmp / "mini-fw"
+        fw.mkdir(parents=True)
+        (fw / "stub.txt").write_text("stub", encoding="utf-8")
+        index_dir = fw / "index"
+        (index_dir / "docs.lance").mkdir(parents=True)
+        (index_dir / "code.lance").mkdir(parents=True)
+
+        fake_docs_table = MagicMock(name="docs_table")
+        fake_code_table = MagicMock(name="code_table")
+        fake_db = MagicMock()
+        fake_db.open_table.side_effect = [fake_docs_table, fake_code_table]
+        fake_indexer = MagicMock()
+        fake_indexer._get_lance_db.return_value = fake_db
+
+        def fake_prebuild(framework_dir, *, source_files=None, verbose=False):
+            (framework_dir / "index").mkdir(parents=True, exist_ok=True)
+
+        with patch.object(build_pack, "build_framework_index", side_effect=fake_prebuild), \
+             patch.object(build_pack, "_load_indexer", return_value=fake_indexer):
+            build_pack.build_zip(
+                self.tmp,
+                "2099-12-03",
+                framework_dir=fw,
+                write_version=True,
+                prebuild_index=True,
+            )
+
+        self.assertEqual(fake_db.open_table.call_args_list[0].args[0], "docs")
+        self.assertEqual(fake_db.open_table.call_args_list[1].args[0], "code")
+        self.assertEqual(fake_indexer._optimize_lance_table.call_count, 2)
+        fake_indexer._optimize_lance_table.assert_any_call(fake_docs_table)
+        fake_indexer._optimize_lance_table.assert_any_call(fake_code_table)
+
+    def test_prebuild_index_fails_when_compaction_fails(self):
+        fw = self.tmp / "mini-fw"
+        fw.mkdir(parents=True)
+        (fw / "stub.txt").write_text("stub", encoding="utf-8")
+        index_dir = fw / "index"
+        (index_dir / "docs.lance").mkdir(parents=True)
+
+        fake_db = MagicMock()
+        fake_db.open_table.side_effect = RuntimeError("boom")
+        fake_indexer = MagicMock()
+        fake_indexer._get_lance_db.return_value = fake_db
+
+        def fake_prebuild(framework_dir, *, source_files=None, verbose=False):
+            (framework_dir / "index").mkdir(parents=True, exist_ok=True)
+
+        with patch.object(build_pack, "build_framework_index", side_effect=fake_prebuild), \
+             patch.object(build_pack, "_load_indexer", return_value=fake_indexer):
+            with self.assertRaises(RuntimeError) as ctx:
+                build_pack.build_zip(
+                    self.tmp,
+                    "2099-12-04",
+                    framework_dir=fw,
+                    write_version=True,
+                    prebuild_index=True,
+                )
+
+        self.assertIn("compaction failed", str(ctx.exception))
 
     def test_framework_index_uses_repo_relative_paths_when_under_wavefoundry(self):
         repo = self.tmp / "repo"

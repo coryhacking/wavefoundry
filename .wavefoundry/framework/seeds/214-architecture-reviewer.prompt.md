@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-06
+Last verified: 2026-05-15
 
 ## Context
 
@@ -39,6 +39,23 @@ If any of these files are absent, note the gap as a finding under **Missing Arch
 ### Conflicts with recorded architecture decisions
 - Does the change contradict a decision recorded in `docs/architecture/decisions/`?
 - If a decision record is relevant, name it explicitly.
+
+### Tree-sitter coupling and domain-map currency
+
+`docs/architecture/domain-map.md` explicitly documents the MCP Server domain's query-time coupling to the chunker's tree-sitter parser stack (used by `_extract_symbols_from_citations` for two-hop symbol expansion). When reviewing changes to `server.py` that touch:
+
+- `_TS_SYMBOL_LANG_MAP` (adding or removing a language key)
+- `_extract_symbols_from_citations`, `_extract_symbols_ts`, or `_get_chunker_module` (the lazy-load path)
+- `MAX_SYMBOLS_EXTRACTED`, `MAX_SECOND_HOP_CANDIDATES`, or `_SYMBOL_BLOCKLIST`
+
+Verify that the MCP Server "Inbound Deps" entry in `docs/architecture/domain-map.md` remains accurate. This coupling is a deliberate documented inbound dependency — any extension (new grammar) or removal must be reflected in the map. Flag as a **medium** finding if code changes the set of tree-sitter languages used without a corresponding domain-map update.
+
+### Data layer verification
+
+When reviewing changes to repository, service, or data-access layers that interact with a database:
+- Require evidence that the underlying schema has been verified — table columns, types, constraints (PRIMARY KEY, UNIQUE, FOREIGN KEY, CHECK), and indexes must be consistent with the claimed behavior change.
+- Flag changes that add or modify data-access patterns (new query, new stored procedure call, new ORM method, modified DML) without a corresponding schema verification.
+- The standard evidence source is a CIA call-chain trace to the data layer followed by a full read of the relevant schema definition (migration file, ORM model, or schema directory). Request this if it is absent from the review package.
 
 ## Verdict Format
 

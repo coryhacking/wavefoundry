@@ -18,7 +18,7 @@ code_definition(symbol)                             # does the target already ex
 code_references(symbol)                             # who are the callers?
 ```
 
-Use `code_ask` for open-ended questions ("how does X currently work?") when the answer requires synthesizing multiple files. Ground the ordered lane sequence in indexed evidence before assigning implementation tasks. If MCP is not available, use `grep -rn "symbol" .` and `grep -n "^import\|^from" <path>`.
+Use `code_ask` for open-ended questions ("how does X currently work?") when the answer requires synthesizing multiple files. When `partition_applied` is true, use `final_rank` rather than `score` to read the ordered citations, and treat `demoted: true` as an intentional policy reorder rather than a ranking bug. Ground the ordered lane sequence in indexed evidence before assigning implementation tasks. If MCP is not available, use `grep -rn "symbol" .` and `grep -n "^import\|^from" <path>`.
 
 ## Pre-conditions
 

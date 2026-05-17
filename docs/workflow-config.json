@@ -66,7 +66,8 @@
     "project_include_prefixes": {
       "docs": [],
       "code": [
-        ".wavefoundry/framework/scripts"
+        ".wavefoundry/framework/scripts",
+        ".wavefoundry/framework/dashboard"
       ]
     }
   },
@@ -104,7 +105,8 @@
           "architecture-reviewer",
           "security-reviewer",
           "qa-reviewer",
-          "reality-checker"
+          "reality-checker",
+          "red-team"
         ],
         "rotating_seat_policy": "Select one domain seat from review triggers and wave evidence. Prefer docs-contract-reviewer for seed/prompt/behavioral-contract changes, performance-reviewer for indexing/search/hot-path changes, release-reviewer for packaging/distribution changes, or an applicable persona when operator-facing acceptance is central."
       },
@@ -115,7 +117,8 @@
           "architecture-reviewer",
           "security-reviewer",
           "qa-reviewer",
-          "reality-checker"
+          "reality-checker",
+          "red-team"
         ],
         "rotating_seat_policy": "Re-evaluate the rotating seat from delivered behavior and completed specialist findings. Prefer the highest-salience domain lane or persona affected by what actually shipped."
       }

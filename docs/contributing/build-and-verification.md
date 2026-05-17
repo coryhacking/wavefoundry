@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-06
+Last verified: 2026-05-16
 
 ## Verification Commands
 
@@ -80,11 +80,13 @@ If the repo needs extra project index roots beyond the default, declare them exp
 | `wave_index_health` reports `index_missing` | **Update (creates index):** `wave_index_build(content="docs", mode="update")` or `setup_index.py` |
 | `wave_index_health` reports `chunker_version_mismatch` after a pack upgrade | **Full rebuild required** — file hashes alone won't detect the version change. See *Upgrade rebuild requirement* above |
 | Code navigation (`code_search`, `code_read`) feels stale or was never built | **Code update:** `wave_index_build(content="code", mode="update")` — or `setup_index.py --background-code` |
-| Framework seeds changed (self-hosting only) | **Framework layer:** `wave_index_build(content="docs", layer="framework")` |
+| Framework seeds changed in the Wavefoundry source repo itself | **Framework layer:** `wave_index_build(content="docs", layer="framework")` |
 | First install / clean environment | `setup_index.py` (docs, ~2.5 min) then `setup_index.py --background-code` (code, background) |
 | CI deterministic full build | `setup_index.py --include-code` (~6 min, both layers synchronous) |
 
 **Update** re-indexes only changed files (fast, uses file hashes). **Rebuild** (`--full` / `mode="rebuild"`) ignores hashes and reprocesses everything — use it when `CHUNKER_VERSION` changed or the index is known corrupt.
+
+After an ordinary upgrade, if the framework layer still looks missing or stale, stop and verify that the upgraded MCP server has been restarted and that the shipped `.wavefoundry/framework/index/` directory is present. Do not use that symptom alone as a reason to rebuild the framework layer.
 
 If `docs_search` falls back to lexical mode and you need to know whether the semantic index is stale or missing, call `wave_index_health` explicitly. In clients that do not execute the post-edit hook path, assume manual reindexing is required after meaningful docs changes.
 
@@ -157,9 +159,11 @@ python3 .wavefoundry/framework/scripts/run_tests.py
   - `wave_audit` (combined wave + lint + index check)
   - `wave_index_build` (deterministic project/framework index rebuild path)
 
+**Upgrade index rule:** the framework index is shipped inside the pack. On an ordinary target-repo upgrade, update the project index after restart, but do not rebuild the framework layer unless `CHUNKER_VERSION` changed, the shipped framework index is missing/corrupt, or you are intentionally reindexing the Wavefoundry source repo itself.
+
 **For full upgrade procedure:** see `docs/prompts/upgrade-wavefoundry.prompt.md` and `.wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md`.
 
-**`build_pack.py` semantics:** default zip date is today (local ISO); letter suffix is the next letter after the maximum suffix already present for that date in the output directory (not the first missing gap). The script stamps `.wavefoundry/framework/VERSION` to `<date><letter>` before writing the archive. Use `--date` only for tests or exceptional rebuilds.
+**`build_pack.py` semantics:** default zip date is today (local ISO); letter suffix is the next letter after the maximum suffix already present for that date in the output directory (not the first missing gap). The script stamps `.wavefoundry/framework/VERSION` to `<date><letter>` before writing the archive, then updates and compacts `.wavefoundry/framework/index/` before zipping. Use `--date` only for tests or exceptional reissues.
 
 ## Git Commits
 

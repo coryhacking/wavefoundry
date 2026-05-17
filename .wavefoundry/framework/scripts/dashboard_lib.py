@@ -53,6 +53,44 @@ def _read_json(path: Path, default: Any) -> Any:
         return default
 
 
+def _lance_table_stats(index_dir: Path | None) -> tuple[int, int, set[str]]:
+    """Return (doc_chunks, code_chunks, files) from Lance tables when available."""
+    if index_dir is None:
+        return 0, 0, set()
+    doc_chunks = 0
+    code_chunks = 0
+    files: set[str] = set()
+    docs_lance = index_dir / "docs.lance"
+    code_lance = index_dir / "code.lance"
+    if not docs_lance.is_dir() and not code_lance.is_dir():
+        return 0, 0, set()
+    try:
+        import lancedb
+        db = lancedb.connect(str(index_dir))
+        if docs_lance.is_dir():
+            docs = db.open_table("docs")
+            doc_chunks = docs.count_rows()
+            try:
+                docs_df = docs.to_pandas()
+                if "path" in docs_df:
+                    files.update(str(path) for path in docs_df["path"].tolist() if path)
+            except Exception:
+                pass
+        if code_lance.is_dir():
+            code = db.open_table("code")
+            code_chunks = code.count_rows()
+            try:
+                code_df = code.to_pandas()
+                if "path" in code_df:
+                    files.update(str(path) for path in code_df["path"].tolist() if path)
+            except Exception:
+                pass
+    except Exception:
+        return 0, 0, set()
+    files.discard("")
+    return doc_chunks, code_chunks, files
+
+
 def read_workflow_config(root: Path) -> dict[str, Any]:
     cfg = _read_json(root / "docs" / "workflow-config.json", {})
     return cfg if isinstance(cfg, dict) else {}
@@ -601,9 +639,9 @@ def collect_activity(root: Path, change_sets: dict[str, list[dict[str, Any]]]) -
 def _index_stats(meta: Any, build_stats: Any, index_dir: "Path | None" = None) -> dict[str, Any]:
     """Merge meta.json + index-build-stats.json into a flat stats dict.
 
-    Files and chunk counts are read from the actual chunk data (docs.json / code.json)
-    when index_dir is provided — build stats only reflect the last run and undercount
-    for incremental updates.
+    Files and chunk counts are read from the actual chunk data when index_dir is
+    provided. The pack now ships Lance tables directly (`docs.lance` / `code.lance`),
+    so the dashboard no longer reads legacy `docs.json` / `code.json` chunks.
     """
     m = meta if isinstance(meta, dict) else {}
     s = build_stats if isinstance(build_stats, dict) else {}
@@ -613,16 +651,11 @@ def _index_stats(meta: Any, build_stats: Any, index_dir: "Path | None" = None) -
     code_chunks = 0
     files: set[str] = set()
     if index_dir is not None:
-        docs = _read_json(index_dir / "docs.json", [])
-        if isinstance(docs, list):
-            doc_chunks = len(docs)
-            files.update(c.get("path", "") for c in docs if isinstance(c, dict))
-        code = _read_json(index_dir / "code.json", [])
-        if isinstance(code, list):
-            code_chunks = len(code)
-            files.update(c.get("path", "") for c in code if isinstance(c, dict))
-        files.discard("")
-    files_indexed = len(files) or int(s.get("files_indexed", 0) or len(m.get("file_meta") or {}))
+        lance_doc_chunks, lance_code_chunks, lance_files = _lance_table_stats(index_dir)
+        doc_chunks = lance_doc_chunks
+        code_chunks = lance_code_chunks
+        files.update(lance_files)
+    files_indexed = len(files) or int(s.get("files_indexed", 0) or len(m.get("file_meta") or {}) or (doc_chunks + code_chunks))
     if not doc_chunks:
         doc_chunks = int(s.get("doc_chunks", 0))
     if not code_chunks:
