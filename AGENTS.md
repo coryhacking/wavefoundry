@@ -11,6 +11,38 @@ Read in this order at the start of every session:
 
 Before editing any repository code or framework seeds, read the **Stage Gate (repository code)** and **Framework Script Hygiene** sections below.
 
+## Codebase and documentation questions (auto-Guru)
+
+Operators do **not** need to say **Guru** or **Ask codebase** for questions about how this repository's **code** or **documentation** works.
+
+When a message is primarily about **understanding, locating, or explaining** source code or project docs — including architecture, specs, framework scripts, seeds, and `docs/` content — and is **not** a wave lifecycle shortcut from `docs/prompts/index.md` (**Plan feature**, **Implement wave**, **Close wave**, etc.), adopt the **Guru** workflow:
+
+1. Read and follow `docs/agents/guru.md` (question classification, retrieval loop, mechanism completeness, citations).
+2. When MCP is available, use `code_ask(question)` for cross-cutting code questions and `docs_search` for documentation-heavy questions per Guru's classification table.
+3. Complete Pass 3 validation (`code_outline`, targeted `code_read`, `code_keyword` as needed) before synthesizing — do not answer from memory or from the `code_ask` `answer` field alone.
+4. When MCP is unavailable, follow Guru's **When MCP is Not Available** fallbacks in `docs/agents/guru.md`.
+
+Explicit shortcut **Guru** remains available in `docs/prompts/index.md` when the operator wants to name the mode.
+
+### Agent platform routing (all hosts)
+
+**Every agent host** uses the same canonical workflow above (`docs/agents/guru.md`). Operators never need to say **Guru** for code or documentation Q&A.
+
+| Tier | Who | What to read / use |
+|------|-----|-------------------|
+| **1 — Canonical** | All hosts (Cursor, Claude Code, Codex, Copilot, Windsurf, Junie, Air, Warp, …) | This section + `docs/agents/guru.md`; Wavefoundry MCP when attached (`code_ask`, `docs_search`, …) |
+| **2 — Thin pointer** | Each host's entry file (`CLAUDE.md`, `.cursor/rules/project-context.mdc`, `.junie/guidelines.md`, `.github/copilot-instructions.md`, `WARP.md`, …) | One guardrail bullet pointing at tier 1 — no duplicated workflow text |
+| **3 — Optional native** | Only when the host supports that affordance | Extra routing (rules, subagents, skills) — **enhances** tier 1; does not replace it |
+
+**Optional native surfaces** (seed when `docs/agents/guru.md` exists; see `docs/agents/platform-mapping.md`):
+
+| Host | Optional surface | MCP registration |
+|------|------------------|------------------|
+| Cursor | `.cursor/rules/auto-guru.mdc` | `.cursor/mcp.json` |
+| Claude Code | `.claude/agents/guru.md` | `.mcp.json` (repo root) |
+| Codex | `.codex/skills/auto-guru/SKILL.md` | `.wavefoundry/bin/register-codex-mcp` |
+| Copilot / Windsurf / Junie / Air / Warp | Tier 1 + tier 2 only | Per `AGENTS.md` MCP table (stdio entry or provider UI) |
+
 ## Purpose
 
 Wavefoundry is the repository for the Wave Framework and its local MCP server.
@@ -46,27 +78,27 @@ This is intentional bootstrapping, not a source-of-truth collapse:
 Public Wave Framework commands for Wavefoundry's self-hosted surface. Full details in `docs/prompts/index.md`.
 
 
-| Phrase                            | Purpose                                         | Doc                                                                        |
+| Phrase | Purpose | Doc |
 | --------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
-| **Init wave framework**           | Initialize Wave Framework in a target repo      | `docs/prompts/install-wavefoundry.prompt.md`                                      |
-| **Start dashboard**               | Start the local repository dashboard            | `docs/prompts/start-dashboard.prompt.md`                                           |
-| **Stop dashboard**                | Stop the local repository dashboard             | `docs/prompts/stop-dashboard.prompt.md`                                            |
-| **Restart dashboard**             | Restart the local repository dashboard          | `docs/prompts/restart-dashboard.prompt.md`                                         |
-| **Upgrade wave framework**        | Upgrade Wave Framework in a target repo         | `docs/prompts/upgrade-wavefoundry.prompt.md`                                      |
-| **Plan feature**                  | Author a consolidated change doc                | `docs/prompts/plan-feature.prompt.md`                                             |
-| **Create wave**                   | Create a wave record                            | `docs/prompts/create-wave.prompt.md`                                              |
-| **Add change to wave**            | Admit a change doc into the active wave         | `docs/prompts/add-change-to-wave.prompt.md`                                       |
-| **Remove change from wave**       | Remove an admitted change                       | `docs/prompts/remove-change-from-wave.prompt.md`                                  |
-| **Prepare wave** / **Ready wave** | Confirm readiness before implementation         | `docs/prompts/prepare-wave.prompt.md`                                             |
-| **Implement wave**                | Coordinator-managed multi-change implementation | `docs/prompts/implement-wave.prompt.md`                                           |
-| **Implement feature**             | Single-change docs-first implementation         | `docs/prompts/implement-feature.prompt.md`                                        |
-| **Pause wave**                    | Park session state in handoff artifact          | `docs/prompts/pause-wave.prompt.md`                                               |
-| **Review wave**                   | Run required review lanes                       | `docs/prompts/review-wave.prompt.md`                                              |
-| **Close wave**                    | Finalize and archive the wave                   | `docs/prompts/close-wave.prompt.md`                                               |
-| **Finalize feature**              | Single-change closure path                      | `docs/prompts/finalize-feature.prompt.md`                                         |
-| **Interrogate this plan**         | Stress-test a change doc before admission       | `docs/prompts/interrogate-plan.prompt.md`                                         |
-| **Package Wavefoundry**           | Build framework zip distribution                | `docs/prompts/package-wavefoundry.prompt.md`                                      |
-| **Migrate to Wavefoundry**        | Migrate a target repo from legacy layout        | `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md` |
+| **Init wave framework** | Initialize Wave Framework in a target repo | `docs/prompts/install-wavefoundry.prompt.md` |
+| **Start dashboard** | Start the local repository dashboard | `docs/prompts/start-dashboard.prompt.md` |
+| **Stop dashboard** | Stop the local repository dashboard | `docs/prompts/stop-dashboard.prompt.md` |
+| **Restart dashboard** | Restart the local repository dashboard | `docs/prompts/restart-dashboard.prompt.md` |
+| **Upgrade wave framework** | Upgrade Wave Framework in a target repo | `docs/prompts/upgrade-wavefoundry.prompt.md` |
+| **Plan feature** | Author a consolidated change doc | `docs/prompts/plan-feature.prompt.md` |
+| **Create wave** | Create a wave record | `docs/prompts/create-wave.prompt.md` |
+| **Add change to wave** | Admit a change doc into the active wave | `docs/prompts/add-change-to-wave.prompt.md` |
+| **Remove change from wave** | Remove an admitted change | `docs/prompts/remove-change-from-wave.prompt.md` |
+| **Prepare wave** / **Ready wave** | Confirm readiness before implementation | `docs/prompts/prepare-wave.prompt.md` |
+| **Implement wave** | Coordinator-managed multi-change implementation | `docs/prompts/implement-wave.prompt.md` |
+| **Implement feature** | Single-change docs-first implementation | `docs/prompts/implement-feature.prompt.md` |
+| **Pause wave** | Park session state in handoff artifact | `docs/prompts/pause-wave.prompt.md` |
+| **Review wave** | Run required review lanes | `docs/prompts/review-wave.prompt.md` |
+| **Close wave** | Finalize and archive the wave | `docs/prompts/close-wave.prompt.md` |
+| **Finalize feature** | Single-change closure path | `docs/prompts/finalize-feature.prompt.md` |
+| **Interrogate this plan** | Stress-test a change doc before admission | `docs/prompts/interrogate-plan.prompt.md` |
+| **Package Wavefoundry** | Build framework zip distribution | `docs/prompts/package-wavefoundry.prompt.md` |
+| **Migrate to Wavefoundry** | Migrate a target repo from legacy layout | `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md` |
 
 
 Legacy aliases: `Init wave context`, `Upgrade wave context`, `Package wave framework`, `Package wave context` — identical behavior; accept from operators and older docs.
@@ -155,31 +187,31 @@ The project-local index is stored at `.wavefoundry/index/` (gitignored). Package
 ### MCP / Wavefoundry server — enabling per host
 
 
-| Host               | Registration surface    | How                                                                                                                                                                                                                                                          |
+| Host | Registration surface | How |
 | ------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Claude Code**    | `.mcp.json` (repo root) | **Auto:** generated by `render_platform_surfaces --platform claude`. Open the project in Claude Code — it discovers `.mcp.json` automatically.                                                                                                               |
-| **Cursor**         | `.cursor/mcp.json`      | **Auto:** generated by `render_platform_surfaces --platform cursor`. Enable under **Cursor → Settings → MCP** if not auto-loaded.                                                                                                                            |
-| **Junie**          | `.junie/mcp/mcp.json`   | **Auto:** generated by `render_platform_surfaces --platform junie`. Junie discovers this file on project open.                                                                                                                                               |
-| **GitHub Copilot** | VS Code MCP settings    | **Instruction:** open **VS Code → Settings → MCP servers** (or workspace `.vscode/mcp.json` if your VS Code version supports it) and add the stdio entry below. No auto-generated file in this release — VS Code MCP workspace support is still stabilising. |
-| **Codex**          | `.wavefoundry/bin/register-codex-mcp` | **Per-project registration:** run the repo-local bootstrap launcher to register the current repository in `~/.codex/config.toml`. The launcher names every checkout `wavefoundry-<hash>`, where the hash is stable for that checkout path. Moving or recloning the repo intentionally changes the label. See [OpenAI Codex MCP docs](https://platform.openai.com/docs/docs-mcp) for the current attachment path. |
-| **Air**            | Provider-specific       | **Instruction:** add the stdio server in your Air project settings or MCP config using the entry below. See your Air provider's MCP documentation for the current attachment path.                                                                           |
+| **Claude Code** | `.mcp.json` (repo root) | **Auto:** generated by `render_platform_surfaces --platform claude`. Open the project in Claude Code — it discovers `.mcp.json` automatically. |
+| **Cursor** | `.cursor/mcp.json` | **Auto:** generated by `render_platform_surfaces --platform cursor`. Enable under **Cursor → Settings → MCP** if not auto-loaded. |
+| **Junie** | `.junie/mcp/mcp.json` | **Auto:** generated by `render_platform_surfaces --platform junie`. Junie discovers this file on project open. |
+| **GitHub Copilot** | VS Code MCP settings | **Instruction:** open **VS Code → Settings → MCP servers** (or workspace `.vscode/mcp.json` if your VS Code version supports it) and add the stdio entry below. No auto-generated file in this release — VS Code MCP workspace support is still stabilising. |
+| **Codex** | `.wavefoundry/bin/register-codex-mcp` | **Per-project registration:** run the repo-local bootstrap launcher to register the current repository in `~/.codex/config.toml`. The launcher names every checkout `wavefoundry-<hash>`, where the hash is stable for that checkout path. Moving or recloning the repo intentionally changes the label. See [OpenAI Codex MCP docs](https://platform.openai.com/docs/docs-mcp) for the current attachment path. |
+| **Air** | Provider-specific | **Instruction:** add the stdio server in your Air project settings or MCP config using the entry below. See your Air provider's MCP documentation for the current attachment path. |
 
 
 **Copy-ready stdio entry** (for instruction-only hosts — replace `<repo>` with the absolute path to this repository):
 
 ```json
 {
-  "command": "python3",
-  "args": [
-    ".wavefoundry/framework/scripts/server.py",
-    "--root", "<repo>"
-  ]
+ "command": "python3",
+ "args": [
+ ".wavefoundry/framework/scripts/server.py",
+ "--root", "<repo>"
+ ]
 }
 ```
 
 **Available tools:** `wave_help`, `wave_server_info`, `wave_audit`, `wave_map`, `docs_search`, `code_search`, `code_ask`, `seed_get`, `wave_current`, `wave_list_waves`, `wave_list_plans`, `wave_get_change`, `wave_get_prompt`, `wave_get_handoff`, `wave_set_handoff`, `wave_open_gate`, `wave_close_gate`, `wave_create_wave`, `wave_add_change`, `wave_remove_change`, `wave_prepare`, `wave_pause`, `wave_review`, `wave_close`, `wave_new_feature`, `wave_new_bug`, `wave_new_enhancement`, `wave_new_refactor`, `wave_new_change`, `wave_new_documentation`, `wave_new_tech_debt`, `wave_new_task`, `wave_new_maintenance`, `wave_new_operations`, `wave_validate`, `wave_garden`, `wave_sync_surfaces`, `wave_index_health`, `wave_index_build_status`, `wave_index_build`, `wave_dashboard_start`, `wave_dashboard_stop`, `wave_dashboard_restart`, `code_list_files`, `code_read`, `code_keyword`, `code_constants`, `code_pattern`, `code_outline`, `code_definition`, `code_references`, `code_dependencies`.
 
-**Codebase Q&A shortcut:** `code_ask(question)` — ask a cross-cutting natural-language question about the codebase; returns `{answer, citations, reranked, confidence, gaps, question_type, index_freshness, partition_applied, demotion_count, second_hop_symbols, total_ms, vector_ms, rerank_ms}`. Each citation may also include `final_rank`, `demoted`, and `partition_reason`. Synthesize from `citations` directly — the `answer` field is a navigation pointer, not a synthesized answer. `score` is the pre-partition reranker score; `final_rank` is the post-partition output order. `reranked: true` means cross-encoder ranking ran (trust the order unless a citation is explicitly `demoted: true`); `reranked: false` means RRF fallback (index/model unavailable, slightly lower quality). Use `code_search`/`docs_search` instead when you want raw results to browse. See `docs/agents/code-insight-agent.md` for retrieval loop, citation format, and uncertainty protocol.
+**Codebase Q&A shortcut:** `code_ask(question)` — ask a cross-cutting natural-language question about the codebase; returns `{answer, citations, reranked, confidence, gaps, question_type, index_freshness, partition_applied, demotion_count, second_hop_symbols, total_ms, vector_ms, rerank_ms}`. Each citation may also include `final_rank`, `demoted`, and `partition_reason`. Synthesize from `citations` directly — the `answer` field is a navigation pointer, not a synthesized answer. `score` is the pre-partition reranker score; `final_rank` is the post-partition output order. `reranked: true` means cross-encoder ranking ran (trust the order unless a citation is explicitly `demoted: true`); `reranked: false` means RRF fallback (index/model unavailable, slightly lower quality). Use `code_search`/`docs_search` instead when you want raw results to browse. See `docs/agents/guru.md` for retrieval loop, citation format, and uncertainty protocol.
 
 **Retrieval signal notes for `code_ask`:** `confidence` is a retrieval signal (High = 2+ citations, Medium = 1, Low = 0) — not an answer-quality guarantee. Evaluate citations by path and content layer, not score alone. For explanatory questions, citations from scaffolding-layer paths (constructs/, stacks/, routes/, config/, modules/) confirm wiring only — always follow up with reads of the actual handler or service layer before synthesizing. When `question_type == "explanatory"` and `reranked: true`, the tool automatically performs two-hop symbol expansion: symbol names are extracted from top citations and a second keyword retrieval pass fetches their definitions. `second_hop_symbols` (when present) lists the symbols that were chased — do not re-chase them manually; start the next retrieval pass from the layer they represent. If `partition_applied` is true, the visible citation order intentionally differs from score order; trust `final_rank` over `score` when deciding which citation is primary.
 
@@ -221,11 +253,11 @@ The MCP server exposes three complementary code-navigation layers — use the ri
 
 > **Naming rule:** a tool carries the `_search` suffix **if and only if it uses the semantic index** (vector embeddings + reranker). Tools that operate by filesystem scan, regex, AST, or exact-key lookup do not carry `_search`. Use this to infer retrieval strategy from the tool name alone.
 
-| Layer                 | Tools                                                 | When to use                                                                                                                                                                            |
+| Layer | Tools | When to use |
 | --------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Semantic search**   | `docs_search`, `code_search`                          | Find conceptually related content when you don't know the exact text; great for orientation and discovery                                                                              |
-| **Exact navigation**  | `code_keyword`, `code_constants`, `code_read`, `code_list_files` | Deterministic lookup when you know the exact text, function name, constant name, or file; use for code review, implementation, debugging                                        |
-| **Symbol navigation** | `code_definition`, `code_references`                  | Jump-to-definition and find-references across Python plus supported non-Python languages; Python uses AST, JS/TS/Java/C#/Go/Rust/C/C++/Kotlin/Bash/SQL use tree-sitter-backed navigation, broader language support uses structural/text fallback |
+| **Semantic search** | `docs_search`, `code_search` | Find conceptually related content when you don't know the exact text; great for orientation and discovery |
+| **Exact navigation** | `code_keyword`, `code_constants`, `code_read`, `code_list_files` | Deterministic lookup when you know the exact text, function name, constant name, or file; use for code review, implementation, debugging |
+| **Symbol navigation** | `code_definition`, `code_references` | Jump-to-definition and find-references across Python plus supported non-Python languages; Python uses AST, JS/TS/Java/C#/Go/Rust/C/C++/Kotlin/Bash/SQL use tree-sitter-backed navigation, broader language support uses structural/text fallback |
 
 
 **Exact navigation tools:**
@@ -289,17 +321,17 @@ Current repository shape:
 
 ```text
 wavefoundry/
-  AGENTS.md
-  README.md
-  docs/
-  .wavefoundry/
-    bin/            ← docs-lint, docs-gardener launchers (canonical CLI for hooks/CI)
-    framework/
-      README.md
-      VERSION
-      seeds/        ← canonical seed prompts and framework reference material
-      scripts/      ← validation, packaging, rendering, MCP server, index builder
-    index/          ← gitignored; generated by indexer.py
+ AGENTS.md
+ README.md
+ docs/
+ .wavefoundry/
+ bin/ ← docs-lint, docs-gardener launchers (canonical CLI for hooks/CI)
+ framework/
+ README.md
+ VERSION
+ seeds/ ← canonical seed prompts and framework reference material
+ scripts/ ← validation, packaging, rendering, MCP server, index builder
+ index/ ← gitignored; generated by indexer.py
 ```
 
 `.wavefoundry/framework/seeds/` contains canonical seed prompts and framework reference material. `.wavefoundry/framework/scripts/` contains framework validation, packaging, rendering, migration, maintenance, and MCP tooling.
@@ -350,17 +382,17 @@ Wavefoundry may also support repositories that do not yet have these files, usin
 Start with a small, reliable read-only tool set.
 
 - `wave.current`
-  - Return active wave, last closed wave, handoff state, admitted changes, and next lifecycle action.
+ - Return active wave, last closed wave, handoff state, admitted changes, and next lifecycle action.
 - `wave.validate`
-  - Run framework validation against a target repository and return structured failures.
+ - Run framework validation against a target repository and return structured failures.
 - `wave.prompt_surface_audit`
-  - Compare shortcut table, prompt index, manifest, seed references, and rendered local prompt bodies.
+ - Compare shortcut table, prompt index, manifest, seed references, and rendered local prompt bodies.
 - `wave.resolve_seed`
-  - Resolve `seed-175`, `prepare-wave`, or similar references to canonical files and generated local surfaces.
+ - Resolve `seed-175`, `prepare-wave`, or similar references to canonical files and generated local surfaces.
 - `code.search`
-  - Local exact search over target repository files.
+ - Local exact search over target repository files.
 - `code.read`
-  - Read file ranges with line numbers.
+ - Read file ranges with line numbers.
 
 Add `wave.lifecycle_id` early if lifecycle ID generation is needed before mutation tools.
 
@@ -389,19 +421,19 @@ Target repositories should be configured explicitly.
 
 ```json
 {
-  "allowed_roots": [
-    "/path/to/target-repository"
-  ],
-  "default_root": "/path/to/target-repository",
-  "index": {
-    "enabled": true,
-    "path": ".wavefoundry/index.sqlite",
-    "ignore": [".git", ".build", "DerivedData", "node_modules", "__pycache__"]
-  },
-  "framework": {
-    "canonical_revision": "local-dev",
-    "render_project_surfaces": true
-  }
+ "allowed_roots": [
+ "/path/to/target-repository"
+ ],
+ "default_root": "/path/to/target-repository",
+ "index": {
+ "enabled": true,
+ "path": ".wavefoundry/index.sqlite",
+ "ignore": [".git", ".build", "DerivedData", "node_modules", "__pycache__"]
+ },
+ "framework": {
+ "canonical_revision": "local-dev",
+ "render_project_surfaces": true
+ }
 }
 ```
 

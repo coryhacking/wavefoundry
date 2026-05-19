@@ -18,6 +18,12 @@ from typing import Any, Iterable, Literal, Optional
 
 sys.dont_write_bytecode = True
 
+
+def _wf_log(message: str) -> None:
+    """Operator diagnostics — stderr only; stdio MCP transport owns stdout."""
+    print(message, file=sys.stderr, flush=True)
+
+
 # ---------------------------------------------------------------------------
 # Root discovery (mirrors lifecycle_id.py pattern)
 # ---------------------------------------------------------------------------
@@ -92,15 +98,15 @@ INFRASTRUCTURE_PATH_SEGMENTS: frozenset = frozenset({
     "scaffolding",                                    # generic
 })
 
-# Feedback/journal artifacts are still useful evidence, but they should not outrank
-# implementation sources for code-oriented questions unless they are the only available signal.
-CODE_ASK_FEEDBACK_PATH_SEGMENTS: frozenset = frozenset({
-    "journals",
-    "reports",
-})
-CODE_ASK_FEEDBACK_KINDS: frozenset = frozenset({
-    "seed",
-})
+# Demotion weights for narrative/feedback sources in code_ask explanatory queries.
+# Applied to post-rerank cross-encoder scores; see _demote_doc_results.
+# Calibrated 2026-05-18 against live query data (change 12q5v).
+_DEMOTION_WAVES = 0.75  # docs/waves/ — historical change docs
+_DEMOTION_PLANS = 0.60  # docs/plans/ — pre-admission drafts
+_DEMOTION_SEEDS = 0.60  # kind=seed or .wavefoundry/framework/seeds/ — framework guidance
+_DEMOTION_JRNLS = 0.50  # journals/reports/feedback — observational notes
+# Post-normalization score boost for symbol-injected code chunks (12q63).
+_SYMBOL_INJECTION_BOOST = 0.40
 # Definition-file boosting: vocabulary-triggered keyword augmentation for schema languages.
 # Each rule fires when any vocabulary term appears in the lowercased query.
 # Injected candidates receive score=0.0 so the reranker evaluates them on content merit only.
@@ -253,7 +259,7 @@ def _ensure_model_cached(model_name: str, model_type: str) -> None:
         try:
             from fastembed.rerank.cross_encoder import TextCrossEncoder
         except ImportError:
-            print(f"[wavefoundry] fastembed.rerank not available; skipping {model_name}", flush=True)
+            _wf_log(f"[wavefoundry] fastembed.rerank not available; skipping {model_name}")
             return
 
         # Check if already cached (offline probe)
@@ -263,7 +269,7 @@ def _ensure_model_cached(model_name: str, model_type: str) -> None:
                     TextCrossEncoder(model_name=model_name, local_files_only=True)
                 except TypeError:
                     TextCrossEncoder(model_name=model_name)
-            print(f"[wavefoundry] Reranker already cached: {model_name}", flush=True)
+            _wf_log(f"[wavefoundry] Reranker already cached: {model_name}")
             return
         except Exception:
             pass
@@ -273,7 +279,7 @@ def _ensure_model_cached(model_name: str, model_type: str) -> None:
             TextCrossEncoder(model_name=model_name, local_files_only=False)
         except TypeError:
             TextCrossEncoder(model_name=model_name)
-        print(f"[wavefoundry] Model cached: {model_name}", flush=True)
+        _wf_log(f"[wavefoundry] Model cached: {model_name}")
 
     else:  # embedding
         from fastembed import TextEmbedding
@@ -285,7 +291,7 @@ def _ensure_model_cached(model_name: str, model_type: str) -> None:
                     TextEmbedding(model_name=model_name, local_files_only=True)
                 except TypeError:
                     TextEmbedding(model_name=model_name)
-            print(f"[wavefoundry] Embedding model already cached: {model_name}", flush=True)
+            _wf_log(f"[wavefoundry] Embedding model already cached: {model_name}")
             return
         except Exception:
             pass
@@ -295,7 +301,7 @@ def _ensure_model_cached(model_name: str, model_type: str) -> None:
             TextEmbedding(model_name=model_name, local_files_only=False)
         except TypeError:
             TextEmbedding(model_name=model_name)
-        print(f"[wavefoundry] Model cached: {model_name}", flush=True)
+        _wf_log(f"[wavefoundry] Model cached: {model_name}")
 
 
 class WaveIndex:
@@ -312,6 +318,55 @@ class WaveIndex:
         self._meta: dict = {}
         self._loaded = False
         self._loaded_meta_signature: dict[str, tuple[int, int] | None] = {}
+        self._lance_available: set[tuple[str, str]] = set()
+
+    def _open_lance_table(self, layer: str, kind: str):
+        """Open a LanceDB table fresh on every call — never returns a stale handle."""
+        available = getattr(self, "_lance_available", None)
+        if available is not None and (layer, kind) not in available:
+            return None
+        index_dir = getattr(self, "index_dir", None) if layer == "project" else getattr(self, "framework_index_dir", None)
+        if index_dir is None:
+            return object() if available and (layer, kind) in available else None
+        table_path = index_dir / f"{kind}.lance"
+        if not table_path.is_dir():
+            return object() if available and (layer, kind) in available else None
+        try:
+            import lancedb
+            db = lancedb.connect(str(index_dir))
+            return db.open_table(kind)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _fts_query(query: str) -> str:
+        stripped = query.strip()
+        if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in ('"', "'", "`"):
+            inner = stripped[1:-1]
+        else:
+            inner = stripped
+        if inner and re.search(r"\w", inner) and re.fullmatch(r"[\w._]+", inner):
+            return f'"{inner}"'
+        return query
+
+    def _lance_fts_search(self, table, query: str, top_n: int, where: Optional[str] = None, layer: str = "project") -> list[dict]:
+        fts_q = self._fts_query(query)
+        try:
+            q = table.search(fts_q, query_type="fts").limit(top_n)
+            if where:
+                q = q.where(where, prefilter=True)
+            results = q.to_list()
+        except Exception:
+            return []
+        out = []
+        for r in results:
+            d = dict(r)
+            score = d.pop("_score", None)
+            d.pop("vector", None)
+            d["path"] = self._qualify_index_path(d.get("path", ""), layer)
+            d["score"] = float(score) if score is not None else 0.0
+            out.append(d)
+        return out
 
     def _indexer_module(self):
         return _load_script("indexer")
@@ -589,6 +644,11 @@ class WaveIndex:
         self._proj_code_lance_table = proj_code_table
         self._fw_docs_lance_table = fw_docs_table
         self._fw_code_lance_table = fw_code_table
+        self._lance_available = set()
+        for layer_id, idx_dir in (("project", self.index_dir), ("framework", self.framework_index_dir)):
+            for kind in ("docs", "code"):
+                if (idx_dir / f"{kind}.lance").is_dir():
+                    self._lance_available.add((layer_id, kind))
 
         def _load_meta_only(index_dir: Path) -> dict:
             meta_path = index_dir / "meta.json"
@@ -696,7 +756,7 @@ class WaveIndex:
         import threading
 
         if os.environ.get("HF_HUB_OFFLINE") == "1":
-            print("[wavefoundry] HF_HUB_OFFLINE set; skipping background model download", flush=True)
+            _wf_log("[wavefoundry] HF_HUB_OFFLINE set; skipping background model download")
             return
 
         if self._model_downloads_started:
@@ -709,7 +769,7 @@ class WaveIndex:
                 code_model = self._indexer_constant("CODE_MODEL")
                 reranker_model = self._indexer_constant("RERANKER_MODEL")
             except Exception as exc:
-                print(f"[wavefoundry] Background model download: could not read model constants: {exc}", flush=True)
+                _wf_log(f"[wavefoundry] Background model download: could not read model constants: {exc}")
                 return
 
             # Deduplicate
@@ -720,7 +780,7 @@ class WaveIndex:
                 try:
                     _ensure_model_cached(model_name, model_type)
                 except Exception as exc:
-                    print(f"[wavefoundry] Background download failed for {model_name}: {exc}", flush=True)
+                    _wf_log(f"[wavefoundry] Background download failed for {model_name}: {exc}")
 
         thread = threading.Thread(target=_download_worker, daemon=True, name="wavefoundry-model-download")
         thread.start()
@@ -732,8 +792,14 @@ class WaveIndex:
         try:
             texts = [c.get("text", "") for c in candidates]
             scores = list(reranker.rerank(query, texts))
-            scored = sorted(zip(scores, candidates), key=lambda x: x[0], reverse=True)
-            return [c for _, c in scored[:top_n]]
+            min_s = min(scores)
+            max_s = max(scores)
+            for s, c in zip(scores, candidates):
+                c["score"] = 1.0 if max_s == min_s else float((s - min_s) / (max_s - min_s))
+            for c in candidates:
+                if c.get("_sym_injected") and c.get("kind") == "code":
+                    c["score"] = min(c["score"] + _SYMBOL_INJECTION_BOOST, 1.0)
+            return sorted(candidates, key=lambda x: x.get("score", 0.0), reverse=True)[:top_n]
         except Exception:
             return candidates[:top_n]
 
@@ -838,21 +904,51 @@ class WaveIndex:
             tag_clauses = [f"tags LIKE '%{t.replace(chr(39), chr(39)*2)}%'" for t in tags]
             where_parts.append(f"({' OR '.join(tag_clauses)})")
         where = " AND ".join(where_parts) if where_parts else None
-        tables = [t for t in [
-            getattr(self, "_proj_code_lance_table", None),
-            getattr(self, "_fw_code_lance_table", None),
-        ] if t is not None]
-        if not tables:
-            return [], False
         fetch_n_base = top_n * 4 if language or max_per_file is not None else top_n
         fetch_n = max(fetch_n_base, VECTOR_TOP_K)
-        all_candidates: list[dict] = []
-        if getattr(self, "_proj_code_lance_table", None) is not None:
-            all_candidates.extend(self._lance_search(self._proj_code_lance_table, qvec, fetch_n, where=where, layer="project"))
-        if getattr(self, "_fw_code_lance_table", None) is not None:
-            all_candidates.extend(self._lance_search(self._fw_code_lance_table, qvec, fetch_n, where=where, layer="framework"))
-        all_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
-        results = all_candidates[:fetch_n]
+
+        def _code_dense(layer: str) -> list[dict]:
+            table = self._open_lance_table(layer, "code")
+            if table is None:
+                return []
+            return self._lance_search(table, qvec, fetch_n, where=where, layer=layer)
+
+        def _code_fts(layer: str) -> list[dict]:
+            table = self._open_lance_table(layer, "code")
+            if table is None:
+                return []
+            return self._lance_fts_search(table, query, fetch_n, where=where, layer=layer)
+
+        if getattr(self, "_lance_available", None):
+            dense_lists: list[list[dict]] = []
+            fts_lists: list[list[dict]] = []
+            for layer in ("project", "framework"):
+                if (layer, "code") in self._lance_available:
+                    dense = sorted(_code_dense(layer), key=lambda x: x.get("score", 0.0), reverse=True)
+                    fts = sorted(_code_fts(layer), key=lambda x: x.get("score", 0.0), reverse=True)
+                    if dense:
+                        dense_lists.append(dense)
+                    if fts:
+                        fts_lists.append(fts)
+            if not dense_lists and not fts_lists:
+                return [], False
+            dense_merged = self._rrf_merge(dense_lists, fetch_n) if dense_lists else []
+            fts_merged = self._rrf_merge(fts_lists, fetch_n) if fts_lists else []
+            results = self._rrf_merge([dense_merged, fts_merged], fetch_n)
+        else:
+            tables = [t for t in [
+                getattr(self, "_proj_code_lance_table", None),
+                getattr(self, "_fw_code_lance_table", None),
+            ] if t is not None]
+            if not tables:
+                return [], False
+            all_candidates: list[dict] = []
+            if getattr(self, "_proj_code_lance_table", None) is not None:
+                all_candidates.extend(self._lance_search(self._proj_code_lance_table, qvec, fetch_n, where=where, layer="project"))
+            if getattr(self, "_fw_code_lance_table", None) is not None:
+                all_candidates.extend(self._lance_search(self._fw_code_lance_table, qvec, fetch_n, where=where, layer="framework"))
+            all_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+            results = all_candidates[:fetch_n]
         if language:
             results = [r for r in results if r.get("language") == language]
         if max_per_file is not None:
@@ -951,6 +1047,36 @@ class WaveIndex:
             if injected > 0:
                 definition_boosted.append(rule["label"])
 
+        # --- Symbol-first injection (explanatory only, 12q63) ---
+        if question_type == "explanatory":
+            sym = _extract_question_symbol(query)
+            if sym:
+                existing_keys = {
+                    (r.get("path", ""), (r.get("lines") or [0])[0])
+                    for r in all_candidates
+                }
+                try:
+                    kw_resp = code_keyword_response(self.root, sym)
+                    if kw_resp.get("status") == "ok":
+                        sym_injected = 0
+                        for r in kw_resp["data"]["results"][:2]:
+                            key = (r.get("path", ""), r.get("line", 0))
+                            if key not in existing_keys:
+                                all_candidates.append({
+                                    "path": r.get("path", ""),
+                                    "text": r.get("snippet", ""),
+                                    "score": 0.0,
+                                    "kind": "code",
+                                    "lines": [r.get("line", 1), r.get("line", 1)],
+                                    "_sym_injected": True,
+                                })
+                                existing_keys.add(key)
+                                sym_injected += 1
+                        if sym_injected > 0:
+                            definition_boosted.append(f"symbol:{sym}")
+                except Exception:
+                    pass
+
         # --- Rerank / RRF phase (timed) ---
         t_rerank = time.monotonic()
         reranker = self._get_reranker()
@@ -1001,6 +1127,8 @@ class WaveIndex:
                 # Stable partition: push scaffolding-layer citations to end
                 if question_type == "explanatory":
                     results = _partition_infra(results)
+                for r in results:
+                    r.pop("_sym_injected", None)
                 rerank_ms = round((time.monotonic() - t_rerank) * 1000)
                 return results, True, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method
             except Exception:
@@ -1017,6 +1145,8 @@ class WaveIndex:
         rerank_ms = round((time.monotonic() - t_rerank) * 1000)
         if question_type == "explanatory":
             results = _partition_infra(results)
+        for r in results:
+            r.pop("_sym_injected", None)
         return results, False, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method
 
     def get_seed(self, name: str) -> Optional[dict]:
@@ -3397,25 +3527,30 @@ def _load_background_refresh_state(state_path: Path) -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {}
 
 
-def _index_lock_dir_for_state_path(state_path: Path) -> Path:
-    """Return the .build.lock directory that corresponds to a background-refresh state file."""
-    return state_path.parent / ".build.lock"
+def _lock_is_fresh(lock_path: Path) -> bool:
+    """Return True if ``lock_path`` exists and its mtime is within the stale threshold."""
+    import time as _time
+
+    if not lock_path.exists():
+        return False
+    try:
+        age = _time.time() - lock_path.stat().st_mtime
+    except OSError:
+        return False
+    return age < BACKGROUND_INDEX_LOCK_STALE_SECONDS
+
+
+def _table_lock_paths(index_dir: Path) -> list[Path]:
+    """Return the per-table ``.lock`` file paths for the given index directory."""
+    return [index_dir / f"{kind}.lance" / ".lock" for kind in ("docs", "code")]
 
 
 def _background_refresh_active(state_path: Path) -> bool:
-    # Primary guard: if the indexer's file-system build lock exists and is not stale, a
-    # build is actively running — regardless of what the state file says.  This handles
-    # the case where the state file's PID has already exited (process finished) but a
-    # newly-spawned indexer from a subsequent trigger is currently holding the lock.
-    lock_dir = _index_lock_dir_for_state_path(state_path)
-    if lock_dir.exists():
-        try:
-            import time as _time
-            age = _time.time() - lock_dir.stat().st_mtime
-        except OSError:
-            age = 0
-        if age < BACKGROUND_INDEX_LOCK_STALE_SECONDS:
-            return True
+    # Primary guard: if any per-table .lock file exists and is fresh, a build is actively
+    # running — regardless of what the state file says.
+    index_dir = state_path.parent
+    if any(_lock_is_fresh(p) for p in _table_lock_paths(index_dir)):
+        return True
 
     state = _load_background_refresh_state(state_path)
     pid = state.get("pid")
@@ -8192,33 +8327,72 @@ def _partition_infra(results: list[dict]) -> list[dict]:
     return non_infra + infra
 
 
-def _is_feedback_artifact(path: str) -> bool:
-    normalized = str(path or "").replace("\\", "/")
+def _doc_demotion_weight(path: str, kind: str) -> float:
+    """Return the demotion multiplier for a result based on its path and kind."""
+    normalized = (path or "").replace("\\", "/")
+    if normalized.startswith("docs/waves/"):
+        return _DEMOTION_WAVES
+    if normalized.startswith("docs/plans/"):
+        return _DEMOTION_PLANS
+    if kind == "seed" or normalized.startswith(".wavefoundry/framework/seeds/"):
+        return _DEMOTION_SEEDS
     parts = Path(normalized).parts
-    if any(seg in parts for seg in CODE_ASK_FEEDBACK_PATH_SEGMENTS):
-        return True
     name = Path(normalized).name.lower()
-    return "feedback" in name or "journal" in name
+    if any(seg in parts for seg in ("journals", "reports")) or "feedback" in name or "journal" in name:
+        return _DEMOTION_JRNLS
+    return 1.0
 
 
-def _is_code_ask_demoted_artifact(result: dict) -> bool:
-    kind = str(result.get("kind") or "").strip().lower()
-    if kind in CODE_ASK_FEEDBACK_KINDS:
-        return True
-    return _is_feedback_artifact(str(result.get("path", "")))
+def _demote_doc_results(results: list[dict], question_type: str) -> tuple[list[dict], int]:
+    """Apply weighted score demotion to narrative/feedback sources for explanatory queries."""
+    if question_type != "explanatory":
+        return results, 0
+
+    demotion_count = 0
+    for r in results:
+        weight = _doc_demotion_weight(r.get("path", ""), str(r.get("kind") or "").strip().lower())
+        if weight < 1.0:
+            r["score"] = (r.get("score") or 0.0) * weight
+            demotion_count += 1
+
+    if demotion_count:
+        results.sort(key=lambda x: x.get("score") or 0.0, reverse=True)
+
+    return results, demotion_count
 
 
-def _partition_feedback_artifacts(results: list[dict]) -> list[dict]:
-    """Stable partition: keep feedback/journal docs searchable but behind implementation evidence."""
-    feedback_idx = {
-        i for i, r in enumerate(results)
-        if _is_code_ask_demoted_artifact(r)
-    }
-    if not feedback_idx or len(feedback_idx) == len(results):
-        return results
-    non_feedback = [r for i, r in enumerate(results) if i not in feedback_idx]
-    feedback = [r for i, r in enumerate(results) if i in feedback_idx]
-    return non_feedback + feedback
+def _extract_question_symbol(question: str) -> Optional[str]:
+    """Extract the primary code symbol from a question for symbol-first injection."""
+    m = re.search(r'`([^`]+)`', question)
+    if m:
+        sym = m.group(1).strip()
+        if sym:
+            return sym
+    m = re.search(r'\b(\w+(?:(?:\.|::|->)\w+)+)\b', question)
+    if m:
+        qualified = m.group(1)
+        sym = re.split(r'\.|::|->', qualified)[-1]
+        if sym:
+            return sym
+    m = re.search(r'@(\w+)', question)
+    if m:
+        return '@' + m.group(1)
+    m = re.search(r'\b(_\w+)\b', question)
+    if m:
+        return m.group(1)
+    m = re.search(r'\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b', question)
+    if m:
+        return m.group(1)
+    m = re.search(r'\b([a-z][a-z0-9]+(?:_[a-z0-9]+)+)\b', question)
+    if m:
+        return m.group(1)
+    m = re.search(r'\b([a-z][a-z0-9]*(?:[A-Z][a-zA-Z0-9]*)+)\b', question)
+    if m:
+        return m.group(1)
+    m = re.search(r'\b([A-Z][a-zA-Z0-9]{3,})\b', question)
+    if m:
+        return m.group(1)
+    return None
 
 
 def _extract_symbols_ts(tree: Any) -> list[str]:
@@ -8470,19 +8644,12 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str) -> dict[str
         }
 
     broad_hits = combined_results
-    demotion_count = sum(1 for r in broad_hits if _is_code_ask_demoted_artifact(r))
+    broad_hits, demotion_count = _demote_doc_results(broad_hits, question_type)
     partition_applied = bool(demotion_count)
-    broad_hits = _partition_feedback_artifacts(broad_hits)
     citations = []
     for final_rank, r in enumerate(broad_hits, start=1):
         citation = _to_citation(r)
         citation["final_rank"] = final_rank
-        if _is_code_ask_demoted_artifact(r):
-            citation["demoted"] = True
-            if str(r.get("kind") or "").strip().lower() == "seed":
-                citation["partition_reason"] = "seed"
-            else:
-                citation["partition_reason"] = "feedback"
         citations.append(citation)
 
     # Targeted pass: keyword and structural lookup when broad pass is thin
@@ -8523,7 +8690,7 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str) -> dict[str
         answer = f"No indexed evidence found for this question. The topic may not be covered in the current index or may use different terminology."
 
     total_ms = round((time.monotonic() - t_start) * 1000)
-    print(f"[wavefoundry] code_ask timing: total={total_ms}ms vector={vector_ms}ms rerank={rerank_ms}ms", flush=True)
+    _wf_log(f"[wavefoundry] code_ask timing: total={total_ms}ms vector={vector_ms}ms rerank={rerank_ms}ms")
 
     data: dict[str, Any] = {
         "question": question,
@@ -8549,10 +8716,25 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str) -> dict[str
     if symbol_extraction_method != "none":
         data["symbol_extraction_method"] = symbol_extraction_method
 
+    if question_type == "explanatory" and citations and citations[0].get("kind") in ("doc", "doc-summary"):
+        data["validation_required"] = True
+
+    next_tools = ["code_read", "docs_search"]
+    if citations:
+        top_path = citations[0].get("path", "")
+        if top_path:
+            try:
+                with (root / top_path).open() as _f:
+                    line_count = sum(1 for _ in _f)
+                if line_count > 300:
+                    next_tools = ["code_outline", "code_read"]
+            except Exception:
+                pass
+
     return _response(
         "ok",
         data,
-        next_tools=["code_read", "docs_search"],
+        next_tools=next_tools,
         usage=f"code_read(path={citations[0]['path']!r}, start_line={citations[0]['lines'][0] if citations[0]['lines'] else 1})" if citations else "code_search(query=...)",
     )
 
@@ -8643,7 +8825,7 @@ def build_server(root: Path):
         Use docs_search instead when the answer is in a spec, architecture doc, or prompt rather than source code.
         When the code index is absent: returns status='error' with a diagnostic — does not crash.
 
-        Orientation pass (CIA): use kind="code-summary" with max_per_file=1 for a fast file-level survey before targeted retrieval.
+        Orientation pass (Guru): use kind="code-summary" with max_per_file=1 for a fast file-level survey before targeted retrieval.
 
         Tags pre-filter the search space before cosine ranking. Use to scope results to a specific file category.
         Tag vocabulary: test, config, framework, seed. Multiple tags use OR semantics.
@@ -8798,6 +8980,11 @@ def build_server(root: Path):
           unavailable or produced no symbols (regex was the effective extractor). Use this field to
           detect silent grammar degradation: "regex" on a TypeScript-heavy codebase indicates the
           tree-sitter grammar failed to load or produced no symbols.
+        - validation_required: present and true when question_type=="explanatory" and the top
+          citation is a doc or doc-summary (spec, architecture, or reference doc). When present,
+          code_read in next_tools is a REQUIRED continuation — not optional. A spec citation is
+          the starting point, not the answer; read the implementation file named in the spec's
+          source metadata before synthesizing.
         - index_freshness: "current" | "stale"
         - vector_ms: milliseconds spent on vector retrieval across all indexes.
         - rerank_ms: milliseconds spent on cross-encoder reranking (0 when reranked=false).

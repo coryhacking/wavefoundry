@@ -620,6 +620,8 @@ def collect_activity(root: Path, change_sets: dict[str, list[dict[str, Any]]]) -
             recent_progress.append(
                 {
                     "change_id": item["change_id"],
+                    "wave_id": item.get("wave_id") or "",
+                    "path": item.get("path") or "",
                     "title": item["title"],
                     "scope": item["scope"],
                     "date": entry.get("date", ""),
@@ -661,15 +663,19 @@ def _index_stats(meta: Any, build_stats: Any, index_dir: "Path | None" = None) -
     if not code_chunks:
         code_chunks = int(s.get("code_chunks", 0))
 
+    docs_model = str(model_versions.get("docs", "") or "")
+    code_model = str(model_versions.get("code", "") or "")
     return {
         "present": bool(m),
         "built_at": m.get("built_at", "") or s.get("built_at", ""),
         "files_indexed": files_indexed,
         "doc_chunks": doc_chunks,
         "code_chunks": code_chunks,
-        "elapsed_seconds": int(s.get("elapsed_seconds", 0)),
+        "elapsed_seconds": int(s.get("elapsed_seconds") or 0),
         "mode": str(s.get("mode", "")),
-        "model": str(model_versions.get("docs", "") or model_versions.get("code", "")),
+        "model": docs_model or code_model,
+        "docs_model": docs_model,
+        "code_model": code_model,
     }
 
 

@@ -71,6 +71,18 @@ def _get_ts_lang(key: str):
             lang = _ts_language("tree_sitter_sql", "language_sql")
         _TS_LANGS[key] = lang
         return lang
+    if key == "xml":
+        lang = _ts_language("tree_sitter_xml", "language_xml")
+        if lang is None:
+            lang = _ts_language("tree_sitter_xml", "language_dtd")
+        _TS_LANGS[key] = lang
+        return lang
+    if key == "php":
+        lang = _ts_language("tree_sitter_php", "language_php")
+        if lang is None:
+            lang = _ts_language("tree_sitter_php", "language_php_only")
+        _TS_LANGS[key] = lang
+        return lang
     mapping = {
         "typescript": ("tree_sitter_typescript", "language_typescript"),
         "javascript": ("tree_sitter_javascript", "language"),
@@ -82,6 +94,19 @@ def _get_ts_lang(key: str):
         "csharp": ("tree_sitter_c_sharp", "language"),
         "bash": ("tree_sitter_bash", "language"),
         "kotlin": ("tree_sitter_kotlin", "language"),
+        "swift": ("tree_sitter_swift", "language"),
+        "objc": ("tree_sitter_objc", "language"),
+        "hcl": ("tree_sitter_hcl", "language"),
+        "scss": ("tree_sitter_scss", "language"),
+        "make": ("tree_sitter_make", "language"),
+        "scala": ("tree_sitter_scala", "language"),
+        "html": ("tree_sitter_html", "language"),
+        "ruby": ("tree_sitter_ruby", "language"),
+        "yaml": ("tree_sitter_yaml", "language"),
+        "toml": ("tree_sitter_toml", "language"),
+        "json": ("tree_sitter_json", "language"),
+        "css": ("tree_sitter_css", "language"),
+        "powershell": ("tree_sitter_powershell", "language"),
     }
     if key not in mapping:
         _TS_LANGS[key] = None
@@ -162,7 +187,7 @@ def _ts_collapse_body(text: str, max_lines: int = 150) -> str:
     return "\n".join(lines[:max_lines])
 
 
-CHUNKER_VERSION = "20"
+CHUNKER_VERSION = "21"
 
 # Lines per window and overlap for the line-window fallback chunker.
 WINDOW_SIZE = 120
@@ -202,14 +227,19 @@ CODE_EXTENSIONLESS_NAMES = {
 SQL_EXTENSIONS = {".sql", ".psql", ".pgsql", ".ddl", ".dml", ".tsql", ".hql"}
 XML_EXTENSIONS = {".xml", ".jsp", ".xsd", ".xsl", ".xslt", ".svg"}
 KOTLIN_EXTENSIONS = {".kt", ".kts"}
+RUBY_EXTENSIONS = {".rb"}
+PHP_EXTENSIONS = {".php"}
+YAML_EXTENSIONS = {".yaml", ".yml"}
+TOML_EXTENSIONS = {".toml"}
+JSON_EXTENSIONS = {".json", ".jsonc"}
+CSS_EXTENSIONS = {".css"}
+SCSS_EXTENSIONS = {".scss"}
+POWERSHELL_EXTENSIONS = {".ps1", ".psm1"}
+HCL_INDEX_EXTENSIONS = {".tf", ".hcl"}
+MAKEFILE_NAMES = {"Makefile", "GNUmakefile"}
 CODE_EXTENSIONS = {
-    ".rb", ".php",
-    ".yaml", ".yml", ".toml", ".json", ".jsonc",
-    ".css", ".scss", ".sass",
-    ".ps1", ".psm1",
+    ".sass",
     *BATCH_EXTENSIONS,
-    *TERRAFORM_EXTENSIONS,
-    *HCL_EXTENSIONS,
     *HELM_EXTENSIONS,
 }
 
@@ -3467,6 +3497,342 @@ def chunk_kotlin_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
     return split_large_code_chunks(_merge_small_chunks(chunks, scoped=True))
 
 
+_TS_NAME_CHILD_TYPES = frozenset({
+    "identifier", "type_identifier", "simple_identifier", "property_identifier",
+    "field_identifier", "name", "function_name", "bare_key", "class_name",
+})
+
+
+def _ts_node_name(node, source_lines: list[str]) -> str:
+    """Extract a symbol name from a tree-sitter node."""
+    for child in node.children:
+        if child.type in _TS_NAME_CHILD_TYPES:
+            text = source_lines[child.start_point[0]][child.start_point[1]:child.end_point[1]].strip()
+            if text:
+                return text
+    for child in node.children:
+        nested = _ts_node_name(child, source_lines)
+        if nested != "anonymous":
+            return nested
+    return "anonymous"
+
+
+def _ts_generic_structured_chunker(
+    lang_key: str,
+    source: str,
+    path: str,
+    language: str,
+    *,
+    class_node_types: frozenset[str] = frozenset(),
+    method_node_types: frozenset[str] = frozenset(),
+    top_level_node_types: frozenset[str] = frozenset(),
+    import_node_types: frozenset[str] = frozenset(),
+    namespace_node_types: frozenset[str] = frozenset(),
+    scoped: bool = True,
+) -> Optional[list[Chunk]]:
+    """Walk a tree-sitter parse tree and emit declaration-boundary code chunks."""
+    path = _normalize_path(path)
+    stem = _file_stem(path)
+    tree = _ts_parse(lang_key, source)
+    if tree is None:
+        return None
+
+    source_lines = source.splitlines()
+    chunks: list[Chunk] = []
+    import_nodes: list = []
+
+    def _emit_code(node, qname: str, *, decl_only: bool = False) -> None:
+        breadcrumb = f"{stem} > {qname}"
+        start, end = _ts_node_lines(node)
+        if decl_only:
+            decl_line = source_lines[node.start_point[0]].strip()
+            text = f"{breadcrumb}\n\n{decl_line}"
+            lines = (start, start)
+            chunk_id = f"{path}::{qname}.__decl__"
+        else:
+            text = _ts_collapse_body(_ts_node_text(node, source_lines))
+            lines = (start, end)
+            chunk_id = f"{path}::{qname}"
+        chunks.append(Chunk(
+            id=chunk_id,
+            path=path,
+            kind="code",
+            language=language,
+            lines=lines,
+            section=breadcrumb,
+            text=text,
+        ))
+
+    def _walk_class_members(node, class_name: str) -> None:
+        for child in node.children:
+            if child.type in method_node_types:
+                mname = _ts_node_name(child, source_lines)
+                qname = f"{class_name}.{mname}" if mname != "anonymous" else class_name
+                _emit_code(child, qname)
+            elif child.type not in method_node_types:
+                _walk_class_members(child, class_name)
+
+    def _process(node, class_name: Optional[str] = None) -> None:
+        t = node.type
+        if t in import_node_types:
+            import_nodes.append(node)
+            return
+        if t in namespace_node_types:
+            breadcrumb = f"{stem} > namespace"
+            chunks.append(Chunk(
+                id=f"{path}::__namespace__",
+                path=path,
+                kind="code",
+                language=language,
+                lines=_ts_node_lines(node),
+                section=breadcrumb,
+                text=f"{breadcrumb}\n\n{_ts_node_text(node, source_lines)}",
+            ))
+            return
+        if t in class_node_types:
+            name = _ts_node_name(node, source_lines)
+            _emit_code(node, name, decl_only=True)
+            _walk_class_members(node, name)
+            return
+        if t in method_node_types and class_name:
+            mname = _ts_node_name(node, source_lines)
+            qname = f"{class_name}.{mname}" if mname != "anonymous" else class_name
+            _emit_code(node, qname)
+            return
+        if t in method_node_types or t in top_level_node_types:
+            name = _ts_node_name(node, source_lines)
+            _emit_code(node, name)
+            return
+
+    for node in tree.root_node.children:
+        _process(node)
+
+    imp = _ts_imports_chunk(import_nodes, source_lines, path, language, stem)
+    if imp:
+        insert_idx = 1 if chunks and chunks[0].section and chunks[0].section.endswith("> namespace") else 0
+        chunks.insert(insert_idx, imp)
+
+    if not chunks:
+        return None
+    return split_large_code_chunks(_merge_small_chunks(chunks, scoped=scoped))
+
+
+def _ts_flat_emit_chunker(
+    lang_key: str,
+    source: str,
+    path: str,
+    language: str,
+    emit_node_types: frozenset[str],
+) -> Optional[list[Chunk]]:
+    """Emit one chunk per matching node type (config / markup flat files)."""
+    path = _normalize_path(path)
+    stem = _file_stem(path)
+    tree = _ts_parse(lang_key, source)
+    if tree is None:
+        return None
+
+    source_lines = source.splitlines()
+    chunks: list[Chunk] = []
+    counter = 0
+
+    def _walk(node, inside_emit: bool = False) -> None:
+        nonlocal counter
+        if node.type in emit_node_types and not inside_emit:
+            name = _ts_node_name(node, source_lines)
+            slug = _slugify(name) if name != "anonymous" else f"node-{counter}"
+            counter += 1
+            start, end = _ts_node_lines(node)
+            breadcrumb = f"{stem} > {name}" if name != "anonymous" else f"{stem} > {slug}"
+            text = _ts_collapse_body(_ts_node_text(node, source_lines))
+            chunks.append(Chunk(
+                id=f"{path}#{slug}",
+                path=path,
+                kind="code",
+                language=language,
+                lines=(start, end),
+                section=breadcrumb,
+                text=f"{breadcrumb}\n\n{text}",
+            ))
+            for child in node.children:
+                _walk(child, inside_emit=True)
+        else:
+            for child in node.children:
+                _walk(child, inside_emit)
+
+    _walk(tree.root_node)
+    if not chunks:
+        return None
+    return split_large_code_chunks(chunks)
+
+
+def _ts_markup_chunker(
+    lang_key: str,
+    source: str,
+    path: str,
+    language: str,
+    *,
+    max_depth: int = 4,
+) -> Optional[list[Chunk]]:
+    """Emit chunks for shallow element nodes in HTML/XML."""
+    path = _normalize_path(path)
+    stem = _file_stem(path)
+    tree = _ts_parse(lang_key, source)
+    if tree is None:
+        return None
+
+    source_lines = source.splitlines()
+    chunks: list[Chunk] = []
+    counter = 0
+
+    def _walk(node, depth: int = 0) -> None:
+        nonlocal counter
+        if node.type == "element" and depth <= max_depth:
+            tag = "element"
+            for child in node.children:
+                if child.type in ("start_tag", "self_closing_tag"):
+                    for tc in child.children:
+                        if tc.type in ("tag_name", "tag_identifier"):
+                            tag = source_lines[tc.start_point[0]][tc.start_point[1]:tc.end_point[1]]
+            slug = _slugify(tag) if tag != "element" else f"el-{counter}"
+            counter += 1
+            start, end = _ts_node_lines(node)
+            breadcrumb = f"{stem} > {tag}"
+            text = _ts_collapse_body(_ts_node_text(node, source_lines))
+            chunks.append(Chunk(
+                id=f"{path}#{slug}-L{start}",
+                path=path,
+                kind="doc",
+                language=language,
+                lines=(start, end),
+                section=breadcrumb,
+                text=f"{breadcrumb}\n\n{text}",
+            ))
+        for child in node.children:
+            _walk(child, depth + 1)
+
+    _walk(tree.root_node)
+    if not chunks:
+        return None
+    return split_large_code_chunks(chunks)
+
+
+def chunk_swift_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    return _ts_generic_structured_chunker(
+        "swift", source, path, "swift",
+        class_node_types=frozenset({"class_declaration", "protocol_declaration"}),
+        method_node_types=frozenset({
+            "function_declaration", "init_declaration", "deinit_declaration",
+            "protocol_function_declaration",
+        }),
+        top_level_node_types=frozenset({
+            "function_declaration", "init_declaration", "deinit_declaration",
+        }),
+        import_node_types=frozenset({"import_declaration"}),
+    )
+
+
+def chunk_objc_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    return _ts_generic_structured_chunker(
+        "objc", source, path, "objc",
+        class_node_types=frozenset({"class_interface", "class_implementation", "category_interface", "category_implementation"}),
+        method_node_types=frozenset({"method_declaration", "method_definition"}),
+        import_node_types=frozenset({"preproc_include", "preproc_import"}),
+    )
+
+
+def chunk_scala_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    return _ts_generic_structured_chunker(
+        "scala", source, path, "scala",
+        class_node_types=frozenset({"object_definition", "class_definition", "trait_definition"}),
+        method_node_types=frozenset({"function_definition"}),
+        import_node_types=frozenset({"import_declaration"}),
+        namespace_node_types=frozenset({"package_clause"}),
+    )
+
+
+def chunk_ruby_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    return _ts_generic_structured_chunker(
+        "ruby", source, path, "ruby",
+        class_node_types=frozenset({"class", "module", "singleton_class"}),
+        method_node_types=frozenset({"method", "singleton_method"}),
+    )
+
+
+def chunk_php_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    return _ts_generic_structured_chunker(
+        "php", source, path, "php",
+        class_node_types=frozenset({"class_declaration", "interface_declaration", "trait_declaration", "enum_declaration"}),
+        method_node_types=frozenset({"function_definition", "method_declaration"}),
+        namespace_node_types=frozenset({"namespace_definition"}),
+    )
+
+
+def chunk_hcl_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    return _ts_flat_emit_chunker("hcl", source, path, "terraform", frozenset({"block", "attribute"}))
+
+
+def chunk_scss_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    return _ts_flat_emit_chunker("scss", source, path, "scss", frozenset({"rule_set", "declaration"}))
+
+
+def chunk_css_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    return _ts_flat_emit_chunker("css", source, path, "css", frozenset({"rule_set", "declaration"}))
+
+
+def chunk_make_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    return _ts_flat_emit_chunker("make", source, path, "make", frozenset({"rule"}))
+
+
+def chunk_yaml_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    return _ts_flat_emit_chunker("yaml", source, path, "yaml", frozenset({"block_mapping_pair", "flow_pair"}))
+
+
+def chunk_toml_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    return _ts_flat_emit_chunker("toml", source, path, "toml", frozenset({"table", "table_array_element"}))
+
+
+def chunk_json_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    return _ts_flat_emit_chunker("json", source, path, "json", frozenset({"pair"}))
+
+
+def chunk_powershell_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    return _ts_generic_structured_chunker(
+        "powershell", source, path, "powershell",
+        top_level_node_types=frozenset({"function_statement", "class_statement"}),
+    )
+
+
+def chunk_html_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    return _ts_markup_chunker("html", source, path, "html")
+
+
+def chunk_xml_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
+    return _ts_markup_chunker("xml", source, path, "xml")
+
+
+def _ts_dispatch(
+    ts_fn,
+    regex_fn,
+    source: str,
+    path: str,
+    language: str,
+    *,
+    with_summary: bool = False,
+) -> list[Chunk]:
+    """Try tree-sitter chunker, fall back to regex_fn or line-window."""
+    ts_result = ts_fn(source, path)
+    if ts_result is not None:
+        chunks = ts_result
+    elif regex_fn is not None:
+        chunks = regex_fn(source, path)
+    else:
+        chunks = chunk_line_window(source, path, language=language, section=_file_stem(path))
+    if with_summary:
+        s = _chunk_code_summary(source, path, language)
+        return ([s] + chunks) if s else chunks
+    return chunks
+
+
 # ---------------------------------------------------------------------------
 # Top-level dispatcher
 # ---------------------------------------------------------------------------
@@ -3803,6 +4169,12 @@ def chunk_file(source: str, path: str) -> list[Chunk]:
     is_design_json = suffix == ".json" and DESIGN_JSON_MARKER in normalized
     stem = PurePosixPath(normalized).name  # full filename (no directory); equals stem when no suffix
 
+    if not suffix and stem in MAKEFILE_NAMES:
+        ts_result = chunk_make_treesitter(source, normalized)
+        if ts_result is not None:
+            return ts_result
+        return chunk_line_window(source, normalized, language="make", section=stem)
+
     if not suffix and stem in CODE_EXTENSIONLESS_NAMES:
         return chunk_line_window(source, normalized, language=stem.lower(), section=stem)
 
@@ -3848,7 +4220,7 @@ def chunk_file(source: str, path: str) -> list[Chunk]:
         return _with_summary(chunks, "java")
 
     if suffix in SCALA_EXTENSIONS:
-        return _with_summary(chunk_scala(source, normalized), "scala")
+        return _with_summary(_ts_dispatch(chunk_scala_treesitter, chunk_scala, source, normalized, "scala"), "scala")
 
     if suffix in CSHARP_EXTENSIONS:
         ts_result = chunk_csharp_treesitter(source, normalized)
@@ -3868,7 +4240,8 @@ def chunk_file(source: str, path: str) -> list[Chunk]:
         return _with_summary(chunks, lang)
 
     if suffix in HTML_EXTENSIONS:
-        return chunk_html(source, normalized)
+        ts_result = chunk_html_treesitter(source, normalized)
+        return ts_result if ts_result is not None else chunk_html(source, normalized)
 
     if suffix in GO_EXTENSIONS:
         ts_result = chunk_go_treesitter(source, normalized)
@@ -3886,10 +4259,15 @@ def chunk_file(source: str, path: str) -> list[Chunk]:
         return _with_summary(chunks, "kotlin")
 
     if suffix in SWIFT_EXTENSIONS:
-        return _with_summary(chunk_swift(source, normalized), "swift")
+        return _with_summary(
+            _ts_dispatch(chunk_swift_treesitter, chunk_swift, source, normalized, "swift"),
+            "swift",
+        )
 
     if suffix in OBJC_EXTENSIONS:
-        return chunk_objc(source, normalized)
+        return _ts_dispatch(
+            chunk_objc_treesitter, chunk_objc, source, normalized, "objc", with_summary=True
+        )
 
     if suffix in SHELL_EXTENSIONS:
         if suffix != ".fish":
@@ -3902,7 +4280,35 @@ def chunk_file(source: str, path: str) -> list[Chunk]:
         return chunk_sql(source, normalized)
 
     if suffix in XML_EXTENSIONS:
-        return chunk_xml(source, normalized)
+        ts_result = chunk_xml_treesitter(source, normalized)
+        return ts_result if ts_result is not None else chunk_xml(source, normalized)
+
+    if suffix in RUBY_EXTENSIONS:
+        return _ts_dispatch(chunk_ruby_treesitter, None, source, normalized, "ruby", with_summary=True)
+
+    if suffix in PHP_EXTENSIONS:
+        return _ts_dispatch(chunk_php_treesitter, None, source, normalized, "php", with_summary=True)
+
+    if suffix in YAML_EXTENSIONS:
+        return _ts_dispatch(chunk_yaml_treesitter, None, source, normalized, "yaml")
+
+    if suffix in TOML_EXTENSIONS:
+        return _ts_dispatch(chunk_toml_treesitter, None, source, normalized, "toml")
+
+    if suffix in JSON_EXTENSIONS:
+        return _ts_dispatch(chunk_json_treesitter, None, source, normalized, "json")
+
+    if suffix in CSS_EXTENSIONS:
+        return _ts_dispatch(chunk_css_treesitter, None, source, normalized, "css")
+
+    if suffix in SCSS_EXTENSIONS:
+        return _ts_dispatch(chunk_scss_treesitter, None, source, normalized, "scss")
+
+    if suffix in POWERSHELL_EXTENSIONS:
+        return _ts_dispatch(chunk_powershell_treesitter, None, source, normalized, "powershell")
+
+    if suffix in HCL_INDEX_EXTENSIONS:
+        return _ts_dispatch(chunk_hcl_treesitter, None, source, normalized, "terraform")
 
     # Secrets files: index variable names only, redact all values
     if suffix == ".tfvars":

@@ -22,19 +22,48 @@ sys.dont_write_bytecode = True
 
 INDEX_DIR_NAME = ".wavefoundry/index"
 META_JSON = "meta.json"
-LOCK_DIR_NAME = ".build.lock"
+TABLE_LOCK_NAME = ".lock"   # written inside docs.lance/ and code.lance/
 LOCK_STALE_SECONDS = 60 * 60
 
-DOCS_MODEL = "BAAI/bge-base-en-v1.5"
-CODE_MODEL = "BAAI/bge-base-en-v1.5"
+DOCS_MODEL = "BAAI/bge-small-en-v1.5"
+CODE_MODEL = "BAAI/bge-small-en-v1.5"
+
+# Instruction prefixes required by asymmetric embedding models.
+# Values include a trailing space so that `prefix + text` produces correctly
+# formatted input (e.g. "search_document: " + passage_text).
+# Empty strings mean no prefix (symmetric models such as bge-base).
+EMBEDDING_PREFIXES: dict[str, dict[str, str]] = {
+    "nomic-ai/nomic-embed-text-v1.5-Q": {
+        "document": "search_document: ",
+        "query": "search_query: ",
+    },
+    "BAAI/bge-base-en-v1.5": {
+        "document": "",
+        "query": "",
+    },
+    "BAAI/bge-small-en-v1.5": {
+        "document": "",
+        "query": "",
+    },
+    "jinaai/jina-embeddings-v2-base-code": {
+        "document": "",
+        "query": "",
+    },
+    "jinaai/jina-embeddings-v2-small-en": {
+        "document": "",
+        "query": "",
+    },
+}
 
 # LanceDB vector index constants
 # Tables are stored directly inside the index directory (e.g. .wavefoundry/index/docs.lance/).
 LANCEDB_INDEX_THRESHOLD = 1000   # rows; below: flat scan; at/above: IVF_HNSW_SQ index
 LANCEDB_COMPACT_THRESHOLD = 20   # fragment count threshold; triggers optimize() after add/delete
+EMBED_BATCH_SIZE = 256           # chunks per embedding batch
+SORT_WINDOW_SIZE = 2048          # sliding sort buffer size (8× EMBED_BATCH_SIZE)
 LANCEDB_NPROBES = 20             # ANN search probes (recall vs latency)
 LANCEDB_REFINE_FACTOR = 10       # reranking candidates multiplier
-RERANKER_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
+RERANKER_MODEL = "BAAI/bge-reranker-base"
 CONTENT_CHOICES = ("docs", "code", "all")
 SOURCE_CODE_EXTENSIONS = {
     ".py",
@@ -582,42 +611,82 @@ def _get_lance_db(db_path: Path):
     return lancedb.connect(str(db_path))
 
 
-def _build_lance_tables(db_path, docs_chunks, docs_vecs, code_chunks, code_vecs, verbose=False):
-    """Write docs and code as LanceDB tables under db_path.
+def _stream_embed_write(
+    db,
+    table_name: str,
+    chunks: list[dict],
+    embedder,
+    label: str,
+    verbose: bool = False,
+) -> int:
+    """Embed *chunks* in sliding-sort-buffer batches and write incrementally to *db*.
 
-    Returns a dict with row counts: {"docs_rows": int, "code_rows": int}.
+    Uses a SORT_WINDOW_SIZE-chunk buffer sorted by text length so each
+    EMBED_BATCH_SIZE batch draws the shortest available sequences, minimising
+    ONNX padding waste without buffering the full corpus in memory.
+
+    Returns the number of rows written (== len(chunks)).
     """
-    db = _get_lance_db(db_path)
+    total = len(chunks)
+    if total == 0:
+        return 0
 
-    results = {}
-    for table_name, chunks, vecs in (
-        ("docs", docs_chunks, docs_vecs),
-        ("code", code_chunks, code_vecs),
-    ):
-        rows = _make_lance_rows(chunks, vecs)
+    # Initialise the sliding buffer with the first SORT_WINDOW_SIZE chunks.
+    buf_end = min(SORT_WINDOW_SIZE, total)
+    buffer: list[dict] = sorted(chunks[:buf_end], key=lambda c: len(c["text"]))
+    read_pos: int = buf_end
+    table = None
+    written = 0
 
-        results[f"{table_name}_rows"] = len(rows)
+    while buffer:
+        # Pop the EMBED_BATCH_SIZE shortest chunks from the sorted buffer.
+        batch_chunks = buffer[:EMBED_BATCH_SIZE]
+        buffer = buffer[EMBED_BATCH_SIZE:]
 
-        if not rows:
-            continue
+        # Refill from the remaining corpus and re-sort.
+        refill_end = min(read_pos + EMBED_BATCH_SIZE, total)
+        if read_pos < total:
+            buffer.extend(chunks[read_pos:refill_end])
+            read_pos = refill_end
+            buffer.sort(key=lambda c: len(c["text"]))
 
-        table = db.create_table(table_name, data=rows, mode="overwrite")
+        start = written + 1
+        end = written + len(batch_chunks)
+        # Always log per-batch progress — this is the primary status signal during
+        # a long rebuild and should appear in index-build.log regardless of --verbose.
+        print(f"build_index: embedding {label} chunks {start}–{end}/{total}", flush=True)
 
-        if len(rows) >= LANCEDB_INDEX_THRESHOLD:
-            try:
-                table.create_index(metric="cosine", index_type="IVF_HNSW_SQ", replace=True)
-                if verbose:
-                    print(
-                        f"build_index: LanceDB IVF_HNSW_SQ index created for '{table_name}' ({len(rows)} rows)",
-                        flush=True,
-                    )
-            except Exception as exc:
+        vecs = _embed_texts(embedder, [c["text"] for c in batch_chunks], batch_size=EMBED_BATCH_SIZE)
+        rows = _make_lance_rows(batch_chunks, vecs)
+
+        if table is None:
+            table = db.create_table(table_name, data=rows, mode="overwrite")
+        else:
+            table.add(rows)
+
+        written += len(batch_chunks)
+
+    if table is None:
+        return 0
+
+    # Create vector and FTS indexes once, after all rows are written.
+    if written >= LANCEDB_INDEX_THRESHOLD:
+        try:
+            table.create_index(metric="cosine", index_type="IVF_HNSW_SQ", replace=True)
+            if verbose:
                 print(
-                    f"build_index: LanceDB index creation for '{table_name}' skipped ({exc})",
-                    file=sys.stderr,
+                    f"build_index: LanceDB IVF_HNSW_SQ index created for '{table_name}' ({written} rows)",
+                    flush=True,
                 )
+        except Exception as exc:
+            print(
+                f"build_index: LanceDB index creation for '{table_name}' skipped ({exc})",
+                file=sys.stderr,
+            )
 
-    return results
+    _create_fts_index(table, table_name, replace=False)
+
+    return written
 
 
 def _optimize_lance_table(table) -> None:
@@ -627,6 +696,50 @@ def _optimize_lance_table(table) -> None:
         table.optimize(cleanup_older_than=timedelta(seconds=0))
     except Exception as exc:
         print(f"build_index: LanceDB optimize failed ({exc})", file=sys.stderr)
+
+
+def _create_fts_index(table, table_name: str, replace: bool = False) -> None:
+    """Create (or rebuild) a lance-index full-text search index on the 'text' column.
+
+    ``replace=True`` should be used after incremental writes so that newly
+    added rows are included in the FTS index.  ``optimize()`` alone does NOT
+    refresh Tantivy indexes; an explicit rebuild is required.
+
+    Tokenizer: ``simple`` (splits on whitespace and punctuation) with stemming
+    and stop-word removal disabled and ``max_token_length=80``.
+
+    Why ``simple``:  punctuation like ``.`` and ``(`` acts as a token boundary,
+    so ``build_pack.version`` indexes as ``build_pack`` and ``version`` — both
+    independently searchable.  ``whitespace`` would keep the whole dotted string
+    as one token (bad for component matching); ``raw`` treats the entire text as
+    a single token (useless for search).
+
+    Why ``stem=False, remove_stop_words=False``:  stemming mangles identifiers
+    (``chunks`` → ``chunk``); stop-word removal silently drops name components
+    like ``is`` or ``a`` that legitimately appear in variable names.
+    ``lower_case=True`` preserves case-insensitive query matching.
+
+    Note: underscores are punctuation under ``simple``, so compound identifiers
+    (``SORT_WINDOW_SIZE``) are indexed as individual tokens (``sort``, ``window``,
+    ``size``).  The dense retrieval path compensates: exact identifier queries
+    that produce noisy BM25 hits are rescored by the cross-encoder reranker.
+    """
+    try:
+        table.create_fts_index(
+            "text",
+            replace=replace,
+            base_tokenizer="simple",
+            stem=False,
+            remove_stop_words=False,
+            lower_case=True,
+            max_token_length=80,
+            with_position=True,
+        )
+    except Exception as exc:
+        print(
+            f"build_index: FTS index creation for '{table_name}' skipped ({exc})",
+            file=sys.stderr,
+        )
 
 
 def _lance_fragment_count(table) -> int:
@@ -678,6 +791,20 @@ def _make_lance_rows(chunks: list[dict], vecs: "np.ndarray") -> list[dict]:
     return rows
 
 
+def _count_chunks_for_paths(db_path: Path, table_name: str, paths: set[str]) -> int:
+    """Return the number of existing chunks in table_name belonging to the given paths."""
+    if not paths or not (db_path / f"{table_name}.lance").is_dir():
+        return 0
+    try:
+        db = _get_lance_db(db_path)
+        table = db.open_table(table_name)
+        escaped = [p.replace("'", "''") for p in paths]
+        in_clause = ", ".join(f"'{p}'" for p in escaped)
+        return table.search().where(f"path IN ({in_clause})", prefilter=True).limit(None).to_pandas().shape[0]
+    except Exception:
+        return 0
+
+
 def _lance_incremental_write(
     db_path: Path,
     stale: set[str],
@@ -698,43 +825,69 @@ def _lance_incremental_write(
         if not build_flag:
             continue
         table_dir = db_path / f"{table_name}.lance"
-        if not table_dir.is_dir():
-            # Table absent — create with new rows only (shouldn't happen after upgrade guard).
+        with _table_lock(table_dir):
+            if not table_dir.is_dir():
+                # Table absent — create with new rows only (shouldn't happen after upgrade guard).
+                if chunks and vecs is not None:
+                    tbl = db.create_table(table_name, data=_make_lance_rows(chunks, vecs), mode="create")
+                    _create_fts_index(tbl, table_name, replace=False)
+                continue
+            table = db.open_table(table_name)
+            for file_path in stale:
+                safe_path = file_path.replace("'", "''")
+                table.delete(f"path = '{safe_path}'")
             if chunks and vecs is not None:
-                db.create_table(table_name, data=_make_lance_rows(chunks, vecs), mode="create")
-            continue
-        table = db.open_table(table_name)
-        for file_path in stale:
-            safe_path = file_path.replace("'", "''")
-            table.delete(f"path = '{safe_path}'")
-        if chunks and vecs is not None:
-            table.add(_make_lance_rows(chunks, vecs))
-        if _lance_fragment_count(table) > LANCEDB_COMPACT_THRESHOLD:
-            _optimize_lance_table(table)
+                table.add(_make_lance_rows(chunks, vecs))
+            if _lance_fragment_count(table) > LANCEDB_COMPACT_THRESHOLD:
+                _optimize_lance_table(table)
+            _create_fts_index(table, table_name, replace=True)
 
 
 @contextmanager
-def _index_lock(index_dir: Path):
-    lock_dir = index_dir / LOCK_DIR_NAME
+def _table_lock(table_dir: Path, *, create_dir: bool = False):
+    """Acquire a per-table build lock at ``table_dir/.lock``.
+
+    ``table_dir`` is the Lance table directory (e.g. ``index_dir/docs.lance``).
+    Set ``create_dir=True`` for the full-rebuild path where the directory may not
+    exist yet.  The incremental path should leave it False so that the caller's
+    "table absent" guard still fires when the Lance dir is missing.
+
+    The lock file contains the owning process PID; its mtime is used by server.py
+    to detect stale locks older than LOCK_STALE_SECONDS.  Using ``O_CREAT | O_EXCL``
+    provides the same atomic-create guarantee as ``mkdir()`` on POSIX.
+    Readers see ``docs.lance/.lock`` only while their specific table is being
+    written — the other table remains unlocked and fully readable.
+    """
+    if create_dir:
+        table_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = table_dir / TABLE_LOCK_NAME
+    # If the table directory doesn't exist and create_dir wasn't requested, skip locking —
+    # the caller's "table absent" guard will handle this case.
+    if not table_dir.exists():
+        yield
+        return
     acquired = False
     while not acquired:
         try:
-            lock_dir.mkdir()
-            (lock_dir / "pid").write_text(str(os.getpid()), encoding="utf-8")
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            try:
+                os.write(fd, str(os.getpid()).encode())
+            finally:
+                os.close(fd)
             acquired = True
         except FileExistsError:
             try:
-                age = time.time() - lock_dir.stat().st_mtime
+                age = time.time() - lock_path.stat().st_mtime
             except OSError:
                 age = 0
             if age > LOCK_STALE_SECONDS:
-                shutil.rmtree(lock_dir, ignore_errors=True)
+                lock_path.unlink(missing_ok=True)
                 continue
             time.sleep(0.2)
     try:
         yield
     finally:
-        shutil.rmtree(lock_dir, ignore_errors=True)
+        lock_path.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -772,19 +925,17 @@ def _get_embedder(model_name: str):
 
 
 def _embed_texts(embedder, texts: list[str], batch_size: int = 256) -> "np.ndarray":
-    """Embed a list of texts and return as a float32 numpy array (n, dim)."""
+    """Embed a list of texts and return as a float32 numpy array (n, dim).
+
+    Callers are responsible for pre-sorting inputs by text length for padding
+    efficiency (ONNX pads every sequence in a batch to the longest). The full
+    rebuild path uses a sliding sort buffer; the incremental path sorts per-file.
+    """
     import numpy as _np
-    # Sort by length so each batch has similar-length sequences, minimising
-    # padding waste (ONNX pads every sequence in a batch to the longest).
-    order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
-    inverse = [0] * len(order)
-    for new_pos, old_pos in enumerate(order):
-        inverse[old_pos] = new_pos
-    sorted_vecs = _np.array(
-        list(embedder.embed([texts[i] for i in order], batch_size=batch_size)),
+    return _np.array(
+        list(embedder.embed(texts, batch_size=batch_size)),
         dtype=_np.float32,
     )
-    return sorted_vecs[inverse]
 
 
 def _progress(verbose: bool, message: str) -> None:
@@ -847,8 +998,22 @@ def build_index(
     if not index_dir.is_absolute():
         index_dir = root / index_dir
     index_dir.mkdir(parents=True, exist_ok=True)
-    with _index_lock(index_dir):
+    if dry_run:
         return _build_index_locked(
+            root,
+            full=full,
+            content=content,
+            index_dir=index_dir,
+            include_prefixes=include_prefixes,
+            respect_ignore=respect_ignore,
+            include_tests=include_tests,
+            include_generated=include_generated,
+            project_include_prefixes=project_include_prefixes,
+            files=files,
+            verbose=verbose,
+            dry_run=True,
+        )
+    return _build_index_locked(
             root,
             full=full,
             content=content,
@@ -1012,6 +1177,8 @@ def _build_index_locked(
     else:
         # Incremental: use stat cache — only read files with changed mtime/size/inode
         current_file_meta, changed, removed = _detect_changes(files, root, old_file_meta)
+    added = changed - set(old_file_meta.keys()) if not full else changed
+    updated = changed & set(old_file_meta.keys()) if not full else set()
     stale = changed | removed
 
     if not full and not stale:
@@ -1108,48 +1275,82 @@ def _build_index_locked(
         _progress(verbose, f"build_index: loaded code model {CODE_MODEL}")
 
     def _embed_chunks(label: str, chunks: list[dict], embedder) -> Optional["np.ndarray"]:
+        """Embed chunks for the incremental path; sorts by length before embedding."""
         if not chunks:
             _progress(verbose, f"build_index: no new {label} chunks to embed")
             return None
         total = len(chunks)
-        _progress(verbose, f"build_index: embedding {total} {label} chunks")
-        # Sort globally so padding waste is minimised across the full corpus.
-        # fastembed handles internal batching at 256 across the full sorted list.
-        texts = [c["text"] for c in chunks]
-        order = sorted(range(total), key=lambda i: len(texts[i]))
+        print(f"build_index: embedding {total} {label} chunks", flush=True)
+
+        # Pre-sort by text length for padding efficiency (_embed_texts no longer sorts).
+        order = sorted(range(total), key=lambda i: len(chunks[i]["text"]))
         inverse = [0] * total
         for new_pos, old_pos in enumerate(order):
             inverse[old_pos] = new_pos
-        sorted_texts = [texts[i] for i in order]
+        sorted_texts = [chunks[i]["text"] for i in order]
 
         import numpy as _np
-        _progress(verbose, f"build_index: embedding {label} chunks 1-{total}/{total}")
         t_start = time.monotonic()
-        sorted_result = _embed_texts(embedder, sorted_texts)
-        _progress(
-            verbose,
+        sorted_vecs = _embed_texts(embedder, sorted_texts)
+        print(
             f"build_index: embedded {total} {label} chunks "
             f"in {time.monotonic() - t_start:.1f}s",
+            flush=True,
         )
-        return sorted_result[inverse]
-
-    new_doc_vecs = _embed_chunks("doc", new_doc_chunks, docs_embedder) if build_docs else None
-    new_code_vecs = _embed_chunks("code", new_code_chunks, code_embedder) if build_code else None
+        # Restore original chunk order so vecs align with chunks list.
+        return sorted_vecs[inverse]
 
     # Write to LanceDB — the only index format.
     lance_db_path = index_dir
+
+    # Compute chunk deltas before the write so we can count removed chunks.
+    # added_files produced new chunks; updated_files replaced existing ones; removed files had theirs deleted.
+    added_files_set = added if not full else set()
+    updated_files_set = updated if not full else set()
+    removed_files_set = removed if not full else set()
+    doc_chunks_added = sum(1 for c in new_doc_chunks if c.get("path") in added_files_set)
+    doc_chunks_updated_new = sum(1 for c in new_doc_chunks if c.get("path") in updated_files_set)
+    code_chunks_added = sum(1 for c in new_code_chunks if c.get("path") in added_files_set)
+    code_chunks_updated_new = sum(1 for c in new_code_chunks if c.get("path") in updated_files_set)
+    if not full:
+        doc_chunks_removed = _count_chunks_for_paths(lance_db_path, "docs", removed_files_set | updated_files_set) if build_docs else 0
+        code_chunks_removed = _count_chunks_for_paths(lance_db_path, "code", removed_files_set | updated_files_set) if build_code else 0
+        doc_chunks_updated_old = _count_chunks_for_paths(lance_db_path, "docs", updated_files_set) if build_docs else 0
+        code_chunks_updated_old = _count_chunks_for_paths(lance_db_path, "code", updated_files_set) if build_code else 0
+        # removed = old chunks for removed files; updated shows net change
+        doc_chunks_removed_net = doc_chunks_removed - doc_chunks_updated_old
+        code_chunks_removed_net = code_chunks_removed - code_chunks_updated_old
+    else:
+        doc_chunks_removed_net = 0
+        code_chunks_removed_net = 0
+
     try:
         import numpy as _np
         if full:
-            _build_lance_tables(
-                lance_db_path,
-                new_doc_chunks if new_doc_vecs is not None else [],
-                new_doc_vecs if new_doc_vecs is not None else _np.empty((0, 1), dtype=_np.float32),
-                new_code_chunks if new_code_vecs is not None else [],
-                new_code_vecs if new_code_vecs is not None else _np.empty((0, 1), dtype=_np.float32),
-                verbose=verbose,
-            )
+            db = _get_lance_db(lance_db_path)
+            if build_docs:
+                if new_doc_chunks:
+                    with _table_lock(lance_db_path / "docs.lance", create_dir=True):
+                        _stream_embed_write(
+                            db, "docs", new_doc_chunks, docs_embedder, "doc", verbose=verbose,
+                        )
+                else:
+                    _stream_embed_write(
+                        db, "docs", [], docs_embedder, "doc", verbose=verbose,
+                    )
+            if build_code:
+                if new_code_chunks:
+                    with _table_lock(lance_db_path / "code.lance", create_dir=True):
+                        _stream_embed_write(
+                            db, "code", new_code_chunks, code_embedder, "code", verbose=verbose,
+                        )
+                else:
+                    _stream_embed_write(
+                        db, "code", [], code_embedder, "code", verbose=verbose,
+                    )
         else:
+            new_doc_vecs = _embed_chunks("doc", new_doc_chunks, docs_embedder) if build_docs else None
+            new_code_vecs = _embed_chunks("code", new_code_chunks, code_embedder) if build_code else None
             _lance_incremental_write(
                 lance_db_path, stale,
                 new_doc_chunks, new_doc_vecs,
@@ -1204,10 +1405,23 @@ def _build_index_locked(
         "code_chunks": total_code_chunks,
         "up_to_date": False,
     }
-    if verbose:
+    files_summary = f"{len(added)} added, {len(updated)} updated, {len(removed)} removed"
+    if build_docs:
+        if full:
+            doc_chunk_summary = f"{len(new_doc_chunks)} new"
+        else:
+            doc_chunk_summary = f"{doc_chunks_added} added, {doc_chunks_updated_new} updated, {doc_chunks_removed_net} removed"
         print(
-            f"build_index: done — {summary['files_indexed']} files indexed, "
-            f"{summary['doc_chunks']} doc chunks, {summary['code_chunks']} code chunks",
+            f"build_index: finished docs — {files_summary} | chunks: {doc_chunk_summary}",
+            flush=True,
+        )
+    if build_code:
+        if full:
+            code_chunk_summary = f"{len(new_code_chunks)} new"
+        else:
+            code_chunk_summary = f"{code_chunks_added} added, {code_chunks_updated_new} updated, {code_chunks_removed_net} removed"
+        print(
+            f"build_index: finished code — {files_summary} | chunks: {code_chunk_summary}",
             flush=True,
         )
     return summary

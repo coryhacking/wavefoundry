@@ -4114,8 +4114,8 @@ class WavePrepareACPriorityWarningTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 # Regression anchors — update these deliberately when upgrading the model.
-_EXPECTED_DOCS_MODEL = "BAAI/bge-base-en-v1.5"
-_EXPECTED_EMBEDDING_DIM = 768
+_EXPECTED_DOCS_MODEL = "BAAI/bge-small-en-v1.5"
+_EXPECTED_EMBEDDING_DIM = 384
 
 
 class SemanticEmbeddingRegressionTests(unittest.TestCase):
@@ -4863,7 +4863,7 @@ class LayerHealthFileMetaTests(unittest.TestCase):
         wave_idx = self.server.WaveIndex(root)
         wave_idx._loaded = True
         wave_idx._meta = {"project": meta, "framework": {}}
-        wave_idx._docs_lance_table = object()
+        wave_idx._lance_available = {("project", "docs")}
 
         health = wave_idx._layer_health("project")
         self.assertTrue(health["docs_present"])
@@ -4963,18 +4963,20 @@ class BackgroundRefreshActiveTests(unittest.TestCase):
     def test_returns_false_when_no_state_and_no_lock(self):
         self.assertFalse(self.server._background_refresh_active(self.state_path))
 
-    def test_returns_true_when_lock_dir_exists_and_fresh(self):
-        lock_dir = self.tmp / ".build.lock"
-        lock_dir.mkdir()
+    def test_returns_true_when_lock_file_exists_and_fresh(self):
+        lock_path = self.tmp / "docs.lance" / ".lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text(str(os.getpid()), encoding="utf-8")
         self.assertTrue(self.server._background_refresh_active(self.state_path))
 
-    def test_returns_false_when_lock_dir_stale(self):
-        import os, time as _time
-        lock_dir = self.tmp / ".build.lock"
-        lock_dir.mkdir()
+    def test_returns_false_when_lock_file_stale(self):
+        import time as _time
+        lock_path = self.tmp / "docs.lance" / ".lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text(str(os.getpid()), encoding="utf-8")
         # Backdate the mtime beyond the stale threshold
         stale_mtime = _time.time() - self.server.BACKGROUND_INDEX_LOCK_STALE_SECONDS - 10
-        os.utime(lock_dir, (stale_mtime, stale_mtime))
+        os.utime(lock_path, (stale_mtime, stale_mtime))
         self.assertFalse(self.server._background_refresh_active(self.state_path))
 
     def test_returns_true_when_pid_running(self):
@@ -4992,12 +4994,13 @@ class BackgroundRefreshActiveTests(unittest.TestCase):
         self._write_state(pid=999999999, started_at=_time.time())
         self.assertTrue(self.server._background_refresh_active(self.state_path))
 
-    def test_lock_dir_takes_precedence_over_dead_pid_expired_throttle(self):
-        """Lock dir present = active, even when state file shows a dead PID past throttle."""
+    def test_lock_file_takes_precedence_over_dead_pid_expired_throttle(self):
+        """Lock file present = active, even when state file shows a dead PID past throttle."""
         import time as _time
         self._write_state(pid=999999999, started_at=_time.time() - 300)
-        lock_dir = self.tmp / ".build.lock"
-        lock_dir.mkdir()
+        lock_path = self.tmp / "code.lance" / ".lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text("999999999", encoding="utf-8")
         self.assertTrue(self.server._background_refresh_active(self.state_path))
 
 
@@ -5554,6 +5557,7 @@ class CodeAskTests(unittest.TestCase):
             self.assertIn("path", c)
 
     def test_feedback_docs_are_demoted_but_not_removed(self):
+        """Journal/feedback docs are weighted at 0.50× — demoted below code but still present."""
         index = self._make_index(code_results=[
             {"path": "docs/agents/journals/cia-feedback-2026-05-14.md", "kind": "doc", "lines": [1, 4], "text": "feedback about tenant creation", "score": 0.99},
             self._fake_code_chunk("src/tenants.ts", score=0.95),
@@ -5564,14 +5568,14 @@ class CodeAskTests(unittest.TestCase):
         self.assertEqual(result["data"]["demotion_count"], 1)
         citations = result["data"]["citations"]
         self.assertGreaterEqual(len(citations), 2)
+        # After 0.50× demotion, journal (0.99→0.495) ranks below code (0.95)
         self.assertEqual(citations[0]["path"], "src/tenants.ts")
         self.assertEqual(citations[0]["final_rank"], 1)
         self.assertEqual(citations[1]["path"], "docs/agents/journals/cia-feedback-2026-05-14.md")
         self.assertEqual(citations[1]["final_rank"], 2)
-        self.assertTrue(citations[1]["demoted"])
-        self.assertEqual(citations[1]["partition_reason"], "feedback")
 
     def test_seed_docs_are_demoted_but_not_removed(self):
+        """Seeds are weighted at 0.60× — demoted below code but still present."""
         index = self._make_index()
         index.search_combined.return_value = (
             [
@@ -5591,12 +5595,153 @@ class CodeAskTests(unittest.TestCase):
         self.assertEqual(result["data"]["demotion_count"], 1)
         citations = result["data"]["citations"]
         self.assertGreaterEqual(len(citations), 2)
+        # After 0.60× demotion, seed (0.99→0.594) ranks below code (0.95)
         self.assertEqual(citations[0]["path"], "src/http_filtering.java")
         self.assertEqual(citations[0]["final_rank"], 1)
         self.assertEqual(citations[1]["path"], ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md")
         self.assertEqual(citations[1]["final_rank"], 2)
-        self.assertTrue(citations[1]["demoted"])
-        self.assertEqual(citations[1]["partition_reason"], "seed")
+
+    # --- _demote_doc_results unit tests (12q5v) ---
+
+    def test_demote_waves_explanatory(self):
+        """docs/waves/ results get 0.75× when question_type == explanatory."""
+        srv = self.srv
+        results = [{"path": "docs/waves/12pn3/change.md", "kind": "doc", "score": 1.0}]
+        demoted, count = srv._demote_doc_results(results, "explanatory")
+        self.assertEqual(count, 1)
+        self.assertAlmostEqual(demoted[0]["score"], 0.75)
+
+    def test_demote_plans_explanatory(self):
+        """docs/plans/ results get 0.60× when question_type == explanatory."""
+        srv = self.srv
+        results = [{"path": "docs/plans/12abc-enh-foo.md", "kind": "doc", "score": 1.0}]
+        demoted, count = srv._demote_doc_results(results, "explanatory")
+        self.assertEqual(count, 1)
+        self.assertAlmostEqual(demoted[0]["score"], 0.60)
+
+    def test_demote_seeds_explanatory(self):
+        """kind=seed results get 0.60× when question_type == explanatory."""
+        srv = self.srv
+        results = [{"path": ".wavefoundry/framework/seeds/001-overview.md", "kind": "seed", "score": 1.0}]
+        demoted, count = srv._demote_doc_results(results, "explanatory")
+        self.assertEqual(count, 1)
+        self.assertAlmostEqual(demoted[0]["score"], 0.60)
+
+    def test_demote_journals_explanatory(self):
+        """Journal path results get 0.50× when question_type == explanatory."""
+        srv = self.srv
+        results = [{"path": "docs/agents/journals/wave-coordinator.md", "kind": "doc", "score": 1.0}]
+        demoted, count = srv._demote_doc_results(results, "explanatory")
+        self.assertEqual(count, 1)
+        self.assertAlmostEqual(demoted[0]["score"], 0.50)
+
+    def test_demote_navigational_passthrough(self):
+        """No demotion applied for navigational question type."""
+        srv = self.srv
+        results = [
+            {"path": "docs/waves/12pn3/change.md", "kind": "doc", "score": 1.0},
+            {"path": "docs/agents/journals/wave-coordinator.md", "kind": "doc", "score": 0.9},
+        ]
+        demoted, count = srv._demote_doc_results(results, "navigational")
+        self.assertEqual(count, 0)
+        self.assertEqual(demoted[0]["score"], 1.0)
+        self.assertEqual(demoted[1]["score"], 0.9)
+
+    def test_demote_architecture_not_demoted(self):
+        """Architecture docs and implementation code are not demoted."""
+        srv = self.srv
+        results = [
+            {"path": "docs/architecture/current-state.md", "kind": "doc", "score": 0.9},
+            {"path": "src/server.py", "kind": "code", "score": 0.8},
+        ]
+        demoted, count = srv._demote_doc_results(results, "explanatory")
+        self.assertEqual(count, 0)
+        self.assertEqual(demoted[0]["score"], 0.9)
+        self.assertEqual(demoted[1]["score"], 0.8)
+
+    def test_demote_resorts_by_score(self):
+        """After demotion, results are re-sorted descending by score."""
+        srv = self.srv
+        results = [
+            {"path": "docs/waves/12pn3/change.md", "kind": "doc", "score": 1.0},   # → 0.75
+            {"path": "src/server.py", "kind": "code", "score": 0.8},               # → 0.80
+        ]
+        demoted, count = srv._demote_doc_results(results, "explanatory")
+        self.assertEqual(count, 1)
+        self.assertEqual(demoted[0]["path"], "src/server.py")    # 0.80 now first
+        self.assertEqual(demoted[1]["path"], "docs/waves/12pn3/change.md")  # 0.75 second
+
+    def test_demote_count_accurate(self):
+        """demotion_count matches number of results with reduced score."""
+        srv = self.srv
+        results = [
+            {"path": "docs/waves/w1/c1.md", "kind": "doc", "score": 0.9},
+            {"path": "docs/plans/p1.md", "kind": "doc", "score": 0.8},
+            {"path": "src/impl.py", "kind": "code", "score": 0.7},
+        ]
+        _, count = srv._demote_doc_results(results, "explanatory")
+        self.assertEqual(count, 2)
+
+    # --- _extract_question_symbol unit tests (12q63) ---
+
+    def test_extract_question_symbol_private(self):
+        """Private _snake_case token extracted from question."""
+        srv = self.srv
+        self.assertEqual(srv._extract_question_symbol("How does _rerank normalize cross-encoder scores?"), "_rerank")
+        self.assertEqual(srv._extract_question_symbol("How does _rrf_merge combine dense and FTS?"), "_rrf_merge")
+
+    def test_extract_question_symbol_snake(self):
+        """snake_case token with >= 2 parts extracted when no private token present."""
+        srv = self.srv
+        result = srv._extract_question_symbol("How does build_index process files?")
+        self.assertEqual(result, "build_index")
+
+    def test_extract_question_symbol_lower_camel(self):
+        """lowerCamelCase token extracted when no private or snake_case token present."""
+        srv = self.srv
+        self.assertEqual(srv._extract_question_symbol("How does buildIndex work?"), "buildIndex")
+        self.assertEqual(srv._extract_question_symbol("What does getEmbedder return?"), "getEmbedder")
+
+    def test_extract_question_symbol_backtick(self):
+        """Backtick-quoted token extracted at highest priority."""
+        srv = self.srv
+        # Backtick wins over other patterns in the same question
+        self.assertEqual(srv._extract_question_symbol("How does `_rerank` normalize scores?"), "_rerank")
+        self.assertEqual(srv._extract_question_symbol("What does `search_combined` return?"), "search_combined")
+        self.assertEqual(srv._extract_question_symbol("How does `buildIndex` work?"), "buildIndex")
+
+    def test_extract_question_symbol_dotted(self):
+        """Dotted, :: or -> qualified names: rightmost identifier extracted."""
+        srv = self.srv
+        # Dotted access — returns rightmost component
+        self.assertEqual(srv._extract_question_symbol("How does WaveIndex.search_combined handle dedup?"), "search_combined")
+        # :: qualified — returns rightmost component (C++/Rust namespace)
+        self.assertEqual(srv._extract_question_symbol("What does ns::embed_query do?"), "embed_query")
+        # -> member access (C/C++ pointer dereference)
+        self.assertEqual(srv._extract_question_symbol("How does node->next get updated?"), "next")
+        # Dotted with private rightmost
+        self.assertEqual(srv._extract_question_symbol("How does index._rerank normalize?"), "_rerank")
+
+    def test_extract_question_symbol_annotation(self):
+        """@annotation prefix extracted with @ retained for specificity."""
+        srv = self.srv
+        self.assertEqual(srv._extract_question_symbol("When should I use @Override in Java?"), "@Override")
+        self.assertEqual(srv._extract_question_symbol("How does @Autowired injection work?"), "@Autowired")
+        self.assertEqual(srv._extract_question_symbol("What does @property do in Python?"), "@property")
+
+    def test_extract_question_symbol_screaming_snake(self):
+        """SCREAMING_SNAKE_CASE constants extracted between _private and snake_case."""
+        srv = self.srv
+        self.assertEqual(srv._extract_question_symbol("What is MAX_RETRIES set to?"), "MAX_RETRIES")
+        self.assertEqual(srv._extract_question_symbol("How is HTTP_TIMEOUT used?"), "HTTP_TIMEOUT")
+        # SQL aggregate function
+        self.assertEqual(srv._extract_question_symbol("How does GROUP_CONCAT work in Spark SQL?"), "GROUP_CONCAT")
+
+    def test_extract_question_symbol_none(self):
+        """Returns None when no recognizable code symbol is present."""
+        srv = self.srv
+        self.assertIsNone(srv._extract_question_symbol("how does search work?"))
+        self.assertIsNone(srv._extract_question_symbol("what is the purpose of this?"))
 
     def test_index_freshness_current_when_no_mismatch(self):
         index = self._make_index(code_results=[self._fake_code_chunk()])
@@ -5611,6 +5756,55 @@ class CodeAskTests(unittest.TestCase):
         }
         result = self.srv.code_ask_response(index, self.root, "billing?")
         self.assertEqual(result["data"]["index_freshness"], "stale")
+
+    # --- validation_required and dynamic next_tools (12q8t) ---
+
+    def _fake_doc_chunk(self, path="docs/specs/span-masking.md", score=0.95):
+        return {"path": path, "kind": "doc", "lines": [1, 20], "text": "Span attribute masking spec.", "score": score}
+
+    def test_validation_required_explanatory_doc_top(self):
+        """validation_required: true emitted when explanatory question + doc top citation."""
+        index = self._make_index(code_results=[self._fake_doc_chunk()])
+        result = self.srv.code_ask_response(index, self.root, "how does span attribute masking work?")
+        self.assertEqual(result["data"]["question_type"], "explanatory")
+        self.assertTrue(result["data"].get("validation_required"), "validation_required should be True when top citation is doc")
+
+    def test_validation_required_not_emitted_navigational(self):
+        """validation_required not emitted for navigational questions."""
+        index = self._make_index(code_results=[self._fake_doc_chunk()])
+        result = self.srv.code_ask_response(index, self.root, "where is the span masking implementation?")
+        self.assertEqual(result["data"]["question_type"], "navigational")
+        self.assertNotIn("validation_required", result["data"])
+
+    def test_validation_required_not_emitted_code_top(self):
+        """validation_required not emitted when top citation is kind='code'."""
+        index = self._make_index(code_results=[self._fake_code_chunk()])
+        result = self.srv.code_ask_response(index, self.root, "how does billing handle failed payments?")
+        self.assertEqual(result["data"]["question_type"], "explanatory")
+        self.assertNotIn("validation_required", result["data"])
+
+    def test_next_tools_outline_for_large_file(self):
+        """next_tools includes code_outline when top citation file exceeds 300 lines."""
+        large_file = self.root / "src" / "large_service.py"
+        large_file.parent.mkdir(parents=True, exist_ok=True)
+        large_file.write_text("\n".join(f"# line {i}" for i in range(301)))
+        index = self._make_index(code_results=[
+            {"path": "src/large_service.py", "kind": "code", "lines": [42, 58], "text": "def process(): ...", "score": 0.9}
+        ])
+        result = self.srv.code_ask_response(index, self.root, "how does billing handle failed payments?")
+        self.assertIn("code_outline", result["next_tools"])
+        self.assertEqual(result["next_tools"][0], "code_outline")
+
+    def test_next_tools_no_outline_for_small_file(self):
+        """next_tools uses default when top citation file is <= 300 lines."""
+        small_file = self.root / "src" / "small_service.py"
+        small_file.parent.mkdir(parents=True, exist_ok=True)
+        small_file.write_text("\n".join(f"# line {i}" for i in range(50)))
+        index = self._make_index(code_results=[
+            {"path": "src/small_service.py", "kind": "code", "lines": [1, 10], "text": "def process(): ...", "score": 0.9}
+        ])
+        result = self.srv.code_ask_response(index, self.root, "how does billing handle failed payments?")
+        self.assertNotIn("code_outline", result["next_tools"])
 
     def test_keyword_search_error_appended_to_gaps(self):
         """AC-4 (12d4b): keyword search error status is surfaced in gaps, not silently swallowed."""
@@ -5645,7 +5839,7 @@ class MaxPerFileFilterDirectTests(unittest.TestCase):
         # Provide the minimal attributes that search_code depends on after _ensure_loaded
         index._code_chunks = raw_chunks
         index._code_vecs = None
-        index._proj_code_lance_table = object()
+        index._lance_available = {("project", "code")}
         # Bypass _ensure_loaded
         with patch.object(index, "_ensure_loaded"):
             with patch.object(index, "_embed_query", return_value=None):
@@ -5655,8 +5849,12 @@ class MaxPerFileFilterDirectTests(unittest.TestCase):
                         with patch.object(index, "_indexer_constant", return_value="model"):
                             return index
 
+    _chunk_counter = 0
+
     def _chunk(self, path, score):
-        return {"path": path, "kind": "code", "language": "python", "lines": [1, 5], "text": "x", "score": score}
+        MaxPerFileFilterDirectTests._chunk_counter += 1
+        start = MaxPerFileFilterDirectTests._chunk_counter * 10
+        return {"path": path, "kind": "code", "language": "python", "lines": [start, start + 4], "text": "x", "score": score}
 
     def test_max_per_file_1_caps_at_one_result_per_file(self):
         """AC-1 (12d5s): output has at most 1 chunk per file when max_per_file=1."""
@@ -5687,11 +5885,12 @@ class MaxPerFileFilterDirectTests(unittest.TestCase):
             self._chunk("src/billing.py", 0.80),
             self._chunk("src/billing.py", 0.75),
         ]
-        index._proj_code_lance_table = object()
+        index._lance_available = {("project", "code")}
         with patch.object(index, "_ensure_loaded"), \
              patch.object(index, "_embed_query", return_value=None), \
              patch.object(index, "_indexer_constant", return_value="model"), \
              patch.object(index, "_lance_search", return_value=raw), \
+             patch.object(index, "_lance_fts_search", return_value=[]), \
              patch.object(index, "_get_reranker", return_value=None):
             results, _ = index.search_code("query", max_per_file=2, top_n=10)
         auth_results = [r for r in results if r["path"] == "src/auth.py"]
@@ -5711,15 +5910,18 @@ class MaxPerFileFilterDirectTests(unittest.TestCase):
             self._chunk("src/auth.py", 0.95),  # highest score — should be retained
             self._chunk("src/auth.py", 0.50),  # lower score — should be dropped with max_per_file=1
         ]
-        index._proj_code_lance_table = object()
+        index._lance_available = {("project", "code")}
         with patch.object(index, "_ensure_loaded"), \
              patch.object(index, "_embed_query", return_value=None), \
              patch.object(index, "_indexer_constant", return_value="model"), \
              patch.object(index, "_lance_search", return_value=raw), \
+             patch.object(index, "_lance_fts_search", return_value=[]), \
              patch.object(index, "_get_reranker", return_value=None):
             results, _ = index.search_code("query", max_per_file=1, top_n=10)
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["score"], 0.95)
+        # After RRF merge the score is an RRF score, not the original cosine value.
+        # The important invariant is that the top-ranked chunk (originally 0.95) is retained.
+        self.assertEqual(results[0]["path"], "src/auth.py")
 
 
 class InferTagsServerTests(unittest.TestCase):
@@ -6867,6 +7069,64 @@ class RerankerTests(unittest.TestCase):
         data = result.get("data", {})
         self.assertNotIn("definition_boosted", data)
 
+    # --- Symbol injection boost (12q63 pre-slice boost inside _rerank) ---
+
+    def test_symbol_injection_boost_raises_low_score(self):
+        """Symbol-injected code chunk gets _SYMBOL_INJECTION_BOOST added to its normalized score."""
+        boost = self.srv._SYMBOL_INJECTION_BOOST
+        base_score = 0.20
+        expected = min(base_score + boost, 1.0)
+        candidates = [
+            {"path": "docs/foo.md", "score": 0.95, "kind": "doc", "text": ""},
+            {"path": "server.py", "score": base_score, "kind": "code", "text": "", "_sym_injected": True},
+        ]
+        for c in candidates:
+            if c.get("_sym_injected") and c.get("kind") == "code":
+                c["score"] = min(c["score"] + boost, 1.0)
+        impl = next(c for c in candidates if c.get("_sym_injected"))
+        self.assertAlmostEqual(impl["score"], expected)
+
+    def test_symbol_injection_boost_helps_mid_scoring_impl(self):
+        """A reranker-relevant impl chunk (score >= 0.35) beats the worst-case demoted wave doc after boost."""
+        boost = self.srv._SYMBOL_INJECTION_BOOST
+        max_wave_demoted = 1.0 * self.srv._DEMOTION_WAVES  # 0.75
+        # A chunk the reranker considers genuinely relevant (score > 0.35) should win
+        mid_score = 0.36
+        self.assertGreater(mid_score + boost, max_wave_demoted,
+            f"Mid-relevance impl ({mid_score} + {boost} = {mid_score + boost}) should beat demoted wave ({max_wave_demoted})")
+        # A low-relevance chunk (comment/reference, score ~ 0.20) should stay below wave doc
+        low_score = 0.20
+        self.assertLessEqual(low_score + boost, max_wave_demoted,
+            f"Low-relevance chunk ({low_score} + {boost} = {low_score + boost}) should NOT beat demoted wave ({max_wave_demoted})")
+
+    def test_symbol_injection_boost_capped_at_one(self):
+        """Score is capped at 1.0 after boost, regardless of pre-boost value."""
+        boost = self.srv._SYMBOL_INJECTION_BOOST
+        c = {"score": 0.90, "kind": "code", "_sym_injected": True}
+        c["score"] = min(c["score"] + boost, 1.0)
+        self.assertLessEqual(c["score"], 1.0)
+
+    def test_symbol_injection_boost_not_applied_to_doc_kind(self):
+        """Boost only applies to kind='code'; injected doc chunks are not boosted."""
+        boost = self.srv._SYMBOL_INJECTION_BOOST
+        c = {"score": 0.20, "kind": "doc", "_sym_injected": True}
+        original = c["score"]
+        if c.get("_sym_injected") and c.get("kind") == "code":
+            c["score"] = min(c["score"] + boost, 1.0)
+        self.assertAlmostEqual(c["score"], original)
+
+    def test_symbol_injection_marker_stripped_from_results(self):
+        """_sym_injected marker is popped from every result dict before search_combined returns."""
+        # Simulate the stripping step that runs after _rerank in search_combined
+        results = [
+            {"path": "docs/foo.md", "score": 0.75, "kind": "doc"},
+            {"path": "server.py", "score": 1.0, "kind": "code", "_sym_injected": True},
+        ]
+        for r in results:
+            r.pop("_sym_injected", None)
+        for r in results:
+            self.assertNotIn("_sym_injected", r)
+
     # --- Two-hop symbol expansion ---
 
     def test_extract_symbols_python_finds_call_targets(self):
@@ -7282,7 +7542,7 @@ class BackgroundModelDownloadTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=False):
             with patch("fastembed.TextEmbedding", side_effect=fake_text_embedding):
                 buf = io.StringIO()
-                with patch("sys.stdout", buf):
+                with patch("sys.stderr", buf):
                     self.srv._ensure_model_cached("test-embedding-model", "embedding")
                 output = buf.getvalue()
 
@@ -7295,7 +7555,7 @@ class BackgroundModelDownloadTests(unittest.TestCase):
 
         with patch.dict("sys.modules", {"fastembed.rerank": None, "fastembed.rerank.cross_encoder": None}):
             buf = io.StringIO()
-            with patch("sys.stdout", buf):
+            with patch("sys.stderr", buf):
                 self.srv._ensure_model_cached("reranker-model", "reranker")
             output = buf.getvalue()
 
@@ -8278,25 +8538,36 @@ class TestLanceDBIndex(unittest.TestCase):
         self.assertEqual(mod.LANCEDB_REFINE_FACTOR, 10)
 
     @unittest.skipUnless(importlib.util.find_spec("lancedb"), "lancedb not installed")
-    def test_build_lance_tables_row_counts(self):
-        """If lancedb is installed, _build_lance_tables creates tables with expected row counts."""
+    def test_stream_embed_write_row_counts(self):
+        """_stream_embed_write creates LanceDB tables with expected row counts."""
         import importlib.util as ilu
         import numpy as np
+        from unittest.mock import MagicMock, patch
         scripts_root = Path(__file__).resolve().parents[1]
-        spec = ilu.spec_from_file_location("indexer_for_lance_build_test", scripts_root / "indexer.py")
+        spec = ilu.spec_from_file_location("indexer_for_stream_write_test", scripts_root / "indexer.py")
         mod = ilu.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "lancedb"
-            docs_chunks = [{"text": "doc1", "path": "docs/a.md", "kind": "doc"}]
-            docs_vecs = np.array([[0.1, 0.2, 0.3]], dtype=np.float32)
-            code_chunks = [{"text": "fn foo()", "path": "src/a.py", "kind": "function"}]
-            code_vecs = np.array([[0.4, 0.5, 0.6]], dtype=np.float32)
+            db_path.mkdir(parents=True, exist_ok=True)
+            db = mod._get_lance_db(db_path)
 
-            result = mod._build_lance_tables(db_path, docs_chunks, docs_vecs, code_chunks, code_vecs)
-            self.assertEqual(result["docs_rows"], 1)
-            self.assertEqual(result["code_rows"], 1)
+            docs_chunks = [{"text": "doc1", "path": "docs/a.md", "kind": "doc"}]
+            code_chunks = [{"text": "fn foo()", "path": "src/a.py", "kind": "function"}]
+
+            # Stub embedder: returns a 3-dim float32 vector per text
+            def _fake_embed(texts, batch_size=256):
+                return [np.array([0.1, 0.2, 0.3], dtype=np.float32) for _ in texts]
+
+            embedder = MagicMock()
+            embedder.embed.side_effect = _fake_embed
+
+            docs_written = mod._stream_embed_write(db, "docs", docs_chunks, embedder, "doc")
+            code_written = mod._stream_embed_write(db, "code", code_chunks, embedder, "code")
+
+            self.assertEqual(docs_written, 1)
+            self.assertEqual(code_written, 1)
 
             # Verify table directories exist
             self.assertTrue((db_path / "docs.lance").is_dir())

@@ -1,18 +1,18 @@
-# Journal — Code Insight Agent (CIA)
+# Journal — Guru
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-05
+Last verified: 2026-05-18
 
-Actor: code-insight-agent
+Actor: guru
 Schema version: 1.0
 Last distilled: 2026-05-05
 
 ## Operating Identity
 
-- Role: code-insight-agent (CIA) — the research and documentation agent responsible for answering natural-language questions about the codebase with grounded, cited responses.
+- Role: guru — the research and documentation agent responsible for answering natural-language questions about the codebase with grounded, cited responses.
 - Responsibilities include: retrieval-grounded answers using the semantic index, edge case detection during discovery, operator Q&A for architectural ambiguity, external lookup against framework/library/spec docs, and recording durable findings in `docs/architecture/`, `docs/specs/`, and this journal.
-- Write permissions: `docs/agents/journals/code-insight-agent.md` (this file), `docs/architecture/`, `docs/specs/`. All other paths are read-only.
+- Write permissions: `docs/agents/journals/guru.md` (this file), `docs/architecture/`, `docs/specs/`. All other paths are read-only.
 - Operates under assumption discipline: every claim is either code-validated (cited) or explicitly flagged as pattern-inferred.
 
 ## Salience Triggers

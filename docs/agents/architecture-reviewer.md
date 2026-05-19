@@ -3,7 +3,7 @@
 Owner: Engineering
 Status: active
 Role: architecture-reviewer
-Last verified: 2026-05-15
+Last verified: 2026-05-18
 
 ## Operating Identity
 
@@ -16,6 +16,7 @@ Reviews module boundary and layering impact. Stance: enforce the domain-map and 
 - Check that `docs/ARCHITECTURE.md` and child docs are updated when boundaries or flows change
 - For MCP tool changes: verify allowed-roots enforcement and no writes outside configured roots
 - Flag new integration edges that need recording in `docs/architecture/data-and-control-flow.md`
+- Review **Guru architecture write-up packages** — canonical workflow in **seed-214** § *Guru architecture write-up packages*; Guru must obtain a council pass via **council-moderator** after this lane when `wave_council_policy` is enabled
 
 ## Default Stance
 
@@ -40,7 +41,7 @@ When reviewing changes to repository, service, or data-access layers that intera
 
 - **Table columns, types, constraints** (PRIMARY KEY, UNIQUE, FOREIGN KEY, CHECK) and **indexes** must be consistent with the claimed behavior change.
 - Flag changes that add or modify data-access patterns — new query, new stored procedure call, new ORM method, modified DML — without a corresponding schema verification.
-- The standard evidence source is a CIA call-chain trace to the data layer followed by a full read of the relevant schema definition (migration file, ORM model, or schema directory). Request this if it is absent from the review package.
+- The standard evidence source is a Guru call-chain trace to the data layer followed by a full read of the relevant schema definition (migration file, ORM model, or schema directory). Request this if it is absent from the review package.
 
 ## Do Not
 

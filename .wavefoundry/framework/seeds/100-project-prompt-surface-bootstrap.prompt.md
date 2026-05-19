@@ -32,11 +32,11 @@ Tasks:
 2. Allow legacy alias phrases only as migration aids.
 3. Generate or refresh supporting agent-oriented prompt bodies under `docs/prompts/agents/` when the repository keeps checked-in planning/context prompt bodies.
 4. Describe the prompt surface as:
-   - seed-derived
-   - repo-adaptive
-   - wave-aware
-   - memory-aware
-   - persona-aware
+ - seed-derived
+ - repo-adaptive
+ - wave-aware
+ - memory-aware
+ - persona-aware
 5. Explain that artifacts use output contracts rather than rigid templates.
 6. Keep the split explicit: `docs/prompts/` is the public shortcut surface, while `docs/prompts/agents/` holds supporting agent-oriented prompt bodies that should not be listed as public commands.
 7. Register the prompt surface in `docs/prompts/prompt-surface-manifest.json`, including **`framework_revision`** — a string equal to `.wavefoundry/framework/VERSION` after init or upgrade reconciles the pack (used by `seed-160` **version guard** alongside the same `VERSION` file).
@@ -47,13 +47,13 @@ Tasks:
 12. Ensure prompt docs describe the file-level review pause and protected-surface ownership rules for broad framework-maintenance work, routing detailed concurrency expectations through `docs/prompts/agent-routing-concurrency.prompt.md`.
 13. **Module docstring convention** — When generating or updating `docs/prompts/` coding convention docs (or a `docs/contributing/coding-conventions.md` when present), include the following guidance so `kind="code-summary"` chunks in the semantic index are meaningfully populated:
 
-    > **Module-level docstrings:** Every source file should begin with a one-sentence module docstring (or leading comment block for languages without docstring syntax) describing the file's purpose. Format: `"""<One sentence: what this module does.>"""` (Python), `// <One sentence>` (Go/Rust/JS/TS leading comment). This enables the Code Insight Agent to retrieve file-level orientation without scanning line-window chunks.
-    >
-    > Recommended format: `"""Handle <domain>: <one-line description of the module's primary responsibility>."""`
-    >
-    > Example: `"""Handle billing: retry logic, payment state transitions, and failure notifications."""`
+ > **Module-level docstrings:** Every source file should begin with a one-sentence module docstring (or leading comment block for languages without docstring syntax) describing the file's purpose. Format: `"""<One sentence: what this module does.>"""` (Python), `// <One sentence>` (Go/Rust/JS/TS leading comment). This enables the Guru to retrieve file-level orientation without scanning line-window chunks.
+ >
+ > Recommended format: `"""Handle <domain>: <one-line description of the module's primary responsibility>."""`
+ >
+ > Example: `"""Handle billing: retry logic, payment state transitions, and failure notifications."""`
 
-    When no coding-conventions doc exists in the target repository, add this rule as a standalone section in the relevant prompt doc that implementation agents read first (e.g. `implement-wave` agent body or `docs/contributing/agent-team-workflow.md`).
+ When no coding-conventions doc exists in the target repository, add this rule as a standalone section in the relevant prompt doc that implementation agents read first (e.g. `implement-wave` agent body or `docs/contributing/agent-team-workflow.md`).
 
 Required prompt-surface behaviors:
 
@@ -78,7 +78,7 @@ Per-prompt rules:
 - **restart-dashboard** (public-only): describe the local loopback dashboard restart command generated from `seed-154`; the operator-facing public command stops the current repository dashboard and then starts a fresh one for the same checkout.
 - **close-wave**: require **docs-contract / spec review** at wave closure when `docs/specs/*.md` or other canonical runtime-behavior docs changed during the wave, with a **Review checkpoints** entry in `docs/waves/<wave-id>/wave.md` (or **Docs-contract review: not applicable** with rationale); reference `docs/contributing/review-and-evals.md` (**Wave closure**) and stay aligned with `seed-190`. Closure review is mandatory even when no docs-contract lane is triggered — required review lanes from readiness and execution must be reconciled and recorded in **Review checkpoints** before the wave can close. When `wave_council_policy.enabled` is true, block closure until both council signoffs are present in `## Review Evidence`: `wave-council-readiness` and `wave-council-delivery`. The council signoffs prove the universal meta-review ran; they do not waive required specialist lanes. Explicitly block closure until chronology and closure-artifact reconciliation are complete — update `Completed at` plus wave/change status fields, reconcile journal updates/distillation, promote durable memory updates to `docs/references/project-context-memory.md` (and other canonical docs when applicable), and clear or refresh `docs/agents/session-handoff.md`. Include the terminal **docs gate** step: **agents** prefer MCP **`wave_garden`** then **`wave_validate`** ( **`wave_audit`** optional); **operators / CI / no MCP** use **`.wavefoundry/bin/docs-gardener`** then **`.wavefoundry/bin/docs-lint`** — same split as `seed-190` / **`finalize-feature`**.
 - **review-wave**: tell the coordinator that **`code-reviewer` is not optional** when `docs/contributing/agent-team-workflow.md` / readiness evaluation requires it or when the admitted change set touches non-trivial product logic; the review pass must include explicit **branch-complete** and **re-entrant** checks for any per-key mutable state the change touches (see `seed-190` task 7 **code review** bullet). Seeded `qa-reviewer` expectations must include **multi-step** verification (state across repeated calls or routine steps) when such state exists, or record deferral and residual risk. When `wave_council_policy.enabled` is true, require a Wave Council delivery pass for every wave: run the seats in isolation, have `council-moderator` synthesize the result, record `- wave-council-delivery: <verdict> (...)` in `## Review Evidence`, and summarize the reasoning in `## Review checkpoints`. The checkpoint record must include the full seat roster for that phase, the rotating fifth seat when present, any material disagreements between seats, and how those disagreements were resolved or why they remain unresolved. Include an **AC scope gap check** step: after confirming required ACs are met, surface important/nice-to-have items not in admitted scope that would add value and confirm not-this-scope deferrals — output a short prioritized list so the operator can decide on follow-on scope before closure. One lightweight pass, bounded to admitted ACs. When admitted change docs include **`## AC priority`** (or equivalent from **`Prepare wave`**), the review pass must **reconcile** that table to **shipped** behavior (update the table if scope shifted) and must include **`qa-reviewer`** attestation that each **required** row has verification or a recorded deferral — see **`prepare-wave`** **AC priority — review-wave reconciliation** in this seed.
-- **index.md — Code insight / code_ask entry** (public-only): when the Wavefoundry MCP server is enabled for the target repository (i.e. `docs/workflow-config.json` `indexing` is configured or `wave_index_build` / `setup_index.py` has been run), include a `Code insight` row in `docs/prompts/index.md` pointing to `docs/agents/code-insight-agent.md` with MCP note `code_ask(question)`. Shortcut phrase: **`Code insight`**. Legacy aliases: **`Ask codebase`**, **`Ask CIA`**. Purpose: "Ask a natural-language question about the codebase; returns cited answer." This row is in the **Public Commands** table alongside the other wave lifecycle shortcuts. When the MCP server is not configured or not available for a given target, the row may be omitted or annotated `(requires MCP)` — do not add it as a placeholder if the index tool is not present.
+- **index.md — Guru / code_ask entry** (public-only): when the Wavefoundry MCP server is enabled for the target repository (i.e. `docs/workflow-config.json` `indexing` is configured or `wave_index_build` / `setup_index.py` has been run), include a `Guru` row in `docs/prompts/index.md` pointing to `docs/agents/guru.md` with MCP note `code_ask(question)`. Shortcut phrase: **`Guru`**. Legacy aliases: **`Ask codebase`**, **`Ask CIA`**. Purpose: "Ask a natural-language question about the codebase; returns cited answer." This row is in the **Public Commands** table alongside the other wave lifecycle shortcuts. When the MCP server is not configured or not available for a given target, the row may be omitted or annotated `(requires MCP)` — do not add it as a placeholder if the index tool is not present.
 
 Cross-surface rules:
 

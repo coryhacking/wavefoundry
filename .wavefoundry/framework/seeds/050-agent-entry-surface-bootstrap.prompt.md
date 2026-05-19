@@ -38,11 +38,11 @@ Tasks:
 
 1. Create or update `AGENTS.md` as the canonical entry map. Prefer concise, **non-obvious** routing and guardrails agents would otherwise get wrong; omit trivia they can re-derive from `docs/repo-index.md` or the tree.
 2. Create or update thin pointer files such as:
-   - `CLAUDE.md`
-   - `.cursor/rules/project-context.mdc`
-   - `.junie/guidelines.md`
-   - `.github/copilot-instructions.md`
-   - `WARP.md`
+ - `CLAUDE.md`
+ - `.cursor/rules/project-context.mdc`
+ - `.junie/guidelines.md`
+ - `.github/copilot-instructions.md`
+ - `WARP.md`
 3. Ensure the entry surface routes users through the canonical change workflow and the public wave-context prompt surface.
 4. Generate native role wrappers when enabled by repo-local config.
 5. Generate factor-review agent files for each factor marked `applicable` in `docs/repo-profile.json` under `factor_review`. For each applicable factor, write `.claude/agents/factor-<nn>-<name>.md` (zero-padded two-digit number, kebab-case name matching the factor table in the framework README). Each file must include: what this factor covers, why it is applicable to this project (cite evidence from the repository), the review questions it asks when evaluating a wave, and whether its findings are gating or advisory for this project. Do not generate files for `partial` or `not-applicable` factors. Record the generated agent paths in `docs/agents/platform-mapping.md` alongside the generic role agents.
@@ -59,6 +59,7 @@ Tasks:
 16. **Stage gate (repository code)** — Add a `## Stage Gate (repository code)` section to `AGENTS.md` before the Implementation guard. This gate applies to all repository code (product source, scripts, tests, build manifests, and other checked-in code/config that affects shipped or verified behavior). It must require all three of the following before the first code edit in a given effort: (1) a consolidated change document exists; (2) the change is admitted into a wave via `Create wave` / `Add change to wave`; (3) the wave has a successful `Prepare wave` / `Ready wave` pass as the immediately preceding lifecycle step. If any step is missing, agents must stop and route back to `Plan feature`, `Create wave`, `Add change to wave`, or `Prepare wave`. Mark documentation-only edits under `docs/`, prompt/framework docs that do not change repository code, and operator-approved explicit waivers for a named scope as out of scope for this gate.
 17. **Implementation guard (product code)** — When the project ships product implementation source (present in the repository), add an `## Implementation guard (product code)` section to `AGENTS.md` immediately after the Stage gate section. Use the decision signals and template below. When the repo is documentation-only, specs-only, or contains only the wave framework pack with no shipped product code, omit the section or add a single line that the guard should be added once implementation directories exist.
 18. When an Implementation guard section exists in `AGENTS.md`, set thin-pointer startup step 1 in `CLAUDE.md`, `.cursor/rules/project-context.mdc`, `.junie/guidelines.md`, `.github/copilot-instructions.md`, and `WARP.md` to: read `AGENTS.md` including **Implementation guard (product code)** before editing product targets. When the section does not exist, keep the generic “read `AGENTS.md`” step without that sub-clause.
+19. **Codebase and documentation questions (auto-Guru)** — Add the `## Codebase and documentation questions (auto-Guru)` section and **Agent platform routing** subsection to `AGENTS.md` per the templates below (unconditional forward-looking pointer; tier 1 is hand-seeded or upgraded in place — not overwritten by the renderer). Run `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` (which calls `render_agent_surfaces.py`) when `docs/agents/guru.md` exists to materialize **tier 2** thin-pointer marker blocks and **tier 3** native surfaces (`.cursor/rules/auto-guru.mdc`, `.claude/agents/guru.md`, `.codex/skills/auto-guru/SKILL.md`). Re-run after upgrade or when auto-Guru templates change in the framework pack. Do not hand-edit generated marker regions between `waveframework:auto-guru begin` and `end` comments — change `render_agent_surfaces.py` instead. Junie, Air, Windsurf, Copilot, and Warp use the same tier-1 contract via `AGENTS.md` plus tier-2 bullets on their thin pointers when those files exist.
 
 **When to add the guard**
 
@@ -85,6 +86,7 @@ Required semantics:
 - factor-review agent routing when applicable factors exist
 - persona routing when personas exist
 - specialist routing when repo evidence enables universal, archetype, or repo-local specialists
+- auto-Guru routing for codebase and documentation Q&A (operators need not say **Guru**)
 - sync policy for thin pointer files
 - native wrapper locations and naming policy when enabled
 - tracking policy for generated platform-native files
@@ -114,6 +116,98 @@ This rule must be present in `AGENTS.md` and any other agent entry files where a
 > find .wavefoundry/framework/scripts -type d -name '__pycache__' -prune -exec rm -rf {} \;
 > ```
 
+## Codebase and Documentation Questions (auto-Guru) in AGENTS.md
+
+Add this section to `AGENTS.md` after **Start Here** (or immediately before **Purpose** / product boundary). Seed it unconditionally — it applies once `docs/agents/guru.md` exists (`seed-211`) and MCP search tools are expected; operators must not need to say **Guru** for code or documentation Q&A.
+
+```markdown
+## Codebase and documentation questions (auto-Guru)
+
+Operators do **not** need to say **Guru** or **Ask codebase** for questions about how this repository's **code** or **documentation** works.
+
+When a message is primarily about **understanding, locating, or explaining** source code or project docs — including architecture, specs, and content under `docs/` — and is **not** a wave lifecycle shortcut from `docs/prompts/index.md` (**Plan feature**, **Implement wave**, **Close wave**, etc.), adopt the **Guru** workflow:
+
+1. Read and follow `docs/agents/guru.md` (question classification, retrieval loop, mechanism completeness, citations).
+2. When MCP is available, use `code_ask(question)` for cross-cutting code questions and `docs_search` for documentation-heavy questions per Guru's classification table.
+3. Complete Pass 3 validation (`code_outline`, targeted `code_read`, `code_keyword` as needed) before synthesizing — do not answer from memory or from the `code_ask` `answer` field alone.
+4. When MCP is unavailable, follow Guru's **When MCP is Not Available** fallbacks in `docs/agents/guru.md`.
+
+Explicit shortcut **Guru** remains available in `docs/prompts/index.md` when the operator wants to name the mode.
+```
+
+**Cursor thin pointer** (`.cursor/rules/project-context.mdc`) — one line under startup or guardrails: `Follow \`.cursor/rules/auto-guru.mdc\` for code and documentation Q&A.` (full workflow lives in that always-on rule file.)
+
+**All thin pointers** — seed the same one-line guardrail on every host entry file the project uses (`CLAUDE.md`, `.cursor/rules/project-context.mdc`, `.junie/guidelines.md`, `.github/copilot-instructions.md`, `WARP.md`, and any other pointer from task 2). Do not duplicate the full workflow:
+
+`- Code and documentation Q&A: follow **Codebase and documentation questions (auto-Guru)** in \`AGENTS.md\` and \`docs/agents/guru.md\`; use Wavefoundry MCP (\`code_ask\`, \`docs_search\`) when attached; do not answer from memory alone.`
+
+**Instruction-only hosts** (Codex without skills, Junie, Air, Warp, and any host without rules/subagents/skills) rely on tier 1 + tier 2 only — no extra files required.
+
+### Auto-Guru routing by agent capability
+
+When `docs/agents/guru.md` exists (`seed-211`), record routing in `docs/agents/platform-mapping.md` and run **`render_agent_surfaces.py`** (via `render_platform_surfaces.py`) to populate tier 2–3 files. Source of truth for generated bodies: `.wavefoundry/framework/scripts/render_agent_surfaces.py`. Operators must not need to say **Guru** for code or documentation Q&A on **any** host.
+
+**Tier 1 (all hosts):** `AGENTS.md` § **Codebase and documentation questions (auto-Guru)** + `docs/agents/guru.md`.
+
+**Tier 2 (all seeded thin pointers):** one guardrail bullet (see above) in each host entry file.
+
+**Tier 3 (optional native — only when the host supports it):** the surfaces below **reinforce** tier 1; they do not replace it. Skip tier 3 for hosts that have no equivalent (Junie, Air, Warp, Windsurf, Copilot use tier 1–2 plus MCP when configured).
+
+**Cursor** (optional) — `.cursor/rules/auto-guru.mdc` (`alwaysApply: true`):
+
+```markdown
+---
+description: Auto-route code and documentation questions to Guru (code_ask, docs_search, validated reads)
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# Auto-Guru (Cursor — optional native surface)
+
+Canonical rules: \`AGENTS.md\` auto-Guru section + \`docs/agents/guru.md\`. Applies unless the user invokes a wave lifecycle command from \`docs/prompts/index.md\`.
+
+When the user asks to understand, locate, or explain source code or project docs:
+
+1. Read \`AGENTS.md\` § **Codebase and documentation questions (auto-Guru)** and \`docs/agents/guru.md\`.
+2. Call Wavefoundry MCP \`code_ask\` / \`docs_search\` (see \`.cursor/mcp.json\`).
+3. Complete Guru Pass 3 before answering.
+4. Prefer MCP over raw grep for orientation; use a read-only subagent for large investigations.
+```
+
+**Claude Code** (optional) — `.claude/agents/guru.md` (subagent; `description` must include **PROACTIVELY** so Claude delegates code/doc questions):
+
+```markdown
+---
+name: guru
+description: PROACTIVELY use when the user asks how this repository's source code or project documentation works. Do not use for wave lifecycle commands (Plan feature, Implement wave, Close wave, etc.).
+tools: Read, Grep, Glob, Bash
+model: sonnet
+---
+
+# Guru (Claude Code subagent — optional native surface)
+
+Canonical role for all hosts: \`docs/agents/guru.md\` + \`AGENTS.md\` auto-Guru section. Use wavefoundry MCP when attached. Read-only here — architecture writes stay in the main session.
+```
+
+`CLAUDE.md` must tell the main agent to delegate large code/doc investigations to the **guru** subagent and to use `.mcp.json` for MCP.
+
+**Codex** (optional) — `.codex/skills/auto-guru/SKILL.md`:
+
+```markdown
+---
+name: auto-guru
+description: PROACTIVELY use when the user asks how repository source code or project documentation works. Not for wave lifecycle commands.
+---
+
+Read \`AGENTS.md\` auto-Guru section and \`docs/agents/guru.md\`. Register MCP: \`.wavefoundry/bin/register-codex-mcp\`. Use \`code_ask\` / \`docs_search\`; complete Pass 3 before answering.
+```
+
+Ensure `.gitignore` does not exclude `.codex/skills/` (track project skills like other framework-managed platform files).
+
+**Windsurf, Copilot, Junie, Air, Warp** — no tier-3 file required. Seed tier 1 in `AGENTS.md` and tier 2 in the host thin pointer; attach MCP per `AGENTS.md` when the operator uses that host. Windsurf/Copilot may also use existing hook surfaces from this seed — hooks enforce edit gates, not Guru routing.
+
+Add to `AGENTS.md` auto-Guru section an **Agent platform routing** subsection: three tiers above, optional native table (Cursor / Claude / Codex), and a row that tier 1–2 suffice for all other hosts.
+
 ## Hook Contract
 
 Use `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` to materialize tracked hook entrypoints and merged settings files for every enabled platform. For each entrypoint the renderer writes three variants — a self-contained Python implementation (`<name>.py`), a POSIX launcher (`<name>`), and a Windows launcher (`<name>.cmd`) — all `chmod +x`. The JSON snippets below show POSIX launcher command values; on Windows the renderer emits the corresponding `cmd.exe /c ...\\.cmd` invocation. Prefer `render_platform_surfaces.py` over hand-editing each hook file independently (see task 13).
@@ -123,8 +217,8 @@ Use `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` to mate
 - **Canonical guard override file** — use exactly this repo-global schema at `.wavefoundry/guard-overrides.json` for temporary approvals; do not introduce provider-specific sentinel files:
 ```json
 {
-  "framework_edit_allowed": { "enabled": false },
-  "seed_edit_allowed":      { "enabled": false }
+ "framework_edit_allowed": { "enabled": false },
+ "seed_edit_allowed": { "enabled": false }
 }
 ```
 - **Canonical ignore rule** — keep this exact rule in `.gitignore` so Wavefoundry's local approval state is never committed:
@@ -159,16 +253,16 @@ This MCP-first principle extends beyond docs validation to **all wave and plan s
 
 ### Per-platform capability matrix
 
-| Tool or Host | Pre-write block                                      | Post-write validation                                   | Config file                                                        |
+| Tool or Host | Pre-write block | Post-write validation | Config file |
 |--------------|------------------------------------------------------|---------------------------------------------------------|--------------------------------------------------------------------|
-| Claude Code  | ✅ `PreToolUse` seed protection + framework plan gate | ✅ `PostToolUse` `docs-lint` + pycache cleanup           | `.claude/settings.json`                                            |
-| Cursor       | ⚠️ `afterFileEdit` warn+halt (write already landed)   | ✅ `afterFileEdit` `docs-lint`                           | `.cursor/hooks.json`                                               |
-| Windsurf     | ✅ `pre_write_code` true blocking (exit code 2)       | ✅ `post_write_code` `docs-lint`                         | `.windsurf/hooks.json`                                             |
-| Copilot      | ✅ `preToolUse` seed + framework approval             | ✅ `postToolUse` `docs-lint`                             | `.github/hooks/hooks.json`                                         |
-| Codex        | ❌ instruction-only                                   | ❌                                                       | `AGENTS.md`, `docs/prompts/`, `.codex/skills/`                     |
-| Air          | ❌ hosted-provider only                               | ❌ hosted-provider only                                  | existing provider wrappers only                                    |
-| Junie        | ❌ instruction-only (`AGENTS.md`, `.junie/guidelines.md`) | ❌                                                    | `.junie/guidelines.md`                                             |
-| Warp         | ❌ instruction-only                                   | ❌                                                       | `WARP.md`                                                          |
+| Claude Code | ✅ `PreToolUse` seed protection + framework plan gate | ✅ `PostToolUse` `docs-lint` + pycache cleanup | `.claude/settings.json` |
+| Cursor | ⚠️ `afterFileEdit` warn+halt (write already landed) | ✅ `afterFileEdit` `docs-lint` | `.cursor/hooks.json` |
+| Windsurf | ✅ `pre_write_code` true blocking (exit code 2) | ✅ `post_write_code` `docs-lint` | `.windsurf/hooks.json` |
+| Copilot | ✅ `preToolUse` seed + framework approval | ✅ `postToolUse` `docs-lint` | `.github/hooks/hooks.json` |
+| Codex | ❌ instruction-only | ❌ | `AGENTS.md`, `docs/prompts/`, `.codex/skills/auto-guru/SKILL.md`, `.wavefoundry/bin/register-codex-mcp` |
+| Air | ❌ hosted-provider only | ❌ hosted-provider only | existing provider wrappers only |
+| Junie | ❌ instruction-only (`AGENTS.md`, `.junie/guidelines.md`) | ❌ | `.junie/guidelines.md` |
+| Warp | ❌ instruction-only | ❌ | `WARP.md` |
 
 For Codex, Air, Junie, and Warp, reinforce rules in `AGENTS.md` and the respective thin-pointer or native-wrapper files only.
 
@@ -178,13 +272,13 @@ Seed or update `.claude/settings.json` with the hooks below. **Merge with any ex
 
 ```json
 {
-  "hooks": {
-    "PreToolUse":  [ { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": ".claude/hooks/pre-edit",        "statusMessage": "Checking framework edit gates..." } ] } ],
-    "PostToolUse": [
-      { "matcher": "Bash",       "hooks": [ { "type": "command", "command": ".claude/hooks/pycache-cleanup", "statusMessage": "Cleaning __pycache__..." } ] },
-      { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": ".claude/hooks/post-edit",       "statusMessage": "Running docs gates..." } ] }
-    ]
-  }
+ "hooks": {
+ "PreToolUse": [ { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": ".claude/hooks/pre-edit", "statusMessage": "Checking framework edit gates..." } ] } ],
+ "PostToolUse": [
+ { "matcher": "Bash", "hooks": [ { "type": "command", "command": ".claude/hooks/pycache-cleanup", "statusMessage": "Cleaning __pycache__..." } ] },
+ { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": ".claude/hooks/post-edit", "statusMessage": "Running docs gates..." } ] }
+ ]
+ }
 }
 ```
 
@@ -202,10 +296,10 @@ Cursor has **no pre-write event** — the earliest file-edit hook is `afterFileE
 
 ```json
 {
-  "version": 1,
-  "hooks": {
-    "afterFileEdit": [ { "command": ".cursor/hooks/after-file-edit" } ]
-  }
+ "version": 1,
+ "hooks": {
+ "afterFileEdit": [ { "command": ".cursor/hooks/after-file-edit" } ]
+ }
 }
 ```
 
@@ -223,10 +317,10 @@ Windsurf has `pre_write_code` which fires **before** the write — true blocking
 
 ```json
 {
-  "hooks": {
-    "pre_write_code":  [ { "command": ".windsurf/hooks/seed-protect", "show_output": true } ],
-    "post_write_code": [ { "command": ".windsurf/hooks/docs-lint",     "show_output": true } ]
-  }
+ "hooks": {
+ "pre_write_code": [ { "command": ".windsurf/hooks/seed-protect", "show_output": true } ],
+ "post_write_code": [ { "command": ".windsurf/hooks/docs-lint", "show_output": true } ]
+ }
 }
 ```
 
@@ -247,11 +341,11 @@ Scope boundary:
 
 ```json
 {
-  "version": 1,
-  "hooks": {
-    "preToolUse":  [ { "type": "command", "bash": ".github/hooks/pre-tool-use" } ],
-    "postToolUse": [ { "type": "command", "bash": ".github/hooks/post-tool-use" } ]
-  }
+ "version": 1,
+ "hooks": {
+ "preToolUse": [ { "type": "command", "bash": ".github/hooks/pre-tool-use" } ],
+ "postToolUse": [ { "type": "command", "bash": ".github/hooks/post-tool-use" } ]
+ }
 }
 ```
 
@@ -334,21 +428,21 @@ Role-subset mapping:
 
 The Execution contract section belongs near the end of the role doc, after Responsibilities or Guardrails. Do not copy all six rules to every role doc — use the subset above so each role doc remains focused and non-redundant with `020`.
 
-## MCP Tools / CIA Orientation Section in Canonical Role Docs
+## MCP Tools / Guru Orientation Section in Canonical Role Docs
 
-Ensure each of the following role docs includes an **MCP tools** section (or **Codebase orientation** section) that references the Code Insight Agent as the first-stop tool before reading files, writing plans, or making code decisions. Seed this section unconditionally — the CIA guidance is a forward-looking pointer that is valid once MCP is enabled, and having it present from the first init is better than requiring a follow-on upgrade. Place this section near the top of the role doc, after the role overview and before Responsibilities.
+Ensure each of the following role docs includes an **MCP tools** section (or **Codebase orientation** section) that references the Guru as the first-stop tool before reading files, writing plans, or making code decisions. Seed this section unconditionally — Guru guidance is a forward-looking pointer that is valid once MCP is enabled, and having it present from the first init is better than requiring a follow-on upgrade. Place this section near the top of the role doc, after the role overview and before Responsibilities.
 
 MCP is not active at init time — it is registered separately via **Enable Wavefoundry MCP** after the framework is seeded. The role doc section should reflect this by framing the tools as available once MCP is set up, e.g. "When the Wavefoundry MCP server is available, use these tools as your first orientation pass before reading files."
 
-- **`implementer.md`** — Before writing or modifying code, use `code_search(topic, kind="code-summary", max_per_file=1)` when the owning file or symbol is not known yet, then use `code_definition(symbol)` to confirm whether the target already exists, `code_references(symbol)` to find all call sites, and `code_keyword(pattern)` to find similar implementations. If `code_references` is noisy, rerun it with `exclude_tests=true`; inspect `detail_buckets` / `detail_counts` when you need to separate definitions, imports, and mentions. Follow `docs/agents/code-insight-agent.md` **Implementer guidance** for the standard pre-implementation orientation pass.
+- **`implementer.md`** — Before writing or modifying code, use `code_search(topic, kind="code-summary", max_per_file=1)` when the owning file or symbol is not known yet, then use `code_definition(symbol)` to confirm whether the target already exists, `code_references(symbol)` to find all call sites, and `code_keyword(pattern)` to find similar implementations. If `code_references` is noisy, rerun it with `exclude_tests=true`; inspect `detail_buckets` / `detail_counts` when you need to separate definitions, imports, and mentions. Follow `docs/agents/guru.md` **Implementer guidance** for the standard pre-implementation orientation pass.
 
-- **`planner.md`** — Before drafting a change doc, run a `code_search(topic, kind="code-summary", max_per_file=1)` module inventory and `code_ask("how does X currently work?")` to ground the rationale and affected-architecture sections in indexed evidence. When the subject symbol is already known, use `code_definition(symbol)` and `code_references(symbol)` to confirm exact declarations and usages, including SQL where structural support is available. Follow `docs/agents/code-insight-agent.md` **Planner guidance** for the standard pre-planning orientation pass.
+- **`planner.md`** — Before drafting a change doc, run a `code_search(topic, kind="code-summary", max_per_file=1)` module inventory and `code_ask("how does X currently work?")` to ground the rationale and affected-architecture sections in indexed evidence. When the subject symbol is already known, use `code_definition(symbol)` and `code_references(symbol)` to confirm exact declarations and usages, including SQL where structural support is available. Follow `docs/agents/guru.md` **Planner guidance** for the standard pre-planning orientation pass.
 
 - **`wave-coordinator.md`** — During scope assessment and readiness review, use `code_ask` and `code_search(topic, kind="code-summary", max_per_file=1)` to answer "what does X currently do?" and "which files are affected?" without launching full file reads. When the relevant symbol is already known, switch to `code_definition(symbol)` or `code_references(symbol)` before broad file reads. If you are validating call-site signal, remember that `exclude_tests=true` is available for quieter reads without losing the broad mode. `code_dependencies(path)` is the fastest path to understanding what a changed file touches.
 
-When role docs for persona agents exist under `docs/agents/personas/`, add the same orientation guidance — persona agents should ground answers to user questions in `code_ask` / `docs_search` results, not memory recall. Reference `docs/agents/code-insight-agent.md` **Persona guidance**.
+When role docs for persona agents exist under `docs/agents/personas/`, add the same orientation guidance — persona agents should ground answers to user questions in `code_ask` / `docs_search` results, not memory recall. Reference `docs/agents/guru.md` **Persona guidance**.
 
-**CIA journal:** When seeding the CIA agent surface, also create `docs/agents/journals/code-insight-agent.md` if it does not already exist. Use the same journal contract as other role journals (Operating Identity, Salience Triggers, Distillation, Active Signals, Index Gaps, Promotion Evidence, Retirement, Governance). The CIA journal is the recording surface for durable discoveries, index gaps, edge cases, and operator Q&A answers. Seed it with the CIA's operating identity and salience triggers from `docs/agents/code-insight-agent.md` (or `seed-211`).
+**Guru journal:** When seeding the Guru agent surface, also create `docs/agents/journals/guru.md` if it does not already exist. Use the same journal contract as other role journals (Operating Identity, Salience Triggers, Distillation, Active Signals, Index Gaps, Promotion Evidence, Retirement, Governance). The Guru journal is the recording surface for durable discoveries, index gaps, edge cases, and operator Q&A answers. Seed it with Guru's operating identity and salience triggers from `docs/agents/guru.md` (or `seed-211`).
 
 ## Cleanup and Destructive Operations
 

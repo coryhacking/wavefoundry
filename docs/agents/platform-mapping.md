@@ -2,14 +2,46 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-30
+Last verified: 2026-05-18
 
 Maps Wave Framework roles and factor agents to native agent platform files.
+
+## Auto-Guru routing (code and documentation Q&A)
+
+**Canonical (all hosts):** `AGENTS.md` § **Codebase and documentation questions (auto-Guru)** + `docs/agents/guru.md`.
+
+| Tier | Scope | Surfaces |
+|------|--------|----------|
+| 1 | Every agent host | `AGENTS.md`, `docs/agents/guru.md`, Wavefoundry MCP when attached |
+| 2 | Each host thin pointer | One guardrail bullet → tier 1 (see per-host table below) |
+| 3 | Optional native affordance | Host-specific rules / subagents / skills (below) |
+
+### Tier 2 — thin pointers
+
+| Host | Entry file |
+|------|------------|
+| Claude Code | `CLAUDE.md` |
+| Cursor | `.cursor/rules/project-context.mdc` → `.cursor/rules/auto-guru.mdc` |
+| Codex | `AGENTS.md` (+ optional tier 3 skill) |
+| GitHub Copilot | `.github/copilot-instructions.md` |
+| Junie | `.junie/guidelines.md` |
+| Warp | `WARP.md` |
+| Windsurf | `AGENTS.md` (no separate guidelines file in default seed) |
+| Air | `AGENTS.md` (provider MCP config per `AGENTS.md` MCP table) |
+
+### Tier 3 — optional native (enhances tier 1)
+
+| Host | File | Notes |
+|------|------|--------|
+| Cursor | `.cursor/rules/auto-guru.mdc` | `alwaysApply` rule |
+| Claude Code | `.claude/agents/guru.md` | `PROACTIVELY` subagent |
+| Codex | `.codex/skills/auto-guru/SKILL.md` | + `.wavefoundry/bin/register-codex-mcp` |
 
 ## Claude Code Agents (`.claude/agents/`)
 
 | File | Role / Factor |
 |------|--------------|
+| `.claude/agents/guru.md` | Guru — codebase and documentation Q&A (auto-delegated) |
 | `.claude/agents/factor-03-config.md` | Factor 03 — Config |
 | `.claude/agents/factor-05-build-release-run.md` | Factor 05 — Build / release / run |
 | `.claude/agents/factor-12-admin-processes.md` | Factor 12 — Admin processes |

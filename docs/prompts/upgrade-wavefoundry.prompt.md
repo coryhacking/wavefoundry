@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-16
+Last verified: 2026-05-18
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -44,7 +44,35 @@ What this prompt is not:
 2. Drift-detect against canonical framework (read-only subagents for inventory)
 3. Produce a file-level upgrade plan before broad edits
 4. Reconcile prompt surface, platform surfaces, `AGENTS.md`, manifests
-5. Verify docs gate: **with MCP**, run **`wave_garden`** (when metadata needs refresh) then **`wave_validate`**; **without MCP**, run `.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`
+5. **Agent surfaces and auto-Guru** (when the pack includes `seed-050` / `render_agent_surfaces.py` / Guru) — see below
+6. Verify docs gate: **with MCP**, run **`wave_garden`** (when metadata needs refresh) then **`wave_validate`**; **without MCP**, run `.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`
+
+## Agent surfaces and auto-Guru (agents must apply)
+
+Canonical procedure: `.wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md` § **Agent surfaces and auto-Guru upgrade (agent procedure)**. Apply **all** steps in every target repository — not only Wavefoundry self-host.
+
+**Required commands**
+
+```bash
+# Hooks, MCP JSON, bin launchers, and auto-Guru surfaces (when docs/agents/guru.md exists)
+python3 .wavefoundry/framework/scripts/render_platform_surfaces.py
+
+# Optional: agent routing only
+python3 .wavefoundry/framework/scripts/render_agent_surfaces.py
+```
+
+**Agent checklist (merge + generate)**
+
+1. **Tier 1 — `AGENTS.md`** (manual merge when sections missing; renderer does not replace these):
+   - `## Codebase and documentation questions (auto-Guru)`
+   - `### Agent platform routing` (all hosts; tier 1–2 for Junie, Air, Windsurf, Copilot, Warp)
+2. **Guru role** — ensure `docs/agents/guru.md` exists (`Role: guru`); migrate from legacy `code-insight-agent` paths when present; update `docs/prompts/index.md` **Guru** row
+3. **Re-run renderer** after tier-1 backfill if those sections were just added
+4. **Tier 2–3 — generated files** (do not hand-edit `waveframework:auto-guru` marker regions):
+   - `.cursor/rules/auto-guru.mdc`, `.claude/agents/guru.md`, `.codex/skills/auto-guru/SKILL.md`
+   - Marked blocks in `CLAUDE.md`, `.cursor/rules/project-context.mdc`, `.junie/guidelines.md`, `WARP.md`, `.github/copilot-instructions.md` when those files exist
+5. **Verify** paths listed in `docs/agents/platform-mapping.md` § Auto-Guru routing
+6. **Operator follow-up** — Codex: `.wavefoundry/bin/register-codex-mcp`; Cursor/Claude: attach MCP and restart host; all hosts: restart MCP + project index per checklist below
 
 ## Verification Checklist
 

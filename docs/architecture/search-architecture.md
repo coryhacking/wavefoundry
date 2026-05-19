@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-15
+Last verified: 2026-05-18
 
 ## The Problem
 
@@ -21,10 +21,10 @@ These are different enough problems that they warrant different tools. Trying to
 The MCP search surface is organized into three layers, each solving a narrower and more precise version of the navigation problem:
 
 ```
-Layer 1: Semantic search   — docs_search, code_search
-Layer 2: Exact navigation  — code_keyword, code_constants, code_pattern, code_outline, code_read, code_list_files
+Layer 1: Semantic search — docs_search, code_search
+Layer 2: Exact navigation — code_keyword, code_constants, code_pattern, code_outline, code_read, code_list_files
 Layer 3: Symbol navigation — code_definition, code_references, code_dependencies
-Layer 4: Codebase Q&A      — code_ask
+Layer 4: Codebase Q&A — code_ask
 ```
 
 They are ordered from broadest to narrowest:
@@ -166,27 +166,27 @@ The tradeoff: the cross-encoder reranker scales approximately linearly with cand
 
 ```
 1. Vector fetch (timed as vector_ms)
-   ├─ Embed query with DOCS_MODEL → cosine search over docs index → top_k candidates
-   ├─ Embed query with CODE_MODEL → cosine search over code index → top_k candidates
-   └─ top_k = VECTOR_TOP_K_EXPLANATORY (50) if explanatory; VECTOR_TOP_K (30) otherwise
+ ├─ Embed query with DOCS_MODEL → cosine search over docs index → top_k candidates
+ ├─ Embed query with CODE_MODEL → cosine search over code index → top_k candidates
+ └─ top_k = VECTOR_TOP_K_EXPLANATORY (50) if explanatory; VECTOR_TOP_K (30) otherwise
 
 2. Definition-file boosting
-   └─ For each DEFINITION_BOOST_RULES entry whose vocabulary matches the query:
-      keyword-search on the most specific matching term, inject ≤ DEFINITION_BOOST_CANDIDATES (5)
-      hits with score=0.0 into the combined pool; record rule label in definition_boosted
+ └─ For each DEFINITION_BOOST_RULES entry whose vocabulary matches the query:
+ keyword-search on the most specific matching term, inject ≤ DEFINITION_BOOST_CANDIDATES (5)
+ hits with score=0.0 into the combined pool; record rule label in definition_boosted
 
 3. First rerank (rerank_ms starts here)
-   └─ _rerank(query, all_candidates, top_n) — cross-encoder scores each [query, text] pair
+ └─ _rerank(query, all_candidates, top_n) — cross-encoder scores each [query, text] pair
 
 4. Two-hop symbol expansion (explanatory only — see Decision 11)
-   └─ Extract symbols from top-3 non-infra citations → keyword-search each →
-      inject ≤ MAX_SECOND_HOP_CANDIDATES (10) new candidates with score=0.0
+ └─ Extract symbols from top-3 non-infra citations → keyword-search each →
+ inject ≤ MAX_SECOND_HOP_CANDIDATES (10) new candidates with score=0.0
 
 5. Second rerank (if second-hop produced candidates)
-   └─ _rerank(query, results + second_hop_candidates, top_n)
+ └─ _rerank(query, results + second_hop_candidates, top_n)
 
 6. Infrastructure partition (explanatory only)
-   └─ _partition_infra(): stable-push INFRASTRUCTURE_PATH_SEGMENTS citations to end
+ └─ _partition_infra(): stable-push INFRASTRUCTURE_PATH_SEGMENTS citations to end
 
 7. Return (results, True, vector_ms, rerank_ms, definition_boosted, second_hop_symbols)
 ```
@@ -197,13 +197,13 @@ The tradeoff: the cross-encoder reranker scales approximately linearly with cand
 1. Same vector fetch phase (same top_k logic)
 
 2. _rrf_merge([docs_candidates, code_candidates], top_n, weights)
-   Formula: score += w / (k + rank)  where k=60
-   Navigational: weights=[1.0, 1.5] (code-index boosted); all other types: weights=None (equal)
+ Formula: score += w / (k + rank) where k=60
+ Navigational: weights=[1.0, 1.5] (code-index boosted); all other types: weights=None (equal)
 
 3. Infrastructure partition (explanatory only, same as reranker path)
 
 4. Return (results, False, vector_ms, rerank_ms, [], [])
-   — definition_boosted and second_hop_symbols are always empty in the RRF path
+ — definition_boosted and second_hop_symbols are always empty in the RRF path
 ```
 
 Two-hop is skipped in the RRF path because cross-encoder scoring is required to evaluate the injected candidates on content merit; positional append without reranking produces unpredictable results.
@@ -220,9 +220,9 @@ When a query vocabulary signals that schema-language files are relevant, `search
 
 ```python
 {
-    "vocabulary": frozenset({"sql", "stored procedure", "proc", ...}),
-    "extensions": [".sql"],
-    "label": "sql",
+ "vocabulary": frozenset({"sql", "stored procedure", "proc", ...}),
+ "extensions": [".sql"],
+ "label": "sql",
 }
 ```
 
@@ -270,11 +270,11 @@ The complete search fallback chain for `docs_search`:
 
 ```
 1. docs_search(query)
-     ↓
-2. WaveIndex.search_docs()  [semantic: embed query → cosine search]
-     ↓ if IndexNotReadyError or SemanticModelUnavailableOfflineError
-3. WaveIndex.search_docs_lexical()  [lexical: token overlap over live chunks]
-     ↓ if no results
+ ↓
+2. WaveIndex.search_docs() [semantic: embed query → cosine search]
+ ↓ if IndexNotReadyError or SemanticModelUnavailableOfflineError
+3. WaveIndex.search_docs_lexical() [lexical: token overlap over live chunks]
+ ↓ if no results
 4. Empty result set + diagnostics explaining what failed
 ```
 
@@ -288,24 +288,24 @@ For code navigation (Layer 2 and 3), there is no fallback: the tools either retu
 
 ```
 .wavefoundry/index/
-  docs.npy       float32 matrix [n_chunks × dim]
-  docs.json      list of chunk dicts, row-parallel with docs.npy
-  code.npy       float32 matrix [n_code_chunks × dim]
-  code.json      list of code chunk dicts
-  meta.json      { model_versions, content, file_hashes, built_at }
+ docs.npy float32 matrix [n_chunks × dim]
+ docs.json list of chunk dicts, row-parallel with docs.npy
+ code.npy float32 matrix [n_code_chunks × dim]
+ code.json list of code chunk dicts
+ meta.json { model_versions, content, file_hashes, built_at }
 ```
 
 **Chunk schema:**
 
 ```json
 {
-  "id":       "unique string",
-  "path":     "repo-relative/path/to/file.md",
-  "kind":     "doc | doc-summary | seed | prompt | code | code-summary | python | ...",
-  "language": "python | null",
-  "lines":    [start_line, end_line],
-  "section":  "Header text or null",
-  "text":     "chunk text — what was embedded"
+ "id": "unique string",
+ "path": "repo-relative/path/to/file.md",
+ "kind": "doc | doc-summary | seed | prompt | code | code-summary | python | ...",
+ "language": "python | null",
+ "lines": [start_line, end_line],
+ "section": "Header text or null",
+ "text": "chunk text — what was embedded"
 }
 ```
 
@@ -322,4 +322,4 @@ The `text` field is what was embedded. The `path` and `lines` fields are what th
 - **`embedding-model.md`** — the specific model choice, its properties, regression tests, and upgrade procedure
 - **`data-and-control-flow.md`** — the runtime control paths for index build and MCP query calls
 - **`current-state.md`** — the deployed MCP topology, including which tools belong to each search layer
-- **`docs/agents/code-insight-agent.md`** — the CIA agent role doc: retrieval loop, citation format, confidence model, and per-agent usage guidance
+- **`docs/agents/guru.md`** — the Guru agent role doc: retrieval loop, citation format, confidence model, and per-agent usage guidance

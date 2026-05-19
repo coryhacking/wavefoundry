@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-02
+Last verified: 2026-05-18
 
 ## Repository Summary
 
@@ -54,7 +54,8 @@ No shipped product implementation sources exist yet. The MCP Python package (`sr
 | `.wavefoundry/framework/scripts/docs_lint.py`                | Validate Wave Framework docs gate (metadata, manifest, prompt surface)    |
 | `.wavefoundry/framework/scripts/docs_gardener.py`            | Refresh metadata timestamps and surface drift candidates                  |
 | `.wavefoundry/framework/scripts/build_pack.py`               | Package framework into dated `.zip` distribution                          |
-| `.wavefoundry/framework/scripts/render_platform_surfaces.py` | Render platform hook/config surfaces (.claude/, .cursor/, .github/hooks/) |
+| `.wavefoundry/framework/scripts/render_platform_surfaces.py` | Render platform hook/config surfaces (.claude/, .cursor/, .github/hooks/); calls `render_agent_surfaces.py` |
+| `.wavefoundry/framework/scripts/render_agent_surfaces.py` | Render auto-Guru tier 2–3 agent routing (thin-pointer markers, Cursor rule, Claude subagent, Codex skill) |
 | `.wavefoundry/framework/scripts/run_tests.py`                | Run framework script tests without bytecode                               |
 | `.wavefoundry/framework/scripts/tests/`                      | Unit and fixture tests for docs_lint and build_pack                       |
 | `.wavefoundry/framework/scripts/wave_lint_lib/`              | Library modules for docs_lint: validators, context, helpers               |

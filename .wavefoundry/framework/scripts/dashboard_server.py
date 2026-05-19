@@ -20,7 +20,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import dashboard_lib
 
@@ -250,7 +250,19 @@ class IndexBuilder:
         try:
             layer_cmds: list[tuple[str, list[str]]] = []
             if "project" in active_layers:
-                layer_cmds.append(("project", [sys.executable, str(indexer_path), "--root", str(self._root), "--content", "all"]))
+                project_cmd = [sys.executable, str(indexer_path), "--root", str(self._root), "--content", "all"]
+                try:
+                    wf_cfg = json.loads((self._root / "docs" / "workflow-config.json").read_text(encoding="utf-8"))
+                    code_prefixes = (wf_cfg.get("indexing") or {}).get("project_include_prefixes", {})
+                    if isinstance(code_prefixes, dict):
+                        code_prefixes = code_prefixes.get("code") or []
+                    elif not isinstance(code_prefixes, list):
+                        code_prefixes = []
+                    for prefix in code_prefixes:
+                        project_cmd.extend(["--project-include-prefix", str(prefix)])
+                except Exception:
+                    pass
+                layer_cmds.append(("project", project_cmd))
             if "framework" in active_layers:
                 layer_cmds.append(("framework", [
                     sys.executable,
@@ -267,7 +279,8 @@ class IndexBuilder:
                 ]))
             for layer, cmd in layer_cmds:
                 state_path = self._index_state_path(layer)
-                log_path = self._index_log_path(layer)
+                content = "all" if layer == "project" else "docs"
+                log_path = self._index_log_path(layer, content)
                 log_path.parent.mkdir(parents=True, exist_ok=True)
                 started_at = time.time()
                 try:
@@ -280,7 +293,7 @@ class IndexBuilder:
                             stderr=log_file,
                         )
                         state_path.write_text(
-                            json.dumps({"pid": proc.pid, "started_at": started_at, "content": "all" if layer == "project" else "docs", "layer": layer, "full": False}),
+                            json.dumps({"pid": proc.pid, "started_at": started_at, "content": "all" if layer == "project" else "docs", "layer": layer, "full": False, "mode": "update"}),
                             encoding="utf-8",
                         )
                         proc.communicate()
@@ -304,10 +317,11 @@ class IndexBuilder:
             return self._root / ".wavefoundry" / "framework" / "index" / "index-build.json"
         return self._root / ".wavefoundry" / "index" / "index-build.json"
 
-    def _index_log_path(self, layer: str) -> Path:
+    def _index_log_path(self, layer: str, content: str = "all") -> Path:
+        filename = f"index-build-{content}.log"
         if layer == "framework":
-            return self._root / ".wavefoundry" / "framework" / "index" / "index-build.log"
-        return self._root / ".wavefoundry" / "index" / "index-build.log"
+            return self._root / ".wavefoundry" / "framework" / "index" / filename
+        return self._root / ".wavefoundry" / "index" / filename
 
 
 def _path_matches_index_layer(path: str, layer: str) -> bool:
@@ -349,14 +363,19 @@ def _framework_index_inputs_stale(root: Path, meta: dict[str, Any]) -> bool | No
     try:
         indexer = _get_indexer()
         framework_index_dir = root / ".wavefoundry" / "framework" / "index"
+        _docs_suffixes = {".md", ".markdown", ".txt"}
+        _docs_extensionless = indexer.DOCS_EXTENSIONLESS_NAMES
+        def _is_docs_eligible(p: Path) -> bool:
+            return p.suffix in _docs_suffixes or (not p.suffix and p.name in _docs_extensionless)
         files = indexer.walk_repo(root, respect_ignore=False)
         files = [path for path in files if not indexer._is_relative_to(path, framework_index_dir)]
         files = indexer._filter_by_prefixes(files, root, (".wavefoundry/framework",))
-        files = [path for path in files if path.name not in _FRAMEWORK_STALE_IGNORE_FILENAMES]
+        files = [path for path in files if path.name not in _FRAMEWORK_STALE_IGNORE_FILENAMES and _is_docs_eligible(path)]
         filtered_file_meta = {
             rel_path: entry
             for rel_path, entry in file_meta.items()
             if Path(rel_path).name not in _FRAMEWORK_STALE_IGNORE_FILENAMES
+            and _is_docs_eligible(Path(rel_path))
         }
         _, changed, removed = indexer._detect_changes(files, root, filtered_file_meta)
         return bool(changed or removed)
@@ -371,9 +390,20 @@ def _project_index_inputs_stale(root: Path, meta: dict[str, Any]) -> bool | None
     try:
         indexer = _get_indexer()
         project_index_dir = root / ".wavefoundry" / "index"
+        # Read configured include prefixes so the staleness check matches what the indexer actually indexes.
+        code_prefixes: tuple[str, ...] = ()
+        try:
+            wf_cfg = json.loads((root / "docs" / "workflow-config.json").read_text(encoding="utf-8"))
+            raw = (wf_cfg.get("indexing") or {}).get("project_include_prefixes", {})
+            if isinstance(raw, dict):
+                raw = raw.get("code") or []
+            if isinstance(raw, list):
+                code_prefixes = tuple(str(p) for p in raw if p)
+        except Exception:
+            pass
         files = indexer.walk_repo(root, respect_ignore=True)
         files = [path for path in files if not indexer._is_relative_to(path, project_index_dir)]
-        files = indexer._filter_project_index_excludes(files, root, (), project_include_prefixes=())
+        files = indexer._filter_project_index_excludes(files, root, (), project_include_prefixes=code_prefixes)
         files = [
             path
             for path in files
@@ -540,11 +570,15 @@ class SnapshotStore:
             r / "docs" / "prompts" / "prompt-surface-manifest.json",
             r / ".wavefoundry" / "index" / "index-build.json",
             r / ".wavefoundry" / "index" / "index-build.log",
+            r / ".wavefoundry" / "index" / "index-build-docs.log",
+            r / ".wavefoundry" / "index" / "index-build-code.log",
+            r / ".wavefoundry" / "index" / "index-build-all.log",
             r / ".wavefoundry" / "index" / "background-build.pid",
             r / ".wavefoundry" / "index" / "background-build.log",
             r / ".wavefoundry" / "index" / "index-build-stats.json",
             r / ".wavefoundry" / "framework" / "index" / "index-build.json",
-            r / ".wavefoundry" / "framework" / "index" / "index-build.log",
+            r / ".wavefoundry" / "framework" / "index" / "index-build-docs.log",
+            r / ".wavefoundry" / "framework" / "index" / "index-build-all.log",
             r / ".wavefoundry" / "framework" / "index" / "index-build-stats.json",
         ]
 
@@ -823,6 +857,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return self._send_asset(path.lstrip("/"), ct)
         if path == "/api/events":
             return self._handle_sse()
+        if path == "/api/doc":
+            return self._handle_doc()
         snapshot = self._store.get()
         if path == "/api/dashboard":
             return self._send_json(snapshot)
@@ -831,6 +867,57 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/project":
             return self._send_json(snapshot.get("project", {}))
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+
+    def _handle_doc(self) -> None:
+        """Serve raw markdown for a wave or change document."""
+        params = parse_qs(urlparse(self.path).query)
+        doc_type  = (params.get("type") or [""])[0]
+        doc_id    = unquote((params.get("id")   or [""])[0]).strip()
+        wave_id   = unquote((params.get("wave") or [""])[0]).strip()
+        doc_path  = unquote((params.get("path") or [""])[0]).strip()
+
+        root      = self._store._root
+        docs_root = (root / "docs").resolve()
+
+        if doc_type == "wave" and doc_id:
+            target = root / "docs" / "waves" / doc_id / "wave.md"
+        elif doc_type == "change" and doc_id and doc_path:
+            # Prefer the explicit path from the change record (works for both
+            # wave-scoped and plan-scoped changes).
+            target = root / doc_path
+        elif doc_type == "change" and doc_id and wave_id:
+            # Fallback: reconstruct path from wave_id (legacy callers).
+            target = root / "docs" / "waves" / wave_id / f"{doc_id}.md"
+        else:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Missing or invalid type/id parameters")
+            return
+
+        # Security: resolved path must stay within docs/ and be a markdown file.
+        try:
+            target.resolve().relative_to(docs_root)
+        except ValueError:
+            self.send_error(HTTPStatus.FORBIDDEN, "Path traversal denied")
+            return
+        if target.suffix.lower() != ".md":
+            self.send_error(HTTPStatus.FORBIDDEN, "Only markdown files are served")
+            return
+
+        try:
+            text = target.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            self.send_error(HTTPStatus.NOT_FOUND, "Document not found")
+            return
+        except OSError as exc:
+            self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
+            return
+
+        data = text.encode("utf-8")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
 
     def log_message(self, fmt: str, *args: Any) -> None:
         _dashboard_log(fmt % args, context=self.address_string())

@@ -1002,9 +1002,10 @@ Use this checklist when intentionally editing the wave framework or repo-local w
 ## Verification sequence
 
 1. Run framework tests when the test suite is present (development installs only — not included in distribution packs): `python3 -B .wavefoundry/framework/scripts/run_tests.py` (skip if `run_tests.py` does not exist)
-2. `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py`
-3. `.wavefoundry/bin/docs-gardener`
-4. `.wavefoundry/bin/docs-lint`
+2. `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` (hooks, MCP, bin launchers, and `render_agent_surfaces.py` when `docs/agents/guru.md` exists)
+3. Backfill `AGENTS.md` auto-Guru tier-1 sections per `seed-050` when missing; ensure `docs/agents/guru.md` exists; re-run step 2 if tier-1 was just added
+4. `.wavefoundry/bin/docs-gardener`
+5. `.wavefoundry/bin/docs-lint`
 
 ## Guardrails
 
@@ -1105,6 +1106,9 @@ def main(argv: list[str] | None = None) -> int:
         remove_copilot_artifacts(repo_root)
     for platform in sorted(platforms):
         render_platform_entrypoints(repo_root, platform)
+    from render_agent_surfaces import render_agent_surfaces
+
+    render_agent_surfaces(repo_root)
     render_bin_launchers(repo_root)
     render_git_hooks(repo_root)
     for ds in repo_root.rglob(".DS_Store"):

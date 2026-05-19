@@ -2411,6 +2411,46 @@ class TreeSitterChunkerTests(unittest.TestCase):
         self.assertTrue(any("A.foo" in i for i in ids), f"A.foo missing from {ids}")
         self.assertTrue(any("B.bar" in i for i in ids), f"B.bar missing from {ids}")
 
+    @unittest.skipUnless(
+        importlib.util.find_spec("tree_sitter_swift") is not None,
+        "tree-sitter-swift not installed",
+    )
+    def test_ts_swift_chunker_extracts_class_and_method(self):
+        source = textwrap.dedent("""\
+            import Foundation
+
+            class Foo {
+                func bar() -> Int { return 1 }
+            }
+        """)
+        result = self.chunker.chunk_swift_treesitter(source, "src/Foo.swift")
+        self.assertIsNotNone(result)
+        ids = [c.id for c in result]
+        self.assertTrue(any("Foo" in i for i in ids))
+        self.assertTrue(any("bar" in i for i in ids))
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("tree_sitter_objc") is not None,
+        "tree-sitter-objc not installed",
+    )
+    def test_ts_objc_chunker_extracts_method(self):
+        source = textwrap.dedent("""\
+            @implementation Foo
+            - (void)bar {
+            }
+            @end
+        """)
+        result = self.chunker.chunk_objc_treesitter(source, "src/Foo.m")
+        self.assertIsNotNone(result)
+        ids = [c.id for c in result]
+        self.assertTrue(any("bar" in i for i in ids))
+
+    def test_chunk_file_swift_returns_chunks_without_grammar(self):
+        source = "class Foo { func bar() {} }"
+        result = self.chunker.chunk_file(source, "src/Foo.swift")
+        self.assertTrue(len(result) > 0)
+        self.assertTrue(any(c.kind == "code" for c in result))
+
 
 class PromptChunkerTests(unittest.TestCase):
     """Tests for kind="prompt" chunking behaviour (wave 12cv4)."""
@@ -2682,12 +2722,12 @@ class DocSummaryChunkTests(unittest.TestCase):
         source = (
             "# Agent Prompt\n\n"
             "## Purpose\n\n"
-            "The CIA is the team's most knowledgeable resource on the codebase. More detail here.\n\n"
+            "Guru is the team's most knowledgeable resource on the codebase. More detail here.\n\n"
             "## Retrieval Loop\n\nSteps.\n"
         )
         chunks = self.chunker.chunk_file(source, "docs/prompts/agents/cia.prompt.md")
         summary = next(c for c in chunks if c.kind == "doc-summary")
-        self.assertIn("The CIA is the team's most knowledgeable resource on the codebase.", summary.text)
+        self.assertIn("Guru is the team's most knowledgeable resource on the codebase.", summary.text)
         # Must not include the full paragraph
         self.assertNotIn("More detail here", summary.text)
 
@@ -2757,7 +2797,7 @@ class InferTagsTests(unittest.TestCase):
         self.assertIn("prompt", tags)
 
     def test_agent_tag_from_docs_agents(self):
-        tags = self.chunker._infer_tags("docs/agents/journals/code-insight-agent.md")
+        tags = self.chunker._infer_tags("docs/agents/journals/guru.md")
         self.assertIn("agent", tags)
         self.assertIn("journal", tags)
 
@@ -2778,7 +2818,7 @@ class InferTagsTests(unittest.TestCase):
         self.assertIn("prompt", tags)
 
     def test_seed_and_framework_tags(self):
-        tags = self.chunker._infer_tags(".wavefoundry/framework/seeds/211-code-insight-agent.prompt.md")
+        tags = self.chunker._infer_tags(".wavefoundry/framework/seeds/211-guru.prompt.md")
         self.assertIn("seed", tags)
         self.assertIn("framework", tags)
 

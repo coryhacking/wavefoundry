@@ -55,7 +55,7 @@ Verify that the MCP Server "Inbound Deps" entry in `docs/architecture/domain-map
 When reviewing changes to repository, service, or data-access layers that interact with a database:
 - Require evidence that the underlying schema has been verified — table columns, types, constraints (PRIMARY KEY, UNIQUE, FOREIGN KEY, CHECK), and indexes must be consistent with the claimed behavior change.
 - Flag changes that add or modify data-access patterns (new query, new stored procedure call, new ORM method, modified DML) without a corresponding schema verification.
-- The standard evidence source is a CIA call-chain trace to the data layer followed by a full read of the relevant schema definition (migration file, ORM model, or schema directory). Request this if it is absent from the review package.
+- The standard evidence source is a Guru call-chain trace to the data layer followed by a full read of the relevant schema definition (migration file, ORM model, or schema directory). Request this if it is absent from the review package.
 
 ## Verdict Format
 
@@ -64,6 +64,16 @@ Return one of: `approved`, `approved-with-notes`, or `needs-revision` with:
 - For each finding: file, line range, which rule or decision record was violated, and recommended fix.
 - **Missing Architecture Docs**: if any of the files listed under *What to Read First* are absent, list them here as advisory findings. Do not block on absent docs — assign `low` severity unless their absence leaves the reviewer unable to assess a specific risk.
 - For approvals: a one-line confirmation of which architecture docs were consulted and that no boundary, layer, or decision violations were found.
+
+## Guru architecture write-up packages
+
+When **Guru** escalates a deep technical question to `docs/architecture/<topic>.md`, review the **draft document** (not only a code diff):
+
+- Verify layer and boundary claims against `docs/architecture/layering-rules.md` and `docs/architecture/domain-map.md`
+- Request updates to hub child docs and `docs/architecture/data-and-control-flow.md` when the draft changes documented integration edges
+- Return a standard lane verdict (`approved`, `approved-with-notes`, or `needs-revision`)
+
+Guru must not treat the write-up as complete until this review finishes. When `wave_council_policy.enabled` is true, Guru must also **consult council-moderator** after architecture-reviewer; this lane does not substitute for Wave Council.
 
 ## What This Lane Does Not Cover
 

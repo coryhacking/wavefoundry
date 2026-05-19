@@ -61,17 +61,35 @@ def _determine_dispatch(chunker, suffix: str) -> str:
             return "regex (shell)"
         return "tree-sitter (bash)" if chunker._TS_AVAILABLE else "regex (bash)"
     if s in getattr(chunker, "SCALA_EXTENSIONS", set()):
-        return "regex (scala)"
+        return "tree-sitter (scala)" if chunker._TS_AVAILABLE else "regex (scala)"
     if s in getattr(chunker, "SWIFT_EXTENSIONS", set()):
-        return "regex (swift)"
+        return "tree-sitter (swift)" if chunker._TS_AVAILABLE else "regex (swift)"
     if s in getattr(chunker, "OBJC_EXTENSIONS", set()):
-        return "regex (objc)"
+        return "tree-sitter (objc)" if chunker._TS_AVAILABLE else "regex (objc)"
     if s in getattr(chunker, "SQL_EXTENSIONS", set()):
-        return "regex (sql)"
+        return "tree-sitter (sql)" if chunker._TS_AVAILABLE else "regex (sql)"
     if s in getattr(chunker, "HTML_EXTENSIONS", set()):
-        return "regex (html)"
+        return "tree-sitter (html)" if chunker._TS_AVAILABLE else "regex (html)"
     if s in getattr(chunker, "XML_EXTENSIONS", set()):
-        return "regex (xml)"
+        return "tree-sitter (xml)" if chunker._TS_AVAILABLE else "regex (xml)"
+    if s in getattr(chunker, "RUBY_EXTENSIONS", set()):
+        return "tree-sitter (ruby)" if chunker._TS_AVAILABLE else "line-window"
+    if s in getattr(chunker, "PHP_EXTENSIONS", set()):
+        return "tree-sitter (php)" if chunker._TS_AVAILABLE else "line-window"
+    if s in getattr(chunker, "YAML_EXTENSIONS", set()):
+        return "tree-sitter (yaml)" if chunker._TS_AVAILABLE else "line-window"
+    if s in getattr(chunker, "TOML_EXTENSIONS", set()):
+        return "tree-sitter (toml)" if chunker._TS_AVAILABLE else "line-window"
+    if s in getattr(chunker, "JSON_EXTENSIONS", set()):
+        return "tree-sitter (json)" if chunker._TS_AVAILABLE else "line-window"
+    if s in getattr(chunker, "CSS_EXTENSIONS", set()):
+        return "tree-sitter (css)" if chunker._TS_AVAILABLE else "line-window"
+    if s in getattr(chunker, "SCSS_EXTENSIONS", set()):
+        return "tree-sitter (scss)" if chunker._TS_AVAILABLE else "line-window"
+    if s in getattr(chunker, "POWERSHELL_EXTENSIONS", set()):
+        return "tree-sitter (powershell)" if chunker._TS_AVAILABLE else "line-window"
+    if s in getattr(chunker, "HCL_INDEX_EXTENSIONS", set()):
+        return "tree-sitter (hcl)" if chunker._TS_AVAILABLE else "line-window"
     if s in getattr(chunker, "TEXT_EXTENSIONS", set()):
         return "plain-text"
     if s in chunker.CODE_EXTENSIONS:

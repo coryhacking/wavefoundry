@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-15
+Last verified: 2026-05-18
 
 Actor: wave-coordinator
 Schema version: 1.0
@@ -104,6 +104,9 @@ wave-id: `12g47 dashboard-framework`
 - Retire entries when the constraint is no longer load-bearing. Delete retired entries after one wave cycle.
 
 ## Active Waves
+
+wave-id: `12pn3 search-retrieval-quality`
+- Planned 2026-05-17: five retrieval quality improvements — jina-v2-base-code for CODE_MODEL, LanceDB hybrid FTS+dense retrieval, chunk context enrichment at embed time, bge-reranker-v2-m3 upgrade with score propagation, and nomic-embed-text-v1.5-Q evaluation with EMBEDDING_PREFIXES infrastructure.
 
 wave-id: `12nbr code-intelligence-expansion`
 - Five code-intelligence changes: `code_callhierarchy`, LanceDB vector index, `code_hover`, `code_impact`, `code_outline` TS/SQL bug fix. Status: planned. Bug fix (`12nbp`) is independently deployable and highest-priority.

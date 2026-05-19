@@ -19,3 +19,4 @@ if ! command -v codex >/dev/null 2>&1; then
   exit 127
 fi
 exec codex mcp add "$SERVER_NAME" -- python3 "$REPO_ROOT/.wavefoundry/framework/scripts/server.py" --root "$REPO_ROOT"
+    

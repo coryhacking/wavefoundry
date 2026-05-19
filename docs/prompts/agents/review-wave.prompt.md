@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-15
+Last verified: 2026-05-18
 
 ## Context
 
@@ -22,9 +22,9 @@ You are running **Review wave** on Wavefoundry.
 
 When `wave_council_policy.enabled` is true, Wavefoundry also requires a delivery-phase council pass. The council seats review the delivered implementation and specialist findings in isolation, then `council-moderator` records `wave-council-delivery` in `## Review Evidence` and summarizes the tradeoffs in `## Review checkpoints`.
 
-## CIA Orientation
+## Guru Orientation
 
-All reviewer lanes have direct access to CIA tools — use them to verify claims without reading entire files:
+All reviewer lanes have direct access to Guru tools — use them to verify claims without reading entire files:
 
 | Need | Tool |
 |------|------|

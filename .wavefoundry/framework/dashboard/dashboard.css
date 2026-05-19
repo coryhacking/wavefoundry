@@ -653,6 +653,24 @@ td .wave-change-id {
   line-height: 1.45;
 }
 
+.wave-change-desc p,
+.timeline p {
+  margin: 0;
+}
+
+.wave-change-desc code,
+.timeline code,
+.metric-dialog-ac-text code,
+.doc-dialog-body code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.85em;
+  font-weight: 600;
+  background: var(--surface-raised, var(--surface));
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
 /* ── Pending wave rows ───────────────────────────────────────────────────── */
 
 .waves-section-label {
@@ -1545,7 +1563,8 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
 
 .agent-dialog-title {
   font-family: var(--font-heading);
-  font-size: 1.3rem;
+  font-size: 1.5rem;
+  font-weight: 700;
   margin: 0 0 var(--space-2);
   letter-spacing: -0.02em;
 }
@@ -2100,4 +2119,163 @@ html[data-theme="dark"] .index-build-badge--stale {
 html[data-theme="dark"] .index-build-badge--current {
   background: rgba(64, 163, 233, 0.10);
   border-color: rgba(64, 163, 233, 0.22);
+}
+
+/* ── Doc dialog header meta ──────────────────────────────────────────────── */
+
+.dialog-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.dialog-meta-row .status-badge {
+  font-size: 0.85rem;
+  padding: 0.2em 0.6em;
+}
+
+.dialog-meta-pill {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+/* ── Clickable IDs ────────────────────────────────────────────────────────── */
+
+.id-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.15s;
+}
+
+.id-link:hover,
+.id-link:focus-visible {
+  text-decoration-color: currentColor;
+  outline: none;
+}
+
+.id-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+  text-decoration-color: transparent;
+}
+
+/* Change table cell — reset button so it fills the td */
+.change-id-cell {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0;
+}
+
+/* ── Doc dialog ───────────────────────────────────────────────────────────── */
+
+.agent-dialog-subtitle {
+  font-size: 0.85rem;
+  display: block;
+}
+
+.doc-dialog .agent-dialog-subtitle {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.doc-dialog {
+  max-width: min(860px, 95vw);
+  width: min(860px, 95vw);
+}
+
+.doc-dialog-body {
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.doc-dialog-body h1 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 2px solid var(--border);
+  color: var(--text);
+}
+
+.doc-dialog-body h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 1.4rem 0 0.4rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.doc-dialog-body h3 {
+  font-size: 0.98rem;
+  font-weight: 600;
+  margin: 1rem 0 0.3rem;
+  color: var(--text);
+}
+
+.doc-dialog-body p {
+  margin: 0.4rem 0 0.7rem;
+  color: var(--text);
+}
+
+.doc-dialog-body ul {
+  margin: 0.3rem 0 0.7rem 1.4rem;
+  padding: 0;
+}
+
+.doc-dialog-body li {
+  margin-bottom: 0.25rem;
+}
+
+.doc-dialog-body pre {
+  background: var(--surface-raised, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin: 0.5rem 0 0.9rem;
+}
+
+.doc-dialog-body pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 1em;
+  font-weight: inherit;
+}
+
+.doc-dialog-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.87rem;
+  margin: 0.5rem 0 0.9rem;
+}
+
+.doc-dialog-body th,
+.doc-dialog-body td {
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.doc-dialog-body th {
+  background: var(--surface-raised, var(--surface));
+  font-weight: 600;
 }

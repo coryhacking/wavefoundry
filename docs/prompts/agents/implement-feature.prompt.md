@@ -2,20 +2,20 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-15
+Last verified: 2026-05-18
 
 ## Context
 
 You are running **Implement feature** on Wavefoundry (single-change path).
 
-## CIA Orientation
+## Guru Orientation
 
 Before writing code, confirm the target exists and identify the dominant pattern:
 
 ```
-code_definition(symbol)        # does this already exist?
-code_references(symbol)        # who calls it — is this a shared contract?
-code_keyword(pattern)   # are there similar implementations to follow?
+code_definition(symbol) # does this already exist?
+code_references(symbol) # who calls it — is this a shared contract?
+code_keyword(pattern) # are there similar implementations to follow?
 ```
 
 This avoids duplicating existing logic and ensures the implementation matches the dominant pattern. If MCP is not available, use `grep -rn "def symbol\|class symbol" .` and `grep -rn "symbol" .` filtered to call sites.

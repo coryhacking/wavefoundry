@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-05-18
 
 ## Context
 
@@ -31,14 +31,14 @@ You are running **Prepare wave** on Wavefoundry. This is the stage gate for impl
 
 When Wave Council is enabled, fixed seats are `architecture-reviewer`, `security-reviewer`, `qa-reviewer`, and `reality-checker`; the fifth seat rotates from wave evidence.
 
-## CIA Orientation
+## Guru Orientation
 
-During scope assessment (step 2), use the CIA to answer "what does X currently do?" and "which files are affected?" without launching full file reads:
+During scope assessment (step 2), use Guru to answer "what does X currently do?" and "which files are affected?" without launching full file reads:
 
 ```
-code_search(topic, kind="code-summary", limit=5)   # which modules are in scope?
-code_dependencies(path)                             # what does the target file import/export?
-code_ask("what are the entry points for X?")        # cross-cutting questions; use final_rank/demoted to interpret reordered citations
+code_search(topic, kind="code-summary", limit=5) # which modules are in scope?
+code_dependencies(path) # what does the target file import/export?
+code_ask("what are the entry points for X?") # cross-cutting questions; use final_rank/demoted to interpret reordered citations
 ```
 
 This speeds up the Affected Architecture Docs check and helps select accurate review lanes. If MCP is not available, use `grep -n "^import\|^from" <path>` for dependencies and `grep -r "keyword" .` for module discovery.

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-14
+Last verified: 2026-05-18
 
 Public shortcut phrase catalog for Wavefoundry. See `AGENTS.md` for the routing table.
 
@@ -39,7 +39,7 @@ This prompt surface follows `.wavefoundry/framework/seeds/020-run-contract.promp
 | **Close wave** | Finalize wave with closure reconciliation | `docs/prompts/close-wave.prompt.md` |
 | **Finalize feature** | Single-change closure path | `docs/prompts/finalize-feature.prompt.md` |
 | **Interrogate this plan** | Stress-test a change doc before admission | `docs/prompts/interrogate-plan.prompt.md` |
-| **Code insight** | Ask a natural-language question about the codebase; returns cited answer, next-hop citations, and rank metadata (`final_rank`, `demoted`) | `docs/agents/code-insight-agent.md` — MCP: `code_ask(question)` |
+| **Guru** | Ask a natural-language question about the codebase; returns cited answer, next-hop citations, and rank metadata (`final_rank`, `demoted`) | `docs/agents/guru.md` — MCP: `code_ask(question)` |
 
 ## Wavefoundry Maintainer Commands
 
@@ -58,7 +58,7 @@ The following phrases are accepted for backwards compatibility but redirect to p
 | Upgrade wave context | Upgrade wave framework |
 | Install wave framework / Install wave context | Init wave framework (greenfield) or Upgrade wave framework (already seeded) |
 | Package wave framework / Package wave context | Package Wavefoundry |
-| Ask codebase / Ask CIA | Code insight |
+| Ask codebase / Ask CIA / Code insight | Guru |
 
 ## Usage Notes
 
@@ -68,7 +68,7 @@ The following phrases are accepted for backwards compatibility but redirect to p
 - **Concurrency and protected surfaces:** See `docs/prompts/agent-routing-concurrency.prompt.md` for read-only vs write-owning lane rules.
 - **Stress-testing plans:** After **Plan feature**, use **Interrogate this plan** to walk unresolved decision branches before admission.
 - **MCP freshness workflow:** Use `wave_audit` for a combined read-only post-change check; `wave_validate` for docs lint; `wave_garden` for metadata-only refresh; `wave_index_health` to decide whether search is ready, stale, missing, or degraded; `wave_index_build_status` only to poll a detached refresh; `wave_index_build` when you need a deterministic update or rebuild.
-- **Code insight output:** `code_ask` citations preserve the reranker `score`, but `final_rank` reflects the post-partition order. When `demoted: true` is present, the citation was intentionally pushed behind stronger implementation evidence. Do not treat score order and output order as the same thing.
+- **Guru output:** `code_ask` citations preserve the reranker `score`, but `final_rank` reflects the post-partition order. When `demoted: true` is present, the citation was intentionally pushed behind stronger implementation evidence. Do not treat score order and output order as the same thing.
 - **Wavefoundry self-hosting:** When editing framework seeds, use **Package Wavefoundry** to produce a distribution and **Upgrade wave framework** in a target repo to consume it.
 
 ## Internal Agent-Oriented Prompt Bodies
@@ -77,7 +77,7 @@ Supporting agent-oriented prompt bodies live under `docs/prompts/agents/`. These
 
 | File | Lane |
 |------|------|
-| `docs/agents/code-insight-agent.md` | CIA / `code_ask` retrieval agent — canonical role doc |
+| `docs/agents/guru.md` | Guru / `code_ask` retrieval agent — canonical role doc |
 | `docs/prompts/agents/performance-reviewer.prompt.md` | `performance-reviewer` |
 | `docs/prompts/agents/security-reviewer.prompt.md` | `security-reviewer` |
 

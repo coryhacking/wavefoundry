@@ -2,20 +2,20 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-05-18
 
 ## Context
 
 You are running **Implement wave** on Wavefoundry as the wave-coordinator.
 
-## CIA Orientation
+## Guru Orientation
 
 Before the first edit, run an orientation pass per change:
 
 ```
-code_search(topic, kind="code-summary", limit=5)   # which modules are in scope?
-code_definition(symbol)                             # does the target already exist?
-code_references(symbol)                             # who are the callers?
+code_search(topic, kind="code-summary", limit=5) # which modules are in scope?
+code_definition(symbol) # does the target already exist?
+code_references(symbol) # who are the callers?
 ```
 
 Use `code_ask` for open-ended questions ("how does X currently work?") when the answer requires synthesizing multiple files. When `partition_applied` is true, use `final_rank` rather than `score` to read the ordered citations, and treat `demoted: true` as an intentional policy reorder rather than a ranking bug. Ground the ordered lane sequence in indexed evidence before assigning implementation tasks. If MCP is not available, use `grep -rn "symbol" .` and `grep -n "^import\|^from" <path>`.

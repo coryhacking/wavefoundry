@@ -18,9 +18,8 @@ REQUIRED_IMPORTS = {
     "fastembed": "fastembed",
     "numpy": "numpy",
     "mcp[cli]": "mcp",
-    # Tree-sitter grammars for AST-accurate code chunking (JS/TS, Go, Rust, Java, C/C++, C#, Bash, SQL).
-    # chunker.py falls back to regex chunkers if these are absent, so they are technically optional
-    # at runtime — but including them here ensures they are installed alongside fastembed/numpy.
+    # Tree-sitter grammars for AST-accurate code chunking. chunker.py falls back to regex /
+    # line-window chunkers when a grammar is absent.
     "tree-sitter>=0.24,<0.26": "tree_sitter",
     "tree-sitter-typescript": "tree_sitter_typescript",
     "tree-sitter-javascript": "tree_sitter_javascript",
@@ -33,6 +32,21 @@ REQUIRED_IMPORTS = {
     "tree-sitter-bash": "tree_sitter_bash",
     "tree-sitter-kotlin": "tree_sitter_kotlin",
     "tree-sitter-sql": "tree_sitter_sql",
+    "tree-sitter-swift": "tree_sitter_swift",
+    "tree-sitter-objc": "tree_sitter_objc",
+    "tree-sitter-hcl": "tree_sitter_hcl",
+    "tree-sitter-scss": "tree_sitter_scss",
+    "tree-sitter-make": "tree_sitter_make",
+    "tree-sitter-scala": "tree_sitter_scala",
+    "tree-sitter-html": "tree_sitter_html",
+    "tree-sitter-xml": "tree_sitter_xml",
+    "tree-sitter-ruby": "tree_sitter_ruby",
+    "tree-sitter-php": "tree_sitter_php",
+    "tree-sitter-yaml": "tree_sitter_yaml",
+    "tree-sitter-toml": "tree_sitter_toml",
+    "tree-sitter-json": "tree_sitter_json",
+    "tree-sitter-css": "tree_sitter_css",
+    "tree-sitter-powershell": "tree_sitter_powershell",
     "lancedb": "lancedb",
 }
 

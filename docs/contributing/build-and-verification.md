@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-16
+Last verified: 2026-05-18
 
 ## Verification Commands
 
@@ -158,6 +158,17 @@ python3 .wavefoundry/framework/scripts/run_tests.py
 - MCP recovery tools from the upgraded server are available:
   - `wave_audit` (combined wave + lint + index check)
   - `wave_index_build` (deterministic project/framework index rebuild path)
+
+**Auto-Guru routing (agents — apply on every upgrade when Guru is in the pack):**
+
+Agents running **Upgrade wave framework** must follow `docs/prompts/upgrade-wavefoundry.prompt.md` § **Agent surfaces and auto-Guru** and `seed-160` § **Agent surfaces and auto-Guru upgrade (agent procedure)**.
+
+1. Run `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` (includes `render_agent_surfaces.py`).
+2. Backfill `AGENTS.md` tier-1 sections (**Codebase and documentation questions (auto-Guru)**, **Agent platform routing**) when missing.
+3. Ensure `docs/agents/guru.md` exists; migrate legacy CIA paths when needed.
+4. Re-run the renderer after tier-1 backfill if it was just added.
+5. Confirm generated files: `.codex/skills/auto-guru/SKILL.md`; `.cursor/rules/auto-guru.mdc` and `.claude/agents/guru.md` when those host dirs exist; tier-2 marker blocks on thin pointers per `docs/agents/platform-mapping.md`.
+6. Do not hand-edit `<!-- waveframework:auto-guru begin` … `end -->` regions — fix templates in `render_agent_surfaces.py` instead.
 
 **Upgrade index rule:** the framework index is shipped inside the pack. On an ordinary target-repo upgrade, update the project index after restart, but do not rebuild the framework layer unless `CHUNKER_VERSION` changed, the shipped framework index is missing/corrupt, or you are intentionally reindexing the Wavefoundry source repo itself.
 

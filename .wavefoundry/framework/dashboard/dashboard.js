@@ -441,7 +441,7 @@ function WaveLanes({ participants }) {
   );
 }
 
-function WaveChangeList({ changes }) {
+function WaveChangeList({ changes, waveId, onChangeClick }) {
   if (!changes?.length) return null;
   return h("div", { className: "wip-section" },
     h("div", { className: "wip-section-label" }, "Changes"),
@@ -449,17 +449,23 @@ function WaveChangeList({ changes }) {
       changes.map((c, i) =>
         h("li", { key: i, className: "wave-change-item" },
           h("div", { className: "wave-change-header" },
-            h("span", { className: "wave-change-id" }, c.id),
+            onChangeClick
+              ? h("button", {
+                  className: "wave-change-id id-link",
+                  onClick: () => onChangeClick({ change_id: c.id, wave_id: waveId, title: c.title }),
+                  title: "View change document",
+                }, c.id)
+              : h("span", { className: "wave-change-id" }, c.id),
             h("span", { className: "wave-change-title" }, c.title),
           ),
-          c.description ? h("div", { className: "wave-change-desc muted" }, c.description) : null,
+          c.description ? h("div", { className: "wave-change-desc muted" }, ...renderMarkdownish(c.description)) : null,
         )
       ),
     ),
   );
 }
 
-function OpenWaveCard({ wave, allChanges, handoffWaveId }) {
+function OpenWaveCard({ wave, allChanges, handoffWaveId, onWaveClick, onChangeClick }) {
   const waveChanges = allChanges.filter(c => c.wave_id === wave.wave_id);
   const { tasksTotal, tasksDone, acTotals, acDone } = waveStats(waveChanges);
   const acStats = acProgressStats(waveChanges);
@@ -467,7 +473,11 @@ function OpenWaveCard({ wave, allChanges, handoffWaveId }) {
   return h("div", { className: "open-wave-card" },
     h("div", { className: "status-row" },
       h("div", null,
-        h("strong", { className: "open-wave-id" }, wave.wave_id),
+        h("button", {
+          className: "open-wave-id id-link",
+          onClick: onWaveClick ? () => onWaveClick(wave) : undefined,
+          title: "View wave document",
+        }, wave.wave_id),
         h("div", { className: "open-wave-title" }, wave.title),
       ),
       h("div", { className: "open-wave-meta" },
@@ -476,7 +486,7 @@ function OpenWaveCard({ wave, allChanges, handoffWaveId }) {
         h("span", { className: "muted open-wave-count" }, `${wave.change_count} ${p(wave.change_count, "change", "changes")}`),
       ),
     ),
-    h(WaveChangeList, { changes: wave.changes }),
+    h(WaveChangeList, { changes: wave.changes, waveId: wave.wave_id, onChangeClick }),
     h(WaveAcs, { acTotals, acDone, acStats }),
     h(WaveTasks, { tasksTotal, tasksDone }),
     h(WaveEvidence, { evidence: wave.review_evidence }),
@@ -484,10 +494,14 @@ function OpenWaveCard({ wave, allChanges, handoffWaveId }) {
   );
 }
 
-function PendingWaveRow({ wave }) {
+function PendingWaveRow({ wave, onWaveClick }) {
   return h("div", { className: "pending-wave-row" },
     h("div", { className: "pending-wave-left" },
-      h("span", { className: "open-wave-id" }, wave.wave_id),
+      h("button", {
+        className: "open-wave-id id-link",
+        onClick: onWaveClick ? () => onWaveClick(wave) : undefined,
+        title: "View wave document",
+      }, wave.wave_id),
       wave.title ? h("span", { className: "pending-wave-title" }, wave.title) : null,
     ),
     h("div", { className: "open-wave-meta" },
@@ -497,7 +511,7 @@ function PendingWaveRow({ wave }) {
   );
 }
 
-function WavesCard({ waves, allChanges, handoffWaveId }) {
+function WavesCard({ waves, allChanges, handoffWaveId, onWaveClick, onChangeClick }) {
   const active  = activeWaves(waves);
   const pending = pendingWaves(waves);
   const closed  = waves.filter(w => waveStatus(w) === "closed").length;
@@ -505,11 +519,11 @@ function WavesCard({ waves, allChanges, handoffWaveId }) {
   return h("article", { className: "table-card", "aria-label": "Waves" },
     h("h2", null, "Waves"),
     active.length
-      ? active.map(wave => h(OpenWaveCard, { key: wave.wave_id, wave, allChanges, handoffWaveId }))
+      ? active.map(wave => h(OpenWaveCard, { key: wave.wave_id, wave, allChanges, handoffWaveId, onWaveClick, onChangeClick }))
       : h("div", { className: "empty-state" }, "No active waves."),
     pending.length ? h(React.Fragment, null,
       h("div", { className: "waves-section-label" }, `${pending.length} pending`),
-      pending.map(wave => h(PendingWaveRow, { key: wave.wave_id, wave })),
+      pending.map(wave => h(PendingWaveRow, { key: wave.wave_id, wave, onWaveClick })),
     ) : null,
     closed ? h("p", { className: "muted", style: { marginTop: "var(--space-3)" } },
       `${closed} closed ${p(closed, "wave", "waves")}.`
@@ -657,7 +671,7 @@ function FileTree({ node, depth = 0 }) {
   );
 }
 
-function DialogFrame({ className, title, subtitle, onClose, children }) {
+function DialogFrame({ className, title, subtitle, meta, onClose, children }) {
   const dialogRef = useRef(null);
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -672,7 +686,12 @@ function DialogFrame({ className, title, subtitle, onClose, children }) {
     h("div", { className: "agent-dialog-header" },
       h("div", null,
         h("h2", { className: "agent-dialog-title" }, title),
-        subtitle ? h("span", { className: "muted", style: { fontSize: "0.85rem" } }, subtitle) : null,
+        subtitle ? h("span", { className: "agent-dialog-subtitle muted" }, subtitle) : null,
+        meta?.length ? h("div", { className: "dialog-meta-row" },
+          meta.map((item, i) =>
+            h("span", { key: i, className: item.cls || "dialog-meta-pill" }, item.value)
+          ),
+        ) : null,
       ),
       h("button", { className: "agent-dialog-close", "aria-label": "Close", onClick: onClose }, "×"),
     ),
@@ -735,7 +754,7 @@ function AcsDialog({ snapshot, onClose }) {
           items.map((ac, i) =>
             h("div", { key: i, className: `metric-dialog-ac-item${ac.done ? " metric-dialog-ac-item--done" : ""}` },
               h("span", { className: `metric-dialog-ac-check${ac.done ? " metric-dialog-ac-check--done" : ""}` }, ac.done ? "✓" : "○"),
-              h("span", { className: "metric-dialog-ac-text" }, ac.text),
+              h("span", { className: "metric-dialog-ac-text" }, renderInline(ac.text || "")),
               ac.priority && ac.priority !== "unknown"
                 ? h("span", { className: `status-badge ${PRIORITY_BADGE[ac.priority] || "status-unknown"} metric-dialog-ac-priority` }, ac.priority)
                 : null,
@@ -762,7 +781,7 @@ function TasksDialog({ snapshot, onClose }) {
           items.map((task, i) =>
             h("div", { key: i, className: `metric-dialog-ac-item${task.done ? " metric-dialog-ac-item--done" : ""}` },
               h("span", { className: `metric-dialog-ac-check${task.done ? " metric-dialog-ac-check--done" : ""}` }, task.done ? "✓" : "○"),
-              h("span", { className: "metric-dialog-ac-text" }, task.label),
+              h("span", { className: "metric-dialog-ac-text" }, renderInline(task.label || "")),
             )
           ),
         ),
@@ -899,13 +918,23 @@ function IndexSection({ label, idx }) {
     h("div", { className: "index-meta-row" },
       age    ? h("span", { className: "index-meta-pill" }, `built ${age}`) : null,
       elapsed ? h("span", { className: "index-meta-pill" }, `${elapsed}${idx.mode ? ` ${idx.mode}` : ""}`) : null,
-      idx.model ? h("span", { className: "index-meta-pill index-meta-pill--model" }, idx.model) : null,
+      (() => {
+        const dm = idx.docs_model, cm = idx.code_model;
+        if (dm && cm && dm !== cm) {
+          return [
+            h("span", { className: "index-meta-pill index-meta-pill--model", key: "dm" }, `docs: ${dm}`),
+            h("span", { className: "index-meta-pill index-meta-pill--model", key: "cm" }, `code: ${cm}`),
+          ];
+        }
+        const single = dm || cm || idx.model;
+        return single ? h("span", { className: "index-meta-pill index-meta-pill--model" }, single) : null;
+      })(),
     ),
     buildBadge,
   );
 }
 
-function ChangesTable({ changes, title }) {
+function ChangesTable({ changes, title, onChangeClick }) {
   const CAP = 15;
   const doneCount = changes.filter(c => isDone(c.status)).length;
   const pending   = changes.filter(c => !isDone(c.status));
@@ -940,10 +969,16 @@ function ChangesTable({ changes, title }) {
           shown.map(c =>
             h("tr", { key: c.change_id },
               h("td", null,
-                h("div", { className: "wave-change-id" },
-                  c.change_id.split("-").flatMap((part, i) => i === 0 ? [part] : ["-", h("wbr", { key: i }), part]),
+                h("button", {
+                  className: "change-id-cell id-link",
+                  onClick: onChangeClick ? () => onChangeClick(c) : undefined,
+                  title: "View change document",
+                },
+                  h("div", { className: "wave-change-id" },
+                    c.change_id.split("-").flatMap((part, i) => i === 0 ? [part] : ["-", h("wbr", { key: i }), part]),
+                  ),
+                  h("div", { className: "wave-change-title" }, c.title),
                 ),
-                h("div", { className: "wave-change-title" }, c.title),
               ),
               h("td", { style: { textAlign: "center" } }, h("span", { className: badgeClass(c.status) }, c.status)),
               h("td", null, (() => {
@@ -964,7 +999,7 @@ function ChangesTable({ changes, title }) {
   );
 }
 
-function Activity({ activity }) {
+function Activity({ activity, onChangeClick }) {
   const all    = activity?.recent_progress || [];
   const today  = todayLocalDate();
   const groups = [];
@@ -983,14 +1018,24 @@ function Activity({ activity }) {
       h("div", { key: date, className: "activity-group" },
         h("div", { className: "activity-date" }, date === today ? "Today" : date),
         h("ol", { className: "timeline" },
-          items.map((item, i) =>
-            h("li", { key: i },
+          items.map((item, i) => {
+            const clickable = !!onChangeClick;
+            const handleClick = clickable ? () => onChangeClick({ change_id: item.change_id, wave_id: item.wave_id || "", title: item.title || "" }) : undefined;
+            return h("li", {
+              key: i,
+              onClick: handleClick,
+              style: clickable ? { cursor: "pointer" } : undefined,
+              tabIndex: clickable ? 0 : undefined,
+              role: clickable ? "button" : undefined,
+              onKeyDown: clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleClick(); } } : undefined,
+              "aria-label": clickable ? `Open change ${item.change_id}` : undefined,
+            },
               h("span", { className: "wave-change-id", style: { display: "block", marginBottom: "2px", fontSize: "0.85rem" } }, item.change_id),
               item.title ? h("div", { className: "wave-change-title", style: { marginBottom: "var(--space-1)" } }, item.title) : null,
-              h("div", null, item.update || ""),
-              item.evidence ? h("div", { className: "muted" }, item.evidence) : null,
-            )
-          ),
+              h("div", null, ...renderMarkdownish(item.update || "")),
+              item.evidence ? h("div", { className: "muted" }, ...renderMarkdownish(item.evidence)) : null,
+            );
+          }),
         ),
       )
     ),
@@ -1102,6 +1147,10 @@ function renderMarkdownish(text) {
       flushList();
       flushTable();
       result.push(h("h2", { key: key++ }, renderInline(line.slice(3))));
+    } else if (line.startsWith("# ")) {
+      flushList();
+      flushTable();
+      result.push(h("h1", { key: key++ }, renderInline(line.slice(2))));
     } else if (line.startsWith("- ")) {
       flushTable();
       listItems.push(h("li", { key: key++ }, renderInline(line.slice(2))));
@@ -1118,6 +1167,54 @@ function renderMarkdownish(text) {
     result.push(h("pre", { key: key++ }, h("code", null, codeLines.join("\n"))));
   }
   return result;
+}
+
+function DocDialog({ title, subtitle, fetchUrl, onClose }) {
+  const [content, setContent] = useState(null);
+  const [fetchError, setFetchError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(fetchUrl, { cache: "no-store" })
+      .then(r => {
+        if (!r.ok) throw new Error(`Server returned ${r.status}`);
+        return r.text();
+      })
+      .then(text => { if (!cancelled) setContent(text); })
+      .catch(err => { if (!cancelled) setFetchError(err.message || String(err)); });
+    return () => { cancelled = true; };
+  }, [fetchUrl]);
+
+  // Parse Owner and Status from the metadata block before stripping it.
+  const docMeta = content ? (() => {
+    const ownerMatch  = content.match(/^Owner:\s*(.+)$/m);
+    const statusMatch = content.match(/^(?:Change )?Status:\s*`?([^`\n]+)`?$/m);
+    const items = [];
+    if (ownerMatch) items.push({ value: ownerMatch[1].trim(), cls: "dialog-meta-pill" });
+    if (statusMatch) {
+      const s = statusMatch[1].trim();
+      items.push({ value: s, cls: badgeClass(s) });
+    }
+    return items.length ? items : null;
+  })() : null;
+
+  // Strip everything before the first ## section — the metadata block (h1, Owner,
+  // Status, wave-id, Title, Change ID, Wave, etc.) is already in the dialog header.
+  const bodyText = (() => {
+    if (!content) return "";
+    const lines = content.split("\n");
+    const idx = lines.findIndex(l => l.startsWith("## "));
+    return (idx > -1 ? lines.slice(idx) : lines).join("\n").trimStart();
+  })();
+  const body = fetchError
+    ? h("p", { className: "muted" }, `Failed to load document: ${fetchError}`)
+    : content === null
+      ? h("p", { className: "muted" }, "Loading…")
+      : renderMarkdownish(bodyText);
+
+  return h(DialogFrame, { title, subtitle, meta: docMeta, className: "doc-dialog", onClose },
+    h("div", { className: "doc-dialog-body" }, body),
+  );
 }
 
 function AgentDialog({ agent, onClose }) {
@@ -1204,6 +1301,20 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
   const [showTasks, setShowTasks] = useState(false);
   const [showIndex, setShowIndex] = useState(false);
   const [showAllFiles, setShowAllFiles] = useState(false);
+  const [docView, setDocView] = useState(null); // { title, url }
+
+  const openWaveDoc = useCallback((wave) => {
+    const url = `/api/doc?type=wave&id=${encodeURIComponent(wave.wave_id)}`;
+    setDocView({ title: wave.wave_id, subtitle: wave.title || "", url });
+  }, []);
+
+  const openChangeDoc = useCallback((change) => {
+    const base = `/api/doc?type=change&id=${encodeURIComponent(change.change_id)}`;
+    const url = change.path
+      ? `${base}&path=${encodeURIComponent(change.path)}`
+      : `${base}&wave=${encodeURIComponent(change.wave_id || "")}`;
+    setDocView({ title: change.change_id, subtitle: change.title || "", url });
+  }, []);
 
   const project    = snapshot.project    || {};
   const frameworkVersion = project.framework_version || project.framework_revision || "unknown";
@@ -1249,13 +1360,13 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
 
       h("section", { className: "content-grid", "aria-label": "Project details" },
         h("div", { className: "card-grid" },
-          h(WavesCard, { waves, allChanges, handoffWaveId }),
-          h(ChangesTable, { changes: [...pendingChanges].reverse(), title: p(pendingChanges.length, "Pending change", "Pending changes") }),
+          h(WavesCard, { waves, allChanges, handoffWaveId, onWaveClick: openWaveDoc, onChangeClick: openChangeDoc }),
+          h(ChangesTable, { changes: [...pendingChanges].reverse(), title: p(pendingChanges.length, "Pending change", "Pending changes"), onChangeClick: openChangeDoc }),
         ),
         h("div", { className: "card-grid" },
           h("article", { className: "timeline-card", "aria-label": "Recent activity" },
             h("h2", { className: "panel-heading" }, "Recent changes"),
-            h(Activity, { activity: snapshot.activity }),
+            h(Activity, { activity: snapshot.activity, onChangeClick: openChangeDoc }),
           ),
         ),
       ),
@@ -1271,6 +1382,7 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
       ),
     ),
     selectedAgent ? h(AgentDialog, { agent: selectedAgent, onClose: () => setSelectedAgent(null) }) : null,
+    docView ? h(DocDialog, { title: docView.title, subtitle: docView.subtitle, fetchUrl: docView.url, onClose: () => setDocView(null) }) : null,
     showWaves   ? h(WavesDialog,   { snapshot, onClose: () => setShowWaves(false) })   : null,
     showChanges ? h(ChangesDialog, { snapshot, onClose: () => setShowChanges(false) }) : null,
     showAcs     ? h(AcsDialog,     { snapshot, onClose: () => setShowAcs(false) })     : null,

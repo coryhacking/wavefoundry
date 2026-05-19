@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-04
+Last verified: 2026-05-18
 
 ## Context
 
@@ -44,14 +44,14 @@ When the change touches `docs/prompts/`, `AGENTS.md`, seed prompts, or hook conf
 - Identify protected surfaces
 - Define read-only vs write-owning lanes
 
-## CIA Orientation
+## Guru Orientation
 
 Before drafting the change doc, run an orientation pass to ground the plan in indexed evidence:
 
 ```
-code_search(topic, kind="code-summary", limit=5)   # which modules are relevant?
-code_ask("how does X currently work?")              # existing behavior; inspect partition_applied/final_rank when present
-code_dependencies(path)                             # what does the target file depend on?
+code_search(topic, kind="code-summary", limit=5) # which modules are relevant?
+code_ask("how does X currently work?") # existing behavior; inspect partition_applied/final_rank when present
+code_dependencies(path) # what does the target file depend on?
 ```
 
 Use the results to populate `## Rationale` and `## Affected architecture docs` with specific citations. A plan grounded in indexed evidence is easier to scope accurately and harder to challenge.
