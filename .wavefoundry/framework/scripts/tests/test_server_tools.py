@@ -2763,6 +2763,7 @@ class ServerToolRegistrationTests(unittest.TestCase):
             "wave_index_build",
             "wave_audit",
             "wave_dashboard_start",
+            "wave_dashboard_open",
             "wave_dashboard_stop",
             "wave_dashboard_restart",
             "code_list_files",
@@ -8572,6 +8573,81 @@ class TestLanceDBIndex(unittest.TestCase):
             # Verify table directories exist
             self.assertTrue((db_path / "docs.lance").is_dir())
             self.assertTrue((db_path / "code.lance").is_dir())
+
+
+# ---------------------------------------------------------------------------
+# wave_dashboard_open tests (12qme-enh dashboard-open-browser)
+# ---------------------------------------------------------------------------
+
+def _make_mock_dashboard_lib(meta_path):
+    """Return a MagicMock for dashboard_lib with dashboard_metadata_path returning meta_path."""
+    mock_lib = MagicMock()
+    mock_lib.dashboard_metadata_path.return_value = meta_path
+    mock_lib.read_dashboard_metadata.return_value = {}
+    return mock_lib
+
+
+class WaveDashboardOpenTests(unittest.TestCase):
+    """Tests for wave_dashboard_open_response (AC-2, AC-3, AC-4)."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        self._meta_path = self.root / ".wavefoundry" / "dashboard-server.json"
+        self._meta_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_meta(self, pid: int, url: str) -> None:
+        self._meta_path.write_text(
+            json.dumps({"pid": pid, "url": url}), encoding="utf-8"
+        )
+
+    def _dashboard_lib_patch(self):
+        """Return a sys.modules patch for dashboard_lib pointing meta_path at our tmp file."""
+        import sys
+        mock_lib = _make_mock_dashboard_lib(self._meta_path)
+        return patch.dict(sys.modules, {"dashboard_lib": mock_lib})
+
+    def test_open_when_running_calls_webbrowser_and_returns_opened(self):
+        """AC-2: when dashboard running, webbrowser.open is called and opened=True returned."""
+        self._write_meta(pid=12345, url="http://localhost:7890")
+        with self._dashboard_lib_patch(), \
+             patch.object(self.srv, "_pid_is_running", return_value=True), \
+             patch("webbrowser.open") as mock_wb:
+            result = self.srv.wave_dashboard_open_response(self.root)
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"].get("opened"))
+        self.assertEqual(result["data"].get("url"), "http://localhost:7890")
+        mock_wb.assert_called_once_with("http://localhost:7890")
+
+    def test_open_when_not_running_delegates_to_start(self):
+        """AC-3: when dashboard not running, delegates to wave_dashboard_start_response."""
+        # No meta file written — dashboard not running path via empty mock lib.
+        import sys
+        mock_lib = _make_mock_dashboard_lib(self._meta_path)  # meta_path doesn't exist
+        with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
+             patch.object(
+                 self.srv, "wave_dashboard_start_response",
+                 return_value={"status": "ok", "data": {"started": True}},
+             ) as mock_start:
+            result = self.srv.wave_dashboard_open_response(self.root)
+        mock_start.assert_called_once_with(self.root)
+        self.assertEqual(result["data"]["started"], True)
+
+    def test_start_already_running_includes_next_tools_dashboard_open(self):
+        """AC-4: wave_dashboard_start when already running includes next_tools=['wave_dashboard_open']."""
+        self._write_meta(pid=12345, url="http://localhost:7890")
+        import sys
+        mock_lib = _make_mock_dashboard_lib(self._meta_path)
+        with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
+             patch.object(self.srv, "_pid_is_running", return_value=True):
+            result = self.srv.wave_dashboard_start_response(self.root)
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"].get("already_running"))
+        self.assertIn("wave_dashboard_open", result.get("next_tools", []))
 
 
 if __name__ == "__main__":

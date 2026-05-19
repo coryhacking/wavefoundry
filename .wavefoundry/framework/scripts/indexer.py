@@ -786,6 +786,13 @@ def _make_lance_rows(chunks: list[dict], vecs: "np.ndarray") -> list[dict]:
         row = dict(chunk)
         if isinstance(row.get("tags"), list):
             row["tags"] = " ".join(str(t) for t in row["tags"])
+        # Normalize nullable string fields to "" so LanceDB always sees a non-null
+        # string column type. If the first batch is all-None (e.g. Markdown-only),
+        # LanceDB infers the column as Null; a later batch with a real string value
+        # then raises: ValueError: cannot cast field 'language' from Utf8 to Null.
+        for _nullable_str in ("language", "section"):
+            if row.get(_nullable_str) is None:
+                row[_nullable_str] = ""
         row["vector"] = vec.tolist()
         rows.append(row)
     return rows

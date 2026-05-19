@@ -4937,6 +4937,7 @@ def wave_dashboard_start_response(root: Path) -> dict[str, Any]:
                 return _response(
                     "ok",
                     {"already_running": True, "pid": pid, "url": url},
+                    next_tools=["wave_dashboard_open"],
                     usage=url,
                 )
         except (OSError, json.JSONDecodeError):
@@ -4989,6 +4990,27 @@ def wave_dashboard_start_response(root: Path) -> dict[str, Any]:
         )
 
     return _response("ok", {"started": True, "pid": proc.pid, "url": url}, usage=url)
+
+
+def wave_dashboard_open_response(root: Path) -> dict[str, Any]:
+    """Open the browser to the running dashboard, or start the dashboard (with browser open) if not running."""
+    import webbrowser
+    import dashboard_lib
+
+    meta_path = dashboard_lib.dashboard_metadata_path(root)
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            pid = meta.get("pid")
+            url = meta.get("url", "")
+            if isinstance(pid, int) and _pid_is_running(pid) and url:
+                webbrowser.open(url)
+                return _response("ok", {"opened": True, "url": url}, usage=url)
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    # Dashboard not running — delegate to start (which spawns with --open).
+    return wave_dashboard_start_response(root)
 
 
 def _dashboard_process_metadata(root: Path) -> tuple[Path, dict[str, Any]]:
@@ -9493,11 +9515,35 @@ def build_server(root: Path):
 
         The dashboard provides a live web UI for wave status, index health, git
         activity, and (when ``auto_index`` is enabled) automatic index rebuilds.
+
+        When the dashboard is already running, the response includes
+        ``next_tools: ["wave_dashboard_open"]`` — call that tool to open the
+        browser without restarting the server.
         """
         bad = _ensure_no_extra_args("wave_dashboard_start", kwargs)
         if bad is not None:
             return bad
         return wave_dashboard_start_response(root)
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_dashboard_open(**kwargs: Any) -> dict[str, Any]:
+        """Open the browser to the local dashboard.
+
+        If the dashboard is already running, opens the browser to its URL and
+        returns ``{"opened": True, "url": <url>}``.
+
+        If the dashboard is not running, starts it (equivalent to
+        ``wave_dashboard_start``) and returns the start response — the server
+        spawns with ``--open`` so the browser opens at startup.
+
+        Use this tool when the user says "open the dashboard", "show me the
+        dashboard in the browser", or when ``wave_dashboard_start`` returns
+        ``already_running: True`` and you want to open the browser.
+        """
+        bad = _ensure_no_extra_args("wave_dashboard_open", kwargs)
+        if bad is not None:
+            return bad
+        return wave_dashboard_open_response(root)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_dashboard_stop(**kwargs: Any) -> dict[str, Any]:

@@ -105,6 +105,10 @@ wave-id: `12g47 dashboard-framework`
 
 ## Active Waves
 
+wave-id: `12qmg dashboard-ux`
+- Planned 2026-05-18: `wave_dashboard_open` MCP tool — opens browser to running dashboard or starts it; `wave_dashboard_start` gains `next_tools` hint when already running.
+- Added 2026-05-18: bug fix `12qmp` — `_make_lance_rows` None→"" normalization for `language`/`section` prevents LanceDB Null-column type crash on mixed-batch rebuilds.
+
 wave-id: `12pn3 search-retrieval-quality`
 - Planned 2026-05-17: five retrieval quality improvements — jina-v2-base-code for CODE_MODEL, LanceDB hybrid FTS+dense retrieval, chunk context enrichment at embed time, bge-reranker-v2-m3 upgrade with score propagation, and nomic-embed-text-v1.5-Q evaluation with EMBEDDING_PREFIXES infrastructure.
 

@@ -970,5 +970,58 @@ class OnnxProviderSelectionTests(unittest.TestCase):
         self.assertEqual(result, ["CPUExecutionProvider"])
 
 
+# ---------------------------------------------------------------------------
+# _make_lance_rows null-normalization tests (12qmp-bug)
+# ---------------------------------------------------------------------------
+
+class MakeLanceRowsNullNormalizationTests(unittest.TestCase):
+    """AC-1 / AC-2: None language/section are normalized to '' before LanceDB write."""
+
+    def setUp(self):
+        self.mod = load_build_index()
+
+    def _make_vec(self, dim=4):
+        import numpy as np
+        return np.zeros(dim, dtype=np.float32)
+
+    def _call(self, chunk):
+        import numpy as np
+        vecs = np.zeros((1, 4), dtype=np.float32)
+        return self.mod._make_lance_rows([chunk], vecs)[0]
+
+    def test_language_none_normalized_to_empty_string(self):
+        """AC-1: language=None in chunk dict produces row['language']==''."""
+        chunk = {"text": "hello", "path": "docs/a.md", "kind": "doc", "language": None, "section": "Intro"}
+        row = self._call(chunk)
+        self.assertEqual(row["language"], "")
+
+    def test_section_none_normalized_to_empty_string(self):
+        """AC-2: section=None in chunk dict produces row['section']==''."""
+        chunk = {"text": "hello", "path": "docs/a.md", "kind": "doc", "language": "markdown", "section": None}
+        row = self._call(chunk)
+        self.assertEqual(row["section"], "")
+
+    def test_both_none_normalized(self):
+        """Both language and section None in same chunk are both normalized."""
+        chunk = {"text": "hello", "path": "docs/a.md", "kind": "doc", "language": None, "section": None}
+        row = self._call(chunk)
+        self.assertEqual(row["language"], "")
+        self.assertEqual(row["section"], "")
+
+    def test_non_none_values_preserved(self):
+        """Non-None language/section values are not modified."""
+        chunk = {"text": "fn foo()", "path": "src/a.py", "kind": "function", "language": "python", "section": "auth"}
+        row = self._call(chunk)
+        self.assertEqual(row["language"], "python")
+        self.assertEqual(row["section"], "auth")
+
+    def test_original_chunk_not_mutated(self):
+        """_make_lance_rows must not mutate the input chunk dict."""
+        chunk = {"text": "x", "path": "a.md", "kind": "doc", "language": None, "section": None}
+        self._call(chunk)
+        self.assertIsNone(chunk["language"])
+        self.assertIsNone(chunk["section"])
+
+
 if __name__ == "__main__":
     unittest.main()
