@@ -1,8 +1,8 @@
 # Wave Record
 
 Owner: Engineering
-Status: active
-Last verified: 2026-05-18
+Status: paused
+Last verified: 2026-05-19
 
 wave-id: `12qmg dashboard-ux`
 Title: Dashboard UX

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Canonical upgrade-wavefoundry launcher — .wavefoundry/bin/upgrade-wavefoundry
+# Resolves repo root from this script's location and delegates to upgrade_wavefoundry.py.
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$REPO_ROOT"
+exec python3 ".wavefoundry/framework/scripts/upgrade_wavefoundry.py" "$@"

@@ -518,6 +518,7 @@ class SnapshotStore:
         self._cached_git: dict[str, Any] = {}
         self._content_hash: str = ""
         self._last_staleness_check: float = 0.0
+        self._upgrade_paused: bool = False  # R2: True while upgrade lock file is present
 
         cfg = dashboard_lib.read_dashboard_config(root)
         if cfg["auto_index"]:
@@ -534,18 +535,28 @@ class SnapshotStore:
             layer: _index_is_stale(root, layer) for layer in _INDEX_LAYERS
         }
 
+        # R2: Check for upgrade lock at startup — if present, enter upgrade_paused
+        # immediately and skip the startup stale check / index build scheduling.
+        if self._check_upgrade_lock():
+            _dashboard_log(
+                "Upgrade in progress (upgrade-in-progress.json detected) — "
+                "indexing paused until upgrade completes."
+            )
+            self._upgrade_paused = True
+
         # Build the initial snapshot (including git) before serving requests.
         self._rebuild(force_git=True)
         self._ready.set()
 
-        startup_layers = {
-            layer for layer, stale in self._index_stale.items() if stale
-        }
-        if self._index_builder is not None and startup_layers:
-            _dashboard_log(
-                f"Index is stale at startup — scheduling {IndexBuilder._format_layers(startup_layers)} update."
-            )
-            self._index_builder.signal_startup(layers=startup_layers, reason="startup stale check")
+        if not self._upgrade_paused:
+            startup_layers = {
+                layer for layer, stale in self._index_stale.items() if stale
+            }
+            if self._index_builder is not None and startup_layers:
+                _dashboard_log(
+                    f"Index is stale at startup — scheduling {IndexBuilder._format_layers(startup_layers)} update."
+                )
+                self._index_builder.signal_startup(layers=startup_layers, reason="startup stale check")
 
         t = threading.Thread(
             target=self._watch_loop, daemon=True, name="wf-dashboard-watcher"
@@ -625,6 +636,8 @@ class SnapshotStore:
             proj["stale"] = self._index_stale["project"]
         if self._index_stale.get("framework") is not None:
             fw["stale"] = self._index_stale["framework"]
+        # R2: surface upgrade_paused state in snapshot so the UI can show the right message.
+        snap["upgrade_paused"] = self._upgrade_paused
         new_hash = self._hash_snapshot(snap)
         with self._lock:
             changed = new_hash != self._content_hash
@@ -632,12 +645,42 @@ class SnapshotStore:
             self._snapshot = snap
         return changed
 
+    def _check_upgrade_lock(self) -> bool:
+        """Return True if a live upgrade lock file is present (R2)."""
+        try:
+            import upgrade_lib as _ulib
+            lock = _ulib.read_upgrade_lock(self._root)
+            if lock is None:
+                return False
+            # Stale lock (crashed upgrade, PID gone) — auto-clear and treat as not locked.
+            if _ulib.is_lock_stale(self._root):
+                _dashboard_log(
+                    "Stale upgrade lock detected (PID not running) — clearing it automatically."
+                )
+                _ulib.remove_upgrade_lock(self._root)
+                return False
+            return True
+        except ImportError:
+            # upgrade_lib not present in older installs — degrade gracefully.
+            lock_path = self._root / ".wavefoundry" / "upgrade-in-progress.json"
+            return lock_path.exists()
+
     def _notify_sse(self) -> None:
         with self._sse_lock:
             clients = list(self._sse_clients)
         for c in clients:
             try:
                 c.queue.put_nowait("update")
+            except queue.Full:
+                pass
+
+    def _notify_upgrade_sse(self, state: str) -> None:
+        """Emit an upgrade_status SSE event with {"state": "paused" | "idle"} (R2)."""
+        with self._sse_lock:
+            clients = list(self._sse_clients)
+        for c in clients:
+            try:
+                c.queue.put_nowait(f"upgrade_status:{state}")
             except queue.Full:
                 pass
 
@@ -655,6 +698,37 @@ class SnapshotStore:
         while True:
             time.sleep(_WATCH_INTERVAL)
             try:
+                # R2: Poll upgrade lock on every watch cycle — cheap stat() call.
+                lock_present = self._check_upgrade_lock()
+                if lock_present and not self._upgrade_paused:
+                    # Upgrade started after dashboard was already running — pause indexing.
+                    _dashboard_log(
+                        "Upgrade lock appeared — entering upgrade_paused; indexing suspended."
+                    )
+                    self._upgrade_paused = True
+                    self._rebuild(force_git=False)
+                    self._notify_sse()
+                    self._notify_upgrade_sse("paused")
+                elif not lock_present and self._upgrade_paused:
+                    # Upgrade completed — resume and trigger post-upgrade reindex.
+                    _dashboard_log(
+                        "Upgrade lock removed — resuming; triggering post-upgrade reindex."
+                    )
+                    self._upgrade_paused = False
+                    self._rebuild(force_git=True)
+                    self._notify_sse()
+                    self._notify_upgrade_sse("idle")
+                    if self._index_builder is not None:
+                        self._index_builder.signal_startup(
+                            layers=set(_INDEX_LAYERS),
+                            reason="post-upgrade reindex",
+                        )
+                    continue  # Skip staleness check this cycle; reindex already queued.
+
+                if self._upgrade_paused:
+                    # While paused, skip all mtime polling and staleness checks.
+                    continue
+
                 current = self._current_mtimes()
                 changed_keys = {k for k in current if current[k] != self._last_mtimes.get(k)}
                 self._last_mtimes = current
@@ -827,8 +901,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._sse_write("connected", {})
             while True:
                 try:
-                    client.queue.get(timeout=_SSE_HEARTBEAT)
-                    self._sse_write("update", {})
+                    msg = client.queue.get(timeout=_SSE_HEARTBEAT)
+                    # R2: upgrade_status events carry a state payload; all others are "update".
+                    if isinstance(msg, str) and msg.startswith("upgrade_status:"):
+                        state = msg.split(":", 1)[1]
+                        self._sse_write("upgrade_status", {"state": state})
+                    else:
+                        self._sse_write("update", {})
                 except queue.Empty:
                     self.wfile.write(b": heartbeat\n\n")
                     self.wfile.flush()

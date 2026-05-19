@@ -5126,6 +5126,21 @@ def wave_dashboard_stop_response(root: Path) -> dict[str, Any]:
 
 
 def wave_dashboard_restart_response(root: Path) -> dict[str, Any]:
+    # R7: Block restart while upgrade is in progress (12r08).
+    _ulib = _load_upgrade_lib()
+    if _ulib is not None:
+        _lock = _ulib.read_upgrade_lock(root)
+        if _lock is not None and not _ulib.is_lock_stale(root):
+            return _response(
+                "error",
+                {"upgrade_in_progress": True},
+                diagnostics=[_diagnostic(
+                    "upgrade_in_progress",
+                    "Upgrade in progress — dashboard restart blocked until upgrade completes. "
+                    "Use wave_upgrade_status to check upgrade state.",
+                )],
+            )
+
     stop_env = wave_dashboard_stop_response(root)
     if stop_env.get("status") != "ok":
         return stop_env
@@ -5142,6 +5157,108 @@ def wave_dashboard_restart_response(root: Path) -> dict[str, Any]:
         next_tools=list(start_env.get("next_tools", [])),
         usage=start_env.get("usage", ""),
     )
+
+
+def _load_upgrade_lib() -> Any:
+    """Import upgrade_lib from the scripts directory, ensuring it is on sys.path."""
+    _scripts_dir = str(Path(__file__).resolve().parent)
+    if _scripts_dir not in sys.path:
+        sys.path.insert(0, _scripts_dir)
+    try:
+        import upgrade_lib as _ulib  # noqa: PLC0415
+        return _ulib
+    except ImportError:
+        return None
+
+
+def wave_upgrade_response(root: Path, phase: str = "preflight_to_docs_gate") -> dict[str, Any]:
+    """Invoke upgrade_wavefoundry.py for the requested phase (12r0b).
+
+    phase values:
+      "preflight_to_docs_gate" — phases 0–3 (default): pre-flight, surface rendering,
+          pruning, docs gate. Runs with --yes (non-interactive, no TTY in MCP).
+      "rebuild_index" — phase 4: docs index rebuild (blocking) + code index (background).
+      "cleanup" — phase 5: remove upgrade lock + print operator summary.
+    """
+    valid_phases = ("preflight_to_docs_gate", "rebuild_index", "cleanup")
+    if phase not in valid_phases:
+        return _response(
+            "error",
+            {"phase": phase, "valid_phases": list(valid_phases)},
+            diagnostics=[_diagnostic("invalid_phase", f"Unknown phase {phase!r}. Valid: {valid_phases}")],
+        )
+
+    upgrade_script = Path(__file__).resolve().parent / "upgrade_wavefoundry.py"
+    if not upgrade_script.exists():
+        return _response(
+            "error",
+            {},
+            diagnostics=[_diagnostic("script_not_found", f"upgrade_wavefoundry.py not found at {upgrade_script}")],
+        )
+
+    cmd = [sys.executable, str(upgrade_script), "--root", str(root), "--yes"]
+    if phase == "rebuild_index":
+        cmd.append("--rebuild-index")
+    elif phase == "cleanup":
+        cmd.append("--cleanup")
+    # phase == "preflight_to_docs_gate": no extra flag (default run)
+
+    import subprocess as _subprocess
+    try:
+        result = _subprocess.run(
+            cmd,
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        return _response(
+            "error",
+            {"phase": phase},
+            diagnostics=[_diagnostic("spawn_failed", str(exc))],
+        )
+
+    output = (result.stdout or "") + (result.stderr or "")
+    data = {"phase": phase, "exit_code": result.returncode, "output": output.strip()}
+
+    if result.returncode != 0:
+        exit_meanings = {1: "docs gate failed", 2: "surface rendering failed", 3: "pre-flight check failed"}
+        reason = exit_meanings.get(result.returncode, f"exited {result.returncode}")
+        return _response(
+            "error",
+            data,
+            diagnostics=[_diagnostic("upgrade_failed", f"Upgrade phase '{phase}' failed: {reason}")],
+        )
+
+    return _response("ok", data, usage=f"wave_upgrade(phase='{phase}')")
+
+
+def wave_upgrade_status_response(root: Path) -> dict[str, Any]:
+    """Return the current upgrade lock state (R5 — 12r08)."""
+    _ulib = _load_upgrade_lib()
+    if _ulib is not None:
+        lock = _ulib.read_upgrade_lock(root)
+    else:
+        lock = None
+
+    if lock is None:
+        data: dict[str, Any] = {
+            "in_progress": False,
+            "started_at": None,
+            "from_version": None,
+            "to_version": None,
+            "pid": None,
+        }
+    else:
+        data = {
+            "in_progress": True,
+            "started_at": lock.get("started_at"),
+            "from_version": lock.get("from_version"),
+            "to_version": lock.get("to_version"),
+            "pid": lock.get("pid"),
+        }
+    return _response("ok", data, usage="wave_upgrade_status()")
 
 
 def wave_run_sensors_response(root: Path) -> dict[str, Any]:
@@ -9570,6 +9687,68 @@ def build_server(root: Path):
         if bad is not None:
             return bad
         return wave_dashboard_restart_response(root)
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_upgrade(phase: str = "preflight_to_docs_gate", **kwargs: Any) -> dict[str, Any]:
+        """Run the automated Wavefoundry framework upgrade script.
+
+        Invokes ``upgrade_wavefoundry.py`` for the requested phase. Always runs
+        non-interactively (equivalent to ``upgrade-wavefoundry --yes``).
+
+        Args:
+            phase: Which upgrade phase to run.
+
+              - ``"preflight_to_docs_gate"`` *(default)* — phases 0–3: pre-flight
+                checks, zip adoption, surface rendering, pruning, docs gate.
+                Run this first. The agent's editing pass (drift detection, journal
+                reconciliation, spec gap remediation) follows after this completes.
+              - ``"rebuild_index"`` — phase 4: docs index rebuild (blocking) then
+                code index rebuild (background). Call after the editing pass.
+              - ``"cleanup"`` — phase 5: remove the upgrade lock file and print the
+                operator summary. Call after ``rebuild_index`` completes.
+
+        Response fields:
+          - ``exit_code``: 0 = success, 1 = docs gate failed, 2 = surface rendering
+            failed, 3 = pre-flight check failed (downgrade detected, lock conflict).
+          - ``output``: combined stdout + stderr from the upgrade script.
+          - ``phase``: echoes the phase that was run.
+
+        Upgrade sequence::
+
+            wave_upgrade()                          # phases 0–3
+            # … agent editing pass …
+            wave_upgrade(phase="rebuild_index")     # phase 4
+            wave_upgrade(phase="cleanup")           # phase 5
+
+        Use ``wave_upgrade_status`` to check lock state at any time.
+        """
+        bad = _ensure_no_extra_args("wave_upgrade", kwargs)
+        if bad is not None:
+            return bad
+        return wave_upgrade_response(root, phase=phase)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def wave_upgrade_status(**kwargs: Any) -> dict[str, Any]:
+        """Return the current upgrade lock state.
+
+        Reads ``.wavefoundry/upgrade-in-progress.json`` and reports whether a
+        framework upgrade is currently in progress.
+
+        Response fields:
+          - ``in_progress`` (bool): True if the upgrade lock file exists and the
+            recorded PID is still running.
+          - ``started_at`` (str | null): ISO-8601 timestamp when the upgrade started.
+          - ``from_version`` (str | null): Framework revision being upgraded from.
+          - ``to_version`` (str | null): Pack version being upgraded to.
+          - ``pid`` (int | null): PID of the upgrade process.
+
+        Use before calling ``wave_dashboard_restart`` to confirm whether a restart
+        is safe, or to confirm the lock was removed after ``upgrade-wavefoundry --cleanup``.
+        """
+        bad = _ensure_no_extra_args("wave_upgrade_status", kwargs)
+        if bad is not None:
+            return bad
+        return wave_upgrade_status_response(root)
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_validate(**kwargs: Any) -> dict[str, Any]:

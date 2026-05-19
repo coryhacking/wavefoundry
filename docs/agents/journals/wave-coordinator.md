@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-18
+Last verified: 2026-05-19
 
 Actor: wave-coordinator
 Schema version: 1.0
@@ -104,6 +104,9 @@ wave-id: `12g47 dashboard-framework`
 - Retire entries when the constraint is no longer load-bearing. Delete retired entries after one wave cycle.
 
 ## Active Waves
+
+wave-id: `12r09 automated-upgrade`
+- Planned 2026-05-19: scripted upgrade path — upgrade-wavefoundry bin, check_version.py, upgrade_lib.py, dashboard upgrade-awareness, wave_upgrade_status MCP tool, wave_dashboard_restart guard.
 
 wave-id: `12qmg dashboard-ux`
 - Planned 2026-05-18: `wave_dashboard_open` MCP tool — opens browser to running dashboard or starts it; `wave_dashboard_start` gains `next_tools` hint when already running.

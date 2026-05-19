@@ -2762,6 +2762,8 @@ class ServerToolRegistrationTests(unittest.TestCase):
             "wave_index_health",
             "wave_index_build",
             "wave_audit",
+            "wave_upgrade",
+            "wave_upgrade_status",
             "wave_dashboard_start",
             "wave_dashboard_open",
             "wave_dashboard_stop",
@@ -8648,6 +8650,155 @@ class WaveDashboardOpenTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"].get("already_running"))
         self.assertIn("wave_dashboard_open", result.get("next_tools", []))
+
+
+# ---------------------------------------------------------------------------
+# wave_upgrade_status + wave_upgrade + restart guard tests (12r08/12r0b)
+# ---------------------------------------------------------------------------
+
+class WaveUpgradeStatusTests(unittest.TestCase):
+    """Tests for wave_upgrade_status_response (AC-5 / R5)."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _lock_path(self):
+        return self.root / ".wavefoundry" / "upgrade-in-progress.json"
+
+    def _write_lock(self, pid=None):
+        p = self._lock_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({
+            "started_at": "2026-05-19T00:00:00+00:00",
+            "from_version": "2026-05-10a",
+            "to_version": "2026-05-19a",
+            "pid": pid or os.getpid(),
+        }), encoding="utf-8")
+
+    def test_no_lock_returns_not_in_progress(self):
+        result = self.srv.wave_upgrade_status_response(self.root)
+        self.assertEqual(result["status"], "ok")
+        self.assertFalse(result["data"]["in_progress"])
+        self.assertIsNone(result["data"]["to_version"])
+
+    def test_lock_present_returns_in_progress(self):
+        self._write_lock()
+        result = self.srv.wave_upgrade_status_response(self.root)
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"]["in_progress"])
+        self.assertEqual(result["data"]["from_version"], "2026-05-10a")
+        self.assertEqual(result["data"]["to_version"], "2026-05-19a")
+
+
+class WaveDashboardRestartUpgradeGuardTests(unittest.TestCase):
+    """Tests for wave_dashboard_restart upgrade guard (AC-4 / R7)."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_lock(self):
+        p = self.root / ".wavefoundry" / "upgrade-in-progress.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({
+            "started_at": "2026-05-19T00:00:00+00:00",
+            "from_version": "old",
+            "to_version": "new",
+            "pid": os.getpid(),
+        }), encoding="utf-8")
+
+    def test_restart_blocked_while_upgrade_in_progress(self):
+        """AC-4: wave_dashboard_restart returns error when upgrade lock present."""
+        self._write_lock()
+        result = self.srv.wave_dashboard_restart_response(self.root)
+        self.assertEqual(result["status"], "error")
+        self.assertTrue(result["data"].get("upgrade_in_progress"))
+        diag_codes = [d["code"] for d in result.get("diagnostics", [])]
+        self.assertIn("upgrade_in_progress", diag_codes)
+
+    def test_restart_allowed_when_no_lock(self):
+        """Restart proceeds normally when no upgrade lock is present."""
+        # No lock file — restart should attempt to stop/start (both will find nothing running).
+        import sys
+        mock_lib = _make_mock_dashboard_lib(self.root / ".wavefoundry" / "dashboard-server.json")
+        with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
+             patch.object(self.srv, "_pid_is_running", return_value=False):
+            result = self.srv.wave_dashboard_restart_response(self.root)
+        # Should not be blocked by upgrade guard.
+        self.assertNotIn("upgrade_in_progress", result.get("data", {}))
+
+
+class WaveUpgradeMcpToolTests(unittest.TestCase):
+    """Tests for wave_upgrade_response (AC-2–AC-5 / 12r0b)."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_invalid_phase_returns_error(self):
+        result = self.srv.wave_upgrade_response(self.root, phase="bad_phase")
+        self.assertEqual(result["status"], "error")
+        self.assertIn("valid_phases", result["data"])
+
+    def test_success_returns_ok_with_output(self):
+        """AC-2: successful subprocess exit → status ok with output and exit_code=0."""
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "Upgrade complete\n"
+        mock_proc.stderr = ""
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wave_upgrade_response(self.root, phase="preflight_to_docs_gate")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["exit_code"], 0)
+        self.assertIn("Upgrade complete", result["data"]["output"])
+
+    def test_nonzero_exit_returns_error(self):
+        """AC-5: non-zero exit code → status error with output in diagnostics."""
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1
+        mock_proc.stdout = ""
+        mock_proc.stderr = "docs-lint failed"
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wave_upgrade_response(self.root, phase="preflight_to_docs_gate")
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["data"]["exit_code"], 1)
+        diag_codes = [d["code"] for d in result.get("diagnostics", [])]
+        self.assertIn("upgrade_failed", diag_codes)
+
+    def test_rebuild_index_phase_passes_flag(self):
+        """AC-3: rebuild_index phase passes --rebuild-index flag."""
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "Index rebuilt\n"
+        mock_proc.stderr = ""
+        with patch("subprocess.run", return_value=mock_proc) as mock_run:
+            self.srv.wave_upgrade_response(self.root, phase="rebuild_index")
+        called_cmd = mock_run.call_args[0][0]
+        self.assertIn("--rebuild-index", called_cmd)
+
+    def test_cleanup_phase_passes_flag(self):
+        """AC-4: cleanup phase passes --cleanup flag."""
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "Lock removed\n"
+        mock_proc.stderr = ""
+        with patch("subprocess.run", return_value=mock_proc) as mock_run:
+            self.srv.wave_upgrade_response(self.root, phase="cleanup")
+        called_cmd = mock_run.call_args[0][0]
+        self.assertIn("--cleanup", called_cmd)
 
 
 if __name__ == "__main__":
