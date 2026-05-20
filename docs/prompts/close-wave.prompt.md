@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-04
+Last verified: 2026-05-19
 
 Shortcut: **`Close wave`**
 
@@ -19,9 +19,10 @@ Finalize and archive the wave. Closure requires full reconciliation — not just
 5. Chronology reconciled: `Status: completed`, `Completed at:` date, all change statuses finalized
 6. Journal distillation: important implementation/review lessons added to relevant role or persona journals (absence of new journal entries is acceptable if nothing warranted one)
 7. Durable memory promoted to `docs/references/project-context-memory.md` (and other canonical docs when applicable)
-8. `docs/agents/session-handoff.md` cleared or refreshed to post-closure state
+8. **Retrospective step completed:** ask "what was non-obvious in this wave that a future session should know?" — surface memory candidates for architectural decisions (why an approach was chosen), validated approaches that should carry forward (positive confirmations, not only corrections), and workflow discoveries; promote findings to auto-memory or `docs/references/project-context-memory.md`
+9. `docs/agents/session-handoff.md` updated to idle format: last-closed wave ID and one-line summary of what shipped, plus an **Open questions / Deferred decisions** section for any intent not captured in a change doc
 
-**Closure is blocked until all eight items are explicitly recorded in the wave record.**
+**Closure is blocked until all nine items are explicitly recorded in the wave record.**
 
 ## What Goes in Wave Summary
 

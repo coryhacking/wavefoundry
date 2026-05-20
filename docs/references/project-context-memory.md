@@ -2,9 +2,19 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-30
+Last verified: 2026-05-19
 
 Durable reusable workflow guidance discovered during waves and promoted from journals.
+
+## Auto-Memory Categories
+
+The auto-memory system recognizes four file types: `user`, `feedback`, `project`, `reference`. Two content categories that are particularly easy to miss and worth capturing explicitly:
+
+**Architectural decisions** (`project` type) — why an approach was chosen, not just what was done. Capture when the reasoning is non-obvious and not recoverable from git history or the change doc alone. Lead with the decision, then **Why:** and **How to apply:** lines.
+
+**Validated approaches** (`feedback` type) — positive confirmations that a non-obvious choice worked well. The memory system skews toward corrections if only failures are saved; confirmations of working patterns carry equal weight. Record from both failure and success.
+
+**Wave close is the primary capture moment.** The close-wave retrospective step ("what was non-obvious in this wave that a future session should know?") is the intended trigger for surfacing both categories.
 
 ## Self-Hosting Path Resolution
 

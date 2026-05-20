@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-04
+Last verified: 2026-05-19
 
 Shortcut: **`Pause wave`**
 
@@ -16,11 +16,13 @@ Park current session state and transition the wave to `paused` when work must be
    - Transitions wave.md `Status: active` → `Status: paused` (idempotent on already-paused; advisory diagnostic when the wave is not active).
    - Writes a session-handoff entry to `docs/agents/session-handoff.md`.
    - Returns `data.status_transition: {"from": ..., "to": ...}` so you can see what changed.
-2. Update `docs/agents/session-handoff.md` with any working-memory notes beyond what `wave_pause` recorded:
-   - Active change IDs and last completed action
-   - Next actions (ordered)
+2. Update `docs/agents/session-handoff.md` with a standardized structure beyond what `wave_pause` recorded. Use these labeled sections:
+   - **Done** — changes/tasks completed this session
+   - **Next** — ordered next actions
+   - **Files touched** — key files modified
+   - **Test state** — passing/failing/untested at pause time
+   - **Open questions / Deferred decisions** — unresolved intent that doesn't belong in a change doc but must survive the context reset
    - Blockers (if any)
-   - Working-memory notes that would be lost by compaction
 3. Update wave record progress log with current state.
 4. Commit the handoff artifact (operator-owned commit).
 
