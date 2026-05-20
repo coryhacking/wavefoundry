@@ -511,6 +511,7 @@ class SnapshotStore:
         self._lock = threading.RLock()
         self._snapshot: dict[str, Any] = {}
         self._ready = threading.Event()
+        self._stop_event = threading.Event()  # set by stop() to terminate _watch_loop
         self._sse_lock = threading.Lock()
         self._sse_clients: list[_SseClient] = []
         self._last_mtimes: dict[str, float] = {}
@@ -693,10 +694,28 @@ class SnapshotStore:
         self._rebuild(force_git=False)
         self._notify_sse()
 
+    def stop(self) -> None:
+        """Signal the watcher thread to exit and cancel any pending index builds.
+
+        Safe to call from any thread. Primarily used in tests to prevent daemon threads
+        and IndexBuilder timers from outliving a test's setUp/tearDown lifecycle.
+        Blocks briefly until any in-progress build completes so callers can safely clean
+        up temp directories without racing against ongoing subprocess writes.
+        """
+        self._stop_event.set()
+        if self._index_builder is not None:
+            with self._index_builder._lock:
+                if self._index_builder._timer is not None:
+                    self._index_builder._timer.cancel()
+                    self._index_builder._timer = None
+            # Wait up to 10s for any already-started build to finish before returning.
+            deadline = time.monotonic() + 10.0
+            while self._index_builder._running and time.monotonic() < deadline:
+                time.sleep(0.05)
+
     def _watch_loop(self) -> None:
         self._last_mtimes = self._current_mtimes()
-        while True:
-            time.sleep(_WATCH_INTERVAL)
+        while not self._stop_event.wait(timeout=_WATCH_INTERVAL):
             try:
                 # R2: Poll upgrade lock on every watch cycle — cheap stat() call.
                 lock_present = self._check_upgrade_lock()

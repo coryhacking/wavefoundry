@@ -22,6 +22,9 @@ build/
 .wavefoundry/index/
 .wavefoundry/framework/index/
 
+# Wavefoundry test cache (runtime artifact, host-local, never commit)
+.wavefoundry/framework/test-cache.json
+
 # Personal Claude Code overrides (not project-level)
 .claude/settings.local.json
 

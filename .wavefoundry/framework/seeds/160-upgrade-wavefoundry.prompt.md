@@ -30,9 +30,9 @@ Operator mental model — how framework updates actually work:
  - The rest of this prompt then reconciles prompts, hooks, docs, configs, and local policy surfaces.
 3. **Restart MCP after the upgrade completes.**
  - A running MCP process will not automatically pick up upgraded server code or regenerated host config.
-4. **Update or rebuild indexes after restart.**
- - Normal upgrades should run docs-layer updates.
- - `CHUNKER_VERSION` or schema shifts require a full rebuild instead.
+4. **Update indexes after restart** (`wave_upgrade(phase="update_index")`).
+ - Normal upgrades: incremental update — only re-embeds files that changed. The indexer auto-escalates to a full rebuild when chunker or model versions changed.
+ - `CHUNKER_VERSION` or schema shifts: a full rebuild is required — see step 11 for the manual path.
 
 Do not describe upgrade as a manual unzip-only workflow. Do not describe packaging as part of the target-repo upgrade path. Do not imply that unpack success alone completes the framework update.
 
@@ -118,8 +118,9 @@ Execution flow:
  - `indexing.project_include_prefixes` when the repo intentionally extends the default project semantic index to additional roots; preserve explicit repo-local prefixes and backfill the generic structure when the repo already depends on non-default indexed paths
  - canonical workflow docs and role docs when the current framework standard requires them and they are missing or stale, including `council-moderator` when `wave_council_policy` is present or backfilled
  - `docs/ARCHITECTURE.md` and `docs/architecture/{current-state,domain-map,layering-rules,cross-cutting-concerns,data-and-control-flow,testing-architecture}.md` (and `docs/architecture/decisions/template.md` when ADR seeding changed) when `seed-060`, `seed-030`, or repository topology changed; merge with repo-specific depth per `060` guardrails
- - `docs/prompts/close-wave.prompt.md`, `docs/prompts/agents/close-wave.prompt.md`, and `docs/contributing/review-and-evals.md` (**Wave closure** / docs-contract-at-close) when the seed pack’s `seed-190` or `seed-100` closure expectations have evolved
- - `docs/prompts/upgrade-wavefoundry.prompt.md` and `docs/prompts/agents/upgrade-wavefoundry.md` when the seed pack's upgrade contract changes
+ - `docs/prompts/pause-wave.prompt.md` when the seed pack’s `seed-100` pause-wave rule changed — verify the standardized handoff structure (Done / Next / Files touched / Test state / Open questions) is present; backfill when missing
+ - `docs/prompts/close-wave.prompt.md`, `docs/prompts/agents/close-wave.prompt.md`, and `docs/contributing/review-and-evals.md` (**Wave closure** / docs-contract-at-close) when the seed pack’s `seed-190` or `seed-100` closure expectations have evolved — verify the retrospective step (memory-candidate prompt) and idle handoff update (last-closed-wave summary + Open questions section) are present
+ - `docs/prompts/upgrade-wavefoundry.prompt.md` and `docs/prompts/agents/upgrade-wavefoundry.md` when the seed pack’s upgrade contract changes
  - **`.wavefoundry/bin/docs-lint`**, **`.wavefoundry/bin/docs-gardener`**, and any legacy **`./package-wave-framework`** repo-root wrapper so they point to the **current** script filenames under `.wavefoundry/framework/scripts/` or are retired when packaging is not supported in a target repository. These **bin** launchers (and any repo-root packaging helper) are **not** overwritten blindly by pack unpack, so reconcile them explicitly during upgrade. Required invocations for packs at `2026-04-22a` and later in this repository:
  - `.wavefoundry/bin/docs-lint` must invoke `scripts/docs_lint.py` (underscore) — the retired `scripts/docs-lint.py` path must not be referenced
  - `.wavefoundry/bin/docs-gardener` must invoke `scripts/docs_gardener.py` (underscore) — the retired `scripts/docs-gardener.py` path must not be referenced
@@ -180,7 +181,7 @@ Execution flow:
  ```
 
 10. Retire or rewrite stale local prompt/docs references that still point at legacy framework names or obsolete helper surfaces after replacement artifacts are in place. **Delete fully-superseded prompt files** rather than leaving tombstone files with "RETIRED" notices — a tombstone that is no longer needed as a migration alias only adds noise and confusion. A prompt file should be deleted when: (a) a replacement file exists at the canonical path, (b) no live references to the old file remain in AGENTS.md, docs/prompts/index.md, or prompt-surface-manifest.json, and (c) the migration window is over. Remove the corresponding entry from `docs/prompts/index.md` legacy aliases section when deleting tombstones. Also remove any empty legacy workspace directories (`docs/exec-plans/`, `docs/product-specs/`, `docs/gaps/`, `docs/performance/`, `docs/generated/`) that may have been left as shells by the init or a prior upgrade run.
-11. **Index rebuild after `CHUNKER_VERSION` bump:** If the pack upgrade changed `CHUNKER_VERSION` (visible in `.wavefoundry/framework/scripts/chunker.py`), a full index rebuild is required. `wave_index_health` will emit a `chunker_version_mismatch` advisory when the index was built with an older version. Use the docs-first approach so MCP is available immediately:
+11. **Full index rebuild after `CHUNKER_VERSION` bump:** If the pack upgrade changed `CHUNKER_VERSION` (visible in `.wavefoundry/framework/scripts/chunker.py`), a full index rebuild is required (the `update_index` phase handles this automatically, but you can also trigger it manually). `wave_index_health` will emit a `chunker_version_mismatch` advisory when the index was built with an older version. Use the docs-first approach so MCP is available immediately:
  ```bash
  # Phase 1: docs index — unblocks MCP immediately (~2.5 min)
  python3 .wavefoundry/framework/scripts/setup_index.py --full
@@ -245,7 +246,8 @@ Include the following topics in plain language:
 
 8. **Operators new to wave-context (or re-onboarding after upgrade)**
  - Point them at **`AGENTS.md` → Start Here** and **`docs/prompts/index.md` Usage Notes** for the authoritative rules: **Git commits (operator-owned)** (agents do not `git commit` unless explicitly instructed in the **current** request), **stage gate** (plan + admit + **Prepare wave** / **Ready wave** before **repository code** edits), **Implementation guard** for product implementation source (and **in-session waiver** recording), **Implement wave** vs **Implement feature**, **docs-contract review** at **Close wave** / **Finalize feature** when specs changed, and **`docs/prompts/agent-routing-concurrency.prompt.md`** when plans need explicit concurrency.
- - If this upgrade changed closure or guard semantics, call that out explicitly so returning operators re-read **`docs/prompts/close-wave.prompt.md`** and **`AGENTS.md`** for the current bar.
+ - If this upgrade changed closure or guard semantics, call that out explicitly so returning operators re-read **`docs/prompts/close-wave.prompt.md`** and **`AGENTS.md`** for the current bar. When the retrospective step or idle handoff format was added or updated, note that closure now includes a memory-candidate prompt and that the idle handoff must carry the last-closed-wave summary and an Open questions section.
+ - If this upgrade changed pause-wave semantics, call that out explicitly so returning operators re-read **`docs/prompts/pause-wave.prompt.md`** — the standardized handoff structure (Done / Next / Files touched / Test state / Open questions) is now required.
 
 Tailor the summary to **this run's** drift summary and concrete files touched.
 
@@ -274,7 +276,8 @@ Required upgrade behaviors:
 - ensure lifecycle ID generation is co-located with framework scripts by keeping `.wavefoundry/framework/scripts/lifecycle_id.py` as the canonical entrypoint and updating stale legacy path references
 - reconcile **Git commits (operator-owned)** in `AGENTS.md` and the **Git commits** subsection in `docs/contributing/build-and-verification.md` on every upgrade when `seed-050` changed, or when either surface predates the policy; treat upgrade as the peer of init for this contract, not an optional follow-up
 - reconcile **Implementation guard (product code)** on every upgrade when `seed-050` or `seed-100` changed, or when `AGENTS.md` / implement prompts predate the guard; treat upgrade as the peer of init for this policy, not an optional follow-up
-- reconcile closure-process surfaces on upgrade whenever seed closure contract changed: `docs/prompts/close-wave.prompt.md`, `docs/prompts/agents/close-wave.prompt.md`, and `docs/contributing/review-and-evals.md` must explicitly enforce chronology reconciliation (`Status`, `Current state`, change states, `Completed at`), required-reviewer reconciliation from readiness to review checkpoints, closure-artifact reconciliation (journals/memory/handoff), and docs-contract disposition rules
+- reconcile closure-process surfaces on upgrade whenever seed closure contract changed: `docs/prompts/close-wave.prompt.md`, `docs/prompts/agents/close-wave.prompt.md`, and `docs/contributing/review-and-evals.md` must explicitly enforce chronology reconciliation (`Status`, `Current state`, change states, `Completed at`), required-reviewer reconciliation from readiness to review checkpoints, closure-artifact reconciliation (journals/memory/handoff), docs-contract disposition rules, the retrospective step (memory-candidate prompt for architectural decisions and validated approaches), and the idle handoff update (last-closed-wave summary + Open questions section)
+- reconcile pause-wave surfaces on upgrade whenever `seed-100` pause-wave rule changed: `docs/prompts/pause-wave.prompt.md` must include the standardized handoff structure with labeled sections (Done / Next / Files touched / Test state / Open questions); backfill when missing
 - preserve and reconcile reviewer-journal expectations during upgrade: important implementation/review lessons should be journaled when role journals exist; when role journals are absent, closure guidance should route lessons to canonical existing journals without making missing role-journal files a hard closure blocker
 - reconcile operating-memory expectations during upgrade: journals may be written before closure for critical/high durable signals; closure distills, promotes, retires, and reconciles rather than serving as the only write point
 - generate or refresh the repo-local project overview when needed so it still explains the canonical docs, workflow, generic roles, synthesized personas, and collaboration model for the current project

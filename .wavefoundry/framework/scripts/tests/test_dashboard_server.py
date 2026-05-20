@@ -1197,12 +1197,21 @@ class SnapshotStoreTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
         _make_wave(self.root)
+        self._stores_to_stop: list = []
 
     def tearDown(self):
+        for store in self._stores_to_stop:
+            store.stop()
+        self._stores_to_stop.clear()
         self.tmp.cleanup()
 
+    def _track(self, store):
+        """Register a store for cleanup in tearDown."""
+        self._stores_to_stop.append(store)
+        return store
+
     def _make_store(self):
-        return self.srv.SnapshotStore(self.root)
+        return self._track(self.srv.SnapshotStore(self.root))
 
     def test_initialises_with_valid_snapshot(self):
         store = self._make_store()
@@ -1445,7 +1454,11 @@ class IndexBuilderTests(unittest.TestCase):
 
         def on_done():
             done_calls[0] += 1
-            if done_calls[0] >= 1:
+            # Wait for both the first build AND the rearmed build to complete
+            # under the patch context.  Without this, the rearmed timer (delay=0)
+            # fires after the patch exits and the real _execute creates files in
+            # the temp directory, causing tearDown cleanup to fail.
+            if done_calls[0] >= 2:
                 done_event.set()
 
         with patch.object(self.srv.IndexBuilder, "_execute", blocking_execute):
@@ -2071,9 +2084,18 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
         _make_wave(self.root)
+        self._stores_to_stop: list = []
 
     def tearDown(self):
+        for store in self._stores_to_stop:
+            store.stop()
+        self._stores_to_stop.clear()
         self.tmp.cleanup()
+
+    def _track(self, store):
+        """Register a store for cleanup in tearDown."""
+        self._stores_to_stop.append(store)
+        return store
 
     def _enable_auto_index(self):
         cfg_path = self.root / "docs" / "workflow-config.json"
@@ -2091,14 +2113,14 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
 
     def test_build_status_absent_when_auto_index_disabled(self):
         self._disable_auto_index()
-        store = self.srv.SnapshotStore(self.root)
+        store = self._track(self.srv.SnapshotStore(self.root))
         snap = store.get()
         proj = snap.get("health", {}).get("index", {}).get("project", {})
         self.assertNotIn("build_status", proj)
 
     def test_build_status_idle_when_auto_index_enabled(self):
         self._enable_auto_index()
-        store = self.srv.SnapshotStore(self.root)
+        store = self._track(self.srv.SnapshotStore(self.root))
         snap = store.get()
         proj = snap.get("health", {}).get("index", {}).get("project", {})
         fw = snap.get("health", {}).get("index", {}).get("framework", {})
@@ -2131,7 +2153,7 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-        store = self.srv.SnapshotStore(self.root)
+        store = self._track(self.srv.SnapshotStore(self.root))
         snap = store.get()
         proj = snap.get("health", {}).get("index", {}).get("project", {})
         self.assertEqual(proj.get("build_status"), "running")
@@ -2139,7 +2161,7 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         self.assertIn("embedding code chunks", proj.get("progress", ""))
 
     def test_background_build_files_are_watched(self):
-        store = self.srv.SnapshotStore(self.root)
+        store = self._track(self.srv.SnapshotStore(self.root))
         watched = {str(path) for path in store._watched_paths()}
         self.assertIn(str(self.root / ".wavefoundry" / "index" / "index-build.json"), watched)
         self.assertIn(str(self.root / ".wavefoundry" / "index" / "index-build.log"), watched)
@@ -2149,7 +2171,7 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
     def test_periodic_staleness_check_triggers_rebuild_when_stale(self):
         """When _index_is_stale returns True, the watch loop should signal the IndexBuilder."""
         self._enable_auto_index()
-        store = self.srv.SnapshotStore(self.root)
+        store = self._track(self.srv.SnapshotStore(self.root))
         if store._index_builder is None:
             self.skipTest("auto_index not enabled")
 
@@ -2173,7 +2195,7 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
 
     def test_periodic_staleness_check_signals_framework_layer_when_framework_becomes_stale(self):
         self._enable_auto_index()
-        store = self.srv.SnapshotStore(self.root)
+        store = self._track(self.srv.SnapshotStore(self.root))
         if store._index_builder is None:
             self.skipTest("auto_index not enabled")
 
@@ -2203,7 +2225,7 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
     def test_periodic_staleness_check_skipped_while_running(self):
         """Staleness check must not fire while a build is already in progress."""
         self._enable_auto_index()
-        store = self.srv.SnapshotStore(self.root)
+        store = self._track(self.srv.SnapshotStore(self.root))
         if store._index_builder is None:
             self.skipTest("auto_index not enabled")
 
@@ -2225,7 +2247,7 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
 
     def test_external_build_mtime_triggers_snapshot_refresh(self):
         """Writing index-build-stats.json should cause _rebuild to pick up the new mtime."""
-        store = self.srv.SnapshotStore(self.root)
+        store = self._track(self.srv.SnapshotStore(self.root))
         stats_path = self.root / ".wavefoundry" / "index" / "index-build-stats.json"
         stats_path.parent.mkdir(parents=True, exist_ok=True)
         stats_path.write_text(json.dumps({"elapsed_seconds": 12, "mode": "incremental"}))
@@ -2238,7 +2260,7 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         self.assertIsInstance(proj, dict)
 
     def test_external_framework_build_stats_trigger_snapshot_refresh(self):
-        store = self.srv.SnapshotStore(self.root)
+        store = self._track(self.srv.SnapshotStore(self.root))
         fw_index = self.root / ".wavefoundry" / "framework" / "index"
         fw_index.mkdir(parents=True, exist_ok=True)
         (fw_index / "meta.json").write_text(json.dumps({"built_at": "2026-05-11T00:00:00+00:00"}))
@@ -2251,7 +2273,7 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
 
     def test_on_index_build_done_calls_rebuild_then_notify(self):
         """_on_index_build_done must rebuild before notifying SSE."""
-        store = self.srv.SnapshotStore(self.root)
+        store = self._track(self.srv.SnapshotStore(self.root))
         call_order = []
 
         original_rebuild = store._rebuild

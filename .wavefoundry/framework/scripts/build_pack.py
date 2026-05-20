@@ -38,7 +38,7 @@ EXCLUDED_DIRS = {"__pycache__", ".pytest_cache", ".wavefoundry"}
 # Excluded path suffix relative to the framework root (forward-slash separated).
 # Tests and the test runner are development-only artifacts; downstream repos that
 # vendor the pack have no use for them and seeds must not instruct them to run tests.
-EXCLUDED_REL_PATHS = {"scripts/tests/tmp", "scripts/tests", "scripts/run_tests.py", "scripts/benchmarks"}
+EXCLUDED_REL_PATHS = {"scripts/tests/tmp", "scripts/tests", "scripts/run_tests.py", "scripts/benchmarks", "test-cache.json"}
 
 FRAMEWORK_REL = ".wavefoundry/framework"
 ZIP_PREFIX = "wavefoundry-"
@@ -235,6 +235,67 @@ def _compact_framework_index(framework_dir: Path, *, verbose: bool = False) -> N
             raise RuntimeError(f"framework index compaction failed for '{table_name}' ({exc})") from exc
 
 
+def check_manifest_revision(repo_root: Path, expected_version: str) -> None:
+    """Verify framework_revision in prompt-surface-manifest.json matches expected_version.
+
+    Reads ``docs/prompts/prompt-surface-manifest.json`` and compares its
+    ``framework_revision`` field to *expected_version* (e.g. ``"2026-05-19b"``).
+    Exits 1 with a clear diagnostic on mismatch or missing file so operators
+    update the manifest before a zip is stamped.
+    """
+    import json
+
+    manifest_path = repo_root / "docs" / "prompts" / "prompt-surface-manifest.json"
+    if not manifest_path.exists():
+        print(
+            f"error: manifest not found at {manifest_path}\n"
+            f"  Set framework_revision to '{expected_version}' before packaging.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: could not parse manifest: {exc}", file=sys.stderr)
+        sys.exit(1)
+    recorded = data.get("framework_revision")
+    if recorded != expected_version:
+        print(
+            f"error: manifest framework_revision mismatch\n"
+            f"  recorded: {recorded!r}\n"
+            f"  expected: {expected_version!r}\n"
+            f"  Update docs/prompts/prompt-surface-manifest.json before packaging.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def check_docs_gate(repo_root: Path) -> None:
+    """Run docs-gardener and docs-lint as a pre-packaging gate.
+
+    Looks for each command in ``<repo_root>/.wavefoundry/bin/``.  Exits 1 if
+    either command is not found or returns a non-zero exit code.
+    """
+    import subprocess
+
+    bin_dir = repo_root / ".wavefoundry" / "bin"
+    for cmd_name in ("docs-gardener", "docs-lint"):
+        cmd_path = bin_dir / cmd_name
+        if not cmd_path.exists():
+            print(
+                f"error: {cmd_name} not found at {cmd_path}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        result = subprocess.run([str(cmd_path)], cwd=str(repo_root))
+        if result.returncode != 0:
+            print(
+                f"error: {cmd_name} failed — fix docs issues before packaging.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+
 def build_zip(
     output_dir: Path,
     date_str: str,
@@ -311,12 +372,33 @@ def main():
         action="store_true",
         help="Skip updating and compacting framework/index before packaging.",
     )
+    parser.add_argument(
+        "--skip-manifest-check",
+        action="store_true",
+        help=(
+            "Skip the framework_revision manifest consistency check. "
+            "Use only when the manifest is intentionally out of sync."
+        ),
+    )
+    parser.add_argument(
+        "--skip-docs-gate",
+        action="store_true",
+        help="Skip the docs-gardener / docs-lint pre-flight gate.",
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Print index build progress")
     args = parser.parse_args()
 
     # Packaging date is always "today" unless explicitly overridden for tests or
     # re-issues (--date). Suffix letter still auto-increments per date in output_dir.
     date_str = args.date if args.date else date.today().isoformat()
+
+    # Always resolve the repo root from the script's location for pre-flight checks.
+    _script_dir = Path(__file__).resolve().parent
+    try:
+        repo_root = find_repo_root(_script_dir)
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     if args.output:
         output_dir = Path(args.output)
@@ -333,12 +415,23 @@ def main():
             )
             sys.exit(1)
     else:
-        script_dir = Path(__file__).resolve().parent
-        try:
-            output_dir = find_repo_root(script_dir)
-        except RuntimeError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            sys.exit(1)
+        output_dir = repo_root
+
+    # Pre-flight: docs gate (gardener + lint).
+    if not args.skip_docs_gate:
+        check_docs_gate(repo_root)
+
+    # Peek at the next suffix so we can verify the manifest before stamping.
+    try:
+        expected_suffix = next_suffix(output_dir, date_str)
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    expected_version = f"{date_str}{expected_suffix}"
+
+    # Pre-flight: framework_revision manifest check.
+    if not args.skip_manifest_check:
+        check_manifest_revision(repo_root, expected_version)
 
     try:
         zip_path = build_zip(

@@ -5126,21 +5126,10 @@ def wave_dashboard_stop_response(root: Path) -> dict[str, Any]:
 
 
 def wave_dashboard_restart_response(root: Path) -> dict[str, Any]:
-    # R7: Block restart while upgrade is in progress (12r08).
-    _ulib = _load_upgrade_lib()
-    if _ulib is not None:
-        _lock = _ulib.read_upgrade_lock(root)
-        if _lock is not None and not _ulib.is_lock_stale(root):
-            return _response(
-                "error",
-                {"upgrade_in_progress": True},
-                diagnostics=[_diagnostic(
-                    "upgrade_in_progress",
-                    "Upgrade in progress — dashboard restart blocked until upgrade completes. "
-                    "Use wave_upgrade_status to check upgrade state.",
-                )],
-            )
-
+    # R7 (revised): Allow restart during upgrade. The restarted dashboard
+    # detects the upgrade lock at startup and enters upgrade_paused
+    # automatically, then resumes when the lock is removed. Blocking the
+    # restart was redundant and prevented legitimate recovery via restart.
     stop_env = wave_dashboard_stop_response(root)
     if stop_env.get("status") != "ok":
         return stop_env
@@ -5171,17 +5160,43 @@ def _load_upgrade_lib() -> Any:
         return None
 
 
-def wave_upgrade_response(root: Path, phase: str = "preflight_to_docs_gate") -> dict[str, Any]:
+def wave_upgrade_response(
+    root: Path,
+    phase: str = "preflight_to_docs_gate",
+    mode: str = "apply",
+) -> dict[str, Any]:
     """Invoke upgrade_wavefoundry.py for the requested phase (12r0b).
 
-    phase values:
-      "preflight_to_docs_gate" — phases 0–3 (default): pre-flight, surface rendering,
-          pruning, docs gate. Runs with --yes (non-interactive, no TTY in MCP).
-      "rebuild_index" — phase 4: docs index rebuild (blocking) + code index (background).
+    mode values:
+      "dry_run" — print the full upgrade plan + hook inventory (seed diffs,
+          extension module source, convention hook scripts) without modifying
+          anything on disk. Use this before the real upgrade to review what
+          will change and inspect any hook code. The phase parameter is
+          ignored in dry_run mode.
+      "apply" (default) — execute the requested phase for real.
+
+    phase values (apply mode only):
+      "preflight_to_docs_gate" — phases 0–3 (default): pre-flight, surface
+          rendering, pruning, docs gate. Non-interactive (--yes).
+      "update_index" — phase 4 (default): incremental docs index update
+          (blocking) + code index (background). Re-embeds only files that
+          changed; auto-escalates to full rebuild when chunker or embedding
+          model version changed. Use for normal post-editing-pass runs.
+      "rebuild_index" — phase 4 (full): re-embeds every file from scratch.
+          Use when update_index is insufficient (e.g. index corruption, or
+          a chunker bump that the auto-escalation did not catch).
       "cleanup" — phase 5: remove upgrade lock + print operator summary.
     """
-    valid_phases = ("preflight_to_docs_gate", "rebuild_index", "cleanup")
-    if phase not in valid_phases:
+    valid_modes = ("apply", "dry_run")
+    if mode not in valid_modes:
+        return _response(
+            "error",
+            {"mode": mode, "valid_modes": list(valid_modes)},
+            diagnostics=[_diagnostic("invalid_mode", f"Unknown mode {mode!r}. Valid: {valid_modes}")],
+        )
+
+    valid_phases = ("preflight_to_docs_gate", "update_index", "rebuild_index", "cleanup")
+    if mode == "apply" and phase not in valid_phases:
         return _response(
             "error",
             {"phase": phase, "valid_phases": list(valid_phases)},
@@ -5196,12 +5211,28 @@ def wave_upgrade_response(root: Path, phase: str = "preflight_to_docs_gate") -> 
             diagnostics=[_diagnostic("script_not_found", f"upgrade_wavefoundry.py not found at {upgrade_script}")],
         )
 
-    cmd = [sys.executable, str(upgrade_script), "--root", str(root), "--yes"]
-    if phase == "rebuild_index":
-        cmd.append("--rebuild-index")
-    elif phase == "cleanup":
-        cmd.append("--cleanup")
-    # phase == "preflight_to_docs_gate": no extra flag (default run)
+    if mode == "dry_run":
+        cmd = [sys.executable, str(upgrade_script), "--root", str(root), "--dry-run"]
+    else:
+        # Pre-create the log file so log_path in the response is always valid,
+        # even if the upgrade fails before the script opens it.  The upgrade
+        # script manages truncation (mode="w") and appending (mode="a") itself.
+        _log_path = root / ".wavefoundry" / "upgrade.log"
+        try:
+            _log_path.parent.mkdir(parents=True, exist_ok=True)
+            _log_path.touch(exist_ok=True)
+        except OSError:
+            pass
+
+        # All apply-mode phases run non-interactively (no TTY in MCP).
+        cmd = [sys.executable, str(upgrade_script), "--root", str(root), "--yes"]
+        if phase == "update_index":
+            cmd.append("--update-index")
+        elif phase == "rebuild_index":
+            cmd.append("--rebuild-index")
+        elif phase == "cleanup":
+            cmd.append("--cleanup")
+        # phase == "preflight_to_docs_gate": --yes only (default run)
 
     import subprocess as _subprocess
     try:
@@ -5220,7 +5251,19 @@ def wave_upgrade_response(root: Path, phase: str = "preflight_to_docs_gate") -> 
         )
 
     output = (result.stdout or "") + (result.stderr or "")
-    data = {"phase": phase, "exit_code": result.returncode, "output": output.strip()}
+    # log_path is deterministic and always present for apply-mode phases;
+    # dry_run is read-only so it writes no log file.
+    log_path = (
+        str(root / ".wavefoundry" / "upgrade.log")
+        if mode == "apply"
+        else None
+    )
+    data = {
+        "phase": phase,
+        "exit_code": result.returncode,
+        "output": output.strip(),
+        "log_path": log_path,
+    }
 
     if result.returncode != 0:
         exit_meanings = {1: "docs gate failed", 2: "surface rendering failed", 3: "pre-flight check failed"}
@@ -9702,10 +9745,16 @@ def build_server(root: Path):
                 checks, zip adoption, surface rendering, pruning, docs gate.
                 Run this first. The agent's editing pass (drift detection, journal
                 reconciliation, spec gap remediation) follows after this completes.
-              - ``"rebuild_index"`` — phase 4: docs index rebuild (blocking) then
-                code index rebuild (background). Call after the editing pass.
+              - ``"update_index"`` — phase 4 *(default post-editing choice)*:
+                incremental docs index update (blocking) then code (background).
+                Re-embeds only files that changed since the last run.
+                Auto-escalates to a full rebuild when chunker or embedding model
+                version changed. Use this for normal post-editing-pass runs.
+              - ``"rebuild_index"`` — phase 4 (full): re-embeds every file from
+                scratch. Use when ``update_index`` is insufficient — e.g. index
+                corruption or a manual forced refresh.
               - ``"cleanup"`` — phase 5: remove the upgrade lock file and print the
-                operator summary. Call after ``rebuild_index`` completes.
+                operator summary. Call after ``update_index`` or ``rebuild_index``.
 
         Response fields:
           - ``exit_code``: 0 = success, 1 = docs gate failed, 2 = surface rendering
@@ -9717,7 +9766,7 @@ def build_server(root: Path):
 
             wave_upgrade()                          # phases 0–3
             # … agent editing pass …
-            wave_upgrade(phase="rebuild_index")     # phase 4
+            wave_upgrade(phase="update_index")      # phase 4 — incremental (default)
             wave_upgrade(phase="cleanup")           # phase 5
 
         Use ``wave_upgrade_status`` to check lock state at any time.

@@ -41,8 +41,13 @@ def write_upgrade_lock(
     root: Path,
     from_version: str | None,
     to_version: str,
+    zip_path: Path | None = None,
 ) -> Path:
     """Write the upgrade lock file and return its path.
+
+    ``zip_path`` (optional) records which zip was used so that standalone
+    ``--rebuild-index`` and ``--cleanup`` invocations can reload the same
+    extension module rather than guessing from whatever zip is currently on disk.
 
     Raises OSError if the file cannot be written.
     """
@@ -53,9 +58,30 @@ def write_upgrade_lock(
         "from_version": from_version,
         "to_version": to_version,
         "pid": os.getpid(),
+        "zip_path": str(zip_path) if zip_path is not None else None,
+        "pruned_count": None,  # updated after phase 2 via update_upgrade_lock
     }
     p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return p
+
+
+def update_upgrade_lock(root: Path, **fields: Any) -> bool:
+    """Merge *fields* into the existing lock file and write it back.
+
+    Returns True if the lock was found and updated, False if no lock is present.
+    A missing lock is treated as a no-op rather than an error so callers don't
+    need to guard against the lock being removed concurrently.
+    """
+    lock = read_upgrade_lock(root)
+    if lock is None:
+        return False
+    lock.update(fields)
+    p = upgrade_lock_path(root)
+    try:
+        p.write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
+        return True
+    except OSError:
+        return False
 
 
 def remove_upgrade_lock(root: Path) -> bool:

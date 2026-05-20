@@ -432,5 +432,120 @@ class BuildPackTests(unittest.TestCase):
         self.assertFalse(any("tests/" in e for e in entries))
 
 
+class ManifestRevisionTests(unittest.TestCase):
+    """Tests for check_manifest_revision()."""
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.mkdtemp()
+        self.tmp = Path(self._tmp)
+        (self.tmp / "docs" / "prompts").mkdir(parents=True)
+        self.manifest_path = self.tmp / "docs" / "prompts" / "prompt-surface-manifest.json"
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _write_manifest(self, data: dict) -> None:
+        import json
+        self.manifest_path.write_text(json.dumps(data), encoding="utf-8")
+
+    def test_passes_when_revision_matches(self):
+        self._write_manifest({"framework_revision": "2099-01-01a"})
+        # Should not raise or exit.
+        build_pack.check_manifest_revision(self.tmp, "2099-01-01a")
+
+    def test_fails_when_revision_mismatches(self):
+        self._write_manifest({"framework_revision": "2099-01-01a"})
+        with self.assertRaises(SystemExit) as ctx:
+            build_pack.check_manifest_revision(self.tmp, "2099-01-01b")
+        self.assertNotEqual(ctx.exception.code, 0)
+
+    def test_fails_when_manifest_missing(self):
+        with self.assertRaises(SystemExit) as ctx:
+            build_pack.check_manifest_revision(self.tmp, "2099-01-01a")
+        self.assertNotEqual(ctx.exception.code, 0)
+
+    def test_fails_when_field_missing_from_manifest(self):
+        self._write_manifest({"other_key": "value"})
+        with self.assertRaises(SystemExit) as ctx:
+            build_pack.check_manifest_revision(self.tmp, "2099-01-01a")
+        self.assertNotEqual(ctx.exception.code, 0)
+
+    def test_error_message_shows_expected_and_recorded_versions(self):
+        import io
+        self._write_manifest({"framework_revision": "old-version"})
+        captured = io.StringIO()
+        with patch("sys.stderr", captured):
+            with self.assertRaises(SystemExit):
+                build_pack.check_manifest_revision(self.tmp, "2099-01-01a")
+        output = captured.getvalue()
+        self.assertIn("2099-01-01a", output)
+        self.assertIn("old-version", output)
+
+
+class DocsGateTests(unittest.TestCase):
+    """Tests for check_docs_gate()."""
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.mkdtemp()
+        self.tmp = Path(self._tmp)
+        self.bin_dir = self.tmp / ".wavefoundry" / "bin"
+        self.bin_dir.mkdir(parents=True)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _make_script(self, name: str, exit_code: int) -> None:
+        import stat
+        script = self.bin_dir / name
+        script.write_text(f"#!/bin/sh\nexit {exit_code}\n", encoding="utf-8")
+        script.chmod(script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+    def test_passes_when_both_commands_succeed(self):
+        self._make_script("docs-gardener", 0)
+        self._make_script("docs-lint", 0)
+        build_pack.check_docs_gate(self.tmp)  # should not raise or exit
+
+    def test_fails_when_docs_gardener_fails(self):
+        self._make_script("docs-gardener", 1)
+        self._make_script("docs-lint", 0)
+        with self.assertRaises(SystemExit) as ctx:
+            build_pack.check_docs_gate(self.tmp)
+        self.assertNotEqual(ctx.exception.code, 0)
+
+    def test_fails_when_docs_lint_fails(self):
+        self._make_script("docs-gardener", 0)
+        self._make_script("docs-lint", 1)
+        with self.assertRaises(SystemExit) as ctx:
+            build_pack.check_docs_gate(self.tmp)
+        self.assertNotEqual(ctx.exception.code, 0)
+
+    def test_fails_when_docs_gardener_not_found(self):
+        # Neither script exists.
+        with self.assertRaises(SystemExit) as ctx:
+            build_pack.check_docs_gate(self.tmp)
+        self.assertNotEqual(ctx.exception.code, 0)
+
+    def test_fails_when_docs_lint_not_found(self):
+        # Only docs-gardener exists; docs-lint is missing.
+        self._make_script("docs-gardener", 0)
+        with self.assertRaises(SystemExit) as ctx:
+            build_pack.check_docs_gate(self.tmp)
+        self.assertNotEqual(ctx.exception.code, 0)
+
+    def test_error_message_names_the_failing_command(self):
+        import io
+        self._make_script("docs-gardener", 0)
+        self._make_script("docs-lint", 1)
+        captured = io.StringIO()
+        with patch("sys.stderr", captured):
+            with self.assertRaises(SystemExit):
+                build_pack.check_docs_gate(self.tmp)
+        self.assertIn("docs-lint", captured.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -91,9 +91,9 @@ Proceed? [y/N]
 ```
 Non-interactive (no TTY or `--yes`): skip prompt, proceed.
 
-### R7 — wave_dashboard_restart upgrade guard
+### R7 — wave_dashboard_restart upgrade guard (revised)
 
-`wave_dashboard_restart_response(root)` checks for the upgrade lock before restarting. If lock exists, returns an error with a message explaining the block.
+`wave_dashboard_restart_response(root)` proceeds normally even when the upgrade lock is present. The restarted dashboard detects the lock at startup (R2) and enters `upgrade_paused` automatically, then resumes when the lock is removed. No blocking error is returned.
 
 ### R8 — Operator summary
 
@@ -152,7 +152,7 @@ Prints results (or "none") in the change plan. Does not auto-rename.
 - AC-1: `.wavefoundry/bin/upgrade-wavefoundry` on a repo with a root zip applies the zip, renders surfaces, prunes orphans, and runs the docs gate without manual agent shell commands.
 - AC-2: A running dashboard detects `upgrade-in-progress.json` and does not trigger any index build while it is present.
 - AC-3: When the lock file is removed, the dashboard triggers a post-upgrade index rebuild automatically.
-- AC-4: `wave_dashboard_restart` returns an error (not a restart) while the lock file is present.
+- AC-4: `wave_dashboard_restart` proceeds normally while the lock file is present; the restarted dashboard enters `upgrade_paused` automatically and resumes when the lock is cleared.
 - AC-5: `wave_upgrade_status` reflects the current lock state over MCP.
 - AC-6: Script exits non-zero on docs gate failure; the failure message names the failing check.
 - AC-7: Script detects a pack downgrade and exits before modifying anything on disk.
@@ -222,6 +222,7 @@ Prints results (or "none") in the change plan. Does not auto-rename.
 | 2026-05-19 | Phase 4 as `--rebuild-index` flag, not a separate script | Single entry point; agent calls it independently after editing pass; matches R3 spec | Separate `rebuild-index` bin script |
 | 2026-05-19 | `wave_upgrade_status` as dedicated MCP tool (not field on `wave_server_info`) | Independently discoverable; clean separation of concerns; `wave_server_info` already dense | Add `upgrade` field to `wave_server_info` |
 | 2026-05-19 | bin launcher is bash + .bat pair | Follows existing `docs-lint`/`docs-gardener` pattern; .bat covers Windows CMD | Single Python shebang script (breaks on Windows without Python on PATH) |
+| 2026-05-19 | R7 revised: allow restart during upgrade (not block) | Dashboard startup already detects lock and enters `upgrade_paused` automatically — blocking the restart was redundant and prevented legitimate recovery via restart | Keep the error block (original implementation) |
 
 ## Risks
 

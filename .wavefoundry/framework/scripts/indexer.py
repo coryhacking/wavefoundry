@@ -104,6 +104,17 @@ FRAMEWORK_TEST_PREFIXES = (
 )
 FRAMEWORK_PACK_ARTIFACT_NAMES = {"MANIFEST", "VERSION"}
 FRAMEWORK_PACK_ARTIFACT_PREFIXES = ("MANIFEST.pre-",)
+# Dev-only framework paths not shipped in the distribution zip.
+# These are excluded from framework/index/ so wave_index_build and build_pack
+# always produce the same file set — eliminating the dev/pack index conflict.
+# These files remain indexed in .wavefoundry/index/ (project layer).
+FRAMEWORK_DEV_ONLY_PREFIXES = (
+    ".wavefoundry/framework/scripts/benchmarks/",
+)
+FRAMEWORK_DEV_ONLY_EXACT_PATHS = frozenset({
+    ".wavefoundry/framework/scripts/run_tests.py",
+    ".wavefoundry/framework/test-cache.json",
+})
 TEST_DIR_NAMES = {"test", "tests", "__tests__"}
 
 # Directories and patterns always excluded regardless of .gitignore/.aiignore
@@ -481,7 +492,12 @@ def _filter_project_index_excludes(
 
 
 def _filter_framework_pack_artifacts(files: list[Path], root: Path) -> list[Path]:
-    """Exclude packaging artifacts from the framework layer index."""
+    """Exclude packaging artifacts and dev-only files from the framework layer index.
+
+    Keeps framework/index/ in sync with the distribution zip file set so that
+    wave_index_build and build_pack never fight over different file sets.
+    Dev-only files remain indexed in .wavefoundry/index/ (project layer).
+    """
     filtered: list[Path] = []
     for path in files:
         rel = str(path.relative_to(root)).replace("\\", "/")
@@ -489,6 +505,12 @@ def _filter_framework_pack_artifacts(files: list[Path], root: Path) -> list[Path
         if name in FRAMEWORK_PACK_ARTIFACT_NAMES:
             continue
         if any(name.startswith(prefix) for prefix in FRAMEWORK_PACK_ARTIFACT_PREFIXES):
+            continue
+        if _is_framework_test_path(rel):
+            continue
+        if rel.startswith(FRAMEWORK_DEV_ONLY_PREFIXES):
+            continue
+        if rel in FRAMEWORK_DEV_ONLY_EXACT_PATHS:
             continue
         filtered.append(path)
     return filtered

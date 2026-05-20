@@ -8716,22 +8716,29 @@ class WaveDashboardRestartUpgradeGuardTests(unittest.TestCase):
             "pid": os.getpid(),
         }), encoding="utf-8")
 
-    def test_restart_blocked_while_upgrade_in_progress(self):
-        """AC-4: wave_dashboard_restart returns error when upgrade lock present."""
+    def test_restart_proceeds_while_upgrade_in_progress(self):
+        """AC-4 (revised): restart is not blocked during upgrade — dashboard comes up in upgrade_paused."""
         self._write_lock()
-        result = self.srv.wave_dashboard_restart_response(self.root)
-        self.assertEqual(result["status"], "error")
-        self.assertTrue(result["data"].get("upgrade_in_progress"))
-        diag_codes = [d["code"] for d in result.get("diagnostics", [])]
-        self.assertIn("upgrade_in_progress", diag_codes)
+        import sys
+        mock_lib = _make_mock_dashboard_lib(self.root / ".wavefoundry" / "dashboard-server.json")
+        with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
+             patch.object(self.srv, "_pid_is_running", return_value=False), \
+             patch.object(self.srv, "wave_dashboard_start_response",
+                          return_value={"status": "ok", "data": {}}):
+            result = self.srv.wave_dashboard_restart_response(self.root)
+        self.assertNotEqual(result["status"], "error")
+        self.assertNotIn("upgrade_in_progress", result.get("data", {}))
 
     def test_restart_allowed_when_no_lock(self):
         """Restart proceeds normally when no upgrade lock is present."""
         # No lock file — restart should attempt to stop/start (both will find nothing running).
+        # Mock wave_dashboard_start_response to avoid spawning a real dashboard process.
         import sys
         mock_lib = _make_mock_dashboard_lib(self.root / ".wavefoundry" / "dashboard-server.json")
         with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
-             patch.object(self.srv, "_pid_is_running", return_value=False):
+             patch.object(self.srv, "_pid_is_running", return_value=False), \
+             patch.object(self.srv, "wave_dashboard_start_response",
+                          return_value={"status": "ok", "data": {}}):
             result = self.srv.wave_dashboard_restart_response(self.root)
         # Should not be blocked by upgrade guard.
         self.assertNotIn("upgrade_in_progress", result.get("data", {}))
@@ -8778,8 +8785,20 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         diag_codes = [d["code"] for d in result.get("diagnostics", [])]
         self.assertIn("upgrade_failed", diag_codes)
 
+    def test_update_index_phase_passes_flag(self):
+        """AC-3a: update_index phase passes --update-index (incremental)."""
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "Index updated\n"
+        mock_proc.stderr = ""
+        with patch("subprocess.run", return_value=mock_proc) as mock_run:
+            self.srv.wave_upgrade_response(self.root, phase="update_index")
+        called_cmd = mock_run.call_args[0][0]
+        self.assertIn("--update-index", called_cmd)
+        self.assertNotIn("--rebuild-index", called_cmd)
+
     def test_rebuild_index_phase_passes_flag(self):
-        """AC-3: rebuild_index phase passes --rebuild-index flag."""
+        """AC-3b: rebuild_index phase passes --rebuild-index (full rebuild)."""
         mock_proc = MagicMock()
         mock_proc.returncode = 0
         mock_proc.stdout = "Index rebuilt\n"
@@ -8788,6 +8807,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             self.srv.wave_upgrade_response(self.root, phase="rebuild_index")
         called_cmd = mock_run.call_args[0][0]
         self.assertIn("--rebuild-index", called_cmd)
+        self.assertNotIn("--update-index", called_cmd)
 
     def test_cleanup_phase_passes_flag(self):
         """AC-4: cleanup phase passes --cleanup flag."""
@@ -8799,6 +8819,25 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             self.srv.wave_upgrade_response(self.root, phase="cleanup")
         called_cmd = mock_run.call_args[0][0]
         self.assertIn("--cleanup", called_cmd)
+
+    def test_dry_run_mode_passes_flag_and_omits_yes(self):
+        """mode='dry_run' passes --dry-run and must NOT pass --yes (read-only, no prompt)."""
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "Dry Run\n"
+        mock_proc.stderr = ""
+        with patch("subprocess.run", return_value=mock_proc) as mock_run:
+            result = self.srv.wave_upgrade_response(self.root, mode="dry_run")
+        self.assertEqual(result["status"], "ok")
+        called_cmd = mock_run.call_args[0][0]
+        self.assertIn("--dry-run", called_cmd)
+        self.assertNotIn("--yes", called_cmd)
+
+    def test_invalid_mode_returns_error(self):
+        """Unknown mode returns error with valid_modes list."""
+        result = self.srv.wave_upgrade_response(self.root, mode="bad_mode")
+        self.assertEqual(result["status"], "error")
+        self.assertIn("valid_modes", result["data"])
 
 
 if __name__ == "__main__":
