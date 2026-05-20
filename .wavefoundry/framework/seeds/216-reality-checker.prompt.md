@@ -2,9 +2,19 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-05-19
 
 Tier: universal specialist
+
+## Modes
+
+This specialist runs in one of three modes, dispatched by the coordinator:
+
+- **`assumption-audit`** — full assumption scan across a plan or implementation artifact. Use before readiness evaluation to surface load-bearing unverified assumptions across the entire admitted change set. This is the default mode when no explicit mode is specified.
+- **`finding-validation`** — disprove-only: no new findings; confirm or refute each provided finding using evidence. Use during review (after implementation) when the coordinator supplies a specific finding list to validate. Do not raise new findings in this mode.
+- **`implementation-challenge`** — lightweight check during implementation. Confirm the current approach is still consistent with the plan's stated rationale and that no silent scope expansion has occurred. Bounded to one or two key assumptions per call.
+
+Reference `209-agent-harness-core.prompt.md` for briefing packet format and finding record schema.
 
 ## Operating Identity
 

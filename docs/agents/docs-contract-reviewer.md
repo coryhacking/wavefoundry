@@ -3,7 +3,8 @@
 Owner: Engineering
 Status: active
 Role: docs-contract-reviewer
-Last verified: 2026-05-14
+Category: review
+Last verified: 2026-05-20
 
 ## Operating Identity
 

@@ -1,10 +1,10 @@
 # Agent Prompt Harness Effectiveness
 
 Change ID: `12rnv-enh agent-prompt-harness-effectiveness`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: wave-coordinator
-Status: planned
-Last verified: 2026-05-19
+Status: implemented
+Last verified: 2026-05-20
 Wave: `12rnv agent-prompt-harness`
 
 ## Rationale
@@ -105,14 +105,14 @@ Security seed generalization is specified in **`12rbe-enh security-reviewer-expl
 
 ## Tasks
 
-- Admit change to wave `12rnv agent-prompt-harness` (if not already admitted)
-- **Prepare wave** — operator review of this doc; record AC priority; select review lanes
-- Open `seed_edit_allowed`; implement R-Core through R-Bootstrap; close gate
-- Update `MANIFEST`
-- Implement R-Wavefoundry-surface (project docs only)
-- Run framework tests and docs-lint
-- **Review wave** — architecture-reviewer (seed portability), docs-contract, security-review on seed-213 reachability text
-- Hand off for operator commit (no agent commit unless requested)
+- [x] Admit change to wave `12rnv agent-prompt-harness` (if not already admitted)
+- [x] **Prepare wave** — operator review of this doc; record AC priority; select review lanes
+- [x] Open `seed_edit_allowed`; implement R-Core through R-Bootstrap; close gate
+- [x] Update `MANIFEST`
+- [x] Implement R-Wavefoundry-surface (project docs only)
+- [x] Run framework tests and docs-lint
+- [x] **Review wave** — architecture-reviewer (seed portability), docs-contract, security-review on seed-213 reachability text
+- [x] Hand off for operator commit (no agent commit unless requested)
 
 ## Agent Execution Graph
 
@@ -161,6 +161,7 @@ N/A — framework prompts and project agent operating docs only. No product runt
 | 2026-05-19 | Change doc created; plan stub at `docs/plans/12rnv-*`. | planning discussion |
 | 2026-05-19 | Paired with `12rbe` on wave `12rnv`; not superseded. | operator clarification |
 | 2026-05-19 | Premature seed edits reverted; implementation deferred until Prepare wave. | `git checkout` on `.wavefoundry/framework/seeds/` |
+| 2026-05-20 | Implemented: seeds 209, 217, 218, 219, 221 created; 007/020/050/100/180/212/214/215/216 edited; specialists docs created; MANIFEST updated. 1482/1482 tests green, docs-lint clean. | implementer |
 
 ## Decision Log
 
@@ -182,6 +183,6 @@ N/A — framework prompts and project agent operating docs only. No product runt
 
 ## Session Handoff
 
-Wave `12rnv agent-prompt-harness` is **planned**. Next operator step: review this change doc, then **Prepare wave** before any seed implementation.
+Implemented. Next operator step: review the completed seed work, then continue with wave review and closure when ready.
 
-Implement after **Prepare wave**. Coordinate with `12rbe` in the same wave.
+Coordinate with `12rbe` in the same wave.

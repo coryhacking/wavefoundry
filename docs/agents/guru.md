@@ -3,7 +3,8 @@
 Owner: Engineering
 Status: active
 Role: guru
-Last verified: 2026-05-18
+Category: coordinate
+Last verified: 2026-05-20
 
 Shortcut: **`Guru`** | MCP tool: **`code_ask`**
 

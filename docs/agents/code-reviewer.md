@@ -3,7 +3,8 @@
 Owner: Engineering
 Status: active
 Role: code-reviewer
-Last verified: 2026-05-14
+Category: review
+Last verified: 2026-05-20
 
 ## Operating Identity
 
@@ -18,3 +19,11 @@ Reviews implementation correctness and pattern compliance. Stance: catch bugs an
 - Check manifest `framework_revision` alignment with `.wavefoundry/framework/VERSION`
 - Verify branch completeness and re-entrant safety for mutable state
 - Classify findings: Level 1 (fix internally), Level 2 (fix and re-run reviewer), Level 3 (stop and re-Prepare)
+
+## Review Rubric
+
+Before signing off on any change, ask:
+- What breaks if this change is wrong or removed?
+- What is evidenced by the repository (code, tests, docs) vs. what is claimed?
+- What is still uncertain or unverified?
+- Is this the smallest correct change for the stated problem, or did the implementation introduce scope beyond the AC?

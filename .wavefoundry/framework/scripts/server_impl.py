@@ -4928,7 +4928,7 @@ def wave_index_build_status_response(root: Path, layer: str = "project") -> dict
     return _response("ok", summary, next_tools=["wave_index_health"], usage="wave_index_health()")
 
 
-def wave_dashboard_start_response(root: Path) -> dict[str, Any]:
+def wave_dashboard_start_response(root: Path, port: int | None = None) -> dict[str, Any]:
     """Start the local dashboard server (with browser open) or return its URL if already running."""
     import subprocess
     import time as _time
@@ -4953,6 +4953,8 @@ def wave_dashboard_start_response(root: Path) -> dict[str, Any]:
 
     scripts_dir = Path(__file__).resolve().parent
     cmd = [sys.executable, str(scripts_dir / "dashboard_server.py"), "--root", str(root)]
+    if port is not None:
+        cmd.extend(["--port", str(port)])
     if dashboard_lib.dashboard_browser_open_enabled():
         cmd.append("--open")
     spawn_kwargs: dict[str, Any] = {
@@ -5147,10 +5149,22 @@ def wave_dashboard_restart_response(root: Path) -> dict[str, Any]:
     # detects the upgrade lock at startup and enters upgrade_paused
     # automatically, then resumes when the lock is removed. Blocking the
     # restart was redundant and prevented legitimate recovery via restart.
+
+    # Capture the current port before stopping so the restarted server reuses
+    # the same port — the browser tab stays valid without a refresh.
+    restart_port: int | None = None
+    try:
+        _, pre_meta = _dashboard_process_metadata(root)
+        recorded_port = pre_meta.get("port")
+        if isinstance(recorded_port, int) and recorded_port > 0:
+            restart_port = recorded_port
+    except Exception:  # noqa: BLE001
+        pass
+
     stop_env = wave_dashboard_stop_response(root)
     if stop_env.get("status") != "ok":
         return stop_env
-    start_env = wave_dashboard_start_response(root)
+    start_env = wave_dashboard_start_response(root, port=restart_port)
     if start_env.get("status") != "ok":
         return start_env
     data = dict(stop_env.get("data", {}))

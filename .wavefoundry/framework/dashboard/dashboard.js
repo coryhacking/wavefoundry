@@ -200,6 +200,146 @@ function summarizeAc(counts = {}, completed = {}) {
   }).join(" · ") || "—";
 }
 
+const FRAMEWORK_FLOW = [
+  {
+    id: "plan",
+    step: "01",
+    title: "Plan Change",
+    summary: "Set the shape of the change before any edits begin.",
+    flow: ["Idea", "Scope", "Admitted change"],
+    body: `This is where an idea becomes a real change. You clarify what is in scope, what is out of scope, and why the change matters before anyone starts editing files.
+
+That early clarity matters because every later stage depends on it. If the scope is fuzzy, the wave gets harder to review, harder to implement, and easier to drift. When the plan is still unclear, the right move is to stay here and resolve the unknowns before the wave moves forward.`,
+  },
+  {
+    id: "prepare",
+    step: "02",
+    title: "Prepare Wave",
+    summary: "Check readiness before the wave starts.",
+    flow: ["Review", "Open questions", "Prepare Wave"],
+    body: `This is the readiness gate. The council reviews the change, works through the open questions, and decides whether the wave is actually safe to start.
+
+This phase matters because it catches avoidable mistakes before code or docs start moving. It is not just a paperwork step; it is where the wave earns the right to begin. If the evidence is thin, the dependencies are unclear, or the change still feels too broad, the wave goes back to planning instead of pretending it is ready.
+
+When Prepare is done well, the team has a shared picture of what will happen next, what is still uncertain, and what the operator needs to watch closely during implementation.`,
+  },
+  {
+    id: "implement",
+    step: "03",
+    title: "Implement Wave",
+    summary: "Carry out the admitted changes and verify them.",
+    flow: ["Wave + change plans", "Implement each change", "Check tasks + ACs", "Write tests", "Prepare for review"],
+    body: `This is the coding pass. Once Prepare says the wave is ready, the coding agent takes over and uses the wave record plus each admitted change plan as the working guide.
+
+The first job is to read the wave and the change docs carefully enough to understand what belongs in scope. Then the work happens one change at a time: make the edits that match the plan, check the tasks and acceptance criteria, and keep the write set inside the admitted boundaries.
+
+Implementation is not just about moving text around. The agent also writes or updates tests, runs them, and confirms that the result matches the agreed intent instead of drifting into a new shape of work. If the change no longer matches what Prepare approved, the right move is to stop and send it back for another pass instead of widening the scope on the fly.
+
+When the code, tests, and documented intent line up, the wave is ready for review. The implementation phase is successful when it leaves behind a small, understandable set of edits that another reviewer can inspect without guessing how the change was made.`,
+  },
+  {
+    id: "review",
+    step: "04",
+    title: "Review Wave",
+    summary: "Compare the result against evidence and acceptance criteria.",
+    flow: ["Review", "Evidence", "Findings"],
+    body: `This is the evidence check. Reviewers compare what actually changed against what the wave promised, looking for missing behavior, drift, or anything that still needs correction.
+
+Review matters because it is where the team decides whether the change is genuinely ready or whether more work is needed. This is the phase that keeps optimism from outrunning proof. Findings do not mean failure; they mean the wave should iterate back to Implement or even Prepare until the gaps are closed and the evidence lines up.
+
+When the review is strong, it gives the operator confidence that the change is not just present, but actually matches the wave's intent and acceptance criteria.`,
+  },
+  {
+    id: "close",
+    step: "05",
+    title: "Close & Maintain",
+    summary: "Capture what shipped and hand it off.",
+    flow: ["Signoff", "Archive"],
+    body: `This is the handoff and memory stage. Once the wave is signed off, the team archives what shipped, records the important lessons, and makes sure a future session can understand what happened without reconstructing it from scratch.
+
+This phase matters because the work is not done when the code stops changing. The framework still needs a durable record of what shipped, what decisions mattered, and what a future operator should know before they try to extend it. If the handoff or summary does not match the completed wave, the process loops one more time to refresh the record before closure.
+
+That is what keeps the system useful over time: closure is not just an ending, it is the point where the wave becomes usable memory.`,
+  },
+];
+
+function FrameworkProcessDiagram({ process }) {
+  const steps = process.flow || [];
+  if (!steps.length) return null;
+
+  return h("div", { className: "framework-process-diagram" },
+    h("div", { className: "framework-process-diagram-track", "aria-label": `${process.title} internal flow` },
+      steps.map((step, index) => [
+        h("span", {
+          key: `${process.id}-step-${index}`,
+          className: "framework-process-diagram-step",
+        },
+          h("span", { className: "framework-process-diagram-step-label" }, step),
+        ),
+        index < steps.length - 1
+          ? h("span", { key: `${process.id}-arrow-${index}`, className: "framework-process-diagram-arrow", "aria-hidden": "true" }, "→")
+          : null,
+      ]).flat().filter(Boolean),
+    ),
+  );
+}
+
+function FrameworkProcessDialog({ process, onClose }) {
+  const bodyContent = process.body && process.body.trim()
+    ? renderMarkdownish(process.body)
+    : h("p", { className: "muted" }, "No details available.");
+
+  return h(DialogFrame, {
+    title: [
+      h("span", { key: "step", className: `process-step-number process-step-number--${process.id}` }, process.step),
+      h("span", { key: "title" }, process.title),
+    ],
+    subtitle: process.summary,
+    meta: [
+      { value: process.track, cls: "dialog-meta-pill" },
+    ],
+    className: `framework-process-dialog framework-process-dialog--${process.id}`,
+    onClose,
+  },
+    h(FrameworkProcessDiagram, { process }),
+    bodyContent,
+  );
+}
+
+function FrameworkFlow({ onSelectProcess }) {
+  if (!FRAMEWORK_FLOW.length) return null;
+
+  return h("div", { className: "framework-flow" },
+    h("div", { className: "framework-flow-header" },
+      h("h2", { className: "framework-flow-heading" }, "Wave lifecycle"),
+      h("p", { className: "framework-flow-note muted" },
+        "Click a stage to see how a change moves through a wave, from planning through review and close."
+      ),
+    ),
+    h("div", { className: "framework-flow-diagram" },
+      h("div", { className: "framework-flow-path", "aria-label": "Wave Framework process flow" },
+        FRAMEWORK_FLOW.map((process, index) => [
+          h("button", {
+            key: process.id,
+            type: "button",
+            className: `framework-flow-card framework-flow-card--${process.id}`,
+            onClick: () => onSelectProcess(process),
+            "aria-label": `Open ${process.title}`,
+            title: process.summary,
+          },
+            h("span", { className: "framework-flow-step" }, process.step),
+            h("strong", { className: "framework-flow-card-title" }, process.title),
+            h("span", { className: "framework-flow-card-copy" }, process.summary),
+          ),
+          index < FRAMEWORK_FLOW.length - 1
+            ? h("span", { key: `${process.id}-arrow`, className: "framework-flow-arrow", "aria-hidden": "true" }, "→")
+            : null,
+        ]).flat().filter(Boolean),
+      ),
+    ),
+  );
+}
+
 // ── Dark mode hook ────────────────────────────────────────────────────────────
 
 function useDarkMode() {
@@ -482,7 +622,6 @@ function OpenWaveCard({ wave, allChanges, handoffWaveId, onWaveClick, onChangeCl
       ),
       h("div", { className: "open-wave-meta" },
         isHandoff ? h("span", { className: "handoff-pill", title: "Current session handoff" }, "↩ handoff") : null,
-        h("span", { className: badgeClass(wave.status) }, wave.status),
         h("span", { className: "muted open-wave-count" }, `${wave.change_count} ${p(wave.change_count, "change", "changes")}`),
       ),
     ),
@@ -768,25 +907,26 @@ function AcsDialog({ snapshot, onClose }) {
 
 function TasksDialog({ snapshot, onClose }) {
   const { scope, changes } = dialogChangesForScope(snapshot);
+  const cards = changes.map(c => {
+    const items = sortPendingFirst(c.tasks_items || [], task => Boolean(task.done));
+    if (!items.length) return null;
+    return h("div", { key: c.change_id, className: "metric-dialog-card" },
+      h("div", { className: "metric-dialog-card-header" },
+        h("span", { className: "wave-change-id" }, c.change_id),
+      ),
+      h("div", { className: "metric-dialog-card-title" }, c.title),
+      h("div", { className: "metric-dialog-ac-rows" },
+        items.map((task, i) =>
+          h("div", { key: i, className: `metric-dialog-ac-item${task.done ? " metric-dialog-ac-item--done" : ""}` },
+            h("span", { className: `metric-dialog-ac-check${task.done ? " metric-dialog-ac-check--done" : ""}` }, task.done ? "✓" : "○"),
+            h("span", { className: "metric-dialog-ac-text" }, renderInline(task.label || "")),
+          )
+        ),
+      ),
+    );
+  }).filter(Boolean);
   return h(DialogFrame, { title: scope === "active" ? "Active Tasks" : "Pending Tasks", onClose },
-    changes.length ? changes.map(c => {
-      const items = sortPendingFirst(c.tasks_items || [], task => Boolean(task.done));
-      if (!items.length) return null;
-      return h("div", { key: c.change_id, className: "metric-dialog-card" },
-        h("div", { className: "metric-dialog-card-header" },
-          h("span", { className: "wave-change-id" }, c.change_id),
-        ),
-        h("div", { className: "metric-dialog-card-title" }, c.title),
-        h("div", { className: "metric-dialog-ac-rows" },
-          items.map((task, i) =>
-            h("div", { key: i, className: `metric-dialog-ac-item${task.done ? " metric-dialog-ac-item--done" : ""}` },
-              h("span", { className: `metric-dialog-ac-check${task.done ? " metric-dialog-ac-check--done" : ""}` }, task.done ? "✓" : "○"),
-              h("span", { className: "metric-dialog-ac-text" }, renderInline(task.label || "")),
-            )
-          ),
-        ),
-      );
-    }).filter(Boolean) : h("div", { className: "empty-state" }, scope === "active" ? "No active tasks." : "No pending tasks."),
+    cards.length ? cards : h("div", { className: "empty-state" }, scope === "active" ? "No active tasks." : "No pending tasks."),
   );
 }
 
@@ -805,9 +945,9 @@ function FilesDialog({ title, files, emptyMessage, onClose }) {
 
   return h("dialog", { ref: dialogRef, className: "agent-dialog files-dialog", onClick: handleBackdropClick },
     h("div", { className: "agent-dialog-header" },
-      h("div", null,
+      h("div", { className: "files-dialog-header-text" },
         h("h2", { className: "agent-dialog-title" }, title),
-        h("span", { className: "muted", style: { fontSize: "0.85rem" } }, `${files.length} ${files.length === 1 ? "file" : "files"}`),
+        h("span", { className: "files-dialog-subtitle" }, `${files.length} ${files.length === 1 ? "file" : "files"}`),
       ),
       h("button", { className: "agent-dialog-close", "aria-label": "Close", onClick: onClose }, "×"),
     ),
@@ -1235,7 +1375,7 @@ function AgentDialog({ agent, onClose }) {
 
   const categoryLabel = {
     build: "Build", review: "Review", coordinate: "Coordinate",
-    operate: "Operate", specialist: "Specialist", journal: "Journal",
+    operate: "Operate", specialist: "Specialist", factor: "Factor", journal: "Journal",
   }[agent.category] || agent.category;
 
   const bodyContent = agent.body && agent.body.trim()
@@ -1244,7 +1384,7 @@ function AgentDialog({ agent, onClose }) {
 
   return h("dialog", { ref: dialogRef, className: "agent-dialog", onClick: handleBackdropClick },
     h("div", { className: `agent-dialog-header agent-dialog-header--${agent.category}` },
-      h("div", null,
+      h("div", { className: "agent-dialog-header-text" },
         h("h2", { className: "agent-dialog-title" }, agent.name),
         h("span", { className: `hero-agent-pill hero-agent-pill--${agent.category}` }, categoryLabel),
       ),
@@ -1256,10 +1396,10 @@ function AgentDialog({ agent, onClose }) {
 
 function Agents({ agents, onSelectAgent }) {
   if (!agents?.length) return null;
-  const categories = ["build", "review", "coordinate", "operate", "specialist"];
+  const categories = ["coordinate", "review", "build", "specialist", "factor", "operate", "journal"];
   const labels = {
     build: "Build", review: "Review", coordinate: "Coordinate",
-    operate: "Operate", specialist: "Specialist", journal: "Journal",
+    operate: "Operate", specialist: "Specialist", factor: "Factor", journal: "Journal",
   };
 
   return h("div", { className: "hero-agents" },
@@ -1276,14 +1416,9 @@ function Agents({ agents, onSelectAgent }) {
               key: a.name,
               className: `hero-agent-pill hero-agent-pill--${a.category}`,
               onClick: () => onSelectAgent(a),
-              title: a.usage_count
-                ? `Used in ${a.usage_count} ${p(a.usage_count, "wave", "waves")}`
-                : labels[a.category],
+              title: labels[a.category],
             },
               a.name,
-              a.usage_count
-                ? h("span", { className: "agent-pill-count", "aria-label": `${a.usage_count} waves` }, a.usage_count)
-                : null,
             )
           ),
         ),
@@ -1295,6 +1430,7 @@ function Agents({ agents, onSelectAgent }) {
 
 function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
   const [selectedAgent, setSelectedAgent] = useState(null);
+  const [selectedFrameworkProcess, setSelectedFrameworkProcess] = useState(null);
   const [showWaves, setShowWaves] = useState(false);
   const [showChanges, setShowChanges] = useState(false);
   const [showAcs, setShowAcs] = useState(false);
@@ -1354,6 +1490,7 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
             onIndexClick:   () => setShowIndex(true),
           }),
           h(ProgressCard, { snapshot, scopeChanges }),
+          h(FrameworkFlow, { onSelectProcess: setSelectedFrameworkProcess }),
           agents.length ? h(Agents, { agents, onSelectAgent: setSelectedAgent }) : null,
         ),
       ),
@@ -1381,6 +1518,10 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
         h("span", { className: "site-footer-updated" }, `Updated ${localDateTime(snapshot.generated_at)}`),
       ),
     ),
+    selectedFrameworkProcess ? h(FrameworkProcessDialog, {
+      process: selectedFrameworkProcess,
+      onClose: () => setSelectedFrameworkProcess(null),
+    }) : null,
     selectedAgent ? h(AgentDialog, { agent: selectedAgent, onClose: () => setSelectedAgent(null) }) : null,
     docView ? h(DocDialog, { title: docView.title, subtitle: docView.subtitle, fetchUrl: docView.url, onClose: () => setDocView(null) }) : null,
     showWaves   ? h(WavesDialog,   { snapshot, onClose: () => setShowWaves(false) })   : null,

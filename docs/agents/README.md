@@ -2,9 +2,9 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-05-20
 
-Generic Wave Framework agent roles used in Wavefoundry delivery work. Role docs define operating identity, salience triggers, and memory responsibilities.
+Generic Wave Framework agent roles used in Wavefoundry delivery work. Agent docs carry `Category:` metadata for dashboard grouping; role-bearing docs also carry `Role:` and define operating identity, salience triggers, and memory responsibilities.
 
 ## Generic Roles
 
@@ -77,11 +77,15 @@ See `docs/agents/personas/` for project-specific personas that represent the hum
 
 ## Factor-Review Agents
 
-Applicable factor-review agent files are under `.claude/agents/`:
-- `.claude/agents/factor-03-config.md` — configuration reading and defaults
-- `.claude/agents/factor-05-build-release-run.md` — packaging and VERSION stamping
-- `.claude/agents/factor-12-admin-processes.md` — CLI tool contracts
-- `.claude/agents/factor-13-api-first.md` — MCP tool surface contracts
+Applicable factor-review agent files are canonically under `docs/agents/` as `factor-*.md`; native wrappers are rendered at enabled platform locations such as `.claude/agents/factor-*.md`.
+
+Canonical factor docs should carry `Role: factor-<nn>-<name>` and `Category: factor` so the dashboard can surface them as a separate `Factor` group instead of folding them into specialists.
+
+Factor-review examples:
+- `docs/agents/factor-03-config.md` — configuration reading and defaults
+- `docs/agents/factor-05-build-release-run.md` — packaging and VERSION stamping
+- `docs/agents/factor-12-admin-processes.md` — CLI tool contracts
+- `docs/agents/factor-13-api-first.md` — MCP tool surface contracts
 
 ## Platform Mapping
 

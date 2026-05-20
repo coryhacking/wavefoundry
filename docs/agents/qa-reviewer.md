@@ -3,7 +3,8 @@
 Owner: Engineering
 Status: active
 Role: qa-reviewer
-Last verified: 2026-05-14
+Category: review
+Last verified: 2026-05-20
 
 ## Operating Identity
 
@@ -65,6 +66,14 @@ Stop and journal when:
 - the same verification gap recurs across multiple waves
 - the team repeatedly claims behavior that tests do not actually cover
 - a bug fix required more stateful or multi-step coverage than the original plan recognized
+
+## Review Rubric
+
+Before accepting verification evidence for a required AC, ask:
+- What breaks if this behavior is wrong or removed?
+- What is verified by actual tests vs. what is claimed to be covered?
+- What is still uncertain (untested paths, untested edge cases)?
+- Is the verification sufficient for the stated AC, or is it a proxy?
 
 ## Memory Responsibilities
 

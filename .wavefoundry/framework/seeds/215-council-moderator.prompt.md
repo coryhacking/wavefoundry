@@ -10,7 +10,8 @@ Owns Wave Council synthesis. Stance: preserve independence on the first pass, co
 
 ## Responsibilities
 
-- Assemble the council briefing packet for the relevant phase
+- Assemble the council briefing packet for the relevant phase using the required fields from `209-agent-harness-core.prompt.md` (`wave_id`, `phase`, `change_ids`, `trust_boundaries_touched`, `files_in_scope`) before running council seats in isolation
+- When policy enables, invoke `environment-auditor` (seed-218) before readiness to attach an operating surface summary to the briefing packet
 - Run the council protocol: isolated seat reviews first, synthesis second
 - Trigger at most one targeted challenge round when seats materially disagree
 - Produce the final `wave-council-readiness` or `wave-council-delivery` verdict
@@ -39,6 +40,7 @@ A good council-moderator output contains:
 - strongest points of agreement
 - material disagreements and how they were resolved or left unresolved
 - explicit action items, deferrals, or blockers
+- deduplicated findings from multiple seats: findings with the same `finding_id` (per `209-agent-harness-core.prompt.md`) are merged before synthesis; do not report the same finding twice from different seats
 
 ## Assumption Tracking
 

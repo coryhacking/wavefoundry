@@ -731,9 +731,10 @@ def collect_health(root: Path, wave_count: int, change_sets: dict[str, list[dict
 
 
 _AGENT_ROLE_RE   = re.compile(r"^Role:\s+(.+)$", re.MULTILINE)
+_AGENT_CATEGORY_RE = re.compile(r"^Category:\s+(.+)$", re.MULTILINE)
 
 _HEADER_STRIP_PREFIXES = (
-    "Owner:", "Status:", "Last verified:", "Role:", "Actor:",
+    "Owner:", "Status:", "Category:", "Last verified:", "Role:", "Actor:",
     "Schema version:", "Last distilled:",
 )
 
@@ -762,8 +763,9 @@ def _strip_agent_header(text: str) -> str:
 
 _REVIEW_SUFFIXES = ("-reviewer", "-auditor", "-tester")
 _REVIEW_STEMS = frozenset({"reality-checker"})
-_COORDINATE_STEMS = frozenset({"planner", "wave-coordinator", "council-moderator", "platform-mapping", "session-handoff"})
+_COORDINATE_STEMS = frozenset({"guru", "planner", "wave-coordinator", "council-moderator", "platform-mapping", "session-handoff"})
 _COORDINATE_SUFFIXES = ("-coordinator", "-moderator")
+_FACTOR_PREFIX = "factor-"
 # Pattern-based: any stem ending with these suffixes is a hands-on builder.
 # Exact matches cover framework agents whose stems don't end in a build suffix.
 _BUILD_SUFFIXES = ("-engineer", "-developer", "-builder", "-automator", "-programmer", "-coder")
@@ -772,10 +774,14 @@ _BUILD_STEMS = frozenset({"implementer"})
 
 def _classify_agent_category(stem: str, group: str) -> str:
     """Map an agent file stem + group to a functional display category."""
+    if stem.startswith(_FACTOR_PREFIX):
+        return "factor"
     if group == "persona":
         return "operate"
     if group == "journal":
         return "journal"
+    if group == "factor":
+        return "factor"
     if group == "specialist":
         return "specialist"
     if stem in _REVIEW_STEMS or any(stem.endswith(s) for s in _REVIEW_SUFFIXES):
@@ -807,6 +813,8 @@ def _collect_agents_from_dir(
     for path in sorted(agents_dir.glob("*.md")):
         if path.name.lower() == "readme.md":
             continue
+        if group == "agent" and path.stem.startswith(_FACTOR_PREFIX):
+            continue
         try:
             text = path.read_text(encoding="utf-8")
         except OSError:
@@ -814,6 +822,7 @@ def _collect_agents_from_dir(
         role_m = _AGENT_ROLE_RE.search(text)
         if not role_m:
             continue  # No Role: field — not an agent role doc
+        category_m = _AGENT_CATEGORY_RE.search(text)
         title_m = _TITLE_RE.search(text)
         title = title_m.group(1).strip() if title_m else path.stem.replace("-", " ").title()
         for prefix in ("Persona — ", "Journal — ", "Specialist — "):
@@ -824,12 +833,46 @@ def _collect_agents_from_dir(
         results.append({
             "name": title,
             "group": group,
-            "category": _classify_agent_category(path.stem, group),
+            "category": category_m.group(1).strip() if category_m else _classify_agent_category(path.stem, group),
             "role": role_m.group(1).strip(),
             "usage_count": usage,
             "path": str(path.relative_to(path.parent.parent.parent)).replace("\\", "/"),
             "body": _strip_agent_header(text),
         })
+    return results
+
+
+def _collect_factor_agents(root: Path, usage_map: dict[str, int] | None = None) -> list[dict[str, Any]]:
+    """Collect factor-review agents from canonical docs, falling back to wrappers."""
+    factors_dirs = []
+    docs_factor_dir = root / "docs" / "agents"
+    if docs_factor_dir.is_dir():
+        factors_dirs.append(docs_factor_dir)
+    legacy_factor_dir = root / ".claude" / "agents"
+    if not factors_dirs and legacy_factor_dir.is_dir():
+        factors_dirs.append(legacy_factor_dir)
+    results: list[dict[str, Any]] = []
+    for factors_dir in factors_dirs:
+        for path in sorted(factors_dir.glob("factor-*.md")):
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            category_m = _AGENT_CATEGORY_RE.search(text)
+            title_m = _TITLE_RE.search(text)
+            title = title_m.group(1).strip() if title_m else path.stem.replace("-", " ").title()
+            if title.startswith("Factor ") and " — " in title:
+                title = title.split(" — ", 1)[1].strip() or title
+            usage = (usage_map or {}).get(path.stem, 0)
+            results.append({
+                "name": title,
+                "group": "factor",
+                "category": category_m.group(1).strip() if category_m else _classify_agent_category(path.stem, "factor"),
+                "role": path.stem,
+                "usage_count": usage,
+                "path": str(path.relative_to(root)).replace("\\", "/"),
+                "body": _strip_agent_header(text),
+            })
     return results
 
 
@@ -843,6 +886,7 @@ def collect_agents(root: Path, usage_map: dict[str, int] | None = None) -> list[
         subdir = agents_root / sub
         if subdir.is_dir():
             agents.extend(_collect_agents_from_dir(subdir, group, usage_map))
+    agents.extend(_collect_factor_agents(root, usage_map))
     agents.sort(key=lambda a: (-a["usage_count"], a["name"]))
     return agents
 

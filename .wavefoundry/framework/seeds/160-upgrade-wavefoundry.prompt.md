@@ -74,6 +74,7 @@ Execution flow:
  - agent entry files and native wrappers (including **Git commits (operator-owned)** and **Implementation guard** presence and thin-pointer alignment vs `seed-050`)
  - persona docs and journals, including operating identity, salience triggers, governance, taxonomy/routing, immediate-capture rules, retrieval metadata, and retirement/supersession guidance
  - factor-review policy and factor-review history
+ - framework upgrade note: when the pack moves factor docs to `docs/agents/factor-<nn>-<name>.md` or introduces `Category:` dashboard grouping, reconcile the canonical docs and regenerate wrappers instead of treating `.claude/agents/` as the source of truth
  - wrapper paths and tracking expectations
  - stale legacy prompt or framework references
  - source module structure vs `docs/repo-index.md` (new modules, removed modules, new entry points, new public API surfaces)
@@ -99,8 +100,9 @@ Execution flow:
    - `docs/agents/guru.md` — Guru role doc (`seed-211`); backfill when missing. **Migration note:** prior versions of `seed-211` generated the agent at `docs/prompts/agents/code-insight-agent.prompt.md` or `docs/agents/code-insight-agent.md`. During upgrade, if `docs/agents/code-insight-agent.md` exists and `docs/agents/guru.md` does not, relocate it: copy content to `docs/agents/guru.md` (adding `Role: guru` to the metadata header), then delete `docs/agents/code-insight-agent.md` and update references in `AGENTS.md`, `docs/architecture/`, and `docs/prompts/index.md`. Migrate `docs/agents/journals/code-insight-agent.md` to `docs/agents/journals/guru.md` when present. Ensure `docs/agents/guru.md` has `Role:` so it appears in the dashboard Agents panel.
  - `docs/prompts/agents/` prompt bodies when the repository keeps checked-in project-context/planning helper prompts; backfill missing specialist agent bodies introduced in `seed-212` through `seed-214` when not present:
  - `docs/prompts/agents/performance-reviewer.prompt.md` (`performance-reviewer` lane — `seed-212`)
- - `docs/prompts/agents/security-reviewer.prompt.md` (`security-reviewer` lane — `seed-213`)
- - `docs/prompts/agents/architecture-reviewer.prompt.md` (`architecture-reviewer` lane — `seed-214`)
+   - `docs/prompts/agents/security-reviewer.prompt.md` (`security-reviewer` lane — `seed-213`)
+   - `docs/prompts/agents/architecture-reviewer.prompt.md` (`architecture-reviewer` lane — `seed-214`)
+   - `docs/prompts/agents/code-reviewer.prompt.md` (`code-review` lane — `seed-221`) when the repository keeps checked-in agent-oriented prompt bodies
  - workflow config schema
  - `docs/references/project-overview.md` when missing or stale
  - `docs/contributing/feature-wave-lifecycle-overview.md` when missing or stale so it stays aligned with `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` plus local reviewer/persona policy
@@ -192,7 +194,15 @@ Execution flow:
 
 12. Re-run the docs gate (**MCP:** **`wave_garden`** then **`wave_validate`** when attached; **CLI:** **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`**).
 
-13. **Restart MCP and update indexes:** After the docs gate passes, instruct the operator to restart the MCP server so the upgraded server and any newly rendered hook/config surfaces take effect. Then run `wave_index_build(content="docs", mode="update")` for the project layer. The framework index is shipped inside the pack and should not be rebuilt during an ordinary upgrade; only reindex the framework layer when the pack itself invalidated it or you are intentionally reindexing the Wavefoundry source repo. If `CHUNKER_VERSION` changed, a full rebuild is required instead — see step 11. Present this as a required final handoff step, not optional cleanup.
+13. **Reload/restart MCP and update indexes:** After the docs gate passes, reload the MCP server so the upgraded server code and any newly rendered hook/config surfaces take effect. Use the MCP call first:
+ ```
+ wave_mcp_reload()
+ ```
+ This reloads the implementation module in-process without restarting the stdio server. **If new tools were added or tool signatures changed**, an in-process reload is insufficient — instruct the operator to do a full session restart (Claude Code: `/reconnect` or restart the session) so the host picks up the new tool list. After reload or restart, check whether the dashboard is running and restart it if so:
+ ```
+ wave_dashboard_restart()
+ ```
+ (If the dashboard was not running, skip this step — do not start it uninstructed.) Then run `wave_index_build(content="docs", mode="update")` for the project layer. The framework index is shipped inside the pack and should not be rebuilt during an ordinary upgrade; only reindex the framework layer when the pack itself invalidated it or you are intentionally reindexing the Wavefoundry source repo. If `CHUNKER_VERSION` changed, a full rebuild is required instead — see step 11. Present this as a required final handoff step, not optional cleanup.
 
 14. **Operating-memory upgrade reconciliation:** When `seed-006`, `seed-050`, `seed-120`, `seed-130`, `seed-140`, `seed-160`, `seed-170`, `seed-180`, `seed-190`, `seed-200`, or `seed-210` changed the journal/role/persona memory contract, upgrade existing projects using this checklist: When `seed-006`, `seed-050`, `seed-120`, `seed-130`, `seed-140`, `seed-160`, `seed-170`, `seed-180`, `seed-190`, `seed-200`, or `seed-210` changed the journal/role/persona memory contract, upgrade existing projects using this checklist:
  - Preserve operator standing directives, active cautions, security/release-sensitive notes, and evidence refs unless explicitly superseded with evidence.
@@ -232,7 +242,7 @@ Include the following topics in plain language:
  - Lifecycle IDs remain `python3 .wavefoundry/framework/scripts/lifecycle_id.py`.
 
 5. **Agents and personas**
- - Note any added/retired generic role wrappers or factor-review agents tied to `docs/repo-profile.json` `factor_review` changes; persona policy changes from `persona_review_policy`; operating-identity or salience-trigger updates applied to roles/personas.
+- Note any added/retired generic role wrappers or factor-review agents tied to `docs/repo-profile.json` `factor_review` changes; call out factor-doc relocations to `docs/agents/factor-<nn>-<name>.md`, `Category:` grouping changes, persona policy changes from `persona_review_policy`, and operating-identity or salience-trigger updates applied to roles/personas.
 
 6. **Documentation setup and verification**
  - Reiterate canonical entry: `docs/README.md`, `docs/prompts/index.md`, `docs/references/project-overview.md`.
@@ -348,7 +358,7 @@ Validation areas that should be checked explicitly:
 - required canonical docs and topical artifact roots exist
 - `docs/references/project-overview.md` exists and explains the project workflow plus role/persona collaboration model
 - workflow config contains wave, memory, persona, prompt-generation, factor-review, and persona-review sections (`factor_review_policy` and `persona_review_policy` as separate keys)
-- workflow config `required_review_lanes` key is present when the project declares required inferential sensor lanes (`security-review`, `architecture-review`, `performance-review`, or project-custom lanes); if absent and the project uses reviewer agents, prompt the operator to add it
+- workflow config `required_review_lanes` key is present when the project declares required inferential sensor lanes (`security-review`, `architecture-review`, `performance-review`, `code-review`, or project-custom lanes); if absent and the project uses reviewer agents, prompt the operator to add it
 - workflow config `sensors` key is present when the project registers computational sensors; document the format (`name`, `command`, `dimension`, `description`) in `docs/contributing/build-and-verification.md` when backfilling
 - workflow config includes **`lifecycle_id_policy`** when the project vendors `lifecycle_id.py` in the repository, either present already or backfilled without mutating an existing epoch/offset
 - workflow config `review_policies` includes `require_qa_reviewer_for_bug_fixes` when the project follows `docs/contributing/agent-team-workflow.md` bug-fix QA rules
@@ -361,6 +371,7 @@ Validation areas that should be checked explicitly:
 - refreshable artifacts exist in their expected topical homes
 - `AGENTS.md` contains **Framework Script Hygiene** per `seed-050`; backfill from the canonical rule when missing
 - `AGENTS.md` contains **Git commits (operator-owned)** per `seed-050`; `docs/contributing/build-and-verification.md` contains a **Git commits** section aligned with that policy when the file exists
+- `AGENTS.md` contains **Implementation Principles** (four behavioral rules: Ask don't assume, Simplest solution first, Don't touch unrelated code, Flag uncertainty explicitly) per `seed-050` task 16; placed before `## Stage Gate`
 - `AGENTS.md` contains **Implementation guard (product code)** when `docs/repo-profile.json` / `docs/repo-index.md` indicates shipped product code, per `seed-050`; backfill the section and thin-pointer startup lines when missing but the project is not documentation-only
 - `AGENTS.md` contains **Codebase and documentation questions (auto-Guru)** and **Agent platform routing** per `seed-050`; backfill when missing or when `050` changed
 - `docs/agents/guru.md` exists when the project uses Guru (`seed-211`); CIA/code-insight paths migrated when legacy files were present
@@ -378,6 +389,7 @@ Validation areas that should be checked explicitly:
 - `docs/agents/platform-mapping.md` reflects which supported platforms receive executable hooks (`claude`, `cursor`, `copilot`) and which stay prompt-driven (`codex`, `air`, `junie`, `warp`)
 - `docs/prompts/index.md` contains an **Operating Rules** section (or equivalent) that references `.wavefoundry/framework/seeds/020-run-contract.prompt.md` as the authoritative run contract and carries the key behavioral rules inline; backfill when missing per `seed-100`
 - canonical role docs (`docs/agents/implementer.md`, `docs/agents/planner.md`, `docs/agents/wave-coordinator.md`) each contain an **Execution contract** section with the role-relevant subset of rules from `seed-020`; backfill when missing per `seed-050` **Execution Contract in Canonical Role Docs**
+- reviewer role docs (`docs/agents/code-reviewer.md`, `docs/agents/qa-reviewer.md`, `docs/agents/council-moderator.md`) contain a **Review Rubric** or equivalent section referencing the preflight checks from `seed-020` **Prompt Preflight**
 - `docs/contributing/agent-team-workflow.md` contains an **Execution contract** section with all six rules from `seed-020` and a reference to it; backfill when missing per `seed-150` task 5
 - `docs/prompts/index.md`, `docs/prompts/prompt-surface-manifest.json`, and `AGENTS.md` shortcut tables remain **triplet-consistent** (no orphan public prompts, no duplicate shortcuts)
 - `docs/workflow-config.json` retains top-level **`wave_execution`**, **`agent_memory`**, **`project_persona_generation`**, **`prompt_generation`**, **`factor_review_policy`**, and **`persona_review_policy`** sections expected by the docs gate

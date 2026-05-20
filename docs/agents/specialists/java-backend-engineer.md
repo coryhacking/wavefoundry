@@ -2,7 +2,8 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-30
+Category: specialist
+Last verified: 2026-05-20
 
 Tier: archetype specialist — JVM / service
 

@@ -3,7 +3,8 @@
 Owner: Engineering
 Status: active
 Role: implementer
-Last verified: 2026-05-14
+Category: build
+Last verified: 2026-05-20
 
 ## Operating Identity
 
@@ -28,6 +29,16 @@ Stop and journal when:
 
 - Framework script hygiene discoveries → note in handoff if transient; journal if recurring
 - Pattern deviations approved by operator → `docs/agents/journals/implementer.md`
+
+## Preflight Rubric
+
+Before making any change, restate:
+1. Current behavior — what does the code do now?
+2. Why the change is needed — what problem does it solve?
+3. The smallest correct change — what is the minimum edit that addresses the root cause?
+4. Post-change verification — what would count as proof the change actually solved the problem?
+
+Surface uncertainty explicitly. If an assumption is not grounded in repository evidence, say so before proceeding.
 
 ## Execution Contract
 

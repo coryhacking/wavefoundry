@@ -2,9 +2,9 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-05-20
 
-Persona agents represent the humans who use, operate, or administer Wavefoundry. They are invoked during spec authoring, design review, and acceptance of operator-facing behavior changes.
+Persona agents represent the humans who use, operate, or administer Wavefoundry. They are invoked during spec authoring, design review, and acceptance of operator-facing behavior changes. Persona docs carry `Category: operate` so the dashboard can group them consistently.
 
 Personas are distinct from agent roles (planner, implementer, wave-coordinator). Roles build the software; personas speak as the people who use or operate it.
 

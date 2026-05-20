@@ -46,7 +46,7 @@ Required planning outputs for non-trivial work:
 - `Wave Readiness Plan`
 - `Journal Watchpoints`
 - `Salience / Impact` notes only where they change priority, reviewer/persona routing, escalation, handoff, or memory preservation
-- factor-review plan when factor-oriented review is relevant for the project and the current wave
+- factor-review plan when factor-oriented review is relevant for the project and the current wave; source applicable factor docs from `docs/agents/factor-<nn>-<name>.md` and record the dashboard grouping expectations via `Category: factor`
 - for framework/prompt-surface maintenance, an explicit file-touch plan naming intended edits, protected surfaces, and read-only vs write-owning lanes before execution starts
 
 Change document format:
@@ -117,7 +117,7 @@ Required planning semantics:
 - serialization points
 - review checkpoints
 - handoff rules
-- factor-review applicability for the wave and the factor-specific subagents or sub-review lanes that should participate, if any
+- factor-review applicability for the wave and the factor-specific subagents or sub-review lanes that should participate, if any; factor docs should come from `docs/agents/factor-<nn>-<name>.md` and the dashboard should group them under `Category: factor`
 
 Required orchestration outputs for each non-trivial wave:
 

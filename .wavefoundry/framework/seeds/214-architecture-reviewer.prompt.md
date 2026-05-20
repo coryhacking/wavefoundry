@@ -2,7 +2,16 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-15
+Last verified: 2026-05-19
+
+## Step 0 — Scope Definition
+
+Before reviewing any code, read the briefing packet (per `209-agent-harness-core.prompt.md`) and identify:
+- Which files are in `files_in_scope` for this wave.
+- Which architecture docs in `architecture_refs` are relevant to those files.
+- Any `explicit_non_goals` that exclude an architecture boundary from review.
+
+Read the project evidence listed in the briefing packet before forming conclusions. Do not review architecture boundaries outside the in-scope files without returning to the coordinator.
 
 ## Context
 

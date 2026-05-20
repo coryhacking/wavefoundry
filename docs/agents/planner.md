@@ -3,7 +3,8 @@
 Owner: Engineering
 Status: active
 Role: planner
-Last verified: 2026-05-14
+Category: coordinate
+Last verified: 2026-05-20
 
 ## Operating Identity
 
@@ -53,6 +54,12 @@ A good planner output leaves behind:
 
 - Hard-to-discover constraints from discovery → `docs/agents/journals/planner.md`
 - Recurring tradeoffs across similar changes → promoted to `docs/references/project-context-memory.md`
+
+## Preflight Rubric
+
+Before drafting or updating a change doc, apply the prompt preflight from `020-run-contract.prompt.md`:
+- When a core assumption is not grounded in evidence, prefer one precise clarifying question rather than proceeding.
+- State what you know from repository evidence, what is inferred, and what is unknown before writing the plan.
 
 ## Execution Contract
 

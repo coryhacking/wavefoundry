@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-18
+Last verified: 2026-05-20
 
 Public shortcut phrase catalog for Wavefoundry. See `AGENTS.md` for the routing table.
 
@@ -13,6 +13,7 @@ This prompt surface follows `.wavefoundry/framework/seeds/020-run-contract.promp
 - **Scoped-work triage:** classify by risk, blast radius, and lifecycle impact before proceeding. Lightweight means compact output *within* the lifecycle checkpoints that apply per `AGENTS.md` — not a skipped document/admit/Prepare-wave path when those gates apply. Complex/high-stakes and always-gated work requires full reasoning depth and lifecycle gates.
 - **Brownfield pattern detection:** detect dominant patterns before implementing; follow them; surface significant problems with rationale before deviating; no silent divergence.
 - **Surface assumptions explicitly;** prefer the smallest correct change after pattern obligations; diagnose before retrying; prefer one clarifying question over a wrong assumption; verify changes actually solved the problem.
+- **Prompt Preflight:** Before acting on any task, apply the six-point preflight rubric from `seed-020` **Prompt Preflight**: Evidence first, Own the boundary, What breaks, Order matters, State uncertainty, Verify before declaring done. Implementers restate expected behavior before writing; reviewers ask "what evidence proves this claim"; coordinators push back on unverifiable status before synthesizing.
 - **Full lifecycle before code:** document → admit → Prepare wave. See `AGENTS.md` **Stage Gate (repository code)**.
 
 ## Public Commands

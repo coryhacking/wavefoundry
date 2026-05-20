@@ -3,7 +3,8 @@
 Owner: Engineering
 Status: active
 Role: architecture-reviewer
-Last verified: 2026-05-18
+Category: review
+Last verified: 2026-05-20
 
 ## Operating Identity
 

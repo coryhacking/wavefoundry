@@ -1,10 +1,10 @@
 # AGENTS.md Implementation Principles
 
 Change ID: `12rcd-maint agents-md-implementation-principles`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: wave-coordinator
-Status: planned
-Last verified: 2026-05-19
+Status: implemented
+Last verified: 2026-05-20
 Wave: `12rnv agent-prompt-harness`
 
 ## Rationale
@@ -45,9 +45,9 @@ AGENTS.md has a `## Core Principles` section that documents project-level design
 
 ## Tasks
 
-- Edit `AGENTS.md`: add `## Implementation Principles` section after `## Core Principles`
-- Open `seed_edit_allowed` gate; edit `050-agent-entry-surface-bootstrap.prompt.md` to reference the four principles; close gate
-- Run docs-lint
+- [x] Edit `AGENTS.md`: add `## Implementation Principles` section after `## Core Principles`
+- [x] Open `seed_edit_allowed` gate; edit `050-agent-entry-surface-bootstrap.prompt.md` to reference the four principles; close gate
+- [x] Run docs-lint
 
 ## Agent Execution Graph
 
@@ -78,6 +78,7 @@ N/A — confined to agent guidance and seed. No impact on framework boundaries, 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-05-19 | Change doc created. | operator request |
+| 2026-05-20 | Implemented: `## Implementation Principles` section added to `AGENTS.md` after `## Core Principles`; seed-050 already carried task 16 (verbatim principles for target repo generation). | implementer |
 
 ## Decision Log
 

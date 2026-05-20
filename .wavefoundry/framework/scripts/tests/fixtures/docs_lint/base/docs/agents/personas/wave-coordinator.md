@@ -2,6 +2,7 @@
 
 Owner: Engineering
 Status: active
+Category: operate
 Last verified: 2026-03-21
 
 ## Who

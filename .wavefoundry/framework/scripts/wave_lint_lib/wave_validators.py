@@ -52,6 +52,39 @@ _CHANGE_DOC_REQUIRED_SECTIONS = (
     "## Acceptance Criteria",
     "## AC Priority",
 )
+_ROLE_RE = re.compile(r"^Role:\s+(.+)$", re.MULTILINE)
+_CATEGORY_RE = re.compile(r"^Category:\s+(.+)$", re.MULTILINE)
+_AGENT_ROLE_EXEMPT_NAMES = {"README.md", "session-handoff.md", "platform-mapping.md"}
+_AGENT_ROLE_REQUIRED_PATHS = frozenset(
+    {
+        "docs/agents/architecture-reviewer.md",
+        "docs/agents/code-reviewer.md",
+        "docs/agents/council-moderator.md",
+        "docs/agents/docs-contract-reviewer.md",
+        "docs/agents/factor-03-config.md",
+        "docs/agents/factor-05-build-release-run.md",
+        "docs/agents/factor-12-admin-processes.md",
+        "docs/agents/factor-13-api-first.md",
+        "docs/agents/guru.md",
+        "docs/agents/implementer.md",
+        "docs/agents/performance-reviewer.md",
+        "docs/agents/planner.md",
+        "docs/agents/qa-reviewer.md",
+        "docs/agents/release-reviewer.md",
+        "docs/agents/security-reviewer.md",
+        "docs/agents/wave-coordinator.md",
+        "docs/agents/specialists/environment-auditor.md",
+        "docs/agents/specialists/operating-surface-gardener.md",
+        "docs/agents/specialists/senior-engineering-challenger.md",
+    }
+)
+_REVIEW_SUFFIXES = ("-reviewer", "-auditor", "-tester")
+_REVIEW_STEMS = frozenset({"reality-checker"})
+_COORDINATE_STEMS = frozenset({"guru", "planner", "wave-coordinator", "council-moderator"})
+_COORDINATE_SUFFIXES = ("-coordinator", "-moderator")
+_BUILD_SUFFIXES = ("-engineer", "-developer", "-builder", "-automator", "-programmer", "-coder")
+_BUILD_STEMS = frozenset({"implementer"})
+_CATEGORY_EXEMPT_NAMES = {"README.md", "session-handoff.md", "platform-mapping.md"}
 
 def _extract_backtick_value(raw_line: str) -> str:
     if "`" not in raw_line:
@@ -160,6 +193,67 @@ def _metadata_value(text: str, key: str) -> str | None:
         if raw_line.startswith(prefix):
             return raw_line.split(":", 1)[1].strip()
     return None
+
+
+def _check_agent_role_metadata(root: Path) -> list[str]:
+    failures: list[str] = []
+    if not (root / "docs" / "agents").is_dir():
+        return failures
+    for rel in sorted(_AGENT_ROLE_REQUIRED_PATHS):
+        path = root / rel
+        if not path.is_file():
+            continue
+        rel = relative_to_root(root, path)
+        if path.name in _AGENT_ROLE_EXEMPT_NAMES:
+            continue
+        text = read_text(path)
+        role_match = _ROLE_RE.search(text)
+        if not role_match:
+            failures.append(f"{rel}: missing required `Role:` metadata")
+            continue
+        role = role_match.group(1).strip()
+        if role != path.stem:
+            failures.append(f"{rel}: `Role:` must match filename slug `{path.stem}`")
+    return failures
+
+
+def _expected_agent_category(path: Path) -> str | None:
+    if path.name in _CATEGORY_EXEMPT_NAMES or "journals" in path.parts:
+        return None
+    if path.stem.startswith("factor-") or "factor" in path.parts:
+        return "factor"
+    if "personas" in path.parts:
+        return "operate"
+    if "specialists" in path.parts:
+        return "specialist"
+    if path.stem in _COORDINATE_STEMS or any(path.stem.endswith(s) for s in _COORDINATE_SUFFIXES):
+        return "coordinate"
+    if path.stem in _REVIEW_STEMS or any(path.stem.endswith(s) for s in _REVIEW_SUFFIXES):
+        return "review"
+    if path.stem in _BUILD_STEMS or any(path.stem.endswith(s) for s in _BUILD_SUFFIXES):
+        return "build"
+    return "specialist"
+
+
+def _check_agent_category_metadata(root: Path) -> list[str]:
+    failures: list[str] = []
+    agents_root = root / "docs" / "agents"
+    if not agents_root.is_dir():
+        return failures
+    for path in sorted(agents_root.rglob("*.md")):
+        if path.name in _CATEGORY_EXEMPT_NAMES or "journals" in path.parts:
+            continue
+        rel = relative_to_root(root, path)
+        text = read_text(path)
+        category_match = _CATEGORY_RE.search(text)
+        if not category_match:
+            failures.append(f"{rel}: missing required `Category:` metadata")
+            continue
+        category = category_match.group(1).strip()
+        expected = _expected_agent_category(path)
+        if expected is not None and category != expected:
+            failures.append(f"{rel}: `Category:` must be `{expected}`")
+    return failures
 
 
 def _is_activated_wave(text: str) -> bool:

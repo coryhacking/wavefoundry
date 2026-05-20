@@ -2,7 +2,16 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-04
+Last verified: 2026-05-19
+
+## Step 0 — Scope Definition
+
+Before reviewing any code, read the briefing packet (per `209-agent-harness-core.prompt.md`) and identify which hot paths are actually in scope for this wave. Confirm:
+- Which files are in `files_in_scope`.
+- Which hot paths those files affect (query time, indexing, startup, per-call overhead).
+- Any `explicit_non_goals` that exclude a path from review.
+
+Do not review performance of files outside `files_in_scope` without returning to the coordinator.
 
 ## Context
 

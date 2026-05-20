@@ -27,6 +27,23 @@ Use this execution contract for all later prompts in the Wave Framework.
 - Prefer one precise clarifying question over proceeding on a wrong assumption.
 - After making changes, reason through whether they actually address the stated problem before declaring done; consider edge cases and failure modes as part of normal analysis, not as an afterthought.
 
+## Prompt Preflight
+
+Before acting on any task — planning, implementing, reviewing, or coordinating — apply this preflight checklist:
+
+- **Evidence first:** use repository evidence as the source of truth; separate facts, inferences, and unknowns.
+- **Own the boundary:** say which file, module, prompt surface, or lifecycle step owns the change.
+- **What breaks:** name the failure mode, blast radius, or regression if the change is wrong or removed.
+- **Order matters:** identify ordering, dependency, or readiness constraints before acting.
+- **State uncertainty:** surface assumptions explicitly and say what remains unverified.
+- **Verify before declaring done:** describe what would count as proof the change actually solved the problem.
+
+Role-specific follow-up:
+
+- **planner:** prefer one precise clarifying question when a core assumption is not grounded in evidence
+- **implementer:** restate current behavior, why the change is needed, the smallest correct change, and the post-change verification
+- **reviewer / council:** ask what breaks, what is evidenced, what is still uncertain, and whether the proposed change is the smallest correct one for the stated problem
+
 ## Context Precedence
 
 Use this precedence order when assembling or reconciling context:

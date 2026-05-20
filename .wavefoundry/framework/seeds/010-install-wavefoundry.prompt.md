@@ -168,7 +168,7 @@ Include the following topics in plain language:
  - Lifecycle IDs: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>` (and change IDs per seeded policy).
 
 4. **Agents and personas**
- - **Generic roles**: canonical specs under `docs/agents/README.md` and individual role files (planner, implementer, wave-coordinator, code-reviewer, architecture-reviewer, qa-reviewer, security-reviewer, docs-contract-reviewer, performance-reviewer, release-reviewer, and `council-moderator` when `wave_council_policy` is enabled, plus factor-review agents only when factors are `applicable` in `docs/repo-profile.json`).
+ - **Generic roles**: canonical specs under `docs/agents/README.md` and individual role files (planner, implementer, wave-coordinator, code-reviewer, architecture-reviewer, qa-reviewer, security-reviewer, docs-contract-reviewer, performance-reviewer, release-reviewer, and `council-moderator` when `wave_council_policy` is enabled, plus factor-review agents only when factors are `applicable` in `docs/repo-profile.json` and seeded canonically under `docs/agents/factor-<nn>-<name>.md` with `Role:` plus `Category: factor` and thin host wrappers rendered for enabled platforms).
  - **Personas**: `docs/agents/personas/` when synthesized; review triggers and gating from `persona_review_policy` in `docs/workflow-config.json` and `docs/contributing/agent-team-workflow.md`.
  - **Journals**: `docs/agents/journals/` for durable lessons; link from waves at close per `docs/prompts/close-wave.prompt.md` and `docs/contributing/review-and-evals.md`.
 
@@ -269,7 +269,7 @@ Required outputs:
 - `docs/architecture/performance-budget.md`
 - generic role journals
 - persona agent docs and journals when evidence supports them
-- factor-review agent files (`.claude/agents/factor-<nn>-<name>.md`) only for factors marked `applicable` in the inventory; record skipped factors with rationale in `docs/repo-profile.json`
+- factor-review agent files (`docs/agents/factor-<nn>-<name>.md`) only for factors marked `applicable` in the inventory; render host wrappers such as `.claude/agents/factor-<nn>-<name>.md` where enabled; record skipped factors with rationale in `docs/repo-profile.json`
 - root wrappers (hooks / CI / CLI; **agents** prefer MCP **`wave_validate`** / **`wave_garden`** — `seed-050`):
  - `.wavefoundry/bin/docs-lint`
  - `.wavefoundry/bin/docs-gardener`
@@ -373,5 +373,5 @@ Guardrails:
 - Generate stable anchors and cross-links, then allow artifacts to expand as needed for execution and review.
 - When generating tasks, requirements, guardrails, or review points, include every item that is materially useful to the target project instead of trimming the list to a small fixed count.
 - Keep legacy non-wave vocabulary only as a migration aid, not as the primary identity of the wave context framework.
-- Record factor-review applicability in `docs/repo-profile.json` under `factor_review`; generate `.claude/agents/factor-<nn>-<name>.md` files only for applicable factors, not for partial or non-applicable ones.
+- Record factor-review applicability in `docs/repo-profile.json` under `factor_review`; generate canonical `docs/agents/factor-<nn>-<name>.md` files only for applicable factors, not for partial or non-applicable ones, and render the matching host wrappers where enabled.
 - Do not leave critical repo-local outputs for a later manual pass when they can be seeded during init.

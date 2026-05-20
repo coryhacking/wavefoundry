@@ -290,6 +290,67 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("sensitive data, raw transcript content, or low-salience routine noise", result.stderr)
 
+    def test_agent_role_metadata_required_for_dashboard_visible_docs(self) -> None:
+        root = self.copy_fixture()
+        agent_doc = root / "docs/agents/code-reviewer.md"
+        agent_doc.write_text(
+            "# Code Reviewer\n\nOwner: Engineering\nCategory: review\n\n## Operating Identity\n\nReviews code quality.\n",
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("docs/agents/code-reviewer.md: missing required `Role:` metadata", result.stderr)
+
+    def test_agent_category_metadata_required_for_all_agent_docs(self) -> None:
+        root = self.copy_fixture()
+        persona_doc = root / "docs/agents/personas/wave-coordinator.md"
+        persona_doc.write_text(
+            persona_doc.read_text(encoding="utf-8").replace("Category: operate\n", ""),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("docs/agents/personas/wave-coordinator.md: missing required `Category:` metadata", result.stderr)
+
+    def test_factor_agent_role_metadata_required_for_canonical_docs(self) -> None:
+        root = self.copy_fixture()
+        factor_doc = root / "docs/agents/factor-03-config.md"
+        factor_doc.write_text(
+            "# Factor 03 — Config Review Agent\n\nOwner: Engineering\nStatus: active\nCategory: factor\nLast verified: 2026-05-20\n\n## What This Factor Covers\n\nConfiguration values.\n",
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("docs/agents/factor-03-config.md: missing required `Role:` metadata", result.stderr)
+
+    def test_journal_docs_are_exempt_from_role_metadata_rule(self) -> None:
+        root = self.copy_fixture()
+        agent_doc = root / "docs/agents/code-reviewer.md"
+        agent_doc.write_text(
+            "# Code Reviewer\n\nOwner: Engineering\nStatus: active\nRole: code-reviewer\nCategory: review\nLast verified: 2026-05-20\n\n## Operating Identity\n\nReviews code quality.\n",
+            encoding="utf-8",
+        )
+        journal_doc = root / "docs/agents/journals/wave-coordinator.md"
+        journal_doc.write_text(
+            journal_doc.read_text(encoding="utf-8").replace("Role: wave-coordinator\n\n", ""),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("docs-lint: ok", result.stdout)
+
     def test_persona_requires_operating_salience(self) -> None:
         root = self.copy_fixture()
         persona_doc = root / self.PERSONA_DOC_PATH

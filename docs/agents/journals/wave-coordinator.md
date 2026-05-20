@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-19
+Last verified: 2026-05-20
 
 Actor: wave-coordinator
 Schema version: 1.0
@@ -113,6 +113,9 @@ wave-id: `12g47 dashboard-framework`
 
 wave-id: `12rbc mcp-impl-hot-reload`
 - **Closed** 2026-05-20: server split (`server.py` thin runner + `server_impl.py`), `wave_mcp_reload`, upgrade hook, version fields, dashboard browser suppression, 1482 tests. Package `2026-05-19h`.
+
+wave-id: `12rnv agent-prompt-harness`
+- **Active** 2026-05-20: four changes — `12rbe` (seed-213 security generalization), `12rnv` (harness core 209 + specialists + bootstrap), `12rcp` (preflight rubric), `12rcd` (AGENTS.md implementation principles). Prepare wave passed; seed-209 must land before other seeds wire references.
 
 wave-id: `12r09 automated-upgrade`
 - Planned 2026-05-19: scripted upgrade path — upgrade-wavefoundry bin, check_version.py, upgrade_lib.py, dashboard upgrade-awareness, wave_upgrade_status MCP tool, wave_dashboard_restart guard.

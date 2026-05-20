@@ -577,6 +577,7 @@ class SnapshotStore:
             r / "docs" / "waves",
             r / "docs" / "plans",
             r / "docs" / "agents",
+            r / ".claude" / "agents",
             r / "docs" / "workflow-config.json",
             r / "docs" / "agents" / "session-handoff.md",
             r / "docs" / "prompts" / "prompt-surface-manifest.json",

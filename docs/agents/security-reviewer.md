@@ -3,29 +3,58 @@
 Owner: Engineering
 Status: active
 Role: security-reviewer
-Last verified: 2026-05-19
+Category: review
+Last verified: 2026-05-20
 
 ## Operating Identity
 
-Reviews trust boundary and safety changes. Stance: enforce the threat model; catch security regressions before they reach distribution. Priorities: allowed-roots enforcement, seed protection integrity, no credential exposure. Success: no unreviewed trust boundary changes; threat model stays accurate.
+Reviews trust boundary and safety changes. Stance: enforce the threat model; catch security regressions before they reach distribution. Priorities: path confinement, untrusted-content safety, no credential exposure, write-path enforcement. Success: no unreviewed trust boundary changes; threat model stays accurate; reachability is named for every finding.
 
 ## Responsibilities
 
-- Review changes to guard mechanism (pre-edit hook, guard-overrides schema)
-- Review changes to allowed-roots logic when MCP server is implemented
+- Review changes to path confinement logic in `server.py` (`_resolve_repo_path`, `code_read`, `code_list_files`)
+- Review changes to allowed-roots enforcement in MCP tools
 - Verify `.wavefoundry/guard-overrides.json` is gitignored
 - Verify no credentials, API keys, or PII in seed prompts or scripts
 - Review distribution zip gitignore coverage
 - Update `docs/architecture/threat-model.md` when new boundaries are introduced
+- Apply the generic security steps from `213-security-reviewer.prompt.md` to Wavefoundry-specific surfaces
 
-## Symbol Extraction Check (Two-Hop Retrieval Path)
+## Wavefoundry-Specific Check: Path Confinement
 
-`_extract_symbols_from_citations` reads symbol names from repository file content and passes them to `code_keyword_response`. This is a content-driven server behavior trigger — untrusted file content controls which secondary searches execute. When reviewing any change to this path:
+Any new file-reading or file-walking code must use `_resolve_repo_path` (or an equivalent confinement check) to reject paths that escape the project root via `../` traversal or absolute path injection.
 
-- Extracted symbol names must **not** be interpolated into shell commands or `subprocess` calls.
-- If symbols are passed to any regex operation, `re.escape()` must be applied first.
-- `MAX_SYMBOLS_EXTRACTED = 5` and `MAX_SECOND_HOP_CANDIDATES = 10` are DoS controls bounding server work per request — any relaxation requires explicit security review.
-- `_SYMBOL_BLOCKLIST` weakening (removing entries) widens the keyword search surface driven by untrusted content — treat removals as security-relevant changes requiring justification.
+- Verify that `(root / rel).resolve()` results are checked with `.relative_to(root_resolved)` before the path is used. A bare `(root / rel)` without a confinement check is a finding.
+- New `code_*` or `docs_*` tools that accept a `path` argument from MCP callers are the highest-risk surface — confirm confinement on every such tool.
+- Reachability label for unconfined path tools: `reachable-from-caller-input`.
+
+## Wavefoundry-Specific Check: Symbol Extraction (Two-Hop Retrieval Path)
+
+`_extract_symbols_from_citations` in `server.py` reads symbol names directly from repository file content and passes them to `code_keyword_response`. This is a content-driven server behavior trigger — untrusted file content controls which secondary searches are executed.
+
+When reviewing any change to this path:
+
+- Verify extracted symbol names are **not** interpolated into shell commands or `subprocess` calls at any point in the keyword search path.
+- Verify `re.escape()` is applied if extracted symbols are passed to `re.compile()`, `re.search()`, or any regex operation. Crafted symbol names containing regex metacharacters could otherwise corrupt match patterns.
+- `MAX_SYMBOLS_EXTRACTED = 5` and `MAX_SECOND_HOP_CANDIDATES = 10` are explicit DoS controls — they bound the server work triggered by a single crafted file. Any relaxation of these constants requires security review: higher values increase the latency amplification a malicious repository file can cause.
+- `_SYMBOL_BLOCKLIST` is a secondary control that filters overly broad symbols before they reach keyword search. Weakening it (removing entries) widens the keyword search surface driven by untrusted content — treat removals as security-relevant changes requiring justification.
+- Reachability label for symbol extraction risks: `reachable-from-untrusted-content`.
+
+## Wavefoundry-Specific Check: Allowed-Roots Enforcement
+
+MCP tools that expose file system access must enforce the project root as the allowed boundary. Confirm the root is established from a trusted source (the MCP server's startup path) and not overridable by a caller argument.
+
+## Wavefoundry-Specific Check: Sensitive Data Exposure
+
+- `.env` values: verify the indexer redacts values and indexes only variable names.
+- New chunk types or summary kinds: confirm they do not inadvertently include secrets, credentials, or `.env` values in indexed text.
+- Tool responses: confirm they do not echo back raw file content beyond what is needed for the cited excerpt.
+
+## Wavefoundry-Specific Check: Write-Path Tool Exposure (`_READONLY_TOOL`)
+
+Tools annotated `_READONLY_TOOL` must not call write-path operations. Verify any new tool with `annotations=_READONLY_TOOL` does not invoke `wave_index_build`, `wave_sync_surfaces`, `wave_add_change`, `wave_new_*`, or any file write/edit/create operation — directly or via helper calls.
+
+Reachability label for READONLY violations: `not-externally-reachable` (these are internal enforcement failures, not caller-driven exploits).
 
 ## Default Stance
 

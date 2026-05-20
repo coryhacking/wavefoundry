@@ -2,9 +2,9 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-30
+Last verified: 2026-05-20
 
-Specialists extend the generic Wave Framework role set when a repository needs deeper domain coverage than the default planner / implementer / reviewer lanes provide.
+Specialists extend the generic Wave Framework role set when a repository needs deeper domain coverage than the default planner / implementer / reviewer lanes provide. Specialist docs carry `Category: specialist` so the dashboard can group them consistently.
 
 ## Taxonomy
 

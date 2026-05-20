@@ -41,6 +41,7 @@ The coordinator's implementation loop follows a ReAct-derived model. Each iterat
 - **Action** — invoke a single, scoped lane (implementer task, reviewer lane, or persona lane) with defined inputs.
 - **Observe** — record the lane's output as an `Observe:` entry before the next Thought. When lanes ran concurrently, record a single merged `Observe:` synthesizing all outputs before the next Thought.
 - **Reflect** — after any blocking finding, record a `Reflect:` entry identifying the root cause pattern and any remaining tasks that should be updated proactively to prevent the same class of finding recurring in this wave.
+- **Gapfill** — after all lanes in a phase complete, if any evidence referenced in the briefing packet (per `209-agent-harness-core.prompt.md`) was absent or incomplete, record a `Gapfill:` entry in Progress Log noting what was missing and where it should be added before the next wave. This is a forward-looking record, not a blocking finding.
 
 Loop levels — the finding type, not severity alone, determines which level activates:
 
@@ -71,9 +72,11 @@ Parallel lane merge — when reviewer or persona lanes with no shared dependenci
 - The coordinator invokes them together (one Action per concurrent set).
 - The coordinator records a single merged `Observe:` synthesizing all lane outputs before the next `Thought:`.
 - The coordinator does not act on partial findings from one lane while others are still running.
+- When multiple lanes produce overlapping findings, the coordinator deduplicates by `finding_id` (per `209-agent-harness-core.prompt.md`) before recording the merged Observe.
 
 Wave plan — extends the operator-approval checkpoint (see Machine-usable execution expectations below):
-- Before the first edit, the coordinator produces an ordered lane sequence: which lanes run in which order, with what scoped inputs, for each serialization unit.
+- Before the first edit, the coordinator assembles a briefing packet per `209-agent-harness-core.prompt.md` required fields (`wave_id`, `phase`, `change_ids`, `trust_boundaries_touched`, `files_in_scope`) as part of the wave plan.
+- The coordinator then produces an ordered lane sequence: which lanes run in which order, with what scoped inputs, for each serialization unit.
 - This plan is what the operator approves before implementation begins — not just a list of files, but an ordered execution sequence.
 - Deviations from the plan are named `Deviation:` events recorded in Progress Log, not silent reorderings.
 
@@ -122,7 +125,7 @@ Participant responsibilities inside an active wave:
 - implementers should keep changes direct: do not add speculative abstraction, configurability, or unrelated defensive code beyond what the request, acceptance criteria, or checked-in evidence justifies
 - personas should participate at declared challenge, review, or acceptance checkpoints and escalate when domain concerns materially change the wave
 - personas selected by readiness evaluation are gating participants for that wave's relevant checkpoints
-- factor-review participants should evaluate only the factors relevant to the active wave instead of forcing a full factor checklist into every wave
+- factor-review participants should evaluate only the factors relevant to the active wave instead of forcing a full factor checklist into every wave; source those factors from `docs/agents/factor-<nn>-<name>.md` and keep the dashboard grouping aligned with `Category: factor`
 - when factor subagents are active, the factor reviewer should consolidate their findings into one coherent review output for the wave
 - all participants should leave enough state in wave artifacts and journals for another agent to continue safely
 

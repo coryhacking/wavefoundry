@@ -746,6 +746,104 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         html = handler.wfile.getvalue().decode("utf-8")
         self.assertIn(f"<title>{self.root.name} - Wavefoundry</title>", html)
 
+    def test_dashboard_js_includes_framework_flow_visualization(self):
+        js = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+        css = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.css").read_text(encoding="utf-8")
+
+        self.assertIn("const FRAMEWORK_FLOW = [", js)
+        self.assertIn('function FrameworkProcessDialog({ process, onClose })', js)
+        self.assertIn('function FrameworkFlow({ onSelectProcess })', js)
+        self.assertIn('Wave lifecycle', js)
+        self.assertIn('Click a stage to see how a change moves through a wave, from planning through review and close.', js)
+        self.assertIn('process-step-number process-step-number--${process.id}', js)
+        self.assertIn('title: "Plan Change"', js)
+        self.assertIn('title: "Prepare Wave"', js)
+        self.assertIn('title: "Implement Wave"', js)
+        self.assertIn('title: "Review Wave"', js)
+        self.assertIn('title: "Close & Maintain"', js)
+        self.assertIn('flow: ["Signoff", "Archive"],', js)
+        self.assertIn('This is where an idea becomes a real change.', js)
+        self.assertIn('Set the shape of the change before any edits begin.', js)
+        self.assertIn('This phase matters because it catches avoidable mistakes before code or docs start moving.', js)
+        self.assertIn('flow: ["Review", "Open questions", "Prepare Wave"],', js)
+        self.assertIn('This is the readiness gate. The council reviews the change, works through the open questions, and decides whether the wave is actually safe to start.', js)
+        self.assertIn('This is the coding pass.', js)
+        self.assertIn('Once Prepare says the wave is ready, the coding agent takes over and uses the wave record plus each admitted change plan as the working guide.', js)
+        self.assertIn('The first job is to read the wave and the change docs carefully enough to understand what belongs in scope.', js)
+        self.assertIn('Then the work happens one change at a time: make the edits that match the plan, check the tasks and acceptance criteria, and keep the write set inside the admitted boundaries.', js)
+        self.assertIn('Implementation is not just about moving text around.', js)
+        self.assertIn('The agent also writes or updates tests, runs them, and confirms that the result matches the agreed intent instead of drifting into a new shape of work.', js)
+        self.assertIn('When the code, tests, and documented intent line up, the wave is ready for review.', js)
+        self.assertIn('This is the evidence check.', js)
+        self.assertIn('flow: ["Review", "Evidence", "Findings"],', js)
+        self.assertIn('Review matters because it is where the team decides whether the change is genuinely ready or whether more work is needed.', js)
+        self.assertIn('This is the handoff and memory stage.', js)
+        self.assertIn('If the handoff or summary does not match the completed wave, the process loops one more time to refresh the record before closure.', js)
+        self.assertIn('onClick: () => onSelectProcess(process)', js)
+        self.assertIn('framework-flow-card framework-flow-card--${process.id}', js)
+
+        self.assertIn(".framework-flow-path {", css)
+        self.assertIn(".framework-flow-arrow {", css)
+        self.assertIn("flex-wrap: nowrap;", css)
+        self.assertIn(".framework-flow-note {", css)
+        self.assertIn("width: 100%;", css)
+        self.assertIn("max-width: none;", css)
+        self.assertIn(".framework-process-diagram {", css)
+        self.assertIn(".framework-process-diagram-step {", css)
+        self.assertIn("justify-content: center;", css)
+        self.assertIn("background: transparent;", css)
+        self.assertIn("border: 0;", css)
+        self.assertIn("box-shadow: none;", css)
+        self.assertIn(".process-step-number {", css)
+        self.assertIn("font-size: 1.35rem;", css)
+        self.assertIn("align-items: baseline;", css)
+        self.assertIn("margin-right: var(--space-2);", css)
+        self.assertIn(".agent-dialog-close {", css)
+        self.assertIn("appearance: none;", css)
+        self.assertIn("-webkit-appearance: none;", css)
+        self.assertIn("background-color: transparent;", css)
+        self.assertIn("width: 2.25rem;", css)
+        self.assertIn("height: 2.25rem;", css)
+        self.assertIn("display: inline-flex;", css)
+        self.assertIn("outline: none;", css)
+        self.assertIn(".files-dialog-header-text {", css)
+        self.assertIn("flex-direction: column;", css)
+        self.assertIn(".files-dialog-subtitle {", css)
+        self.assertIn("white-space: nowrap;", css)
+        self.assertIn(".open-wave-card {", css)
+        self.assertIn("box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);", css)
+        self.assertIn(".metric {", css)
+        self.assertIn("box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);", css)
+        self.assertIn(".metric:hover {", css)
+        self.assertIn("transform: translateY(-1px);", css)
+        self.assertIn(".metric--clickable:hover {", css)
+        self.assertIn("box-shadow: var(--shadow);", css)
+        self.assertIn(".open-wave-card {", css)
+        self.assertNotIn(".open-wave-card:hover {", css)
+        self.assertIn(".metric-dialog-card {", css)
+        self.assertIn("box-shadow: 0 1px 2px rgba(0, 0, 0, 0.025);", css)
+        self.assertIn(".metric-dialog-row {", css)
+        self.assertIn(".pending-wave-row {", css)
+        self.assertIn(".framework-flow-card--plan {", css)
+        self.assertIn("background: rgba(72, 68, 197, 0.06);", css)
+        self.assertIn(".framework-flow-card--close {", css)
+        self.assertIn("background: rgba(96, 125, 139, 0.06);", css)
+        self.assertIn(".framework-process-dialog--close .agent-dialog-header {", css)
+        self.assertIn(".agent-dialog-header-text {", css)
+        self.assertIn("flex-direction: column;", css)
+        self.assertIn(".agent-dialog-header-text .hero-agent-pill {", css)
+        self.assertIn("align-self: flex-start;", css)
+        self.assertIn("width: fit-content;", css)
+        self.assertIn(".agent-dialog-title {", css)
+        self.assertIn("display: block;", css)
+        self.assertNotIn(".agent-pill-count {", css)
+        self.assertNotIn("Used in ", js)
+        self.assertNotIn("a.usage_count", js)
+        self.assertNotIn(
+            'isHandoff ? h("span", { className: "handoff-pill", title: "Current session handoff" }, "↩ handoff") : null,\n        h("span", { className: badgeClass(wave.status) }, wave.status),',
+            js,
+        )
+
     def test_metric_dialog_header_wraps_long_change_ids(self):
         css = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.css").read_text(encoding="utf-8")
         self.assertIn(".metric-dialog-card-header {", css)
@@ -838,7 +936,7 @@ class DashboardProcessControlTests(unittest.TestCase):
         self.assertEqual(env["data"]["pid"], 9876)
         self.assertEqual(env["data"]["url"], "http://127.0.0.1:43128/dashboard.html")
         stop.assert_called_once_with(self.root)
-        start.assert_called_once_with(self.root)
+        start.assert_called_once_with(self.root, port=None)
 
 
 class DashboardReadOnlyTests(_HandlerHarnessMixin, unittest.TestCase):
@@ -1016,6 +1114,8 @@ class DashboardAgentCollectionTests(unittest.TestCase):
                "# Software Architect\n\nOwner: Engineering\nRole: software-architect\n\n## Operating Identity\n\nDesigns system boundaries.\n")
         _write(agents_root / "journals" / "planner.md",
                "# Journal — Planner\n\nOwner: Engineering\nRole: planner\n\n## Operating Identity\n\nPlanning journal.\n")
+        _write(agents_root / "factor-12-admin-processes.md",
+               "# Factor 12 — Admin Processes Review Agent\n\nOwner: Engineering\nRole: factor-12-admin-processes\nCategory: factor\n\n## What This Factor Covers\n\nCLI tools and admin scripts.\n")
         _write(agents_root / "README.md", "# Agents\n")
 
     def tearDown(self):
@@ -1027,6 +1127,7 @@ class DashboardAgentCollectionTests(unittest.TestCase):
         self.assertIn("agent", groups)
         self.assertIn("persona", groups)
         self.assertIn("specialist", groups)
+        self.assertIn("factor", groups)
         self.assertIn("journal", groups)
 
     def test_readme_excluded(self):
@@ -1045,6 +1146,25 @@ class DashboardAgentCollectionTests(unittest.TestCase):
         agents = self.lib.collect_agents(self.root)
         journal = next(a for a in agents if a["group"] == "journal")
         self.assertFalse(journal["name"].startswith("Journal —"))
+
+    def test_factor_prefix_stripped(self):
+        agents = self.lib.collect_agents(self.root)
+        factor = next(a for a in agents if a["group"] == "factor")
+        self.assertFalse(factor["name"].startswith("Factor "))
+
+    def test_factor_collection_prefers_canonical_docs(self):
+        wrapper_root = self.root / ".claude" / "agents"
+        _write(wrapper_root / "factor-12-admin-processes.md",
+               "# Factor 12 — Admin Processes Review Agent\n\n## Thin Wrapper\n\nSee canonical doc.\n")
+        agents = self.lib.collect_agents(self.root)
+        factor = next(a for a in agents if a["group"] == "factor")
+        self.assertEqual(factor["path"], "docs/agents/factor-12-admin-processes.md")
+
+    def test_factor_body_strips_category_and_verified_metadata(self):
+        agents = self.lib.collect_agents(self.root)
+        factor = next(a for a in agents if a["group"] == "factor")
+        self.assertNotIn("Category:", factor["body"])
+        self.assertNotIn("Last verified:", factor["body"])
 
     def test_body_field_present(self):
         agents = self.lib.collect_agents(self.root)

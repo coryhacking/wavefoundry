@@ -53,15 +53,51 @@ The framework commonly expects some combination of these lanes in seeded reposit
 - docs-contract review
 - release / packaging review
 
+## Agent Harness Core
+
+All review lane participants share a common grounding contract defined in `209-agent-harness-core.prompt.md`. This seed defines:
+- Evidence grounding table (repository evidence over memory; stricter project rules win; missing docs = gap to record)
+- Briefing packet required fields: `wave_id`, `phase`, `change_ids`, `trust_boundaries_touched`, `files_in_scope`
+- Finding record schema including `reachability` and `confidence` fields
+- Reachability labels and coordination behaviors (narrow scope, no self-approval, split questions, parallel merge and deduplicate, gapfill pointer)
+
+All participants must reference `209-agent-harness-core.prompt.md` for the briefing packet format and finding record schema.
+
 ## Inferential Sensor Lanes
 
-Inferential sensors are LLM-run reviewer agents that assess semantic quality. The framework ships three canonical inferential sensor seeds:
+Inferential sensors are LLM-run reviewer agents that assess semantic quality. The framework ships these canonical inferential sensor seeds:
 
 | Lane name (= `required_review_lanes` key) | Seed |
 |---|---|
 | `architecture-review` | `214-architecture-reviewer.prompt.md` |
 | `security-review` | `213-security-reviewer.prompt.md` |
 | `performance-review` | `212-performance-reviewer.prompt.md` |
+| `code-review` | `221-code-reviewer.prompt.md` |
+
+## Harness Specialist Table
+
+Harness specialists are invoked by the coordinator or council-moderator for targeted analysis. They are not required review lanes by default — they are activated by policy or coordinator decision.
+
+| Specialist | Seed | Modes |
+|---|---|---|
+| `senior-engineering-challenger` | `217-senior-engineering-challenger.prompt.md` | `plan-challenge`, `delivery-challenge` |
+| `environment-auditor` | `218-environment-auditor.prompt.md` | (single mode) |
+| `operating-surface-gardener` | `219-operating-surface-gardener.prompt.md` | (single mode) |
+| `reality-checker` | `216-reality-checker.prompt.md` | `assumption-audit`, `finding-validation`, `implementation-challenge` |
+
+## Question Ownership
+
+Use this table to route questions to the correct lane:
+
+| Question type | Assigned lane |
+|---|---|
+| Is this code correct? Does it satisfy the AC? | `code-review` |
+| Can an attacker reach this code? What is the reachability? | `security-reviewer` |
+| Is this assumption evidenced or fabricated? | `reality-checker` (`finding-validation` mode) |
+| Is this plan internally consistent and pressure-tested? | `senior-engineering-challenger` (`plan-challenge` mode) |
+| Is the delivered result genuinely complete? | `senior-engineering-challenger` (`delivery-challenge` mode) |
+| What is the operating surface health? | `environment-auditor` |
+| Is the project's agent-operating surface drifted? | `operating-surface-gardener` |
 
 ### Declaring required lanes
 
@@ -156,6 +192,18 @@ The operator review lane is required for every wave. It gives the operator an op
 When the agent is about to call `wave_close(mode="create")` and the operator has not already issued a close request in the current session, the agent **must** pause and ask for operator approval before proceeding.
 
 The machine-readable marker for this lane is the line `operator-signoff: approved` in the `## Review Evidence` section of `wave.md`. `wave_review` returns a lint error if this line is absent, and `wave_close` blocks until it is present.
+
+## Security Reachability Labels
+
+When recording security findings, use the generic reachability labels defined in `209-agent-harness-core.prompt.md`:
+
+| Label | Meaning |
+|-------|---------|
+| `reachable-from-caller-input` | An attacker or untrusted caller can reach this code through normal API or tool inputs |
+| `reachable-from-untrusted-content` | The vulnerable behavior is triggered by content read from an untrusted source (e.g. user files, repository content, config) |
+| `not-externally-reachable` | The code path is only reachable from internal or trusted caller contexts |
+
+Example exploit-chain: a finding rated `low` for unsafe regex and a finding rated `medium` for missing escape together compose to `high` if an attacker can supply a crafted file name that reaches the regex via the untrusted-content path.
 
 ## Stateful Logic And Re-Entrant Review (Shared Heuristic)
 

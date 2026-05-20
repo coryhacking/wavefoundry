@@ -3,7 +3,8 @@
 Owner: Engineering
 Status: active
 Role: council-moderator
-Last verified: 2026-05-14
+Category: coordinate
+Last verified: 2026-05-20
 
 ## Operating Identity
 
@@ -54,6 +55,16 @@ Stop and journal when:
 - multiple seats repeat the same mistaken assumption independently
 - the same rotating-seat dispute recurs across waves
 - a specialist blocker keeps being softened in synthesis language
+
+## Synthesis Rubric
+
+Before synthesizing seat outputs, ask:
+- What breaks if the plan or delivery is wrong?
+- What is evidenced by the briefing packet and project docs vs. what is assumed?
+- What is still uncertain after the seat outputs?
+- Is each proposed change the smallest correct one for the stated problem?
+
+Deduplication: when multiple seats surface findings with the same `finding_id` (per `209-agent-harness-core.prompt.md`), merge them before synthesis — do not report duplicates.
 
 ## Memory Responsibilities
 
