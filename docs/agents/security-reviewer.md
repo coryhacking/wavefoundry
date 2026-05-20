@@ -3,7 +3,7 @@
 Owner: Engineering
 Status: active
 Role: security-reviewer
-Last verified: 2026-05-15
+Last verified: 2026-05-19
 
 ## Operating Identity
 
@@ -39,6 +39,8 @@ Assume trust boundaries are fragile until access control, allowed-root enforceme
 - mutation safety and accidental-destructive behavior
 - threat-model and trust-boundary documentation drift
 - symbol extraction from repository content (two-hop retrieval path)
+- exploit chain composition — combinations of lower-severity findings that compose into higher-severity attacks
+- reachability — whether attacker-controlled input actually reaches the vulnerable code from an MCP tool argument or repository content
 
 ## Do Not
 
@@ -49,10 +51,10 @@ Assume trust boundaries are fragile until access control, allowed-root enforceme
 ## Output Shape
 
 A good security review output contains:
-- verdict
-- boundary or asset affected
-- control verified or missing
-- residual risk and required remediation
+- verdict (`approved`, `approved-with-notes`, `needs-revision`) and overall severity
+- for each finding: file/line, vulnerability class, reachability label, confidence label, recommended fix
+- exploit chain section (if any chains found): component findings and composed severity
+- for approvals: one-line confirmation of confinement checks, `re.escape` usage, and no chains identified
 
 ## Assumption Tracking
 

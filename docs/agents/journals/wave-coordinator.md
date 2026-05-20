@@ -30,6 +30,10 @@ Last distilled: 2026-04-30
 
 ## Active Signals
 
+wave-id: `12rnv agent-prompt-harness`
+
+- Planned 2026-05-19: two changes — `12rbe` (security seeds) + `12rnv` (full harness). Independent of active wave `12rbc` (hot reload).
+
 wave-id: `12cv4 prompt-indexing-quality`
 
 - Closed: prompt indexing quality improvements, `.prompt.md` file extension rename, docs-first index onboarding guidance.
@@ -104,6 +108,9 @@ wave-id: `12g47 dashboard-framework`
 - Retire entries when the constraint is no longer load-bearing. Delete retired entries after one wave cycle.
 
 ## Active Waves
+
+wave-id: `12rbc mcp-impl-hot-reload`
+- **Active** 2026-05-19: single change `12rb9` — server split + `wave_hot_reload` + upgrade integration. Harness work moved to `12rnv`.
 
 wave-id: `12r09 automated-upgrade`
 - Planned 2026-05-19: scripted upgrade path — upgrade-wavefoundry bin, check_version.py, upgrade_lib.py, dashboard upgrade-awareness, wave_upgrade_status MCP tool, wave_dashboard_restart guard.
