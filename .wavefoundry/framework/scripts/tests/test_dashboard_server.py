@@ -2253,7 +2253,7 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         self.assertIn('? "Indexing..."', source)
         self.assertIn(': isStale', source)
         self.assertIn('? "Stale..."', source)
-        self.assertIn('const buildAction = idx.mode === "update"', source)
+        self.assertIn('const buildAction = idx.mode === "rebuild"', source)
         self.assertIn('const buildBadgeText = buildStatus === "running"', source)
         self.assertIn('`${buildAction} index…`', source)
         self.assertIn('"Index stale"', source)

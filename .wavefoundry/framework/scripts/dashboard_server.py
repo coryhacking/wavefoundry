@@ -370,6 +370,7 @@ def _framework_index_inputs_stale(root: Path, meta: dict[str, Any]) -> bool | No
         files = indexer.walk_repo(root, respect_ignore=False)
         files = [path for path in files if not indexer._is_relative_to(path, framework_index_dir)]
         files = indexer._filter_by_prefixes(files, root, (".wavefoundry/framework",))
+        files = indexer._filter_framework_pack_artifacts(files, root)
         files = [path for path in files if path.name not in _FRAMEWORK_STALE_IGNORE_FILENAMES and _is_docs_eligible(path)]
         filtered_file_meta = {
             rel_path: entry

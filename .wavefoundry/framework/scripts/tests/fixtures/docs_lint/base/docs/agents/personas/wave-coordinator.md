@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Category: operate
+Category: persona
 Last verified: 2026-03-21
 
 ## Who

@@ -387,12 +387,12 @@ class BuildPackTests(unittest.TestCase):
     # MANIFEST
     # ------------------------------------------------------------------
 
-    def test_manifest_written_to_framework_dir(self):
+    def test_manifest_deleted_from_framework_dir_after_zip(self):
         fw = self.tmp / "mini-fw"
         fw.mkdir(parents=True)
         (fw / "seed.md").write_text("seed", encoding="utf-8")
         build_pack.build_zip(self.tmp, "2099-11-01", framework_dir=fw, write_version=False)
-        self.assertTrue((fw / "MANIFEST").exists())
+        self.assertFalse((fw / "MANIFEST").exists(), "MANIFEST should be deleted after packaging")
 
     def test_manifest_included_in_zip(self):
         fw = self.tmp / "mini-fw"

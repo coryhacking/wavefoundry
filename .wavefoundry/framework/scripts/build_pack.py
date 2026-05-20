@@ -347,6 +347,13 @@ def build_zip(
         for abs_path, arcname in entries:
             zf.write(abs_path, arcname)
 
+    # MANIFEST is a packaging artifact — delete it from the source tree after
+    # it has been written into the zip so it does not linger as a dirty file.
+    try:
+        manifest_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
     return zip_path
 
 

@@ -25,6 +25,9 @@ build/
 # Wavefoundry test cache (runtime artifact, host-local, never commit)
 .wavefoundry/framework/test-cache.json
 
+# Wavefoundry MANIFEST (packaging artifact — generated into the zip, deleted after; do not commit)
+.wavefoundry/framework/MANIFEST
+
 # Personal Claude Code overrides (not project-level)
 .claude/settings.local.json
 

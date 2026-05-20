@@ -223,7 +223,7 @@ def _expected_agent_category(path: Path) -> str | None:
     if path.stem.startswith("factor-") or "factor" in path.parts:
         return "factor"
     if "personas" in path.parts:
-        return "operate"
+        return "persona"
     if "specialists" in path.parts:
         return "specialist"
     if path.stem in _COORDINATE_STEMS or any(path.stem.endswith(s) for s in _COORDINATE_SUFFIXES):

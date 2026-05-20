@@ -308,7 +308,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         root = self.copy_fixture()
         persona_doc = root / "docs/agents/personas/wave-coordinator.md"
         persona_doc.write_text(
-            persona_doc.read_text(encoding="utf-8").replace("Category: operate\n", ""),
+            persona_doc.read_text(encoding="utf-8").replace("Category: persona\n", ""),
             encoding="utf-8",
         )
         try:

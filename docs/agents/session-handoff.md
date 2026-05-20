@@ -35,3 +35,7 @@ Last verified: 2026-05-20
 
 - `close_warnings` path in `perform_mcp_reload` (when `ImplHandler.close()` raises) is not tested — advisory only; add test if close-error reporting becomes load-bearing.
 - `wave_mcp_reload` does not add new tools to a live session (accepted limitation — requires client reconnect); revisit if FastMCP gains live tool-registration support.
+
+## Current Session
+
+**Active wave:** *(none)*

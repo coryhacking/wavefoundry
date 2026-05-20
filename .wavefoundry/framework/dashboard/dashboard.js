@@ -988,11 +988,9 @@ function IndexDialog({ health, onClose }) {
 
 function IndexSection({ label, idx }) {
   const buildStatus = idx.build_status;
-  const buildAction = idx.mode === "update"
-    ? "Updating"
-    : idx.mode === "rebuild"
-      ? "Rebuilding"
-      : (idx.source === "background" ? "Updating" : "Rebuilding");
+  const buildAction = idx.mode === "rebuild"
+    ? "Rebuilding"
+    : "Updating";
   const buildBadgeText = buildStatus === "running"
     ? `${buildAction} index…`
     : buildStatus === "failed"

@@ -4883,6 +4883,7 @@ def wave_index_build_status_response(root: Path, layer: str = "project") -> dict
             "layer": layer_s,
             "state": "running",
             "source": "foreground",
+            "mode": "rebuild" if state.get("full") else state.get("mode", "update"),
             "pid": pid,
             "started_at": started_at,
             "elapsed_seconds": elapsed,

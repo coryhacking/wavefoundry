@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: active
+Status: closed
 Last verified: 2026-05-20
 
 wave-id: `12rnv agent-prompt-harness`
@@ -48,6 +48,8 @@ Change Status: `implemented`
 
 Change ID: `12rqt-enh active-wave-card-status-pill-removal`
 Change Status: `implemented`
+
+Completed At: 2026-05-20
 
 ## Wave Summary
 
@@ -123,7 +125,7 @@ Implementation and delivery review are complete. The wave remains active until o
 
 - wave-council-readiness: approved (moderator: council-moderator; fixed seats + docs-contract-reviewer rotating; no material disagreements; pre-implementation items recorded above)
 - wave-council-delivery: approved 2026-05-20 (all seats aligned; AC-2 AGENTS.md placement fixed and re-verified; 1482/1482 green; docs-lint clean)
-- operator-signoff: <approved when operator confirms closure>
+- operator-signoff: approved 2026-05-20 (operator requested closure)
 
 ## Dependencies
 
