@@ -777,7 +777,7 @@ def _classify_agent_category(stem: str, group: str) -> str:
     if stem.startswith(_FACTOR_PREFIX):
         return "factor"
     if group == "persona":
-        return "operate"
+        return "persona"
     if group == "journal":
         return "journal"
     if group == "factor":

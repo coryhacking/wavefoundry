@@ -1375,7 +1375,7 @@ function AgentDialog({ agent, onClose }) {
 
   const categoryLabel = {
     build: "Build", review: "Review", coordinate: "Coordinate",
-    operate: "Operate", specialist: "Specialist", factor: "Factor", journal: "Journal",
+    operate: "Operate", persona: "Persona", specialist: "Specialist", factor: "Factor", journal: "Journal",
   }[agent.category] || agent.category;
 
   const bodyContent = agent.body && agent.body.trim()
@@ -1396,10 +1396,10 @@ function AgentDialog({ agent, onClose }) {
 
 function Agents({ agents, onSelectAgent }) {
   if (!agents?.length) return null;
-  const categories = ["coordinate", "review", "build", "specialist", "factor", "operate", "journal"];
+  const categories = ["coordinate", "review", "build", "specialist", "factor", "operate", "persona", "journal"];
   const labels = {
     build: "Build", review: "Review", coordinate: "Coordinate",
-    operate: "Operate", specialist: "Specialist", factor: "Factor", journal: "Journal",
+    operate: "Operate", persona: "Persona", specialist: "Specialist", factor: "Factor", journal: "Journal",
   };
 
   return h("div", { className: "hero-agents" },

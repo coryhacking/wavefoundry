@@ -1208,15 +1208,15 @@ class AgentClassificationTests(unittest.TestCase):
 
     # ── group short-circuits ──────────────────────────────────────────────────
 
-    def test_persona_group_always_operate(self):
-        self.assertEqual(self.classify("any-name", "persona"), "operate")
+    def test_persona_group_always_persona(self):
+        self.assertEqual(self.classify("any-name", "persona"), "persona")
 
     def test_journal_group_always_journal(self):
         self.assertEqual(self.classify("any-name", "journal"), "journal")
 
     def test_group_takes_priority_over_stem(self):
         # "implementer" would be build for group=agent, but persona wins.
-        self.assertEqual(self.classify("implementer", "persona"), "operate")
+        self.assertEqual(self.classify("implementer", "persona"), "persona")
 
     def test_specialist_group_beats_review_stem(self):
         # "reality-checker" is in _REVIEW_STEMS but specialist group must win.
