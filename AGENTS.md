@@ -170,6 +170,15 @@ Do **not** infer close approval from adjacent actions such as "remove the dead c
 - Reusable target model: every tool should accept a target repository root or use configured allowed roots.
 - Drift detection is a first-class feature: Wavefoundry should compare canonical framework state with project-local rendered surfaces.
 
+## Implementation Principles
+
+Behavioral rules for all agents working in this repository. Apply these before writing any code or docs.
+
+1. **Ask, don't assume.** If something is unclear, ask before writing a single line. Never make silent assumptions about intent, architecture, or requirements.
+2. **Simplest solution first.** Always implement the simplest thing that could work. Do not add abstractions or flexibility that weren't explicitly requested.
+3. **Don't touch unrelated code.** If a file or function is not directly part of the current task, do not modify it, even if you think it could be improved.
+4. **Flag uncertainty explicitly.** If you are not confident about an approach or technical detail, say so before proceeding. Confidence without certainty causes more damage than admitting a gap.
+
 ## MCP Server
 
 The Wavefoundry MCP server ships at `.wavefoundry/framework/scripts/server.py` and runs via stdio transport.
