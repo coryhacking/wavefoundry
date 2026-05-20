@@ -1063,7 +1063,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     print(url, flush=True)
-    if args.open:
+    if args.open and dashboard_lib.dashboard_browser_open_enabled():
         webbrowser.open(url, new=2)
     try:
         httpd.serve_forever()

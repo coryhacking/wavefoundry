@@ -921,7 +921,7 @@ def _print_operator_summary(
     else:
         _log("Index update:       not run — call with --update-index after editing pass")
     _log("Dashboard:          lock removed; auto-reindex will trigger on lock removal")
-    _log("MCP restart needed: YES — restart MCP server to load upgraded server code")
+    _log("MCP reload: call wave_mcp_reload() (or wave_upgrade cleanup) to load upgraded server code in-process")
     _log("")
     _log("Next steps for agent editing pass:")
     _log("  1. Drift detection (seed-160 step 6)")

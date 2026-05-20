@@ -144,6 +144,20 @@ def write_dashboard_metadata(root: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+def dashboard_browser_open_enabled() -> bool:
+    """Return False when the dashboard must not open a browser (tests, CI, operator opt-out).
+
+    Set ``WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER=1`` (``run_tests.py`` and ``tests/__init__``
+  do this automatically). Use ``=0`` to force enable inside a test that asserts browser open.
+    """
+    val = os.environ.get("WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER", "").strip().lower()
+    if val in ("0", "false", "no", "off"):
+        return True
+    if val in ("1", "true", "yes", "on"):
+        return False
+    return True
+
+
 def read_framework_version(root: Path) -> str:
     version_path = root / ".wavefoundry" / "framework" / "VERSION"
     if not version_path.exists():

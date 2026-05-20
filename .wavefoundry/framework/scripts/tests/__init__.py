@@ -17,8 +17,12 @@ is treated as a package, making scripts/ available for all subsequent imports.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+
+# Prevent dashboard start/open helpers from launching a browser during unittest runs.
+os.environ.setdefault("WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER", "1")
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 

@@ -1,11 +1,11 @@
 # AGENTS.md Implementation Principles
 
 Change ID: `12rcd-maint agents-md-implementation-principles`
-Change Status: `implemented`
+Change Status: `planned`
 Owner: wave-coordinator
-Status: implemented
+Status: planned
 Last verified: 2026-05-19
-Wave: TBD
+Wave: `12rnv agent-prompt-harness`
 
 ## Rationale
 

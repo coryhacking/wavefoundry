@@ -23,11 +23,15 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
 
 sys.dont_write_bytecode = True
+
+# Suppress dashboard browser open for the entire test suite (see dashboard_lib).
+os.environ.setdefault("WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER", "1")
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _TESTS_DIR = _SCRIPT_DIR / "tests"

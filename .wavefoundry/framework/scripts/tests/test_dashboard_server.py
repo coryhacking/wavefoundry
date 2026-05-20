@@ -771,7 +771,7 @@ class DashboardProcessControlTests(unittest.TestCase):
 
     def setUp(self):
         self.lib, self.srv = load_dashboard_modules()
-        self.server = sys.modules["server"]
+        self.server = sys.modules["server_impl"]
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         _make_repo(self.root)

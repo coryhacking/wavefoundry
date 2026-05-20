@@ -19,12 +19,15 @@ Change Status: `planned`
 Change ID: `12rnv-enh agent-prompt-harness-effectiveness`
 Change Status: `planned`
 
+Change ID: `12rcp-enh prompt-preflight-rubric`
+Change Status: `planned`
+
 Change ID: `12rcd-maint agents-md-implementation-principles`
 Change Status: `planned`
 
 ## Wave Summary
 
-Two framework changes on this wave: **`12rbe`** generalizes security-review seeds (`213`, security sections of `007`); **`12rnv`** adds harness core (`209`), other inferential sensors, specialists (`217`–`219`), and coordinator/bootstrap updates. Independent of wave **`12rbc mcp-impl-hot-reload`** (MCP hot reload), which may implement in parallel.
+Three framework changes on this wave: **`12rbe`** generalizes security-review seeds (`213`, security sections of `007`); **`12rnv`** adds harness core (`209`), other inferential sensors, specialists (`217`–`219`), and coordinator/bootstrap updates; **`12rcp`** consolidates prompt-preflight language for ambiguity routing and evidence-first review. Independent of wave **`12rbc mcp-impl-hot-reload`** (MCP hot reload), which may implement in parallel.
 
 ## Journal Watchpoints
 
@@ -45,3 +48,9 @@ Two framework changes on this wave: **`12rbe`** generalizes security-review seed
 
 - Informed by Cloudflare [Project Glasswing](https://blog.cloudflare.com/cyber-frontier-models/) harness lessons and community “environment over prompts” practice (layered entry surface, skeptical review, model-tier discipline).
 - No code changes to `server.py` or MCP runtime in this wave.
+
+## Serialization Points
+
+- `209` must be drafted before other seeds reference it.
+- `seed_edit_allowed` gate: single open/close around all seed edits.
+- Shared bootstrap surfaces (`050`, `100`, `020`, `docs/prompts/index.md`) are a single write set; coordinate them as one serialized pass even if the surrounding seed bodies are split across changes.

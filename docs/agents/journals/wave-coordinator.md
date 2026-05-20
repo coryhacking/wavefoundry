@@ -27,6 +27,8 @@ Last distilled: 2026-04-30
 - **Lifecycle ID epoch is fixed:** `epoch_utc: "2022-04-28T00:00:00Z"` was set at init from the greenfield fallback. Do not re-anchor this value — it invalidates all existing wave and change IDs.
 - **Stage gate must precede all framework edits:** Any edit to `.wavefoundry/framework/scripts/` or `.wavefoundry/framework/seeds/` requires a clean Prepare wave pass as the immediately preceding lifecycle step.
 - **`wave_current` envelope is a list:** `data.waves[]` — not `data.wave`. Every call site reading the current wave must use the list form; the old single-key form no longer exists.
+- **`patch.object` on a thin-runner module does not reach the impl module** (wave `12rbc`): When a module is split into a thin runner and an impl, `patch.object(runner_mod, "foo")` sets an attribute on the runner but impl functions call their siblings from their own namespace. Fix: `load_server()` must return `server_impl` (the impl module), not the runner. `patch.object(self.srv, "foo")` then patches the correct namespace. Python module `__setattr__` is not supported (PEP 562 covers `__getattr__`/`__dir__` only) — do not attempt to forward patches via a module-level `__setattr__`.
+- **Python late-binding eliminates the need for monkey-patching own-module functions** (wave `12rbc`): A function defined early in a module can reference symbols (`_runner_version`, `version_payload`) defined later, because global-name lookup happens at call time. Prefer a single merged definition over `_orig_func = func; def func(): ... _orig_func() ...` patterns, which are subtle on `importlib.reload` and obscure intent.
 
 ## Active Signals
 
@@ -110,7 +112,7 @@ wave-id: `12g47 dashboard-framework`
 ## Active Waves
 
 wave-id: `12rbc mcp-impl-hot-reload`
-- **Active** 2026-05-19: single change `12rb9` — server split + `wave_hot_reload` + upgrade integration. Harness work moved to `12rnv`.
+- **Closed** 2026-05-20: server split (`server.py` thin runner + `server_impl.py`), `wave_mcp_reload`, upgrade hook, version fields, dashboard browser suppression, 1482 tests. Package `2026-05-19h`.
 
 wave-id: `12r09 automated-upgrade`
 - Planned 2026-05-19: scripted upgrade path — upgrade-wavefoundry bin, check_version.py, upgrade_lib.py, dashboard upgrade-awareness, wave_upgrade_status MCP tool, wave_dashboard_restart guard.

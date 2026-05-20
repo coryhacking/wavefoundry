@@ -17,11 +17,23 @@ SERVER_PATH = SCRIPTS_ROOT / "server.py"
 
 
 def load_server():
+    """Load server.py (which imports server_impl) and return server_impl.
+
+    Returning server_impl ensures patch.object(self.srv, "foo") patches the
+    module where server_impl functions look up their siblings at call time,
+    so mocks are visible to internal function-to-function calls.
+    """
+    sys.modules.pop("server", None)
     spec = importlib.util.spec_from_file_location("server", SERVER_PATH)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["server"] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    srv_mod = importlib.util.module_from_spec(spec)
+    sys.modules["server"] = srv_mod
+    spec.loader.exec_module(srv_mod)
+    return sys.modules["server_impl"]
+
+
+def load_thin_runner():
+    """Return the thin runner module (server.py). Call load_server() first."""
+    return sys.modules.get("server")
 
 
 def _make_repo(tmp: Path, files: dict[str, str] | None = None) -> Path:
@@ -611,6 +623,12 @@ class GuidedContractTests(unittest.TestCase):
                 result["data"]["codex_server_name"],
                 f"wavefoundry-{expected_suffix}",
             )
+            self.assertIn("framework_version", result["data"])
+            self.assertIn("server_runner_version", result["data"])
+            self.assertIn("server_impl_version", result["data"])
+            self.assertIn("impl_matches_disk", result["data"])
+            self.assertEqual(result["data"]["server_runner_version"], self.srv.SERVER_RUNNER_VERSION)
+            self.assertEqual(result["data"]["server_impl_version"], self.srv.SERVER_IMPL_VERSION)
             self.assertEqual(result["next_tools"], ["wave_current", "wave_help"])
         finally:
             tmp.cleanup()
@@ -2712,7 +2730,7 @@ class ServerToolRegistrationTests(unittest.TestCase):
 
     def test_all_tools_registered(self):
         try:
-            mcp = self.srv.build_server(self.root)
+            mcp = load_thin_runner().build_server(self.root)
         except ImportError:
             self.skipTest("mcp package not installed")
 
@@ -2764,6 +2782,7 @@ class ServerToolRegistrationTests(unittest.TestCase):
             "wave_audit",
             "wave_upgrade",
             "wave_upgrade_status",
+            "wave_mcp_reload",
             "wave_dashboard_start",
             "wave_dashboard_open",
             "wave_dashboard_stop",
@@ -2783,13 +2802,54 @@ class ServerToolRegistrationTests(unittest.TestCase):
 
     def test_registered_tools_obey_prefix_contract(self):
         try:
-            mcp = self.srv.build_server(self.root)
+            mcp = load_thin_runner().build_server(self.root)
         except ImportError:
             self.skipTest("mcp package not installed")
 
         names = self.srv._registered_mcp_tool_names(mcp)
         viol = self.srv.first_party_tool_names_violating_prefix(names)
         self.assertEqual(viol, [], f"Prefix violations: {viol}")
+
+
+class WaveMcpReloadTests(unittest.TestCase):
+    """12rb9: wave_mcp_reload and version fields."""
+
+    def setUp(self):
+        self.srv = load_server()          # server_impl (impl namespace)
+        self.runner = load_thin_runner()  # server.py thin runner (build_server, perform_mcp_reload, …)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        fw = self.root / ".wavefoundry" / "framework"
+        fw.mkdir(parents=True, exist_ok=True)
+        (fw / "VERSION").write_text("test-pack-version", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_wave_help_lists_wave_mcp_reload(self):
+        self.srv._cached_help_catalog_json.cache_clear()
+        result = self.srv.wave_help_response()
+        self.assertIn("wave_mcp_reload", result["data"]["core_tools"])
+
+    def test_wave_help_reload_mcp_goal(self):
+        self.srv._cached_help_catalog_json.cache_clear()
+        result = self.srv.wave_help_response("reload_mcp")
+        self.assertEqual(result["data"]["goal"], "reload_mcp")
+        self.assertEqual(result["data"]["recommended_chain"][0], "wave_mcp_reload")
+
+    def test_perform_mcp_reload_returns_versions(self):
+        try:
+            self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+        result = self.runner.perform_mcp_reload()
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"]["ok"])
+        self.assertEqual(result["data"]["framework_version"], "test-pack-version")
+        self.assertEqual(result["data"]["server_runner_version"], self.runner.SERVER_RUNNER_VERSION)
+        self.assertTrue(result["data"]["server_impl_version"])
+        # impl_matches_disk is false when test root VERSION differs from installed pack VERSION
+        self.assertIs(result["data"]["impl_matches_disk"], False)
 
 
 # ---------------------------------------------------------------------------
@@ -3435,7 +3495,7 @@ class McpResourceRegistrationTests(unittest.TestCase):
 
     def _get_mcp(self):
         try:
-            return self.srv.build_server(self.root)
+            return load_thin_runner().build_server(self.root)
         except ImportError:
             self.skipTest("mcp package not installed")
 
@@ -3499,7 +3559,7 @@ class McpResourceReadTests(unittest.TestCase):
 
     def _read_resource(self, uri: str):
         try:
-            mcp = self.srv.build_server(self.root)
+            mcp = load_thin_runner().build_server(self.root)
         except ImportError:
             self.skipTest("mcp package not installed")
         import asyncio
@@ -3568,7 +3628,7 @@ class McpResourceTemplateReadTests(unittest.TestCase):
 
     def _read_resource(self, uri: str):
         try:
-            mcp = self.srv.build_server(self.root)
+            mcp = load_thin_runner().build_server(self.root)
         except ImportError:
             self.skipTest("mcp package not installed")
         import asyncio
@@ -4002,7 +4062,7 @@ class HandoffToolTests(unittest.TestCase):
 
     def test_handoff_tools_registered(self):
         try:
-            mcp = self.srv.build_server(self.root)
+            mcp = load_thin_runner().build_server(self.root)
         except ImportError:
             self.skipTest("mcp package not installed")
         names = self.srv._registered_mcp_tool_names(mcp)
@@ -7526,7 +7586,7 @@ class BackgroundModelDownloadTests(unittest.TestCase):
         try:
             mcp = None
             with patch.object(self.srv.WaveIndex, "_start_background_model_downloads", patched_start):
-                mcp = self.srv.build_server(self.root)
+                mcp = load_thin_runner().build_server(self.root)
         except ImportError:
             self.skipTest("mcp package not installed")
 
@@ -8581,11 +8641,12 @@ class TestLanceDBIndex(unittest.TestCase):
 # wave_dashboard_open tests (12qme-enh dashboard-open-browser)
 # ---------------------------------------------------------------------------
 
-def _make_mock_dashboard_lib(meta_path):
+def _make_mock_dashboard_lib(meta_path, *, browser_open_enabled: bool = True):
     """Return a MagicMock for dashboard_lib with dashboard_metadata_path returning meta_path."""
     mock_lib = MagicMock()
     mock_lib.dashboard_metadata_path.return_value = meta_path
     mock_lib.read_dashboard_metadata.return_value = {}
+    mock_lib.dashboard_browser_open_enabled.return_value = browser_open_enabled
     return mock_lib
 
 
@@ -8597,9 +8658,15 @@ class WaveDashboardOpenTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         self._meta_path = self.root / ".wavefoundry" / "dashboard-server.json"
+        self._prev_browser_suppress = os.environ.get("WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER")
+        os.environ["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = "0"
         self._meta_path.parent.mkdir(parents=True, exist_ok=True)
 
     def tearDown(self):
+        if self._prev_browser_suppress is None:
+            os.environ.pop("WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER", None)
+        else:
+            os.environ["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = self._prev_browser_suppress
         self.tmp.cleanup()
 
     def _write_meta(self, pid: int, url: str) -> None:
@@ -8616,8 +8683,9 @@ class WaveDashboardOpenTests(unittest.TestCase):
     def test_open_when_running_calls_webbrowser_and_returns_opened(self):
         """AC-2: when dashboard running, webbrowser.open is called and opened=True returned."""
         self._write_meta(pid=12345, url="http://localhost:7890")
+        import server_impl
         with self._dashboard_lib_patch(), \
-             patch.object(self.srv, "_pid_is_running", return_value=True), \
+             patch.object(server_impl, "_pid_is_running", return_value=True), \
              patch("webbrowser.open") as mock_wb:
             result = self.srv.wave_dashboard_open_response(self.root)
         self.assertEqual(result["status"], "ok")
@@ -8629,10 +8697,11 @@ class WaveDashboardOpenTests(unittest.TestCase):
         """AC-3: when dashboard not running, delegates to wave_dashboard_start_response."""
         # No meta file written — dashboard not running path via empty mock lib.
         import sys
+        import server_impl
         mock_lib = _make_mock_dashboard_lib(self._meta_path)  # meta_path doesn't exist
         with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
              patch.object(
-                 self.srv, "wave_dashboard_start_response",
+                 server_impl, "wave_dashboard_start_response",
                  return_value={"status": "ok", "data": {"started": True}},
              ) as mock_start:
             result = self.srv.wave_dashboard_open_response(self.root)
@@ -8644,12 +8713,48 @@ class WaveDashboardOpenTests(unittest.TestCase):
         self._write_meta(pid=12345, url="http://localhost:7890")
         import sys
         mock_lib = _make_mock_dashboard_lib(self._meta_path)
+        import server_impl
         with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
-             patch.object(self.srv, "_pid_is_running", return_value=True):
+             patch.object(server_impl, "_pid_is_running", return_value=True):
             result = self.srv.wave_dashboard_start_response(self.root)
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"].get("already_running"))
         self.assertIn("wave_dashboard_open", result.get("next_tools", []))
+
+
+class WaveDashboardBrowserSuppressTests(unittest.TestCase):
+    """Dashboard browser must not open during the default test harness."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        os.environ["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = "1"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_start_spawns_without_open_flag_when_suppressed(self):
+        import server_impl
+        with patch("subprocess.Popen") as popen, patch.object(server_impl, "_pid_is_running", return_value=False):
+            popen.return_value = MagicMock(pid=99999)
+            self.srv.wave_dashboard_start_response(self.root)
+        cmd = popen.call_args.args[0]
+        self.assertNotIn("--open", cmd)
+
+    def test_open_when_running_does_not_call_webbrowser_when_suppressed(self):
+        meta_path = self.root / ".wavefoundry" / "dashboard-server.json"
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        meta_path.write_text(
+            json.dumps({"pid": os.getpid(), "url": "http://127.0.0.1:9/dashboard.html"}),
+            encoding="utf-8",
+        )
+        import server_impl
+        with patch("webbrowser.open") as mock_wb, patch.object(server_impl, "_pid_is_running", return_value=True):
+            result = server_impl.wave_dashboard_open_response(self.root)
+        mock_wb.assert_not_called()
+        self.assertFalse(result["data"].get("opened"))
+        self.assertTrue(result["data"].get("browser_suppressed"))
 
 
 # ---------------------------------------------------------------------------
@@ -8838,6 +8943,79 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         result = self.srv.wave_upgrade_response(self.root, mode="bad_mode")
         self.assertEqual(result["status"], "error")
         self.assertIn("valid_modes", result["data"])
+
+    def test_cleanup_apply_invokes_mcp_reload(self):
+        """AC-3: wave_upgrade cleanup+apply triggers in-process MCP reload.
+
+        When phase='cleanup' and mode='apply' succeed, wave_upgrade_response
+        must call server.perform_mcp_reload() and include its result under
+        data['mcp_reload'].
+        """
+        import server as _server_mod
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "Lock removed\n"
+        mock_proc.stderr = ""
+        reload_payload = {
+            "status": "ok",
+            "data": {"ok": True, "framework_version": "v1", "server_runner_version": "1",
+                     "server_impl_version": "v1", "impl_matches_disk": True},
+        }
+        with patch("subprocess.run", return_value=mock_proc), \
+             patch.object(_server_mod, "perform_mcp_reload", return_value=reload_payload) as mock_reload:
+            result = self.srv.wave_upgrade_response(self.root, phase="cleanup", mode="apply")
+        self.assertEqual(result["status"], "ok")
+        mock_reload.assert_called_once()
+        self.assertIn("mcp_reload", result["data"])
+        self.assertTrue(result["data"]["mcp_reload"]["ok"])
+
+
+class ImplHandlerCloseTests(unittest.TestCase):
+    """AC-6: ImplHandler.close() nulls Lance handles before build_handler creates new ones."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_close_nulls_lance_handles(self):
+        """AC-6: close() must set Lance table refs and reranker to None so no double-open occurs."""
+        handler = self.srv.build_handler(self.root)
+        # Force-populate internal table refs with sentinel values to confirm they are cleared.
+        handler.index._docs_lance_table = object()
+        handler.index._code_lance_table = object()
+        handler.index._reranker = object()
+        handler.index._loaded = True
+
+        handler.close()
+
+        self.assertIsNone(handler.index._docs_lance_table, "_docs_lance_table must be None after close()")
+        self.assertIsNone(handler.index._code_lance_table, "_code_lance_table must be None after close()")
+        self.assertIsNone(handler.index._reranker, "_reranker must be None after close()")
+        self.assertFalse(handler.index._loaded, "_loaded must be False after close()")
+
+    def test_reload_closes_old_handler_before_build(self):
+        """AC-6: perform_mcp_reload() calls close() on the old handler before building a new one."""
+        import server as _server_mod
+        try:
+            _server_mod.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+
+        closed = []
+        original_close = _server_mod._get_handler().close
+
+        def tracking_close():
+            closed.append(True)
+            original_close()
+
+        _server_mod._get_handler().close = tracking_close
+        result = _server_mod.perform_mcp_reload()
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(len(closed), 1, "close() must be called exactly once during reload")
 
 
 if __name__ == "__main__":
