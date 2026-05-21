@@ -56,12 +56,12 @@ UPGRADE_LOG_FILENAME = "upgrade.log"
 
 
 def upgrade_log_path(root: Path) -> Path:
-    return root / ".wavefoundry" / UPGRADE_LOG_FILENAME
+    return root / ".wavefoundry" / "logs" / UPGRADE_LOG_FILENAME
 
 
 # ── Log file tee ──────────────────────────────────────────────────────────────
 # All _log() / _err() output goes to stdout AND to the upgrade log file so
-# operators can `tail -f .wavefoundry/upgrade.log` for real-time progress.
+# operators can `tail -f .wavefoundry/logs/upgrade.log` for real-time progress.
 
 import io as _io
 

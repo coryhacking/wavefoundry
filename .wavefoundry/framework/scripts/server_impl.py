@@ -5249,7 +5249,7 @@ def wave_upgrade_response(
         # Pre-create the log file so log_path in the response is always valid,
         # even if the upgrade fails before the script opens it.  The upgrade
         # script manages truncation (mode="w") and appending (mode="a") itself.
-        _log_path = root / ".wavefoundry" / "upgrade.log"
+        _log_path = root / ".wavefoundry" / "logs" / "upgrade.log"
         try:
             _log_path.parent.mkdir(parents=True, exist_ok=True)
             _log_path.touch(exist_ok=True)
@@ -5286,7 +5286,7 @@ def wave_upgrade_response(
     # log_path is deterministic and always present for apply-mode phases;
     # dry_run is read-only so it writes no log file.
     log_path = (
-        str(root / ".wavefoundry" / "upgrade.log")
+        str(root / ".wavefoundry" / "logs" / "upgrade.log")
         if mode == "apply"
         else None
     )

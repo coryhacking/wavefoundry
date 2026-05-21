@@ -624,7 +624,7 @@ class UpgradeLogTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _log_path(self) -> Path:
-        return self.root / ".wavefoundry" / "upgrade.log"
+        return self.root / ".wavefoundry" / "logs" / "upgrade.log"
 
     def test_log_file_created_on_open(self):
         self.mod._open_log(self.root, mode="w")
@@ -686,7 +686,7 @@ class UpgradeLogTests(unittest.TestCase):
         self.assertFalse(self._log_path().exists())
 
     def test_upgrade_log_path_helper(self):
-        expected = self.root / ".wavefoundry" / "upgrade.log"
+        expected = self.root / ".wavefoundry" / "logs" / "upgrade.log"
         self.assertEqual(self.mod.upgrade_log_path(self.root), expected)
 
 
