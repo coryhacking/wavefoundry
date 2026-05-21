@@ -2230,12 +2230,12 @@ def _clear_index_build_state(root: Path, layer: str) -> None:
 
 def _index_build_log_path(root: Path, layer: str) -> Path:
     if layer == "framework":
-        return root / ".wavefoundry" / "framework" / "index" / "index-build.log"
-    return root / ".wavefoundry" / "index" / "index-build.log"
+        return root / ".wavefoundry" / "logs" / "framework-index-build.log"
+    return root / ".wavefoundry" / "logs" / "project-index-build.log"
 
 
 def _project_background_build_log_path(root: Path) -> Path:
-    return root / ".wavefoundry" / "index" / "background-build.log"
+    return root / ".wavefoundry" / "logs" / "project-background-build.log"
 
 
 def _index_build_stats_path(root: Path, layer: str) -> Path:
@@ -4426,7 +4426,7 @@ def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
             _diagnostic(
                 "background_code_build_running",
                 "A background code index build is in progress. "
-                f"Watch progress: {index.root / '.wavefoundry' / 'index' / 'background-build.log'}",
+                f"Watch progress: {index.root / '.wavefoundry' / 'logs' / 'project-background-build.log'}",
                 recovery_tools=[],
                 recovery_usage="wave_index_health()",
             )

@@ -2264,8 +2264,9 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         import os
 
         bg_pid = self.root / ".wavefoundry" / "index" / "background-build.pid"
-        bg_log = self.root / ".wavefoundry" / "index" / "background-build.log"
+        bg_log = self.root / ".wavefoundry" / "logs" / "project-background-build.log"
         bg_pid.parent.mkdir(parents=True, exist_ok=True)
+        bg_log.parent.mkdir(parents=True, exist_ok=True)
         bg_pid.write_text(str(os.getpid()), encoding="utf-8")
         bg_log.write_text(
             "Code index build started in background (PID 12345)\n"
@@ -2284,9 +2285,9 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         store = self._track(self.srv.SnapshotStore(self.root))
         watched = {str(path) for path in store._watched_paths()}
         self.assertIn(str(self.root / ".wavefoundry" / "index" / "index-build.json"), watched)
-        self.assertIn(str(self.root / ".wavefoundry" / "index" / "index-build.log"), watched)
         self.assertIn(str(self.root / ".wavefoundry" / "index" / "background-build.pid"), watched)
-        self.assertIn(str(self.root / ".wavefoundry" / "index" / "background-build.log"), watched)
+        self.assertIn(str(self.root / ".wavefoundry" / "logs" / "project-index-build.log"), watched)
+        self.assertIn(str(self.root / ".wavefoundry" / "logs" / "project-background-build.log"), watched)
 
     def test_periodic_staleness_check_triggers_rebuild_when_stale(self):
         """When _index_is_stale returns True, the watch loop should signal the IndexBuilder."""

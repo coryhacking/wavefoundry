@@ -1567,8 +1567,10 @@ class IndexBuildStatusTests(unittest.TestCase):
         _make_repo(self.root)
         self.index_dir = self.root / ".wavefoundry" / "index"
         self.index_dir.mkdir(parents=True, exist_ok=True)
+        self.logs_dir = self.root / ".wavefoundry" / "logs"
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.state_path = self.index_dir / "index-build.json"
-        self.log_path = self.index_dir / "index-build.log"
+        self.log_path = self.logs_dir / "project-index-build.log"
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -1594,7 +1596,7 @@ class IndexBuildStatusTests(unittest.TestCase):
     def test_background_running_when_background_pid_active(self):
         import os
         bg_pid = self.index_dir / "background-build.pid"
-        bg_log = self.index_dir / "background-build.log"
+        bg_log = self.logs_dir / "project-background-build.log"
         bg_pid.write_text(str(os.getpid()), encoding="utf-8")
         bg_log.write_text(
             "Code index build started in background (PID 12345)\n"
@@ -2101,7 +2103,9 @@ class RunIndexRebuildTests(unittest.TestCase):
     def test_stats_written_when_previous_log_has_done_marker(self):
         index_dir = self.root / ".wavefoundry" / "index"
         index_dir.mkdir(parents=True, exist_ok=True)
-        log_path = index_dir / "index-build.log"
+        logs_dir = self.root / ".wavefoundry" / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        log_path = logs_dir / "project-index-build.log"
         log_path.write_text(
             "build_index: done — 150 files indexed, 800 doc chunks, 600 code chunks\n",
             encoding="utf-8",
@@ -2127,7 +2131,9 @@ class RunIndexRebuildTests(unittest.TestCase):
     def test_stats_not_written_when_no_done_marker(self):
         index_dir = self.root / ".wavefoundry" / "index"
         index_dir.mkdir(parents=True, exist_ok=True)
-        log_path = index_dir / "index-build.log"
+        logs_dir = self.root / ".wavefoundry" / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        log_path = logs_dir / "project-index-build.log"
         log_path.write_text("build_index: embedding doc chunks 100-200/500\n", encoding="utf-8")
         mock_proc = MagicMock()
         mock_proc.pid = 12345
@@ -2152,7 +2158,9 @@ class RunIndexRebuildTests(unittest.TestCase):
         stats = {"elapsed_seconds": 420, "files_indexed": 200, "doc_chunks": 1000, "code_chunks": 0, "built_at": None, "content": "docs", "mode": "rebuild"}
         (index_dir / "index-build-stats.json").write_text(json.dumps(stats), encoding="utf-8")
         # Write a log without done marker so stats won't be overwritten
-        (index_dir / "index-build.log").write_text("no done marker\n", encoding="utf-8")
+        logs_dir = self.root / ".wavefoundry" / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        (logs_dir / "project-index-build.log").write_text("no done marker\n", encoding="utf-8")
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         with patch("subprocess.Popen", return_value=mock_proc), \
@@ -2491,7 +2499,9 @@ class WaveIndexHealthTests(unittest.TestCase):
             index_dir.mkdir(parents=True, exist_ok=True)
             stats = {"elapsed_seconds": 1, "files_indexed": 1, "doc_chunks": 1, "code_chunks": 1, "built_at": "2026-05-06T10:00:00Z", "content": "docs", "mode": "update"}
             (index_dir / "index-build-stats.json").write_text(json.dumps(stats), encoding="utf-8")
-            (index_dir / "background-build.log").write_text(
+            logs_dir = root / ".wavefoundry" / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            (logs_dir / "project-background-build.log").write_text(
                 "build_index: done — 77 files indexed, 88 doc chunks, 99 code chunks\n",
                 encoding="utf-8",
             )
@@ -5466,7 +5476,9 @@ class WaveIndexHealthRefreshTests(unittest.TestCase):
             index_dir.mkdir(parents=True, exist_ok=True)
             state = {"pid": 999999, "started_at": 1710000000.0, "content": "docs", "full": False}
             (index_dir / "index-build.json").write_text(json.dumps(state), encoding="utf-8")
-            (index_dir / "index-build.log").write_text(
+            logs_dir = root / ".wavefoundry" / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            (logs_dir / "project-index-build.log").write_text(
                 "build_index: done — 123 files indexed, 456 doc chunks, 789 code chunks\n",
                 encoding="utf-8",
             )

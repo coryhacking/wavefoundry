@@ -282,6 +282,7 @@ class IndexBuilder:
                 content = "all" if layer == "project" else "docs"
                 log_path = self._index_log_path(layer, content)
                 log_path.parent.mkdir(parents=True, exist_ok=True)
+                state_path.parent.mkdir(parents=True, exist_ok=True)
                 started_at = time.time()
                 try:
                     with open(log_path, "w", encoding="utf-8") as log_file:
@@ -318,10 +319,8 @@ class IndexBuilder:
         return self._root / ".wavefoundry" / "index" / "index-build.json"
 
     def _index_log_path(self, layer: str, content: str = "all") -> Path:
-        filename = f"index-build-{content}.log"
-        if layer == "framework":
-            return self._root / ".wavefoundry" / "framework" / "index" / filename
-        return self._root / ".wavefoundry" / "index" / filename
+        prefix = "framework" if layer == "framework" else "project"
+        return self._root / ".wavefoundry" / "logs" / f"{prefix}-index-build-{content}.log"
 
 
 def _path_matches_index_layer(path: str, layer: str) -> bool:
@@ -583,17 +582,18 @@ class SnapshotStore:
             r / "docs" / "agents" / "session-handoff.md",
             r / "docs" / "prompts" / "prompt-surface-manifest.json",
             r / ".wavefoundry" / "index" / "index-build.json",
-            r / ".wavefoundry" / "index" / "index-build.log",
-            r / ".wavefoundry" / "index" / "index-build-docs.log",
-            r / ".wavefoundry" / "index" / "index-build-code.log",
-            r / ".wavefoundry" / "index" / "index-build-all.log",
             r / ".wavefoundry" / "index" / "background-build.pid",
-            r / ".wavefoundry" / "index" / "background-build.log",
             r / ".wavefoundry" / "index" / "index-build-stats.json",
             r / ".wavefoundry" / "framework" / "index" / "index-build.json",
-            r / ".wavefoundry" / "framework" / "index" / "index-build-docs.log",
-            r / ".wavefoundry" / "framework" / "index" / "index-build-all.log",
             r / ".wavefoundry" / "framework" / "index" / "index-build-stats.json",
+            r / ".wavefoundry" / "logs" / "project-index-build.log",
+            r / ".wavefoundry" / "logs" / "project-index-build-docs.log",
+            r / ".wavefoundry" / "logs" / "project-index-build-code.log",
+            r / ".wavefoundry" / "logs" / "project-index-build-all.log",
+            r / ".wavefoundry" / "logs" / "project-background-build.log",
+            r / ".wavefoundry" / "logs" / "framework-index-build.log",
+            r / ".wavefoundry" / "logs" / "framework-index-build-docs.log",
+            r / ".wavefoundry" / "logs" / "framework-index-build-all.log",
         ]
 
     def _current_mtimes(self) -> dict[str, float]:

@@ -192,7 +192,7 @@ def _spawn_background_code_build(root: Path, args: argparse.Namespace) -> None:
         cmd.append("--include-generated")
     if args.verbose:
         cmd.append("--verbose")
-    log_path = root / ".wavefoundry" / "index" / "background-build.log"
+    log_path = root / ".wavefoundry" / "logs" / "project-background-build.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = open(log_path, "w", encoding="utf-8")  # noqa: SIM115
     try:
