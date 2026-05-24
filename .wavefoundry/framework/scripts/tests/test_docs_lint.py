@@ -204,6 +204,48 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertIn("AC Priority table must have one row per Acceptance Criteria bullet", result.stderr)
         self.assertIn("unknown ACs are not allowed", result.stderr)
 
+    def test_plain_bullet_ac_syntax_fails(self) -> None:
+        root = self.copy_fixture()
+        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc.write_text(
+            change_doc.read_text(encoding="utf-8").replace(
+                "## Acceptance Criteria\n\n- [x] AC-1: Fixture criterion satisfied.\n",
+                "## Acceptance Criteria\n\n- AC-1: Fixture criterion satisfied.\n",
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("uses plain bullet format", result.stderr)
+        self.assertIn("checkbox syntax", result.stderr)
+
+    def test_checkbox_ac_syntax_passes(self) -> None:
+        root = self.copy_fixture()
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0)
+
+    def test_plain_bullet_task_syntax_fails(self) -> None:
+        root = self.copy_fixture()
+        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc.write_text(
+            change_doc.read_text(encoding="utf-8")
+            + "\n## Tasks\n\n- Inspect parser behavior.\n- Keep fixtures readable.\n",
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("`## Tasks` uses plain bullet format", result.stderr)
+        self.assertIn("checkbox syntax", result.stderr)
+
     def test_ac_priority_placeholder_priority_fails(self) -> None:
         root = self.copy_fixture()
         change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
@@ -635,12 +677,12 @@ class DocsLintFixtureTests(unittest.TestCase):
             result.stderr,
         )
 
-    def test_optional_task_subtask_text_is_not_required_anchor(self) -> None:
+    def test_checkbox_task_syntax_passes(self) -> None:
         root = self.copy_fixture()
         change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
         change_doc.write_text(
             change_doc.read_text(encoding="utf-8")
-            + "\n## Tasks\n\n- Optional task: inspect parser behavior.\n- Optional subtask: keep fixtures readable.\n",
+            + "\n## Tasks\n\n- [ ] Inspect parser behavior.\n- [ ] Keep fixtures readable.\n",
             encoding="utf-8",
         )
         try:
@@ -1103,6 +1145,73 @@ class LinkValidatorIntegrationTests(DocsLintFixtureTests):
                 encoding="utf-8",
             )
         try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("docs-lint: ok", result.stdout)
+
+
+class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
+    """AC-7: check_prepare_council_verdict — at least one passing and one failing test."""
+
+    ACTIVE_WAVE = Path("docs/waves/waves/change-2026-03/wave.md")
+
+    def _patch_wave_status(self, root: Path, status: str) -> None:
+        wave_md = root / self.ACTIVE_WAVE
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8").replace(
+                "Status: active",
+                f"Status: {status}",
+            ),
+            encoding="utf-8",
+        )
+
+    def _add_council_verdict(self, root: Path) -> None:
+        wave_md = root / self.ACTIVE_WAVE
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8")
+            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (red-team fixed seat)\n",
+            encoding="utf-8",
+        )
+
+    def test_active_wave_with_council_verdict_passes(self) -> None:
+        root = self.copy_fixture()
+        try:
+            self._add_council_verdict(root)
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("docs-lint: ok", result.stdout)
+        self.assertNotIn("prepare-council", result.stderr)
+
+    def test_active_wave_without_council_verdict_warns(self) -> None:
+        root = self.copy_fixture()
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("prepare-council", result.stderr)
+        self.assertIn("WARNING", result.stderr)
+
+    def test_implementing_wave_without_council_verdict_errors(self) -> None:
+        root = self.copy_fixture()
+        try:
+            self._patch_wave_status(root, "implementing")
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("prepare-council", result.stderr)
+        self.assertIn("ERROR", result.stderr)
+
+    def test_implementing_wave_with_council_verdict_passes(self) -> None:
+        root = self.copy_fixture()
+        try:
+            self._patch_wave_status(root, "implementing")
+            self._add_council_verdict(root)
             result = self.run_docs_lint(root)
         finally:
             shutil.rmtree(root)

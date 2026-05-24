@@ -8,11 +8,13 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from unittest.mock import call, patch
+from unittest.mock import MagicMock, call, patch
 
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 SETUP_INDEX_PATH = SCRIPTS_ROOT / "setup_index.py"
+
+FAKE_VENV_PYTHON = Path("/fake/venv/bin/python")
 
 
 def load_setup_index():
@@ -23,39 +25,108 @@ def load_setup_index():
     return mod
 
 
+def load_indexer():
+    indexer_path = SCRIPTS_ROOT / "indexer.py"
+    spec = importlib.util.spec_from_file_location("wavefoundry_indexer", indexer_path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["wavefoundry_indexer"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class VenvBootstrapTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_setup_index()
+
+    def test_bootstrap_venv_creates_venv_when_absent(self):
+        """_bootstrap_venv creates the venv when the directory does not exist."""
+        with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
+            with patch("pathlib.Path.exists", return_value=False):
+                with patch("subprocess.check_call") as check_call:
+                    with redirect_stdout(io.StringIO()):
+                        result = self.mod._bootstrap_venv()
+
+        check_call.assert_called_once()
+        cmd = check_call.call_args[0][0]
+        self.assertIn("-m", cmd)
+        self.assertIn("venv", cmd)
+        self.assertEqual(result, FAKE_VENV_PYTHON)
+
+    def test_bootstrap_venv_skips_creation_when_python_exists(self):
+        """_bootstrap_venv does not call venv when the Python binary already exists."""
+        with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
+            with patch("pathlib.Path.exists", return_value=True):
+                with patch("subprocess.check_call") as check_call:
+                    with redirect_stdout(io.StringIO()):
+                        result = self.mod._bootstrap_venv()
+
+        check_call.assert_not_called()
+        self.assertEqual(result, FAKE_VENV_PYTHON)
+
+    def test_bootstrap_venv_recreates_partial_venv(self):
+        """_bootstrap_venv deletes and recreates a partial venv (dir exists but Python binary absent)."""
+        venv_dir = FAKE_VENV_PYTHON.parent.parent
+
+        def exists_side_effect(self_path):
+            # venv_dir.exists() → True; venv_python.exists() → False (binary absent)
+            return self_path == venv_dir
+
+        with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
+            with patch("pathlib.Path.exists", exists_side_effect):
+                with patch("shutil.rmtree") as rmtree:
+                    with patch("subprocess.check_call"):
+                        with redirect_stdout(io.StringIO()):
+                            self.mod._bootstrap_venv()
+
+        rmtree.assert_called_once_with(venv_dir, ignore_errors=True)
+
+
 class SetupIndexTests(unittest.TestCase):
     def setUp(self):
         self.mod = load_setup_index()
 
     def test_ensure_deps_installs_missing_packages(self):
-        """ensure_deps calls pip install for missing packages then rechecks."""
-        with patch.object(self.mod, "_installed", return_value=False):
-            with patch.object(self.mod, "_install_deps") as mock_install:
-                with self.assertRaises(SystemExit) as raised:
-                    self.mod.ensure_deps()
-        # _install_deps called with all missing packages
-        mock_install.assert_called_once()
-        missing_arg = mock_install.call_args[0][0]
-        self.assertIn("fastembed", missing_arg)
-        self.assertIn("numpy", missing_arg)
-        self.assertIn("tree-sitter-sql", missing_arg)
-        # Still exits 2 because _installed still returns False after mock install
+        """ensure_deps calls _install_deps for missing packages then rechecks."""
+        with patch.object(self.mod, "_bootstrap_venv", return_value=FAKE_VENV_PYTHON):
+            with patch.object(self.mod, "_missing_in_venv", return_value=["fastembed", "numpy"]):
+                with patch.object(self.mod, "_install_deps"):
+                    with self.assertRaises(SystemExit) as raised:
+                        # Second call to _missing_in_venv still returns packages → exits 2
+                        self.mod.ensure_deps()
         self.assertEqual(raised.exception.code, 2)
 
     def test_ensure_deps_succeeds_when_all_installed(self):
-        with patch.object(self.mod, "_installed", return_value=True):
-            with redirect_stdout(io.StringIO()):
-                self.mod.ensure_deps()  # must not raise
+        with patch.object(self.mod, "_bootstrap_venv", return_value=FAKE_VENV_PYTHON):
+            with patch.object(self.mod, "_missing_in_venv", return_value=[]):
+                with redirect_stdout(io.StringIO()):
+                    self.mod.ensure_deps()  # must not raise
 
-    def test_install_deps_invokes_pip_with_quoted_specifiers(self):
-        """_install_deps quotes deps with version specifiers or extras."""
-        import unittest.mock as um
+    def test_ensure_deps_calls_install_with_missing_list(self):
+        """ensure_deps passes the missing list from _missing_in_venv to _install_deps."""
+        missing = ["fastembed", "lancedb"]
+        call_count = [0]
+
+        def missing_side_effect(venv_python):
+            call_count[0] += 1
+            return missing if call_count[0] == 1 else []
+
+        with patch.object(self.mod, "_bootstrap_venv", return_value=FAKE_VENV_PYTHON):
+            with patch.object(self.mod, "_missing_in_venv", side_effect=missing_side_effect):
+                with patch.object(self.mod, "_install_deps") as mock_install:
+                    with redirect_stdout(io.StringIO()):
+                        self.mod.ensure_deps()
+
+        mock_install.assert_called_once_with(missing, FAKE_VENV_PYTHON)
+
+    def test_install_deps_invokes_pip_via_venv_python(self):
+        """_install_deps uses the venv Python, not sys.executable."""
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = um.MagicMock(returncode=0)
+            mock_run.return_value = MagicMock(returncode=0)
             with redirect_stdout(io.StringIO()):
-                self.mod._install_deps(["fastembed", "mcp[cli]", "tree-sitter>=0.24,<0.26"])
+                self.mod._install_deps(["fastembed", "mcp[cli]", "tree-sitter>=0.24,<0.26"], FAKE_VENV_PYTHON)
+
         cmd = mock_run.call_args[0][0]
-        self.assertEqual(cmd[0], sys.executable)
+        self.assertEqual(cmd[0], str(FAKE_VENV_PYTHON))
         self.assertIn("-m", cmd)
         self.assertIn("pip", cmd)
         # Raw dep strings passed to subprocess — no shell quoting
@@ -65,37 +136,54 @@ class SetupIndexTests(unittest.TestCase):
         # Shell-quoted forms must NOT appear in the subprocess cmd
         self.assertNotIn('"mcp[cli]"', cmd)
         self.assertNotIn('"tree-sitter>=0.24,<0.26"', cmd)
+        # Must not use sys.executable
+        self.assertNotEqual(cmd[0], sys.executable)
+
+    def test_install_deps_does_not_use_break_system_packages(self):
+        """_install_deps never passes --break-system-packages."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1)
+            with redirect_stderr(io.StringIO()):
+                with redirect_stdout(io.StringIO()):
+                    with self.assertRaises(SystemExit):
+                        self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON)
+
+        all_calls = mock_run.call_args_list
+        for c in all_calls:
+            cmd = c[0][0]
+            self.assertNotIn("--break-system-packages", cmd)
 
     def test_install_deps_exits_on_pip_failure(self):
-        import unittest.mock as um
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = um.MagicMock(returncode=1)
+            mock_run.return_value = MagicMock(returncode=1)
             with redirect_stderr(io.StringIO()):
                 with redirect_stdout(io.StringIO()):
                     with self.assertRaises(SystemExit) as raised:
-                        self.mod._install_deps(["fastembed"])
+                        self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON)
         self.assertEqual(raised.exception.code, 2)
 
-    def test_build_index_uses_current_python(self):
+    def test_build_index_uses_venv_python(self):
         root = Path("/tmp/wavefoundry-test-root")
 
-        with patch("subprocess.check_call") as check_call:
-            with redirect_stdout(io.StringIO()):
-                self.mod.build_index(
-                    root,
-                    full=True,
-                    include_code=True,
-                    verbose=True,
-                    include_tests=True,
-                    include_generated=True,
-                    project_include_prefixes_for_docs=(),
-                    project_include_prefixes_for_code=(),
-                )
+        with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
+            with patch("subprocess.check_call") as check_call:
+                with redirect_stdout(io.StringIO()):
+                    self.mod.build_index(
+                        root,
+                        full=True,
+                        include_code=True,
+                        verbose=True,
+                        include_tests=True,
+                        include_generated=True,
+                        project_include_prefixes_for_docs=(),
+                        project_include_prefixes_for_code=(),
+                    )
 
         calls = [call.args[0] for call in check_call.call_args_list]
         self.assertEqual(len(calls), 1)
         cmd = calls[0]
-        self.assertEqual(cmd[0], sys.executable)
+        self.assertEqual(cmd[0], str(FAKE_VENV_PYTHON))
+        self.assertNotEqual(cmd[0], sys.executable)
         self.assertIn(str(SCRIPTS_ROOT / "indexer.py"), cmd)
         self.assertIn("--content", cmd)
         self.assertIn("all", cmd)
@@ -107,16 +195,17 @@ class SetupIndexTests(unittest.TestCase):
 
     def test_build_index_can_forward_project_include_prefixes_for_code_pass(self):
         root = Path("/tmp/wavefoundry-test-root")
-        with patch("subprocess.check_call") as check_call:
-            with redirect_stdout(io.StringIO()):
-                self.mod.build_index(
-                    root,
-                    full=False,
-                    include_code=True,
-                    verbose=False,
-                    project_include_prefixes_for_docs=("docs/external",),
-                    project_include_prefixes_for_code=(".wavefoundry/framework/scripts", "vendor/docs"),
-                )
+        with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
+            with patch("subprocess.check_call") as check_call:
+                with redirect_stdout(io.StringIO()):
+                    self.mod.build_index(
+                        root,
+                        full=False,
+                        include_code=True,
+                        verbose=False,
+                        project_include_prefixes_for_docs=("docs/external",),
+                        project_include_prefixes_for_code=(".wavefoundry/framework/scripts", "vendor/docs"),
+                    )
         calls = [call.args[0] for call in check_call.call_args_list]
         self.assertEqual(len(calls), 1)
         cmd = calls[0]
@@ -126,6 +215,21 @@ class SetupIndexTests(unittest.TestCase):
         self.assertIn("docs/external", cmd)
         self.assertIn(".wavefoundry/framework/scripts", cmd)
         self.assertIn("vendor/docs", cmd)
+
+    def test_tool_venv_python_default_path(self):
+        """Default venv path is ~/.wavefoundry/venv."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("WAVEFOUNDRY_TOOL_VENV", None)
+            result = self.mod._tool_venv_python()
+        expected_dir = Path("~/.wavefoundry/venv").expanduser()
+        self.assertEqual(result.parent.parent, expected_dir)
+
+    def test_tool_venv_python_env_override(self):
+        """WAVEFOUNDRY_TOOL_VENV overrides the default venv path."""
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": tmp}):
+                result = self.mod._tool_venv_python()
+        self.assertTrue(str(result).startswith(tmp))
 
     def test_required_imports_include_sql_tree_sitter(self):
         self.assertIn("tree-sitter-sql", self.mod.REQUIRED_IMPORTS)
@@ -216,6 +320,32 @@ class SetupIndexTests(unittest.TestCase):
             result = self.mod._workflow_project_include_prefixes(root)
         self.assertEqual(result["docs"], ())
         self.assertEqual(result["code"], (".wavefoundry/framework/scripts",))
+
+
+class IndexerToolVenvTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_indexer()
+
+    def test_auto_install_lancedb_uses_tool_venv_python(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            venv_root = Path(tmp)
+            venv_python = venv_root / "bin" / "python"
+            venv_python.parent.mkdir(parents=True, exist_ok=True)
+            venv_python.write_text("", encoding="utf-8")
+            with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_root)}):
+                with patch("subprocess.run", return_value=MagicMock(returncode=0)) as run_mock:
+                    with redirect_stdout(io.StringIO()):
+                        self.mod._auto_install_lancedb()
+        cmd = run_mock.call_args.args[0]
+        self.assertEqual(cmd[0], str(venv_python))
+        self.assertNotEqual(cmd[0], sys.executable)
+
+    def test_auto_install_lancedb_requires_bootstrapped_venv(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": tmp}):
+                with self.assertRaises(ImportError) as raised:
+                    self.mod._auto_install_lancedb()
+        self.assertIn("tool venv is not bootstrapped", str(raised.exception))
 
 
 class BackgroundCodeTests(unittest.TestCase):

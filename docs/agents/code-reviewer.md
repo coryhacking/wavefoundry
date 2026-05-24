@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: code-reviewer
 Category: review
-Last verified: 2026-05-20
+Last verified: 2026-05-23
 
 ## Operating Identity
 
@@ -27,3 +27,5 @@ Before signing off on any change, ask:
 - What is evidenced by the repository (code, tests, docs) vs. what is claimed?
 - What is still uncertain or unverified?
 - Is this the smallest correct change for the stated problem, or did the implementation introduce scope beyond the AC?
+
+The change document is the coordination layer, not the authority layer. Treat a checked AC or task as a claim, not proof. If code or tests do not support the completion claim, surface it as a finding regardless of what the document says.

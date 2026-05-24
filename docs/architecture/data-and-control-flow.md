@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-15
+Last verified: 2026-05-23
 
 ## Primary Control Paths
 
@@ -42,14 +42,14 @@ Last verified: 2026-05-15
 
 ### Path 4: Framework Packaging
 
-1. Operator runs `python3 .wavefoundry/framework/scripts/build_pack.py` (from repo root)
-2. Script determines today's date; finds highest letter suffix for that date in output directory
-3. Stamps `.wavefoundry/framework/VERSION` to `<date><letter>`
+1. Operator runs `python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH` (from repo root)
+2. Script derives the current lifecycle build suffix and validates manifest `framework_revision` against the packaged revision
+3. Stamps `.wavefoundry/framework/VERSION` to `MAJOR.MINOR.PATCH+<build>`
 4. Rebuilds the packaged framework semantic index at `.wavefoundry/framework/index/`
-5. Zips the canonical framework tree, including `framework/index/`, into `wavefoundry-<date><letter>.zip` at repo root
+5. Zips the canonical framework tree, including `framework/index/`, into `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` under `~/.wavefoundry/dist/` by default (`0.9.0` bridge keeps the old date-style artifact name)
 
 **State read:** `.wavefoundry/framework/` tree, output directory listing
-**State written:** `.wavefoundry/framework/VERSION`, `.wavefoundry/framework/index/`, zip archive at repo root
+**State written:** `.wavefoundry/framework/VERSION`, `.wavefoundry/framework/index/`, zip archive in the dist directory (or caller-supplied output dir)
 **Note:** zip file is gitignored; do not commit it
 
 ### Path 5: Semantic Index Build

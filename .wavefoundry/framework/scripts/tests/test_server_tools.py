@@ -1210,6 +1210,13 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         wave_doc = self.root / "docs" / "waves" / "1200a test-wave" / "1200a-feat sample.md"
         staged_doc = self.root / "docs" / "plans" / "1200a-feat sample.md"
         wave_doc.rename(staged_doc)
+        # Add prepare-council verdict so the council gate passes
+        wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8")
+            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (red-team fixed seat)\n",
+            encoding="utf-8",
+        )
 
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             def validate_after_repair(root):
@@ -2772,8 +2779,9 @@ class ServerToolRegistrationTests(unittest.TestCase):
             "wave_list_plans",
             "wave_get_change",
             "wave_get_prompt",
-            "wave_open_gate",
-            "wave_close_gate",
+            "wave_gate_open",
+            "wave_gate_close",
+            "wave_gate_status",
             "wave_new_feature",
             "wave_new_bug",
             "wave_new_enhancement",
@@ -3746,7 +3754,7 @@ class WaveStatusDriftDetectionTests(unittest.TestCase):
 
 
 class EditGateToolTests(unittest.TestCase):
-    """12ax9: wave_open_gate / wave_close_gate MCP tools."""
+    """12ax9/12sf9: wave_gate_open / wave_gate_close / wave_gate_status MCP tools."""
 
     def setUp(self):
         self.srv = load_server()
@@ -3807,6 +3815,33 @@ class EditGateToolTests(unittest.TestCase):
         self.assertEqual(resp["status"], "error")
         codes = [d.get("code") for d in (resp.get("diagnostics") or [])]
         self.assertIn("invalid_arguments", codes)
+
+    def test_design_system_gate_open_and_close(self):
+        resp = self.srv.wave_open_gate_response(self.root, "design_system_edit_allowed")
+        self.assertEqual(resp["status"], "ok")
+        self.assertTrue(self._read_gates()["design_system_edit_allowed"]["enabled"])
+        resp2 = self.srv.wave_close_gate_response(self.root, "design_system_edit_allowed")
+        self.assertEqual(resp2["status"], "ok")
+        self.assertFalse(self._read_gates()["design_system_edit_allowed"]["enabled"])
+
+    def test_gate_status_returns_all_gates(self):
+        resp = self.srv.wave_gate_status_response(self.root)
+        self.assertEqual(resp["status"], "ok")
+        gates = resp["data"]["gates"]
+        self.assertIn("seed_edit_allowed", gates)
+        self.assertIn("framework_edit_allowed", gates)
+        self.assertIn("design_system_edit_allowed", gates)
+        # All gates should be closed in initial test state
+        self.assertFalse(gates["seed_edit_allowed"])
+        self.assertFalse(gates["framework_edit_allowed"])
+
+    def test_gate_status_reflects_open_gate(self):
+        self.srv.wave_open_gate_response(self.root, "seed_edit_allowed")
+        resp = self.srv.wave_gate_status_response(self.root)
+        self.assertEqual(resp["status"], "ok")
+        gates = resp["data"]["gates"]
+        self.assertTrue(gates["seed_edit_allowed"])
+        self.assertFalse(gates["framework_edit_allowed"])
 
 
 class GateAutoCloseTests(unittest.TestCase):
@@ -4492,6 +4527,15 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         journal.write_text(prior + f"\nwave-id: `{wave_id}`\n", encoding="utf-8")
         return wave_id, change_id
 
+    def _add_council_verdict(self, wave_id: str) -> None:
+        """Append a prepare-council verdict to the wave's ## Review Checkpoints section."""
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8")
+            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (red-team fixed seat)\n",
+            encoding="utf-8",
+        )
+
     def test_wave_prepare_guards_when_another_wave_active_create(self):
         active_wave, _ = self._make_wave_with_change("active-one", status="active")
         target_wave, _ = self._make_wave_with_change("planned-one", status="planned")
@@ -4534,6 +4578,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
     def test_wave_prepare_after_pause_succeeds(self):
         active_wave, _ = self._make_wave_with_change("ctx-switch-active", status="active")
         target_wave, _ = self._make_wave_with_change("ctx-switch-target", status="planned")
+        self._add_council_verdict(target_wave)
         # Pause active wave
         pause_result = self.srv.wave_pause_response(self.root, active_wave, mode="create")
         self.assertEqual(pause_result["data"]["status_transition"], {"from": "active", "to": "paused"})
@@ -4549,6 +4594,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
 
     def test_wave_prepare_resumes_paused_wave(self):
         paused_wave, _ = self._make_wave_with_change("resume-target", status="paused")
+        self._add_council_verdict(paused_wave)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 result = self.srv.wave_prepare_response(self.root, paused_wave, mode="create")
@@ -8769,6 +8815,67 @@ class WaveDashboardBrowserSuppressTests(unittest.TestCase):
         self.assertTrue(result["data"].get("browser_suppressed"))
 
 
+class PreferredPythonSubprocessTests(unittest.TestCase):
+    """Regression coverage for explicit shared-venv subprocess routing."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_venv_python(self) -> Path:
+        venv_root = self.root / ".venv-test"
+        venv_python = venv_root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        venv_python.parent.mkdir(parents=True, exist_ok=True)
+        venv_python.write_text("", encoding="utf-8")
+        return venv_python
+
+    def test_run_validate_prefers_tool_venv_python(self):
+        venv_python = self._make_venv_python()
+        mock_proc = MagicMock(returncode=0, stdout="docs-lint: ok\n", stderr="")
+        with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
+             patch("subprocess.run", return_value=mock_proc) as run_mock:
+            self.srv.run_validate(self.root)
+        called_cmd = run_mock.call_args.args[0]
+        self.assertEqual(called_cmd[0], str(venv_python))
+
+    def test_background_index_refresh_prefers_tool_venv_python(self):
+        venv_python = self._make_venv_python()
+        indexer = self.root / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
+        indexer.parent.mkdir(parents=True, exist_ok=True)
+        indexer.write_text("", encoding="utf-8")
+        mock_proc = MagicMock(pid=12345)
+        with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
+             patch("subprocess.Popen", return_value=mock_proc) as popen_mock, \
+             patch.object(self.srv, "_background_refresh_active", return_value=False):
+            started = self.srv._start_background_index_refresh(self.root, "project")
+        self.assertTrue(started)
+        called_cmd = popen_mock.call_args.args[0]
+        self.assertEqual(called_cmd[0], str(venv_python))
+
+    def test_wave_dashboard_start_prefers_tool_venv_python(self):
+        venv_python = self._make_venv_python()
+        import server_impl
+        with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
+             patch("subprocess.Popen", return_value=MagicMock(pid=99999)) as popen_mock, \
+             patch.object(server_impl, "_pid_is_running", return_value=False):
+            self.srv.wave_dashboard_start_response(self.root)
+        called_cmd = popen_mock.call_args.args[0]
+        self.assertEqual(called_cmd[0], str(venv_python))
+
+    def test_wave_upgrade_prefers_tool_venv_python(self):
+        venv_python = self._make_venv_python()
+        mock_proc = MagicMock(returncode=0, stdout="Upgrade complete\n", stderr="")
+        with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
+             patch("subprocess.run", return_value=mock_proc) as run_mock:
+            self.srv.wave_upgrade_response(self.root, phase="preflight_to_docs_gate")
+        called_cmd = run_mock.call_args.args[0]
+        self.assertEqual(called_cmd[0], str(venv_python))
+
+
 # ---------------------------------------------------------------------------
 # wave_upgrade_status + wave_upgrade + restart guard tests (12r08/12r0b)
 # ---------------------------------------------------------------------------
@@ -9028,6 +9135,403 @@ class ImplHandlerCloseTests(unittest.TestCase):
         result = _server_mod.perform_mcp_reload()
         self.assertEqual(result["status"], "ok")
         self.assertEqual(len(closed), 1, "close() must be called exactly once during reload")
+
+
+class WavePrepareCouncilGateTests(unittest.TestCase):
+    """12sp5: wave_prepare council verdict gate — AC-1, AC-2, AC-3, AC-4."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        (self.root / "docs" / "agents" / "journals").mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_wave(self, slug: str) -> str:
+        wave_result = self.srv.wave_create_wave_response(self.root, slug, mode="create")
+        wave_id = wave_result["data"]["wave_id"]
+        change = self.srv.new_change(self.root, "feat", f"{slug}-change")
+        self.srv.wave_add_change_response(self.root, wave_id, change["id"], mode="create")
+        journal = self.root / "docs" / "agents" / "journals" / "wave-coordinator.md"
+        prior = journal.read_text(encoding="utf-8") if journal.exists() else "# Journal\n"
+        journal.write_text(prior + f"\nwave-id: `{wave_id}`\n", encoding="utf-8")
+        return wave_id
+
+    def _add_verdict(self, wave_id: str) -> None:
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8")
+            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (red-team fixed seat)\n",
+            encoding="utf-8",
+        )
+
+    def test_prepare_create_blocked_without_council_verdict(self):
+        """AC-3: wave_prepare(mode='create') returns ready_for_council_review when no prepare-council verdict."""
+        wave_id = self._make_wave("council-gate-block")
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_prepare_response(self.root, wave_id, mode="create")
+        self.assertEqual(result["status"], "ready_for_council_review")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("prepare_council_verdict_missing", codes)
+        # Wave must not have transitioned to active
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        self.assertNotIn("Status: active", wave_md.read_text(encoding="utf-8"))
+
+    def test_prepare_create_succeeds_with_council_verdict(self):
+        """AC-4: wave_prepare(mode='create') succeeds when prepare-council verdict is recorded."""
+        wave_id = self._make_wave("council-gate-pass")
+        self._add_verdict(wave_id)
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_prepare_response(self.root, wave_id, mode="create")
+        self.assertEqual(result["status"], "ok")
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        self.assertIn("Status: active", wave_md.read_text(encoding="utf-8"))
+
+    def test_prepare_dry_run_includes_council_brief_without_verdict(self):
+        """AC-1: dry_run includes council_brief when no verdict is present."""
+        wave_id = self._make_wave("council-brief-dry-run")
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_prepare_response(self.root, wave_id, mode="dry_run")
+        self.assertIn("council_brief", result.get("data", {}))
+        brief = result["data"]["council_brief"]
+        self.assertEqual(brief["fixed_seat"], "red-team")
+        self.assertIn("wave_id", brief)
+
+    def test_rotating_seat_selected_for_seed_wave(self):
+        """AC-2: docs-contract-reviewer is selected for waves referencing seed/prompt changes."""
+        wave_id = self._make_wave("seed-prompt-wave")
+        # Append seed/prompt keywords to the wave change doc
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8").replace(
+                "## Wave Summary",
+                "## Wave Summary\n\nThis wave authors new seed prompts and updates prompt templates.\n",
+            ),
+            encoding="utf-8",
+        )
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_prepare_response(self.root, wave_id, mode="dry_run")
+        brief = result["data"]["council_brief"]
+        self.assertEqual(brief["rotating_seat"], "docs-contract-reviewer")
+
+    def test_rotating_seat_selected_for_security_wave(self):
+        """AC-2: security-reviewer is selected for waves referencing auth/trust boundary changes."""
+        wave_id = self._make_wave("auth-security-wave")
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8").replace(
+                "## Wave Summary",
+                "## Wave Summary\n\nThis wave updates authentication middleware and trust boundary checks.\n",
+            ),
+            encoding="utf-8",
+        )
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_prepare_response(self.root, wave_id, mode="dry_run")
+        brief = result["data"]["council_brief"]
+        self.assertEqual(brief["rotating_seat"], "security-reviewer")
+
+
+class WaveImplementTests(unittest.TestCase):
+    """12sqb: wave_implement gate and wave_review phase parameter — AC-1 through AC-10."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        (self.root / "docs" / "agents" / "journals").mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_wave(self, slug: str, status: str = "active") -> str:
+        wave_result = self.srv.wave_create_wave_response(self.root, slug, mode="create")
+        wave_id = wave_result["data"]["wave_id"]
+        change = self.srv.new_change(self.root, "feat", f"{slug}-change")
+        self.srv.wave_add_change_response(self.root, wave_id, change["id"], mode="create")
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        if status != "planned":
+            wave_md.write_text(wave_md.read_text(encoding="utf-8").replace("Status: planned", f"Status: {status}"), encoding="utf-8")
+        journal = self.root / "docs" / "agents" / "journals" / "wave-coordinator.md"
+        prior = journal.read_text(encoding="utf-8") if journal.exists() else "# Journal\n"
+        journal.write_text(prior + f"\nwave-id: `{wave_id}`\n", encoding="utf-8")
+        return wave_id
+
+    def _add_council_verdict(self, wave_id: str) -> None:
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8")
+            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (red-team fixed seat)\n",
+            encoding="utf-8",
+        )
+
+    def _add_prepare_review_signoffs(self, wave_id: str, lanes: list) -> None:
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        signoffs = "\n".join(f"- {lane}: approved 2026-05-21" for lane in lanes)
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8")
+            + f"\n## Prepare Review Evidence\n\n{signoffs}\n",
+            encoding="utf-8",
+        )
+
+    def _add_participants(self, wave_id: str, review_lanes: list) -> None:
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        rows = "\n".join(f"| {lane} | review | scope |" for lane in review_lanes)
+        table = f"## Participants\n\n| Role | Lane | Scope |\n|------|------|-------|\n{rows}\n"
+        wave_md.write_text(wave_md.read_text(encoding="utf-8") + f"\n{table}", encoding="utf-8")
+
+    # --- AC-1/AC-2: wave_review phase parameter ---
+
+    def test_wave_review_prepare_phase_checks_prepare_evidence_section(self):
+        """AC-1: wave_review(phase='prepare') checks ## Prepare Review Evidence."""
+        wave_id = self._make_wave("review-prepare")
+        self._add_participants(wave_id, ["code-reviewer"])
+        # No signoffs yet
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, wave_id, phase="prepare")
+        self.assertEqual(result["status"], "error")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("missing_required_lane", codes)
+        # With signoffs present
+        self._add_prepare_review_signoffs(wave_id, ["code-reviewer"])
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, wave_id, phase="prepare")
+        self.assertEqual(result["status"], "ok")
+
+    def test_wave_review_implementation_phase_is_default_behavior(self):
+        """AC-2: wave_review(phase='implementation') behaves identically to current wave_review."""
+        wave_id = self._make_wave("review-impl")
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            default_result = self.srv.wave_review_response(self.root, wave_id)
+            impl_result = self.srv.wave_review_response(self.root, wave_id, phase="implementation")
+        self.assertEqual(default_result["status"], impl_result["status"])
+        self.assertEqual(default_result["data"]["phase"], "implementation")
+        self.assertEqual(impl_result["data"]["phase"], "implementation")
+
+    def test_wave_review_prepare_does_not_check_review_evidence(self):
+        """AC-1: prepare phase does not interact with ## Review Evidence."""
+        wave_id = self._make_wave("review-prepare-isolation")
+        # Add an operator-signoff to Review Evidence (implementation phase style)
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md.write_text(wave_md.read_text(encoding="utf-8").replace(
+            "- operator-signoff: <approved when operator confirms closure>",
+            "- operator-signoff: approved",
+        ), encoding="utf-8")
+        # prepare phase should still fail (no Prepare Review Evidence) despite impl phase having signoff
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, wave_id, phase="prepare")
+        # No lanes required in this wave → should pass since no required_lanes
+        self.assertEqual(result["data"]["phase"], "prepare")
+
+    # --- AC-3/AC-4: wave_implement gate checks ---
+
+    def test_wave_implement_blocked_without_council_verdict(self):
+        """AC-3: wave_implement returns error when council verdict is missing."""
+        wave_id = self._make_wave("impl-no-council")
+        result = self.srv.wave_implement_response(self.root, wave_id, mode="create")
+        self.assertEqual(result["status"], "error")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("prepare_council_verdict_missing", codes)
+
+    def test_wave_implement_blocked_without_prepare_review(self):
+        """AC-4: wave_implement returns error when prepare-phase lane review is incomplete."""
+        wave_id = self._make_wave("impl-no-review")
+        self._add_council_verdict(wave_id)
+        self._add_participants(wave_id, ["code-reviewer"])
+        # No prepare-review signoffs
+        result = self.srv.wave_implement_response(self.root, wave_id, mode="create")
+        self.assertEqual(result["status"], "error")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("prepare_review_incomplete", codes)
+
+    # --- AC-5: implementation context ---
+
+    def test_wave_implement_returns_ordered_changes_and_watchpoints(self):
+        """AC-5: wave_implement returns ordered changes and Journal Watchpoints when gates pass."""
+        wave_id = self._make_wave("impl-context")
+        self._add_council_verdict(wave_id)
+        result = self.srv.wave_implement_response(self.root, wave_id, mode="dry_run")
+        self.assertEqual(result["status"], "dry_run")
+        data = result["data"]
+        self.assertIn("ordered_changes", data)
+        self.assertIn("journal_watchpoints", data)
+        self.assertIn("serialization_points", data)
+        self.assertGreater(len(data["ordered_changes"]), 0)
+
+    # --- AC-6/AC-7: status transition ---
+
+    def test_wave_implement_create_transitions_to_implementing(self):
+        """AC-6: wave_implement(mode='create') transitions wave status to implementing."""
+        wave_id = self._make_wave("impl-create")
+        self._add_council_verdict(wave_id)
+        result = self.srv.wave_implement_response(self.root, wave_id, mode="create")
+        self.assertEqual(result["status"], "ok")
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        self.assertIn("Status: implementing", wave_md.read_text(encoding="utf-8"))
+
+    def test_wave_implement_dry_run_does_not_write(self):
+        """AC-7: wave_implement(mode='dry_run') validates readiness without writing."""
+        wave_id = self._make_wave("impl-dry-run")
+        self._add_council_verdict(wave_id)
+        original_text = (self.root / "docs" / "waves" / wave_id / "wave.md").read_text(encoding="utf-8")
+        result = self.srv.wave_implement_response(self.root, wave_id, mode="dry_run")
+        self.assertEqual(result["status"], "dry_run")
+        self.assertEqual((self.root / "docs" / "waves" / wave_id / "wave.md").read_text(encoding="utf-8"), original_text)
+
+    # --- AC-8: implementing status handling ---
+
+    def test_current_wave_includes_implementing_status(self):
+        """AC-8: current_wave() returns implementing waves."""
+        from server_impl import current_wave
+        wave_id = self._make_wave("ac8-implementing", status="implementing")
+        result = current_wave(self.root)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["status"], "implementing")
+
+    def test_wave_pause_can_pause_implementing_wave(self):
+        """AC-8: wave_pause handles implementing status gracefully."""
+        wave_id = self._make_wave("ac8-pause-impl", status="implementing")
+        result = self.srv.wave_pause_response(self.root, wave_id, mode="create")
+        self.assertEqual(result["status"], "ok")
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        self.assertIn("Status: paused", wave_md.read_text(encoding="utf-8"))
+
+    def test_wave_implement_already_implementing_returns_ok(self):
+        """AC-8: wave_implement on an already-implementing wave returns ok with advisory."""
+        wave_id = self._make_wave("ac8-already-impl", status="implementing")
+        result = self.srv.wave_implement_response(self.root, wave_id, mode="create")
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"].get("already_implementing"))
+
+    # --- AC-11: wave_add_change next_tools ---
+
+    def test_wave_add_change_includes_wave_add_change_in_next_tools(self):
+        """AC-11: wave_add_change includes wave_add_change in next_tools."""
+        wave_result = self.srv.wave_create_wave_response(self.root, "ac11-wave", mode="create")
+        wave_id = wave_result["data"]["wave_id"]
+        change = self.srv.new_change(self.root, "feat", "ac11-change")
+        result = self.srv.wave_add_change_response(self.root, wave_id, change["id"], mode="create")
+        self.assertIn("wave_add_change", result.get("next_tools", []))
+
+
+class WaveCloseSummaryGenerationTests(unittest.TestCase):
+    """12sq4: wave_close summary generation — AC-1 through AC-5."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_closeable_wave(self, wave_id: str, change_id: str, completed_acs: list[str] | None = None, decisions: list[str] | None = None) -> Path:
+        wave_dir = self.root / "docs" / "waves" / wave_id
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        wave_md = wave_dir / "wave.md"
+        wave_md.write_text(
+            f"# Wave Record\n"
+            f"wave-id: `{wave_id}`\n"
+            f"Title: Test Wave Title\n"
+            f"Status: active\n\n"
+            f"## Changes\n\n"
+            f"Change ID: `{change_id}`\n"
+            f"Change Status: `complete`\n\n"
+            f"## Wave Summary\n\n"
+            f"*(Populated at closure.)*\n\n"
+            f"## Review Evidence\n\n"
+            f"- operator-signoff: approved\n",
+            encoding="utf-8",
+        )
+        # Write a minimal change doc
+        ac_lines = "\n".join(f"- [x] {ac}" for ac in (completed_acs or ["AC-1: Core behavior"]))
+        decision_rows = "\n".join(f"| 2026-05-21 | {d} | reason | alternative |" for d in (decisions or []))
+        decision_table = (
+            "## Decision Log\n\n"
+            "| Date | Decision | Reason | Alternatives |\n"
+            "| --- | --- | --- | --- |\n"
+            f"{decision_rows}\n"
+        ) if decisions else ""
+        change_doc = wave_dir / f"{change_id}.md"
+        change_doc.write_text(
+            f"# Change Title For {change_id}\n\n"
+            f"Change ID: `{change_id}`\n"
+            f"Change Status: `complete`\n\n"
+            f"## Acceptance Criteria\n\n{ac_lines}\n\n"
+            f"{decision_table}",
+            encoding="utf-8",
+        )
+        return wave_md
+
+    def test_wave_close_populates_wave_summary(self):
+        """AC-1: After wave_close, ## Wave Summary contains a populated paragraph."""
+        wave_md = self._make_closeable_wave("1200a-summ-test", "1200a-feat-summ-change")
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_close_response(self.root, "1200a-summ-test", mode="create")
+        self.assertEqual(result["status"], "ok")
+        closed_text = wave_md.read_text(encoding="utf-8")
+        self.assertIn("Status: closed", closed_text)
+        # Placeholder replaced
+        self.assertNotIn("*(Populated at closure.)*", closed_text)
+        # Summary contains wave_id or title
+        wave_summary_body = closed_text.split("## Wave Summary")[1].split("## ")[0] if "## Wave Summary" in closed_text else ""
+        self.assertTrue(len(wave_summary_body.strip()) > 0, "Wave Summary section must be populated")
+
+    def test_wave_close_summary_includes_change_details(self):
+        """AC-2: Summary includes completed ACs and decision log entries."""
+        wave_md = self._make_closeable_wave(
+            "1200a-detail-test",
+            "1200a-feat-detail",
+            completed_acs=["AC-1: Core behavior", "AC-2: Edge case handling"],
+            decisions=["Use structured extraction instead of LLM inference"],
+        )
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_close_response(self.root, "1200a-detail-test", mode="create")
+        self.assertEqual(result["status"], "ok")
+        summary = result["data"].get("wave_summary", "")
+        self.assertIn("AC", summary)
+
+    def test_wave_close_summary_requires_no_operator_input(self):
+        """AC-3: Summary is generated without operator intervention."""
+        wave_md = self._make_closeable_wave("1200a-auto-test", "1200a-feat-auto")
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_close_response(self.root, "1200a-auto-test", mode="create")
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("wave_summary", result["data"])
+        self.assertTrue(result["data"]["wave_summary"].strip())
+
+    def test_wave_close_dry_run_includes_summary_without_writing(self):
+        """AC-4: dry_run returns wave_summary in data without writing to disk."""
+        wave_md = self._make_closeable_wave("1200a-dryrun-summ", "1200a-feat-dryrun-summ")
+        original_text = wave_md.read_text(encoding="utf-8")
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_close_response(self.root, "1200a-dryrun-summ", mode="dry_run")
+        self.assertEqual(result["status"], "dry_run")
+        self.assertIn("wave_summary", result["data"])
+        self.assertTrue(result["data"]["wave_summary"].strip())
+        # File must not be modified
+        self.assertEqual(wave_md.read_text(encoding="utf-8"), original_text)
+
+    def test_wave_close_summary_does_not_break_existing_close_behavior(self):
+        """AC-5: Existing close behavior (status update, signoff) is not regressed."""
+        wave_md = self._make_closeable_wave("1200a-regression-test", "1200a-feat-regression")
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_close_response(self.root, "1200a-regression-test", mode="create")
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"]["updated"])
+        closed_text = wave_md.read_text(encoding="utf-8")
+        self.assertIn("Status: closed", closed_text)
+        self.assertIn("Completed At:", closed_text)
 
 
 if __name__ == "__main__":

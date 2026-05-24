@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-02
+Last verified: 2026-05-23
 
 Actor: planner
 Schema version: 1.0
@@ -26,6 +26,10 @@ Last distilled: 2026-04-28
 - **MCP spec is a prerequisite for MCP implementation:** Any wave touching MCP tool contracts requires `docs/specs/mcp-tool-surface.md` to exist before Prepare wave can pass. If this file is missing, record it as a Level 3 blocker in the change doc Risks section.
 
 ## Active Signals
+
+wave-id: `12t9b public-rollout-readiness-decisions`
+
+- Planned 2026-05-22: three rollout-readiness changes admitted for semver migration, cross-platform support policy, and Python tool-environment standardization. The current output is planning-only; implementation sequencing remains deferred behind the active unrelated wave.
 
 wave-id: `12br9 code-search-language-filter`
 

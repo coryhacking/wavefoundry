@@ -23,7 +23,7 @@ Tasks:
 
 ## Index Rebuild (MCP)
 
-When the semantic index needs to be rebuilt or updated, use the MCP tools — do not invoke `setup_index.py` or `indexer.py` directly from an agent session.
+When the semantic index needs to be rebuilt or updated, use the MCP tools — do not invoke `setup_wavefoundry.py`, `setup_index.py`, or `indexer.py` directly from an agent session.
 
 - **`wave_index_build(content, mode, layer)`** — spawns the indexer as a background process and returns immediately. The MCP call does not block. `mode="rebuild"` for a full rebuild, `mode="update"` (default) for incremental. The response includes a `notice` field to relay to the operator, a `log` path, and pre-build `stats`.
 - **`wave_index_build_status(layer)`** — check whether a background build is running, finished, or has not been started. Returns `state: "running"` (with elapsed time and last progress line), `state: "finished"` (with files/chunk counts), or `state: "idle"`. Use this after triggering a rebuild to poll for completion — suitable for `/loop` polling every ~270s.

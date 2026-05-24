@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -9,8 +10,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 HOOKS = {
     "pre-edit": REPO_ROOT / ".claude" / "hooks" / "pre-edit.py",
     "post-edit": REPO_ROOT / ".claude" / "hooks" / "post-edit.py",
-    "pycache-cleanup": REPO_ROOT / ".claude" / "hooks" / "pycache-cleanup.py",
 }
+
+
+def _venv_python_path() -> str:
+    venv_base = os.environ.get("WAVEFOUNDRY_TOOL_VENV", str(Path.home() / ".wavefoundry" / "venv"))
+    if os.name == "nt":
+        return str(Path(venv_base) / "Scripts" / "python.exe")
+    return str(Path(venv_base) / "bin" / "python")
 
 
 def main(argv: list[str]) -> int:
@@ -22,8 +29,11 @@ def main(argv: list[str]) -> int:
     if target is None:
         print(f"unknown hook entrypoint: {hook_name}", file=sys.stderr)
         return 2
+    python_exec = _venv_python_path()
+    if not Path(python_exec).exists():
+        python_exec = sys.executable
     result = subprocess.run(
-        [sys.executable, str(target)],
+        [python_exec, str(target)],
         cwd=REPO_ROOT,
         input=payload,
         text=True,

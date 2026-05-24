@@ -1,15 +1,11 @@
 @echo off
         setlocal
         set "SCRIPT_DIR=%~dp0"
-        where py >nul 2>nul
-        if not errorlevel 1 (
-          py -3 "%SCRIPT_DIR%simulate-hooks.py" %*
-          exit /b %ERRORLEVEL%
+        if defined WAVEFOUNDRY_TOOL_VENV (
+          set "PYTHON=%WAVEFOUNDRY_TOOL_VENV%\Scripts\python.exe"
+        ) else (
+          set "PYTHON=%USERPROFILE%\.wavefoundry\venv\Scripts\python.exe"
         )
-        where python >nul 2>nul
-        if not errorlevel 1 (
-          python "%SCRIPT_DIR%simulate-hooks.py" %*
-          exit /b %ERRORLEVEL%
-        )
-        python3 "%SCRIPT_DIR%simulate-hooks.py" %*
+        if not exist "%PYTHON%" set "PYTHON=python3"
+        "%PYTHON%" "%SCRIPT_DIR%simulate-hooks.py" %*
         exit /b %ERRORLEVEL%

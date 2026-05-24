@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "/Users/coryhacking/Developer/wavefoundry/.github/hooks/pre-tool-use"
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "/Users/coryhacking/Developer/wavefoundry/.github/hooks/post-tool-use"
+      }
+    ]
+  }
+}

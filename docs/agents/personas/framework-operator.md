@@ -3,7 +3,7 @@
 Owner: Engineering
 Status: active
 Category: persona
-Last verified: 2026-05-20
+Last verified: 2026-05-23
 
 ## Who
 
@@ -22,10 +22,11 @@ Last verified: 2026-05-20
 ## Workflows
 
 **Installation:**
-1. Obtain a `wavefoundry-<date><letter>.zip` from a Wavefoundry release
-2. Place at repository root; run **Init wave framework**
-3. Review the operator summary: what was installed, how the lifecycle works, where config lives
-4. Commit the self-hosted surface (operator-owned commit)
+1. Obtain a Wavefoundry release zip
+2. Use `wavefoundry-YYYY-MM-DDx.zip` for the one-time `0.9.0` bridge release, or `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` for `1.0.0` and later
+3. Leave semver packs in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`; for the `0.9.0` bridge release, place the old-style zip at repository root so legacy pre-semver flows can adopt it; run **Init wave framework**
+4. Review the operator summary: what was installed, how the lifecycle works, where config lives
+5. Commit the self-hosted surface (operator-owned commit)
 
 **Daily operation:**
 - Verify the docs gate: prefer MCP **`wave_validate`** (and **`wave_garden`** when metadata needs refresh); use **`.wavefoundry/bin/docs-lint`** only without MCP
@@ -33,7 +34,7 @@ Last verified: 2026-05-20
 - Generate IDs: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>`
 
 **Upgrade:**
-1. Drop a new `wavefoundry-<date><letter>.zip` at the repository root
+1. Build or obtain a new release zip: old date-style for the one-time `0.9.0` bridge at repository root, semver-named for `1.0.0` and later in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`
 2. Run **Upgrade wave framework**
 3. Review the diff of changed files; commit after verification
 
@@ -47,7 +48,7 @@ Last verified: 2026-05-20
 - Docs-lint fails after an upgrade: manifest `framework_revision` doesn't match new `.wavefoundry/framework/VERSION`
 - Lifecycle IDs look wrong: epoch was re-anchored incorrectly during upgrade
 - Customizations overwritten: project-specific prompt doc changes lost during upgrade
-- Zip not found: wrong filename, wrong directory, or zip wasn't placed at repo root
+- Zip not found: wrong filename, wrong directory, or no matching semver pack was available in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`
 - A proposed change would silently overwrite operator customizations without a warning: escalate to architecture-reviewer and wave-coordinator before admission
 - An upgrade changes the epoch value, invalidating existing wave IDs: escalate to wave-coordinator immediately
 

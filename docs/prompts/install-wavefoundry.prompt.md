@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-14
+Last verified: 2026-05-23
 
 Shortcut: **`Install Wavefoundry`** | Legacy: **`Init wave framework`** / **`Init wave context`**
 
@@ -31,10 +31,16 @@ See `.wavefoundry/framework/seeds/010-install-wavefoundry.prompt.md` for the com
 
 After installing Wave Framework, enable the local MCP server in your agent host so tools like `wave_help`, `docs_search`, `code_ask`, `wave_audit`, and `wave_index_health` are available.
 
+**Supported operator environments:** macOS and Linux are supported natively. Windows is currently supported through **WSL2** for install and operator workflows because some bootstrap and launcher surfaces still assume a POSIX shell.
+
+**Python requirement:** Python 3.11 or later is required. `setup_wavefoundry.py` is the preferred bootstrap entrypoint: it creates a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override), installs all framework dependencies into it, and runs the index setup flow. `setup_index.py` remains supported as the compatibility entrypoint behind it. No system-level or project-level Python environment is modified.
+
+**Versioning:** Wavefoundry uses `MAJOR.MINOR.PATCH` semver internally. Distribution zips use `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` from `1.0.0` onward and land in `~/.wavefoundry/dist/` after packaging. The one-time `0.9.0` bridge release is the exception: it stamps semver internally but keeps the old date-style artifact name (`wavefoundry-YYYY-MM-DDx.zip`) so pre-semver upgrade flows can adopt it directly.
+
 **Step 1 — Build the semantic index:**
 
 ```bash
-python3 .wavefoundry/framework/scripts/setup_index.py
+python3 .wavefoundry/framework/scripts/setup_wavefoundry.py
 ```
 
 **Step 2 — Register the server in your host:**
@@ -54,6 +60,8 @@ python3 .wavefoundry/framework/scripts/setup_index.py
 ./.wavefoundry/bin/register-codex-mcp
 ```
 
+On Windows, run the launcher from **WSL2**. The current bootstrap surface is shell-based rather than a native PowerShell or `cmd.exe` workflow.
+
 The launcher registers this repo in `~/.codex/config.toml` with the correct per-checkout server name, so Codex can select the matching MCP server deterministically. The label is stable for the current folder path, not for an abstract project identity across moves.
 
 After connecting, call `wave_server_info()` once to confirm the attached `repo_root` before you rely on any other MCP tools.
@@ -62,7 +70,7 @@ After connecting, call `wave_server_info()` once to confirm the attached `repo_r
 
 ```json
 {
-  "command": "python3",
+  "command": "/Users/coryhacking/.wavefoundry/venv/bin/python",
   "args": [
     "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/server.py",
     "--root",
@@ -77,7 +85,7 @@ See `AGENTS.md → MCP / Wavefoundry server — enabling per host` for the full 
 
 ```toml
 [mcp_servers.wavefoundry]
-command = "python3"
+command = "/Users/coryhacking/.wavefoundry/venv/bin/python"
 args = [
   "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/server.py",
   "--root",

@@ -84,6 +84,7 @@ Harness specialists are invoked by the coordinator or council-moderator for targ
 | `environment-auditor` | `218-environment-auditor.prompt.md` | (single mode) |
 | `operating-surface-gardener` | `219-operating-surface-gardener.prompt.md` | (single mode) |
 | `reality-checker` | `216-reality-checker.prompt.md` | `assumption-audit`, `finding-validation`, `implementation-challenge` |
+| `red-team` | `225-red-team.prompt.md` | `abuse-path-review`, `failure-pressure-test`, `option-challenge`, `technology-evaluation`, `workflow-challenge`, `feature-definition-challenge`, `design-provocation`, `council-seat` (non-exhaustive) |
 
 ## Question Ownership
 
@@ -98,6 +99,9 @@ Use this table to route questions to the correct lane:
 | Is the delivered result genuinely complete? | `senior-engineering-challenger` (`delivery-challenge` mode) |
 | What is the operating surface health? | `environment-auditor` |
 | Is the project's agent-operating surface drifted? | `operating-surface-gardener` |
+| How can this design/decision/workflow be broken, bypassed, or improved by a competing alternative? | `red-team` (mode depends on artifact: `abuse-path-review`, `failure-pressure-test`, `option-challenge`, `workflow-challenge`, etc.) |
+| Which library/framework/tool is the best fit before we commit? | `red-team` (`technology-evaluation` mode) |
+| Is this the right feature to build? | `red-team` (`feature-definition-challenge` mode) |
 
 ### Declaring required lanes
 

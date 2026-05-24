@@ -17,13 +17,13 @@ Intent:
 
 Terminology — do not confuse **upgrade** with **packaging**:
 
-- **Upgrade wave framework** (operator phrases such as *Upgrade wave framework*, *Upgrade wave context*, *upgrade the wave framework*, *upgrade from the latest zip*): adopt and reconcile **this** repository. When step 0 applies, it unpacks the **lexicographically greatest** `wavefoundry-YYYY-*.zip` already present at the **repository root**, runs `render_platform_surfaces.py`, then continues with drift detection, backfill, and verification in this prompt. This path **does not build** a new zip and **does not** run **Package Wavefoundry**.
+- **Upgrade wave framework** (operator phrases such as *Upgrade wave framework*, *Upgrade wave context*, *upgrade the wave framework*, *upgrade from the latest zip*): adopt and reconcile **this** repository. When step 0 applies, it selects the highest semver `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` available from the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`, or the one-time `0.9.0` bridge pack when it is present at the repository root with the old date-style artifact name, runs `render_platform_surfaces.py`, then continues with drift detection, backfill, and verification in this prompt. This path **does not build** a new zip and **does not** run **Package Wavefoundry**.
 - **Package Wavefoundry** (maintainer / distribution): **creates** a new versioned zip and stamps `VERSION` / manifest `framework_revision` in the tree used for the build, then updates and compacts the packaged `framework/index/`. Use only when the operator explicitly asked to **package** or **cut a distribution**. Never substitute packaging for **Upgrade wave framework** when the operator asked to **upgrade** from zips already on disk (legacy phrasing: **Upgrade wave context**).
 
 Operator mental model — how framework updates actually work:
 
 1. **Bring the new framework to this repository.**
- - Usually by placing a `wavefoundry-*.zip` pack at the repository root.
+ - Usually by placing a `wavefoundry-*.zip` pack at the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`.
  - Or by already having the newer `.wavefoundry/framework/` tree staged locally in the repo.
 2. **Run Upgrade wave framework once.**
  - If a root pack zip is present, step 0 adopts it automatically.
@@ -38,8 +38,8 @@ Do not describe upgrade as a manual unzip-only workflow. Do not describe packagi
 
 Execution flow:
 
-0. **Adopting a distribution zip (automatic when present):** When one or more date-shaped `wavefoundry-YYYY-MM-DDx.zip` files exist at the **repository root** (not in a subdirectory), **Upgrade wave framework** must apply the newest pack **before** step 1 — the operator does not need a separate unzip step. Other archive names and zips outside the root **do not** trigger this step — unpack those manually if used. When **no** matching zip exists at the root, skip this entire step with no error and continue at step 1.
- - **Select zip:** from the repository root, compute the selected path with `ls -1 wavefoundry-[0-9][0-9][0-9][0-9]-*.zip 2>/dev/null | sort | tail -1` (POSIX shell; on Windows use Git Bash, WSL, or an equivalent that preserves the same lexical ordering before `unzip`). If that command prints nothing, skip to step 1.
+0. **Adopting a distribution zip (automatic when present):** When one or more semver-shaped `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` files exist at the **repository root**, under `~/.wavefoundry/`, or under `~/.wavefoundry/dist/`, **Upgrade wave framework** must apply the highest semver pack **before** step 1 — the operator does not need a separate unzip step. The one-time `0.9.0` bridge release is the exception: its artifact keeps the old date-style name (`wavefoundry-YYYY-MM-DDx.zip`) and should be placed at the repository root for legacy pre-semver installs. Non-matching archive names are ignored. On Windows, run this flow from **WSL2** rather than native `cmd.exe` or PowerShell. When no matching zip exists in any of those locations, skip this entire step with no error and continue at step 1.
+ - **Select zip:** choose the highest semver zip across the repository root, `~/.wavefoundry/`, and `~/.wavefoundry/dist/`; compare by `MAJOR.MINOR.PATCH` first, then by the 4-character build suffix when versions tie. For the one-time `0.9.0` bridge release on legacy installs, the old date-style filename at repository root remains valid and is adopted by the legacy root-zip flow.
  - **Save old MANIFEST before unpack** (if present) so the prune step can diff old vs new:
  ```bash
  cp .wavefoundry/framework/MANIFEST /tmp/wf-manifest-old.txt 2>/dev/null || true
@@ -60,11 +60,11 @@ Execution flow:
  - (e) **Verify section order:** Operating Identity and Distillation must appear before Active Signals.
  - Do not delete standing directives, operator constraints, active watchpoints, distillation bullets, or genuine durable lessons — only activity-log entries and their containing sections.
  - **Continue automatically in the same run:** step 0 only adopts the pack. After unpack + hook regeneration + prune + journal reconciliation, immediately continue with step 1 and complete the full upgrade workflow (`020`, `150`, drift detection, backfill, verification). Do **not** stop after unpacking or treat unzip success alone as a completed upgrade.
- - **Operator caution:** multiple date-shaped `wavefoundry-YYYY-MM-DDx.zip` files at the root always resolve to the lexicographically greatest filename; archive or delete zips that must not be applied so they are not selected by mistake.
+ - **Operator caution:** when multiple semver packs exist, the highest semver zip is selected automatically; archive or delete packs that must not be applied so they are not selected by mistake.
  - Do not delete the zip file unless the operator explicitly asks; root pack drops should stay gitignored per `seed-050` when those rules are present.
 1. Read `seed-020`.
 2. Before detecting drift or editing any files, use a **read-only Explore subagent** to map the current actual state of the repository's installed Wave Framework surface: which prompt docs exist, which topical artifact roots exist, which workflow config keys are present, and which wrappers are in place. The exploration lane must not edit files. Use this map as the baseline for drift detection in step 6 — do not rely on assumptions about what a prior init or upgrade produced. This step prevents confusion between stale template expectations and actual installed state.
-3. **Version guard:** Read `.wavefoundry/framework/VERSION` (the pack version) and `docs/prompts/prompt-surface-manifest.json` field `framework_revision` (the installed revision). Compare them using date-prefix ordering (strip any suffix letter before comparing dates; treat `2026-04-10b` as `2026-04-10` for date comparison, with suffix `b` meaning a later revision on the same date than the bare date). If the pack version is **older** than the installed revision, stop and present a clear warning to the operator: state both versions and require explicit confirmation before continuing — do not proceed silently with a downgrade. If the pack version equals the installed revision, note this and continue (running for drift/alignment only). If the pack version is newer, proceed normally.
+3. **Version guard:** Read `.wavefoundry/framework/VERSION` (the pack version) and `docs/prompts/prompt-surface-manifest.json` field `framework_revision` (the installed revision). Compare them using semver ordering on `MAJOR.MINOR.PATCH`, ignoring build metadata for precedence. The one-time `0.9.0` bridge release is packaged with the old date-style artifact name precisely so legacy pre-semver zip-adoption flows can land it without a manual manifest-reset step; once unpacked, the new semver-aware comparison logic is in place. If the pack version is **older** than the installed revision, stop and present a clear warning to the operator: state both versions and require explicit confirmation before continuing — do not proceed silently with a downgrade. If the pack version equals the installed revision, note this and continue (running for drift/alignment only). If the pack version is newer, proceed normally.
 4. Use `seed-150` for targeted or full refresh. When invoked as `Upgrade wave framework` (rather than a targeted reindex), default to **`full` scope** in `150` so the holistic project state evaluation in task 2 runs — this ensures the upgrade reflects how the project actually exists today, not just framework-level drift. Explicitly run `150` task 2 across all dimensions: source module structure, dependency graph, build/test procedure currency, security surface, quality posture, reliability, spec currency, missing-docs gaps, contribution workflow, thin pointers, repo profile archetype, and license compliance. Explicitly run `150` task 12 so that spec gaps and divergence found in task 2 are acted on — not just noted — before the upgrade closes.
 5. If the repository still uses the legacy framework or has stale post-init migration drift, apply `seed-220` without redefining baseline-wave semantics.
 6. Validate the installed repo-local Wave Framework surface and detect drift across:
@@ -103,7 +103,21 @@ Execution flow:
    - `docs/prompts/agents/security-reviewer.prompt.md` (`security-reviewer` lane — `seed-213`)
    - `docs/prompts/agents/architecture-reviewer.prompt.md` (`architecture-reviewer` lane — `seed-214`)
    - `docs/prompts/agents/code-reviewer.prompt.md` (`code-review` lane — `seed-221`) when the repository keeps checked-in agent-oriented prompt bodies
+ - **Senior builder specialist evaluation (seeds 222–224):** Read `docs/repo-profile.json` archetype and stack evidence to decide which lanes are relevant, then generate the matching role docs via `seed-050` / `render_agent_surfaces.py`:
+   - `docs/agents/software-engineer.md` (`seed-222`) — relevant when the project ships backend/API/service code; generate when stack evidence confirms and the role doc is absent.
+   - `docs/agents/frontend-developer.md` (`seed-223`) — relevant when the project has a UI layer or `design_system.design_evidence.detected` is `true`; generate when evidence confirms and the role doc is absent. Verify `docs/workflow-config.json` `design_system_policy` is present (backfill with `"evolvable"` if not).
+   - `docs/agents/data-engineer.md` (`seed-224`) — relevant when the project has SQL schemas, migrations, ETL pipelines, or data-contract surfaces; generate when evidence confirms and the role doc is absent.
+   - For each generated role doc, verify `docs/prompts/implement-wave.prompt.md` (or the local equivalent) references builder-lane selection so the coordinator allocates work from repository evidence, not habit.
+ - **`red-team` council evaluation (seed-225):** Read `docs/workflow-config.json` `wave_council_policy`. If council is enabled:
+   - Evaluate whether `red-team` should be a fixed seat, rotating seat, or left out for this project based on the project's adversarial/challenger needs.
+   - Generate `docs/agents/red-team.md` from `seed-225` when the role is not yet present and will be used.
+   - If adding `red-team` to `fixed_seats` or `rotating_seat_policy`, update `docs/workflow-config.json` accordingly; do not add it blindly — confirm with the operator when the council policy change is non-obvious.
  - workflow config schema
+ - `docs/workflow-config.json` `design_system_policy` — backfill when absent using `{"governance": "evolvable", "notes": "..."}`. The `"evolvable"` default is safe for all existing projects: it enforces no gate and allows design-system surfaces to evolve within normal implementation scope. Only set to `"read-only"` or `"review-governed"` when the operator explicitly requires protected design-system surfaces.
+ - `AGENTS.md` and `CLAUDE.md` gate-tool references — when either file references `wave_open_gate` or `wave_close_gate`, update to `wave_gate_open`, `wave_gate_close`, and add `wave_gate_status` as the read-only gate inspection tool; reconcile against current `seed-050` wording. These surfaces are not regenerated automatically by `render_platform_surfaces.py` so they must be updated explicitly.
+ - `docs/plans/plan-template.md` `## Acceptance Criteria` — when the section still uses plain bullet format (`- AC-1: ...`), update to checkbox syntax (`- [ ] AC-1: ...`) so newly scaffolded change docs are trackable during implementation. The docs-lint forward contract requires checkbox ACs in wave-admitted change docs.
+ - `docs/plans/plan-template.md` `## Tasks` — when the section still uses plain bullets, update to checkbox syntax (`- [ ] <step>`) so newly scaffolded change docs support live task tracking during implementation.
+ - `server_impl.py` `_default_template()` `## Acceptance Criteria` — when the function's scaffold still uses plain bullet format (`- AC-1:` without `[ ]`), update to `- [ ] AC-1:` and `- [ ] AC-2:` so the scaffold produced by `wave_new_enhancement`, `wave_new_feature`, and related tools generates checkbox ACs by default.
  - `docs/references/project-overview.md` when missing or stale
  - `docs/contributing/feature-wave-lifecycle-overview.md` when missing or stale so it stays aligned with `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` plus local reviewer/persona policy
  - `docs/prompts/prompt-surface-manifest.json`
@@ -122,6 +136,14 @@ Execution flow:
  - `docs/ARCHITECTURE.md` and `docs/architecture/{current-state,domain-map,layering-rules,cross-cutting-concerns,data-and-control-flow,testing-architecture}.md` (and `docs/architecture/decisions/template.md` when ADR seeding changed) when `seed-060`, `seed-030`, or repository topology changed; merge with repo-specific depth per `060` guardrails
  - `docs/prompts/pause-wave.prompt.md` when the seed pack’s `seed-100` pause-wave rule changed — verify the standardized handoff structure (Done / Next / Files touched / Test state / Open questions) is present; backfill when missing
  - `docs/prompts/close-wave.prompt.md`, `docs/prompts/agents/close-wave.prompt.md`, and `docs/contributing/review-and-evals.md` (**Wave closure** / docs-contract-at-close) when the seed pack’s `seed-190` or `seed-100` closure expectations have evolved — verify the retrospective step (memory-candidate prompt) and idle handoff update (last-closed-wave summary + Open questions section) are present
+ - **Pre-implementation review gate evaluation (seeds 180/100):** When `seed-180` or `seed-100` added the pre-implementation review gate, evaluate the local prompt surface:
+   - `docs/prompts/implement-wave.prompt.md` — verify a **Pre-Implementation Review Gate** section exists describing the three-step gate (pre-mortem, packet completeness check, recorded verdict) and that it blocks the first code edit; backfill from current `seed-100` / `seed-180` contract when missing or absent.
+   - `docs/prompts/review-wave.prompt.md` — verify a **Pre-Implementation Gate Reconciliation** section exists so reviewers confirm the gate ran before implementation; backfill when missing.
+   - `docs/prompts/prepare-wave.prompt.md` — verify a lifecycle-sequence clarification note explains the order: plan → admit → Prepare wave → pre-implementation review gate → first edit; backfill when missing.
+ - **AC verification truth hierarchy (seeds 170/180/100):** When these seeds added the checkbox AC contract and truth-hierarchy review language, evaluate local reviewer surfaces:
+   - `docs/agents/qa-reviewer.md` — verify the operating identity states that code/tests are the truth source, checked boxes are claims not proof, and the refusal conditions include rejecting unchecked-AC completion claims; backfill from current framework standard when absent.
+   - `docs/agents/code-reviewer.md` — verify the review rubric includes a truth-hierarchy note (document is coordination layer, not authority); backfill when absent.
+   - `docs/prompts/review-wave.prompt.md` — verify an **AC and Task Verification Truth Hierarchy** section exists defining the three-layer truth stack (code/tests → review evidence → documentation); backfill when absent.
  - `docs/prompts/upgrade-wavefoundry.prompt.md` and `docs/prompts/agents/upgrade-wavefoundry.md` when the seed pack’s upgrade contract changes
  - **`.wavefoundry/bin/docs-lint`**, **`.wavefoundry/bin/docs-gardener`**, and any legacy **`./package-wave-framework`** repo-root wrapper so they point to the **current** script filenames under `.wavefoundry/framework/scripts/` or are retired when packaging is not supported in a target repository. These **bin** launchers (and any repo-root packaging helper) are **not** overwritten blindly by pack unpack, so reconcile them explicitly during upgrade. Required invocations for packs at `2026-04-22a` and later in this repository:
  - `.wavefoundry/bin/docs-lint` must invoke `scripts/docs_lint.py` (underscore) — the retired `scripts/docs-lint.py` path must not be referenced
@@ -186,9 +208,9 @@ Execution flow:
 11. **Full index rebuild after `CHUNKER_VERSION` bump:** If the pack upgrade changed `CHUNKER_VERSION` (visible in `.wavefoundry/framework/scripts/chunker.py`), a full index rebuild is required (the `update_index` phase handles this automatically, but you can also trigger it manually). `wave_index_health` will emit a `chunker_version_mismatch` advisory when the index was built with an older version. Use the docs-first approach so MCP is available immediately:
  ```bash
  # Phase 1: docs index — unblocks MCP immediately (~2.5 min)
- python3 .wavefoundry/framework/scripts/setup_index.py --full
+ python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full
  # Phase 2: code index in background — foreground returns immediately
- python3 .wavefoundry/framework/scripts/setup_index.py --background-code --full
+ python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --background-code --full
  ```
  Call `wave_index_health()` after phase 1 to confirm MCP is ready. See `docs/contributing/build-and-verification.md` **Upgrade rebuild requirement** for full details.
 
@@ -251,7 +273,7 @@ Include the following topics in plain language:
 7. **Important configuration and precondition**
  - When step 0 ran, call out which zip was unpacked and that hooks were regenerated immediately afterward.
  - When step 0 did not run, upgrade applies the pack **already** in `.wavefoundry/framework/` on disk before this command started.
- - **Upgrade wave framework** does not download a newer framework. To adopt a newer pack without a root zip, replace or patch `.wavefoundry/framework/` first, then run **Upgrade wave framework** again (or drop a dated `wavefoundry-YYYY-MM-DDx.zip` at the repository root and run **Upgrade wave framework** so step 0 unpacks it automatically).
+ - **Upgrade wave framework** does not download a newer framework. To adopt a newer pack without a local checkout patch, place a semver pack in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`, then run **Upgrade wave framework** again so step 0 adopts it automatically.
  - `docs/workflow-config.json` and `docs/repo-profile.json` remain the primary configuration surfaces for wave execution, reviews, factors, and personas.
 
 8. **Operators new to wave-context (or re-onboarding after upgrade)**
@@ -275,6 +297,10 @@ Required upgrade behaviors:
 - do not move durable `docs/specs/*.md` behavior contracts — they are canonical reference docs and stay in place regardless of lifecycle workspace changes
 - invoke `230-author-spec` for each spec-worthy component flagged by task 2 or step 6 as lacking a spec or having a diverged spec; do not leave spec gaps unresolved and do not merely report them as recommendations when the source code is available to derive the contract from
 - update `docs/plans/plan-template.md` to the consolidated format when it still uses the old `## Spec Refs` shape
+- update `docs/plans/plan-template.md` `## Acceptance Criteria` to checkbox syntax (`- [ ] AC-N: ...`) when it still uses plain bullets; this is the forward contract required by the docs-lint checker for wave-admitted change docs
+- update `docs/plans/plan-template.md` `## Tasks` to checkbox syntax (`- [ ] <step>`) when it still uses plain bullets so implementation tracking is consistent with Acceptance Criteria
+- when `AGENTS.md` or `CLAUDE.md` still reference `wave_open_gate` or `wave_close_gate`, rename to `wave_gate_open`, `wave_gate_close`, and add `wave_gate_status` as the read-only gate inspection surface; these files are not regenerated by `render_platform_surfaces.py` so they must be reconciled explicitly
+- backfill `design_system_policy` in `docs/workflow-config.json` when absent; the safe default is `{"governance": "evolvable"}` which enforces no gate on design-system surfaces and is appropriate for all existing projects unless the operator explicitly requires `"read-only"` or `"review-governed"` protection
 - treat **`Upgrade wave framework`** (legacy: **`Upgrade wave context`**) as the canonical refresh command for already-installed wave context in the repository after `wave-0`, while allowing init-phase detection or **`Install wave framework`** (legacy: **`Install wave context`**) convenience routing to hand work here when refresh semantics are required
 - prefer additive migration and explicit retirement over destructive replacement when interrupted upgrades would otherwise strand the repository in a mixed state
 - move or regenerate seeded docs into their topical `docs/` homes when earlier installs placed them under `docs/generated/`
@@ -369,6 +395,13 @@ Validation areas that should be checked explicitly:
 - factor-review policy is still justified by evidence from the repository
 - stale legacy helper references are either migrated or reported
 - refreshable artifacts exist in their expected topical homes
+- `AGENTS.md` and `CLAUDE.md` reference `wave_gate_open`, `wave_gate_close`, and `wave_gate_status` in any gate-usage guidance — not the retired `wave_open_gate` / `wave_close_gate` names; reconcile when the old names are still present
+- `docs/plans/plan-template.md` uses checkbox syntax in `## Acceptance Criteria` (`- [ ] AC-N:`) so newly created change docs scaffold trackable ACs by default
+- `docs/plans/plan-template.md` uses checkbox syntax in `## Tasks` (`- [ ] <step>`) so newly created change docs scaffold trackable task checklists by default
+- senior builder role docs (`docs/agents/software-engineer.md`, `docs/agents/frontend-developer.md`, `docs/agents/data-engineer.md`) exist when repository evidence or operator configuration enables those specialist lanes; absent when not applicable
+- `docs/agents/red-team.md` exists and `docs/workflow-config.json` `wave_council_policy` reflects the decided seat policy when `red-team` is in use; the two surfaces are consistent
+- `docs/prompts/implement-wave.prompt.md` contains a **Pre-Implementation Review Gate** section blocking first edit until the gate passes; `docs/prompts/review-wave.prompt.md` contains a **Pre-Implementation Gate Reconciliation** section
+- `docs/agents/qa-reviewer.md` operating identity states the truth hierarchy (code/tests → review evidence → documentation) and refusal conditions include unsupported completion claims; `docs/agents/code-reviewer.md` review rubric includes a truth-hierarchy note
 - `AGENTS.md` contains **Framework Script Hygiene** per `seed-050`; backfill from the canonical rule when missing
 - `AGENTS.md` contains **Git commits (operator-owned)** per `seed-050`; `docs/contributing/build-and-verification.md` contains a **Git commits** section aligned with that policy when the file exists
 - `AGENTS.md` contains **Implementation Principles** (four behavioral rules: Ask don't assume, Simplest solution first, Don't touch unrelated code, Flag uncertainty explicitly) per `seed-050` task 16; placed before `## Stage Gate`
@@ -392,7 +425,7 @@ Validation areas that should be checked explicitly:
 - reviewer role docs (`docs/agents/code-reviewer.md`, `docs/agents/qa-reviewer.md`, `docs/agents/council-moderator.md`) contain a **Review Rubric** or equivalent section referencing the preflight checks from `seed-020` **Prompt Preflight**
 - `docs/contributing/agent-team-workflow.md` contains an **Execution contract** section with all six rules from `seed-020` and a reference to it; backfill when missing per `seed-150` task 5
 - `docs/prompts/index.md`, `docs/prompts/prompt-surface-manifest.json`, and `AGENTS.md` shortcut tables remain **triplet-consistent** (no orphan public prompts, no duplicate shortcuts)
-- `docs/workflow-config.json` retains top-level **`wave_execution`**, **`agent_memory`**, **`project_persona_generation`**, **`prompt_generation`**, **`factor_review_policy`**, and **`persona_review_policy`** sections expected by the docs gate
+- `docs/workflow-config.json` retains top-level **`wave_execution`**, **`agent_memory`**, **`project_persona_generation`**, **`prompt_generation`**, **`factor_review_policy`**, **`persona_review_policy`**, and **`design_system_policy`** sections expected by the docs gate; `design_system_policy` is backfilled with `{"governance": "evolvable"}` when absent
 - `docs/references/roles.md` exists and stays aligned with metadata conventions when present in **Start Here**
 - architecture hub and child docs under `docs/architecture/` reflect current `docs/repo-index.md` module roots and integration edges, or document explicit gaps
 - `docs/repo-index.md` reflects the current source module structure — no missing modules, no stale module descriptions for code that no longer exists

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-18
+Last verified: 2026-05-23
 
 ## Repository Summary
 
@@ -69,7 +69,7 @@ No shipped product implementation sources exist yet. The MCP Python package (`sr
 | Unit               | Kind                 | Build/Run Entrypoint                                   | Notes                                     |
 | ------------------ | -------------------- | ------------------------------------------------------ | ----------------------------------------- |
 | Framework scripts  | CLI tools            | `python3 .wavefoundry/framework/scripts/<script>.py`   | Run directly from repo root               |
-| Wave Framework zip | Distribution archive | `python3 .wavefoundry/framework/scripts/build_pack.py` | Produces `wavefoundry-<date><letter>.zip` |
+| Wave Framework zip | Distribution archive | `python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH` | Produces `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` from `1.0.0` onward; `0.9.0` bridge keeps old date-style naming |
 | Future MCP server  | stdio daemon         | `src/wavefoundry/server.py` (planned)                  | Not yet scaffolded                        |
 
 

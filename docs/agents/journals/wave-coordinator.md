@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-20
+Last verified: 2026-05-23
 
 Actor: wave-coordinator
 Schema version: 1.0
@@ -119,6 +119,9 @@ wave-id: `12rnv agent-prompt-harness`
 
 wave-id: `12r09 automated-upgrade`
 - Planned 2026-05-19: scripted upgrade path — upgrade-wavefoundry bin, check_version.py, upgrade_lib.py, dashboard upgrade-awareness, wave_upgrade_status MCP tool, wave_dashboard_restart guard.
+
+wave-id: `12sg7 implementation-governance-upgrades`
+- Planned 2026-05-21: five implementation-governance changes — senior builder roles (`12sf9`), MCP-first code navigation defaults (`12sfb`), checkbox AC/task tracking with dashboard alignment (`12sfj`), a formal pre-implementation review gate (`12sg4`), and dashboard dialog width/AC ID presentation (`12s5r`).
 
 wave-id: `12qmg dashboard-ux`
 - Planned 2026-05-18: `wave_dashboard_open` MCP tool — opens browser to running dashboard or starts it; `wave_dashboard_start` gains `next_tools` hint when already running.

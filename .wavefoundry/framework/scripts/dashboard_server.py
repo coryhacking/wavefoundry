@@ -245,12 +245,15 @@ class IndexBuilder:
 
     def _execute(self) -> int:
         indexer_path = self._root / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
+        venv_base = Path(os.environ.get("WAVEFOUNDRY_TOOL_VENV", "~/.wavefoundry/venv")).expanduser()
+        venv_python = venv_base / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        python_exec = str(venv_python) if venv_python.exists() else sys.executable
         with self._lock:
             active_layers = set(self._active_layers or {"project"})
         try:
             layer_cmds: list[tuple[str, list[str]]] = []
             if "project" in active_layers:
-                project_cmd = [sys.executable, str(indexer_path), "--root", str(self._root), "--content", "all"]
+                project_cmd = [python_exec, str(indexer_path), "--root", str(self._root), "--content", "all"]
                 try:
                     wf_cfg = json.loads((self._root / "docs" / "workflow-config.json").read_text(encoding="utf-8"))
                     code_prefixes = (wf_cfg.get("indexing") or {}).get("project_include_prefixes", {})
@@ -265,7 +268,7 @@ class IndexBuilder:
                 layer_cmds.append(("project", project_cmd))
             if "framework" in active_layers:
                 layer_cmds.append(("framework", [
-                    sys.executable,
+                    python_exec,
                     str(indexer_path),
                     "--root",
                     str(self._root),

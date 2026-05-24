@@ -608,19 +608,23 @@ def _atomic_write_text(path: Path, text: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _auto_install_lancedb() -> None:
-    """Install lancedb automatically when missing, mirroring setup_index.py install behaviour."""
-    print("build_index: lancedb not installed — installing automatically ...", flush=True)
-    cmd = [sys.executable, "-m", "pip", "install", "lancedb"]
-    result = subprocess.run(cmd, check=False)
-    if result.returncode != 0:
-        # Retry with --break-system-packages for Homebrew / externally-managed envs (PEP 668).
-        result = subprocess.run(cmd + ["--break-system-packages"], check=False)
-    if result.returncode != 0:
+    """Install lancedb into the shared Wavefoundry tool venv when missing."""
+    venv_base = Path(os.environ.get("WAVEFOUNDRY_TOOL_VENV", "~/.wavefoundry/venv")).expanduser()
+    venv_python = venv_base / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    if not venv_python.exists():
         raise ImportError(
-            "lancedb auto-install failed. "
+            "lancedb is not installed and the Wavefoundry tool venv is not bootstrapped yet. "
             "Run manually: python3 .wavefoundry/framework/scripts/setup_index.py"
         )
-    print("build_index: lancedb installed successfully.", flush=True)
+    print("build_index: lancedb not installed — installing into Wavefoundry tool venv ...", flush=True)
+    cmd = [str(venv_python), "-m", "pip", "install", "lancedb"]
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        raise ImportError(
+            "lancedb auto-install into the Wavefoundry tool venv failed. "
+            "Run manually: python3 .wavefoundry/framework/scripts/setup_index.py"
+        )
+    print("build_index: lancedb installed successfully in the Wavefoundry tool venv.", flush=True)
 
 
 def _get_lance_db(db_path: Path):

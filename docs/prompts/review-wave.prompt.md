@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-04
+Last verified: 2026-05-23
 
 Shortcut: **`Review wave`**
 
@@ -29,6 +29,20 @@ Run all required review lanes against the admitted changes. Review is not option
 - Framework script changes: verify test coverage in `.wavefoundry/framework/scripts/tests/`
 - Seed prompt changes: verify no project-specific guidance was added to generic seeds
 - Manifest changes: verify `framework_revision` matches `.wavefoundry/framework/VERSION`
+
+## Pre-Implementation Gate Reconciliation
+
+During review, confirm that a `pre-implementation-review: passed` verdict was recorded before the first code edit (in `## Review Checkpoints`). If the gate was skipped or recorded as `blocked` and implementation proceeded anyway, surface it as a finding. When implementation revealed that the pre-mortem missed important risks or information gaps, record a `Reflect:` entry in Progress Log noting what should be added to the pre-implementation checklist before the next similar wave.
+
+## AC and Task Verification Truth Hierarchy
+
+The change document is the coordination layer, not the authority layer. The source of truth is:
+
+1. Code and tests — actual delivered behavior
+2. Review evidence — verification that the behavior exists and is correct
+3. Documentation — shared understanding and continuity
+
+Reviewers must not treat checked ACs or tasks as proof of completion. For every required AC, confirm that supporting code, tests, or documented verification exists. If an AC is marked `[x]` but lacks supporting evidence, treat it as incomplete or unverified and record a finding. If an AC or task was intentionally left unchecked, confirm a rationale is recorded in the Progress Log or Review Checkpoints — a silent unchecked item is a gap, not a deferral.
 
 ## Required Before Close
 

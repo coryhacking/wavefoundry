@@ -825,7 +825,7 @@ def _collect_agents_from_dir(
         category_m = _AGENT_CATEGORY_RE.search(text)
         title_m = _TITLE_RE.search(text)
         title = title_m.group(1).strip() if title_m else path.stem.replace("-", " ").title()
-        for prefix in ("Persona — ", "Journal — ", "Specialist — "):
+        for prefix in ("Persona — ", "Persona: ", "Journal — ", "Specialist — "):
             if title.startswith(prefix):
                 title = title[len(prefix):]
                 break
@@ -882,12 +882,12 @@ def collect_agents(root: Path, usage_map: dict[str, int] | None = None) -> list[
         return []
     agents: list[dict[str, Any]] = []
     agents.extend(_collect_agents_from_dir(agents_root, "agent", usage_map))
-    for sub, group in [("personas", "persona"), ("specialists", "specialist"), ("journals", "journal")]:
+    for sub, group in [("personas", "persona"), ("specialists", "specialist")]:
         subdir = agents_root / sub
         if subdir.is_dir():
             agents.extend(_collect_agents_from_dir(subdir, group, usage_map))
     agents.extend(_collect_factor_agents(root, usage_map))
-    agents.sort(key=lambda a: (-a["usage_count"], a["name"]))
+    agents.sort(key=lambda a: a["name"])
     return agents
 
 

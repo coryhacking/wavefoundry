@@ -2,7 +2,7 @@
   "mcpServers": {
     "wavefoundry": {
       "type": "stdio",
-      "command": "/opt/homebrew/bin/python3",
+      "command": "/Users/coryhacking/.wavefoundry/venv/bin/python",
       "args": [
         ".wavefoundry/framework/scripts/server.py",
         "--root",

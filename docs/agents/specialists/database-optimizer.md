@@ -3,9 +3,7 @@
 Owner: Engineering
 Status: active
 Category: specialist
-Last verified: 2026-05-20
-
-Tier: archetype specialist — web / full-stack
+Last verified: 2026-05-23
 
 ## Operating Identity
 

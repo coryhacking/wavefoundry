@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "wavefoundry"
+version = "0.0.0"
+requires-python = ">=3.11"
+dependencies = [
+    "packaging>=24",
+    "fastembed",
+    "lancedb",
+    "mcp[cli]",
+    "numpy",
+    "tree-sitter>=0.24,<0.26",
+    "tree-sitter-typescript",
+    "tree-sitter-javascript",
+    "tree-sitter-go",
+    "tree-sitter-rust",
+    "tree-sitter-java",
+    "tree-sitter-c",
+    "tree-sitter-cpp",
+    "tree-sitter-c-sharp",
+    "tree-sitter-bash",
+    "tree-sitter-kotlin",
+    "tree-sitter-sql",
+    "tree-sitter-swift",
+    "tree-sitter-objc",
+    "tree-sitter-hcl",
+    "tree-sitter-scss",
+    "tree-sitter-make",
+    "tree-sitter-scala",
+    "tree-sitter-html",
+    "tree-sitter-xml",
+    "tree-sitter-ruby",
+    "tree-sitter-php",
+    "tree-sitter-yaml",
+    "tree-sitter-toml",
+    "tree-sitter-json",
+    "tree-sitter-css",
+    "tree-sitter-powershell",
+]

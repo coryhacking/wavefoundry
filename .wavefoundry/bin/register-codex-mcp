@@ -3,6 +3,9 @@
 # Registers the repo-local Wavefoundry MCP server in ~/.codex/config.toml.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+WAVEFOUNDRY_VENV="${WAVEFOUNDRY_TOOL_VENV:-$HOME/.wavefoundry/venv}"
+PYTHON="${WAVEFOUNDRY_VENV}/bin/python"
+if [ ! -x "$PYTHON" ]; then PYTHON="python3"; fi
 repo_suffix() {
   if command -v shasum >/dev/null 2>&1; then
     printf '%s' "$1" | shasum -a 256 | cut -c1-8
@@ -18,5 +21,4 @@ if ! command -v codex >/dev/null 2>&1; then
   echo "codex CLI not found on PATH." >&2
   exit 127
 fi
-exec codex mcp add "$SERVER_NAME" -- python3 "$REPO_ROOT/.wavefoundry/framework/scripts/server.py" --root "$REPO_ROOT"
-    
+exec codex mcp add "$SERVER_NAME" -- "$PYTHON" "$REPO_ROOT/.wavefoundry/framework/scripts/server.py" --root "$REPO_ROOT"

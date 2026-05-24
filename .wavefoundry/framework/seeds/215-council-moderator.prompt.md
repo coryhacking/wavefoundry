@@ -30,6 +30,10 @@ Assume apparent agreement can hide correlated error unless the seats reached it 
 - Do not replace `wave-coordinator` lifecycle decisions with council-moderator narration.
 - Do not downgrade a blocking required lane finding into a soft note just to force convergence.
 
+## Relationship To Pre-Implementation Review Gate
+
+The `wave-council-readiness` verdict produced during `Prepare wave` confirms the wave is **admissible** for implementation. It does not replace the **pre-implementation review gate**, which is the coordinator's responsibility as the mandatory first phase of `Implement wave`. The council does not need to run a second dedicated session for the pre-implementation gate unless the coordinator's pre-mortem surfaces a risk large enough to warrant council-level synthesis. When that happens, the moderator runs an expedited single-question round — not a full repeat of readiness — and records the outcome as a `pre-implementation-review: passed/blocked` finding in `## Review Checkpoints`.
+
 ## Output Shape
 
 A good council-moderator output contains:

@@ -160,14 +160,25 @@ def should_reindex_framework(path: str) -> bool:
     return path.startswith(".wavefoundry/framework/")
 
 
+def _venv_python_path() -> str:
+    import os
+    venv_base = os.environ.get("WAVEFOUNDRY_TOOL_VENV", str(Path.home() / ".wavefoundry" / "venv"))
+    if os.name == "nt":
+        return str(Path(venv_base) / "Scripts" / "python.exe")
+    return str(Path(venv_base) / "bin" / "python")
+
+
 def maybe_trigger_reindex(file_path: str) -> None:
     if not should_reindex(file_path):
         return
     indexer = REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
     if not indexer.exists():
         return
+    python_exec = _venv_python_path()
+    if not Path(python_exec).exists():
+        python_exec = sys.executable
     subprocess.Popen(
-        [sys.executable, str(indexer), "--root", str(REPO_ROOT)],
+        [python_exec, str(indexer), "--root", str(REPO_ROOT)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         cwd=str(REPO_ROOT),
@@ -177,7 +188,7 @@ def maybe_trigger_reindex(file_path: str) -> None:
         framework_index = REPO_ROOT / ".wavefoundry" / "framework" / "index"
         subprocess.Popen(
             [
-                sys.executable,
+                python_exec,
                 str(indexer),
                 "--root",
                 str(REPO_ROOT),
@@ -205,9 +216,12 @@ GATES = (
 def main() -> int:
     raw = read_payload_text()
     payload = load_payload(raw)
+    python_exec = _venv_python_path()
+    if not Path(python_exec).exists():
+        python_exec = sys.executable
     for gate in GATES:
         result = subprocess.run(
-            [sys.executable, str(gate)],
+            [python_exec, str(gate)],
             cwd=REPO_ROOT,
             input=raw,
             text=True,

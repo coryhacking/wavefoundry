@@ -2,39 +2,36 @@
 
 Owner: wave-coordinator
 Status: active
-Last verified: 2026-05-20
+Last verified: 2026-05-23
 
 ## Active Wave
 
-**Wave:** `12rnv agent-prompt-harness`  
-**Status:** active (Prepare wave passed 2026-05-20)  
-**Changes:** `12rbe` (seed-213 + 007 security generalization), `12rnv` (harness core 209, specialists 217–219, inferential 212/214/221, bootstrap 007/050/100/020/180/215), `12rcp` (020 preflight rubric + role docs), `12rcd` (AGENTS.md implementation principles + seed-050), `12rp6-doc` (role-metadata lint + current journal behavior), `12rp6-enh` (new top-level Factor dashboard group), `12rpn` (factor agents move into shared taxonomy), `12rps` (category metadata drives dashboard grouping), `12rqn` (packaged prompt-surface manifest version bump), `12rqj` (dashboard wave framework visualization), `12rqs` (remove visible agent pill usage counters), `12rqt` (remove active-wave status pill)  
-**Next:** Await operator signoff and closure. No further implementation is pending on this wave.
+**Wave:** `12sg7 implementation-governance-upgrades`  
+**Status:** active — all 6 changes complete; ready for `Review wave`  
+**Changes (all complete):**
+- `12sf9-enh senior-builder-roles` — seeds 222/223/224, design-system governance, `wave_gate_open`/`close`/`status` rename, `design_system_edit_allowed` gate
+- `12sfb-enh mcp-code-navigation-defaults` — MCP-first navigation defaults in seeds 180/050/100/211
+- `12sfj-enh ac-task-linked-tracking` — checkbox AC template, truth-hierarchy review contracts, lint validator, dashboard review-badge
+- `12sg4-enh pre-implementation-review-gate` — pre-implementation gate in seeds 180/100/001, local prompts, council surfaces
+- `12s5r-enh dashboard-dialog-wider-ac-id-column` — wider dialogs (1000px), AC-ID column, no-wrap table cells, newest-first pending waves
+- `12sh5-enh formal-red-team-role` — seed-225 red-team role, routing tables, council config, specialist taxonomy
 
-**Council items addressed during implementation:**
-1. Verify seeds clean before opening gate.
-2. `050` must prohibit `## Project harness extensions` from seed bodies.
-3. `209` required packet fields: `wave_id`, `phase`, `change_ids`, `trust_boundaries_touched`, `files_in_scope`.
-4. `100`/`180`: explicit `reality-checker` mode-dispatch.
-5. Lane name `code-reviewer` (not `code-review`) for `221` in `007`.
-6. Journal docs keep the current dashboard behavior and do not require `Role:`.
-7. Factor is a distinct top-level dashboard group and must not be folded into specialists.
-8. Factor agents live in the shared taxonomy; `.claude/agents/` is a pointer surface.
-9. Category metadata drives dashboard grouping and propagates through seeds and host wrappers.
-10. Packaging/version bumps must keep `VERSION`, `MANIFEST`, and `docs/prompts/prompt-surface-manifest.json` aligned.
-11. The dashboard framework visualization must explain process flow using change/wave language without changing wave data contracts.
-12. Active-wave cards should not show a visible status pill.
-13. Dashboard agent pills should not show usage-count badges.
+**Key governance notes:**
+- Gate tool family renamed: `wave_gate_open` / `wave_gate_close` / `wave_gate_status` (was `wave_open_gate` / `wave_close_gate`)
+- New `design_system_edit_allowed` gate; enforced only when `workflow-config.json` `design_system_policy.governance` is `"read-only"` or `"review-governed"`
+- MCP server must be reloaded (client reconnect) for renamed gate tools to appear under their new names
+
+**Next:** `Review wave` — required lanes: `architecture-reviewer` (12sf9, 12sfb, 12sg4, 12sh5), `code-reviewer` (12sf9, 12sfj, 12sg4, 12s5r), `qa-reviewer` (all), `docs-contract-reviewer` (12sf9, 12sfb, 12sfj, 12sg4, 12sh5), `security-reviewer` (12sf9, 12sg4, 12sh5). Wave Council delivery pass required (`council-moderator` + fixed seats + rotating `docs-contract-reviewer`).
 
 ## Last Closed Wave
 
-**Wave:** `12rbc mcp-impl-hot-reload` — closed 2026-05-20  
-**Shipped:** `server.py` thin runner + `server_impl.py` split; `wave_mcp_reload` tool; in-process upgrade hook; version fields; dashboard browser suppression; 1482 tests green; package `2026-05-19h`.
+**Wave:** `12rnv agent-prompt-harness` — implementation complete 2026-05-21 (closure pending review)  
+**Shipped:** Harness core seed-209, specialists 217–219, inferential reviewers 212/214/221, bootstrap updates 007/050/100/020/180/215, AGENTS.md implementation principles, role-metadata lint, Factor dashboard group, category-driven grouping, dashboard visualization.
 
 ## Open Questions / Deferred Decisions
 
-- `close_warnings` path in `perform_mcp_reload` (when `ImplHandler.close()` raises) is not tested — advisory only; add test if close-error reporting becomes load-bearing.
-- `wave_mcp_reload` does not add new tools to a live session (accepted limitation — requires client reconnect); revisit if FastMCP gains live tool-registration support.
+- `wave_gate_*` new names are in server_impl.py but MCP server has not been reloaded — existing sessions see old `wave_open_gate`/`wave_close_gate` names until client reconnect.
+- `close_warnings` path in `perform_mcp_reload` (when `ImplHandler.close()` raises) is not tested — advisory only.
 
 ## Current Session
 

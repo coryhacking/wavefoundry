@@ -3,9 +3,7 @@
 Owner: Engineering
 Status: active
 Category: specialist
-Last verified: 2026-05-20
-
-Tier: archetype specialist — CLI / developer tools
+Last verified: 2026-05-23
 
 ## Operating Identity
 

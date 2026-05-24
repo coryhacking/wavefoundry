@@ -4,7 +4,7 @@ Change ID: `<id-prefix>-<kind> <slug>` (create with the MCP `wave_new_*` tool fo
 Change Status: `planned`
 Owner: [role or person]
 Status: planned
-Last verified: 2026-05-14
+Last verified: 2026-05-23
 Wave: [wave-id or TBD]
 
 ## Rationale
@@ -30,13 +30,13 @@ Why this change is needed. State a specific motivation a reviewer can understand
 
 ## Acceptance Criteria
 
-- AC-1: [Testable outcome — verifiable by QA, automated test, or manual check]
-- AC-2: …
+- [ ] AC-1: [Testable outcome — verifiable by QA, automated test, or manual check]
+- [ ] AC-2: …
 
 ## Tasks
 
-- [Concrete implementation step]
-- …
+- [ ] [Concrete implementation step]
+- [ ] …
 
 ## Agent Execution Graph
 

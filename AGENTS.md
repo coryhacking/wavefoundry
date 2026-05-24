@@ -120,7 +120,7 @@ Applies to all repository code: framework scripts, seed prompts, test files, bui
 
 1. A consolidated change document exists at `docs/plans/<change-id>.md` or `docs/waves/<wave-id>/<change-id>.md`.
 2. The change is admitted into a wave via **Create wave** / **Add change to wave**.
-3. The wave has a successful **Prepare wave** / **Ready wave** pass as the immediately preceding lifecycle step.
+3. The wave has a successful **Prepare wave** / **Ready wave** pass as the immediately preceding lifecycle step. A successful prepare requires `wave-council-readiness` to be recorded — `wave_prepare` returns `status: "ready_for_council_review"` when technical checks pass but the council review has not yet been run. Run the council review immediately when you see that status, then call `wave_prepare(mode='create')` again.
 
 If any step is missing, stop and route back to **Plan feature**, **Create wave**, **Add change to wave**, or **Prepare wave**.
 
@@ -186,10 +186,10 @@ The Wavefoundry MCP server ships at `.wavefoundry/framework/scripts/server.py` a
 **Build the semantic index before first use:**
 
 ```bash
-python3 .wavefoundry/framework/scripts/setup_index.py
+python3 .wavefoundry/framework/scripts/setup_wavefoundry.py
 ```
 
-This checks for the required runtime packages (`fastembed`, `numpy`, `mcp[cli]`) and builds the docs/seed index. If dependencies are missing, it prints an isolated tool-venv install command instead of modifying the system Python. Pass `--root <path>` to target a different repository. Semantic code embeddings are optional and slower; add `--include-code` only when needed. Code indexing defaults to source files only and skips tests/generated platform hooks; add `--include-tests` or `--include-generated` when those are useful. Wavefoundry framework internals under `.wavefoundry/framework/scripts/tests/` are never included in the semantic code index. The setup wrapper runs docs and code indexing in separate subprocesses to keep each pass isolated.
+This checks for the required runtime packages (`fastembed`, `numpy`, `mcp[cli]`) and builds the docs/seed index. `setup_wavefoundry.py` is the canonical operator bootstrap entrypoint; it delegates to `setup_index.py` for compatibility. If dependencies are missing, it prints an isolated tool-venv install command instead of modifying the system Python. Pass `--root <path>` to target a different repository. Semantic code embeddings are optional and slower; add `--include-code` only when needed. Code indexing defaults to source files only and skips tests/generated platform hooks; add `--include-tests` or `--include-generated` when those are useful. Wavefoundry framework internals under `.wavefoundry/framework/scripts/tests/` are never included in the semantic code index. The setup wrapper runs docs and code indexing in separate subprocesses to keep each pass isolated.
 
 The project-local index is stored at `.wavefoundry/index/` (gitignored). Packaged framework docs/seeds are indexed at `.wavefoundry/framework/index/` during `Package Wavefoundry`, then searched as a read-only framework layer. The project-local index is refreshed incrementally — the post-edit hook fires `indexer.py` as a background process after each file edit. Use `wave_index_health()` to check whether a layer is ready, `wave_index_build_status(layer?)` to poll background refreshes, and `wave_index_build(content=..., mode=...)` when you need a deterministic update or rebuild.
 
@@ -218,7 +218,7 @@ The project-local index is stored at `.wavefoundry/index/` (gitignored). Package
 }
 ```
 
-**Available tools:** `wave_help`, `wave_server_info`, `wave_audit`, `wave_map`, `docs_search`, `code_search`, `code_ask`, `seed_get`, `wave_current`, `wave_list_waves`, `wave_list_plans`, `wave_get_change`, `wave_get_prompt`, `wave_get_handoff`, `wave_set_handoff`, `wave_open_gate`, `wave_close_gate`, `wave_create_wave`, `wave_add_change`, `wave_remove_change`, `wave_prepare`, `wave_pause`, `wave_review`, `wave_close`, `wave_new_feature`, `wave_new_bug`, `wave_new_enhancement`, `wave_new_refactor`, `wave_new_change`, `wave_new_documentation`, `wave_new_tech_debt`, `wave_new_task`, `wave_new_maintenance`, `wave_new_operations`, `wave_validate`, `wave_garden`, `wave_sync_surfaces`, `wave_index_health`, `wave_index_build_status`, `wave_index_build`, `wave_dashboard_start`, `wave_dashboard_stop`, `wave_dashboard_restart`, `code_list_files`, `code_read`, `code_keyword`, `code_constants`, `code_pattern`, `code_outline`, `code_definition`, `code_references`, `code_dependencies`.
+**Available tools:** `wave_help`, `wave_server_info`, `wave_audit`, `wave_map`, `docs_search`, `code_search`, `code_ask`, `seed_get`, `wave_current`, `wave_list_waves`, `wave_list_plans`, `wave_get_change`, `wave_get_prompt`, `wave_get_handoff`, `wave_set_handoff`, `wave_gate_open`, `wave_gate_close`, `wave_gate_status`, `wave_create_wave`, `wave_add_change`, `wave_remove_change`, `wave_prepare`, `wave_pause`, `wave_review`, `wave_close`, `wave_new_feature`, `wave_new_bug`, `wave_new_enhancement`, `wave_new_refactor`, `wave_new_change`, `wave_new_documentation`, `wave_new_tech_debt`, `wave_new_task`, `wave_new_maintenance`, `wave_new_operations`, `wave_validate`, `wave_garden`, `wave_sync_surfaces`, `wave_index_health`, `wave_index_build_status`, `wave_index_build`, `wave_dashboard_start`, `wave_dashboard_stop`, `wave_dashboard_restart`, `code_list_files`, `code_read`, `code_keyword`, `code_constants`, `code_pattern`, `code_outline`, `code_definition`, `code_references`, `code_dependencies`.
 
 **Codebase Q&A shortcut:** `code_ask(question)` — ask a cross-cutting natural-language question about the codebase; returns `{answer, citations, reranked, confidence, gaps, question_type, index_freshness, partition_applied, demotion_count, second_hop_symbols, total_ms, vector_ms, rerank_ms}`. Each citation may also include `final_rank`, `demoted`, and `partition_reason`. Synthesize from `citations` directly — the `answer` field is a navigation pointer, not a synthesized answer. `score` is the pre-partition reranker score; `final_rank` is the post-partition output order. `reranked: true` means cross-encoder ranking ran (trust the order unless a citation is explicitly `demoted: true`); `reranked: false` means RRF fallback (index/model unavailable, slightly lower quality). Use `code_search`/`docs_search` instead when you want raw results to browse. See `docs/agents/guru.md` for retrieval loop, citation format, and uncertainty protocol.
 
@@ -233,8 +233,9 @@ For change-plan creation, use the **`wave_new_<kind>` tools** — one call per k
 
 **Edit gate tools:**
 
-- `wave_open_gate(gate=...)` — enable an edit guard in `.wavefoundry/guard-overrides.json`. Valid gates: `seed_edit_allowed`, `framework_edit_allowed`. Returns an error if the gate is already open (double-open indicates a forgotten close). Every open must be paired with a `wave_close_gate` call.
-- `wave_close_gate(gate=...)` — disable an edit guard. Returns `status: "ok"` with an advisory diagnostic if the gate was already closed (harmless). Use `.wavefoundry/bin/gate open|close <gate>` as a CLI fallback.
+- `wave_gate_open(gate=...)` — enable an edit guard in `.wavefoundry/guard-overrides.json`. Valid gates: `seed_edit_allowed`, `framework_edit_allowed`, `design_system_edit_allowed`. Returns an error if the gate is already open (double-open indicates a forgotten close). Every open must be paired with a `wave_gate_close` call.
+- `wave_gate_close(gate=...)` — disable an edit guard. Returns `status: "ok"` with an advisory diagnostic if the gate was already closed (harmless). Use `.wavefoundry/bin/gate open|close <gate>` as a CLI fallback.
+- `wave_gate_status()` — return the current enabled/disabled state of all gates. Use to inspect gate posture before implementation or at lifecycle transitions.
 - **Auto-close:** `wave_pause` and `wave_close` (create mode) automatically close all open gates and emit a `gates_forced_closed` advisory if any were open. `wave_close` dry-run emits the diagnostic without writing.
 - Do **not** edit `.wavefoundry/guard-overrides.json` directly — use these tools instead.
 
@@ -464,7 +465,7 @@ Use real target paths only in local configuration, fixtures, or operator-provide
 
 **Framework distribution zip archives:** Zip files at the repository root (`wavefoundry-*.zip`) are transport artifacts only. Never commit them. If a zip was accidentally committed, remove it with `git rm --cached <file>.zip`.
 
-**Seed prompts:** Never delete or overwrite seed prompts under `.wavefoundry/framework/seeds/` without an explicit wave and `seed_edit_allowed` guard approval. Open the gate with `wave_open_gate(gate="seed_edit_allowed")` before editing and close it immediately after with `wave_close_gate(gate="seed_edit_allowed")`. Seed edits affect all target repositories.
+**Seed prompts:** Never delete or overwrite seed prompts under `.wavefoundry/framework/seeds/` without an explicit wave and `seed_edit_allowed` guard approval. Open the gate with `wave_gate_open(gate="seed_edit_allowed")` before editing and close it immediately after with `wave_gate_close(gate="seed_edit_allowed")`. Seed edits affect all target repositories.
 
 ## Initial Milestones
 

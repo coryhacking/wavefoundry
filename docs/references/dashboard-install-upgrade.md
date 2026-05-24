@@ -2,17 +2,17 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-14
+Last verified: 2026-05-23
 
 Reference doc covering how the local dashboard feature moves from the Wavefoundry framework pack into target repositories. Addresses packaging (build_pack.py), install (seed-010), upgrade (seed-160), and the sibling-directory runtime option.
 
 ## Overview
 
-The dashboard is a framework feature, not a per-repo app. Its assets (HTML shell, CSS, React JS bundle) and server scripts are packaged into the dated framework zip distribution and seeded into target repositories through the standard install and upgrade flows. No Node.js, npm, or build toolchain is required in target repos at install or runtime.
+The dashboard is a framework feature, not a per-repo app. Its assets (HTML shell, CSS, React JS bundle) and server scripts are packaged into the semver framework zip distribution and seeded into target repositories through the standard install and upgrade flows. No Node.js, npm, or build toolchain is required in target repos at install or runtime.
 
 ## Packaging (build_pack.py)
 
-`build_pack.py` zips the entire `.wavefoundry/framework/` tree into a dated distribution archive (`wavefoundry-<YYYY-MM-DDx>.zip`). The dashboard files are included automatically:
+`build_pack.py` zips the entire `.wavefoundry/framework/` tree into a semver distribution archive (`wavefoundry-MAJOR.MINOR.PATCH.<build>.zip`) under `~/.wavefoundry/dist/` by default. The one-time `0.9.0` bridge release is the exception and keeps the old date-style artifact name for legacy adoption. The dashboard files are included automatically:
 
 **Packed paths (canonical):**
 ```

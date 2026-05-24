@@ -59,6 +59,17 @@ def upgrade_log_path(root: Path) -> Path:
     return root / ".wavefoundry" / "logs" / UPGRADE_LOG_FILENAME
 
 
+def _tool_venv_base() -> Path:
+    """Return the configured shared Wavefoundry tool-venv base path."""
+    return Path(os.environ.get("WAVEFOUNDRY_TOOL_VENV", "~/.wavefoundry/venv")).expanduser()
+
+
+def _preferred_python() -> str:
+    """Return the shared tool-venv Python when present, else the current interpreter."""
+    venv_python = _tool_venv_base() / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    return str(venv_python) if venv_python.exists() else sys.executable
+
+
 # ── Log file tee ──────────────────────────────────────────────────────────────
 # All _log() / _err() output goes to stdout AND to the upgrade log file so
 # operators can `tail -f .wavefoundry/logs/upgrade.log` for real-time progress.
@@ -138,9 +149,70 @@ def _detect_dashboard(root: Path) -> tuple[bool, int | None, str | None]:
     return False, None, None
 
 
+import re as _re
+
+_ZIP_NAME_RE = _re.compile(r"^wavefoundry-(\d+\.\d+\.\d+)\.([A-Za-z0-9]+)\.zip$")
+_HOME_DIR = Path("~")
+_HOME_WAVEFOUNDRY_DIR = Path("~/.wavefoundry")
+_DIST_DIR = Path("~/.wavefoundry/dist")
+
+
+def _find_latest_release_zip(root: Path) -> Path | None:
+    """Return the highest-semver wavefoundry zip across the supported search paths.
+
+    Search locations:
+      1. repository root
+      2. ~/
+      3. ~/.wavefoundry/
+      4. ~/.wavefoundry/dist/
+
+    Non-matching filenames are skipped silently. When multiple zips share the
+    same MAJOR.MINOR.PATCH, the one with the lexicographically greatest
+    4-character build suffix is returned.
+    """
+    try:
+        from check_version import _to_version
+    except (ImportError, ModuleNotFoundError):
+        return None
+    best: tuple | None = None
+    best_path: Path | None = None
+    search_dirs = (
+        root,
+        _HOME_DIR.expanduser(),
+        _HOME_WAVEFOUNDRY_DIR.expanduser(),
+        _DIST_DIR.expanduser(),
+    )
+    for search_dir in search_dirs:
+        if not search_dir.is_dir():
+            continue
+        for entry in search_dir.iterdir():
+            m = _ZIP_NAME_RE.match(entry.name)
+            if not m:
+                continue
+            ver_str, build = m.group(1), m.group(2)
+            try:
+                v = _to_version(ver_str)
+            except (ValueError, Exception):
+                continue
+            key = (v, build)
+            if best is None or key > best:
+                best = key
+                best_path = entry
+    return best_path
+
+
 def _find_zip(root: Path) -> Path | None:
-    """Return the latest wavefoundry-*.zip at repo root, or None."""
-    candidates = sorted(root.glob("wavefoundry-[0-9][0-9][0-9][0-9]-*.zip"))
+    """Return the best available wavefoundry zip, or None.
+
+    Search order:
+      1. highest semver zip across repo root, ~/, ~/.wavefoundry/, and ~/.wavefoundry/dist/
+      2. repo root — wavefoundry-*.zip (legacy bridge / CI drop location)
+    """
+    release = _find_latest_release_zip(root)
+    if release is not None:
+        return release
+    # Fallback: date-format or semver zip at repo root.
+    candidates = sorted(root.glob("wavefoundry-*.zip"))
     return candidates[-1] if candidates else None
 
 
@@ -272,11 +344,16 @@ def _compute_seed_diffs(
 class UpgradeContext:
     """Context passed to every extension hook function.
 
-    Hooks can inspect ``from_version`` and ``to_version`` to self-select:
+    Hooks can inspect ``from_version`` and ``to_version`` to self-select.
+    Use ``_to_version()`` from ``check_version`` for version-aware comparison
+    (handles both semver and legacy date strings):
+
+        from check_version import _to_version
+        from packaging.version import Version
 
         def pre_surface_rendering(ctx):
-            if ctx.from_version and ctx.from_version < "2026-05-19a":
-                # migration only needed when upgrading from before this version
+            if ctx.from_version and _to_version(ctx.from_version) < Version("1.0.0"):
+                # migration only needed when upgrading from before v1.0.0
                 ...
     """
 
@@ -723,7 +800,7 @@ def phase_surface_rendering(root: Path) -> None:
         _log("  render_platform_surfaces.py not found — skipping surface rendering.")
         return
     result = subprocess.run(
-        [sys.executable, str(script), "--repo-root", str(root)],
+        [_preferred_python(), str(script), "--repo-root", str(root)],
         cwd=str(root),
         check=False,
     )
@@ -742,7 +819,7 @@ def phase_pruning(root: Path) -> int:
     if not script.exists():
         _log("  prune_framework.py not found — skipping pruning.")
         return 0
-    cmd = [sys.executable, str(script)]
+    cmd = [_preferred_python(), str(script)]
     if OLD_MANIFEST_TMP.exists():
         cmd += ["--old-manifest", str(OLD_MANIFEST_TMP)]
     result = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True, check=False)
@@ -772,7 +849,7 @@ def phase_docs_gate(root: Path) -> None:
             py_name = label.replace("-", "_") + ".py"
             py_script = SCRIPTS_DIR / py_name
             if py_script.exists():
-                cmd = [sys.executable, str(py_script)]
+                cmd = [_preferred_python(), str(py_script)]
             else:
                 _log(f"  {label} not found — skipping.")
                 continue
@@ -801,7 +878,7 @@ def phase_index_update(root: Path) -> None:
 
     _log("  Phase 4a: updating docs index (blocking) ...")
     result = subprocess.run(
-        [sys.executable, str(setup_script), "--root", str(root)],
+        [_preferred_python(), str(setup_script), "--root", str(root)],
         cwd=str(root),
         check=False,
     )
@@ -810,7 +887,7 @@ def phase_index_update(root: Path) -> None:
 
     _log("  Phase 4b: launching code index update in background ...")
     background_cmd = [
-        sys.executable, str(setup_script),
+        _preferred_python(), str(setup_script),
         "--root", str(root),
         "--background-code",
     ]
@@ -842,7 +919,7 @@ def phase_index_rebuild(root: Path) -> None:
 
     _log("  Phase 4a: rebuilding docs index (blocking) ...")
     result = subprocess.run(
-        [sys.executable, str(setup_script), "--root", str(root), "--full"],
+        [_preferred_python(), str(setup_script), "--root", str(root), "--full"],
         cwd=str(root),
         check=False,
     )
@@ -851,7 +928,7 @@ def phase_index_rebuild(root: Path) -> None:
 
     _log("  Phase 4b: launching code index rebuild in background ...")
     background_cmd = [
-        sys.executable, str(setup_script),
+        _preferred_python(), str(setup_script),
         "--root", str(root),
         "--background-code",
         "--full",

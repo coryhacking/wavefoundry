@@ -7,6 +7,7 @@ import contextlib
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -57,30 +58,52 @@ DOCS_PREFIXES_KEY = "docs"
 CODE_PREFIXES_KEY = "code"
 
 
-def _installed(module_name: str) -> bool:
-    return importlib.util.find_spec(module_name) is not None
-
-
 def _tool_venv_python() -> Path:
-    base = Path(os.environ.get("WAVEFOUNDRY_TOOL_VENV", "~/.cache/wavefoundry/indexer-venv"))
+    base = Path(os.environ.get("WAVEFOUNDRY_TOOL_VENV", "~/.wavefoundry/venv"))
     venv = base.expanduser()
     if os.name == "nt":
         return venv / "Scripts" / "python.exe"
     return venv / "bin" / "python"
 
 
-def _install_deps(missing: list[str]) -> None:
-    """Install missing packages into the current Python environment."""
-    # Display string uses shell quoting for readability; cmd uses raw dep strings.
+def _bootstrap_venv() -> Path:
+    """Ensure the tool venv exists; return the path to its Python binary."""
+    venv_python = _tool_venv_python()
+    venv_dir = venv_python.parent.parent
+
+    if venv_dir.exists() and not venv_python.exists():
+        # Partial venv: directory present but Python binary absent — delete and recreate.
+        print(f"Incomplete venv detected at {venv_dir}; recreating ...", flush=True)
+        shutil.rmtree(venv_dir, ignore_errors=True)
+
+    if not venv_dir.exists():
+        print(f"Creating tool venv at {venv_dir} ...", flush=True)
+        subprocess.check_call([sys.executable, "-m", "venv", str(venv_dir)])
+
+    return venv_python
+
+
+def _missing_in_venv(venv_python: Path) -> list[str]:
+    """Return distribution names for packages not importable from the venv Python."""
+    mod_to_dist = {mod: dist for dist, mod in REQUIRED_IMPORTS.items()}
+    script = (
+        "import importlib.util\n"
+        f"mods = {list(mod_to_dist)!r}\n"
+        "print('\\n'.join(m for m in mods if importlib.util.find_spec(m) is None))"
+    )
+    result = subprocess.run([str(venv_python), "-c", script], capture_output=True, text=True)
+    if result.returncode != 0:
+        return list(REQUIRED_IMPORTS.keys())
+    missing_mods = [m.strip() for m in result.stdout.strip().splitlines() if m.strip()]
+    return [mod_to_dist[m] for m in missing_mods if m in mod_to_dist]
+
+
+def _install_deps(missing: list[str], venv_python: Path) -> None:
+    """Install missing packages into the tool venv."""
     display = " ".join(f'"{dep}"' if "[" in dep or ">=" in dep or "<" in dep else dep for dep in missing)
-    cmd = [sys.executable, "-m", "pip", "install"] + missing
+    cmd = [str(venv_python), "-m", "pip", "install"] + missing
     print(f"Installing missing dependencies: {display}", flush=True)
     result = subprocess.run(cmd, check=False)
-    if result.returncode != 0:
-        # Retry with --break-system-packages for Homebrew/externally-managed environments
-        # (PEP 668) where pip refuses to install without an explicit override.
-        print("Retrying with --break-system-packages (externally-managed environment) ...", flush=True)
-        result = subprocess.run(cmd + ["--break-system-packages"], check=False)
     if result.returncode != 0:
         print(
             f"pip install failed (exit {result.returncode}). "
@@ -92,14 +115,13 @@ def _install_deps(missing: list[str]) -> None:
 
 
 def ensure_deps() -> None:
-    missing = [dist for dist, module in REQUIRED_IMPORTS.items() if not _installed(module)]
+    venv_python = _bootstrap_venv()
+    missing = _missing_in_venv(venv_python)
     if not missing:
         print(f"Dependencies satisfied ({', '.join(REQUIRED_IMPORTS)})", flush=True)
         return
-    _install_deps(missing)
-    # Re-check after install — pip may have succeeded but the module is still not importable
-    # (e.g. wrong environment, editable install edge case).
-    still_missing = [dist for dist, module in REQUIRED_IMPORTS.items() if not _installed(module)]
+    _install_deps(missing, venv_python)
+    still_missing = _missing_in_venv(venv_python)
     if still_missing:
         print(
             f"Dependencies installed but still not importable: {', '.join(still_missing)}\n"
@@ -183,7 +205,7 @@ def prewarm_models(*, include_code: bool) -> None:
 
 def _spawn_background_code_build(root: Path, args: argparse.Namespace) -> None:
     """Spawn a detached background process to build the code index."""
-    cmd = [sys.executable, __file__, "--root", str(root), "--include-code"]
+    cmd = [str(_tool_venv_python()), __file__, "--root", str(root), "--include-code"]
     if args.full:
         cmd.append("--full")
     if args.include_tests:
@@ -223,7 +245,7 @@ def _run_indexer(
     include_generated: bool,
     project_include_prefixes: tuple[str, ...],
 ) -> None:
-    cmd = [sys.executable, str(SCRIPTS_DIR / "indexer.py"), "--root", str(root), "--content", content]
+    cmd = [str(_tool_venv_python()), str(SCRIPTS_DIR / "indexer.py"), "--root", str(root), "--content", content]
     if full:
         cmd.append("--full")
     if include_tests:

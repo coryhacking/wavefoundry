@@ -4,6 +4,7 @@ import importlib.util
 import io
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -1098,7 +1099,7 @@ Wave: `12x test-wave`
 
 
 class DashboardAgentCollectionTests(unittest.TestCase):
-    """Verify agent/persona/specialist/journal discovery from docs/agents/."""
+    """Verify agent/persona/specialist discovery from docs/agents/."""
 
     def setUp(self):
         self.lib, self.srv = load_dashboard_modules()
@@ -1112,8 +1113,6 @@ class DashboardAgentCollectionTests(unittest.TestCase):
                "# Persona — Wave Coordinator\n\nOwner: Engineering\nRole: wave-coordinator\n\n## Who\n\nCoordinates waves.\n\n## Goals\n\n- Keep waves moving\n")
         _write(agents_root / "specialists" / "software-architect.md",
                "# Software Architect\n\nOwner: Engineering\nRole: software-architect\n\n## Operating Identity\n\nDesigns system boundaries.\n")
-        _write(agents_root / "journals" / "planner.md",
-               "# Journal — Planner\n\nOwner: Engineering\nRole: planner\n\n## Operating Identity\n\nPlanning journal.\n")
         _write(agents_root / "factor-12-admin-processes.md",
                "# Factor 12 — Admin Processes Review Agent\n\nOwner: Engineering\nRole: factor-12-admin-processes\nCategory: factor\n\n## What This Factor Covers\n\nCLI tools and admin scripts.\n")
         _write(agents_root / "README.md", "# Agents\n")
@@ -1128,7 +1127,7 @@ class DashboardAgentCollectionTests(unittest.TestCase):
         self.assertIn("persona", groups)
         self.assertIn("specialist", groups)
         self.assertIn("factor", groups)
-        self.assertIn("journal", groups)
+        self.assertNotIn("journal", groups)
 
     def test_readme_excluded(self):
         agents = self.lib.collect_agents(self.root)
@@ -1141,11 +1140,6 @@ class DashboardAgentCollectionTests(unittest.TestCase):
         persona = next(a for a in agents if a["group"] == "persona")
         self.assertFalse(persona["name"].startswith("Persona —"), "Persona prefix must be stripped")
         self.assertEqual(persona["name"], "Wave Coordinator")
-
-    def test_journal_prefix_stripped(self):
-        agents = self.lib.collect_agents(self.root)
-        journal = next(a for a in agents if a["group"] == "journal")
-        self.assertFalse(journal["name"].startswith("Journal —"))
 
     def test_factor_prefix_stripped(self):
         agents = self.lib.collect_agents(self.root)
@@ -1535,6 +1529,30 @@ class IndexBuilderTests(unittest.TestCase):
 
         self.assertTrue(done_event.is_set(), "on_done was never called")
         self.assertEqual(statuses[-1], "failed")
+
+    def test_execute_prefers_tool_venv_python_for_indexer_subprocesses(self):
+        builder = self._make_builder()
+        builder._active_layers = {"project"}
+
+        class FakeProc:
+            def __init__(self):
+                self.pid = 123
+                self.returncode = 0
+
+            def communicate(self):
+                return ("", "")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            venv_root = Path(tmp)
+            venv_python = venv_root / "bin" / "python"
+            venv_python.parent.mkdir(parents=True, exist_ok=True)
+            venv_python.write_text("", encoding="utf-8")
+            with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_root)}):
+                with patch.object(self.srv.subprocess, "Popen", return_value=FakeProc()) as popen_mock:
+                    result = builder._execute()
+        self.assertEqual(result, 0)
+        cmd = popen_mock.call_args.args[0]
+        self.assertEqual(cmd[0], str(venv_python))
 
     def test_debounce_rearm_cancels_pending_timer(self):
         """Two rapid signal_change calls should result in exactly one build."""

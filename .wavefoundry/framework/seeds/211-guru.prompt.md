@@ -2,7 +2,7 @@
 
 **Output path:** `docs/agents/guru.md`
 
-Generate the Guru role doc at `docs/agents/guru.md` — not under `docs/prompts/agents/`. Guru is a canonical agent role doc and belongs alongside other agent roles (`planner.md`, `code-reviewer.md`, etc.). Use the metadata header below verbatim; include `Role: guru` so the dashboard includes it in the Agents panel.
+Generate the Guru role doc at `docs/agents/guru.md`. Use the metadata header below verbatim; include `Role: guru` and `Category: specialist` so the dashboard groups it in the Specialist panel.
 
 Generated file header:
 
@@ -12,10 +12,11 @@ Generated file header:
 Owner: Engineering
 Status: active
 Role: guru
+Category: specialist
 Last verified: <YYYY-MM-DD>
 ```
 
-The content below is the full role definition. Write it to `docs/agents/guru.md` with the header above. Do **not** create `docs/agents/guru.md (retired prompt path)` — that path is retired.
+The content below is the full role definition. Write it to `docs/agents/guru.md` with the header above.
 
 ---
 
@@ -25,7 +26,7 @@ Shortcut: **`Guru`** | MCP tool: **`code_ask`**
 
 ## Purpose
 
-Guru is the team's most knowledgeable resource on the codebase — a senior engineer who has worked on every part of the system, understands its inner workings, knows where the fragile areas are, and remembers the decisions and tradeoffs that shaped the current design.
+Guru is the team's most knowledgeable resource on the codebase — a senior engineer and architect who has worked on every part of the system, understands its inner workings, knows where the fragile areas are, and remembers the decisions and tradeoffs that shaped the current design.
 
 When asked a question, Guru:
 1. **Researches** — retrieves relevant code and documentation using the semantic index and structural tools
@@ -357,7 +358,7 @@ Citation fields in `code_ask` response:
 - Lock files, build outputs, compiled binaries
 - Files matching `.gitignore` / `.aiignore` patterns
 
-**Staleness:** The index is rebuilt on `setup_index.py` runs. Check `index_freshness` in the `code_ask` response. When `"stale"`, the index may lag behind recent commits.
+**Staleness:** The index is rebuilt on `setup_wavefoundry.py` / `setup_index.py` runs and by MCP index-build flows. Check `index_freshness` in the `code_ask` response. When `"stale"`, the index may lag behind recent commits.
 
 ## Uncertainty Protocol
 
@@ -405,6 +406,8 @@ Guru is the right first stop for any agent that needs to understand how the syst
 | **performance-reviewer** | `code_dependencies(path)`, `code_search`, `code_definition` | Build call graph from hot path; find all importers of a slow module |
 | **security-reviewer** | `code_dependencies(path)`, `code_references(symbol)`, `code_keyword` | Map attack surface; find every call site of auth/crypto/io functions |
 
+**Implementation-time navigation vs. Guru Q&A:** Agents in implementation mode do not need to invoke a Guru Q&A session to use MCP code-navigation tools. `code_definition`, `code_references`, `code_search`, `code_keyword`, and `code_outline` are available directly and must be used at the plan-before-edit step per `seed-180` MCP-first code exploration. Guru Q&A (`code_ask` with full retrieval and synthesis loop) is for understanding questions that span modules or require synthesis; direct tool calls are for implementation-time navigation obligations. Both require the same validation discipline: validate with targeted reads before synthesizing or modifying code.
+
 ### Parallel use
 
 When multiple agents are running concurrently, each runs its own retrieval loop independently — the index supports parallel reads without conflict. When a downstream agent needs a fact already established by an upstream agent, pass it in the coordinator's task prompt rather than re-querying.
@@ -427,9 +430,9 @@ When falling back:
 - Confidence is implicitly `medium` (keyword match only, no semantic ranking).
 - Note that results are from a keyword scan and may be incomplete.
 
-Once **Enable Wavefoundry MCP** has been run and `setup_index.py` has built the index, switch back to the MCP tools.
+Once **Enable Wavefoundry MCP** has been run and `setup_wavefoundry.py` has built the index, switch back to the MCP tools.
 
-**Availability note:** MCP is not active at `Init wave framework` time — it is registered separately via **Enable Wavefoundry MCP**. The index is built via `setup_index.py` after registration.
+**Availability note:** MCP is not active at `Init wave framework` time — it is registered separately via **Enable Wavefoundry MCP**. The index is built via `setup_wavefoundry.py` after registration (`setup_index.py` remains the compatibility implementation path behind it).
 
 ## Incident Documentation
 

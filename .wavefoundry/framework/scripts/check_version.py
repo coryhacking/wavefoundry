@@ -10,9 +10,9 @@ Exit codes:
     2 — cannot determine (missing VERSION or MANIFEST, or malformed values)
 
 Output (stdout):
-    Pack: 2026-05-19a  Installed: 2026-05-10a  → upgrade
-    Pack: 2026-05-10a  Installed: 2026-05-19a  → downgrade
-    Pack: 2026-05-19a  Installed: 2026-05-19a  → same
+    Pack: 1.0.0+12tm5  Installed: 0.9.0+12abc  → upgrade
+    Pack: 0.9.0+12abc  Installed: 1.0.0+12tm5  → downgrade
+    Pack: 1.0.0+12tm5  Installed: 1.0.0+12tm5  → same
 
 Usage:
     python3 .wavefoundry/framework/scripts/check_version.py [--root <path>]
@@ -21,8 +21,46 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[a-z]$")
+
+
+def _to_version(s: str):
+    """Convert a version string to a packaging.version.Version for comparison.
+
+    Date-shaped strings (YYYY-MM-DDx) map to Version("0.0.0") so that any
+    pre-semver install is always treated as older than any semver release.
+    Build metadata is stripped before comparison per semver spec.
+
+    Raises ValueError for strings that are neither valid semver nor date-shaped.
+    """
+    try:
+        # Lazy import: packaging may not be installed if the venv has not been
+        # bootstrapped yet. A clear error here directs the operator to run
+        # setup_index.py first.
+        from packaging.version import Version, InvalidVersion
+    except ModuleNotFoundError:
+        raise ModuleNotFoundError(
+            "The 'packaging' library is not installed. "
+            "Run 'python3 .wavefoundry/framework/scripts/setup_index.py' to bootstrap "
+            "the tool venv, then retry."
+        )
+
+    if _DATE_RE.match(s):
+        return Version("0.0.0")
+
+    try:
+        v = Version(s)
+    except InvalidVersion:
+        raise ValueError(
+            f"Unrecognized version string: {s!r}. "
+            "Expected MAJOR.MINOR.PATCH[+<build>] or YYYY-MM-DDx."
+        )
+    # Strip build metadata before comparison (build metadata does not affect precedence).
+    return Version(v.public)
 
 
 def _read_pack_version(root: Path) -> str | None:
@@ -50,14 +88,17 @@ def _read_installed_revision(root: Path) -> str | None:
 
 
 def compare_versions(pack: str, installed: str) -> str:
-    """Return 'upgrade', 'downgrade', or 'same' by lexicographic comparison.
+    """Return 'upgrade', 'downgrade', or 'same' using semver comparison.
 
-    Version strings use format YYYY-MM-DDx (e.g. '2026-05-19a') which is
-    lexicographically ordered — string comparison is correct.
+    Both pack and installed may be MAJOR.MINOR.PATCH[+build] semver strings or
+    legacy YYYY-MM-DDx date strings. Date strings are mapped to 0.0.0 so they
+    are always treated as older than any semver release.
     """
-    if pack > installed:
+    pack_v = _to_version(pack)
+    installed_v = _to_version(installed)
+    if pack_v > installed_v:
         return "upgrade"
-    if pack < installed:
+    if pack_v < installed_v:
         return "downgrade"
     return "same"
 

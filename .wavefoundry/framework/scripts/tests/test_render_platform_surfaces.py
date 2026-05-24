@@ -16,7 +16,7 @@ SCRIPT_PATH = PROJECT_ROOT / "framework" / "scripts" / "render_platform_surfaces
 class RenderPlatformSurfacesScriptTests(unittest.TestCase):
     def test_renders_python_hook_entrypoints_and_configs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            repo_root = Path(temp_dir)
+            repo_root = Path(temp_dir).resolve()
             (repo_root / ".wavefoundry" / "framework" / "scripts").mkdir(parents=True)
             (repo_root / ".claude").mkdir()
             (repo_root / ".claude" / "hooks").mkdir()
@@ -32,6 +32,7 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             (repo_root / ".git" / "hooks" / "pre-push").write_text("#!/bin/sh\n", encoding="utf-8")
             (repo_root / ".junie" / "guidelines.md").write_text("", encoding="utf-8")
             (repo_root / ".claude" / "hooks" / "pre-edit.sh").write_text("# legacy\n", encoding="utf-8")
+            (repo_root / ".claude" / "hooks" / "pycache-cleanup.py").write_text("# legacy\n", encoding="utf-8")
             (repo_root / ".cursor" / "hooks" / "reformat.py").write_text("# legacy\n", encoding="utf-8")
             (repo_root / ".github" / "hooks" / "pre-tool-use.sh").write_text("# legacy\n", encoding="utf-8")
 
@@ -45,13 +46,13 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
             if os.name == "nt":
-                expected_claude_command = r"cmd.exe /c .claude\hooks\pre-edit.cmd"
-                expected_cursor_command = r"cmd.exe /c .cursor\hooks\after-file-edit.cmd"
-                expected_copilot_command = r"cmd.exe /c .github\hooks\pre-tool-use.cmd"
+                expected_claude_command = f"cmd.exe /c {repo_root / '.claude' / 'hooks' / 'pre-edit'}.cmd"
+                expected_cursor_command = f"cmd.exe /c {repo_root / '.cursor' / 'hooks' / 'after-file-edit'}.cmd"
+                expected_copilot_command = f"cmd.exe /c {repo_root / '.github' / 'hooks' / 'pre-tool-use'}.cmd"
             else:
-                expected_claude_command = ".claude/hooks/pre-edit"
-                expected_cursor_command = ".cursor/hooks/after-file-edit"
-                expected_copilot_command = ".github/hooks/pre-tool-use"
+                expected_claude_command = str(repo_root / ".claude" / "hooks" / "pre-edit")
+                expected_cursor_command = str(repo_root / ".cursor" / "hooks" / "after-file-edit")
+                expected_copilot_command = str(repo_root / ".github" / "hooks" / "pre-tool-use")
 
             claude_settings = json.loads((repo_root / ".claude" / "settings.json").read_text(encoding="utf-8"))
             self.assertEqual(
@@ -70,10 +71,16 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
                 copilot_hooks["hooks"]["preToolUse"][0]["bash"],
                 expected_copilot_command,
             )
+            import importlib.util as _ilu
+            _spec = _ilu.spec_from_file_location("rps", SCRIPT_PATH)
+            _rps = _ilu.module_from_spec(_spec)
+            _spec.loader.exec_module(_rps)
+            expected_venv_python = _rps._venv_python_path()
+
             junie_mcp = json.loads((repo_root / ".junie" / "mcp" / "mcp.json").read_text(encoding="utf-8"))
             self.assertEqual(
                 junie_mcp["mcpServers"]["wavefoundry"]["command"],
-                "python3",
+                expected_venv_python,
             )
             self.assertEqual(
                 junie_mcp["mcpServers"]["wavefoundry"]["args"],
@@ -91,6 +98,7 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             self.assertTrue((repo_root / ".github" / "hooks" / "post-tool-use").exists())
             self.assertTrue((repo_root / ".github" / "hooks" / "post-tool-use.cmd").exists())
             self.assertFalse((repo_root / ".claude" / "hooks" / "pre-edit.sh").exists())
+            self.assertFalse((repo_root / ".claude" / "hooks" / "pycache-cleanup.py").exists())
             self.assertFalse((repo_root / ".cursor" / "hooks" / "reformat.py").exists())
             self.assertFalse((repo_root / ".github" / "hooks" / "pre-tool-use.sh").exists())
             self.assertTrue((repo_root / ".github" / "workflows" / "ci.yml").exists())
@@ -109,6 +117,14 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             self.assertIn("--include-prefix", post_edit)
             self.assertIn(".wavefoundry/framework", post_edit)
             self.assertIn("--no-ignore-files", post_edit)
+            self.assertIn("python_exec = _venv_python_path()", post_edit)
+            self.assertIn("[python_exec, str(indexer), \"--root\", str(REPO_ROOT)]", post_edit)
+            cursor_after = (repo_root / ".cursor" / "hooks" / "after-file-edit.py").read_text(encoding="utf-8")
+            self.assertIn("python_exec = _venv_python_path()", cursor_after)
+            self.assertIn("[python_exec, str(gate)]", cursor_after)
+            claude_sim = (repo_root / ".claude" / "hooks" / "simulate-hooks.py").read_text(encoding="utf-8")
+            self.assertIn("python_exec = _venv_python_path()", claude_sim)
+            self.assertIn("[python_exec, str(target)]", claude_sim)
             self.assertIn(
                 ".wavefoundry/guard-overrides.json",
                 (repo_root / ".claude" / "skills" / "upgrade-wave.md").read_text(encoding="utf-8"),
@@ -123,15 +139,21 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             bin_gardener = repo_root / ".wavefoundry" / "bin" / "docs-gardener"
             bin_dashboard = repo_root / ".wavefoundry" / "bin" / "wave_dashboard"
             bin_codex = repo_root / ".wavefoundry" / "bin" / "register-codex-mcp"
+            bin_setup = repo_root / ".wavefoundry" / "bin" / "setup-wavefoundry"
+            bin_upgrade = repo_root / ".wavefoundry" / "bin" / "upgrade-wavefoundry"
             self.assertTrue(bin_lint.exists(), ".wavefoundry/bin/docs-lint should be created")
             self.assertTrue(bin_gardener.exists(), ".wavefoundry/bin/docs-gardener should be created")
             self.assertTrue(bin_dashboard.exists(), ".wavefoundry/bin/wave_dashboard should be created")
             self.assertTrue(bin_codex.exists(), ".wavefoundry/bin/register-codex-mcp should be created")
+            self.assertTrue(bin_setup.exists(), ".wavefoundry/bin/setup-wavefoundry should be created")
+            self.assertTrue(bin_upgrade.exists(), ".wavefoundry/bin/upgrade-wavefoundry should be created")
             if os.name != "nt":
                 self.assertTrue(os.access(bin_lint, os.X_OK), "docs-lint should be executable")
                 self.assertTrue(os.access(bin_gardener, os.X_OK), "docs-gardener should be executable")
                 self.assertTrue(os.access(bin_dashboard, os.X_OK), "wave_dashboard should be executable")
                 self.assertTrue(os.access(bin_codex, os.X_OK), "register-codex-mcp should be executable")
+                self.assertTrue(os.access(bin_setup, os.X_OK), "setup-wavefoundry should be executable")
+                self.assertTrue(os.access(bin_upgrade, os.X_OK), "upgrade-wavefoundry should be executable")
             self.assertIn(
                 ".wavefoundry/framework/scripts/docs_lint.py",
                 bin_lint.read_text(encoding="utf-8"),
@@ -171,25 +193,43 @@ class RenderBinLaunchersTests(unittest.TestCase):
             bin_gardener = root / ".wavefoundry" / "bin" / "docs-gardener"
             bin_dashboard = root / ".wavefoundry" / "bin" / "wave_dashboard"
             bin_codex = root / ".wavefoundry" / "bin" / "register-codex-mcp"
+            bin_setup = root / ".wavefoundry" / "bin" / "setup-wavefoundry"
+            bin_upgrade = root / ".wavefoundry" / "bin" / "upgrade-wavefoundry"
             self.assertTrue(bin_lint.exists())
             self.assertTrue(bin_gardener.exists())
             self.assertTrue(bin_dashboard.exists())
             self.assertTrue(bin_codex.exists())
+            self.assertTrue(bin_setup.exists())
+            self.assertTrue(bin_upgrade.exists())
+            self.assertFalse((root / ".wavefoundry" / "bin" / "upgrade-wavefoundry.bat").exists())
             lint_src = bin_lint.read_text(encoding="utf-8")
             gardener_src = bin_gardener.read_text(encoding="utf-8")
             dashboard_src = bin_dashboard.read_text(encoding="utf-8")
             codex_src = bin_codex.read_text(encoding="utf-8")
+            setup_src = bin_setup.read_text(encoding="utf-8")
+            upgrade_src = bin_upgrade.read_text(encoding="utf-8")
+        _venv_var = "WAVEFOUNDRY_VENV"
         self.assertIn("docs_lint.py", lint_src)
+        self.assertIn(_venv_var, lint_src)
         self.assertIn("docs_gardener.py", gardener_src)
+        self.assertIn(_venv_var, gardener_src)
         self.assertIn("nohup", dashboard_src)
         self.assertIn(".wavefoundry/logs/dashboard.log", dashboard_src)
+        self.assertIn(_venv_var, dashboard_src)
         self.assertIn("codex mcp add", codex_src)
         self.assertIn("repo_suffix()", codex_src)
         self.assertIn('SERVER_NAME="wavefoundry-$(repo_suffix "$REPO_ROOT")"', codex_src)
+        self.assertIn(_venv_var, codex_src)
+        self.assertIn("setup_wavefoundry.py", setup_src)
+        self.assertIn(_venv_var, setup_src)
+        self.assertIn("upgrade_wavefoundry.py", upgrade_src)
+        self.assertIn(_venv_var, upgrade_src)
         self.assertIn("#!/usr/bin/env bash", lint_src)
         self.assertIn("#!/usr/bin/env bash", gardener_src)
         self.assertIn("#!/usr/bin/env bash", dashboard_src)
         self.assertIn("#!/usr/bin/env bash", codex_src)
+        self.assertIn("#!/usr/bin/env bash", setup_src)
+        self.assertIn("#!/usr/bin/env bash", upgrade_src)
 
     def test_bin_launchers_are_executable(self):
         if os.name == "nt":
@@ -202,10 +242,14 @@ class RenderBinLaunchersTests(unittest.TestCase):
             bin_gardener = root / ".wavefoundry" / "bin" / "docs-gardener"
             bin_dashboard = root / ".wavefoundry" / "bin" / "wave_dashboard"
             bin_codex = root / ".wavefoundry" / "bin" / "register-codex-mcp"
+            bin_setup = root / ".wavefoundry" / "bin" / "setup-wavefoundry"
+            bin_upgrade = root / ".wavefoundry" / "bin" / "upgrade-wavefoundry"
             self.assertTrue(os.access(bin_lint, os.X_OK))
             self.assertTrue(os.access(bin_gardener, os.X_OK))
             self.assertTrue(os.access(bin_dashboard, os.X_OK))
             self.assertTrue(os.access(bin_codex, os.X_OK))
+            self.assertTrue(os.access(bin_setup, os.X_OK))
+            self.assertTrue(os.access(bin_upgrade, os.X_OK))
 
     def test_render_bin_launchers_is_idempotent(self):
         rps = self._load_rps()
@@ -216,6 +260,16 @@ class RenderBinLaunchersTests(unittest.TestCase):
             rps.render_bin_launchers(root)
             second_lint = (root / ".wavefoundry" / "bin" / "docs-lint").read_text(encoding="utf-8")
         self.assertEqual(first_lint, second_lint)
+
+    def test_render_bin_launchers_removes_stale_windows_upgrade_wrapper(self):
+        rps = self._load_rps()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stale = root / ".wavefoundry" / "bin" / "upgrade-wavefoundry.bat"
+            stale.parent.mkdir(parents=True, exist_ok=True)
+            stale.write_text("stale\n", encoding="utf-8")
+            rps.render_bin_launchers(root)
+            self.assertFalse(stale.exists())
 
 
 class MergeMcpServerTests(unittest.TestCase):
@@ -236,7 +290,7 @@ class MergeMcpServerTests(unittest.TestCase):
             data = json.loads((root / ".cursor" / "mcp.json").read_text(encoding="utf-8"))
         wf = data["mcpServers"]["wavefoundry"]
         self.assertEqual(wf["type"], "stdio")
-        self.assertEqual(wf["command"], "python3")
+        self.assertEqual(wf["command"], rps._venv_python_path())
         self.assertEqual(
             wf["args"],
             [".wavefoundry/framework/scripts/server.py", "--root", "${workspaceFolder}"],
@@ -259,7 +313,7 @@ class MergeMcpServerTests(unittest.TestCase):
         self.assertIn("other-tool", data["mcpServers"])
         self.assertEqual(data["mcpServers"]["other-tool"]["command"], "node")
         # Wavefoundry entry written
-        self.assertEqual(data["mcpServers"]["wavefoundry"]["command"], "python3")
+        self.assertEqual(data["mcpServers"]["wavefoundry"]["command"], rps._venv_python_path())
 
     def test_render_mcp_json_includes_root_arg(self):
         rps = self._load_rps()

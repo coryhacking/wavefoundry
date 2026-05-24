@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-20
+Last verified: 2026-05-23
 
 Generic Wave Framework agent roles used in Wavefoundry delivery work. Agent docs carry `Category:` metadata for dashboard grouping; role-bearing docs also carry `Role:` and define operating identity, salience triggers, and memory responsibilities.
 
@@ -34,6 +34,14 @@ Currently supported universal specialists. These are the cross-project roles tha
 | codebase-onboarding-engineer | Read-only repo discovery, architecture walkthroughs, onboarding maps |
 | workflow-architect | Happy-path, failure-path, and handoff design before implementation |
 | reality-checker | Evidence-first release skepticism and claim validation; fixed seat in the default Wave Council template |
+| red-team | Multi-perspective adversarial and alternative-path challenge: bypass/failure pressure-testing, option challenge, technology evaluation, workflow challenge, feature-definition challenge, design provocation, and council participation. Distinct from `reality-checker` (evidence skepticism) and `security-reviewer` (security signoff). |
+
+## Challenger Specialist Routing
+
+When deciding between adjacent challenger lanes:
+- **`red-team`** — ask how the design/decision/implementation can be broken, bypassed, or improved by a competing alternative; use for adversarial review, technology evaluation, and feature-definition challenge
+- **`reality-checker`** — ask whether a claim is actually evidenced; use for assumption validation and false-confidence detection
+- **`senior-engineering-challenger`** — ask whether a plan or delivered result is internally consistent and pressure-tested; use for plan/delivery review
 
 ## Archetype Specialists
 

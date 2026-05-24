@@ -160,6 +160,8 @@ def main() -> int:
     program = unittest.main(module=None, argv=argv, exit=False)
     assert program.result is not None
 
+    _clean_pycache()
+
     if program.result.wasSuccessful():
         _write_cache(inputs_hash, program.result.testsRun)
         return 0

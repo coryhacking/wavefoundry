@@ -3,4 +3,7 @@
 # Resolves repo root from this script's location and delegates to docs_gardener.py.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-exec python3 "$REPO_ROOT/.wavefoundry/framework/scripts/docs_gardener.py" "$@"
+WAVEFOUNDRY_VENV="${WAVEFOUNDRY_TOOL_VENV:-$HOME/.wavefoundry/venv}"
+PYTHON="${WAVEFOUNDRY_VENV}/bin/python"
+if [ ! -x "$PYTHON" ]; then PYTHON="python3"; fi
+exec "$PYTHON" "$REPO_ROOT/.wavefoundry/framework/scripts/docs_gardener.py" "$@"

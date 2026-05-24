@@ -14,6 +14,23 @@ from textwrap import dedent
 FRAMEWORK_RENDERER_REL = ".wavefoundry/framework/scripts/render_platform_surfaces.py"
 GUARD_OVERRIDES_REL = ".wavefoundry/guard-overrides.json"
 
+_VENV_DEFAULT = Path.home() / ".wavefoundry" / "venv"
+
+
+def _venv_python_path() -> str:
+    """Return the absolute path to the venv Python for this machine."""
+    venv_base = Path(os.environ.get("WAVEFOUNDRY_TOOL_VENV", str(_VENV_DEFAULT)))
+    if os.name == "nt":
+        return str(venv_base / "Scripts" / "python.exe")
+    return str(venv_base / "bin" / "python")
+
+
+_VENV_SH_SNIPPET = """\
+WAVEFOUNDRY_VENV="${WAVEFOUNDRY_TOOL_VENV:-$HOME/.wavefoundry/venv}"
+PYTHON="${WAVEFOUNDRY_VENV}/bin/python"
+if [ ! -x "$PYTHON" ]; then PYTHON="python3"; fi
+"""
+
 
 def discover_repo_root() -> Path:
     """Walk up from CWD to find the repo root for the renderer.
@@ -87,9 +104,12 @@ def remove_copilot_artifacts(repo_root: Path) -> None:
     )
 
 
-def launcher_command(rel_base: str) -> str:
+def launcher_command(rel_base: str, repo_root: Path | None = None) -> str:
     if os.name == "nt":
-        return f"cmd.exe /c {rel_base.replace('/', '\\')}.cmd"
+        base = str(repo_root / rel_base.replace("/", os.sep)) if repo_root else rel_base.replace("/", "\\")
+        return f"cmd.exe /c {base}.cmd"
+    if repo_root is not None:
+        return str(repo_root / rel_base)
     return rel_base
 
 
@@ -98,10 +118,10 @@ def posix_launcher_source(script_name: str) -> str:
         f"""#!/usr/bin/env sh
         set -eu
         SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-        if command -v python3 >/dev/null 2>&1; then
-          exec python3 "$SCRIPT_DIR/{script_name}.py" "$@"
-        fi
-        exec python "$SCRIPT_DIR/{script_name}.py" "$@"
+        WAVEFOUNDRY_VENV="${{WAVEFOUNDRY_TOOL_VENV:-$HOME/.wavefoundry/venv}}"
+        PYTHON="${{WAVEFOUNDRY_VENV}}/bin/python"
+        if [ ! -x "$PYTHON" ]; then PYTHON="python3"; fi
+        exec "$PYTHON" "$SCRIPT_DIR/{script_name}.py" "$@"
         """
     )
 
@@ -111,17 +131,13 @@ def windows_launcher_source(script_name: str) -> str:
         f"""@echo off
         setlocal
         set "SCRIPT_DIR=%~dp0"
-        where py >nul 2>nul
-        if not errorlevel 1 (
-          py -3 "%SCRIPT_DIR%{script_name}.py" %*
-          exit /b %ERRORLEVEL%
+        if defined WAVEFOUNDRY_TOOL_VENV (
+          set "PYTHON=%WAVEFOUNDRY_TOOL_VENV%\\Scripts\\python.exe"
+        ) else (
+          set "PYTHON=%USERPROFILE%\\.wavefoundry\\venv\\Scripts\\python.exe"
         )
-        where python >nul 2>nul
-        if not errorlevel 1 (
-          python "%SCRIPT_DIR%{script_name}.py" %*
-          exit /b %ERRORLEVEL%
-        )
-        python3 "%SCRIPT_DIR%{script_name}.py" %*
+        if not exist "%PYTHON%" set "PYTHON=python3"
+        "%PYTHON%" "%SCRIPT_DIR%{script_name}.py" %*
         exit /b %ERRORLEVEL%
         """
     )
@@ -297,14 +313,25 @@ def hook_helpers() -> str:
             return path.startswith(".wavefoundry/framework/")
 
 
+        def _venv_python_path() -> str:
+            import os
+            venv_base = os.environ.get("WAVEFOUNDRY_TOOL_VENV", str(Path.home() / ".wavefoundry" / "venv"))
+            if os.name == "nt":
+                return str(Path(venv_base) / "Scripts" / "python.exe")
+            return str(Path(venv_base) / "bin" / "python")
+
+
         def maybe_trigger_reindex(file_path: str) -> None:
             if not should_reindex(file_path):
                 return
             indexer = REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
             if not indexer.exists():
                 return
+            python_exec = _venv_python_path()
+            if not Path(python_exec).exists():
+                python_exec = sys.executable
             subprocess.Popen(
-                [sys.executable, str(indexer), "--root", str(REPO_ROOT)],
+                [python_exec, str(indexer), "--root", str(REPO_ROOT)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 cwd=str(REPO_ROOT),
@@ -314,7 +341,7 @@ def hook_helpers() -> str:
                 framework_index = REPO_ROOT / ".wavefoundry" / "framework" / "index"
                 subprocess.Popen(
                     [
-                        sys.executable,
+                        python_exec,
                         str(indexer),
                         "--root",
                         str(REPO_ROOT),
@@ -396,26 +423,12 @@ def claude_post_edit_source() -> str:
     )
 
 
-def claude_pycache_cleanup_source() -> str:
-    return compose_script(
-        """
-        def main() -> int:
-            payload = load_payload(read_payload_text())
-            maybe_cleanup_pycache(detect_command(payload))
-            return 0
-
-
-        if __name__ == "__main__":
-            raise SystemExit(main())
-        """
-    )
-
-
 def claude_simulate_hooks_source() -> str:
     return compose_script(
         """
         from __future__ import annotations
 
+        import os
         import subprocess
         import sys
         from pathlib import Path
@@ -424,8 +437,14 @@ def claude_simulate_hooks_source() -> str:
         HOOKS = {
             "pre-edit": REPO_ROOT / ".claude" / "hooks" / "pre-edit.py",
             "post-edit": REPO_ROOT / ".claude" / "hooks" / "post-edit.py",
-            "pycache-cleanup": REPO_ROOT / ".claude" / "hooks" / "pycache-cleanup.py",
         }
+
+
+        def _venv_python_path() -> str:
+            venv_base = os.environ.get("WAVEFOUNDRY_TOOL_VENV", str(Path.home() / ".wavefoundry" / "venv"))
+            if os.name == "nt":
+                return str(Path(venv_base) / "Scripts" / "python.exe")
+            return str(Path(venv_base) / "bin" / "python")
 
 
         def main(argv: list[str]) -> int:
@@ -437,8 +456,11 @@ def claude_simulate_hooks_source() -> str:
             if target is None:
                 print(f"unknown hook entrypoint: {hook_name}", file=sys.stderr)
                 return 2
+            python_exec = _venv_python_path()
+            if not Path(python_exec).exists():
+                python_exec = sys.executable
             result = subprocess.run(
-                [sys.executable, str(target)],
+                [python_exec, str(target)],
                 cwd=REPO_ROOT,
                 input=payload,
                 text=True,
@@ -524,9 +546,12 @@ def cursor_after_file_edit_source() -> str:
         def main() -> int:
             raw = read_payload_text()
             payload = load_payload(raw)
+            python_exec = _venv_python_path()
+            if not Path(python_exec).exists():
+                python_exec = sys.executable
             for gate in GATES:
                 result = subprocess.run(
-                    [sys.executable, str(gate)],
+                    [python_exec, str(gate)],
                     cwd=REPO_ROOT,
                     input=raw,
                     text=True,
@@ -659,7 +684,7 @@ def render_claude_settings(repo_root: Path) -> None:
                 "hooks": [
                     {
                         "type": "command",
-                        "command": launcher_command(".claude/hooks/pre-edit"),
+                        "command": launcher_command(".claude/hooks/pre-edit", repo_root),
                         "statusMessage": "Checking framework edit gates...",
                     }
                 ],
@@ -667,21 +692,11 @@ def render_claude_settings(repo_root: Path) -> None:
         ],
         "PostToolUse": [
             {
-                "matcher": "Bash",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": launcher_command(".claude/hooks/pycache-cleanup"),
-                        "statusMessage": "Cleaning __pycache__...",
-                    }
-                ],
-            },
-            {
                 "matcher": "Edit|Write",
                 "hooks": [
                     {
                         "type": "command",
-                        "command": launcher_command(".claude/hooks/post-edit"),
+                        "command": launcher_command(".claude/hooks/post-edit", repo_root),
                         "statusMessage": "Running docs gates...",
                     }
                 ],
@@ -717,12 +732,13 @@ def render_mcp_json(repo_root: Path) -> None:
 
     Uses ``--root .`` so the stanza is portable: Claude Code launches from the
     project directory, so ``"."`` resolves to the repo root without embedding a
-    machine-specific absolute path.
+    machine-specific absolute path.  The ``command`` field is the resolved venv
+    Python path because ``~`` is not expanded in MCP JSON at runtime.
     """
     _merge_mcp_server(
         repo_root / ".mcp.json",
         {
-            "command": "python3",
+            "command": _venv_python_path(),
             "args": [".wavefoundry/framework/scripts/server.py", "--root", "."],
         },
     )
@@ -733,7 +749,7 @@ def render_junie_mcp_json(repo_root: Path) -> None:
     _merge_mcp_server(
         repo_root / ".junie" / "mcp" / "mcp.json",
         {
-            "command": "python3",
+            "command": _venv_python_path(),
             "args": [".wavefoundry/framework/scripts/server.py", "--root", "."],
         },
     )
@@ -744,12 +760,14 @@ def render_cursor_mcp_json(repo_root: Path) -> None:
 
     Uses Cursor's ``${workspaceFolder}`` interpolation token for ``--root`` so
     the stanza is portable across machines without embedding an absolute path.
+    The ``command`` field uses the resolved venv Python because ``~`` is not
+    expanded in MCP JSON at runtime.
     """
     _merge_mcp_server(
         repo_root / ".cursor" / "mcp.json",
         {
             "type": "stdio",
-            "command": "python3",
+            "command": _venv_python_path(),
             "args": [
                 ".wavefoundry/framework/scripts/server.py",
                 "--root",
@@ -766,7 +784,7 @@ def render_cursor_hooks(repo_root: Path) -> None:
         "hooks": {
             "afterFileEdit": [
                 {
-                    "command": launcher_command(".cursor/hooks/after-file-edit"),
+                    "command": launcher_command(".cursor/hooks/after-file-edit", repo_root),
                 }
             ]
         },
@@ -781,13 +799,13 @@ def render_copilot_hooks(repo_root: Path) -> None:
             "preToolUse": [
                 {
                     "type": "command",
-                    "bash": launcher_command(".github/hooks/pre-tool-use"),
+                    "bash": launcher_command(".github/hooks/pre-tool-use", repo_root),
                 }
             ],
             "postToolUse": [
                 {
                     "type": "command",
-                    "bash": launcher_command(".github/hooks/post-tool-use"),
+                    "bash": launcher_command(".github/hooks/post-tool-use", repo_root),
                 }
             ],
         },
@@ -801,11 +819,19 @@ def git_hook_source(hook_name: str) -> str:
         "#!/usr/bin/env python3",
         "from __future__ import annotations",
         "",
+        "import os",
         "import subprocess",
         "import sys",
         "from pathlib import Path",
         "",
         "REPO_ROOT = Path(__file__).resolve().parents[2]",
+        "",
+        "",
+        "def _venv_python_path() -> str:",
+        "    venv_base = os.environ.get(\"WAVEFOUNDRY_TOOL_VENV\", str(Path.home() / \".wavefoundry\" / \"venv\"))",
+        "    if os.name == \"nt\":",
+        "        return str(Path(venv_base) / \"Scripts\" / \"python.exe\")",
+        "    return str(Path(venv_base) / \"bin\" / \"python\")",
         "",
     ]
     if hook_name == "post-checkout":
@@ -821,8 +847,11 @@ def git_hook_source(hook_name: str) -> str:
         "    indexer = REPO_ROOT / \".wavefoundry\" / \"framework\" / \"scripts\" / \"indexer.py\"",
         "    if not indexer.exists():",
         "        return 0",
+        "    python_exec = _venv_python_path()",
+        "    if not Path(python_exec).exists():",
+        "        python_exec = sys.executable",
         "    subprocess.Popen(",
-        "        [sys.executable, str(indexer), \"--root\", str(REPO_ROOT)],",
+        "        [python_exec, str(indexer), \"--root\", str(REPO_ROOT)],",
         "        stdout=subprocess.DEVNULL,",
         "        stderr=subprocess.DEVNULL,",
         "        cwd=str(REPO_ROOT),",
@@ -851,61 +880,103 @@ def render_bin_launchers(repo_root: Path) -> None:
     bin_dir = repo_root / ".wavefoundry" / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
 
-    docs_lint_src = """\
-#!/usr/bin/env bash
-# Canonical docs-lint launcher — .wavefoundry/bin/docs-lint
-# Resolves repo root from this script's location and delegates to docs_lint.py.
-set -euo pipefail
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$REPO_ROOT"
-exec python3 ".wavefoundry/framework/scripts/docs_lint.py" "$@"
-"""
-    docs_gardener_src = """\
-#!/usr/bin/env bash
-# Canonical docs-gardener launcher — .wavefoundry/bin/docs-gardener
-# Resolves repo root from this script's location and delegates to docs_gardener.py.
-set -euo pipefail
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-exec python3 "$REPO_ROOT/.wavefoundry/framework/scripts/docs_gardener.py" "$@"
-"""
-    wave_dashboard_src = """\
-#!/usr/bin/env bash
-# Persistent dashboard launcher — .wavefoundry/bin/wave_dashboard
-# Starts the local dashboard server under nohup so it survives shell exit.
-set -euo pipefail
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-LOG="$REPO_ROOT/.wavefoundry/logs/dashboard.log"
-mkdir -p "$(dirname "$LOG")"
-nohup python3 "$REPO_ROOT/.wavefoundry/framework/scripts/dashboard_server.py" --root "$REPO_ROOT" --open "$@" >"$LOG" 2>&1 &
-echo "Wave dashboard started (pid $!). Log: $LOG"
-"""
-    codex_mcp_src = """\
-#!/usr/bin/env bash
-# Canonical Codex MCP bootstrap launcher — .wavefoundry/bin/register-codex-mcp
-# Registers the repo-local Wavefoundry MCP server in ~/.codex/config.toml.
-set -euo pipefail
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-repo_suffix() {
-  if command -v shasum >/dev/null 2>&1; then
-    printf '%s' "$1" | shasum -a 256 | cut -c1-8
-  elif command -v sha256sum >/dev/null 2>&1; then
-    printf '%s' "$1" | sha256sum | cut -c1-8
-  else
-    printf '%s' "$1" | cksum | awk '{print $1}'
-  fi
-}
-
-SERVER_NAME="wavefoundry-$(repo_suffix "$REPO_ROOT")"
-if ! command -v codex >/dev/null 2>&1; then
-  echo "codex CLI not found on PATH." >&2
-  exit 127
-fi
-exec codex mcp add "$SERVER_NAME" -- python3 "$REPO_ROOT/.wavefoundry/framework/scripts/server.py" --root "$REPO_ROOT"
-    """
+    _venv_block = (
+        'WAVEFOUNDRY_VENV="${WAVEFOUNDRY_TOOL_VENV:-$HOME/.wavefoundry/venv}"\n'
+        'PYTHON="${WAVEFOUNDRY_VENV}/bin/python"\n'
+        'if [ ! -x "$PYTHON" ]; then PYTHON="python3"; fi\n'
+    )
+    _bat_venv_block = (
+        'if defined WAVEFOUNDRY_TOOL_VENV (\n'
+        '  set "PYTHON=%WAVEFOUNDRY_TOOL_VENV%\\Scripts\\python.exe"\n'
+        ') else (\n'
+        '  set "PYTHON=%USERPROFILE%\\.wavefoundry\\venv\\Scripts\\python.exe"\n'
+        ')\n'
+        'if not exist "%PYTHON%" set "PYTHON=python3"\n'
+    )
+    docs_lint_src = (
+        "#!/usr/bin/env bash\n"
+        "# Canonical docs-lint launcher — .wavefoundry/bin/docs-lint\n"
+        "# Resolves repo root from this script's location and delegates to docs_lint.py.\n"
+        "set -euo pipefail\n"
+        'REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"\n'
+        + _venv_block
+        + 'cd "$REPO_ROOT"\n'
+        'exec "$PYTHON" ".wavefoundry/framework/scripts/docs_lint.py" "$@"\n'
+    )
+    docs_gardener_src = (
+        "#!/usr/bin/env bash\n"
+        "# Canonical docs-gardener launcher — .wavefoundry/bin/docs-gardener\n"
+        "# Resolves repo root from this script's location and delegates to docs_gardener.py.\n"
+        "set -euo pipefail\n"
+        'REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"\n'
+        + _venv_block
+        + 'exec "$PYTHON" "$REPO_ROOT/.wavefoundry/framework/scripts/docs_gardener.py" "$@"\n'
+    )
+    wave_dashboard_src = (
+        "#!/usr/bin/env bash\n"
+        "# Persistent dashboard launcher — .wavefoundry/bin/wave_dashboard\n"
+        "# Starts the local dashboard server under nohup so it survives shell exit.\n"
+        "set -euo pipefail\n"
+        'REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"\n'
+        + _venv_block
+        + 'LOG="$REPO_ROOT/.wavefoundry/logs/dashboard.log"\n'
+        'mkdir -p "$(dirname "$LOG")"\n'
+        'nohup "$PYTHON" "$REPO_ROOT/.wavefoundry/framework/scripts/dashboard_server.py" --root "$REPO_ROOT" --open "$@" >"$LOG" 2>&1 &\n'
+        'echo "Wave dashboard started (pid $!). Log: $LOG"\n'
+    )
+    codex_mcp_src = (
+        "#!/usr/bin/env bash\n"
+        "# Canonical Codex MCP bootstrap launcher — .wavefoundry/bin/register-codex-mcp\n"
+        "# Registers the repo-local Wavefoundry MCP server in ~/.codex/config.toml.\n"
+        "set -euo pipefail\n"
+        'REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"\n'
+        + _venv_block
+        + "repo_suffix() {\n"
+        "  if command -v shasum >/dev/null 2>&1; then\n"
+        '    printf \'%s\' "$1" | shasum -a 256 | cut -c1-8\n'
+        "  elif command -v sha256sum >/dev/null 2>&1; then\n"
+        '    printf \'%s\' "$1" | sha256sum | cut -c1-8\n'
+        "  else\n"
+        '    printf \'%s\' "$1" | cksum | awk \'{print $1}\'\n'
+        "  fi\n"
+        "}\n"
+        "\n"
+        'SERVER_NAME="wavefoundry-$(repo_suffix "$REPO_ROOT")"\n'
+        "if ! command -v codex >/dev/null 2>&1; then\n"
+        '  echo "codex CLI not found on PATH." >&2\n'
+        "  exit 127\n"
+        "fi\n"
+        'exec codex mcp add "$SERVER_NAME" -- "$PYTHON" "$REPO_ROOT/.wavefoundry/framework/scripts/server.py" --root "$REPO_ROOT"\n'
+    )
+    setup_wavefoundry_src = (
+        "#!/usr/bin/env bash\n"
+        "# Canonical setup-wavefoundry launcher — .wavefoundry/bin/setup-wavefoundry\n"
+        "# Resolves repo root from this script's location and delegates to setup_wavefoundry.py.\n"
+        "set -euo pipefail\n"
+        'REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"\n'
+        + _venv_block
+        + 'cd "$REPO_ROOT"\n'
+        'exec "$PYTHON" ".wavefoundry/framework/scripts/setup_wavefoundry.py" "$@"\n'
+    )
+    upgrade_wavefoundry_src = (
+        "#!/usr/bin/env bash\n"
+        "# Canonical upgrade-wavefoundry launcher — .wavefoundry/bin/upgrade-wavefoundry\n"
+        "# Resolves repo root from this script's location and delegates to upgrade_wavefoundry.py.\n"
+        "set -euo pipefail\n"
+        'REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"\n'
+        + _venv_block
+        + 'cd "$REPO_ROOT"\n'
+        'exec "$PYTHON" ".wavefoundry/framework/scripts/upgrade_wavefoundry.py" "$@"\n'
+    )
     write_text(bin_dir / "docs-lint", docs_lint_src, executable=True)
     write_text(bin_dir / "docs-gardener", docs_gardener_src, executable=True)
     write_text(bin_dir / "wave_dashboard", wave_dashboard_src, executable=True)
     write_text(bin_dir / "register-codex-mcp", codex_mcp_src, executable=True)
+    write_text(bin_dir / "setup-wavefoundry", setup_wavefoundry_src, executable=True)
+    write_text(bin_dir / "upgrade-wavefoundry", upgrade_wavefoundry_src, executable=True)
+    stale_windows_wrapper = bin_dir / "upgrade-wavefoundry.bat"
+    if stale_windows_wrapper.exists():
+        stale_windows_wrapper.unlink()
 
 
 def render_git_hooks(repo_root: Path) -> None:
@@ -923,10 +994,10 @@ def render_windsurf_hooks(repo_root: Path) -> None:
     config = {
         "hooks": {
             "pre_write_code": [
-                {"command": launcher_command(".windsurf/hooks/seed-protect"), "show_output": True}
+                {"command": launcher_command(".windsurf/hooks/seed-protect", repo_root), "show_output": True}
             ],
             "post_write_code": [
-                {"command": launcher_command(".windsurf/hooks/docs-lint"), "show_output": True}
+                {"command": launcher_command(".windsurf/hooks/docs-lint", repo_root), "show_output": True}
             ],
         }
     }
@@ -1028,6 +1099,7 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
                 repo_root / ".claude" / "hooks" / "post-edit.sh",
                 repo_root / ".claude" / "hooks" / "post-edit.cmd",
                 repo_root / ".claude" / "hooks" / "pycache-cleanup",
+                repo_root / ".claude" / "hooks" / "pycache-cleanup.py",
                 repo_root / ".claude" / "hooks" / "pycache-cleanup.sh",
                 repo_root / ".claude" / "hooks" / "pycache-cleanup.cmd",
                 repo_root / ".claude" / "hooks" / "simulate-hooks",
@@ -1037,7 +1109,6 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
         )
         write_hook_bundle(repo_root / ".claude" / "hooks" / "pre-edit", claude_pre_edit_source())
         write_hook_bundle(repo_root / ".claude" / "hooks" / "post-edit", claude_post_edit_source())
-        write_hook_bundle(repo_root / ".claude" / "hooks" / "pycache-cleanup", claude_pycache_cleanup_source())
         write_hook_bundle(repo_root / ".claude" / "hooks" / "simulate-hooks", claude_simulate_hooks_source())
         render_claude_settings(repo_root)
         render_mcp_json(repo_root)

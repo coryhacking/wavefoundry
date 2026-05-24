@@ -3,7 +3,7 @@
   "hooks": {
     "afterFileEdit": [
       {
-        "command": ".cursor/hooks/after-file-edit"
+        "command": "/Users/coryhacking/Developer/wavefoundry/.cursor/hooks/after-file-edit"
       }
     ]
   }

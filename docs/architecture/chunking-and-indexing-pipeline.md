@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-19
+Last verified: 2026-05-23
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -412,7 +412,7 @@ new tree-sitter language is added — every file in the affected layer is re-chu
 re-embedded on the next build. The same applies when the embedding model name changes.
 
 After deploying `CHUNKER_VERSION` `"21"`, run a **full index rebuild** so existing chunks
-match the new boundaries (e.g. `python3 .wavefoundry/framework/scripts/setup_index.py --full`
+match the new boundaries (e.g. `python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full`
 or `wave_index_build` with full mode).
 
 ---

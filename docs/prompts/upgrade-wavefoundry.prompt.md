@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-18
+Last verified: 2026-05-23
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -17,7 +17,8 @@ Use this prompt when the repository is already seeded and you want it to adopt a
 The expected operator flow is:
 
 1. Put the new framework in reach of this repository.
-   - Usually this means dropping `wavefoundry-<date><letter>.zip` at the repository root.
+   - Usually this means building or placing `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`.
+   - The one-time `0.9.0` bridge release is the exception: its artifact keeps the old date-style name (`wavefoundry-YYYY-MM-DDx.zip`) and should be placed at the repository root for legacy pre-semver upgrade adoption.
    - If the repository already has the desired newer `.wavefoundry/framework/` tree staged locally, the upgrade runs against that tree directly.
 2. Run **Upgrade Wavefoundry**.
    - If a root `wavefoundry-*.zip` is present, upgrade automatically unpacks the newest matching zip first.
@@ -35,9 +36,19 @@ What this prompt is not:
 - It is **not** init. Use init only for first-time seeding or legacy routing cases.
 - It is **not** a manual unzip checklist. Root zip adoption is built into the upgrade flow.
 
+**Supported operator environments:** macOS and Linux are supported natively. Windows is currently supported through **WSL2** for upgrade and operator workflows because some launcher and shell steps still assume a POSIX environment.
+
+**Python requirement:** Python 3.11 or later is required. Framework dependencies are installed into a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override); running `setup_wavefoundry.py` is the preferred way to create/populate it and run the index setup flow. `setup_index.py` remains supported as the compatibility entrypoint behind it.
+
 ## Upgrade Steps
 
-**Step 0 (optional zip adoption):** If a `wavefoundry-<date><letter>.zip` is at the repository root, the upgrade seed unpacks the lexicographically greatest zip, stages it under `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation. Archives with other names or outside the root are ignored.
+**Versioning contract:** Releases use `MAJOR.MINOR.PATCH` semver. The version appears as `MAJOR.MINOR.PATCH+<build>` in `VERSION` and `framework_revision`, and as `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` in filenames from `1.0.0` onward. The one-time `0.9.0` bridge release keeps the old date-style zip name (`wavefoundry-YYYY-MM-DDx.zip`) so pre-semver upgrade flows can adopt it directly. See `docs/architecture/decisions/12tm5-adr semver-versioning-contract.md` for the version bump policy.
+
+**Distribution directories:** `upgrade_wavefoundry.py` searches the repository root, `~/.wavefoundry/`, and `~/.wavefoundry/dist/`, then picks the highest semver zip for `1.0.0` and later. Non-matching filenames are skipped silently.
+
+**v0.9.0 bridge release (date-based installs):** The bridge pack is still semver internally (`0.9.0+<build>` in `VERSION` and `framework_revision` after upgrade), but its artifact keeps the old date-style zip name (`wavefoundry-YYYY-MM-DDx.zip`). For legacy pre-semver installs, place that bridge zip at the repository root and run the existing upgrade flow once; after it lands, future semver-named packs are recognized automatically.
+
+**Step 0 (optional zip adoption):** If a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` is in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`, or if the one-time `0.9.0` bridge pack is present at the repository root as `wavefoundry-YYYY-MM-DDx.zip`, the upgrade seed stages the selected pack under `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation. Non-matching filenames are skipped. On Windows, run this flow from **WSL2** rather than native `cmd.exe` or PowerShell.
 
 **Full reconciliation:**
 1. Inventory current state (seed-030 in targeted mode)
@@ -87,8 +98,8 @@ See `docs/contributing/build-and-verification.md` **Wave framework pack upgrade 
    - `.wavefoundry/bin/docs-lint` and `.wavefoundry/bin/docs-gardener` exist and point to `.wavefoundry/framework/scripts/`
 4. **Check `CHUNKER_VERSION`:** If the pack bumped `CHUNKER_VERSION`, a full index rebuild is required. Run `wave_index_health()` — a `chunker_version_mismatch` advisory confirms the rebuild is needed. Rebuild using the docs-first approach so MCP is available immediately:
    ```bash
-   python3 .wavefoundry/framework/scripts/setup_index.py --full
-   python3 .wavefoundry/framework/scripts/setup_index.py --background-code --full
+   python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full
+   python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --background-code --full
    ```
    See `docs/contributing/build-and-verification.md` **Upgrade rebuild requirement** for time estimates (~6 min total).
 5. Validate upgrade-recovery tools from the upgraded MCP server:

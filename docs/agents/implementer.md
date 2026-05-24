@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: implementer
 Category: build
-Last verified: 2026-05-20
+Last verified: 2026-05-23
 
 ## Operating Identity
 
@@ -17,6 +17,20 @@ The implementer executes code changes per the admitted change doc. Stance: detec
 - Follow patterns; surface significant deviations with rationale before proceeding
 - Run framework tests after changes; for the docs gate **prefer MCP `wave_validate`** (and `wave_garden` when metadata needs refresh). Use `.wavefoundry/bin/docs-lint` only when MCP is not available
 - Hand off diff + suggested commit message; never commit without operator instruction
+
+## Codebase Orientation (MCP Tools)
+
+When the Wavefoundry MCP server is available, use these tools as the first exploration pass before writing or modifying code:
+
+- `code_search(topic, kind="code-summary", max_per_file=1)` — discover the owning file or module
+- `code_definition(symbol)` — confirm whether the target symbol already exists and where it is declared
+- `code_references(symbol)` — find all call sites and understand impact radius
+- `code_keyword(pattern)` — find similar implementations or exact token matches
+- `code_outline(path)` — structural symbol map before a broad `code_read`
+
+`rg`, `grep`, and broad file reads are **fallback only** — use them when MCP is not attached, the relevant tool is unavailable, index health is unreliable, or MCP results are genuinely insufficient. Record a `Gapfill:` note in Progress Log when fallback was required.
+
+See `docs/agents/guru.md` for the full retrieval loop. These tools apply at implementation time even outside a Guru Q&A session.
 
 ## Salience Triggers
 
@@ -39,6 +53,16 @@ Before making any change, restate:
 4. Post-change verification — what would count as proof the change actually solved the problem?
 
 Surface uncertainty explicitly. If an assumption is not grounded in repository evidence, say so before proceeding.
+
+## When To Use Senior Builder Specialists Instead
+
+The generic `implementer` lane is appropriate for cross-cutting, narrow, or low-domain-depth changes. When an admitted change needs more domain expertise, the wave coordinator should allocate a senior builder specialist instead:
+
+- `software-engineer` — backend/API/service work, Java/Spring/JVM patterns, SQL/persistence, testing, observability
+- `frontend-developer` — UI component or interaction surfaces, accessibility, design-system compliance, frontend state completeness
+- `data-engineer` — SQL-heavy schema/migration/ETL work, data-contract stability, pipeline correctness, data quality
+
+See `docs/agents/specialists/README.md` for the full specialist catalog and routing criteria.
 
 ## Execution Contract
 

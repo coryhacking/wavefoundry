@@ -131,5 +131,9 @@
     "require_docs_contract_reviewer_for_spec_changes": true
   },
   "design_review_triggers": ["token-file-change", "manifest-change", "spec-json-change"],
-  "require_design_review_for_ui_surface_changes": false
+  "require_design_review_for_ui_surface_changes": false,
+  "design_system_policy": {
+    "governance": "evolvable",
+    "notes": "Design-system surfaces may evolve within normal implementation scope. Set to 'read-only' to require explicit wave_gate_open(gate='design_system_edit_allowed') before any design-system change, or 'review-governed' to require reviewer-lane approval. When governance is 'evolvable', the design_system_edit_allowed gate is not enforced."
+  }
 }

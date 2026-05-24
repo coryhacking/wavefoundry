@@ -1,5 +1,6 @@
 """Tests for build_pack.py."""
 
+import json
 import os
 import sys
 import unittest
@@ -11,6 +12,9 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import build_pack  # noqa: E402
+
+FAKE_PREFIX = "2tm5"
+FAKE_VERSION = "0.9.0"
 
 
 class BuildPackTests(unittest.TestCase):
@@ -28,48 +32,73 @@ class BuildPackTests(unittest.TestCase):
     # Helper
     # ------------------------------------------------------------------
 
-    def _build(self, date_str="2099-01-01", extra_args=None):
-        """Call build_pack.build_zip and return the resulting Path.
-
-        Does not write the real tree's VERSION file (tests use the in-repo pack
-        as zip source only).
-        """
-        return build_pack.build_zip(self.tmp, date_str, write_version=False)
+    def _build(self, version=FAKE_VERSION, build_prefix=FAKE_PREFIX, extra_args=None):
+        """Call build_pack.build_zip and return the resulting Path."""
+        return build_pack.build_zip(self.tmp, version, build_prefix, write_version=False, update_manifest=False)
 
     def _zip_names(self, zip_path):
         with zipfile.ZipFile(zip_path) as zf:
             return zf.namelist()
 
     # ------------------------------------------------------------------
-    # Suffix selection
+    # Filename format
     # ------------------------------------------------------------------
 
-    def test_first_build_produces_a_suffix(self):
-        path = self._build()
-        self.assertTrue(path.name.endswith("a.zip"), path.name)
+    def test_zip_filename_uses_semver_format(self):
+        """Zip filename must be wavefoundry-MAJOR.MINOR.PATCH.<build>.zip."""
+        path = self._build(version="1.0.0", build_prefix="2abc")
+        self.assertEqual(path.name, "wavefoundry-1.0.0.2abc.zip")
 
-    def test_second_build_produces_b_suffix(self):
-        first = self._build()
-        second = self._build()
-        self.assertTrue(second.name.endswith("b.zip"), second.name)
-        # First zip is unchanged: same byte content.
-        first_bytes = first.read_bytes()
-        self.assertEqual(first_bytes, first.read_bytes())
+    def test_build_suffix_uses_rightmost_four_characters(self):
+        self.assertEqual(build_pack._build_suffix("12tm5"), "2tm5")
+        self.assertEqual(build_pack._build_suffix("abcd"), "abcd")
 
-    def test_pack_version_file_matches_zip_when_enabled(self):
-        """Stamp VERSION inside an isolated framework dir; archive must match."""
+    def test_bridge_zip_filename_uses_legacy_date_shape(self):
+        """v0.9.0 bridge packs keep the old date-shaped zip naming contract."""
+        name = build_pack._bridge_zip_name(self.tmp, today=__import__("datetime").date(2026, 5, 23))
+        self.assertEqual(name, "wavefoundry-2026-05-23a.zip")
+
+    def test_bridge_zip_filename_uses_next_legacy_suffix_for_same_day(self):
+        """v0.9.0 bridge packs advance the old letter suffix contract for the current day."""
+        (self.tmp / "wavefoundry-2026-05-23a.zip").write_bytes(b"existing")
+        (self.tmp / "wavefoundry-2026-05-23c.zip").write_bytes(b"existing")
+        name = build_pack._bridge_zip_name(self.tmp, today=__import__("datetime").date(2026, 5, 23))
+        self.assertEqual(name, "wavefoundry-2026-05-23d.zip")
+
+    def test_pack_version_file_uses_plus_build_separator(self):
+        """VERSION file uses MAJOR.MINOR.PATCH+<build> with '+' separator."""
         fw = self.tmp / "mini-fw"
         fw.mkdir(parents=True)
         (fw / "stub.txt").write_text("stub", encoding="utf-8")
-        path = build_pack.build_zip(
-            self.tmp, "2099-12-01", framework_dir=fw, write_version=True
-        )
-        self.assertEqual(path.name, "wavefoundry-2099-12-01a.zip")
-        self.assertEqual((fw / "VERSION").read_text(encoding="utf-8"), "2099-12-01a\n")
-        with zipfile.ZipFile(path) as zf:
-            member = ".wavefoundry/framework/VERSION"
-            self.assertIn(member, zf.namelist())
-            self.assertEqual(zf.read(member).decode(), "2099-12-01a\n")
+        with patch.object(build_pack, "_bridge_zip_name", return_value="wavefoundry-2026-05-23a.zip"):
+            path = build_pack.build_zip(
+                self.tmp, "0.9.0", "2tm5", framework_dir=fw, write_version=True, update_manifest=False
+            )
+            self.assertEqual(path.name, "wavefoundry-2026-05-23a.zip")
+            self.assertEqual((fw / "VERSION").read_text(encoding="utf-8"), "0.9.0+2tm5\n")
+            with zipfile.ZipFile(path) as zf:
+                member = ".wavefoundry/framework/VERSION"
+                self.assertIn(member, zf.namelist())
+                self.assertEqual(zf.read(member).decode(), "0.9.0+2tm5\n")
+
+    def test_multi_digit_minor_version_in_filename(self):
+        """1.10.0 must produce the correct filename (not confused with 1.1.0)."""
+        path = self._build(version="1.10.0", build_prefix="2xyz")
+        self.assertEqual(path.name, "wavefoundry-1.10.0.2xyz.zip")
+
+    # ------------------------------------------------------------------
+    # write_pack_version
+    # ------------------------------------------------------------------
+
+    def test_write_pack_version_stamps_plus_format(self):
+        fw = self.tmp / "mini-fw"
+        fw.mkdir(parents=True)
+        build_pack.write_pack_version(fw, "1.0.0", "2tm5")
+        self.assertEqual((fw / "VERSION").read_text(encoding="utf-8"), "1.0.0+2tm5\n")
+
+    # ------------------------------------------------------------------
+    # Prebuild index
+    # ------------------------------------------------------------------
 
     def test_prebuild_index_runs_before_zip_and_is_packaged(self):
         fw = self.tmp / "mini-fw"
@@ -84,9 +113,11 @@ class BuildPackTests(unittest.TestCase):
         with patch.object(build_pack, "build_framework_index", side_effect=fake_prebuild) as mocked:
             path = build_pack.build_zip(
                 self.tmp,
-                "2099-12-02",
+                "0.9.0",
+                "12tm5",
                 framework_dir=fw,
                 write_version=True,
+                update_manifest=False,
                 prebuild_index=True,
             )
 
@@ -115,9 +146,11 @@ class BuildPackTests(unittest.TestCase):
              patch.object(build_pack, "_compact_framework_index"):
             build_pack.build_zip(
                 self.tmp,
-                "2099-12-02",
+                "0.9.0",
+                "12tm5",
                 framework_dir=fw,
                 write_version=True,
+                update_manifest=False,
                 prebuild_index=True,
             )
 
@@ -156,9 +189,11 @@ class BuildPackTests(unittest.TestCase):
              patch.object(build_pack, "_load_indexer", return_value=fake_indexer):
             build_pack.build_zip(
                 self.tmp,
-                "2099-12-03",
+                "0.9.0",
+                "12tm5",
                 framework_dir=fw,
                 write_version=True,
+                update_manifest=False,
                 prebuild_index=True,
             )
 
@@ -188,9 +223,11 @@ class BuildPackTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as ctx:
                 build_pack.build_zip(
                     self.tmp,
-                    "2099-12-04",
+                    "0.9.0",
+                    "12tm5",
                     framework_dir=fw,
                     write_version=True,
+                    update_manifest=False,
                     prebuild_index=True,
                 )
 
@@ -225,33 +262,6 @@ class BuildPackTests(unittest.TestCase):
         kwargs = fake_indexer.build_index.call_args.kwargs
         self.assertFalse(kwargs["full"])
         self.assertEqual(kwargs["content"], "docs")
-
-    def test_second_build_does_not_alter_first_zip_mtime(self):
-        first = self._build()
-        mtime_before = first.stat().st_mtime
-        self._build()
-        self.assertAlmostEqual(first.stat().st_mtime, mtime_before, places=1)
-
-    def test_unsuffixed_same_date_file_is_ignored_by_scanner(self):
-        # Place a file that matches the date prefix but has NO letter suffix.
-        (self.tmp / "wavefoundry-2099-01-01.zip").write_bytes(b"dummy")
-        path = self._build()
-        # No valid letter-suffixed pack yet — first pack is still `a`.
-        self.assertTrue(path.name.endswith("a.zip"), path.name)
-
-    def test_next_suffix_is_successor_of_max_not_first_gap(self):
-        # Only `b` exists — next must be `c`, not filling gap `a`.
-        (self.tmp / "wavefoundry-2099-01-01b.zip").write_bytes(b"x")
-        path = self._build()
-        self.assertTrue(path.name.endswith("c.zip"), path.name)
-
-    def test_suffix_exhaustion_raises(self):
-        date_str = "2099-01-01"
-        for letter in build_pack.SUFFIX_LETTERS:
-            (self.tmp / f"wavefoundry-{date_str}{letter}.zip").write_bytes(b"x")
-        with self.assertRaises(RuntimeError) as ctx:
-            build_pack.build_zip(self.tmp, date_str, write_version=False)
-        self.assertIn("a–z", str(ctx.exception))
 
     # ------------------------------------------------------------------
     # Zip contents
@@ -303,14 +313,12 @@ class BuildPackTests(unittest.TestCase):
         )
 
     def test_tests_excluded_from_pack(self):
-        # Test suite is a development-only artifact; must not ship in the distribution zip.
         path = self._build()
         for name in self._zip_names(path):
             self.assertNotIn("scripts/tests/", name, name)
             self.assertFalse(name.endswith("run_tests.py"), name)
 
     def test_benchmarks_excluded_from_pack(self):
-        # Benchmarks are development-only artifacts; must not ship in the distribution zip.
         path = self._build()
         for name in self._zip_names(path):
             self.assertNotIn("scripts/benchmarks/", name, name)
@@ -326,11 +334,9 @@ class BuildPackTests(unittest.TestCase):
             self.assertFalse(name.endswith(".pyc"), name)
 
     def test_ds_store_excluded(self):
-        # Inject a .DS_Store into the framework tree via should_exclude logic.
         self.assertFalse(
             build_pack.should_exclude("some/path/.DS_Store", ".DS_Store") is False
         )
-        # Verify the predicate itself.
         self.assertTrue(build_pack.should_exclude(".DS_Store", ".DS_Store"))
 
     def test_pytest_cache_excluded(self):
@@ -351,7 +357,7 @@ class BuildPackTests(unittest.TestCase):
         import tempfile
         alt_dir = Path(tempfile.mkdtemp())
         try:
-            path = build_pack.build_zip(alt_dir, "2099-02-01", write_version=False)
+            path = build_pack.build_zip(alt_dir, "1.0.0", "2abc", write_version=False, update_manifest=False)
             self.assertEqual(path.parent, alt_dir)
             self.assertTrue(path.exists())
         finally:
@@ -361,6 +367,7 @@ class BuildPackTests(unittest.TestCase):
     def test_nonexistent_output_dir_exits_nonzero(self):
         argv = [
             "build_pack.py",
+            "--version", "1.0.0",
             "--output", "/nonexistent/path/that/does/not/exist",
         ]
         with patch.object(sys, "argv", argv):
@@ -368,20 +375,25 @@ class BuildPackTests(unittest.TestCase):
                 build_pack.main()
         self.assertNotEqual(ctx.exception.code, 0)
 
-    # ------------------------------------------------------------------
-    # --date argument
-    # ------------------------------------------------------------------
+    def test_version_flag_is_required(self):
+        """main() exits non-zero when --version is omitted."""
+        argv = ["build_pack.py", "--output", str(self.tmp)]
+        with patch.object(sys, "argv", argv):
+            with self.assertRaises(SystemExit) as ctx:
+                build_pack.main()
+        self.assertNotEqual(ctx.exception.code, 0)
 
-    def test_date_override_produces_correct_filename(self):
-        path = build_pack.build_zip(self.tmp, "2099-01-01", write_version=False)
-        self.assertIn("2099-01-01", path.name)
-
-    def test_date_override_suffix_auto_selection_applies(self):
-        # Two builds with the same overridden date should produce a then b.
-        first = build_pack.build_zip(self.tmp, "2099-03-15", write_version=False)
-        second = build_pack.build_zip(self.tmp, "2099-03-15", write_version=False)
-        self.assertTrue(first.name.endswith("a.zip"), first.name)
-        self.assertTrue(second.name.endswith("b.zip"), second.name)
+    def test_invalid_version_format_exits_nonzero(self):
+        """main() rejects version strings that are not MAJOR.MINOR.PATCH."""
+        argv = [
+            "build_pack.py",
+            "--version", "2026-05-20a",
+            "--output", str(self.tmp),
+        ]
+        with patch.object(sys, "argv", argv):
+            with self.assertRaises(SystemExit) as ctx:
+                build_pack.main()
+        self.assertNotEqual(ctx.exception.code, 0)
 
     # ------------------------------------------------------------------
     # MANIFEST
@@ -391,14 +403,14 @@ class BuildPackTests(unittest.TestCase):
         fw = self.tmp / "mini-fw"
         fw.mkdir(parents=True)
         (fw / "seed.md").write_text("seed", encoding="utf-8")
-        build_pack.build_zip(self.tmp, "2099-11-01", framework_dir=fw, write_version=False)
+        build_pack.build_zip(self.tmp, "0.9.0", "2tm5", framework_dir=fw, write_version=False, update_manifest=False)
         self.assertFalse((fw / "MANIFEST").exists(), "MANIFEST should be deleted after packaging")
 
     def test_manifest_included_in_zip(self):
         fw = self.tmp / "mini-fw"
         fw.mkdir(parents=True)
         (fw / "seed.md").write_text("seed", encoding="utf-8")
-        path = build_pack.build_zip(self.tmp, "2099-11-02", framework_dir=fw, write_version=False)
+        path = build_pack.build_zip(self.tmp, "0.9.0", "2tm5", framework_dir=fw, write_version=False, update_manifest=False)
         with zipfile.ZipFile(path) as zf:
             self.assertIn(".wavefoundry/framework/MANIFEST", zf.namelist())
 
@@ -407,7 +419,7 @@ class BuildPackTests(unittest.TestCase):
         fw.mkdir(parents=True)
         (fw / "a.md").write_text("a", encoding="utf-8")
         (fw / "b.txt").write_text("b", encoding="utf-8")
-        path = build_pack.build_zip(self.tmp, "2099-11-03", framework_dir=fw, write_version=False)
+        path = build_pack.build_zip(self.tmp, "0.9.0", "2tm5", framework_dir=fw, write_version=False, update_manifest=False)
         with zipfile.ZipFile(path) as zf:
             manifest_text = zf.read(".wavefoundry/framework/MANIFEST").decode()
         entries = {line for line in manifest_text.splitlines() if line.strip()}
@@ -424,16 +436,15 @@ class BuildPackTests(unittest.TestCase):
         tests_dir.mkdir(parents=True)
         (tests_dir / "test_foo.py").write_text("x", encoding="utf-8")
         (scripts_dir / "run_tests.py").write_text("x", encoding="utf-8")
-        path = build_pack.build_zip(self.tmp, "2099-11-04", framework_dir=fw, write_version=False)
+        path = build_pack.build_zip(self.tmp, "0.9.0", "2tm5", framework_dir=fw, write_version=False, update_manifest=False)
         with zipfile.ZipFile(path) as zf:
             manifest_text = zf.read(".wavefoundry/framework/MANIFEST").decode()
         entries = {line for line in manifest_text.splitlines() if line.strip()}
         self.assertNotIn("scripts/run_tests.py", entries)
         self.assertFalse(any("tests/" in e for e in entries))
 
-
 class ManifestRevisionTests(unittest.TestCase):
-    """Tests for check_manifest_revision()."""
+    """Tests for update_manifest_revision()."""
 
     def setUp(self):
         import tempfile
@@ -447,41 +458,48 @@ class ManifestRevisionTests(unittest.TestCase):
         shutil.rmtree(self._tmp, ignore_errors=True)
 
     def _write_manifest(self, data: dict) -> None:
-        import json
         self.manifest_path.write_text(json.dumps(data), encoding="utf-8")
 
-    def test_passes_when_revision_matches(self):
-        self._write_manifest({"framework_revision": "2099-01-01a"})
-        # Should not raise or exit.
-        build_pack.check_manifest_revision(self.tmp, "2099-01-01a")
+    def _read_manifest(self) -> dict:
+        import json
+        return json.loads(self.manifest_path.read_text(encoding="utf-8"))
 
-    def test_fails_when_revision_mismatches(self):
-        self._write_manifest({"framework_revision": "2099-01-01a"})
-        with self.assertRaises(SystemExit) as ctx:
-            build_pack.check_manifest_revision(self.tmp, "2099-01-01b")
-        self.assertNotEqual(ctx.exception.code, 0)
+    def test_writes_revision_to_manifest(self):
+        self._write_manifest({"framework_revision": "0.9.0+2tm5", "other": "val"})
+        build_pack.update_manifest_revision(self.tmp, "1.0.0+2xyz")
+        self.assertEqual(self._read_manifest()["framework_revision"], "1.0.0+2xyz")
 
-    def test_fails_when_manifest_missing(self):
-        with self.assertRaises(SystemExit) as ctx:
-            build_pack.check_manifest_revision(self.tmp, "2099-01-01a")
-        self.assertNotEqual(ctx.exception.code, 0)
+    def test_preserves_other_manifest_fields(self):
+        self._write_manifest({"framework_revision": "0.9.0+2tm5", "other": "val"})
+        build_pack.update_manifest_revision(self.tmp, "1.0.0+2xyz")
+        self.assertEqual(self._read_manifest()["other"], "val")
 
-    def test_fails_when_field_missing_from_manifest(self):
+    def test_adds_field_when_missing(self):
         self._write_manifest({"other_key": "value"})
-        with self.assertRaises(SystemExit) as ctx:
-            build_pack.check_manifest_revision(self.tmp, "2099-01-01a")
-        self.assertNotEqual(ctx.exception.code, 0)
+        build_pack.update_manifest_revision(self.tmp, "1.0.0+2xyz")
+        self.assertEqual(self._read_manifest()["framework_revision"], "1.0.0+2xyz")
 
-    def test_error_message_shows_expected_and_recorded_versions(self):
+    def test_warns_when_manifest_missing(self):
         import io
-        self._write_manifest({"framework_revision": "old-version"})
         captured = io.StringIO()
         with patch("sys.stderr", captured):
-            with self.assertRaises(SystemExit):
-                build_pack.check_manifest_revision(self.tmp, "2099-01-01a")
-        output = captured.getvalue()
-        self.assertIn("2099-01-01a", output)
-        self.assertIn("old-version", output)
+            build_pack.update_manifest_revision(self.tmp, "1.0.0+2xyz")
+        self.assertIn("warning", captured.getvalue())
+
+    def test_manifest_not_found_does_not_raise(self):
+        build_pack.update_manifest_revision(self.tmp, "1.0.0+2xyz")
+
+    def test_build_zip_stamps_manifest_before_zip_is_written(self):
+        fw = self.tmp / ".wavefoundry" / "framework"
+        fw.mkdir(parents=True)
+        (self.tmp / "docs" / "prompts").mkdir(parents=True, exist_ok=True)
+        manifest_path = self.tmp / "docs" / "prompts" / "prompt-surface-manifest.json"
+        self._write_manifest({"framework_revision": "0.9.0+2tm5"})
+        (fw / "stub.txt").write_text("stub", encoding="utf-8")
+        build_pack.build_zip(self.tmp, "1.0.0", "2xyz", framework_dir=fw, write_version=False, update_manifest=True)
+        import json
+        recorded = json.loads(manifest_path.read_text(encoding="utf-8"))["framework_revision"]
+        self.assertEqual(recorded, "1.0.0+2xyz")
 
 
 class DocsGateTests(unittest.TestCase):
@@ -507,7 +525,7 @@ class DocsGateTests(unittest.TestCase):
     def test_passes_when_both_commands_succeed(self):
         self._make_script("docs-gardener", 0)
         self._make_script("docs-lint", 0)
-        build_pack.check_docs_gate(self.tmp)  # should not raise or exit
+        build_pack.check_docs_gate(self.tmp)
 
     def test_fails_when_docs_gardener_fails(self):
         self._make_script("docs-gardener", 1)
@@ -524,13 +542,11 @@ class DocsGateTests(unittest.TestCase):
         self.assertNotEqual(ctx.exception.code, 0)
 
     def test_fails_when_docs_gardener_not_found(self):
-        # Neither script exists.
         with self.assertRaises(SystemExit) as ctx:
             build_pack.check_docs_gate(self.tmp)
         self.assertNotEqual(ctx.exception.code, 0)
 
     def test_fails_when_docs_lint_not_found(self):
-        # Only docs-gardener exists; docs-lint is missing.
         self._make_script("docs-gardener", 0)
         with self.assertRaises(SystemExit) as ctx:
             build_pack.check_docs_gate(self.tmp)

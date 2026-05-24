@@ -80,10 +80,60 @@ Wave plan — extends the operator-approval checkpoint (see Machine-usable execu
 - This plan is what the operator approves before implementation begins — not just a list of files, but an ordered execution sequence.
 - Deviations from the plan are named `Deviation:` events recorded in Progress Log, not silent reorderings.
 
+Pre-implementation review gate:
+
+This gate is the **mandatory first phase of `Implement wave`** — it runs after the wave plan is assembled and before the first code edit. Its purpose is not to re-do readiness; it is to challenge the wave from the perspective of likely failure and confirm the implementation packet contains enough information to proceed without avoidable churn.
+
+**Step 1 — Pre-mortem:** Assume the implementation was completed and produced avoidable rework, missed a key assumption, or required a re-Prepare. Name the 3–5 most likely causes before writing any code. Use these categories to structure the challenge:
+- Misunderstood or ambiguous scope in the change doc
+- Missing codebase knowledge (what a symbol does, who calls it, what the dominant pattern is)
+- Unknown dependency or ordering between admitted changes
+- Missing test or verification strategy
+- Hidden trust, data, or interface assumption not surfaced in requirements
+- Missing or wrong builder lanes or review lanes for the work
+
+**Step 2 — Packet completeness check:** Before the first edit, verify the following are all present and current:
+- Every admitted change doc is complete and contains both Requirements and Acceptance Criteria
+- AC priority has been recorded (required / important / nice-to-have / not this scope)
+- Required review and builder lanes are selected and recorded in the wave record
+- Relevant architecture docs, specs, or context docs are identified
+- Key unknowns and risk areas named in Step 1 are either resolved or explicitly accepted as known risks
+- The ordered lane sequence (from the wave plan) is grounded in MCP evidence, not shell-discovered assumptions
+
+**Step 3 — Verdict:** Record the outcome in the wave record under `## Review Checkpoints` using this format:
+```
+- pre-implementation-review: passed (<date>) — pre-mortem completed, packet complete, [brief note on highest risk and how it was addressed]
+```
+Or, if the gate finds a blocking gap:
+```
+- pre-implementation-review: blocked (<date>) — [specific missing evidence or unresolved risk that must be resolved before coding starts]
+```
+A `blocked` verdict halts implementation until the gap is resolved and the gate is re-run with a `passed` verdict.
+
+When `wave_council_policy.enabled` is true: the existing `wave-council-readiness` verdict proves the wave was admissible; the pre-implementation verdict is the coordinator's own packet-completeness and failure-mode challenge. Both must be present before the first edit. The council does not need to run a second session for this gate unless the coordinator's pre-mortem reveals a risk large enough to require council-level synthesis.
+
+MCP-first code exploration:
+
+When MCP is attached, exploration before any code edit follows this order. Agents must not default to shell search or broad file reads for questions these tools are designed to answer:
+
+1. `code_ask` — cross-cutting "what does this currently do?" questions
+2. `code_search` — conceptual or module-level discovery
+3. `code_definition` — declarations and symbol ownership
+4. `code_references` — call sites and impact radius
+5. `code_keyword` — exact token or string matches
+6. `code_outline` — before a broad `code_read` on a large file
+7. `rg` / `grep` / broad file reads — fallback only
+
+Shell search and broad file reads are fallback when: (a) MCP is not attached; (b) the relevant tool is unavailable in the host session; (c) index health or freshness makes results unreliable; or (d) MCP results are genuinely insufficient after a reasonable pass.
+
+The wave plan produced in task 9 must be grounded in MCP evidence for each intended edit: which file owns the behavior, whether the target symbol already exists, which call sites will be affected, and what neighboring patterns the repo already uses. Do not substitute shell exploration for this step when MCP is available. This exploration obligation does not replace the existing requirement to validate with targeted reads before synthesis or code changes — both apply.
+
+When fallback to shell tools was necessary, record a `Gapfill:` entry in Progress Log with what was missing and why — this surfaces repeated tool friction for maintainers without blocking implementation.
+
 Wave orchestration contract:
 
 - **Admission:** the coordinator confirms which changes, feature slices, review lanes, and integration lanes are admitted into the current wave
-- **Allocation:** the coordinator assigns ownership, start order, dependency constraints, and parallel lanes for the admitted changes or tasks
+- **Allocation:** the coordinator assigns ownership, start order, dependency constraints, and parallel lanes for the admitted changes or tasks. Implementation lanes are allocated from repository evidence and admitted scope — not by habit. When the admitted change primarily involves backend/API/service code, allocate `software-engineer`; for UI/interaction/accessibility surfaces, allocate `frontend-developer`; for SQL/schema/migration/ETL/data-contract work, allocate `data-engineer`. Use the generic `implementer` when the change is cross-cutting, narrow in scope, or when domain depth is not required. Record the selected lanes in the wave record or Review checkpoints so readiness and review passes have explicit inputs.
 - **Synchronization:** participants report outputs, blockers, invalidated assumptions, and review findings often enough for the coordinator to keep the wave coherent
 - **Escalation:** the coordinator pauses, replans, adds reviewers, reassigns changes or tasks, splits work, or supersedes the wave when assumptions fail or dependencies shift materially
 - **Closure readiness:** the coordinator decides when scoped work and required reviews are satisfied; **terminal closure** (e.g. `Completed at`, `Status: completed`, closure reconciliation) runs only after **explicit operator confirmation** (`Close wave` / `Finalize feature` or confirmed yes), not automatically at the end of `Implement wave`
@@ -123,6 +173,7 @@ Participant responsibilities inside an active wave:
 - implementers and reviewers should stay within assigned wave changes unless the coordinator expands their scope explicitly
 - participants should report blockers, invalidated assumptions, and meaningful new findings rather than silently compensating for them
 - implementers should keep changes direct: do not add speculative abstraction, configurability, or unrelated defensive code beyond what the request, acceptance criteria, or checked-in evidence justifies
+- implementers must mark task and AC checkboxes as each item is actually completed — do not batch-update them at the end of the wave. Mark `[x]` only when the underlying work is done and verifiable. When an AC or task is intentionally left unchecked or must be reopened, record the reason in the Progress Log or a Review Checkpoints note so the rationale is durable.
 - personas should participate at declared challenge, review, or acceptance checkpoints and escalate when domain concerns materially change the wave
 - personas selected by readiness evaluation are gating participants for that wave's relevant checkpoints
 - factor-review participants should evaluate only the factors relevant to the active wave instead of forcing a full factor checklist into every wave; source those factors from `docs/agents/factor-<nn>-<name>.md` and keep the dashboard grouping aligned with `Category: factor`

@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
         set -eu
         SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-        if command -v python3 >/dev/null 2>&1; then
-          exec python3 "$SCRIPT_DIR/post-edit.py" "$@"
-        fi
-        exec python "$SCRIPT_DIR/post-edit.py" "$@"
+        WAVEFOUNDRY_VENV="${WAVEFOUNDRY_TOOL_VENV:-$HOME/.wavefoundry/venv}"
+        PYTHON="${WAVEFOUNDRY_VENV}/bin/python"
+        if [ ! -x "$PYTHON" ]; then PYTHON="python3"; fi
+        exec "$PYTHON" "$SCRIPT_DIR/post-edit.py" "$@"

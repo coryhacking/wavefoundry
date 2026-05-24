@@ -80,7 +80,7 @@ _AGENT_ROLE_REQUIRED_PATHS = frozenset(
 )
 _REVIEW_SUFFIXES = ("-reviewer", "-auditor", "-tester")
 _REVIEW_STEMS = frozenset({"reality-checker"})
-_COORDINATE_STEMS = frozenset({"guru", "planner", "wave-coordinator", "council-moderator"})
+_COORDINATE_STEMS = frozenset({"planner", "wave-coordinator", "council-moderator"})
 _COORDINATE_SUFFIXES = ("-coordinator", "-moderator")
 _BUILD_SUFFIXES = ("-engineer", "-developer", "-builder", "-automator", "-programmer", "-coder")
 _BUILD_STEMS = frozenset({"implementer"})
@@ -185,6 +185,49 @@ def _check_ac_priority_alignment(text: str, rel: str) -> list[str]:
         )
 
     return failures
+
+
+_PLAIN_AC_LINE_RE = re.compile(r"^\s*-\s+AC-[\w\-]+:", re.MULTILINE)
+_CHECKBOX_AC_LINE_RE = re.compile(r"^\s*-\s+\[[ xX]\]\s+", re.MULTILINE)
+_CHECKBOX_TASK_LINE_RE = re.compile(r"^\s*-\s+\[[ xX]\]\s+", re.MULTILINE)
+
+
+def _check_checkbox_ac_syntax(text: str, rel: str) -> list[str]:
+    """Fail when an Acceptance Criteria section exists with items but none use checkbox syntax."""
+    sections = _extract_sections(text)
+    ac_section = sections.get("## Acceptance Criteria", "")
+    if not ac_section:
+        return []
+    has_items = bool(_AC_LINE_RE.search(ac_section))
+    if not has_items:
+        return []
+    has_any_checkbox = bool(_CHECKBOX_AC_LINE_RE.search(ac_section))
+    if has_any_checkbox:
+        return []
+    has_plain_bullets = bool(_PLAIN_AC_LINE_RE.search(ac_section))
+    if not has_plain_bullets:
+        return []
+    return [
+        f"{rel}: `## Acceptance Criteria` uses plain bullet format; "
+        "use checkbox syntax (`- [ ] AC-1: ...` / `- [x] AC-1: ...`) so AC completion can be tracked during implementation"
+    ]
+
+
+def _check_checkbox_task_syntax(text: str, rel: str) -> list[str]:
+    """Fail when a Tasks section contains bullet items without checkbox syntax."""
+    sections = _extract_sections(text)
+    tasks_section = sections.get("## Tasks", "")
+    if not tasks_section:
+        return []
+    task_lines = [line for line in tasks_section.splitlines() if line.lstrip().startswith("- ")]
+    if not task_lines:
+        return []
+    if all(_CHECKBOX_TASK_LINE_RE.match(line) for line in task_lines):
+        return []
+    return [
+        f"{rel}: `## Tasks` uses plain bullet format; "
+        "use checkbox syntax (`- [ ] step` / `- [x] step`) so task completion can be tracked during implementation"
+    ]
 
 
 def _metadata_value(text: str, key: str) -> str | None:
@@ -689,6 +732,8 @@ def check_wave_docs(root: Path) -> list[str]:
                     change_text = read_text(expected)
                     change_rel = relative_to_root(root, expected)
                     failures.extend(_check_ac_priority_alignment(change_text, change_rel))
+                    failures.extend(_check_checkbox_ac_syntax(change_text, change_rel))
+                    failures.extend(_check_checkbox_task_syntax(change_text, change_rel))
                     if not _H1_TITLE_RE.search(change_text):
                         failures.append(f"{change_rel}: change doc must have an H1 title (`# Title text`) — used by the dashboard")
                     for section in _CHANGE_DOC_REQUIRED_SECTIONS:
@@ -986,6 +1031,39 @@ def check_migration_edges(root: Path) -> list[str]:
             )
 
     return warnings
+
+
+def check_prepare_council_verdict(root: Path) -> tuple[list[str], list[str]]:
+    """Check that active/implementing waves have a prepare-council verdict in ## Review Checkpoints.
+
+    Backwards-compatibility rule:
+    - ``implementing`` waves: hard error (wave_implement sets this status after this feature landed).
+    - ``active`` waves: warning only (may predate this feature).
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+    wave_root = root / "docs" / "waves"
+    if not wave_root.exists():
+        return errors, warnings
+
+    for path in sorted(wave_root.rglob("wave.md")):
+        text = read_text(path)
+        if "wave-id:" not in text:
+            continue
+        status = (_metadata_value(text, "Status") or "").casefold().strip()
+        if status not in ("active", "implementing"):
+            continue
+        sections = _extract_sections(text)
+        checkpoints = sections.get("## Review Checkpoints", "")
+        if "prepare-council" in checkpoints.casefold():
+            continue
+        rel = relative_to_root(root, path)
+        msg = f"{rel}: wave status is `{status}` but no `prepare-council` verdict found in `## Review Checkpoints`; run the prepare-phase Wave Council review before implementation"
+        if status == "implementing":
+            errors.append(msg)
+        else:
+            warnings.append(msg)
+    return errors, warnings
 
 
 def _is_archived_legacy_wave_doc(root: Path, path: Path) -> bool:

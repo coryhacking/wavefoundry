@@ -16,6 +16,7 @@ from .metadata_validators import check_metadata
 from .wave_validators import (
     check_closed_wave_requirements,
     check_cross_artifact_consistency,
+    check_prepare_council_verdict,
     _check_agent_category_metadata,
     _check_agent_role_metadata,
     check_journal_docs,
@@ -93,6 +94,9 @@ def main() -> int:
     failures.extend(check_persona_docs(root))
     failures.extend(check_cross_artifact_consistency(root))
     warnings.extend(check_migration_edges(root))
+    council_errors, council_warnings = check_prepare_council_verdict(root)
+    failures.extend(council_errors)
+    warnings.extend(council_warnings)
     ds_failures, ds_warnings = check_design_system(root)
     failures.extend(ds_failures)
     warnings.extend(ds_warnings)

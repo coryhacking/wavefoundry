@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-15
+Last verified: 2026-05-23
 
 ## Runtime Topology
 
@@ -16,7 +16,7 @@ Developer/agent
   ├── python3 .wavefoundry/framework/scripts/docs_gardener.py  →  docs/ tree (read/write metadata)
   ├── python3 .wavefoundry/framework/scripts/build_pack.py     →  .wavefoundry/framework/VERSION (write), .wavefoundry/framework/index/ (write), wavefoundry-*.zip (write)
   ├── python3 .wavefoundry/framework/scripts/render_platform_surfaces.py  →  .claude/, .cursor/, .github/hooks/, .junie/mcp/, .mcp.json, .wavefoundry/bin/register-codex-mcp (write)
-  ├── python3 .wavefoundry/framework/scripts/setup_index.py    →  local model cache (write/verify), .wavefoundry/index/ (write)
+  ├── python3 .wavefoundry/framework/scripts/setup_wavefoundry.py / setup_index.py  →  local model cache (write/verify), .wavefoundry/index/ (write)
   └── python3 .wavefoundry/framework/scripts/dashboard_server.py [--open]  →  docs/ tree + .wavefoundry/framework/VERSION (read), .wavefoundry/dashboard-server.json (write), browser loopback session (serve)
 ```
 
@@ -37,9 +37,9 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
               ├── wave_get_handoff / wave_set_handoff
               │       └── docs/agents/session-handoff.md (read/write; wave_set_handoff triggers background refresh)
               │       [wave_close/wave_pause: targeted handoff update (Active wave line + Last verified only); close summary includes Owner/Status/Last verified metadata]
-              ├── wave_open_gate / wave_close_gate
-              │       └── .wavefoundry/guard-overrides.json (read/write); error on double-open, advisory on double-close
-              │       [wave_pause/wave_close create: auto-close all open gates + gates_forced_closed advisory; wave_close dry-run: advisory only, no write]
+              ├── wave_gate_open / wave_gate_close / wave_gate_status
+              │       └── .wavefoundry/guard-overrides.json (read/write); error on double-open, advisory on double-close; wave_gate_status is read-only
+              │       [valid gates: seed_edit_allowed, framework_edit_allowed, design_system_edit_allowed; wave_pause/wave_close create: auto-close all open gates + gates_forced_closed advisory; wave_close dry-run: advisory only, no write]
               ├── code_list_files / code_read / code_keyword
               │       └── repo files (read-only; respects gitignore/aiignore/hardcoded excludes)
               ├── code_definition / code_references
@@ -63,7 +63,7 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
 **Index build flow:**
 
 ```
-setup_index.py --root .
+setup_wavefoundry.py --root .
   ├── dependency check → fastembed, numpy, mcp[cli], tree-sitter + grammar packages in current Python
   ├── prewarm docs/code embedding models in local cache
   ├── verify cached models in offline-only mode
@@ -80,7 +80,7 @@ setup_index.py --root .
 build_pack.py
   ├── stamps .wavefoundry/framework/VERSION
   ├── rebuilds .wavefoundry/framework/index/ for packaged framework docs/seeds
-  └── writes wavefoundry-YYYY-MM-DDx.zip including framework/index/
+  └── writes wavefoundry-MAJOR.MINOR.PATCH.<build>.zip under ~/.wavefoundry/dist/ including framework/index/ (`0.9.0` bridge keeps old date-style artifact naming)
 
 dashboard_server.py
   ├── reads docs/workflow-config.json dashboard settings
@@ -88,6 +88,12 @@ dashboard_server.py
   ├── serves .wavefoundry/framework/dashboard/{dashboard.html,dashboard.css,dashboard.js}
   └── writes .wavefoundry/dashboard-server.json for host-local endpoint discovery
 ```
+
+**Supported operator environments:** macOS and Linux are supported natively. Windows operator workflows are currently supported through WSL2. The codebase contains targeted Windows launchers and path/process handling, but install, upgrade, and bootstrap still include POSIX-shell assumptions such as the Codex registration launcher and root-zip upgrade flow. (Policy decided wave `12t9b`.)
+
+**Release versioning contract:** Wavefoundry now uses semver-aware packaging and upgrade code paths. `check_version.py` compares versions with `packaging.version.Version`, release zips default to `~/.wavefoundry/dist/`, and mixed-version upgrades treat legacy `YYYY-MM-DDx` installs as pre-semver. The checked-in `VERSION` and manifest revision remain date-shaped until the first semver packaging run stamps a release build.
+
+**Python environment contract:** Wavefoundry targets Python ≥ 3.11 and uses a shared user-level tool venv at `~/.wavefoundry/venv` by default (overridable via `WAVEFOUNDRY_TOOL_VENV`). `setup_wavefoundry.py` is the preferred operator bootstrap entrypoint and delegates to `setup_index.py`, which bootstraps and installs framework dependencies into that venv. Generated launchers and MCP configs prefer it, and operator/runtime subprocesses for indexing, dashboard spawn, validation/gardening, surface sync, and upgrade execution resolve it explicitly when present. The intentional exception is the fresh-machine bootstrap path: venv creation itself still begins from the invoking interpreter so the shared venv can be created before any managed-runtime handoff occurs.
 
 ## Current Risk Areas
 

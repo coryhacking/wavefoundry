@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import os
 import sys
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
@@ -459,6 +461,105 @@ class ReadExtensionSourceTests(unittest.TestCase):
 # phase_dry_run
 # ---------------------------------------------------------------------------
 
+class FindLatestReleaseZipTests(unittest.TestCase):
+    """Tests for _find_latest_release_zip() multi-location semver discovery."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name) / "repo"
+        self.user_home = Path(self.tmp.name) / "home"
+        self.home_dir = Path(self.tmp.name) / "home-wavefoundry"
+        self.dist_dir = self.home_dir / "dist"
+        self.root.mkdir(parents=True)
+        self.user_home.mkdir(parents=True)
+        self.home_dir.mkdir(parents=True)
+        self.dist_dir.mkdir(parents=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_zip(self, directory: Path, name: str) -> Path:
+        p = directory / name
+        p.write_bytes(b"fake")
+        return p
+
+    def _run(self) -> Path | None:
+        with unittest.mock.patch.object(
+            self.mod, "_HOME_DIR", self.user_home
+        ), unittest.mock.patch.object(
+            self.mod, "_HOME_WAVEFOUNDRY_DIR", self.home_dir
+        ), unittest.mock.patch.object(
+            self.mod, "_DIST_DIR", self.dist_dir
+        ):
+            return self.mod._find_latest_release_zip(self.root)
+
+    def test_returns_none_when_dir_absent(self):
+        import shutil
+        shutil.rmtree(self.root)
+        shutil.rmtree(self.user_home)
+        shutil.rmtree(self.home_dir)
+        with unittest.mock.patch.object(
+            self.mod, "_HOME_DIR", self.user_home
+        ), unittest.mock.patch.object(
+            self.mod, "_HOME_WAVEFOUNDRY_DIR", self.home_dir
+        ), unittest.mock.patch.object(self.mod, "_DIST_DIR", self.dist_dir):
+            result = self.mod._find_latest_release_zip(self.root)
+        self.assertIsNone(result)
+
+    def test_returns_none_when_dir_empty(self):
+        result = self._run()
+        self.assertIsNone(result)
+
+    def test_finds_zip_in_user_home(self):
+        self._write_zip(self.user_home, "wavefoundry-1.2.0.2abc.zip")
+        result = self._run()
+        self.assertIsNotNone(result)
+        self.assertEqual(result.name, "wavefoundry-1.2.0.2abc.zip")
+
+    def test_returns_highest_semver_zip(self):
+        self._write_zip(self.root, "wavefoundry-0.9.0.2abc.zip")
+        self._write_zip(self.home_dir, "wavefoundry-1.0.0.2tm5.zip")
+        self._write_zip(self.dist_dir, "wavefoundry-0.9.1.2def.zip")
+        result = self._run()
+        self.assertIsNotNone(result)
+        self.assertEqual(result.name, "wavefoundry-1.0.0.2tm5.zip")
+
+    def test_skips_non_matching_filenames(self):
+        self._write_zip(self.dist_dir, "wavefoundry-0.9.0.2abc.zip")
+        (self.home_dir / "unrelated.zip").write_bytes(b"x")
+        (self.root / "wavefoundry-2026-05-20i.zip").write_bytes(b"x")
+        result = self._run()
+        self.assertIsNotNone(result)
+        self.assertEqual(result.name, "wavefoundry-0.9.0.2abc.zip")
+
+    def test_multi_digit_minor_beats_single_digit(self):
+        """1.10.0 must rank above 1.9.0 — not lexicographic comparison."""
+        self._write_zip(self.home_dir, "wavefoundry-1.9.0.2abc.zip")
+        self._write_zip(self.dist_dir, "wavefoundry-1.10.0.2xyz.zip")
+        result = self._run()
+        self.assertIsNotNone(result)
+        self.assertEqual(result.name, "wavefoundry-1.10.0.2xyz.zip")
+
+    def test_same_version_returns_lexicographically_greatest_build(self):
+        """When MAJOR.MINOR.PATCH is tied, pick greatest build prefix (most recent build)."""
+        self._write_zip(self.root, "wavefoundry-1.0.0.2abc.zip")
+        self._write_zip(self.dist_dir, "wavefoundry-1.0.0.2zzz.zip")
+        result = self._run()
+        self.assertIsNotNone(result)
+        self.assertEqual(result.name, "wavefoundry-1.0.0.2zzz.zip")
+
+    def test_prefers_root_over_home_only_when_root_has_higher_version(self):
+        self._write_zip(self.root, "wavefoundry-1.1.0.2zzz.zip")
+        self._write_zip(self.home_dir, "wavefoundry-1.0.0.2abc.zip")
+        result = self._run()
+        self.assertIsNotNone(result)
+        self.assertEqual(result.name, "wavefoundry-1.1.0.2zzz.zip")
+
+
+import unittest.mock  # ensure mock is imported for FindLatestReleaseZipTests
+
+
 class DryRunTests(unittest.TestCase):
     """Tests for phase_dry_run (--dry-run / -n)."""
 
@@ -473,8 +574,13 @@ class DryRunTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         # Minimal repo structure
         (self.root / ".wavefoundry" / "framework").mkdir(parents=True)
+        # Isolate from real ~/.wavefoundry/dist/ so tests are not polluted by
+        # actual release zips present on the developer's machine.
+        self._dist_patch = patch.object(self.mod, "_DIST_DIR", Path(self.tmp.name) / "dist")
+        self._dist_patch.start()
 
     def tearDown(self):
+        self._dist_patch.stop()
         self.mod._close_log()
         self.mod._log_file = self._saved_log_file  # restore (normally None)
         self.tmp.cleanup()
@@ -603,6 +709,49 @@ class UpdateUpgradeLockTests(unittest.TestCase):
         self.lib.update_upgrade_lock(self.root, index_rebuilt_at="2026-05-19T14:00:00+00:00")
         lock = self.lib.read_upgrade_lock(self.root)
         self.assertTrue(bool(lock.get("index_rebuilt_at")))
+
+
+class PreferredPythonTests(unittest.TestCase):
+    """Regression coverage for explicit shared-venv subprocess routing."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_venv_python(self) -> Path:
+        venv_root = self.root / ".venv-test"
+        venv_python = venv_root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        venv_python.parent.mkdir(parents=True, exist_ok=True)
+        venv_python.write_text("", encoding="utf-8")
+        return venv_python
+
+    def test_phase_surface_rendering_prefers_tool_venv_python(self):
+        venv_python = self._make_venv_python()
+        mock_proc = MagicMock(returncode=0)
+        script = self.root / "render_platform_surfaces.py"
+        script.write_text("", encoding="utf-8")
+        with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
+             patch.object(self.mod, "SCRIPTS_DIR", self.root), \
+             patch("subprocess.run", return_value=mock_proc) as run_mock:
+            self.mod.phase_surface_rendering(self.root)
+        self.assertEqual(run_mock.call_args.args[0][0], str(venv_python))
+
+    def test_phase_index_update_prefers_tool_venv_python(self):
+        venv_python = self._make_venv_python()
+        mock_proc = MagicMock(returncode=0)
+        setup_script = self.root / "setup_index.py"
+        setup_script.write_text("", encoding="utf-8")
+        with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
+             patch.object(self.mod, "SCRIPTS_DIR", self.root), \
+             patch("subprocess.run", return_value=mock_proc) as run_mock, \
+             patch("subprocess.Popen") as popen_mock:
+            self.mod.phase_index_update(self.root)
+        self.assertEqual(run_mock.call_args.args[0][0], str(venv_python))
+        self.assertEqual(popen_mock.call_args.args[0][0], str(venv_python))
 
 
 # ---------------------------------------------------------------------------

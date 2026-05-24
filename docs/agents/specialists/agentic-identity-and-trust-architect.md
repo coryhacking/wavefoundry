@@ -3,9 +3,7 @@
 Owner: Engineering
 Status: active
 Category: specialist
-Last verified: 2026-05-20
-
-Tier: archetype specialist — AI / agent systems
+Last verified: 2026-05-23
 
 ## Operating Identity
 

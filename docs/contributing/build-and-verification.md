@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-18
+Last verified: 2026-05-23
 
 ## Verification Commands
 
@@ -62,10 +62,10 @@ When a pack upgrade bumps `CHUNKER_VERSION`, a full rebuild is required for both
 `wave_index_health` will emit a `chunker_version_mismatch` advisory (distinct from `index_stale`) when the index was built with an older chunker version. If you see this advisory, run:
 
 ```bash
-python3 .wavefoundry/framework/scripts/setup_index.py --full
+python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full
 # or docs-first, then background code:
-python3 .wavefoundry/framework/scripts/setup_index.py --full
-python3 .wavefoundry/framework/scripts/setup_index.py --background-code --full
+python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full
+python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --background-code --full
 ```
 
 If the repo needs extra project index roots beyond the default, declare them explicitly in `docs/workflow-config.json` under `indexing.project_include_prefixes`. Use repo-relative `docs` and `code` lists rather than one-off booleans. Wavefoundry uses this in self-hosting mode to include `.wavefoundry/framework/scripts` in project code search without changing the default for ordinary target repos.
@@ -128,7 +128,7 @@ When a new framework version is available, upgrade using this procedure:
 
 **Bring the pack in:**
 
-Option A (zip drop): Place a `wavefoundry-<date><letter>.zip` at the repository root and run **Upgrade wave framework**. The upgrade seed (`seed-160`) unpacks the lexicographically greatest zip into `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation.
+Option A (zip drop): Place a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` at the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`, and run **Upgrade wave framework**. The upgrade seed (`seed-160`) adopts the highest semver zip into `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation. The one-time `0.9.0` bridge release is the exception: its artifact keeps the old date-style name (`wavefoundry-YYYY-MM-DDx.zip`) and should be placed at repository root for legacy pre-semver adoption.
 
 Option B (direct merge): Merge or copy into `.wavefoundry/framework/` then run **Upgrade wave framework**.
 

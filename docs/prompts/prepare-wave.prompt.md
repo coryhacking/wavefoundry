@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-04
+Last verified: 2026-05-23
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
@@ -16,7 +16,7 @@ Confirm wave readiness before implementation begins. The stage gate: implementat
 2. Confirm each change doc is complete: Rationale, Requirements, Scope, Acceptance Criteria, Affected architecture docs.
 3. Select required review lanes for each admitted change (see `docs/contributing/agent-team-workflow.md`).
 4. Confirm `qa-reviewer` is included for any bug fix (`review_policies.require_qa_reviewer_for_bug_fixes: true`).
-5. When `wave_council_policy.enabled` is true, run the Wave Council readiness pass: fixed seats plus one rotating domain seat review the admitted change set in isolation; `council-moderator` synthesizes the result; record `wave-council-readiness` in `## Review Evidence` and the narrative verdict in `## Review checkpoints`.
+5. When `wave_council_policy.enabled` is true, run the Wave Council readiness pass: fixed seats plus one rotating domain seat review the admitted change set in isolation; `council-moderator` synthesizes the result; record `wave-council-readiness` in `## Review Evidence` and the narrative verdict in `## Review checkpoints`. **`wave_prepare` signals this step with `status: "ready_for_council_review"` — run the review immediately when you see that status, then call `wave_prepare(mode='create')` again to complete prepare.**
 6. **AC priority check:** categorize each admitted change's ACs as required / important / nice-to-have / not-this-scope; record in `## AC priority` on the change doc; interrogate required and important ACs until each classification is explicitly justified.
 7. Record product-owner acknowledgment for product-impacting waves (feature changes shifting product behavior/UX/acceptance).
 8. Update wave record status to `Status: active`.
@@ -30,6 +30,8 @@ Record a readiness verdict in the wave record `## Review checkpoints` (e.g., `Pr
 - `wave-council-readiness` is recorded when `wave_council_policy.enabled`
 - AC priority is recorded on each change doc
 - Product-owner acknowledgment is recorded (when applicable)
+
+A clean readiness verdict confirms the wave is **admissible**. It does not replace the **pre-implementation review gate**, which is the mandatory first phase of `Implement wave`. The lifecycle sequence is: `Prepare wave` (readiness) → **pre-implementation review gate** (first phase of `Implement wave`) → first code edit.
 
 ## Single-Active-Wave Rule
 

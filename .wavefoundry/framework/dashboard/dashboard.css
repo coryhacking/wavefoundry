@@ -793,6 +793,21 @@ td .wave-change-id {
   color: var(--muted);
 }
 
+.metric-dialog-ac-id {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  min-width: 3rem;
+}
+
+.metric-dialog-review-badge {
+  margin-left: auto;
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+
 .metric-dialog-ac-check {
   flex-shrink: 0;
   font-size: 0.75rem;
@@ -1403,6 +1418,7 @@ html[data-theme="dark"] .metric-diff-removed { color: #f87171; }
 .hero-agent-label--specialist { color: #2d6a00; }
 .hero-agent-label--factor     { color: #6f42c1; }
 .hero-agent-label--journal    { color: #455A64; }
+.hero-agent-label--persona    { color: #0F766E; }
 
 .hero-agent-pills {
   display: flex;
@@ -1519,6 +1535,19 @@ html[data-theme="dark"] .metric-diff-removed { color: #f87171; }
   border-color: #607D8B;
   color: #455A64;
   box-shadow: 0 2px 8px rgba(96, 125, 139, 0.18);
+}
+
+/* Persona — teal */
+.hero-agent-pill--persona {
+  border-color: #7edece;
+  color: #0F766E;
+  background: rgba(20, 184, 166, 0.07);
+}
+.hero-agent-pill--persona:hover {
+  background: color-mix(in srgb, #14B8A6 12%, white);
+  border-color: #14B8A6;
+  color: #0F766E;
+  box-shadow: 0 2px 8px rgba(20, 184, 166, 0.18);
 }
 
 /* Usage count badge inside pill */
@@ -1693,7 +1722,7 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
 /* ── Agent dialog ────────────────────────────────────────────────────────── */
 
 .agent-dialog {
-  width: min(800px, 92vw);
+  width: min(1000px, 92vw);
   max-height: 82vh;
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-lg);
@@ -1729,6 +1758,7 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
 .agent-dialog-header--specialist { background: rgba( 83, 172,   4, 0.07); border-bottom-color: #a5d46a; }
 .agent-dialog-header--factor     { background: rgba(111,  66, 193, 0.07); border-bottom-color: #c5b3ff; }
 .agent-dialog-header--journal    { background: rgba( 96, 125, 139, 0.07); border-bottom-color: #b0bec5; }
+.agent-dialog-header--persona    { background: rgba( 20, 184, 166, 0.07); border-bottom-color: #7edece; }
 
 .agent-dialog-header-text {
   display: flex;
@@ -1873,6 +1903,10 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
   vertical-align: top;
   line-height: 1.45;
 }
+.agent-dialog-body td:first-child {
+  white-space: nowrap;
+}
+
 .agent-dialog-body th {
   font-weight: 600;
   background: var(--neutral-soft);
@@ -2074,6 +2108,12 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
     flex-basis: 100%;
     justify-content: center;
     padding: 0.15rem 0;
+    font-size: 0;
+  }
+  .framework-flow-arrow::before {
+    content: "↓";
+    font-size: 1.1rem;
+    font-weight: 700;
   }
 }
 
@@ -2449,6 +2489,18 @@ html[data-theme="dark"] .hero-agent-pill--journal:hover {
   box-shadow: 0 2px 8px rgba(96, 125, 139, 0.20);
 }
 
+html[data-theme="dark"] .hero-agent-pill--persona {
+  border-color: #003d38;
+  color: #5eead4;
+  background: rgba(20, 184, 166, 0.12);
+}
+html[data-theme="dark"] .hero-agent-pill--persona:hover {
+  background: color-mix(in srgb, #14B8A6 16%, #141820);
+  border-color: #2dd4bf;
+  color: #99f6e4;
+  box-shadow: 0 2px 8px rgba(20, 184, 166, 0.20);
+}
+
 html[data-theme="dark"] tbody tr:hover td {
   background: rgba(64, 163, 233, 0.07);
 }
@@ -2510,6 +2562,7 @@ html[data-theme="dark"] .agent-dialog-header--operate    { background: rgba(139,
 html[data-theme="dark"] .agent-dialog-header--specialist { background: rgba(192, 120,  32, 0.14); border-bottom-color: #5a3c00; }
 html[data-theme="dark"] .agent-dialog-header--factor     { background: rgba(111,  66, 193, 0.14); border-bottom-color: #4b2e7a; }
 html[data-theme="dark"] .agent-dialog-header--journal    { background: rgba( 74, 112, 144, 0.14); border-bottom-color: #1e3a50; }
+html[data-theme="dark"] .agent-dialog-header--persona    { background: rgba( 20, 184, 166, 0.14); border-bottom-color: #003d38; }
 
 html[data-theme="dark"] .index-meta-pill {
   background: rgba(255, 255, 255, 0.04);

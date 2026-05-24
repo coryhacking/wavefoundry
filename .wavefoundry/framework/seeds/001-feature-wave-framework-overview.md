@@ -44,7 +44,7 @@ The **wave** is the primary delivery unit. A wave is a bounded, reviewable conta
 
 1. Plan the wave — define scope, admit changes, establish review gates.
 2. Ready the wave — validate that admitted change docs are already wave-owned, repair placement drift if needed, evaluate the admitted changes, select required implementer, reviewer, persona, and council lanes, run the Wave Council readiness pass when the project enables it, and block start until readiness is clean.
-3. Implement the wave — implement all admitted changes together.
+3. Implement the wave — beginning with a mandatory **pre-implementation review gate** (pre-mortem, packet completeness check, and recorded verdict) before the first code edit, then implement all admitted changes.
 4. Review the wave — run required review lanes as a unified set, run the Wave Council delivery pass when the project enables it, and rerun readiness at final review.
 5. Close and commit the wave — record completion, reconcile wave-owned change docs and reports, commit the result.
 6. Either plan the next wave (carry incomplete changes forward) or finalize.
@@ -110,6 +110,7 @@ flowchart TD
 
 - Implementation should stay inside the admitted wave scope; changes outside the wave must wait for the next wave.
 - Implementation should start only after readiness has passed; otherwise the coordinator must block and repair the prerequisites first.
+- The mandatory first phase of `Implement wave` is a **pre-implementation review gate**: the coordinator runs a pre-mortem (3–5 most likely failure modes), verifies packet completeness, and records a `pre-implementation-review: passed/blocked (<date>)` verdict in `## Review Checkpoints` before the first code edit. No code edit may begin until the verdict is `passed`.
 - Admitted change docs should already live under `docs/waves/<wave-id>/` after `Add change to wave`; `Prepare wave` repairs drift defensively if staging copies remain.
 - Verification follows the project's build, test, docs, and smoke-check procedures before wave closure.
 - For exact reviewer roles, personas, and gate triggers, use the seeded project's agent-team workflow and review docs.

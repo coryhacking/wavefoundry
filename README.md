@@ -88,7 +88,10 @@ wavefoundry/
 
 ### Installing in a target repository
 
-Drop the distribution zip (`wavefoundry-YYYY-MM-DDx.zip`) at the root of the target repository and run:
+Drop the distribution zip at the root of the target repository and run:
+
+- `wavefoundry-YYYY-MM-DDx.zip` for the one-time `0.9.0` bridge release
+- `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` for `1.0.0` and later
 
 ```
 Install Wavefoundry
@@ -117,9 +120,20 @@ Wavefoundry uses the Wave Framework to develop itself. The self-hosting boundary
 
 Before editing seeds, open the `seed_edit_allowed` gate. Before broad framework edits, open `framework_edit_allowed`. Both gates are checked by pre-edit hooks and closed automatically at wave close.
 
+Supported operator environments for Wavefoundry itself:
+
+- macOS: supported natively
+- Linux: supported natively
+- Windows: supported through WSL2 for now; native Windows operator workflows are not yet a public support target because some launchers and upgrade steps still assume a POSIX shell
+- **Python ≥ 3.11 required.** `setup_wavefoundry.py` is the preferred bootstrap entrypoint. It creates and manages a shared tool environment at `~/.wavefoundry/venv` (override with `$WAVEFOUNDRY_TOOL_VENV`) and then runs the index setup flow. `setup_index.py` remains supported as the underlying compatibility entrypoint; neither modifies system Python.
+
+**Distribution directories:** Built zips land in `~/.wavefoundry/dist/` by default. For semver-era upgrades, the upgrader searches the project root, `~/.wavefoundry/`, and `~/.wavefoundry/dist/`, then picks the highest semver zip automatically.
+
+**Versioning:** Releases use `MAJOR.MINOR.PATCH` semver. Build artifacts carry the rightmost 4 characters of the lifecycle prefix as build metadata (`1.0.0+2tm5` in `VERSION`; `wavefoundry-1.0.0.2tm5.zip` as the filename). See `docs/architecture/decisions/12tm5-adr semver-versioning-contract.md` for the version bump policy.
+
 ```bash
-# Package a new distribution
-python3 .wavefoundry/framework/scripts/build_pack.py
+# Package a new distribution (version required)
+python3 .wavefoundry/framework/scripts/build_pack.py --version 1.0.0
 
 # Run framework tests
 python3 .wavefoundry/framework/scripts/run_tests.py

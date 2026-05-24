@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-03
+Last verified: 2026-05-23
 
 Actor: implementer
 Schema version: 1.0
@@ -33,6 +33,18 @@ wave-id: `12c7n indexer-noise-exclusion`
 
 wave-id: `12c86 tree-sitter-chunker`
 - Replace regex chunkers with tree-sitter AST chunking. Depends on 12c7n. Verify grammar package version compatibility before starting.
+
+wave-id: `12sg7 implementation-governance-upgrades`
+- Includes `12s5r-enh dashboard-dialog-wider-ac-id-column`: widen agent-dialog from 800px to 1000px and add no-wrap AC ID column to AcsDialog. Edits confined to dashboard.css and dashboard.js under framework_edit_allowed gate.
+
+wave-id: `12tms python-env-and-semver-implementation`
+- `12tm5-enh python-tool-venv-bootstrap`: bootstrap `~/.wavefoundry/venv`; rewrite `_install_deps()` to use venv Python; remove `--break-system-packages`; add `pyproject.toml`. Implement before semver change so `pyproject.toml` exists when `packaging` dependency is added.
+- `12tm5-enh migrate-versioning-to-semver`: add `_to_version()` + rewrite `compare_versions()` in `check_version.py` first; then `build_pack.py` semver input + `~/.wavefoundry/dist/` output; then `upgrade_wavefoundry.py` dist-dir discovery + hook rewrites. Do not stamp `VERSION` to `1.0.0` until `build_pack.py` semver support is complete.
+
+wave-id: `12sq2 enterprise-role-seeds-and-lint`
+- `12smw`: rename ui-ux-engineer → frontend-developer (seed 223, seed 050, other seeds); enhance software-engineer seed (222) with stack detection; author seeds for 7 existing specialists + 2 new specialist docs. All seed edits under single seed_edit_allowed gate; adding -developer to _BUILD_SUFFIXES requires framework_edit_allowed.
+- `12sp5`: new lint validator in wave_validators.py enforcing pre-implementation gate verdict; requires framework_edit_allowed gate.
+- `12sq4`: wave_close summary generation in server_impl.py; requires framework_edit_allowed gate; implement after 12sp5 to avoid conflicts.
 
 ## Promotion Evidence
 

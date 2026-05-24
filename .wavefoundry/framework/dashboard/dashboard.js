@@ -93,8 +93,8 @@ function dashboardTitle(snapshot) {
 const DONE_STATUSES = new Set(["complete", "completed", "done", "implemented", "approved", "closed"]);
 function isDone(status) { return DONE_STATUSES.has(String(status || "").toLowerCase()); }
 function waveStatus(w) { return String(w.status || "").toLowerCase(); }
-function activeWaves(waves)  { return waves.filter(w => waveStatus(w) === "active"); }
-function pendingWaves(waves) { return waves.filter(w => waveStatus(w) !== "active" && waveStatus(w) !== "closed" && waveStatus(w) !== "completed"); }
+function activeWaves(waves)  { return waves.filter(w => waveStatus(w) === "active" || waveStatus(w) === "implementing"); }
+function pendingWaves(waves) { return waves.filter(w => waveStatus(w) !== "active" && waveStatus(w) !== "implementing" && waveStatus(w) !== "closed" && waveStatus(w) !== "completed"); }
 function dialogScope(waves) { return activeWaves(waves).length > 0 ? "active" : "pending"; }
 function sortPendingFirst(items, isItemDone) {
   return [...items].sort((a, b) => Number(isItemDone(a)) - Number(isItemDone(b)));
@@ -112,7 +112,7 @@ function dialogChangesForScope(snapshot) {
     };
   }
   const openOrClosedIds = new Set(
-    waves.filter(w => waveStatus(w) === "active" || waveStatus(w) === "closed" || waveStatus(w) === "completed").map(w => w.wave_id)
+    waves.filter(w => waveStatus(w) === "active" || waveStatus(w) === "implementing" || waveStatus(w) === "closed" || waveStatus(w) === "completed").map(w => w.wave_id)
   );
   return {
     scope,
@@ -128,7 +128,7 @@ function dialogChangesForScope(snapshot) {
 
 function badgeClass(status) {
   const key = String(status || "unknown").toLowerCase();
-  if (["active", "ready", "complete", "completed", "done", "implemented", "approved"].includes(key))
+  if (["active", "implementing", "ready", "complete", "completed", "done", "implemented", "approved"].includes(key))
     return "status-badge status-ok";
   if (key === "planned") return "status-badge status-neutral";
   if (["paused", "important"].includes(key)) return "status-badge status-warn";
@@ -652,7 +652,7 @@ function PendingWaveRow({ wave, onWaveClick }) {
 
 function WavesCard({ waves, allChanges, handoffWaveId, onWaveClick, onChangeClick }) {
   const active  = activeWaves(waves);
-  const pending = pendingWaves(waves);
+  const pending = pendingWaves(waves).slice().sort((a, b) => String(b.wave_id).localeCompare(String(a.wave_id)));
   const closed  = waves.filter(w => waveStatus(w) === "closed").length;
 
   return h("article", { className: "table-card", "aria-label": "Waves" },
@@ -841,7 +841,7 @@ function DialogFrame({ className, title, subtitle, meta, onClose, children }) {
 function WavesDialog({ snapshot, onClose }) {
   const waves = snapshot.waves || [];
   const active = activeWaves(waves);
-  const pending = pendingWaves(waves);
+  const pending = pendingWaves(waves).slice().sort((a, b) => String(b.wave_id).localeCompare(String(a.wave_id)));
   const displayWaves = active.length ? active : pending;
   const title = active.length ? "Active Waves" : "Pending Waves";
   return h(DialogFrame, { title, onClose },
@@ -879,14 +879,21 @@ function ChangesDialog({ snapshot, onClose }) {
 
 function AcsDialog({ snapshot, onClose }) {
   const { scope, changes } = dialogChangesForScope(snapshot);
+  const waves = snapshot.waves || [];
+  const waveMap = Object.fromEntries(waves.map(w => [w.wave_id, w]));
   const PRIORITY_BADGE = { required: "status-blocked", important: "status-warn", "nice-to-have": "status-neutral", unknown: "status-unknown" };
   return h(DialogFrame, { title: scope === "active" ? "Active ACs" : "Pending ACs", onClose },
     changes.length ? changes.map(c => {
       const items = sortPendingFirst(visibleAcItems(c), ac => Boolean(ac.done));
       if (!items.length) return null;
+      const wave = c.wave_id ? waveMap[c.wave_id] : null;
+      const evidence = wave?.review_evidence || [];
       return h("div", { key: c.change_id, className: "metric-dialog-card" },
         h("div", { className: "metric-dialog-card-header" },
           h("span", { className: "wave-change-id" }, c.change_id),
+          evidence.length
+            ? h("span", { className: "metric-dialog-review-badge status-badge status-done", title: evidence.map(e => `${e.key}: ${e.value}`).join("\n") }, "reviewed")
+            : h("span", { className: "metric-dialog-review-badge status-badge status-neutral" }, "not reviewed"),
         ),
         h("div", { className: "metric-dialog-card-title" }, c.title),
         h("div", { className: "metric-dialog-ac-rows" },
@@ -1373,7 +1380,7 @@ function AgentDialog({ agent, onClose }) {
 
   const categoryLabel = {
     build: "Build", review: "Review", coordinate: "Coordinate",
-    operate: "Operate", persona: "Persona", specialist: "Specialist", factor: "Factor", journal: "Journal",
+    operate: "Operate", persona: "Persona", specialist: "Specialist", factor: "Factor",
   }[agent.category] || agent.category;
 
   const bodyContent = agent.body && agent.body.trim()
@@ -1394,10 +1401,10 @@ function AgentDialog({ agent, onClose }) {
 
 function Agents({ agents, onSelectAgent }) {
   if (!agents?.length) return null;
-  const categories = ["coordinate", "review", "build", "specialist", "factor", "operate", "persona", "journal"];
+  const categories = ["coordinate", "review", "build", "specialist", "factor", "operate", "persona"];
   const labels = {
     build: "Build", review: "Review", coordinate: "Coordinate",
-    operate: "Operate", persona: "Persona", specialist: "Specialist", factor: "Factor", journal: "Journal",
+    operate: "Operate", persona: "Persona", specialist: "Specialist", factor: "Factor",
   };
 
   return h("div", { className: "hero-agents" },
@@ -1458,7 +1465,7 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
   const handoffWaveId = snapshot.activity?.session_handoff_active_wave || "";
 
   const openOrClosedIds = new Set(
-    waves.filter(w => waveStatus(w) === "active" || waveStatus(w) === "closed" || waveStatus(w) === "completed").map(w => w.wave_id)
+    waves.filter(w => waveStatus(w) === "active" || waveStatus(w) === "implementing" || waveStatus(w) === "closed" || waveStatus(w) === "completed").map(w => w.wave_id)
   );
   const activeWaveIds = new Set(activeWaves(waves).map(w => w.wave_id));
   const activeChanges = allChanges.filter(c => activeWaveIds.has(c.wave_id));
