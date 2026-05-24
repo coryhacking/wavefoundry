@@ -40,6 +40,7 @@ This prompt surface follows `.wavefoundry/framework/seeds/020-run-contract.promp
 | **Close wave** | Finalize wave with closure reconciliation | `docs/prompts/close-wave.prompt.md` |
 | **Finalize feature** | Single-change closure path | `docs/prompts/finalize-feature.prompt.md` |
 | **Interrogate this plan** | Stress-test a change doc before admission | `docs/prompts/interrogate-plan.prompt.md` |
+| **Council review** / **Run council** | Two-phase adversarial council review on any artifact: red-team primer → fixed seats → synthesis | `docs/prompts/council-review.prompt.md` |
 | **Evaluate decision** | Red-team + council evaluation of an architectural decision or technology comparison; produces an ADR | `docs/prompts/evaluate-decision.prompt.md` |
 | **Guru** | Ask a natural-language question about the codebase; returns cited answer, next-hop citations, and rank metadata (`final_rank`, `demoted`) | `docs/agents/guru.md` — MCP: `code_ask(question)` |
 

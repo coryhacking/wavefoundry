@@ -37,21 +37,11 @@ When `docs/workflow-config.json` `wave_council_policy.enabled` is true:
 - `council-moderator` owns the synthesis output for both phases
 - `wave-coordinator` gathers evidence, routes lanes, and enforces the gate, but does not author the council verdict
 
-Default fixed seats:
+Council runs a red-team adversarial primer (Phase 1) before fixed seats (Phase 2), then synthesizes. Full protocol is in `docs/agents/council-moderator.md`.
 
-- `architecture-reviewer`
-- `security-reviewer`
-- `qa-reviewer`
-- `reality-checker`
+Default fixed Phase 2 seats: `architecture-reviewer`, `security-reviewer`, `qa-reviewer`, `reality-checker`. The fifth seat rotates from wave evidence (`docs-contract-reviewer`, `performance-reviewer`, `release-reviewer`, or an applicable persona).
 
-The fifth seat rotates from wave evidence and review triggers:
-
-- `docs-contract-reviewer` for seed/prompt/contract work
-- `performance-reviewer` for indexing, search, and hot-path concerns
-- `release-reviewer` for packaging or distribution changes
-- an applicable persona when operator-facing acceptance is central
-
-Machine-readable council signoffs belong in `## Review Evidence`. Narrative council synthesis belongs in `## Review checkpoints`.
+Machine-readable council signoffs belong in `## Review Evidence`. Narrative synthesis belongs in `## Review checkpoints`.
 
 ## Persona Agent Routing
 

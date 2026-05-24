@@ -19,19 +19,31 @@ Projects may enable **Wave Council** as a universal meta-review for every wave. 
 - **`wave-council-readiness`** — before implementation begins
 - **`wave-council-delivery`** — after implementation and before closure
 
-Wave Council uses a structured protocol:
+Wave Council uses a two-phase structured protocol:
 
-1. A fixed briefing packet is assembled for the relevant phase.
-2. Each council seat reviews that packet in isolation.
-3. The **council-moderator** synthesizes the seat outputs into a single verdict.
-4. When seats materially disagree, the council-moderator may run **one targeted challenge round** on the disputed claims only.
+1. The council-moderator declares a **primer depth tier** based on trust boundaries touched, files in scope, and change type:
+
+   | Tier | Stances | `primer_questions` | When |
+   |---|---|---|---|
+   | `lightweight` | 1 (most relevant) | 1 | Doc/style/minor config; no trust boundary; single-module |
+   | `standard` | 3 | 2 | Implementation changes; clear scope; no trust boundary crossing |
+   | `full` | All 5 | 3 | Trust boundary, architectural, data-path, security, or cross-cutting changes |
+2. **Phase 1 — Red-team adversarial primer**: `red-team` runs in `council-adversarial-primer` mode in isolation at the declared depth. Its output — `strongest_challenge`, `best_alternative`, `thinking_stances_applied`, `primer_questions` — is added to the briefing packet.
+3. **Phase 2 — Fixed seats**: each fixed seat runs in isolation and receives the standard briefing *plus* the Phase 1 primer. Each seat must explicitly address the primer's `strongest_challenge` and answer `primer_questions` from its lane's perspective.
+4. The rotating fifth seat runs after fixed seats and surfaces the strongest alternative the wave did not take.
+5. The **council-moderator** synthesizes across primer and all seat outputs into a single verdict. The primer is first-class evidence in synthesis.
+6. When seats materially disagree, the council-moderator may run **one targeted challenge round** on the disputed claims only.
 
 The council-moderator is distinct from the wave-coordinator. The wave-coordinator owns lifecycle routing, readiness, and closure state. The council-moderator owns council synthesis and council verdict text.
 
 ### Default seat model
 
-The framework default is **five seats**:
+The framework default is a two-phase structure:
 
+**Phase 1 — Adversarial primer (universal):**
+- `red-team` — always runs first in `council-adversarial-primer` mode; not a configured fixed seat but a protocol-defined universal role present in every Wave Council regardless of `fixed_seats` configuration
+
+**Phase 2 — Fixed seats (run after receiving the Phase 1 primer):**
 - `architecture-reviewer`
 - `security-reviewer`
 - `qa-reviewer`
@@ -84,7 +96,7 @@ Harness specialists are invoked by the coordinator or council-moderator for targ
 | `environment-auditor` | `218-environment-auditor.prompt.md` | (single mode) |
 | `operating-surface-gardener` | `219-operating-surface-gardener.prompt.md` | (single mode) |
 | `reality-checker` | `216-reality-checker.prompt.md` | `assumption-audit`, `finding-validation`, `implementation-challenge` |
-| `red-team` | `225-red-team.prompt.md` | `abuse-path-review`, `failure-pressure-test`, `option-challenge`, `technology-evaluation`, `workflow-challenge`, `feature-definition-challenge`, `design-provocation`, `council-seat` (non-exhaustive) |
+| `red-team` | `225-red-team.prompt.md` | `abuse-path-review`, `failure-pressure-test`, `option-challenge`, `technology-evaluation`, `workflow-challenge`, `feature-definition-challenge`, `design-provocation`, `council-adversarial-primer`, `council-seat` (non-exhaustive) |
 
 ## Question Ownership
 

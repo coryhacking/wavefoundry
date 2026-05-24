@@ -14,7 +14,7 @@ You are running **Prepare wave** on Wavefoundry. This is the stage gate for impl
 2. Verify each change doc has: Rationale, Requirements, Scope, Acceptance Criteria, Affected architecture docs.
 3. Select review lanes (see `docs/contributing/agent-team-workflow.md`).
 4. Confirm `qa-reviewer` for any bug fix.
-5. When `wave_council_policy.enabled` is true, run the Wave Council readiness pass and record `wave-council-readiness` in `## Review Evidence`; `council-moderator` owns the synthesis.
+5. When `wave_council_policy.enabled` is true, run the Wave Council readiness pass: declare a primer depth tier (`lightweight` / `standard` / `full`), run `red-team` in `council-adversarial-primer` mode first, then fixed seats each receiving the primer, then `council-moderator` synthesizes; record `wave-council-readiness` in `## Review Evidence`.
 6. Record `## AC priority` on each change doc.
 7. Record readiness verdict in wave record `## Review checkpoints`.
 8. Update wave record `Status: active`.
@@ -29,7 +29,7 @@ You are running **Prepare wave** on Wavefoundry. This is the stage gate for impl
 | Packaging / build | code-reviewer, release-reviewer |
 | Bug fix | qa-reviewer (required by policy) |
 
-When Wave Council is enabled, fixed seats are `architecture-reviewer`, `security-reviewer`, `qa-reviewer`, and `reality-checker`; the fifth seat rotates from wave evidence.
+When Wave Council is enabled, `red-team` runs first as the adversarial primer (Phase 1) before any other seat; fixed Phase 2 seats are `architecture-reviewer`, `security-reviewer`, `qa-reviewer`, and `reality-checker` — each receives the primer and must engage with it; the fifth seat rotates from wave evidence.
 
 ## Guru Orientation
 

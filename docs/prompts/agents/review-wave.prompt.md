@@ -20,7 +20,7 @@ You are running **Review wave** on Wavefoundry.
 | `performance-reviewer` | Algorithmic complexity on hot paths (chunker, indexer, query); O(n) per-file model; pre-compiled regex constants; bounded in-memory structures | `docs/prompts/agents/performance-reviewer.prompt.md` |
 | `security-reviewer` | Path confinement on file-access tools; `re.escape` on symbol interpolation; write-path constraint on read-only tools; untrusted content handling | `docs/prompts/agents/security-reviewer.prompt.md` |
 
-When `wave_council_policy.enabled` is true, Wavefoundry also requires a delivery-phase council pass. The council seats review the delivered implementation and specialist findings in isolation, then `council-moderator` records `wave-council-delivery` in `## Review Evidence` and summarizes the tradeoffs in `## Review checkpoints`.
+When `wave_council_policy.enabled` is true, Wavefoundry also requires a delivery-phase council pass. The `council-moderator` first declares a primer depth tier (`lightweight` / `standard` / `full`) based on trust boundaries touched and change scope; `red-team` then runs the adversarial primer (`council-adversarial-primer` mode) in isolation at that depth (Phase 1); fixed seats each receive the primer and must engage with it before producing findings (Phase 2); `council-moderator` synthesizes all outputs and records `wave-council-delivery` in `## Review Evidence` and the tradeoffs in `## Review checkpoints`.
 
 ## Guru Orientation
 

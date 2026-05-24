@@ -354,7 +354,26 @@ def build_zip(
     return zip_path
 
 
+def _reexec_with_venv_if_needed() -> None:
+    """Re-exec this script under the wavefoundry venv when numpy is not importable.
+
+    The index build step loads indexer.py in-process, which requires numpy and
+    lancedb. When build_pack.py is invoked with system Python those imports fail.
+    Re-execing under the venv is transparent — all argv is preserved.
+    """
+    try:
+        import numpy  # noqa: F401
+        return
+    except ImportError:
+        pass
+    venv_python = Path.home() / ".wavefoundry" / "venv" / "bin" / "python"
+    if not venv_python.exists():
+        return  # no venv available; let the error surface naturally
+    os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+
+
 def main():
+    _reexec_with_venv_if_needed()
     parser = argparse.ArgumentParser(
         description="Build a semver distribution zip of Wavefoundry's framework tree."
     )

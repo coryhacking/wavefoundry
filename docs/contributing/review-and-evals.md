@@ -50,17 +50,13 @@ When `docs/workflow-config.json` `wave_council_policy.enabled` is true, Wavefoun
 - `wave-council-readiness` before implementation
 - `wave-council-delivery` before closure
 
-Wave Council uses four fixed seats plus one rotating domain seat:
+Wave Council runs a red-team adversarial primer (Phase 1) before fixed seats (Phase 2), then synthesizes. The full protocol — depth tiers, seat responsibilities, output shape — is in `docs/agents/council-moderator.md`.
 
-- `architecture-reviewer`
-- `security-reviewer`
-- `qa-reviewer`
-- `reality-checker`
-- one rotating domain seat selected from wave evidence and review triggers
+Fixed Phase 2 seats: `architecture-reviewer`, `security-reviewer`, `qa-reviewer`, `reality-checker`, plus one rotating domain seat from wave evidence.
 
-The `council-moderator` owns the council briefing packet, synthesis pass, optional targeted challenge round, and final council verdict. The `wave-coordinator` remains responsible for lifecycle routing and gate enforcement.
+The `council-moderator` owns the protocol and verdict. The `wave-coordinator` routes lanes and enforces the gate.
 
-Record machine-readable council signoffs in `## Review Evidence`. Record the narrative synthesis and tradeoff reasoning in `## Review checkpoints`, including the full seat roster, the rotating fifth seat when present, any material disagreements between seats, and how those disagreements were resolved or why they remain unresolved.
+Record machine-readable council signoffs in `## Review Evidence`. Record the narrative synthesis in `## Review checkpoints`.
 
 ## Code Review Requirements
 

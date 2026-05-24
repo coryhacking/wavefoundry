@@ -108,10 +108,9 @@ Execution flow:
    - `docs/agents/frontend-developer.md` (`seed-223`) — relevant when the project has a UI layer or `design_system.design_evidence.detected` is `true`; generate when evidence confirms and the role doc is absent. Verify `docs/workflow-config.json` `design_system_policy` is present (backfill with `"evolvable"` if not).
    - `docs/agents/data-engineer.md` (`seed-224`) — relevant when the project has SQL schemas, migrations, ETL pipelines, or data-contract surfaces; generate when evidence confirms and the role doc is absent.
    - For each generated role doc, verify `docs/prompts/implement-wave.prompt.md` (or the local equivalent) references builder-lane selection so the coordinator allocates work from repository evidence, not habit.
- - **`red-team` council evaluation (seed-225):** Read `docs/workflow-config.json` `wave_council_policy`. If council is enabled:
-   - Evaluate whether `red-team` should be a fixed seat, rotating seat, or left out for this project based on the project's adversarial/challenger needs.
-   - Generate `docs/agents/red-team.md` from `seed-225` when the role is not yet present and will be used.
-   - If adding `red-team` to `fixed_seats` or `rotating_seat_policy`, update `docs/workflow-config.json` accordingly; do not add it blindly — confirm with the operator when the council policy change is non-obvious.
+ - **`red-team` role doc (seed-225):** `red-team` is a universal specialist whenever Wave Council is enabled. When council is enabled:
+   - Generate `docs/agents/specialists/red-team.md` (or `docs/agents/red-team.md`) from `seed-225` if absent — the role doc must always be present and invokable.
+   - Leave `fixed_seats` and `rotating_seat_policy` configuration to the project; do not add or remove `red-team` from council seats without operator instruction.
  - workflow config schema
  - `docs/workflow-config.json` `design_system_policy` — backfill when absent using `{"governance": "evolvable", "notes": "..."}`. The `"evolvable"` default is safe for all existing projects: it enforces no gate and allows design-system surfaces to evolve within normal implementation scope. Only set to `"read-only"` or `"review-governed"` when the operator explicitly requires protected design-system surfaces.
  - `AGENTS.md` and `CLAUDE.md` gate-tool references — when either file references `wave_open_gate` or `wave_close_gate`, update to `wave_gate_open`, `wave_gate_close`, and add `wave_gate_status` as the read-only gate inspection tool; reconcile against current `seed-050` wording. These surfaces are not regenerated automatically by `render_platform_surfaces.py` so they must be updated explicitly.
@@ -399,7 +398,7 @@ Validation areas that should be checked explicitly:
 - `docs/plans/plan-template.md` uses checkbox syntax in `## Acceptance Criteria` (`- [ ] AC-N:`) so newly created change docs scaffold trackable ACs by default
 - `docs/plans/plan-template.md` uses checkbox syntax in `## Tasks` (`- [ ] <step>`) so newly created change docs scaffold trackable task checklists by default
 - senior builder role docs (`docs/agents/software-engineer.md`, `docs/agents/frontend-developer.md`, `docs/agents/data-engineer.md`) exist when repository evidence or operator configuration enables those specialist lanes; absent when not applicable
-- `docs/agents/red-team.md` exists and `docs/workflow-config.json` `wave_council_policy` reflects the decided seat policy when `red-team` is in use; the two surfaces are consistent
+- `docs/agents/specialists/red-team.md` (or `docs/agents/red-team.md`) exists when Wave Council is enabled; `docs/workflow-config.json` `wave_council_policy` reflects the project's chosen seat policy and is consistent with the role doc
 - `docs/prompts/implement-wave.prompt.md` contains a **Pre-Implementation Review Gate** section blocking first edit until the gate passes; `docs/prompts/review-wave.prompt.md` contains a **Pre-Implementation Gate Reconciliation** section
 - `docs/agents/qa-reviewer.md` operating identity states the truth hierarchy (code/tests → review evidence → documentation) and refusal conditions include unsupported completion claims; `docs/agents/code-reviewer.md` review rubric includes a truth-hierarchy note
 - `AGENTS.md` contains **Framework Script Hygiene** per `seed-050`; backfill from the canonical rule when missing
