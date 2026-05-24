@@ -5510,6 +5510,75 @@ class SqlSchemaQualifiedFallbackTests(unittest.TestCase):
         self.assertIn("A005__new_tenant_routines.sql", first["path"])
 
 
+class CodeDefinitionCssTests(unittest.TestCase):
+    """CSS/SCSS support in code_definition via _css_definitions."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        src = self.root / "src"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "styles.css").write_text(
+            ".simple-class { color: red; }\n"
+            "#main-id { display: block; }\n"
+            "html[data-theme=\"dark\"] .dark-header--build { background: rgba(0,0,0,0.1); }\n"
+            "--brand-color: #ff6600;\n"
+            "@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }\n",
+            encoding="utf-8",
+        )
+        (src / "mixins.scss").write_text(
+            "@mixin flex-center { display: flex; align-items: center; }\n"
+            ".scss-card { padding: 1rem; }\n",
+            encoding="utf-8",
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_finds_simple_class_selector(self):
+        result = self.srv.code_definition_response(self.root, "simple-class")
+        self.assertEqual(result["status"], "ok")
+        defs = result["data"]["definitions"]
+        self.assertTrue(any(d["kind"] == "class" and "simple-class" in d["name"] for d in defs))
+        self.assertTrue(any(d["language"] == "css" for d in defs))
+
+    def test_finds_class_selector_mid_line(self):
+        result = self.srv.code_definition_response(self.root, "dark-header--build")
+        self.assertEqual(result["status"], "ok")
+        defs = result["data"]["definitions"]
+        self.assertTrue(any("dark-header--build" in d["name"] for d in defs))
+
+    def test_finds_id_selector(self):
+        result = self.srv.code_definition_response(self.root, "main-id")
+        self.assertEqual(result["status"], "ok")
+        defs = result["data"]["definitions"]
+        self.assertTrue(any(d["kind"] == "id" and "main-id" in d["name"] for d in defs))
+
+    def test_finds_keyframes(self):
+        result = self.srv.code_definition_response(self.root, "fade-in")
+        self.assertEqual(result["status"], "ok")
+        defs = result["data"]["definitions"]
+        self.assertTrue(any(d["kind"] == "keyframes" for d in defs))
+
+    def test_finds_scss_mixin(self):
+        result = self.srv.code_definition_response(self.root, "flex-center")
+        self.assertEqual(result["status"], "ok")
+        defs = result["data"]["definitions"]
+        self.assertTrue(any(d["kind"] == "mixin" and d["language"] == "scss" for d in defs))
+
+    def test_finds_scss_class(self):
+        result = self.srv.code_definition_response(self.root, "scss-card")
+        self.assertEqual(result["status"], "ok")
+        defs = result["data"]["definitions"]
+        self.assertTrue(any(d["kind"] == "class" and d["language"] == "scss" for d in defs))
+
+    def test_css_in_supported_languages(self):
+        result = self.srv.code_definition_response(self.root, "simple-class")
+        self.assertIn("css", result["data"]["supported_languages"])
+        self.assertIn("scss", result["data"]["supported_languages"])
+
+
 class WaveIndexHealthRefreshTests(unittest.TestCase):
     def setUp(self):
         self.srv = load_server()

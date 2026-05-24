@@ -19,6 +19,11 @@ Owns Wave Council synthesis. Stance: preserve independence on the first pass, co
 - Record machine-readable council signoffs in `## Review Evidence`
 - Summarize tradeoffs, unresolved risks, rationale, and any material disagreements plus their resolution in `## Review checkpoints`
 - Respect specialist-lane authority: council may synthesize and escalate, but not waive blocking required lanes
+- **Assign the rotating fifth seat as the "best alternative" seat.** Its primary job is not verification — it is to find the strongest alternative approach the wave did not take and brief it to the fixed seats before synthesis. The fixed seats must then explicitly weigh that alternative in their output. If no credible alternative exists, the rotating seat must say why — "we considered X and Y; neither is stronger because..." is a valid output; silence is not.
+
+## Core Purpose
+
+**The council output should make the work better.** A verdict that only passes or fails without improving the design, implementation, or decision is an incomplete council output. The synthesis must leave the wave in a stronger position than before the council ran.
 
 ## Default Stance
 
@@ -37,9 +42,11 @@ A good council-moderator output contains:
 
 - phase (`readiness` or `delivery`)
 - final verdict
-- seat roster, including the rotating fifth seat
+- seat roster, including the rotating fifth seat and its "best alternative" brief
 - strongest points of agreement
 - material disagreements and how they were resolved or left unresolved
+- `strongest_alternative`: the best alternative design, implementation, or approach surfaced by any seat — with explicit "this would be better because..." reasoning. If no alternative is stronger than the current path, say why.
+- `improvements_recommended`: concrete changes the council recommends to make the work better, regardless of verdict. A passing wave should still leave with actionable improvements.
 - explicit action items, deferrals, or blockers
 
 ## Assumption Tracking

@@ -1979,6 +1979,12 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
   color: var(--ink);
 }
 
+.framework-process-dialog--plan     .framework-process-diagram-step { background: rgba( 72,  68, 197, 0.26); border-color: #b8b5f0; }
+.framework-process-dialog--prepare  .framework-process-diagram-step { background: rgba(255, 145,   0, 0.26); border-color: #f3b26d; }
+.framework-process-dialog--implement .framework-process-diagram-step { background: rgba( 83, 172,   4, 0.26); border-color: #a5d46a; }
+.framework-process-dialog--review   .framework-process-diagram-step { background: rgba(111,  66, 193, 0.26); border-color: #c5b3ff; }
+.framework-process-dialog--close    .framework-process-diagram-step { background: rgba( 96, 125, 139, 0.26); border-color: #b0bec5; }
+
 .framework-process-diagram-arrow {
   display: inline-flex;
   align-items: center;
@@ -2224,6 +2230,14 @@ html[data-theme="dark"] .framework-process-dialog.agent-dialog {
   width: min(1120px, 96vw);
 }
 
+html[data-theme="dark"] .framework-process-dialog .agent-dialog-header           { background: rgba( 26, 104, 145, 0.12); border-bottom-color: #0e3850; }
+html[data-theme="dark"] .framework-process-dialog--bootstrap .agent-dialog-header { background: rgba( 26, 104, 145, 0.14); border-bottom-color: #0e3850; }
+html[data-theme="dark"] .framework-process-dialog--plan      .agent-dialog-header { background: rgba( 72,  68, 197, 0.14); border-bottom-color: #3a2e80; }
+html[data-theme="dark"] .framework-process-dialog--prepare   .agent-dialog-header { background: rgba(255, 145,   0, 0.14); border-bottom-color: #7a3000; }
+html[data-theme="dark"] .framework-process-dialog--implement .agent-dialog-header { background: rgba( 83, 172,   4, 0.14); border-bottom-color: #2a5c04; }
+html[data-theme="dark"] .framework-process-dialog--review    .agent-dialog-header { background: rgba(111,  66, 193, 0.14); border-bottom-color: #4b2e7a; }
+html[data-theme="dark"] .framework-process-dialog--close     .agent-dialog-header { background: rgba( 96, 125, 139, 0.14); border-bottom-color: #1e3a50; }
+
 html[data-theme="dark"] .framework-process-diagram {
   background: transparent;
   border: 0;
@@ -2235,6 +2249,12 @@ html[data-theme="dark"] .framework-process-diagram-step {
   border-color: #30353c;
   box-shadow: 0 1px 0 rgba(255,255,255,0.03), var(--shadow-sm);
 }
+
+html[data-theme="dark"] .framework-process-dialog--plan     .framework-process-diagram-step { background: rgba( 72,  68, 197, 0.30); border-color: #3a2e80; }
+html[data-theme="dark"] .framework-process-dialog--prepare  .framework-process-diagram-step { background: rgba(255, 145,   0, 0.30); border-color: #7a3000; }
+html[data-theme="dark"] .framework-process-dialog--implement .framework-process-diagram-step { background: rgba( 83, 172,   4, 0.30); border-color: #2a5c04; }
+html[data-theme="dark"] .framework-process-dialog--review   .framework-process-diagram-step { background: rgba(111,  66, 193, 0.30); border-color: #4b2e7a; }
+html[data-theme="dark"] .framework-process-dialog--close    .framework-process-diagram-step { background: rgba( 96, 125, 139, 0.30); border-color: #1e3a50; }
 
 html[data-theme="dark"] .framework-process-diagram-step-label {
   color: var(--ink);

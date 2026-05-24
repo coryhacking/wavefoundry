@@ -7483,6 +7483,7 @@ _CHUNKER_MOD = None
 
 _SUPPORTED_DEFINITION_LANGS = {
     "python", "javascript", "typescript", "go", "rust", "java", "csharp", "kotlin", "swift", "sql",
+    "css", "scss",
 }
 _SUPPORTED_REFERENCE_LANGS = set(_LANG_TO_EXTS)
 
@@ -7609,6 +7610,16 @@ _DEFINITION_PATTERNS: dict[str, list[tuple[str, re.Pattern]]] = {
         ("protocol", re.compile(r"^(?:public|internal|private|open)?\s*protocol\s+(\w+)")),
     ],
 }
+
+
+# CSS/SCSS definition patterns.  Class and ID selectors can appear anywhere in
+# a selector string (e.g. `html[data-theme="dark"] .classname { ... }`), so
+# these use finditer on rule-opening lines rather than match() at line start.
+_CSS_CLASS_RE    = re.compile(r"(?<![.\w#])\.(-?[a-zA-Z_][a-zA-Z0-9_-]*)")
+_CSS_ID_RE       = re.compile(r"(?<![.\w])#([a-zA-Z_][a-zA-Z0-9_-]*)")
+_CSS_PROP_RE     = re.compile(r"^--([\w-]+)\s*:")
+_CSS_KEYFRAME_RE = re.compile(r"^@keyframes\s+([\w-]+)")
+_CSS_MIXIN_RE    = re.compile(r"^@(?:mixin|function)\s+([\w-]+)")  # SCSS
 
 
 def _detect_language(path: str) -> str:
@@ -7948,6 +7959,60 @@ def _regex_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
     return results
 
 
+def _css_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
+    """Find CSS/SCSS class, ID, custom-property, keyframe, and mixin definitions."""
+    results: list[dict[str, Any]] = []
+    root_r = root.resolve()
+    structural_patterns = (
+        ("custom-property", _CSS_PROP_RE),
+        ("keyframes",       _CSS_KEYFRAME_RE),
+        ("mixin",           _CSS_MIXIN_RE),
+    )
+    for p in _walk_repo_for_navigation(root):
+        lang = _detect_language(str(p))
+        if lang not in {"css", "scss"}:
+            continue
+        try:
+            source = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+        for lineno, line in enumerate(source.splitlines(), 1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("//") or stripped.startswith("/*"):
+                continue
+            # Custom property / @keyframes / @mixin — anchored at line start
+            matched_structural = False
+            for kind, pat in structural_patterns:
+                m = pat.match(stripped)
+                if m:
+                    matched_structural = True
+                    name = m.group(1)
+                    if name == symbol or symbol in name:
+                        results.append({
+                            "path": rel, "line": lineno, "kind": kind, "name": name,
+                            "language": lang, "method": "regex",
+                            "match_kind": _definition_match_kind(name, symbol),
+                        })
+                    break
+            if matched_structural:
+                continue
+            # Class and ID selectors — only on lines that open a rule block
+            if "{" not in stripped:
+                continue
+            for kind, pat in (("class", _CSS_CLASS_RE), ("id", _CSS_ID_RE)):
+                for m in pat.finditer(stripped):
+                    name = m.group(1)
+                    if name == symbol or symbol in name:
+                        results.append({
+                            "path": rel, "line": lineno, "kind": kind, "name": name,
+                            "language": lang, "method": "regex",
+                            "match_kind": _definition_match_kind(name, symbol),
+                        })
+                        break
+    return results
+
+
 def _non_python_references(root: Path, symbol: str) -> list[dict[str, Any]]:
     """Find references to *symbol* across non-Python files via text search."""
     results: list[dict[str, Any]] = []
@@ -8197,10 +8262,11 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
         python_definitions = _python_definitions(root, symbol)
         treesitter_definitions = _treesitter_definition_results(root, symbol)
         regex_definitions = _regex_definitions(root, symbol)
+        css_definitions = _css_definitions(root, symbol)
     except Exception as exc:
         return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Definition search failed: {exc}")], next_tools=["code_keyword"], usage=f"code_keyword(query={symbol!r})")
     definitions = _dedupe_navigation_results(
-        python_definitions + treesitter_definitions + regex_definitions,
+        python_definitions + treesitter_definitions + regex_definitions + css_definitions,
         ("path", "line", "language", "name"),
     )
     note = None
@@ -8209,10 +8275,11 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
             python_definitions = _python_definitions(root, retry_symbol)
             treesitter_definitions = _treesitter_definition_results(root, retry_symbol)
             regex_definitions = _regex_definitions(root, retry_symbol)
+            css_definitions = _css_definitions(root, retry_symbol)
         except Exception as exc:
             return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Definition search failed: {exc}")], next_tools=["code_keyword"], usage=f"code_keyword(query={symbol!r})")
         definitions = _dedupe_navigation_results(
-            python_definitions + treesitter_definitions + regex_definitions,
+            python_definitions + treesitter_definitions + regex_definitions + css_definitions,
             ("path", "line", "language", "name"),
         )
         if definitions:
@@ -10458,7 +10525,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     ) -> dict[str, Any]:
         """Search repository files for an exact keyword or substring.
 
-        Prefer when: the exact token, symbol name, or string pattern is known. Always available — no index required.
+        Prefer code_definition first when the goal is to find where a specific symbol, CSS class, or
+        custom property is *declared* — it returns a precise definition location without scanning all occurrences.
+        Use code_keyword when you need all occurrences of a token, or when code_definition returns no results.
         Use docs_search or code_search instead when searching by concept or intent rather than exact text.
         Use code_pattern when you need regex (non-literal) matching.
         Returns deterministic path/line/snippet results for each match.
@@ -10595,9 +10664,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - Python: AST-based function/class/async-function definitions
         - JavaScript/TypeScript/Java/C#: tree-sitter-backed structural definitions when available
         - Go/Rust/Kotlin/Swift: regex-based structural definitions
+        - CSS/SCSS: class selectors, ID selectors, custom properties (--var), @keyframes, @mixin/@function
 
         Args:
-            symbol_or_path_position: Symbol name to look up (e.g. "MyClass", "process_wave").
+            symbol_or_path_position: Symbol name to look up (e.g. "MyClass", "process_wave",
+                                     "agent-dialog-header", "--brand-color", "fade-in").
                                      Exact or partial match against supported symbol names.
         """
         bad = _ensure_no_extra_args("code_definition", kwargs)

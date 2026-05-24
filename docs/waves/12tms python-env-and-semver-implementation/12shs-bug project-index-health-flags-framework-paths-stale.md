@@ -1,11 +1,11 @@
 # Project Index Health Check Falsely Flags Framework Paths As Stale
 
 Change ID: `12shs-bug project-index-health-flags-framework-paths-stale`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: wave-coordinator
-Status: planned
-Last verified: 2026-05-21
-Wave: TBD
+Status: closed
+Last verified: 2026-05-23
+Wave: `12tms python-env-and-semver-implementation`
 
 ## Rationale
 
@@ -43,11 +43,11 @@ The health check should not flag framework-excluded paths as stale. Because it d
 
 ## Tasks
 
-- [ ] Investigate where stale-path detection occurs in the project-layer health check (likely `setup_index.py` or `indexer.py`)
-- [ ] Determine whether excluded-scope paths are written into the hash manifest or compared against it during health check
-- [ ] Fix the health check so framework-scoped paths are treated as out-of-scope rather than removed
-- [ ] Update or add a test asserting that excluded-scope paths do not appear in stale path counts
-- [ ] Verify `wave_audit` reports clean after rebuild with the fix applied
+- [x] Investigate where stale-path detection occurs in the project-layer health check (likely `setup_index.py` or `indexer.py`)
+- [x] Determine whether excluded-scope paths are written into the hash manifest or compared against it during health check
+- [x] Fix the health check so framework-scoped paths are treated as out-of-scope rather than removed
+- [x] Update or add a test asserting that excluded-scope paths do not appear in stale path counts
+- [x] Verify `wave_audit` reports clean after rebuild with the fix applied
 
 ## Agent Execution Graph
 
@@ -81,6 +81,7 @@ N/A — confined to the indexer health check; no boundary, flow, or verification
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-05-21 | Observed during pre-implementation index rebuild for wave 12sg7: 86 `.wavefoundry/framework/` paths reported stale after full rebuild; framework layer clean. | `wave_audit` output in session |
+| 2026-05-23 | Fix confirmed implemented as part of wave 12tms indexer/setup_index rewrite. `wave_index_health` reports `removed_paths_count: 0`; framework paths no longer appear as stale in the project layer. `semantic_ready` correctly reflects `false` only for genuinely stale content. | `wave_index_health` output: `stale_paths_count: 1` (only legitimately modified file), `removed_paths_count: 0` |
 
 ## Decision Log
 

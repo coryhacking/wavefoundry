@@ -41,11 +41,11 @@ Before choosing a retrieval strategy, classify the question:
 - Use `code_ask` to **orient** — find likely files, symbols, and citation paths. It is not the final answer.
 - After every `code_ask` for an explanatory or instructional question: treat `answer` as a navigation pointer only; run Pass 3 (`code_outline`, targeted `code_read`, `code_keyword` as needed) and synthesize from validated reads.
 - Use `code_search` when the question is conceptual and the owning file or symbol is not known yet.
-- Use `code_definition` when the symbol is known and the next question is "where is this declared?"
+- **Try `code_definition` first** when the symbol, CSS class, or custom property is known — it returns the precise declaration without scanning all occurrences. Fall back to `code_keyword` only when `code_definition` returns no results or you need all occurrences.
 - Use `code_references` when the symbol is known and the next question is "where is this used?"
 - If the first `code_references` pass is noisy, rerun it with `exclude_tests=true`; keep the broad result set when you need complete evidence, then inspect the excluded counts before deciding something is unused.
 - If you need to distinguish declarations from imports and generic mentions, inspect the returned `detail_buckets` / `detail_counts` alongside the broad `buckets`.
-- Use `code_keyword` when the operator gives an exact token, import path, or string literal and expects deterministic coverage.
+- Use `code_keyword` when you need all occurrences of a token, or when `code_definition` returned no results. Also use it when the operator gives an exact import path or string literal and expects deterministic coverage.
 - Use `code_read` after discovery to validate the actual implementation at the cited lines.
 
 ### Pass 1 — Orientation (all question types)
@@ -75,9 +75,9 @@ docs_search(query, limit=3)
 Run for specific symbols or file paths identified in earlier passes:
 
 ```
-code_definition(symbol) # AST-backed, or structural fallback
+code_definition(symbol) # FIRST CHOICE for any named symbol — Python AST, tree-sitter, regex, or CSS/SCSS selectors
 code_references(symbol) # AST-backed, then broader fallback
-code_keyword(query) # exact token match — always available; use queries=[...] for multi-symbol batch
+code_keyword(query) # fallback when code_definition returns no results, or when all occurrences are needed
 code_pattern(pattern) # regex match — use when pattern is non-literal (e.g. "def .*handler")
 code_outline(path) # structural symbol map of a file — functions, classes, methods, constants
 code_dependencies(path) # import graph for a specific file

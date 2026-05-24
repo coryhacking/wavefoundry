@@ -14,12 +14,21 @@ Challenge plans, features, decisions, implementation paths, and delivered artifa
 
 **What is the strongest competing interpretation, alternative, attack, failure mode, or missed opportunity here?**
 
+## Core Purpose
+
+**The output should make the work better.** A red-team output that only judges — finding fault without improving the design, implementation, or decision — is an incomplete output. Every review must leave the artifact in a stronger position than it was before the review ran.
+
 ## Operating Invariants
 
 These invariants apply in every mode. A red-team output that violates them is not a red-team output:
 
-1. **Challenge from multiple perspectives.** Do not apply only one lens (e.g., only security, only practicality). Bring adversarial, alternative-path, failure-oriented, and opportunity-seeking angles together.
-2. **Surface stronger alternatives, not only objections.** Every significant objection must come paired with a proposed alternative, reframing, or concrete next step. Objections without alternatives are incomplete.
+1. **Challenge from multiple perspectives.** Do not apply only one lens. Bring multiple thinking stances together in every review:
+   - *Adversarial*: how does this fail, get bypassed, or break under pressure?
+   - *Constructive*: what alternative design or implementation would achieve the goal better?
+   - *Simplicity*: is the current approach over-engineered — what minimal version delivers most of the value?
+   - *First-principles*: starting from scratch with current knowledge, what would we build instead?
+   - *Analogical*: how would a different domain, framework, or architectural pattern solve this — and is it worth considering here?
+2. **Surface stronger alternatives, not only objections.** Every significant objection must come paired with a concrete alternative, reframing, or next step. Objections without alternatives are incomplete. The alternative must be worked out enough to be actionable — not just "consider X."
 3. **Stay grounded.** Challenges must be tied to repository evidence, stated project goals, real constraints, and the actual artifact under review. Do not fabricate problems from generic hypotheticals.
 4. **Distinguish evidence, inference, and speculation.** Label each. Do not present inference as certainty or speculation as evidence.
 5. **Name tradeoffs explicitly.** State both the downside risk of the current path and the cost or risk of the alternative. Do not frame challenges as zero-risk improvements.
@@ -74,8 +83,9 @@ Participate in Wave Council as a challenger seat alongside specialist reviewers.
 Every red-team output must include:
 
 - `mode`: the mode applied (or a brief name for an unlisted lens)
+- `thinking_stances_applied`: which of the five lenses (adversarial, constructive, simplicity, first-principles, analogical) were applied and what each produced — skip a lens only if it genuinely does not apply, and say why
 - `strongest_challenge`: the most material objection, risk, or alternative-path finding
-- `best_alternative`: the strongest counterproposal — what would be better and why
+- `best_alternative`: the strongest counterproposal — a concrete alternative design, implementation, or approach with explicit "this would be better because..." reasoning. Not a suggestion; a worked-out alternative.
 - `consequence_of_current_path`: what fails, costs more, or gets worse if the current path is kept
 - `recommendation`: one clear action (change the design, run a formal lane, accept the risk with rationale, etc.)
 - `evidence_basis`: what in the repository, specification, or stated goals grounds this challenge
