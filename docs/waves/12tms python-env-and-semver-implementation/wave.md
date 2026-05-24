@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: active
+Status: closed
 Last verified: 2026-05-23
 
 wave-id: `12tms python-env-and-semver-implementation`
@@ -36,10 +36,17 @@ Change Status: `implemented`
 | release-reviewer | review | `12tm5-enh migrate-versioning-to-semver` — semver artifact naming, upgrade ordering, packaging contract |
 | architecture-reviewer | review | both changes — runtime environment boundary and version contract coherence |
 
+Completed At: 2026-05-23
+
 ## Wave Summary
 
-This wave ships the implementation for two contracts decided in `12t9b`: the Python tool venv bootstrap (`~/.wavefoundry/venv`, `pyproject.toml`, removal of `--break-system-packages`) and the semver versioning migration (`MAJOR.MINOR.PATCH+<build>` format, `packaging.version.Version` comparison, `~/.wavefoundry/dist/` drop location, date-string migration path).
+Wave `12tms` (Python Env and Semver Implementation) delivered 3 changes: Python Tool Venv Bootstrap, Migrate Versioning To Semver, and Venv Python Launchers. Notable adjustments during implementation: Python Tool Venv Bootstrap: Implemented. `_bootstrap_venv()` + `_missing_in_venv()` added; `_install_deps()` rewritten to venv Python; `--break-system-packages` removed; `pyproject.toml` created; docs updated; `test_setup_index.py` rewritten. 1580 tests pass.; Migrate Versioning To Semver: Revised starting version to v0.9.0 bridge → v1.0.0 clean semver. Added the bridge artifact requirement: `0.9.0` remains semver internally but must keep the old date-style zip naming so legacy pre-semver upgrade flows can adopt it directly. Added red-team risks: packaging bootstrap ordering, date-string detection scope, dist-dir malformed filenames.; Migrate Versioning To Semver: Implemented. `check_version.py` rewritten with `_to_version()` + semver `compare_versions()`; `build_pack.py` redesigned for `--version` flag, dist dir, semver internals, and bridge artifact naming; `upgrade_wavefoundry.py` `_find_latest_release_zip()` + UpgradeContext docstring; `packaging` added to `pyproject.toml`; `test_check_version.py` created; `test_build_pack.py` + `test_upgrade_wavefoundry.py` updated; docs updated.
 
+**Changes delivered:**
+
+- **Python Tool Venv Bootstrap** (`12tm5-enh python-tool-venv-bootstrap`) — 7 ACs completed. Key decisions: --------; Use `~/.wavefoundry/venv` as the default shared tool environment.
+- **Migrate Versioning To Semver** (`12tm5-enh migrate-versioning-to-semver`) — 10 ACs completed. Key decisions: --------; Start at `1.0.0`. Operator-confirmed 2026-05-22.
+- **Venv Python Launchers** (`12tp1-enh venv-python-launchers`) — 13 ACs completed
 ## Journal Watchpoints
 
 - **Watchpoint:** `pyproject.toml` must be created by `12tm5-enh python-tool-venv-bootstrap` before `12tm5-enh migrate-versioning-to-semver` adds `packaging` as a dependency — land both in the same wave; do not implement semver change first.
@@ -53,8 +60,8 @@ This wave ships the implementation for two contracts decided in `12t9b`: the Pyt
 ## Review Evidence
 
 - wave-council-readiness: approved 2026-05-22 — Two implementation changes admitted with complete AC sets, checkbox tasks, and binding decisions from `12t9b`. Serialization through `pyproject.toml` creation is the only cross-change dependency; documented as a watchpoint and serialization point. Required reviewer lanes: qa-reviewer for both changes; release-reviewer for semver artifact naming, upgrade ordering, and packaging contract; architecture-reviewer for runtime environment boundary and version contract coherence. Red-team blocking findings resolved: packaging bootstrap-ordering risk (lazy import + error); partial venv failure (detect absent binary, recreate). Advisory findings resolved: date-string regex + ValueError; dist-dir skip of non-matching files. Legacy upgrade path resolved by treating `0.9.0` as a bridge release that keeps the old date-style artifact name while installing the new semver-aware upgrader. Wave is ready for implementation.
-- wave-council-delivery: 2026-05-23 PASS — All required-priority ACs evidenced across both changes; 1614 tests pass; docs-lint clean. Semver naming, ordering, and dist-dir discovery correct. Bridge artifact design verified. Two non-blocking advisories: (1) `update_manifest_revision()` design change (operator-directed during close session) not reflected in 12tm5-semver progress log; (2) in-session improvements (home-dir zip search, hook absolute paths, manifest revision fix, test isolation) not wave-doc'd in progress log. Neither advisory blocks closure.
-- operator-signoff: <approved when operator confirms closure>
+- wave-council-delivery: approved 2026-05-23 — synthesized after fixed-seat review (qa-reviewer, architecture-reviewer, security-reviewer, reality-checker, red-team) plus rotating domain seat release-reviewer. All specialist lanes pass. Two non-blocking advisories: (1) `update_manifest_revision()` design change (operator-directed during close session) not reflected in 12tm5-semver progress log — recorded here instead; (2) in-session improvements (home-dir zip search, hook absolute paths, manifest revision fix, test isolation) not individually wave-doc'd in progress log. Neither advisory blocks closure. 1614 tests pass; docs-lint clean.
+- operator-signoff: approved — operator confirmed closure 2026-05-23
 
 ## Review Checkpoints
 
