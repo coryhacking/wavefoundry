@@ -15,7 +15,7 @@ The build-number retrieval case showed a repeated pattern: agent-side query form
 
 1. Add a canonical follow-up note that says repeated retrieval heuristics should be promoted into the search-architecture docs or Guru journal.
 2. Keep the note narrowly framed as a follow-up to repeated friction cases, not as a new retrieval rule.
-3. Cross-link the note from the existing search-retrieval friction report so the evidence and the canonical guidance stay connected.
+3. Cross-link the note from the existing search-retrieval friction evidence so the canonical guidance stays connected.
 
 ## Scope
 
@@ -23,7 +23,6 @@ The build-number retrieval case showed a repeated pattern: agent-side query form
 
 **In scope:**
 
-- `docs/reports/search-retrieval-friction-2026-05-26.md`
 - either `docs/architecture/` search guidance or `docs/agents/guru.md`, depending on the least disruptive canonical home
 
 **Out of scope:**
@@ -52,7 +51,7 @@ The build-number retrieval case showed a repeated pattern: agent-side query form
 
 ## Serialization Points
 
-- `docs/reports/search-retrieval-friction-2026-05-26.md`
+- `docs/agents/journals/guru.md`
 
 ## Affected Architecture Docs
 
