@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 
@@ -49,6 +51,14 @@ class DocsGardenerTests(unittest.TestCase):
             '{"schema_version": 1, "framework_revision": "2099-01-01a", '
             '"last_gardened_at": "1999-01-01", '
             '"public_prompt_surface": [], "seed_framework_source": "test"}\n',
+            encoding="utf-8",
+        )
+
+    def _ensure_session_handoff(self) -> None:
+        sh = self.root / "docs" / "agents" / "session-handoff.md"
+        sh.parent.mkdir(parents=True, exist_ok=True)
+        sh.write_text(
+            "# Session Handoff\n\nOwner: Engineering\nStatus: generated\nLast verified: 2000-01-01\n",
             encoding="utf-8",
         )
 
@@ -97,6 +107,31 @@ class DocsGardenerTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("Last verified: 2020-06-01", a.read_text(encoding="utf-8"))
         self.assertIn("Last verified: 2020-06-01", b.read_text(encoding="utf-8"))
+
+    def test_empty_run_skips_report_creation_and_prints_nothing_to_report(self) -> None:
+        self._minimal_manifest()
+        self._ensure_session_handoff()
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code, paths = dg.gardener_run(self.root, dg.parse_args(["--date", "2020-06-01"]))
+        self.assertEqual(code, 0)
+        self.assertEqual(paths, [])
+        self.assertEqual(out.getvalue().strip(), "docs-gardener: ok (nothing to report)")
+        self.assertFalse((self.root / "docs" / "reports" / "reindex-2020-06-01.md").exists())
+
+    def test_empty_run_leaves_existing_report_untouched(self) -> None:
+        self._minimal_manifest()
+        self._ensure_session_handoff()
+        report = self.root / "docs" / "reports" / "reindex-2020-06-01.md"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("existing report\n", encoding="utf-8")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code, paths = dg.gardener_run(self.root, dg.parse_args(["--date", "2020-06-01"]))
+        self.assertEqual(code, 0)
+        self.assertEqual(paths, [])
+        self.assertEqual(out.getvalue().strip(), "docs-gardener: ok (nothing to report)")
+        self.assertEqual(report.read_text(encoding="utf-8"), "existing report\n")
 
     def _init_git(self) -> None:
         subprocess.run(

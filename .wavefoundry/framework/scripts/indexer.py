@@ -16,12 +16,17 @@ from typing import Optional
 
 sys.dont_write_bytecode = True
 
+FASTEMBED_CACHE_DEFAULT = Path.home() / ".wavefoundry" / "cache" / "fastembed"
+if not os.environ.get("FASTEMBED_CACHE_PATH"):
+    os.environ["FASTEMBED_CACHE_PATH"] = str(FASTEMBED_CACHE_DEFAULT)
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 
 INDEX_DIR_NAME = ".wavefoundry/index"
 META_JSON = "meta.json"
+INDEX_BUILD_LOCK_NAME = "index-build.lock"
 TABLE_LOCK_NAME = ".lock"   # written inside docs.lance/ and code.lance/
 LOCK_STALE_SECONDS = 60 * 60
 
@@ -65,6 +70,10 @@ LANCEDB_NPROBES = 20             # ANN search probes (recall vs latency)
 LANCEDB_REFINE_FACTOR = 10       # reranking candidates multiplier
 RERANKER_MODEL = "BAAI/bge-reranker-base"
 CONTENT_CHOICES = ("docs", "code", "all")
+
+
+class IndexBuildAlreadyRunning(RuntimeError):
+    """Raised when another process already holds the whole-index build lock."""
 SOURCE_CODE_EXTENSIONS = {
     ".py",
     ".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs",
@@ -877,6 +886,59 @@ def _lance_incremental_write(
 
 
 @contextmanager
+def _index_build_lock(index_dir: Path):
+    """Acquire the whole-index build lock for ``index_dir``.
+
+    The file is metadata only; the OS-held lock is the authority. Keeping the
+    file in place lets status tools inspect the last owner without making
+    cleanup correctness depend on unlinking after a crash.
+    """
+    lock_path = index_dir / INDEX_BUILD_LOCK_NAME
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fh = lock_path.open("a+", encoding="utf-8")
+    acquired = False
+    try:
+        if os.name == "nt":
+            import msvcrt
+            try:
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                acquired = True
+            except OSError as exc:
+                raise IndexBuildAlreadyRunning(
+                    f"Another index build is already running for {index_dir}; lock file busy: {lock_path}"
+                ) from exc
+        else:
+            import fcntl
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except BlockingIOError as exc:
+                raise IndexBuildAlreadyRunning(
+                    f"Another index build is already running for {index_dir}; lock file busy: {lock_path}"
+                ) from exc
+
+        fh.seek(0)
+        fh.truncate()
+        fh.write(json.dumps({"pid": os.getpid(), "started_at": time.time()}))
+        fh.flush()
+        yield
+    finally:
+        if acquired:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    fh.seek(0)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+        fh.close()
+
+
+@contextmanager
 def _table_lock(table_dir: Path, *, create_dir: bool = False):
     """Acquire a per-table build lock at ``table_dir/.lock``.
 
@@ -1046,7 +1108,8 @@ def build_index(
             verbose=verbose,
             dry_run=True,
         )
-    return _build_index_locked(
+    with _index_build_lock(index_dir):
+        return _build_index_locked(
             root,
             full=full,
             content=content,
@@ -1595,6 +1658,9 @@ def main(argv: list[str] | None = None) -> int:
             dry_run=args.dry_run,
         )
         return 0
+    except IndexBuildAlreadyRunning as exc:
+        print(f"build_index: {exc}", file=sys.stderr)
+        return 1
     finally:
         state_path = os.environ.get(INDEX_BUILD_STATE_PATH_ENV)
         if state_path:

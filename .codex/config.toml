@@ -1,0 +1,3 @@
+[mcp_servers.wavefoundry]
+command = ".wavefoundry/bin/mcp-server"
+args = []

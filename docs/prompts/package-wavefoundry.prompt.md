@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-23
+Last verified: 2026-05-26
 
 Shortcut: **`Package Wavefoundry`** | Legacy: **`Package wave framework`** / **`Package wave context`**
 
 ## Purpose
 
-Build a semver distribution zip of the canonical framework tree so other repositories can adopt it through **Upgrade wave framework**. The only exception is the one-time `0.9.0` bridge release, which keeps the old date-style artifact name for legacy adoption while still stamping semver internally.
+Build a semver distribution zip of the canonical framework tree so other repositories can adopt it through **Upgrade wave framework**.
 
 ## Run
 
@@ -52,7 +52,6 @@ wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
 - `MAJOR.MINOR.PATCH` is the required semver release version passed via `--version`.
 - `<build>` is the rightmost 4 characters of the lifecycle prefix generated automatically by `lifecycle_id.py --prefix-only`.
 - `VERSION` is stamped to `MAJOR.MINOR.PATCH+<build>` before zip creation, and manifest `framework_revision` must match unless `--skip-manifest-check` is used.
-- **Bridge exception:** when `--version 0.9.0` is used, the artifact keeps the old date-style name (`wavefoundry-YYYY-MM-DDx.zip`) so legacy pre-semver upgrade flows can adopt it by filename. The internal stamped `VERSION` and manifest revision remain `0.9.0+<build>`.
 
 ## Options
 
@@ -67,7 +66,7 @@ wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
 
 After packaging, target repositories should consume the pack via **Upgrade wave framework** so the upgrade flow can:
 
-- adopt the highest semver `wavefoundry-*.zip` from the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/` (Step 0), with the one-time `0.9.0` bridge pack still using the old date-style artifact name at repository root for legacy adoption,
+- adopt the highest semver `wavefoundry-*.zip` from the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/` (Step 0),
 - regenerate host surfaces (`.cursor/mcp.json`, `.mcp.json`, `.junie/mcp/mcp.json`) through `render_platform_surfaces.py`,
 - keep `.wavefoundry/bin/docs-lint` and `.wavefoundry/bin/docs-gardener` aligned with the packaged scripts,
 - validate MCP recovery paths (`wave_audit`, `wave_index_build`) plus docs gate.

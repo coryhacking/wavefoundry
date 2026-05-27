@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-23
+Last verified: 2026-05-26
 
 Reference doc covering how the local dashboard feature moves from the Wavefoundry framework pack into target repositories. Addresses packaging (build_pack.py), install (seed-010), upgrade (seed-160), and the sibling-directory runtime option.
 
@@ -12,7 +12,7 @@ The dashboard is a framework feature, not a per-repo app. Its assets (HTML shell
 
 ## Packaging (build_pack.py)
 
-`build_pack.py` zips the entire `.wavefoundry/framework/` tree into a semver distribution archive (`wavefoundry-MAJOR.MINOR.PATCH.<build>.zip`) under `~/.wavefoundry/dist/` by default. The one-time `0.9.0` bridge release is the exception and keeps the old date-style artifact name for legacy adoption. The dashboard files are included automatically:
+`build_pack.py` zips the entire `.wavefoundry/framework/` tree into a semver distribution archive (`wavefoundry-MAJOR.MINOR.PATCH.<build>.zip`) under `~/.wavefoundry/dist/` by default. The dashboard files are included automatically:
 
 **Packed paths (canonical):**
 ```
@@ -131,7 +131,7 @@ wave_dashboard_stop
 wave_dashboard_restart
 
 # Via bin shortcut (if installed — see below):
-.wavefoundry/bin/wave_dashboard
+.wavefoundry/bin/wave-dashboard
 
 # Via low-level script — opens browser:
 python3 .wavefoundry/framework/scripts/dashboard_server.py --root . --open
@@ -164,9 +164,9 @@ Restart behavior:
 
 These tools are the preferred agent-facing entry points when an agent needs to control the dashboard programmatically.
 
-## bin/wave_dashboard Shortcut
+## bin/wave-dashboard Shortcut
 
-`.wavefoundry/bin/wave_dashboard` is a bash wrapper that starts the dashboard server with `--open` (browser launch). Unlike framework scripts, **this file is not included in the distribution pack** — it is a per-repo convenience script that must be added manually or by the install seed.
+`.wavefoundry/bin/wave-dashboard` is a bash wrapper that starts the dashboard server with `--open` (browser launch). Unlike framework scripts, **this file is not included in the distribution pack** — it is a per-repo convenience script that must be added manually or by the install seed.
 
 Contents:
 ```bash
@@ -181,7 +181,7 @@ To add it to a repo manually:
 ```bash
 mkdir -p .wavefoundry/bin
 # write script content, then:
-chmod +x .wavefoundry/bin/wave_dashboard
+chmod +x .wavefoundry/bin/wave-dashboard
 ```
 
 The script passes through any additional arguments (`$@`) to `dashboard_server.py`, so `--root` and other flags work as expected.

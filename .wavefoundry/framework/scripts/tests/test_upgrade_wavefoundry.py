@@ -518,20 +518,20 @@ class FindLatestReleaseZipTests(unittest.TestCase):
         self.assertEqual(result.name, "wavefoundry-1.2.0.2abc.zip")
 
     def test_returns_highest_semver_zip(self):
-        self._write_zip(self.root, "wavefoundry-0.9.0.2abc.zip")
+        self._write_zip(self.root, "wavefoundry-0.8.0.2abc.zip")
         self._write_zip(self.home_dir, "wavefoundry-1.0.0.2tm5.zip")
-        self._write_zip(self.dist_dir, "wavefoundry-0.9.1.2def.zip")
+        self._write_zip(self.dist_dir, "wavefoundry-0.8.1.2def.zip")
         result = self._run()
         self.assertIsNotNone(result)
         self.assertEqual(result.name, "wavefoundry-1.0.0.2tm5.zip")
 
     def test_skips_non_matching_filenames(self):
-        self._write_zip(self.dist_dir, "wavefoundry-0.9.0.2abc.zip")
+        self._write_zip(self.dist_dir, "wavefoundry-1.0.0.2abc.zip")
         (self.home_dir / "unrelated.zip").write_bytes(b"x")
         (self.root / "wavefoundry-2026-05-20i.zip").write_bytes(b"x")
         result = self._run()
         self.assertIsNotNone(result)
-        self.assertEqual(result.name, "wavefoundry-0.9.0.2abc.zip")
+        self.assertEqual(result.name, "wavefoundry-1.0.0.2abc.zip")
 
     def test_multi_digit_minor_beats_single_digit(self):
         """1.10.0 must rank above 1.9.0 — not lexicographic comparison."""
@@ -627,7 +627,7 @@ class DryRunTests(unittest.TestCase):
                 ".wavefoundry/framework/scripts/upgrade_extensions.py",
                 "# MARKER_IN_SOURCE\n",
             )
-        zip_path = self.root / "wavefoundry-2026-05-19a.zip"
+        zip_path = self.root / "wavefoundry-1.0.0.2abc.zip"
         zip_path.write_bytes(buf.getvalue())
         output = self._run_dry()
         self.assertIn("MARKER_IN_SOURCE", output)

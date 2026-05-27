@@ -6,7 +6,7 @@ Last verified: 2026-05-23
 
 ## Purpose
 
-Shortcut prompt for building a semver distribution zip of Wavefoundry's canonical `framework/` tree from the current repository state. The one-time `0.9.0` bridge release is the exception: it keeps the old date-style artifact name for legacy adoption while still stamping semver internally.
+Shortcut prompt for building a semver distribution zip of Wavefoundry's canonical `framework/` tree from the current repository state.
 
 ## Terminology
 
@@ -61,8 +61,6 @@ wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
 
 Immediately before building the archive, the script writes `.wavefoundry/framework/VERSION` to `MAJOR.MINOR.PATCH+<build>` and expects `docs/prompts/prompt-surface-manifest.json` `framework_revision` to match the same revision unless `--skip-manifest-check` is explicitly used. It also updates and compacts `.wavefoundry/framework/index/`, a packaged semantic index for the canonical framework docs and seeds, so target repositories do not need to re-embed the framework corpus after install or upgrade.
 
-**Bridge exception:** when `--version 0.9.0` is used, the artifact keeps the old date-style name (`wavefoundry-YYYY-MM-DDx.zip`) so pre-semver upgrade flows can adopt it by filename. The internal stamped `VERSION` and manifest revision remain `0.9.0+<build>`.
-
 ## Options
 
 | Flag | Meaning |
@@ -97,7 +95,7 @@ unzip -o wavefoundry-MAJOR.MINOR.PATCH.<build>.zip -d <repo-root>
 
 restores files to `.wavefoundry/framework/` inside the target repository root.
 
-In target repositories, run the **Upgrade wave framework** prompt after unpacking to apply post-unpack reconciliation steps. For normal operator flows, leave semver packs in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/` and let the upgrade workflow adopt the highest semver zip automatically. The one-time `0.9.0` bridge pack is the exception: legacy installs should use the old date-style artifact name at repository root.
+In target repositories, run the **Upgrade wave framework** prompt after unpacking to apply post-unpack reconciliation steps. For normal operator flows, leave semver packs in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/` and let the upgrade workflow adopt the highest semver zip automatically.
 
 ## Excluded From The Zip
 

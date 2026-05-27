@@ -116,7 +116,7 @@ The Wave Framework addresses this by giving agents a persistent operating surfac
   README.md       This file — project owner orientation
 ```
 
-The framework ships as a dated zip (`wavefoundry-YYYY-MM-DDx.zip`). When you run `Upgrade Wavefoundry`, the agent unpacks the zip, reconciles the operating surface, and updates the indexes.
+The framework ships as a semver zip (`wavefoundry-MAJOR.MINOR.PATCH.<build>.zip`). When you run `Upgrade wave framework`, the agent adopts the highest matching pack it finds, reconciles the operating surface, and updates the indexes.
 
 ---
 
@@ -250,13 +250,13 @@ This disposition record is what lets future sessions continue without reconstruc
 
 ### Installing
 
-Drop the distribution zip (`wavefoundry-YYYY-MM-DDx.zip`) at the root of your repository and run:
+Place the distribution zip (`wavefoundry-MAJOR.MINOR.PATCH.<build>.zip`) in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`, and run:
 
 ```
-Install Wavefoundry
+Upgrade wave framework
 ```
 
-The agent unpacks the zip, bootstraps the full operating surface, and registers the MCP server with your host. After install, restart MCP and run:
+The agent adopts the zip, bootstraps the operating surface, and refreshes the local framework files. After upgrade, restart MCP and run:
 
 ```
 wave_index_build(content="docs", mode="update")

@@ -1,8 +1,8 @@
-# Wavefoundry: Structured Agent Execution for Software Repositories
+# Wavefoundry: The Agent Harness for Software Repositories
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-06
+Last verified: 2026-05-26
 
 ---
 

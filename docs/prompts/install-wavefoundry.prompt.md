@@ -2,9 +2,9 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-23
+Last verified: 2026-05-26
 
-Shortcut: **`Install Wavefoundry`** | Legacy: **`Init wave framework`** / **`Init wave context`**
+Shortcut: **`Init wave framework`** | Legacy: **`Install Wavefoundry`** / **`Install wave framework`** / **`Init wave context`**
 
 ## Purpose
 
@@ -35,13 +35,15 @@ After installing Wave Framework, enable the local MCP server in your agent host 
 
 **Python requirement:** Python 3.11 or later is required. `setup_wavefoundry.py` is the preferred bootstrap entrypoint: it creates a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override), installs all framework dependencies into it, and runs the index setup flow. `setup_index.py` remains supported as the compatibility entrypoint behind it. No system-level or project-level Python environment is modified.
 
-**Versioning:** Wavefoundry uses `MAJOR.MINOR.PATCH` semver internally. Distribution zips use `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` from `1.0.0` onward and land in `~/.wavefoundry/dist/` after packaging. The one-time `0.9.0` bridge release is the exception: it stamps semver internally but keeps the old date-style artifact name (`wavefoundry-YYYY-MM-DDx.zip`) so pre-semver upgrade flows can adopt it directly.
+**Versioning:** Wavefoundry uses `MAJOR.MINOR.PATCH` semver internally. Distribution zips use `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` and land in `~/.wavefoundry/dist/` after packaging.
 
 **Step 1 — Build the semantic index:**
 
 ```bash
 python3 .wavefoundry/framework/scripts/setup_wavefoundry.py
 ```
+
+If this setup step fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path. In agent-driven sessions, the agent should ask the operator for permission to rerun the same setup command with network access or host escalation enabled instead of switching to an out-of-band manual model download.
 
 **Step 2 — Register the server in your host:**
 
@@ -51,18 +53,8 @@ python3 .wavefoundry/framework/scripts/setup_wavefoundry.py
 | **Cursor** | `.cursor/mcp.json` (auto-generated) | Run `render_platform_surfaces --platform cursor`. Enable under **Cursor -> Settings -> MCP** if not auto-loaded. |
 | **Junie** | `.junie/mcp/mcp.json` (auto-generated) | Run `render_platform_surfaces --platform junie`. Junie discovers this on project open. |
 | **GitHub Copilot** | VS Code MCP settings | Open **VS Code -> Settings -> MCP servers** and add the stdio entry below. |
-| **Codex** | `.wavefoundry/bin/register-codex-mcp` | Run the repo-local bootstrap launcher to register this repository in Codex. It writes the current repo's MCP entry into `~/.codex/config.toml` and names it `wavefoundry-<hash>` for every checkout. The hash is stable for that checkout path, so moving or recloning the repo intentionally changes the label. |
+| **Codex** | `.codex/config.toml` (committed) | Project-local `.codex/config.toml` is committed to the repo. Codex loads the `wavefoundry` MCP server automatically for trusted projects. Trust the project when Codex prompts on first clone. |
 | **Air / other** | Host UI | Add the stdio entry below via your host's MCP attachment UI. See your host's MCP documentation. |
-
-**Codex bootstrap launcher**:
-
-```bash
-./.wavefoundry/bin/register-codex-mcp
-```
-
-On Windows, run the launcher from **WSL2**. The current bootstrap surface is shell-based rather than a native PowerShell or `cmd.exe` workflow.
-
-The launcher registers this repo in `~/.codex/config.toml` with the correct per-checkout server name, so Codex can select the matching MCP server deterministically. The label is stable for the current folder path, not for an abstract project identity across moves.
 
 After connecting, call `wave_server_info()` once to confirm the attached `repo_root` before you rely on any other MCP tools.
 
@@ -94,7 +86,7 @@ args = [
 cwd = "/Users/coryhacking/Developer/wavefoundry"
 ```
 
-Register each additional Wavefoundry repo with a separate `wavefoundry-<hash>` entry in the same file so the command points at that repo's absolute path. The hash is derived from the absolute checkout path, so the label remains stable for that folder and changes when the folder path changes.
+Register each additional Wavefoundry repo with its own project-local MCP config so the command points at that repo root. Do not rely on hashed Codex server labels as the routing contract.
 
 **Docs validation (agents):** After MCP is enabled, use **`wave_validate`** and **`wave_garden`** for the docs gate instead of shelling out to `.wavefoundry/bin/docs-lint` / `.wavefoundry/bin/docs-gardener`. Use the bin launchers only when MCP is not attached (CI, hooks, bare terminal).
 

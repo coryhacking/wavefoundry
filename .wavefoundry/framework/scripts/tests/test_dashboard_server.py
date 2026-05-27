@@ -174,7 +174,10 @@ Owner: Engineering
 
 
 def _write_dashboard_lance_index(root: Path, *, docs_chunks: list[dict] | None = None, code_chunks: list[dict] | None = None) -> None:
-    import lancedb
+    try:
+        import lancedb
+    except ImportError as exc:
+        raise unittest.SkipTest("lancedb not installed in invoking interpreter") from exc
 
     index_dir = root / ".wavefoundry" / "index"
     index_dir.mkdir(parents=True, exist_ok=True)
@@ -939,6 +942,24 @@ class DashboardProcessControlTests(unittest.TestCase):
         stop.assert_called_once_with(self.root)
         start.assert_called_once_with(self.root, port=None)
 
+    def test_dashboard_main_exits_when_process_lock_is_busy(self):
+        self._write_dashboard_metadata(self.root, pid=4321, url="http://127.0.0.1:43127/dashboard.html")
+        lock_busy = self.srv.dashboard_lib.DashboardLockBusy
+
+        class BusyLock:
+            def __enter__(self):
+                raise lock_busy("busy")
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        with patch.object(self.srv.dashboard_lib, "dashboard_process_lock", return_value=BusyLock()), \
+             patch("sys.stdout", new=io.StringIO()) as stdout:
+            rc = self.srv.main(["--root", str(self.root)])
+
+        self.assertEqual(rc, 0)
+        self.assertIn("http://127.0.0.1:43127/dashboard.html", stdout.getvalue())
+
 
 class DashboardReadOnlyTests(_HandlerHarnessMixin, unittest.TestCase):
     """Verify the dashboard server never writes project state during GET requests."""
@@ -1662,6 +1683,30 @@ class IndexBuilderTests(unittest.TestCase):
             result = builder._execute()
         self.assertEqual(result, -1)
 
+    def test_execute_treats_lock_busy_as_skip(self):
+        builder = self._make_builder()
+        builder._active_layers = {"project"}
+
+        class FakeProc:
+            pid = 99999
+            returncode = 1
+
+            def __init__(self, *args, **kwargs):
+                self.stdout = kwargs["stdout"]
+
+            def communicate(self):
+                self.stdout.write(
+                    "build_index: Another index build is already running for /tmp/repo/.wavefoundry/index; "
+                    "lock file busy: /tmp/repo/.wavefoundry/index/index-build.lock\n"
+                )
+                self.stdout.flush()
+                return b"", b""
+
+        with patch("subprocess.Popen", side_effect=lambda *args, **kwargs: FakeProc(*args, **kwargs)):
+            result = builder._execute()
+
+        self.assertEqual(result, 0)
+
     def test_execute_writes_state_file_during_build(self):
         """_execute must write index-build.json while communicate() is running."""
         builder = self._make_builder()
@@ -2265,6 +2310,54 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         self.assertEqual(proj.get("build_status"), "idle")
         self.assertEqual(fw.get("build_status"), "idle")
 
+    def test_idle_builder_clears_stale_failed_snapshot(self):
+        self._disable_auto_index()
+        failed_snapshot = self.lib.collect_dashboard_snapshot(self.root)
+        failed_snapshot["health"]["index"]["project"]["build_status"] = "failed"
+        failed_snapshot["health"]["index"]["framework"]["build_status"] = "failed"
+
+        store = self._track(self.srv.SnapshotStore(self.root))
+        store._index_builder = MagicMock()
+        store._index_builder.get_status.side_effect = [
+            {"build_status": "idle"},
+            {"build_status": "idle"},
+        ]
+
+        with patch.object(self.lib, "collect_dashboard_snapshot", return_value=failed_snapshot):
+            changed = store._rebuild(force_git=False)
+
+        snap = store.get()
+        proj = snap.get("health", {}).get("index", {}).get("project", {})
+        fw = snap.get("health", {}).get("index", {}).get("framework", {})
+
+        self.assertTrue(changed)
+        self.assertEqual(proj.get("build_status"), "idle")
+        self.assertEqual(fw.get("build_status"), "idle")
+
+    def test_failed_builder_status_is_visible(self):
+        self._disable_auto_index()
+        healthy_snapshot = self.lib.collect_dashboard_snapshot(self.root)
+        healthy_snapshot["health"]["index"]["project"].pop("build_status", None)
+        healthy_snapshot["health"]["index"]["framework"].pop("build_status", None)
+
+        store = self._track(self.srv.SnapshotStore(self.root))
+        store._index_builder = MagicMock()
+        store._index_builder.get_status.side_effect = [
+            {"build_status": "failed"},
+            {"build_status": "failed"},
+        ]
+
+        with patch.object(self.lib, "collect_dashboard_snapshot", return_value=healthy_snapshot):
+            changed = store._rebuild(force_git=False)
+
+        snap = store.get()
+        proj = snap.get("health", {}).get("index", {}).get("project", {})
+        fw = snap.get("health", {}).get("index", {}).get("framework", {})
+
+        self.assertTrue(changed)
+        self.assertEqual(proj.get("build_status"), "failed")
+        self.assertEqual(fw.get("build_status"), "failed")
+
     def test_semantic_index_tile_uses_generic_build_status_copy(self):
         source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
         self.assertIn('const statusText = buildStatus === "running"', source)
@@ -2277,6 +2370,8 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         self.assertIn('"Index stale"', source)
         self.assertIn('"Build failed"', source)
         self.assertIn('buildBadgeText', source)
+        self.assertIn('stale_locks_cleaned', source)
+        self.assertIn('Cleaned ${staleLocksCleaned} stale', source)
 
     def test_background_build_status_surfaces_in_snapshot_health(self):
         import os
@@ -2298,6 +2393,20 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         self.assertEqual(proj.get("build_status"), "running")
         self.assertEqual(proj.get("source"), "background")
         self.assertIn("embedding code chunks", proj.get("progress", ""))
+
+    def test_stale_lock_cleanup_surfaces_in_snapshot_health(self):
+        self._disable_auto_index()
+        lock_path = self.root / ".wavefoundry" / "index" / "docs.lance" / ".lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text("999999999", encoding="utf-8")
+
+        store = self._track(self.srv.SnapshotStore(self.root))
+        snap = store.get()
+        proj = snap.get("health", {}).get("index", {}).get("project", {})
+
+        self.assertEqual(len(proj.get("stale_locks_cleaned", [])), 1)
+        self.assertEqual(proj["stale_locks_cleaned"][0]["reason"], "pid_dead")
+        self.assertFalse(lock_path.exists())
 
     def test_background_build_files_are_watched(self):
         store = self._track(self.srv.SnapshotStore(self.root))

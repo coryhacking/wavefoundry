@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Persistent dashboard launcher — .wavefoundry/bin/wave_dashboard
+# Persistent dashboard launcher — .wavefoundry/bin/wave-dashboard
 # Starts the local dashboard server under nohup so it survives shell exit.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

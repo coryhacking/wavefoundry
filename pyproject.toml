@@ -4,8 +4,27 @@ build-backend = "setuptools.backends.legacy:build"
 
 [project]
 name = "wavefoundry"
-version = "0.0.0"
+version = "1.0.0"
+description = "An agent harness for software repositories. Gives AI coding agents feedforward guidance and feedback sensors for structured, auditable delivery lifecycle."
+readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.11"
+authors = [
+    { name = "Cory Hacking" },
+]
+
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
 dependencies = [
     "packaging>=24",
     "fastembed",
@@ -40,3 +59,9 @@ dependencies = [
     "tree-sitter-css",
     "tree-sitter-powershell",
 ]
+
+[project.urls]
+Homepage = "https://github.com/coryhacking/wavefoundry"
+Repository = "https://github.com/coryhacking/wavefoundry"
+Issues = "https://github.com/coryhacking/wavefoundry/issues"
+Changelog = "https://github.com/coryhacking/wavefoundry/blob/main/CHANGELOG.md"

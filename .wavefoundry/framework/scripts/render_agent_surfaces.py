@@ -118,7 +118,7 @@ CODEX_AUTO_GURU_SKILL = dedent(
 
     1. Read `AGENTS.md` § **Codebase and documentation questions (auto-Guru)**.
     2. Read and follow `docs/agents/guru.md` (classification, retrieval loop, Pass 3, citations).
-    3. Register MCP if needed: `.wavefoundry/bin/register-codex-mcp` (then attach the `wavefoundry-*` server for this checkout).
+    3. MCP server loads automatically from the committed `.codex/config.toml`; attach the `wavefoundry` server from the project-local config.
     4. Prefer **`code_ask`** and **`docs_search`** over ad-hoc search when MCP is available.
     5. Complete Pass 3 validation before answering; never paraphrase only the `code_ask` `answer` field.
 
@@ -126,6 +126,14 @@ CODEX_AUTO_GURU_SKILL = dedent(
 
     - Operators do not need to say **Guru**; this skill is the default path for code/doc questions.
     - Explicit shortcut **Guru** remains in `docs/prompts/index.md`.
+    """
+)
+
+CODEX_MCP_CONFIG_TOML = dedent(
+    """\
+    [mcp_servers.wavefoundry]
+    command = ".wavefoundry/bin/mcp-server"
+    args = []
     """
 )
 
@@ -246,6 +254,10 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     codex_skill = repo_root / ".codex" / "skills" / "auto-guru" / "SKILL.md"
     write_text(codex_skill, CODEX_AUTO_GURU_SKILL)
     written.append(str(codex_skill.relative_to(repo_root)))
+
+    codex_mcp_config = repo_root / ".codex" / "config.toml"
+    write_text(codex_mcp_config, CODEX_MCP_CONFIG_TOML)
+    written.append(str(codex_mcp_config.relative_to(repo_root)))
 
     # Tier 2 — thin pointers (marker blocks)
     claude_path = repo_root / "CLAUDE.md"

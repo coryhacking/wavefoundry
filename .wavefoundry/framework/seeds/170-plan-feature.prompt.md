@@ -36,10 +36,20 @@ Before planning, consult:
 - `docs/references/project-context-memory.md` — for known pitfalls, recurring anti-patterns, and durable constraints relevant to the planned scope. If memory records a past mistake in this area, the plan must address it explicitly rather than repeating it.
 - Relevant role and persona journals (`docs/agents/journals/`) — for operating identity, salience triggers, active cautions, unresolved watchpoints, promotion queues, and hard-to-rediscover observations that touch the planned scope. A caution or high-salience memory is a signal that risks, reviewer/persona routing, and acceptance criteria should address that area.
 
+Divergent Pre-Plan (required before drafting):
+
+Before writing the plan, execute a structured diverge → critique → select pass:
+
+- **Diverge:** enumerate 2–3 distinct approaches to the stated problem, each differing in a meaningful assumption, strategy, or scope boundary — not just surface wording.
+- **Critique:** for each approach, state its primary weakness or risk in one sentence.
+- **Select:** choose one approach and state in one sentence why it is preferred over the alternatives.
+
+Record the selected approach and the rejected alternatives (with their weaknesses) in the change doc's `## Decision Log`. This pass executes within the single planning agent — no additional agents or sub-processes are required.
+
 Required planning outputs for non-trivial work:
 
 - wave record (`docs/waves/<wave-id>/wave.md`) — the primary planning artifact; defines the wave objective, admitted changes, review gates, and completion criteria
-- change document for each admitted change (single consolidated file in `docs/plans/` while planning; moved into the wave folder during `Prepare wave` / readiness — see format below)
+- change document for each admitted change (single consolidated file in `docs/plans/` while planning; admitted into the wave folder during `Add change to wave`, then validated there during `Prepare wave` — see format below)
 - `Agent Execution Graph`
 - `Knowledge Transfer Plan`
 - `Persona Review Plan`

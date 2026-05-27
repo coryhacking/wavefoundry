@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-20
+Last verified: 2026-05-26
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -35,7 +35,7 @@ Maps Wave Framework agent docs, personas, specialists, and factor agents to nati
 |------|------|--------|
 | Cursor | `.cursor/rules/auto-guru.mdc` | `alwaysApply` rule |
 | Claude Code | `.claude/agents/guru.md` | `PROACTIVELY` subagent |
-| Codex | `.codex/skills/auto-guru/SKILL.md` | + `.wavefoundry/bin/register-codex-mcp` |
+| Codex | `.codex/skills/auto-guru/SKILL.md` | `.codex/config.toml` (project-local, committed) |
 
 ## Canonical Factor Docs (`docs/agents/`)
 

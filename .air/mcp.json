@@ -1,0 +1,8 @@
+{
+    "mcpServers": {
+        "wavefoundry": {
+            "command": ".wavefoundry/bin/mcp-server",
+            "args": []
+        }       
+    }
+}

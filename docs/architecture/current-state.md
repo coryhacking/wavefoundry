@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-23
+Last verified: 2026-05-26
 
 ## Runtime Topology
 
@@ -80,7 +80,7 @@ setup_wavefoundry.py --root .
 build_pack.py
   ├── stamps .wavefoundry/framework/VERSION
   ├── rebuilds .wavefoundry/framework/index/ for packaged framework docs/seeds
-  └── writes wavefoundry-MAJOR.MINOR.PATCH.<build>.zip under ~/.wavefoundry/dist/ including framework/index/ (`0.9.0` bridge keeps old date-style artifact naming)
+  └── writes wavefoundry-MAJOR.MINOR.PATCH.<build>.zip under ~/.wavefoundry/dist/ including framework/index/
 
 dashboard_server.py
   ├── reads docs/workflow-config.json dashboard settings
@@ -91,7 +91,7 @@ dashboard_server.py
 
 **Supported operator environments:** macOS and Linux are supported natively. Windows operator workflows are currently supported through WSL2. The codebase contains targeted Windows launchers and path/process handling, but install, upgrade, and bootstrap still include POSIX-shell assumptions such as the Codex registration launcher and root-zip upgrade flow. (Policy decided wave `12t9b`.)
 
-**Release versioning contract:** Wavefoundry now uses semver-aware packaging and upgrade code paths. `check_version.py` compares versions with `packaging.version.Version`, release zips default to `~/.wavefoundry/dist/`, and mixed-version upgrades treat legacy `YYYY-MM-DDx` installs as pre-semver. The checked-in `VERSION` and manifest revision remain date-shaped until the first semver packaging run stamps a release build.
+**Release versioning contract:** Wavefoundry uses semver-only packaging and upgrade code paths. `check_version.py` compares `MAJOR.MINOR.PATCH` tuples and rejects non-semver strings, release zips default to `~/.wavefoundry/dist/`, and packaging requires `--version 1.0.0` or later. `VERSION` and manifest `framework_revision` are stamped as `MAJOR.MINOR.PATCH+<build>` during packaging.
 
 **Python environment contract:** Wavefoundry targets Python ≥ 3.11 and uses a shared user-level tool venv at `~/.wavefoundry/venv` by default (overridable via `WAVEFOUNDRY_TOOL_VENV`). `setup_wavefoundry.py` is the preferred operator bootstrap entrypoint and delegates to `setup_index.py`, which bootstraps and installs framework dependencies into that venv. Generated launchers and MCP configs prefer it, and operator/runtime subprocesses for indexing, dashboard spawn, validation/gardening, surface sync, and upgrade execution resolve it explicitly when present. The intentional exception is the fresh-machine bootstrap path: venv creation itself still begins from the invoking interpreter so the shared venv can be created before any managed-runtime handoff occurs.
 

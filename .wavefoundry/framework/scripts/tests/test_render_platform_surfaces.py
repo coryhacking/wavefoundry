@@ -92,7 +92,7 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             self.assertTrue((repo_root / ".claude" / "hooks" / "pre-edit.cmd").exists())
             self.assertTrue((repo_root / ".cursor" / "hooks" / "framework-plan-warn.py").exists())
             self.assertTrue((repo_root / ".cursor" / "hooks" / "framework-plan-warn").exists())
-            self.assertTrue((repo_root / ".wavefoundry" / "bin" / "register-codex-mcp").exists())
+            self.assertFalse((repo_root / ".wavefoundry" / "bin" / "register-codex-mcp").exists())
             self.assertTrue((repo_root / ".cursor" / "hooks" / "framework-plan-warn.cmd").exists())
             self.assertTrue((repo_root / ".github" / "hooks" / "post-tool-use.py").exists())
             self.assertTrue((repo_root / ".github" / "hooks" / "post-tool-use").exists())
@@ -137,21 +137,23 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             # bin launchers created by render_bin_launchers (called unconditionally from main)
             bin_lint = repo_root / ".wavefoundry" / "bin" / "docs-lint"
             bin_gardener = repo_root / ".wavefoundry" / "bin" / "docs-gardener"
-            bin_dashboard = repo_root / ".wavefoundry" / "bin" / "wave_dashboard"
-            bin_codex = repo_root / ".wavefoundry" / "bin" / "register-codex-mcp"
+            bin_dashboard = repo_root / ".wavefoundry" / "bin" / "wave-dashboard"
+            bin_update_indexes = repo_root / ".wavefoundry" / "bin" / "update-indexes"
             bin_setup = repo_root / ".wavefoundry" / "bin" / "setup-wavefoundry"
             bin_upgrade = repo_root / ".wavefoundry" / "bin" / "upgrade-wavefoundry"
             self.assertTrue(bin_lint.exists(), ".wavefoundry/bin/docs-lint should be created")
             self.assertTrue(bin_gardener.exists(), ".wavefoundry/bin/docs-gardener should be created")
-            self.assertTrue(bin_dashboard.exists(), ".wavefoundry/bin/wave_dashboard should be created")
-            self.assertTrue(bin_codex.exists(), ".wavefoundry/bin/register-codex-mcp should be created")
+            self.assertTrue(bin_dashboard.exists(), ".wavefoundry/bin/wave-dashboard should be created")
+            self.assertTrue(bin_update_indexes.exists(), ".wavefoundry/bin/update-indexes should be created")
+            self.assertFalse((repo_root / ".wavefoundry" / "bin" / "wave_dashboard").exists(), "stale wave_dashboard should be removed")
+            self.assertFalse((repo_root / ".wavefoundry" / "bin" / "register-codex-mcp").exists(), "register-codex-mcp should be removed")
             self.assertTrue(bin_setup.exists(), ".wavefoundry/bin/setup-wavefoundry should be created")
             self.assertTrue(bin_upgrade.exists(), ".wavefoundry/bin/upgrade-wavefoundry should be created")
             if os.name != "nt":
                 self.assertTrue(os.access(bin_lint, os.X_OK), "docs-lint should be executable")
                 self.assertTrue(os.access(bin_gardener, os.X_OK), "docs-gardener should be executable")
-                self.assertTrue(os.access(bin_dashboard, os.X_OK), "wave_dashboard should be executable")
-                self.assertTrue(os.access(bin_codex, os.X_OK), "register-codex-mcp should be executable")
+                self.assertTrue(os.access(bin_dashboard, os.X_OK), "wave-dashboard should be executable")
+                self.assertTrue(os.access(bin_update_indexes, os.X_OK), "update-indexes should be executable")
                 self.assertTrue(os.access(bin_setup, os.X_OK), "setup-wavefoundry should be executable")
                 self.assertTrue(os.access(bin_upgrade, os.X_OK), "upgrade-wavefoundry should be executable")
             self.assertIn(
@@ -167,11 +169,10 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             self.assertIn("--open", dashboard_src)
             self.assertIn(".wavefoundry/logs/dashboard.log", dashboard_src)
             self.assertIn("Wave dashboard started", dashboard_src)
-            codex_src = bin_codex.read_text(encoding="utf-8")
-            self.assertIn("codex mcp add", codex_src)
-            self.assertIn("repo_suffix()", codex_src)
-            self.assertIn('SERVER_NAME="wavefoundry-$(repo_suffix "$REPO_ROOT")"', codex_src)
-            self.assertIn(".wavefoundry/framework/scripts/server.py", codex_src)
+            update_indexes_src = bin_update_indexes.read_text(encoding="utf-8")
+            self.assertIn(".wavefoundry/framework/scripts/setup_index.py", update_indexes_src)
+            self.assertIn("--background-code", update_indexes_src)
+            self.assertIn("--verbose", update_indexes_src)
 
 
 class RenderBinLaunchersTests(unittest.TestCase):
@@ -191,21 +192,23 @@ class RenderBinLaunchersTests(unittest.TestCase):
             rps.render_bin_launchers(root)
             bin_lint = root / ".wavefoundry" / "bin" / "docs-lint"
             bin_gardener = root / ".wavefoundry" / "bin" / "docs-gardener"
-            bin_dashboard = root / ".wavefoundry" / "bin" / "wave_dashboard"
-            bin_codex = root / ".wavefoundry" / "bin" / "register-codex-mcp"
+            bin_dashboard = root / ".wavefoundry" / "bin" / "wave-dashboard"
+            bin_update_indexes = root / ".wavefoundry" / "bin" / "update-indexes"
             bin_setup = root / ".wavefoundry" / "bin" / "setup-wavefoundry"
             bin_upgrade = root / ".wavefoundry" / "bin" / "upgrade-wavefoundry"
             self.assertTrue(bin_lint.exists())
             self.assertTrue(bin_gardener.exists())
             self.assertTrue(bin_dashboard.exists())
-            self.assertTrue(bin_codex.exists())
+            self.assertTrue(bin_update_indexes.exists())
+            self.assertFalse((root / ".wavefoundry" / "bin" / "wave_dashboard").exists())
+            self.assertFalse((root / ".wavefoundry" / "bin" / "register-codex-mcp").exists())
             self.assertTrue(bin_setup.exists())
             self.assertTrue(bin_upgrade.exists())
             self.assertFalse((root / ".wavefoundry" / "bin" / "upgrade-wavefoundry.bat").exists())
             lint_src = bin_lint.read_text(encoding="utf-8")
             gardener_src = bin_gardener.read_text(encoding="utf-8")
             dashboard_src = bin_dashboard.read_text(encoding="utf-8")
-            codex_src = bin_codex.read_text(encoding="utf-8")
+            update_indexes_src = bin_update_indexes.read_text(encoding="utf-8")
             setup_src = bin_setup.read_text(encoding="utf-8")
             upgrade_src = bin_upgrade.read_text(encoding="utf-8")
         _venv_var = "WAVEFOUNDRY_VENV"
@@ -216,10 +219,10 @@ class RenderBinLaunchersTests(unittest.TestCase):
         self.assertIn("nohup", dashboard_src)
         self.assertIn(".wavefoundry/logs/dashboard.log", dashboard_src)
         self.assertIn(_venv_var, dashboard_src)
-        self.assertIn("codex mcp add", codex_src)
-        self.assertIn("repo_suffix()", codex_src)
-        self.assertIn('SERVER_NAME="wavefoundry-$(repo_suffix "$REPO_ROOT")"', codex_src)
-        self.assertIn(_venv_var, codex_src)
+        self.assertIn("setup_index.py", update_indexes_src)
+        self.assertIn("--background-code", update_indexes_src)
+        self.assertIn("--verbose", update_indexes_src)
+        self.assertIn(_venv_var, update_indexes_src)
         self.assertIn("setup_wavefoundry.py", setup_src)
         self.assertIn(_venv_var, setup_src)
         self.assertIn("upgrade_wavefoundry.py", upgrade_src)
@@ -227,7 +230,6 @@ class RenderBinLaunchersTests(unittest.TestCase):
         self.assertIn("#!/usr/bin/env bash", lint_src)
         self.assertIn("#!/usr/bin/env bash", gardener_src)
         self.assertIn("#!/usr/bin/env bash", dashboard_src)
-        self.assertIn("#!/usr/bin/env bash", codex_src)
         self.assertIn("#!/usr/bin/env bash", setup_src)
         self.assertIn("#!/usr/bin/env bash", upgrade_src)
 
@@ -240,14 +242,14 @@ class RenderBinLaunchersTests(unittest.TestCase):
             rps.render_bin_launchers(root)
             bin_lint = root / ".wavefoundry" / "bin" / "docs-lint"
             bin_gardener = root / ".wavefoundry" / "bin" / "docs-gardener"
-            bin_dashboard = root / ".wavefoundry" / "bin" / "wave_dashboard"
-            bin_codex = root / ".wavefoundry" / "bin" / "register-codex-mcp"
+            bin_dashboard = root / ".wavefoundry" / "bin" / "wave-dashboard"
+            bin_update_indexes = root / ".wavefoundry" / "bin" / "update-indexes"
             bin_setup = root / ".wavefoundry" / "bin" / "setup-wavefoundry"
             bin_upgrade = root / ".wavefoundry" / "bin" / "upgrade-wavefoundry"
             self.assertTrue(os.access(bin_lint, os.X_OK))
             self.assertTrue(os.access(bin_gardener, os.X_OK))
             self.assertTrue(os.access(bin_dashboard, os.X_OK))
-            self.assertTrue(os.access(bin_codex, os.X_OK))
+            self.assertTrue(os.access(bin_update_indexes, os.X_OK))
             self.assertTrue(os.access(bin_setup, os.X_OK))
             self.assertTrue(os.access(bin_upgrade, os.X_OK))
 
@@ -315,14 +317,15 @@ class MergeMcpServerTests(unittest.TestCase):
         # Wavefoundry entry written
         self.assertEqual(data["mcpServers"]["wavefoundry"]["command"], rps._venv_python_path())
 
-    def test_render_mcp_json_includes_root_arg(self):
+    def test_render_mcp_json_uses_mcp_server_wrapper(self):
         rps = self._load_rps()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             rps.render_mcp_json(root)
             data = json.loads((root / ".mcp.json").read_text(encoding="utf-8"))
-        self.assertIn("--root", data["mcpServers"]["wavefoundry"]["args"])
-        self.assertIn(".", data["mcpServers"]["wavefoundry"]["args"])
+        wf = data["mcpServers"]["wavefoundry"]
+        self.assertEqual(wf["command"], ".wavefoundry/bin/mcp-server")
+        self.assertEqual(wf["args"], [])
 
     def test_render_mcp_json_preserves_existing_servers(self):
         rps = self._load_rps()

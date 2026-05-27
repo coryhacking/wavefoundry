@@ -150,8 +150,12 @@ def _write_lance_index(root: Path, *, docs_chunks: list[dict] | None = None, doc
 # ---------------------------------------------------------------------------
 
 class RootDiscoveryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
 
@@ -177,8 +181,12 @@ class RootDiscoveryTests(unittest.TestCase):
 
 
 class LayeredIndexTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -387,8 +395,12 @@ class LayeredIndexTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class ListWavesTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -426,8 +438,12 @@ class ListWavesTests(unittest.TestCase):
 
 
 class ListPlansTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -467,8 +483,12 @@ class ListPlansTests(unittest.TestCase):
 
 
 class CurrentWaveTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -497,8 +517,12 @@ class CurrentWaveTests(unittest.TestCase):
 
 
 class GetChangeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -526,8 +550,12 @@ class GetChangeTests(unittest.TestCase):
 
 
 class GetPromptTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -555,8 +583,12 @@ class GetPromptTests(unittest.TestCase):
 
 
 class GuidedContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
 
     def test_first_party_prefix_helper_flags_violations(self):
         viol = self.srv.first_party_tool_names_violating_prefix(["wave_help", "bad_name", "docs_search"])
@@ -618,11 +650,7 @@ class GuidedContractTests(unittest.TestCase):
             self.assertEqual(result["data"]["repo_root"], str(root.resolve()))
             self.assertEqual(result["data"]["repo_name"], root.name)
             self.assertEqual(result["data"]["project_slug"], "wave-foundry")
-            expected_suffix = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[:8]
-            self.assertEqual(
-                result["data"]["codex_server_name"],
-                f"wavefoundry-{expected_suffix}",
-            )
+            self.assertNotIn("codex_server_name", result["data"])
             self.assertIn("framework_version", result["data"])
             self.assertIn("server_runner_version", result["data"])
             self.assertIn("server_impl_version", result["data"])
@@ -743,8 +771,12 @@ class GuidedContractTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class CodeSearchLanguageNormalizationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
 
     def _index_with_results(self, results):
         index = MagicMock()
@@ -880,8 +912,12 @@ class CodeSearchLanguageNormalizationTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class CodeSearchLanguageCategoryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
 
     def _index_with_results(self, results):
         index = MagicMock()
@@ -972,8 +1008,12 @@ class CodeSearchLanguageCategoryTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class NewChangeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -1031,8 +1071,12 @@ class NewChangeTests(unittest.TestCase):
 
 
 class BackgroundIndexRefreshTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         indexer = self.root / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
@@ -1074,8 +1118,12 @@ class BackgroundIndexRefreshTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class WaveMapTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -1108,8 +1156,12 @@ class WaveMapTests(unittest.TestCase):
 
 
 class PromptCacheTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -1128,8 +1180,12 @@ class PromptCacheTests(unittest.TestCase):
 
 
 class WaveLifecycleMutationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         _make_wave(self.root, "1200a test-wave", "planned", [])
@@ -1396,8 +1452,12 @@ class WaveLifecycleMutationTests(unittest.TestCase):
 class WaveReopenTests(unittest.TestCase):
     """12eb0: wave_reopen MCP tool."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
@@ -1461,8 +1521,12 @@ class WaveReopenTests(unittest.TestCase):
 class OperatorSignoffTests(unittest.TestCase):
     """12eb2: operator review lane required for wave_review and wave_close."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
@@ -1567,8 +1631,12 @@ class OperatorSignoffTests(unittest.TestCase):
 class IndexBuildStatusTests(unittest.TestCase):
     """12ebh: wave_index_build_status MCP tool."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
@@ -1637,6 +1705,20 @@ class IndexBuildStatusTests(unittest.TestCase):
         result = self.srv.wave_index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "finished")
         self.assertEqual(result["data"]["last_log_line"], "build_index: some partial output")
+
+    def test_finished_when_setup_index_exits_with_model_prewarm_error(self):
+        import time
+        self._write_state(99999999, time.time() - 60)
+        self.log_path.write_text(
+            "Prewarming semantic model cache: BAAI/bge-small-en-v1.5\n"
+            "Required reranker model 'BAAI/bge-reranker-base' could not be prepared for semantic index setup: "
+            "network or download host unavailable.\n",
+            encoding="utf-8",
+        )
+        result = self.srv.wave_index_build_status_response(self.root, layer="project")
+        self.assertEqual(result["data"]["state"], "finished")
+        self.assertIn("network or download host unavailable", result["data"]["last_log_line"])
+        self.assertFalse(self.state_path.exists())
 
     def test_finished_when_log_has_done_marker_despite_live_pid(self):
         # Regression: OS recycled the PID to an unrelated process after indexer exited.
@@ -1729,8 +1811,12 @@ class IndexBuildStatusTests(unittest.TestCase):
 class IndexBuildStatsTests(unittest.TestCase):
     """12ec2: index-build-stats-persistence helpers."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
@@ -1786,8 +1872,12 @@ class IndexBuildStatsTests(unittest.TestCase):
 
 
 class McpRepoCacheTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -1842,8 +1932,12 @@ class McpRepoCacheTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class RunValidateTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
 
@@ -1873,8 +1967,12 @@ class RunValidateTests(unittest.TestCase):
 
 
 class RunGardenTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
 
@@ -1903,8 +2001,12 @@ class RunGardenTests(unittest.TestCase):
 
 
 class RunIndexRebuildTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
 
@@ -2186,8 +2288,12 @@ class RunIndexRebuildTests(unittest.TestCase):
 
 
 class WaveIndexBuildResponseTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -2306,8 +2412,12 @@ class WaveIndexBuildResponseTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class WaveIndexHealthTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
 
     def test_returns_ok_when_semantic_ready(self):
         index = MagicMock()
@@ -2557,6 +2667,7 @@ class WaveIndexHealthTests(unittest.TestCase):
 
 class ReadChunkerVersionTests(unittest.TestCase):
     def setUp(self):
+        # Unsafe for setUpClass: raw self.srv attribute mutations in test methods would leak between tests.
         self.srv = load_server()
 
     def _reset_cache(self):
@@ -2588,8 +2699,12 @@ class ReadChunkerVersionTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class BackgroundBuildStatusTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
 
@@ -2631,8 +2746,12 @@ class BackgroundBuildStatusTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class WaveAuditTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -2737,8 +2856,12 @@ class WaveAuditTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class ServerToolRegistrationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -2833,6 +2956,7 @@ class WaveMcpReloadTests(unittest.TestCase):
     """12rb9: wave_mcp_reload and version fields."""
 
     def setUp(self):
+        # Reload-sensitive: this class tests module-reload behavior; per-method isolation is required.
         self.srv = load_server()          # server_impl (impl namespace)
         self.runner = load_thin_runner()  # server.py thin runner (build_server, perform_mcp_reload, …)
         self.tmp = tempfile.TemporaryDirectory()
@@ -2877,8 +3001,12 @@ class WaveMcpReloadTests(unittest.TestCase):
 class WaveCloseModeDiscoverabilityTests(unittest.TestCase):
     """AC-16: wave_close invalid-mode response includes valid_modes field."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -2905,8 +3033,12 @@ class WaveCloseModeDiscoverabilityTests(unittest.TestCase):
 class WaveCreateWaveTemplateTests(unittest.TestCase):
     """AC-17: wave_create_wave produces wave.md with Wave Summary and Journal Watchpoints stubs."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -2931,8 +3063,12 @@ class WaveCreateWaveTemplateTests(unittest.TestCase):
 class WaveCreateWaveLastVerifiedTests(unittest.TestCase):
     """12as3: wave_create_wave scaffold emits today's ISO date, not the literal '<date>'."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -2964,8 +3100,12 @@ class WaveCreateWaveLastVerifiedTests(unittest.TestCase):
 class WaveAddChangeSectionPlacementTests(unittest.TestCase):
     """12as3: wave_add_change inserts blocks inside the ## Changes section."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -3061,8 +3201,12 @@ class WaveAddChangeSectionPlacementTests(unittest.TestCase):
 class WaveAddChangeBrokenLinksTests(unittest.TestCase):
     """AC-18: wave_add_change response data includes broken_links list."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -3111,8 +3255,12 @@ class WaveAddChangeBrokenLinksTests(unittest.TestCase):
 class WavePrepareJournalFormatHintTests(unittest.TestCase):
     """AC-19: wave_prepare journal diagnostic includes exact format hint."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         # Ensure journals dir exists
@@ -3148,8 +3296,12 @@ class WavePrepareJournalFormatHintTests(unittest.TestCase):
 class WaveHelpStartWaveJournalNoteTests(unittest.TestCase):
     """AC-20: wave_help(goal='start_wave') includes journal key-line note."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -3175,8 +3327,12 @@ class WaveHelpStartWaveJournalNoteTests(unittest.TestCase):
 class CodeNavigationPathSafetyTests(unittest.TestCase):
     """AC-4: Root safety — path traversal and absolute paths are rejected."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -3202,8 +3358,12 @@ class CodeNavigationPathSafetyTests(unittest.TestCase):
 class CodeListFilesTests(unittest.TestCase):
     """AC-3: File listing returns repo-relative paths and supports glob."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         # Create a few test files
@@ -3244,8 +3404,12 @@ class CodeListFilesTests(unittest.TestCase):
 class CodeReadTests(unittest.TestCase):
     """AC-2: Ranged file reads return line-numbered content."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         src = self.root / "src"
@@ -3287,8 +3451,12 @@ class CodeReadTests(unittest.TestCase):
 class CodeKeywordSearchTests(unittest.TestCase):
     """AC-1: Exact keyword search returns deterministic path/line/snippet results."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         src = self.root / "src"
@@ -3331,8 +3499,12 @@ class CodeKeywordSearchTests(unittest.TestCase):
 class CodeDefinitionTests(unittest.TestCase):
     """AC-6: code_definition preserves Python AST lookup."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         src = self.root / "src"
@@ -3390,8 +3562,12 @@ class CodeDefinitionTests(unittest.TestCase):
 class CodeReferencesTests(unittest.TestCase):
     """AC-7: code_references works for Python and provides fallback note."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         src = self.root / "src"
@@ -3503,8 +3679,12 @@ class CodeReferencesTests(unittest.TestCase):
 class McpResourceRegistrationTests(unittest.TestCase):
     """AC-1/AC-2: MCP resource and resource-template registrations exist."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -3567,8 +3747,12 @@ class McpResourceRegistrationTests(unittest.TestCase):
 class McpResourceReadTests(unittest.TestCase):
     """AC-3/AC-4: Resources return expected content or clear not-found messages."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -3636,8 +3820,12 @@ class McpResourceReadTests(unittest.TestCase):
 class McpResourceTemplateReadTests(unittest.TestCase):
     """AC-2/AC-4: Resource templates return content or clear not-found messages."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -3700,8 +3888,12 @@ class McpResourceTemplateReadTests(unittest.TestCase):
 class WaveStatusDriftDetectionTests(unittest.TestCase):
     """Item 1: wave_current_response includes change_status_drift diagnostic."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
@@ -3756,8 +3948,12 @@ class WaveStatusDriftDetectionTests(unittest.TestCase):
 class EditGateToolTests(unittest.TestCase):
     """12ax9/12sf9: wave_gate_open / wave_gate_close / wave_gate_status MCP tools."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
@@ -3847,8 +4043,12 @@ class EditGateToolTests(unittest.TestCase):
 class GateAutoCloseTests(unittest.TestCase):
     """12ax9: wave_pause and wave_close auto-close open gates."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
@@ -3927,8 +4127,12 @@ class GateAutoCloseTests(unittest.TestCase):
 class WaveCloseHandoffPreservationTests(unittest.TestCase):
     """12axd: wave_close and wave_pause preserve session handoff content."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
@@ -4013,8 +4217,12 @@ class WaveCloseHandoffPreservationTests(unittest.TestCase):
 class BulkWaveGetChangeTests(unittest.TestCase):
     """Item 3: wave_get_change with wave_id (no change_id) returns all admitted changes."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
@@ -4069,8 +4277,12 @@ class BulkWaveGetChangeTests(unittest.TestCase):
 class HandoffToolTests(unittest.TestCase):
     """Item 4: wave_get_handoff and wave_set_handoff."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
@@ -4118,8 +4330,12 @@ class HandoffToolTests(unittest.TestCase):
 class DocsSearchModeFieldTests(unittest.TestCase):
     """Item 5: docs_search_response includes 'mode' field (semantic/lexical)."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
 
     def test_mode_field_present_on_semantic_results(self):
         index = MagicMock()
@@ -4146,8 +4362,12 @@ class WavePrepareACPriorityWarningTests(unittest.TestCase):
 
     _VALID_LINT = {"passed": True, "errors": [], "warnings": [], "output": ""}
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -4432,8 +4652,12 @@ class SemanticEmbeddingRegressionTests(unittest.TestCase):
 class WavePauseStatusTransitionTests(unittest.TestCase):
     """12as6: wave_pause transitions wave.md Status active→paused and records transition."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         (self.root / "docs" / "agents" / "journals").mkdir(parents=True, exist_ok=True)
@@ -4500,8 +4724,12 @@ class WavePauseStatusTransitionTests(unittest.TestCase):
 class WavePrepareSingleActiveGuardTests(unittest.TestCase):
     """12as6: wave_prepare blocks when another wave is active; allows self and post-pause prepare."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         (self.root / "docs" / "agents" / "journals").mkdir(parents=True, exist_ok=True)
@@ -4634,8 +4862,12 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
 class WaveCurrentListEnvelopeTests(unittest.TestCase):
     """12as6: wave_current returns data.waves[] with all non-closed waves, active first."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -4730,8 +4962,12 @@ class WaveAuditUnaffectedByCurrentEnvelopeTests(unittest.TestCase):
     regress.
     """
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -4754,6 +4990,15 @@ class WaveAuditUnaffectedByCurrentEnvelopeTests(unittest.TestCase):
         self.assertEqual(wave_data.get("status"), "active")
         self.assertEqual(wave_data.get("next_action"), "implement_wave")
 
+    def test_wave_audit_reports_requested_wave_by_prefix(self):
+        self._make_wave("1200a audit-target", "planned")
+        result = self.srv.wave_audit_response(self.root, wave_id="1200a")
+        self.assertEqual(result["status"], "ok")
+        wave_data = result["data"]["wave"]
+        self.assertEqual(wave_data.get("wave_id"), "1200a audit-target")
+        self.assertEqual(wave_data.get("status"), "planned")
+        self.assertEqual(wave_data.get("next_action"), "prepare_wave")
+
     def test_wave_audit_reports_no_wave_when_only_paused(self):
         """Paused wave should not satisfy wave_audit's 'active or planned' readiness check."""
         self._make_wave("1200a audit-paused", "paused")
@@ -4765,8 +5010,12 @@ class WaveAuditUnaffectedByCurrentEnvelopeTests(unittest.TestCase):
 class WaveValidateAcceptsPausedTests(unittest.TestCase):
     """12as6: lint must accept Status: paused in wave.md."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -5097,6 +5346,14 @@ class BackgroundRefreshActiveTests(unittest.TestCase):
         stale_mtime = _time.time() - self.server.BACKGROUND_INDEX_LOCK_STALE_SECONDS - 10
         os.utime(lock_path, (stale_mtime, stale_mtime))
         self.assertFalse(self.server._background_refresh_active(self.state_path))
+        self.assertFalse(lock_path.exists())
+
+    def test_removes_dead_pid_lock_file(self):
+        lock_path = self.tmp / "docs.lance" / ".lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text("999999999", encoding="utf-8")
+        self.assertFalse(self.server._background_refresh_active(self.state_path))
+        self.assertFalse(lock_path.exists())
 
     def test_returns_true_when_pid_running(self):
         import os
@@ -5113,14 +5370,45 @@ class BackgroundRefreshActiveTests(unittest.TestCase):
         self._write_state(pid=999999999, started_at=_time.time())
         self.assertTrue(self.server._background_refresh_active(self.state_path))
 
-    def test_lock_file_takes_precedence_over_dead_pid_expired_throttle(self):
-        """Lock file present = active, even when state file shows a dead PID past throttle."""
+    def test_fresh_lock_file_takes_precedence_over_dead_pid_expired_throttle(self):
+        """Fresh lock from a running PID = active, even when state file shows a dead PID."""
         import time as _time
         self._write_state(pid=999999999, started_at=_time.time() - 300)
         lock_path = self.tmp / "code.lance" / ".lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        lock_path.write_text("999999999", encoding="utf-8")
+        lock_path.write_text(str(os.getpid()), encoding="utf-8")
         self.assertTrue(self.server._background_refresh_active(self.state_path))
+
+    def test_build_status_reports_removed_stale_locks(self):
+        root = self.tmp
+        lock_path = root / ".wavefoundry" / "index" / "docs.lance" / ".lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text("999999999", encoding="utf-8")
+
+        response = self.server.wave_index_build_status_response(root, layer="project")
+
+        self.assertEqual(response["status"], "ok")
+        data = response["data"]
+        self.assertEqual(data["state"], "idle")
+        self.assertEqual(len(data["stale_locks_cleaned"]), 1)
+        self.assertEqual(data["stale_locks_cleaned"][0]["reason"], "pid_dead")
+        self.assertTrue(data["stale_locks_cleaned"][0]["removed"])
+        self.assertFalse(lock_path.exists())
+
+    def test_build_status_keeps_old_lock_when_pid_is_alive(self):
+        root = self.tmp
+        lock_path = root / ".wavefoundry" / "index" / "docs.lance" / ".lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text(str(os.getpid()), encoding="utf-8")
+        os.utime(lock_path, (0, 0))
+
+        response = self.server.wave_index_build_status_response(root, layer="project")
+
+        self.assertEqual(response["status"], "ok")
+        data = response["data"]
+        self.assertEqual(data["state"], "idle")
+        self.assertNotIn("stale_locks_cleaned", data)
+        self.assertTrue(lock_path.exists())
 
 
 class WaveIndexAutoReloadTests(unittest.TestCase):
@@ -5289,8 +5577,12 @@ class DocSummaryKindFilterTests(unittest.TestCase):
 class CodeDefinitionMultiLanguageTests(unittest.TestCase):
     """AC-6: code_definition uses tree-sitter-backed lookup for selected languages."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         src = self.root / "src"
@@ -5376,8 +5668,12 @@ class CodeDefinitionMultiLanguageTests(unittest.TestCase):
 class CodeReferencesFallbackTests(unittest.TestCase):
     """AC-5: code_references uses tree-sitter-backed lookup for selected languages."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         src = self.root / "src"
@@ -5463,8 +5759,12 @@ class CodeReferencesFallbackTests(unittest.TestCase):
 
 
 class SqlSchemaQualifiedFallbackTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name), {
             "libs/migrations/aceiss/A005__new_tenant_routines.sql": (
@@ -5513,8 +5813,12 @@ class SqlSchemaQualifiedFallbackTests(unittest.TestCase):
 class CodeDefinitionCssTests(unittest.TestCase):
     """CSS/SCSS support in code_definition via _css_definitions."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         src = self.root / "src"
@@ -5580,8 +5884,12 @@ class CodeDefinitionCssTests(unittest.TestCase):
 
 
 class WaveIndexHealthRefreshTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
 
     def test_previous_build_stats_refresh_from_finished_log(self):
         tmp = tempfile.TemporaryDirectory()
@@ -5617,8 +5925,12 @@ class WaveIndexHealthRefreshTests(unittest.TestCase):
 class CodeDependenciesTests(unittest.TestCase):
     """AC-7/AC-8/AC-9 (12d4h): code_dependencies parses imports on demand."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         src = self.root / "src"
@@ -5690,8 +6002,12 @@ class CodeDependenciesTests(unittest.TestCase):
 class CodeAskTests(unittest.TestCase):
     """AC tests for code_ask mechanical routing."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
 
@@ -5727,6 +6043,34 @@ class CodeAskTests(unittest.TestCase):
 
         result = self.srv.code_ask_response(index, self.root, "what does the billing module do?")
         self.assertEqual(result["data"]["question_type"], "explanatory")
+
+    def test_classify_question_artifact_anchored_snake_case_symbol(self):
+        """Implementation verb + snake_case symbol → artifact_anchored."""
+        self.assertEqual(self.srv._classify_question("how is build_prefix() generated?"), "artifact_anchored")
+
+    def test_classify_question_artifact_anchored_version_suffix(self):
+        """Implementation verb + version suffix token → artifact_anchored."""
+        self.assertEqual(self.srv._classify_question("how is the +2vr8 suffix derived?"), "artifact_anchored")
+
+    def test_classify_question_artifact_anchored_filename(self):
+        """Implementation verb + dotted filename → artifact_anchored."""
+        self.assertEqual(self.srv._classify_question("how does lifecycle_id.py encode elapsed hours?"), "artifact_anchored")
+
+    def test_classify_question_generic_noun_remains_explanatory(self):
+        """Implementation verb alone without a concrete artifact cue stays explanatory."""
+        self.assertEqual(self.srv._classify_question("how is the build number generated?"), "explanatory")
+
+    def test_extract_artifact_cue_snake_case(self):
+        """_extract_artifact_cue returns snake_case identifier."""
+        self.assertEqual(self.srv._extract_artifact_cue("how does build_prefix work?"), "build_prefix")
+
+    def test_extract_artifact_cue_version_suffix(self):
+        """_extract_artifact_cue returns version suffix token."""
+        self.assertEqual(self.srv._extract_artifact_cue("what generates +2vr8?"), "+2vr8")
+
+    def test_extract_artifact_cue_no_match(self):
+        """_extract_artifact_cue returns empty string when no cue is present."""
+        self.assertEqual(self.srv._extract_artifact_cue("how is the build number generated?"), "")
 
     def test_confidence_high_with_multiple_citations(self):
         index = self._make_index(code_results=[self._fake_code_chunk("src/a.py"), self._fake_code_chunk("src/b.py")])
@@ -6117,8 +6461,12 @@ class MaxPerFileFilterDirectTests(unittest.TestCase):
 class InferTagsServerTests(unittest.TestCase):
     """AC-10 through AC-16 (12dv9): tag index and filter behavior via server."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
 
     def test_infer_tags_wave(self):
         tags = self.srv._infer_tags("docs/waves/12dv9 chunk-tags/wave.md")
@@ -6292,8 +6640,12 @@ class InferTagsServerTests(unittest.TestCase):
 class WaveRunSensorsTests(unittest.TestCase):
     """12ecs-feat post-edit-computational-sensors: wave_run_sensors MCP tool."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -6343,8 +6695,12 @@ class WaveRunSensorsTests(unittest.TestCase):
 class RequiredReviewLanesTests(unittest.TestCase):
     """12ecs-enh inferential-sensors-as-required-review-lanes: project-declared lanes enforcement."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
@@ -6420,8 +6776,12 @@ class RequiredReviewLanesTests(unittest.TestCase):
 class SeverityTriageTests(unittest.TestCase):
     """12ed1-enh sensor-finding-severity-triage: max_severity and advisory diagnostic."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
@@ -6494,8 +6854,12 @@ class SeverityTriageTests(unittest.TestCase):
 class WaveCouncilPolicyTests(unittest.TestCase):
     """12g1y-enh wave-council-review-system: council signoff enforcement."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
@@ -6637,8 +7001,12 @@ class WaveCouncilPolicyTests(unittest.TestCase):
 class HarnessCoverageAuditTests(unittest.TestCase):
     """12ed1-feat harness-coverage-metrics: _audit_harness_coverage dimensions."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
@@ -6684,6 +7052,7 @@ class RerankerTests(unittest.TestCase):
     """12mha-enh: cross-encoder reranker integration tests."""
 
     def setUp(self):
+        # Unsafe for setUpClass: raw self.srv attribute mutations in test methods would leak between tests.
         self.srv = load_server()
 
     def _make_mock_reranker(self, n_docs):
@@ -6905,6 +7274,115 @@ class RerankerTests(unittest.TestCase):
         self.assertEqual(idx._reranker, mock_reranker)
 
     # --- search_combined: question-type-aware retrieval ---
+
+    # --- search_combined: artifact_anchored exact-first routing ---
+
+    def test_search_combined_artifact_anchored_uses_exact_first_when_code_hits(self):
+        """artifact_anchored question uses keyword exact pass and returns code hits directly."""
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")], code_chunks=[self._fake_code_chunk("src/a.py")])
+        fake_kw_resp = {
+            "status": "ok",
+            "data": {"results": [
+                {"path": "scripts/lifecycle_id.py", "line": 106, "snippet": "def build_prefix("},
+            ]},
+        }
+        mock_reranker = MagicMock()
+        def passthrough_rerank(query, candidates, top_n):
+            return candidates[:top_n]
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            with patch.object(idx, "_rerank", side_effect=passthrough_rerank):
+                with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
+                    results, reranked, vector_ms, _, definition_boosted, _, _ = idx.search_combined(
+                        "how does build_prefix generate the +2vr8 format?",
+                        top_n=5,
+                        question_type="artifact_anchored",
+                    )
+        self.assertTrue(reranked, "exact pass with reranker should return reranked=True")
+        self.assertEqual(vector_ms, 0, "exact pass skips vector fetch; vector_ms must be 0")
+        self.assertIn("artifact_anchored", definition_boosted)
+        self.assertTrue(any("lifecycle_id.py" in r.get("path", "") for r in results))
+
+    def test_search_combined_artifact_anchored_falls_back_when_no_code_hits(self):
+        """artifact_anchored with empty keyword result falls through to broad semantic pass."""
+        docs = [self._fake_doc_chunk("d0")]
+        code = [self._fake_code_chunk("src/a.py")]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        empty_kw_resp = {"status": "ok", "data": {"results": []}}
+        captured = {}
+        original_lance = idx._lance_search
+        def capture_lance(table, qvec, top_n, where=None, layer="project"):
+            captured["vector_fetch_called"] = True
+            return original_lance(table, qvec, top_n, where=where, layer=layer)
+        with patch.object(idx, "_get_reranker", return_value=None):
+            with patch.object(idx, "_lance_search", side_effect=capture_lance):
+                with patch(f"{self.srv.__name__}.code_keyword_response", return_value=empty_kw_resp):
+                    idx.search_combined(
+                        "how is the build_prefix generated?",
+                        top_n=5,
+                        question_type="artifact_anchored",
+                    )
+        self.assertTrue(captured.get("vector_fetch_called"), "fallback must invoke vector fetch when exact pass returns no code hits")
+
+    # --- _is_test_path ---
+
+    def test_is_test_path_python_prefix(self):
+        self.assertTrue(self.srv._is_test_path("scripts/tests/test_server_tools.py"))
+
+    def test_is_test_path_go_suffix(self):
+        self.assertTrue(self.srv._is_test_path("pkg/auth/auth_test.go"))
+
+    def test_is_test_path_java_suffix(self):
+        self.assertTrue(self.srv._is_test_path("src/test/java/com/example/FooTest.java"))
+
+    def test_is_test_path_csharp_suffix(self):
+        self.assertTrue(self.srv._is_test_path("MyApp.Tests/ServiceTests.cs"))
+
+    def test_is_test_path_js_infix(self):
+        self.assertTrue(self.srv._is_test_path("src/billing/billing.test.js"))
+
+    def test_is_test_path_ts_spec(self):
+        self.assertTrue(self.srv._is_test_path("src/auth/auth.spec.ts"))
+
+    def test_is_test_path_jest_directory(self):
+        self.assertTrue(self.srv._is_test_path("src/__tests__/utils.js"))
+
+    def test_is_test_path_ruby_spec(self):
+        self.assertTrue(self.srv._is_test_path("spec/models/user_spec.rb"))
+
+    def test_is_test_path_non_test_file(self):
+        self.assertFalse(self.srv._is_test_path("src/billing/billing.py"))
+
+    def test_is_test_path_contest_false_positive(self):
+        """src/contest/ must not match — exact segment match, not substring."""
+        self.assertFalse(self.srv._is_test_path("src/contest/billing.py"))
+
+    # --- artifact-anchored: test-file demotion ---
+
+    def test_artifact_anchored_demotes_test_files_after_rerank(self):
+        """Test-file citations are partitioned to the end after reranking."""
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")], code_chunks=[self._fake_code_chunk("src/a.py")])
+        fake_kw_resp = {
+            "status": "ok",
+            "data": {"results": [
+                {"path": "scripts/tests/test_server_tools.py", "line": 1, "snippet": "def test_build_prefix"},
+                {"path": "scripts/lifecycle_id.py", "line": 106, "snippet": "def build_prefix("},
+            ]},
+        }
+        mock_reranker = MagicMock()
+        def passthrough_rerank(query, candidates, top_n):
+            return candidates[:top_n]
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            with patch.object(idx, "_rerank", side_effect=passthrough_rerank):
+                with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
+                    results, _, _, _, _, _, _ = idx.search_combined(
+                        "how does build_prefix generate the +2vr8 format?",
+                        top_n=5,
+                        question_type="artifact_anchored",
+                    )
+        paths = [r["path"] for r in results]
+        impl_idx = paths.index("scripts/lifecycle_id.py")
+        test_idx = paths.index("scripts/tests/test_server_tools.py")
+        self.assertLess(impl_idx, test_idx, "implementation file must rank before test file")
 
     # --- search_combined: dynamic VECTOR_TOP_K (dynamic-vector-top-k) ---
 
@@ -7591,8 +8069,12 @@ class RerankerTests(unittest.TestCase):
 class BackgroundModelDownloadTests(unittest.TestCase):
     """Tests for _start_background_model_downloads() and _ensure_model_cached()."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -7755,8 +8237,12 @@ class BackgroundModelDownloadTests(unittest.TestCase):
 class CodeKeywordMultiQueryTests(unittest.TestCase):
     """12n5x-enh code-keyword-search-multi-query: multi-query batch support tests."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -7861,8 +8347,12 @@ class CodeKeywordMultiQueryTests(unittest.TestCase):
 class CodePatternTests(unittest.TestCase):
     """12n63-enh code-pattern: regex pattern search MCP tool tests."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -8000,8 +8490,12 @@ class CodePatternTests(unittest.TestCase):
 class CodeOutlineTests(unittest.TestCase):
     """12n63-enh code-outline: tiered structural outline MCP tool tests."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -8154,8 +8648,12 @@ class CodeOutlineTests(unittest.TestCase):
 class CodeConstantsTests(unittest.TestCase):
     """12n5x-enh code-constants-search: code_constants MCP tool tests."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -8393,8 +8891,12 @@ class CodeConstantsTests(unittest.TestCase):
 class TestCodeOutlineTypescript(unittest.TestCase):
     """12nbp-bug: TypeScript export_statement fix and SQL support tests."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -8494,8 +8996,12 @@ class TestCodeOutlineTypescript(unittest.TestCase):
 class TestCodeHover(unittest.TestCase):
     """12nbj-enh code-hover: code_hover_response tests."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -8579,8 +9085,12 @@ class TestCodeHover(unittest.TestCase):
 class TestCodeImpact(unittest.TestCase):
     """12nbj-enh code-impact: code_impact_response tests."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -8646,8 +9156,12 @@ class TestCodeImpact(unittest.TestCase):
 class TestCodeCallhierarchy(unittest.TestCase):
     """12nax-enh code-callhierarchy: code_callhierarchy_response tests."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -8780,8 +9294,12 @@ def _make_mock_dashboard_lib(meta_path, *, browser_open_enabled: bool = True):
 class WaveDashboardOpenTests(unittest.TestCase):
     """Tests for wave_dashboard_open_response (AC-2, AC-3, AC-4)."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         self._meta_path = self.root / ".wavefoundry" / "dashboard-server.json"
@@ -8848,12 +9366,39 @@ class WaveDashboardOpenTests(unittest.TestCase):
         self.assertTrue(result["data"].get("already_running"))
         self.assertIn("wave_dashboard_open", result.get("next_tools", []))
 
+    def test_start_lock_busy_returns_already_running_without_spawning(self):
+        """Concurrent start attempts report an in-progress dashboard instead of spawning another."""
+        import dashboard_lib
+        import server_impl
+
+        class BusyLock:
+            def __enter__(self):
+                raise dashboard_lib.DashboardLockBusy("busy")
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        with patch.object(dashboard_lib, "dashboard_start_lock", return_value=BusyLock()), \
+             patch.object(server_impl, "DASHBOARD_START_WAIT_SECONDS", 0.0), \
+             patch("subprocess.Popen") as popen:
+            result = self.srv.wave_dashboard_start_response(self.root)
+
+        popen.assert_not_called()
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"].get("already_running"))
+        self.assertTrue(result["data"].get("starting"))
+        self.assertEqual(result["diagnostics"][0]["code"], "dashboard_start_in_progress")
+
 
 class WaveDashboardBrowserSuppressTests(unittest.TestCase):
     """Dashboard browser must not open during the default test harness."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         os.environ["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = "1"
@@ -8887,8 +9432,12 @@ class WaveDashboardBrowserSuppressTests(unittest.TestCase):
 class PreferredPythonSubprocessTests(unittest.TestCase):
     """Regression coverage for explicit shared-venv subprocess routing."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -8952,8 +9501,12 @@ class PreferredPythonSubprocessTests(unittest.TestCase):
 class WaveUpgradeStatusTests(unittest.TestCase):
     """Tests for wave_upgrade_status_response (AC-5 / R5)."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -8991,8 +9544,12 @@ class WaveUpgradeStatusTests(unittest.TestCase):
 class WaveDashboardRestartUpgradeGuardTests(unittest.TestCase):
     """Tests for wave_dashboard_restart upgrade guard (AC-4 / R7)."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -9040,8 +9597,12 @@ class WaveDashboardRestartUpgradeGuardTests(unittest.TestCase):
 class WaveUpgradeMcpToolTests(unittest.TestCase):
     """Tests for wave_upgrade_response (AC-2–AC-5 / 12r0b)."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -9161,8 +9722,12 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
 class ImplHandlerCloseTests(unittest.TestCase):
     """AC-6: ImplHandler.close() nulls Lance handles before build_handler creates new ones."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 
@@ -9209,8 +9774,12 @@ class ImplHandlerCloseTests(unittest.TestCase):
 class WavePrepareCouncilGateTests(unittest.TestCase):
     """12sp5: wave_prepare council verdict gate — AC-1, AC-2, AC-3, AC-4."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         (self.root / "docs" / "agents" / "journals").mkdir(parents=True, exist_ok=True)
@@ -9310,8 +9879,12 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
 class WaveImplementTests(unittest.TestCase):
     """12sqb: wave_implement gate and wave_review phase parameter — AC-1 through AC-10."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         (self.root / "docs" / "agents" / "journals").mkdir(parents=True, exist_ok=True)
@@ -9492,8 +10065,12 @@ class WaveImplementTests(unittest.TestCase):
 class WaveCloseSummaryGenerationTests(unittest.TestCase):
     """12sq4: wave_close summary generation — AC-1 through AC-5."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
     def setUp(self):
-        self.srv = load_server()
+        self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
 

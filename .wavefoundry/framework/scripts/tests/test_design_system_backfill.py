@@ -295,7 +295,7 @@ class UpgradeBackfillTests(unittest.TestCase):
 
             # Create a stale manifest missing several fields
             stale = {
-                "schemaVersion": "0.9.0",
+                "schemaVersion": "0.8.0",
                 "canonicalRoot": "docs/design-system",
             }
             manifest_path = design_root / "manifest.json"
@@ -315,7 +315,7 @@ class UpgradeBackfillTests(unittest.TestCase):
             design_root = root / "docs" / "design-system"
             design_root.mkdir(parents=True)
 
-            stale = {"schemaVersion": "0.9.0", "canonicalRoot": "docs/design-system"}
+            stale = {"schemaVersion": "0.8.0", "canonicalRoot": "docs/design-system"}
             manifest_path = design_root / "manifest.json"
             manifest_path.write_text(json.dumps(stale), encoding="utf-8")
             gaps_path = design_root / "gaps.md"

@@ -181,7 +181,7 @@ AUDIT_DEFAULT_REPORT = "docs/reports/wave-migration-audit.md"
 
 SLUG_PATTERN = r"[a-z0-9][a-z0-9-]*"
 LEGACY_SLUG_PATTERN = r"legacy[a-z0-9-]*"
-LIFECYCLE_PREFIX_PATTERN = r"(?:[0-9a-hjkmnp-tv-z]{5}|00000)"
+LIFECYCLE_PREFIX_PATTERN = r"(?:[0-9a-z]{5}|00000)"
 
 WAVE_ID_PATTERN = re.compile(rf"^wave-id:\s+`({LIFECYCLE_PREFIX_PATTERN} {SLUG_PATTERN})`$", re.MULTILINE)
 CHANGE_KIND_PATTERN = r"(?:bug|feat|enh|change|doc|debt|ref|task|maint|ops)"

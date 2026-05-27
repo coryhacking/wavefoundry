@@ -1,6 +1,6 @@
-# 010 - Install Wavefoundry (Shortcut)
+# 010 - Init Wave Framework (Shortcut)
 
-**Primary:** **`Install Wavefoundry`**. **Backwards-compatible:** **`Init wave framework`**, **`Install wave framework`**, **`Init wave context`**, **`Install wave context`** — identical behavior; keep accepting them from operators and older docs.
+**Primary:** **`Init wave framework`**. **Backwards-compatible:** **`Install Wavefoundry`**, **`Install wave framework`**, **`Init wave context`**, **`Install wave context`** — identical behavior; keep accepting them from operators and older docs.
 
 Use this when you want a single command-style request such as:
 
@@ -180,7 +180,7 @@ Include the following topics in plain language:
 6. **Important configuration**
  - **`docs/workflow-config.json`**: lifecycle mode, `lifecycle_id_policy` (epoch and optional offset for `lifecycle_id.py`), `wave_execution` (readiness before implement, auto-run when missing), `review_policies`, `factor_review_policy`, `persona_review_policy`, `wave_council_policy` when the framework-standard council model is enabled, memory and prompt-generation settings—this is the primary machine- and human-readable policy knob for waves and reviews.
  - **`docs/repo-profile.json`**: project archetype and traits, supported agent platforms, `factor_review` applicability—drives which factor agents exist and how reviews are scoped.
- - Change documents: `docs/plans/plan-template.md` and staging plans under `docs/plans/`; canonical admitted change docs live under `docs/waves/<wave-id>/` after `Prepare wave` relocates them alongside `wave.md`.
+ - Change documents: `docs/plans/plan-template.md` and staging plans under `docs/plans/`; canonical admitted change docs become wave-owned under `docs/waves/<wave-id>/` during `Add change to wave`, and `Prepare wave` validates that placement alongside `wave.md`.
 
 7. **First-time operators (non-negotiable rules of the road)**
  - **Reading order**: point at **`AGENTS.md` → Start Here** so operators follow the canonical doc order rather than guessing from shortcuts.
@@ -273,7 +273,7 @@ Required outputs:
 - root wrappers (hooks / CI / CLI; **agents** prefer MCP **`wave_validate`** / **`wave_garden`** — `seed-050`):
  - `.wavefoundry/bin/docs-lint`
  - `.wavefoundry/bin/docs-gardener`
- - `.wavefoundry/bin/wave_dashboard` — persistent-process launcher for `dashboard_server.py`; opens the browser by default (`--open` baked in); logs to `.wavefoundry/logs/dashboard.log`; see `seed-152` task 2 for the full creation contract
+ - `.wavefoundry/bin/wave-dashboard` — persistent-process launcher for `dashboard_server.py`; opens the browser by default (`--open` baked in); logs to `.wavefoundry/logs/dashboard.log`; see `seed-152` task 2 for the full creation contract
 - agent entry files and thin pointers:
  - `AGENTS.md` (includes **Git commits (operator-owned)** per `seed-050` — agents must not `git commit` unless the operator explicitly instructs them in the **current** request; includes **Implementation guard (product code)** when the project ships product implementation source in the repository, per `050`; otherwise a short note that the guard can be added when implementation directories appear)
  - `CLAUDE.md`

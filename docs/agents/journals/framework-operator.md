@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-23
+Last verified: 2026-05-26
 
 Actor: framework-operator (persona)
 Schema version: 1.0
@@ -48,6 +48,6 @@ Last distilled: 2026-04-28
 
 ## Active Watchpoints
 
-- **Watchpoint:** The operator-facing upgrade workflow depends on the post-bridge semver pack contract (`wavefoundry-MAJOR.MINOR.PATCH.<build>.zip`) and on searching the repository root, `~/.wavefoundry/`, and `~/.wavefoundry/dist/`, with the one-time `0.9.0` bridge release keeping the old date-style artifact name at repository root. If the filename format or search locations change, the **Upgrade wave framework** prompt doc must be updated simultaneously.
+- **Watchpoint:** The operator-facing upgrade workflow depends on the semver pack contract (`wavefoundry-MAJOR.MINOR.PATCH.<build>.zip`) and on searching the repository root, `~/.wavefoundry/`, and `~/.wavefoundry/dist/`. If the filename format or search locations change, the **Upgrade wave framework** prompt doc must be updated simultaneously.
 - **Watchpoint:** The operator summary (output of Init wave framework) must tell the operator: what files were installed, what the lifecycle looks like, how to generate IDs, and where config lives.
 - **Watchpoint:** Docs-lint failure after upgrade is the most common operator failure mode. The fix path (`framework_revision` must match `.wavefoundry/framework/VERSION`) should be surfaced clearly in any upgrade error output.

@@ -32,6 +32,7 @@ Core execution model:
 - the committed result is the wave as a whole — individual changes do not ship outside a wave
 - incomplete changes carry forward into the next wave under the same `Change ID`; create a new change only when the remaining work is materially different and that split is made explicit
 - if the operator requests a follow-up that still belongs to the current wave and the scope fits an admitted change, update that existing change's ACs and tasks instead of opening a new change; create a new change only when the new work is materially different or needs separate tracking
+- update checkbox-tracked ACs and tasks as the underlying work actually completes; do not defer the bookkeeping to the end of the wave or wait for closure to mark finished items
 
 Implement loop execution model:
 
@@ -77,7 +78,7 @@ Parallel lane merge — when reviewer or persona lanes with no shared dependenci
 Wave plan — extends the operator-approval checkpoint (see Machine-usable execution expectations below):
 - Before the first edit, the coordinator assembles a briefing packet per `209-agent-harness-core.prompt.md` required fields (`wave_id`, `phase`, `change_ids`, `trust_boundaries_touched`, `files_in_scope`) as part of the wave plan.
 - The coordinator then produces an ordered lane sequence: which lanes run in which order, with what scoped inputs, for each serialization unit.
-- This plan is what the operator approves before implementation begins — not just a list of files, but an ordered execution sequence.
+- This plan is what the operator reviews before implementation begins — not just a list of files, but an ordered execution sequence. An explicit implementation instruction in the current request such as `Implement wave` or `Implement feature` counts as approval to proceed once the plan is surfaced, unless repo-local docs, the active handoff, or a material review-driven packet change creates an explicit hold.
 - Deviations from the plan are named `Deviation:` events recorded in Progress Log, not silent reorderings.
 
 Pre-implementation review gate:
@@ -154,12 +155,12 @@ Coordinator decision rights:
 Machine-usable execution expectations:
 
 - do not edit product implementation source in the repository until a consolidated change plan document exists **and** implementation readiness is satisfied per that project’s `AGENTS.md` (or equivalent entry guard); wave execution must treat a clean `Prepare wave` / `Ready wave` evaluation as the review gate before the first product-code edit unless the operator records an explicit scoped waiver
-- after `Prepare wave` passes clean and before the first product-code edit: **stop, present the wave plan to the operator, and wait for explicit approval**; the plan must state which files will be changed and how, which tests will be added and what cases they cover, and any open risks or questions; do not treat the `Implement wave` invocation itself as approval to begin coding immediately
+- after `Prepare wave` passes clean and before the first product-code edit: present the wave plan to the operator; the plan must state which files will be changed and how, which tests will be added and what cases they cover, and any open risks or questions. A separate second approval is required only when repo-local docs or the active handoff explicitly impose that hold, or when review materially changed the execution packet after the operator’s earlier implementation instruction.
 - before the first product-code edit, map intended code changes to the admitted scope, acceptance criteria, and planned verification. For bug fixes, prefer a reproducer test or equivalent failing proof before the fix when feasible; when infeasible, record the substitute evidence and why.
 - preserve stable `wave-id` and `Change ID` references when updating wave state
 - keep the wave artifact rooted at `docs/waves/<wave-id>/`, where the `wave-id` uses the shared Crockford lifecycle prefix plus the summary slug that best reflects the admitted changes
 - before setting `Activated at`, review the admitted changes and rename placeholder wave slugs/titles to a descriptive summary while preserving the shared lifecycle prefix and updating references
-- treat admitted change docs as already wave-owned before implementation: `Prepare wave` must physically move every admitted change doc from `docs/plans/<change-id>.md` into `docs/waves/<wave-id>/<change-id>.md`, repair references, and remove duplicate staging copies; `Implement wave` assumes that relocation is complete and only performs defensive repair if drift is detected
+- treat admitted change docs as already wave-owned before implementation: `Add change to wave` is the canonical relocation step that moves admitted change docs from `docs/plans/<change-id>.md` into `docs/waves/<wave-id>/<change-id>.md`; `Prepare wave` validates placement, repairs drift, and removes duplicate staging copies when needed; `Implement wave` assumes that relocation is complete and only performs defensive repair if drift is detected
 - set `Activated at` after the activation-time naming review is complete; do not use activation as the primary relocation stage
 - set `Completed at` only when the operator has confirmed **`Close wave`** / **`Finalize feature`** (or equivalent explicit confirmation) and the coordinator has reconciled all scoped changes — not at the end of **`Implement wave`** alone
 - generate or confirm the final wave summary title/slug at closure so the archived wave folder remains human-readable from directory listings
@@ -174,6 +175,7 @@ Participant responsibilities inside an active wave:
 - participants should report blockers, invalidated assumptions, and meaningful new findings rather than silently compensating for them
 - implementers should keep changes direct: do not add speculative abstraction, configurability, or unrelated defensive code beyond what the request, acceptance criteria, or checked-in evidence justifies
 - implementers must mark task and AC checkboxes as each item is actually completed — do not batch-update them at the end of the wave. Mark `[x]` only when the underlying work is done and verifiable. When an AC or task is intentionally left unchecked or must be reopened, record the reason in the Progress Log or a Review Checkpoints note so the rationale is durable.
+- the coordinator should verify that change-doc checkbox state stays current as part of normal progress reconciliation; if a completed work item is still unchecked, fix the bookkeeping in the same pass rather than leaving it for a later cleanup step
 - personas should participate at declared challenge, review, or acceptance checkpoints and escalate when domain concerns materially change the wave
 - personas selected by readiness evaluation are gating participants for that wave's relevant checkpoints
 - factor-review participants should evaluate only the factors relevant to the active wave instead of forcing a full factor checklist into every wave; source those factors from `docs/agents/factor-<nn>-<name>.md` and keep the dashboard grouping aligned with `Category: factor`
@@ -185,7 +187,7 @@ Required tasks:
 1. Load the active execution plan, spec refs, and wave artifacts. Consult `docs/references/project-context-memory.md` and relevant role journals (`docs/agents/journals/`) for active cautions and known pitfalls that apply to the current wave's scope. If memory records a past mistake in this area, treat it as a constraint on implementation — not a suggestion.
 2. Determine whether the next `planned` wave is ready to become `active`.
 3. If the selected wave still has a provisional holding name, review the admitted changes and rename the wave slug/title to a descriptive summary before activation.
-4. Confirm admitted change docs already live under `docs/waves/<wave-id>/` after `Prepare wave`; if any remain under `docs/plans/`, relocate them now and repair references before continuing.
+4. Confirm admitted change docs already live under `docs/waves/<wave-id>/` after `Add change to wave`; if any remain under `docs/plans/`, repair placement before continuing.
 5. Run `Prepare wave` automatically unless a clean readiness evaluation was the immediately preceding successful lifecycle action for the same wave. `Ready wave` remains an accepted alias.
 6. Evaluate the admitted change set and decide which implementer lanes, reviewer lanes, and persona lanes must participate. When any admitted change is a **bug** (`change-id` kind `bug`) or other **product defect fix**, include **`qa-reviewer` at minimum** in the reviewer roster (`docs/contributing/agent-team-workflow.md`, `docs/workflow-config.json` `review_policies.require_qa_reviewer_for_bug_fixes`) unless the operator records an explicit scoped waiver in the wave or change doc.
 7. Assign admitted changes, tasks, and review lanes to agents and personas.
@@ -205,7 +207,7 @@ Guardrails:
 - Do not activate the next wave without a valid handoff or readiness check.
 - Do not begin implementation when the readiness evaluation is missing, stale, or failed.
 - Do not modify product implementation directories before the consolidated change document and implementation-readiness requirements in the target project’s `AGENTS.md` are met (single-repo guardrail; waive only with explicit operator scope in the active request).
-- **Do not write the first line of product code before the operator has approved the presented implementation plan.** Presenting the plan and receiving approval is a required checkpoint, not optional. `Implement wave` is not implicit approval.
+- **Do not write the first line of product code before the implementation plan has been surfaced and the current request authorizes implementation.** `Implement wave` / `Implement feature` in the current request is sufficient approval once the plan is presented, unless repo-local docs, the active handoff, or a material review-driven packet change explicitly requires a second stop.
 - Do not activate a wave under a placeholder slug when the admitted changes already make a better descriptive name obvious.
 - Do not silently widen scope; return to planning when wave findings invalidate major assumptions.
 - Do not let participants invent their own coordination model for the wave when the plan already defines coordinator-owned orchestration.

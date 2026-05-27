@@ -307,6 +307,15 @@ class IndexBuilder:
                     except Exception:  # noqa: BLE001
                         pass
                 if proc.returncode != 0:
+                    try:
+                        log_text = log_path.read_text(encoding="utf-8", errors="replace")
+                    except OSError:
+                        log_text = ""
+                    if "Another index build is already running" in log_text or "lock file busy" in log_text:
+                        _dashboard_log(
+                            f"IndexBuilder: {layer} index update skipped because another build is already running."
+                        )
+                        continue
                     return proc.returncode
             return 0
         except FileNotFoundError:
@@ -631,13 +640,24 @@ class SnapshotStore:
         if self._index_builder is not None:
             proj_builder = self._index_builder.get_status("project")
             fw_builder = self._index_builder.get_status("framework")
-            # When the builder is active, its status should win over the disk-derived
-            # snapshot so the dashboard reflects the build it owns. When it is idle,
-            # keep any externally observed running/failed state instead of overwriting it.
-            if proj_builder.get("build_status") != "idle" or proj.get("build_status") not in {"running", "failed"}:
+            # Preserve live builder state, but clear stale failed snapshots when the
+            # builder is idle so the dashboard does not keep showing a past failure.
+            if proj_builder.get("build_status") == "running":
                 proj.update(proj_builder)
-            if fw_builder.get("build_status") != "idle" or fw.get("build_status") not in {"running", "failed"}:
+            elif proj_builder.get("build_status") == "failed":
+                proj.update(proj_builder)
+            elif proj.get("build_status") == "failed":
+                proj.pop("build_status", None)
+            if fw_builder.get("build_status") == "running":
                 fw.update(fw_builder)
+            elif fw_builder.get("build_status") == "failed":
+                fw.update(fw_builder)
+            elif fw.get("build_status") == "failed":
+                fw.pop("build_status", None)
+        if self._index_builder is not None and proj.get("build_status") is None:
+            proj["build_status"] = "idle"
+        if self._index_builder is not None and fw.get("build_status") is None:
+            fw["build_status"] = "idle"
         if self._index_stale.get("project") is not None:
             proj["stale"] = self._index_stale["project"]
         if self._index_stale.get("framework") is not None:
@@ -1040,6 +1060,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     root = dashboard_lib.discover_root(args.root)
+    try:
+        process_lock = dashboard_lib.dashboard_process_lock(root)
+        process_lock.__enter__()
+    except dashboard_lib.DashboardLockBusy:
+        meta = dashboard_lib.read_dashboard_metadata(root)
+        url = str(meta.get("url") or "")
+        if url:
+            print(url, flush=True)
+        _dashboard_log("Dashboard already running for this repository.")
+        return 0
+
     cfg = dashboard_lib.read_dashboard_config(root)
     host = args.host.strip() or cfg["host"]
     if host not in _LOOPBACK_HOSTS:
@@ -1076,6 +1107,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\nDashboard server stopped.", file=sys.stderr)
     finally:
         httpd.server_close()
+        process_lock.__exit__(None, None, None)
     return 0
 
 

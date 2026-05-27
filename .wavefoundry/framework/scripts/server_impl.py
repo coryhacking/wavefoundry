@@ -18,6 +18,12 @@ from typing import Any, Iterable, Literal, Optional
 
 sys.dont_write_bytecode = True
 
+FASTEMBED_CACHE_DEFAULT = Path.home() / ".wavefoundry" / "cache" / "fastembed"
+if not os.environ.get("FASTEMBED_CACHE_PATH"):
+    os.environ["FASTEMBED_CACHE_PATH"] = str(FASTEMBED_CACHE_DEFAULT)
+
+DASHBOARD_START_WAIT_SECONDS = 5.0
+
 
 def _wf_log(message: str) -> None:
     """Operator diagnostics — stderr only; stdio MCP transport owns stdout."""
@@ -1005,6 +1011,44 @@ class WaveIndex:
         DOCS_MODEL = self._indexer_constant("DOCS_MODEL")
         CODE_MODEL = self._indexer_constant("CODE_MODEL")
 
+        # --- Artifact-anchored exact-first pass ---
+        # For questions classified as artifact_anchored, try a keyword lookup on the
+        # concrete artifact token before the broad semantic pass. If the exact pass
+        # returns at least one code result, rerank and return immediately. If it finds
+        # nothing, fall through to the broad semantic pass as explanatory.
+        if question_type == "artifact_anchored":
+            artifact_token = _extract_artifact_cue(query)
+            if artifact_token:
+                try:
+                    kw_resp = code_keyword_response(self.root, artifact_token)
+                    if kw_resp.get("status") == "ok":
+                        kw_candidates = [
+                            {
+                                "path": r.get("path", ""),
+                                "text": r.get("snippet", ""),
+                                "score": 0.0,
+                                "kind": "code",
+                                "lines": [r.get("line", 1), r.get("line", 1)],
+                            }
+                            for r in kw_resp["data"]["results"]
+                            if r.get("path")
+                        ]
+                        if kw_candidates:
+                            t_exact = time.monotonic()
+                            reranker = self._get_reranker()
+                            if reranker is not None:
+                                try:
+                                    results = self._rerank(query, kw_candidates, top_n)
+                                    results = _partition_tests(results)
+                                    return results, True, 0, round((time.monotonic() - t_exact) * 1000), ["artifact_anchored"], [], "none"
+                                except Exception:
+                                    pass
+                            return _partition_tests(kw_candidates[:top_n]), False, 0, 0, ["artifact_anchored"], [], "none"
+                except Exception:
+                    pass
+            # Exact pass found no code results — treat remainder as explanatory
+            question_type = "explanatory"
+
         # --- Vector fetch phase (timed) ---
         t_vector = time.monotonic()
         top_k = VECTOR_TOP_K_EXPLANATORY if question_type == "explanatory" else VECTOR_TOP_K
@@ -1722,24 +1766,12 @@ def _project_slug(root: Path) -> str:
     return slug or "project"
 
 
-def _repo_suffix(root: Path) -> str:
-    import hashlib
-
-    return hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[:8]
-
-
-def _codex_server_name(root: Path) -> str:
-    resolved_root = root.resolve()
-    return f"wavefoundry-{_repo_suffix(resolved_root)}"
-
-
 def server_identity(root: Path, *, server_runner_version: str | None = None) -> dict[str, Any]:
     resolved_root = root.resolve()
     data: dict[str, Any] = {
         "repo_root": str(resolved_root),
         "repo_name": resolved_root.name,
         "project_slug": _project_slug(resolved_root),
-        "codex_server_name": _codex_server_name(resolved_root),
     }
     rv = server_runner_version if server_runner_version is not None else _runner_version
     if rv:
@@ -3582,10 +3614,47 @@ def _table_lock_paths(index_dir: Path) -> list[Path]:
     return [index_dir / f"{kind}.lance" / ".lock" for kind in ("docs", "code")]
 
 
+def _cleanup_stale_table_locks(index_dir: Path) -> list[dict[str, Any]]:
+    """Remove dead Lance table lock markers and return cleanup details."""
+    import time as _time
+
+    cleaned: list[dict[str, Any]] = []
+    for lock_path in _table_lock_paths(index_dir):
+        if not lock_path.exists():
+            continue
+        pid: Optional[int] = None
+        try:
+            raw_pid = lock_path.read_text(encoding="utf-8").strip()
+            pid = int(raw_pid) if raw_pid else None
+        except (OSError, ValueError):
+            pid = None
+        try:
+            age = _time.time() - lock_path.stat().st_mtime
+        except OSError:
+            continue
+        pid_dead = pid is None or not _pid_is_running(pid)
+        if not pid_dead:
+            continue
+        try:
+            lock_path.unlink()
+            removed = True
+        except OSError:
+            removed = False
+        cleaned.append({
+            "path": str(lock_path),
+            "pid": pid,
+            "age_seconds": int(age),
+            "reason": "pid_dead",
+            "removed": removed,
+        })
+    return cleaned
+
+
 def _background_refresh_active(state_path: Path) -> bool:
     # Primary guard: if any per-table .lock file exists and is fresh, a build is actively
     # running — regardless of what the state file says.
     index_dir = state_path.parent
+    _cleanup_stale_table_locks(index_dir)
     if any(_lock_is_fresh(p) for p in _table_lock_paths(index_dir)):
         return True
 
@@ -4516,7 +4585,7 @@ def wave_audit_response(
         waves = cache.list_waves_cached() if cache else list_waves(root)
         wid = wave_id.strip().lower()
         matched = next(
-            (w for w in waves if w["id"].lower().startswith(wid) or wid in w["id"].lower()),
+            (w for w in waves if w["wave_id"].lower().startswith(wid) or wid in w["wave_id"].lower()),
             None,
         )
         if matched:
@@ -4811,6 +4880,8 @@ def wave_index_build_status_response(root: Path, layer: str = "project") -> dict
         return _response("error", {"layer": layer}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported layer '{layer}'. Use 'project' or 'framework'.")])
     state_path = _index_build_state_path(root, layer_s)
     log_path = _index_build_log_path(root, layer_s)
+    index_dir = state_path.parent
+    stale_locks_cleaned = _cleanup_stale_table_locks(index_dir)
     background_status = _background_build_status(root) if layer_s == "project" else "none"
 
     if not state_path.exists():
@@ -4844,19 +4915,27 @@ def wave_index_build_status_response(root: Path, layer: str = "project") -> dict
             _running_prev = _read_index_build_stats_file(root, layer_s)
             if _running_prev is not None:
                 running_data["previous_stats"] = _running_prev
+            if stale_locks_cleaned:
+                running_data["stale_locks_cleaned"] = stale_locks_cleaned
             return _response(
                 "ok",
                 running_data,
                 next_tools=["wave_index_build_status"],
                 usage="wave_index_build_status()",
             )
-        return _response("ok", {"layer": layer_s, "state": "idle"}, next_tools=["wave_index_build"], usage="wave_index_build()")
+        idle_data: dict[str, Any] = {"layer": layer_s, "state": "idle"}
+        if stale_locks_cleaned:
+            idle_data["stale_locks_cleaned"] = stale_locks_cleaned
+        return _response("ok", idle_data, next_tools=["wave_index_build"], usage="wave_index_build()")
 
     try:
         state = json.loads(state_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         _clear_index_build_state(root, layer_s)
-        return _response("ok", {"layer": layer_s, "state": "idle"}, next_tools=["wave_index_build"], usage="wave_index_build()")
+        idle_data = {"layer": layer_s, "state": "idle"}
+        if stale_locks_cleaned:
+            idle_data["stale_locks_cleaned"] = stale_locks_cleaned
+        return _response("ok", idle_data, next_tools=["wave_index_build"], usage="wave_index_build()")
 
     pid = state.get("pid")
     started_at = state.get("started_at")
@@ -4911,6 +4990,8 @@ def wave_index_build_status_response(root: Path, layer: str = "project") -> dict
         _running_prev = _read_index_build_stats_file(root, layer_s)
         if _running_prev is not None:
             running_data["previous_stats"] = _running_prev
+        if stale_locks_cleaned:
+            running_data["stale_locks_cleaned"] = stale_locks_cleaned
         return _response(
             "ok",
             running_data,
@@ -4932,6 +5013,8 @@ def wave_index_build_status_response(root: Path, layer: str = "project") -> dict
         _running_prev = _read_index_build_stats_file(root, layer_s)
         if _running_prev is not None:
             running_data["previous_stats"] = _running_prev
+        if stale_locks_cleaned:
+            running_data["stale_locks_cleaned"] = stale_locks_cleaned
         return _response(
             "ok",
             running_data,
@@ -4966,6 +5049,8 @@ def wave_index_build_status_response(root: Path, layer: str = "project") -> dict
         summary["last_log_line"] = last_line
     if previous_stats is not None:
         summary["previous_stats"] = previous_stats
+    if stale_locks_cleaned:
+        summary["stale_locks_cleaned"] = stale_locks_cleaned
     return _response("ok", summary, next_tools=["wave_index_health"], usage="wave_index_health()")
 
 
@@ -4977,72 +5062,123 @@ def wave_dashboard_start_response(root: Path, port: int | None = None) -> dict[s
 
     meta_path = root / ".wavefoundry" / "dashboard-server.json"
 
-    if meta_path.exists():
+    def running_meta() -> dict[str, Any] | None:
+        if not meta_path.exists():
+            return None
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             pid = meta.get("pid")
             url = meta.get("url", "")
             if isinstance(pid, int) and _pid_is_running(pid) and url:
-                return _response(
-                    "ok",
-                    {"already_running": True, "pid": pid, "url": url},
-                    next_tools=["wave_dashboard_open"],
-                    usage=url,
-                )
+                return {"pid": pid, "url": url}
         except (OSError, json.JSONDecodeError):
             pass
+        return None
 
-    scripts_dir = Path(__file__).resolve().parent
-    cmd = [_preferred_python(), str(scripts_dir / "dashboard_server.py"), "--root", str(root)]
-    if port is not None:
-        cmd.extend(["--port", str(port)])
-    if dashboard_lib.dashboard_browser_open_enabled():
-        cmd.append("--open")
-    spawn_kwargs: dict[str, Any] = {
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
-        "stdin": subprocess.DEVNULL,
-        "cwd": str(root),
-    }
-    if os.name == "nt":
-        spawn_kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    else:
-        spawn_kwargs["start_new_session"] = True
-
-    try:
-        proc = subprocess.Popen(cmd, **spawn_kwargs)
-    except OSError as exc:
-        return _response(
-            "error",
-            {},
-            diagnostics=[_diagnostic("spawn_failed", str(exc))],
-        )
-
-    # Poll up to 5s for the server to write its metadata (host, port, URL).
-    url = ""
-    deadline = _time.monotonic() + 5.0
-    while _time.monotonic() < deadline:
-        _time.sleep(0.25)
-        if meta_path.exists():
-            try:
-                meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                if meta.get("pid") == proc.pid and meta.get("url"):
-                    url = meta["url"]
-                    break
-            except (OSError, json.JSONDecodeError):
-                pass
-
-    if not url:
+    def already_running(meta: dict[str, Any], *, starting: bool = False) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "already_running": True,
+            "pid": meta.get("pid"),
+            "url": meta.get("url"),
+        }
+        if starting:
+            data["starting"] = True
         return _response(
             "ok",
-            {"started": True, "pid": proc.pid, "url": None},
-            diagnostics=[_diagnostic(
-                "url_not_ready",
-                "Dashboard spawned but URL not yet available — it may still be binding.",
-            )],
+            data,
+            next_tools=["wave_dashboard_open"],
+            usage=str(meta.get("url") or "wave_dashboard_open()"),
         )
 
-    return _response("ok", {"started": True, "pid": proc.pid, "url": url}, usage=url)
+    def wait_for_running(timeout: float = DASHBOARD_START_WAIT_SECONDS) -> dict[str, Any] | None:
+        deadline = _time.monotonic() + timeout
+        while _time.monotonic() < deadline:
+            meta = running_meta()
+            if meta is not None:
+                return meta
+            _time.sleep(0.25)
+        return None
+
+    meta = running_meta()
+    if meta is not None:
+        return already_running(meta)
+
+    try:
+        start_lock = dashboard_lib.dashboard_start_lock(root)
+        start_lock.__enter__()
+    except dashboard_lib.DashboardLockBusy:
+        meta = wait_for_running()
+        if meta is not None:
+            return already_running(meta, starting=True)
+        return _response(
+            "ok",
+            {"already_running": True, "starting": True, "pid": None, "url": None},
+            diagnostics=[_diagnostic(
+                "dashboard_start_in_progress",
+                "Another dashboard start is already in progress for this repository.",
+            )],
+            next_tools=["wave_dashboard_open"],
+            usage="wave_dashboard_open()",
+        )
+
+    try:
+        meta = running_meta()
+        if meta is not None:
+            return already_running(meta)
+
+        scripts_dir = Path(__file__).resolve().parent
+        cmd = [_preferred_python(), str(scripts_dir / "dashboard_server.py"), "--root", str(root)]
+        if port is not None:
+            cmd.extend(["--port", str(port)])
+        if dashboard_lib.dashboard_browser_open_enabled():
+            cmd.append("--open")
+        spawn_kwargs: dict[str, Any] = {
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "stdin": subprocess.DEVNULL,
+            "cwd": str(root),
+        }
+        if os.name == "nt":
+            spawn_kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            spawn_kwargs["start_new_session"] = True
+
+        try:
+            proc = subprocess.Popen(cmd, **spawn_kwargs)
+        except OSError as exc:
+            return _response(
+                "error",
+                {},
+                diagnostics=[_diagnostic("spawn_failed", str(exc))],
+            )
+
+        # Poll up to 5s for the server to write its metadata (host, port, URL).
+        url = ""
+        deadline = _time.monotonic() + 5.0
+        while _time.monotonic() < deadline:
+            _time.sleep(0.25)
+            if meta_path.exists():
+                try:
+                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                    if meta.get("pid") == proc.pid and meta.get("url"):
+                        url = meta["url"]
+                        break
+                except (OSError, json.JSONDecodeError):
+                    pass
+
+        if not url:
+            return _response(
+                "ok",
+                {"started": True, "pid": proc.pid, "url": None},
+                diagnostics=[_diagnostic(
+                    "url_not_ready",
+                    "Dashboard spawned but URL not yet available — it may still be binding.",
+                )],
+            )
+
+        return _response("ok", {"started": True, "pid": proc.pid, "url": url}, usage=url)
+    finally:
+        start_lock.__exit__(None, None, None)
 
 
 def wave_dashboard_open_response(root: Path) -> dict[str, Any]:
@@ -9034,6 +9170,44 @@ def _partition_infra(results: list[dict]) -> list[dict]:
     return non_infra + infra
 
 
+# Test-file detection: directory segments and filename patterns across ecosystems.
+# Directory check uses exact segment matching (not substring) to avoid false positives
+# such as src/contest/ matching "test". Filename regex covers Python, Go, Java, C#,
+# JS/TS, Swift, Kotlin, Ruby, and PHP conventions.
+_TEST_DIR_SEGMENTS = frozenset(["tests", "test", "__tests__", "spec", "specs"])
+_TEST_FILENAME_RE = re.compile(
+    r"^test_"                                               # Python: test_foo.py
+    r"|_test\.[a-z]+$"                                      # Go/Python: foo_test.go
+    r"|(?:Tests?|TestCase|TestSuite|Specs?)\.[a-zA-Z]+$"    # Java/C#/Swift/Kotlin: FooTest.java
+    r"|\.(?:test|spec)\.[a-z]+$"                            # JS/TS: foo.test.js, foo.spec.ts
+)
+
+
+def _is_test_path(path: str) -> bool:
+    """Return True when path belongs to a test file across common ecosystems."""
+    normalized = path.replace("\\", "/")
+    parts = normalized.split("/")
+    name = parts[-1] if parts else ""
+    return (
+        any(p.lower() in _TEST_DIR_SEGMENTS for p in parts[:-1])
+        or bool(_TEST_FILENAME_RE.search(name))
+    )
+
+
+def _partition_tests(results: list[dict]) -> list[dict]:
+    """Stable index-based partition: move test-file citations to the end.
+
+    Applied after reranking in the artifact-anchored exact-first path so
+    implementation owner files rank ahead of test fixtures.
+    Uses enumerate to avoid false drops from dict equality comparison when two
+    results share identical content.
+    """
+    test_idx = {i for i, r in enumerate(results) if _is_test_path(r.get("path", ""))}
+    non_test = [r for i, r in enumerate(results) if i not in test_idx]
+    test = [r for i, r in enumerate(results) if i in test_idx]
+    return non_test + test
+
+
 def _doc_demotion_weight(path: str, kind: str) -> float:
     """Return the demotion multiplier for a result based on its path and kind."""
     normalized = (path or "").replace("\\", "/")
@@ -9270,8 +9444,34 @@ def _extract_symbols_from_citations(
     return result, method
 
 
+# Artifact-anchored question detection: implementation verbs + concrete artifact cue.
+# A question qualifies as artifact_anchored when it contains both a verb from
+# _ARTIFACT_VERBS and a token matched by _ARTIFACT_CUE_RE. Detection uses named
+# constants so the scope is auditable and extensible without reimplementing the classifier.
+_ARTIFACT_VERBS = frozenset([
+    "generated", "generate", "generates",
+    "derived", "derive", "derives",
+    "stamped", "stamp", "stamps",
+    "computed", "compute", "computes",
+    "encoded", "encode", "encodes",
+    "written", "writes", "write",
+])
+_ARTIFACT_CUE_RE = re.compile(
+    r"\+[a-z0-9]{4,5}"                             # version suffix like +2vr8
+    r"|\w+\.(?:py|toml|json|md|yaml|yml|js|ts)\b"  # dotted filename like lifecycle_id.py
+    r"|[A-Z][a-z]+[A-Z]\w+"                        # CamelCase identifier like BuildPrefix
+    r"|[a-z]{3,}_[a-z]{2,}\w*"                     # snake_case identifier like build_prefix
+)
+
+
+def _extract_artifact_cue(question: str) -> str:
+    """Return the first concrete artifact cue token in question, or empty string."""
+    m = _ARTIFACT_CUE_RE.search(question)
+    return m.group(0) if m else ""
+
+
 def _classify_question(question: str) -> str:
-    """Heuristic question classifier: navigational | explanatory | instructional."""
+    """Heuristic question classifier: navigational | explanatory | instructional | artifact_anchored."""
     q = question.lower()
     navigational_signals = ["where is", "where are", "where can i find", "which file", "what file", "find the", "find where", "locate the", "path to"]
     instructional_signals = ["how do i", "how to", "steps to", "how can i", "how should i", "how would i"]
@@ -9281,6 +9481,8 @@ def _classify_question(question: str) -> str:
     for sig in navigational_signals:
         if sig in q:
             return "navigational"
+    if any(verb in q for verb in _ARTIFACT_VERBS) and _extract_artifact_cue(question):
+        return "artifact_anchored"
     return "explanatory"
 
 
@@ -9552,7 +9754,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_server_info(**kwargs: Any) -> dict[str, Any]:
-        """Return the repository root and deterministic Codex server label for this MCP server.
+        """Return the repository root and implementation version info for this MCP server.
 
         Use immediately after connect when you need to confirm which checkout this server is attached to.
         """

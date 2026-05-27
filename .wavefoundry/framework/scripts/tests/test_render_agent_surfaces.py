@@ -68,6 +68,10 @@ class RenderAgentSurfacesTests(unittest.TestCase):
             codex_skill = repo_root / ".codex" / "skills" / "auto-guru" / "SKILL.md"
             self.assertTrue(codex_skill.is_file())
 
+            codex_mcp_config = repo_root / ".codex" / "config.toml"
+            self.assertTrue(codex_mcp_config.is_file())
+            self.assertIn("[mcp_servers.wavefoundry]", codex_mcp_config.read_text(encoding="utf-8"))
+
             junie = (repo_root / ".junie" / "guidelines.md").read_text(encoding="utf-8")
             self.assertIn("waveframework:auto-guru begin", junie)
             self.assertIn("code_ask", junie)

@@ -67,6 +67,7 @@ If memory conflicts with current evidence from the repository, favor that eviden
 - Make output contracts version-aware enough that later prompts or tooling can detect missing anchors and stale semantics and report actionable diagnostics.
 - Treat task lists, guardrails, required semantics, and review checklists as lower bounds, not upper bounds; include as many items as are useful and important for the current task or project context.
 - Do not trim lists merely to keep them symmetric, short, or aesthetically tidy.
+- When an artifact uses checkbox-tracked acceptance criteria or tasks, update those checkboxes incrementally as the work actually completes. Do not leave completion bookkeeping until the end of the implementation pass, and do not mark `[x]` without matching evidence in the same repository state.
 
 ## Wave Rules
 
@@ -86,12 +87,12 @@ If memory conflicts with current evidence from the repository, favor that eviden
 ## Journal Rules
 
 - Journals are advisory episodic memory, not source of truth.
-- **Write journal entries only when something went wrong, caused rework, required multiple cycles to resolve, or revealed information that was hard to find.** Do not journal routine successful work — if a task completed cleanly on the first attempt, it does not belong in a journal.
-- Triggers for a journal entry: a bug that reached review, a review cycle that caused rework, a mistake that had to be corrected, a constraint or behavior that was hard to discover and needed extra investigation, a tool failure or environment issue that caused significant lost time, an invalidated assumption that caused backtracking.
-- **Do not create a journal entry for an issue that was fully fixed and cleaned up in the same session.** If the root cause is structurally resolved and no remaining risk exists, there is nothing to remember — skip the entry entirely. Create an entry only when the lesson is still actionable: the risk persists, the mistake is easy to repeat, or the constraint is hard to rediscover.
+- **Write journal entries only when the lesson is durable, non-obvious, or high-salience enough to improve future work.** This includes corrections, hard-to-find constraints, reversed assumptions, and validated patterns worth reusing. Do not journal routine successful work or generic progress — if the task completed cleanly and taught nothing durable, it does not belong in a journal.
+- Triggers for a journal entry: a bug that reached review, a review cycle that caused rework, a mistake that had to be corrected, a constraint or behavior that was hard to discover and needed extra investigation, a tool failure or environment issue that caused significant lost time, an invalidated assumption that caused backtracking, or a validated approach that is likely to help future sessions avoid repeated discovery.
+- **Do not create a journal entry for an issue that was fully fixed and cleaned up in the same session unless the lesson is still actionable.** If the root cause is structurally resolved and no remaining risk or rediscovery cost exists, skip the entry. Create an entry only when the lesson is still useful: the risk persists, the pattern is worth repeating, the mistake is easy to repeat, or the constraint is hard to rediscover.
 - Repeated, validated lessons that appeared in more than one wave or incident may be promoted into repo-local workflow memory, prompt docs, persona docs, or canonical docs.
 - Do not promote one-off observations unless they reveal a stable pattern — an incident that happened once and has since been resolved structurally does not need to live in memory indefinitely.
-- Retention model: if a lesson is still relevant (the risk still exists, the constraint still applies, the mistake is still easy to make), keep it — promoted or not. If a lesson addresses a problem that no longer exists (the code was removed, the tool was fixed, the process changed), retire it from the journal and from memory rather than leaving stale cautions that mislead future agents.
+- Retention model: if a lesson is still relevant (the risk still exists, the constraint still applies, the validated pattern still helps, or the mistake is still easy to make), keep it — promoted or not. If a lesson addresses a problem that no longer exists (the code was removed, the tool was fixed, the process changed), retire it from the journal and from memory rather than leaving stale cautions that mislead future agents.
 
 ## Persona Rules
 

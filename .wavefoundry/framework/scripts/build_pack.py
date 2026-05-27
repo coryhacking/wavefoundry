@@ -37,9 +37,7 @@ FRAMEWORK_REL = ".wavefoundry/framework"
 ZIP_PREFIX = "wavefoundry-"
 # wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
 _ZIP_NAME_RE = re.compile(r"^wavefoundry-(\d+\.\d+\.\d+)\.([A-Za-z0-9]+)\.zip$")
-_LEGACY_ZIP_NAME_RE = re.compile(r"^wavefoundry-(\d{4}-\d{2}-\d{2})([a-z])\.zip$")
 _DEFAULT_DIST_DIR = Path("~/.wavefoundry/dist")
-_BRIDGE_VERSION = "0.9.0"
 
 
 def find_repo_root(start: Path) -> Path:
@@ -153,26 +151,6 @@ def write_pack_version(framework_dir: Path, version: str, build_prefix: str) -> 
     """Stamp VERSION with MAJOR.MINOR.PATCH+<build_prefix> so the archive is traceable."""
     version_path = framework_dir / "VERSION"
     version_path.write_text(f"{version}+{build_prefix}\n", encoding="utf-8")
-
-
-def _bridge_zip_name(output_dir: Path, *, today: datetime.date | None = None) -> str:
-    """Return the legacy date-shaped bridge artifact name for v0.9.0 packaging."""
-    bridge_date = (today or datetime.date.today()).isoformat()
-    max_suffix = ""
-    if output_dir.is_dir():
-        for entry in output_dir.iterdir():
-            match = _LEGACY_ZIP_NAME_RE.match(entry.name)
-            if not match or match.group(1) != bridge_date:
-                continue
-            suffix = match.group(2)
-            if suffix > max_suffix:
-                max_suffix = suffix
-    next_suffix = "a" if not max_suffix else chr(ord(max_suffix) + 1)
-    if next_suffix > "z":
-        raise RuntimeError(
-            f"legacy bridge zip suffix exhausted for {bridge_date} in {output_dir}"
-        )
-    return f"{ZIP_PREFIX}{bridge_date}{next_suffix}.zip"
 
 
 def _load_indexer():
@@ -298,10 +276,7 @@ def build_zip(
     prebuild_index: bool = False,
     verbose: bool = False,
 ) -> Path:
-    if version == _BRIDGE_VERSION:
-        zip_name = _bridge_zip_name(output_dir)
-    else:
-        zip_name = f"{ZIP_PREFIX}{version}.{build_prefix}.zip"
+    zip_name = f"{ZIP_PREFIX}{version}.{build_prefix}.zip"
     zip_path = output_dir / zip_name
 
     script_dir = Path(__file__).resolve().parent
@@ -369,7 +344,8 @@ def _reexec_with_venv_if_needed() -> None:
     venv_python = Path.home() / ".wavefoundry" / "venv" / "bin" / "python"
     if not venv_python.exists():
         return  # no venv available; let the error surface naturally
-    os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+    script_path = str(Path(__file__).resolve())
+    os.execv(str(venv_python), [str(venv_python), script_path, *sys.argv[1:]])
 
 
 def main():
@@ -381,7 +357,7 @@ def main():
         "--version",
         metavar="MAJOR.MINOR.PATCH",
         required=True,
-        help="Semver base version for this release (e.g. 0.9.0 or 1.0.0).",
+        help="Semver base version for this release (e.g. 1.0.0).",
     )
     parser.add_argument(
         "--output",
@@ -412,7 +388,14 @@ def main():
     # Validate version format.
     if not re.match(r"^\d+\.\d+\.\d+$", args.version):
         print(
-            f"error: --version must be MAJOR.MINOR.PATCH (e.g. 0.9.0), got: {args.version!r}",
+            f"error: --version must be MAJOR.MINOR.PATCH (e.g. 1.0.0), got: {args.version!r}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    version_parts = tuple(int(part) for part in args.version.split("."))
+    if version_parts < (1, 0, 0):
+        print(
+            f"error: --version must be 1.0.0 or later; pre-1.0.0 packaging targets are no longer supported ({args.version!r})",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -469,13 +452,6 @@ def main():
     stamp = version_path.read_text(encoding="utf-8").strip()
     print(zip_path)
     print(f"Stamped VERSION: {stamp}", file=sys.stderr)
-
-    if args.version == _BRIDGE_VERSION:
-        print(
-            "Bridge release: packaged v0.9.0 with legacy date-style zip naming so "
-            "pre-semver upgrade flows can adopt it directly.",
-            file=sys.stderr,
-        )
 
 
 if __name__ == "__main__":

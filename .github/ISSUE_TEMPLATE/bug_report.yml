@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a bug in Wavefoundry
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to reproduce the issue.
+      placeholder: |
+        1. Run `wave_prepare`
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Wavefoundry version
+      description: "Output of: cat .wavefoundry/framework/VERSION"
+      placeholder: "1.0.0+2vr8"
+    validations:
+      required: true
+  - type: dropdown
+    id: agent-host
+    attributes:
+      label: Agent host
+      options:
+        - Claude Code
+        - Cursor
+        - Codex
+        - GitHub Copilot
+        - Junie
+        - Windsurf
+        - Air
+        - Warp
+        - Other / N/A
+    validations:
+      required: true
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: "3.12.4"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows (WSL2)
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Paste any relevant output from ~/.wavefoundry/logs/ or .wavefoundry/logs/
+      render: text

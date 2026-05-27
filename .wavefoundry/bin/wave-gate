@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Canonical gate launcher — .wavefoundry/bin/gate
+"""Canonical gate launcher — .wavefoundry/bin/wave-gate
 
 Manages the seed_edit_allowed and framework_edit_allowed guards in
 .wavefoundry/guard-overrides.json.

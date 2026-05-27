@@ -3,7 +3,7 @@
 Owner: Engineering
 Status: active
 Category: persona
-Last verified: 2026-05-23
+Last verified: 2026-05-26
 
 ## Who
 
@@ -23,8 +23,8 @@ Last verified: 2026-05-23
 
 **Installation:**
 1. Obtain a Wavefoundry release zip
-2. Use `wavefoundry-YYYY-MM-DDx.zip` for the one-time `0.9.0` bridge release, or `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` for `1.0.0` and later
-3. Leave semver packs in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`; for the `0.9.0` bridge release, place the old-style zip at repository root so legacy pre-semver flows can adopt it; run **Init wave framework**
+2. Use `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` for framework distributions
+3. Leave semver packs in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`; run **Upgrade wave framework**
 4. Review the operator summary: what was installed, how the lifecycle works, where config lives
 5. Commit the self-hosted surface (operator-owned commit)
 
@@ -34,7 +34,7 @@ Last verified: 2026-05-23
 - Generate IDs: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>`
 
 **Upgrade:**
-1. Build or obtain a new release zip: old date-style for the one-time `0.9.0` bridge at repository root, semver-named for `1.0.0` and later in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`
+1. Build or obtain a new semver release zip in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`
 2. Run **Upgrade wave framework**
 3. Review the diff of changed files; commit after verification
 

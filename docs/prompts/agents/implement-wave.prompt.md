@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-18
+Last verified: 2026-05-26
 
 ## Context
 
@@ -29,6 +29,7 @@ Use `code_ask` for open-ended questions ("how does X currently work?") when the 
 ## Execution
 
 Follow the ReAct loop (Thought → Action → Observe → Reflect on blocking findings). Produce an ordered lane sequence before the first edit.
+Keep admitted change-doc checkboxes current while you work: mark ACs and tasks `[x]` in the same pass that actually completes them, and reopen or leave items unchecked only with recorded rationale.
 
 ## Wavefoundry-Specific Implementation Rules
 

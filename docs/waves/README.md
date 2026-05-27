@@ -2,35 +2,48 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-05-26
 
 Wave records for Wavefoundry delivery work. Each wave is a bounded, reviewable container for one or more admitted changes.
 
 ## Wave Lifecycle
 
-`planned` → `active` → `completed` | `superseded` (wave records may use `**Status: closed**` for a completed delivery — same meaning as **completed** for the index in this repo)
+`planned` → `active` → `paused` → `completed` | `superseded`
 
-## Active Waves
-
-- `12g47 dashboard-framework`
-
-## Completed Waves
-
-- `12g27 wave-council-review-system`
-- `129p8 mcp-docs-search-reliability`
-- `1293d mcp-server-foundation`
+Wave records may use `Status: closed` in historical contexts, but current active records in this repo use the lifecycle statuses above.
 
 ## Wave ID Format
 
-Generate wave IDs with: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>`
+Generate wave IDs with `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>`.
 
-Output format: `<prefix> <slug>` (e.g. `0a3b2 mcp-read-only-surface`).
-Reserve `00000 wave-zero-plans-and-specs` for legacy baseline waves only (Wavefoundry was installed as a greenfield — no baseline wave was needed).
+Output format: `<prefix> <slug>` (example: `0a3b2 mcp-read-only-surface`).
+
+Reserve `00000 wave-zero-plans-and-specs` for the legacy baseline wave only.
 
 ## Wave Folder Layout
 
-Each wave lives at `docs/waves/<wave-id>/wave.md`. After **Prepare wave**, admitted change docs are relocated here alongside `wave.md`.
+Each wave lives at `docs/waves/<wave-id>/wave.md`.
 
-## Required Wave Anchors
+Admitted change docs are wave-owned at `docs/waves/<wave-id>/<change-id>.md`. `Add change to wave` is the canonical relocation step; `Prepare wave` validates placement and repairs drift if needed.
 
-See `.wavefoundry/framework/seeds/110-wave-memory-bootstrap.prompt.md` for the full anchor contract. Required: `wave-id`, `Title`, `Status`, `Objective`, `Coordinator`, `Participants`, `Planned or active changes`, `Dependencies`, `Current assumptions`, `Outputs produced or expected`, `Review checkpoints`, `Journal refs`, `Journal Watchpoints`, `Completion criteria`, `Handoff or next-wave notes`, `Wave Summary` (populated at closure).
+## Required Wave Record Contract
+
+The live validator requires wave records to include:
+
+- metadata lines: `Owner:`, `Status:`, `Last verified:`
+- `wave-id: \`<wave-id>\``
+- `Title: ...`
+- `## Wave Summary`
+- `## Journal Watchpoints`
+
+The standard Wavefoundry scaffold also includes these operational sections and they should be treated as the normal working shape for active waves:
+
+- `## Changes`
+- `## Objective`
+- `## Coordinator`
+- `## Participants`
+- `## Review Evidence`
+- `## Review Checkpoints`
+- `## Dependencies`
+
+Use `Create wave` / `wave_create_wave` to generate the current scaffold instead of copying historical wave docs.

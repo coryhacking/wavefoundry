@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -459,6 +462,67 @@ class HashTests(unittest.TestCase):
         p.write_text("data\n", encoding="utf-8")
         result = self.bi._build_file_hashes([p], self.root)
         self.assertEqual(result["c.py"], self.bi._sha256(p))
+
+
+class IndexBuildLockTests(unittest.TestCase):
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root, {"docs/guide.md": "# Guide\n"})
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_index_build_lock_leaves_metadata_but_releases_os_lock(self):
+        lock_path = self.index_dir / self.bi.INDEX_BUILD_LOCK_NAME
+
+        with self.bi._index_build_lock(self.index_dir):
+            self.assertTrue(lock_path.exists())
+            data = json.loads(lock_path.read_text(encoding="utf-8"))
+            self.assertEqual(data.get("pid"), os.getpid())
+            self.assertIsInstance(data.get("started_at"), float)
+
+        with self.bi._index_build_lock(self.index_dir):
+            self.assertTrue(lock_path.exists())
+
+    def test_main_fails_fast_when_another_process_holds_index_lock(self):
+        holder = textwrap.dedent(
+            f"""
+            import importlib.util
+            import pathlib
+            import sys
+            import time
+
+            spec = importlib.util.spec_from_file_location("indexer_holder", {str(INDEXER_PATH)!r})
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+
+            with mod._index_build_lock(pathlib.Path(sys.argv[1])):
+                print("locked", flush=True)
+                time.sleep(2.0)
+            """
+        )
+
+        proc = subprocess.Popen(
+            [sys.executable, "-B", "-c", holder, str(self.index_dir)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            self.assertEqual(proc.stdout.readline().strip(), "locked")
+            rc = self.bi.main([
+                "--root", str(self.root),
+                "--index-dir", str(self.index_dir),
+                "--content", "docs",
+            ])
+            self.assertEqual(rc, 1)
+        finally:
+            proc.terminate()
+            proc.communicate(timeout=5)
 
 
 class IncrementalBuildTests(unittest.TestCase):

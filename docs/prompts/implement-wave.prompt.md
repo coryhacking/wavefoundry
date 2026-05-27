@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-23
+Last verified: 2026-05-26
 
 Shortcut: **`Implement wave`**
 
@@ -22,6 +22,7 @@ The coordinator:
 3. Runs parallel reviewer lanes (those with no shared dependencies) concurrently; synthesizes a merged `Observe:` before the next `Thought:`.
 4. Classifies findings: Level 1 (micro, internal fix), Level 2 (reviewer loop, fix and re-run, no re-Prepare), Level 3 (scope/plan invalidation, stop and re-Prepare or re-plan).
 5. Records a `Reflect:` entry after blocking findings, identifying the pattern and proactively updating remaining tasks.
+6. Updates checkbox-tracked ACs and tasks in the admitted change docs as each item actually completes; do not leave completion bookkeeping until the end of the wave.
 
 When `wave_council_policy.enabled` is true, implementation starts only after `wave-council-readiness` is recorded during **Prepare wave**. The delivery-phase council pass runs during **Review wave** after implementation evidence exists.
 
@@ -51,6 +52,7 @@ A `blocked` verdict halts implementation until the gap is resolved. When `wave_c
 - Follow `docs/repo-profile.json` `code_patterns` when populated; surface significant pattern problems before deviating.
 - After changes, verify they actually address the stated problem before declaring done.
 - Required review lanes from readiness must participate during execution.
+- Keep change-doc bookkeeping current: when a task or AC is completed during the run, mark it complete in that same implementation pass. Do not batch-update completion marks at review or closure time.
 - **MCP-first code exploration:** Before the first edit, ground the implementation plan in MCP evidence — `code_search`, `code_definition`, `code_references`, `code_keyword`, and `code_outline` before `grep`/`rg` or broad file reads. Shell search is fallback only when MCP is not attached, the relevant tool is absent, index health is unreliable, or MCP results are genuinely insufficient. Record a `Gapfill:` note in Progress Log when fallback was required.
 - **Builder-lane allocation:** Allocate implementation lanes from repository evidence and admitted scope. Use the generic `implementer` for cross-cutting or narrow changes. Route to a senior builder specialist when domain depth is needed: `software-engineer` for backend/API/service work; `ui-ux-engineer` for UI/interaction/accessibility surfaces; `senior-data-engineer` for SQL/schema/migration/ETL/data-contract work. Record selected lanes in the wave record or Review checkpoints.
 

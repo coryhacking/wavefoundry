@@ -2,13 +2,15 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-05-26
 
 ## What Wavefoundry Is
 
-Wavefoundry is the canonical repository for the Wave Framework and its local MCP server. It owns the seed prompts, framework scripts, packaging logic, migration helpers, the optional local dashboard surface, and the MCP tool surface that makes framework-aware work searchable, auditable, and operable across target repositories.
+Wavefoundry is the agent harness for the repositories it is installed in — the persistent operating layer that wraps AI coding agents with feedforward guidance (seed prompts), feedback sensors (computational and inferential reviewer lanes), and structural lifecycle enforcement. It ships as a local MCP server and a set of plain-file documents that survive context loss.
 
-**Wavefoundry is a framework and tooling repository, not a target product repository.** It does not ship a networked product application. Its deliverables are:
+As a project, Wavefoundry is the canonical repository for the Wave Framework and its local MCP server. It owns the seed prompts, framework scripts, packaging logic, migration helpers, the optional local dashboard surface, and the MCP tool surface that makes framework-aware work searchable, auditable, and operable across target repositories.
+
+**Wavefoundry is a harness and tooling repository, not a target product repository.** It does not ship a networked product application. Its deliverables are:
 
 1. **The Wave Framework seed pack** — numbered seed prompts (001–214+) and reference docs packaged into dated `.zip` distributions and installed into target repositories.
 2. **Framework scripts** — CLI tools for lifecycle ID generation, docs linting, docs gardening, platform surface rendering, packaging, test running, index building, and local dashboard serving.
@@ -45,8 +47,8 @@ Wavefoundry uses the Wave Framework to develop itself:
 Wavefoundry uses the Wave Framework lifecycle for its own development:
 
 1. **Plan feature** — author a consolidated change doc at `docs/plans/`.
-2. **Create wave / Add change to wave** — admit the change into `docs/waves/<wave-id>/`.
-3. **Prepare wave** — relocate admitted change docs into the wave folder; confirm readiness.
+2. **Create wave / Add change to wave** — admit the change and make it wave-owned under `docs/waves/<wave-id>/`.
+3. **Prepare wave** — confirm readiness and repair any admitted-doc placement drift.
 4. **Implement wave / Implement feature** — execute the admitted changes.
 5. **Review wave** — code review, QA, architecture review, and Wave Council delivery synthesis as required by policy and change type.
 6. **Close wave / Finalize feature** — record closure, distill journals, promote memory, clear handoff.

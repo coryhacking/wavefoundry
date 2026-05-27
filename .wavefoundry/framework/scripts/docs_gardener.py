@@ -245,11 +245,14 @@ def gardener_run(root: Path, args: argparse.Namespace) -> tuple[int, list[str]]:
     validate_args(args)
     date_value = args.date or date.today().isoformat()
     updated_paths: list[str] = []
+    stamped_paths: list[str] = []
 
     targets = resolve_metadata_targets(root, args)
     for path in targets:
         if refresh_last_verified(path, date_value):
-            updated_paths.append(str(path.relative_to(root)))
+            rel = str(path.relative_to(root))
+            updated_paths.append(rel)
+            stamped_paths.append(rel)
 
     bump_manifest = bool(updated_paths)
     manifest_p, manifest_wrote = ensure_manifest(root, date_value, bump_last_gardened=bump_manifest)
@@ -259,6 +262,10 @@ def gardener_run(root: Path, args: argparse.Namespace) -> tuple[int, list[str]]:
     sh_path, sh_created = ensure_session_handoff(root, date_value)
     if sh_created:
         updated_paths.append(str(sh_path.relative_to(root)))
+
+    if not stamped_paths:
+        print("docs-gardener: ok (nothing to report)")
+        return 0, sorted(set(updated_paths))
 
     report_rel = f"docs/reports/reindex-{date_value}.md"
     report_path = root / report_rel

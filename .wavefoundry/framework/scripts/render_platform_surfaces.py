@@ -730,16 +730,15 @@ def _merge_mcp_server(target: Path, stanza: dict) -> None:
 def render_mcp_json(repo_root: Path) -> None:
     """Merge the Wavefoundry stdio MCP entry into the Claude repo-root ``.mcp.json``.
 
-    Uses ``--root .`` so the stanza is portable: Claude Code launches from the
-    project directory, so ``"."`` resolves to the repo root without embedding a
-    machine-specific absolute path.  The ``command`` field is the resolved venv
-    Python path because ``~`` is not expanded in MCP JSON at runtime.
+    Uses the ``mcp-server`` bin wrapper so the stanza is portable: the wrapper
+    resolves the repo root and venv Python from its own location, so no machine-
+    specific absolute paths are embedded.
     """
     _merge_mcp_server(
         repo_root / ".mcp.json",
         {
-            "command": _venv_python_path(),
-            "args": [".wavefoundry/framework/scripts/server.py", "--root", "."],
+            "command": ".wavefoundry/bin/mcp-server",
+            "args": [],
         },
     )
 
@@ -914,7 +913,7 @@ def render_bin_launchers(repo_root: Path) -> None:
     )
     wave_dashboard_src = (
         "#!/usr/bin/env bash\n"
-        "# Persistent dashboard launcher — .wavefoundry/bin/wave_dashboard\n"
+        "# Persistent dashboard launcher — .wavefoundry/bin/wave-dashboard\n"
         "# Starts the local dashboard server under nohup so it survives shell exit.\n"
         "set -euo pipefail\n"
         'REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"\n'
@@ -924,29 +923,15 @@ def render_bin_launchers(repo_root: Path) -> None:
         'nohup "$PYTHON" "$REPO_ROOT/.wavefoundry/framework/scripts/dashboard_server.py" --root "$REPO_ROOT" --open "$@" >"$LOG" 2>&1 &\n'
         'echo "Wave dashboard started (pid $!). Log: $LOG"\n'
     )
-    codex_mcp_src = (
+    update_indexes_src = (
         "#!/usr/bin/env bash\n"
-        "# Canonical Codex MCP bootstrap launcher — .wavefoundry/bin/register-codex-mcp\n"
-        "# Registers the repo-local Wavefoundry MCP server in ~/.codex/config.toml.\n"
+        "# Incremental index updater — .wavefoundry/bin/update-indexes\n"
+        "# Runs the normal post-edit docs/code refresh through setup_index.py.\n"
         "set -euo pipefail\n"
         'REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"\n'
         + _venv_block
-        + "repo_suffix() {\n"
-        "  if command -v shasum >/dev/null 2>&1; then\n"
-        '    printf \'%s\' "$1" | shasum -a 256 | cut -c1-8\n'
-        "  elif command -v sha256sum >/dev/null 2>&1; then\n"
-        '    printf \'%s\' "$1" | sha256sum | cut -c1-8\n'
-        "  else\n"
-        '    printf \'%s\' "$1" | cksum | awk \'{print $1}\'\n'
-        "  fi\n"
-        "}\n"
-        "\n"
-        'SERVER_NAME="wavefoundry-$(repo_suffix "$REPO_ROOT")"\n'
-        "if ! command -v codex >/dev/null 2>&1; then\n"
-        '  echo "codex CLI not found on PATH." >&2\n'
-        "  exit 127\n"
-        "fi\n"
-        'exec codex mcp add "$SERVER_NAME" -- "$PYTHON" "$REPO_ROOT/.wavefoundry/framework/scripts/server.py" --root "$REPO_ROOT"\n'
+        + 'cd "$REPO_ROOT"\n'
+        'exec "$PYTHON" ".wavefoundry/framework/scripts/setup_index.py" --root "$REPO_ROOT" --background-code --verbose\n'
     )
     setup_wavefoundry_src = (
         "#!/usr/bin/env bash\n"
@@ -970,13 +955,14 @@ def render_bin_launchers(repo_root: Path) -> None:
     )
     write_text(bin_dir / "docs-lint", docs_lint_src, executable=True)
     write_text(bin_dir / "docs-gardener", docs_gardener_src, executable=True)
-    write_text(bin_dir / "wave_dashboard", wave_dashboard_src, executable=True)
-    write_text(bin_dir / "register-codex-mcp", codex_mcp_src, executable=True)
+    write_text(bin_dir / "wave-dashboard", wave_dashboard_src, executable=True)
+    write_text(bin_dir / "update-indexes", update_indexes_src, executable=True)
     write_text(bin_dir / "setup-wavefoundry", setup_wavefoundry_src, executable=True)
     write_text(bin_dir / "upgrade-wavefoundry", upgrade_wavefoundry_src, executable=True)
-    stale_windows_wrapper = bin_dir / "upgrade-wavefoundry.bat"
-    if stale_windows_wrapper.exists():
-        stale_windows_wrapper.unlink()
+    for stale in ["upgrade-wavefoundry.bat", "wave_dashboard", "register-codex-mcp"]:
+        stale_path = bin_dir / stale
+        if stale_path.exists():
+            stale_path.unlink()
 
 
 def render_git_hooks(repo_root: Path) -> None:

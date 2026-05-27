@@ -2,9 +2,9 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-23
+Last verified: 2026-05-26
 
-Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
+Shortcut: **`Upgrade wave framework`** | Legacy: **`Upgrade Wavefoundry`** / **`Upgrade wave context`**
 
 ## Purpose
 
@@ -18,14 +18,13 @@ The expected operator flow is:
 
 1. Put the new framework in reach of this repository.
    - Usually this means building or placing `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`.
-   - The one-time `0.9.0` bridge release is the exception: its artifact keeps the old date-style name (`wavefoundry-YYYY-MM-DDx.zip`) and should be placed at the repository root for legacy pre-semver upgrade adoption.
    - If the repository already has the desired newer `.wavefoundry/framework/` tree staged locally, the upgrade runs against that tree directly.
-2. Run **Upgrade Wavefoundry**.
+2. Run **Upgrade wave framework**.
    - If a root `wavefoundry-*.zip` is present, upgrade automatically unpacks the newest matching zip first.
    - It then regenerates tracked platform surfaces, reconciles docs/prompts/config, and validates drift.
 3. Restart the MCP server after the upgrade finishes.
    - The upgraded server code and regenerated host config do not take effect until the running MCP process is restarted.
-   - If you use Codex, rerun `.wavefoundry/bin/register-codex-mcp` after restart so the `~/.codex/config.toml` entry points at the upgraded repo path and launcher logic. The launcher keeps the repo label aligned with the current checkout and uses `wavefoundry-<hash>` for every checkout. The label is stable for the folder path, so moving or recloning the repo intentionally changes it.
+   - If you use Codex, the MCP server reloads from the committed `.codex/config.toml` automatically — no re-registration needed after upgrade.
 4. Update indexes after restart.
    - Normal framework updates: run docs-layer index updates.
    - Chunker/schema changes: run a full rebuild instead.
@@ -38,17 +37,15 @@ What this prompt is not:
 
 **Supported operator environments:** macOS and Linux are supported natively. Windows is currently supported through **WSL2** for upgrade and operator workflows because some launcher and shell steps still assume a POSIX environment.
 
-**Python requirement:** Python 3.11 or later is required. Framework dependencies are installed into a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override); running `setup_wavefoundry.py` is the preferred way to create/populate it and run the index setup flow. `setup_index.py` remains supported as the compatibility entrypoint behind it.
+**Python requirement:** Python 3.11 or later is required. Framework dependencies are installed into a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override); running `setup_wavefoundry.py` is the preferred way to create/populate it and run the index setup flow. `setup_index.py` remains supported as the compatibility entrypoint behind it. If `setup_wavefoundry.py` fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path: in agent-driven sessions, the agent should ask the operator for permission to rerun the same setup command with network access or host escalation enabled instead of doing an out-of-band manual model download.
 
 ## Upgrade Steps
 
-**Versioning contract:** Releases use `MAJOR.MINOR.PATCH` semver. The version appears as `MAJOR.MINOR.PATCH+<build>` in `VERSION` and `framework_revision`, and as `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` in filenames from `1.0.0` onward. The one-time `0.9.0` bridge release keeps the old date-style zip name (`wavefoundry-YYYY-MM-DDx.zip`) so pre-semver upgrade flows can adopt it directly. See `docs/architecture/decisions/12tm5-adr semver-versioning-contract.md` for the version bump policy.
+**Versioning contract:** Releases use `MAJOR.MINOR.PATCH` semver. The version appears as `MAJOR.MINOR.PATCH+<build>` in `VERSION` and `framework_revision`, and as `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` in filenames. See `docs/architecture/decisions/12tm5-adr semver-versioning-contract.md` for the version bump policy.
 
-**Distribution directories:** `upgrade_wavefoundry.py` searches the repository root, `~/.wavefoundry/`, and `~/.wavefoundry/dist/`, then picks the highest semver zip for `1.0.0` and later. Non-matching filenames are skipped silently.
+**Distribution directories:** `upgrade_wavefoundry.py` searches the repository root, `~/.wavefoundry/`, and `~/.wavefoundry/dist/`, then picks the highest semver zip. Non-matching filenames are skipped silently.
 
-**v0.9.0 bridge release (date-based installs):** The bridge pack is still semver internally (`0.9.0+<build>` in `VERSION` and `framework_revision` after upgrade), but its artifact keeps the old date-style zip name (`wavefoundry-YYYY-MM-DDx.zip`). For legacy pre-semver installs, place that bridge zip at the repository root and run the existing upgrade flow once; after it lands, future semver-named packs are recognized automatically.
-
-**Step 0 (optional zip adoption):** If a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` is in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`, or if the one-time `0.9.0` bridge pack is present at the repository root as `wavefoundry-YYYY-MM-DDx.zip`, the upgrade seed stages the selected pack under `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation. Non-matching filenames are skipped. On Windows, run this flow from **WSL2** rather than native `cmd.exe` or PowerShell.
+**Step 0 (optional zip adoption):** If a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` is in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`, the upgrade seed stages the selected pack under `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation. Non-matching filenames are skipped. On Windows, run this flow from **WSL2** rather than native `cmd.exe` or PowerShell.
 
 **Full reconciliation:**
 1. Inventory current state (seed-030 in targeted mode)
@@ -83,7 +80,7 @@ python3 .wavefoundry/framework/scripts/render_agent_surfaces.py
    - `.cursor/rules/auto-guru.mdc`, `.claude/agents/guru.md`, `.codex/skills/auto-guru/SKILL.md`
    - Marked blocks in `CLAUDE.md`, `.cursor/rules/project-context.mdc`, `.junie/guidelines.md`, `WARP.md`, `.github/copilot-instructions.md` when those files exist
 5. **Verify** paths listed in `docs/agents/platform-mapping.md` § Auto-Guru routing
-6. **Operator follow-up** — Codex: `.wavefoundry/bin/register-codex-mcp`; Cursor/Claude: attach MCP and restart host; all hosts: restart MCP + project index per checklist below
+6. **Operator follow-up** — Codex: MCP reloads from committed `.codex/config.toml` automatically; Cursor/Claude: attach MCP and restart host; all hosts: restart MCP + project index per checklist below
 
 ## Verification Checklist
 
@@ -94,17 +91,18 @@ See `docs/contributing/build-and-verification.md` **Wave framework pack upgrade 
 3. Verify host registration and CLI launch paths generated by the current pack:
    - `.cursor/mcp.json` exists and contains `mcpServers.wavefoundry` after `render_platform_surfaces --platform cursor`
    - `.mcp.json` and `.junie/mcp/mcp.json` still include the Wavefoundry stdio entry when those hosts are used
-   - `.wavefoundry/bin/register-codex-mcp` exists, is executable, and registers the current repo in `~/.codex/config.toml` under the deterministic repo label for that checkout
+   - `.codex/config.toml` exists at the project root and contains a `[mcp_servers.wavefoundry]` entry using the venv Python launcher
    - `.wavefoundry/bin/docs-lint` and `.wavefoundry/bin/docs-gardener` exist and point to `.wavefoundry/framework/scripts/`
 4. **Check `CHUNKER_VERSION`:** If the pack bumped `CHUNKER_VERSION`, a full index rebuild is required. Run `wave_index_health()` — a `chunker_version_mismatch` advisory confirms the rebuild is needed. Rebuild using the docs-first approach so MCP is available immediately:
    ```bash
    python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full
    python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --background-code --full
    ```
+   If either setup command fails because a required model download is blocked by missing network access, ask the operator for permission to rerun the same canonical setup command with network access or host escalation enabled; do not replace this with a separate manual model-download step.
    See `docs/contributing/build-and-verification.md` **Upgrade rebuild requirement** for time estimates (~6 min total).
 5. Validate upgrade-recovery tools from the upgraded MCP server:
    - `wave_audit` returns a combined `wave` + `validation` + `index` payload
-   - `wave_server_info` returns the current `repo_root` and deterministic Codex server label for that checkout path
+   - `wave_server_info` returns the current `repo_root` and implementation version info for the attached MCP server
    - `wave_index_build` is available for deterministic project/framework index rebuilds
 6. **Restart MCP and update indexes:** Restart the MCP server so the upgraded server and any newly rendered hook/config surfaces take effect. Then update the project index:
    ```

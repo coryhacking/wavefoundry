@@ -10,9 +10,15 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 sys.dont_write_bytecode = True
+
+FASTEMBED_CACHE_DEFAULT = Path.home() / ".wavefoundry" / "cache" / "fastembed"
+if not os.environ.get("FASTEMBED_CACHE_PATH"):
+    os.environ["FASTEMBED_CACHE_PATH"] = str(FASTEMBED_CACHE_DEFAULT)
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 REQUIRED_IMPORTS = {
@@ -58,6 +64,10 @@ DOCS_PREFIXES_KEY = "docs"
 CODE_PREFIXES_KEY = "code"
 
 
+class ModelPrewarmError(RuntimeError):
+    """Raised when a required model cache could not be prepared for setup."""
+
+
 def _tool_venv_python() -> Path:
     base = Path(os.environ.get("WAVEFOUNDRY_TOOL_VENV", "~/.wavefoundry/venv"))
     venv = base.expanduser()
@@ -98,15 +108,81 @@ def _missing_in_venv(venv_python: Path) -> list[str]:
     return [mod_to_dist[m] for m in missing_mods if m in mod_to_dist]
 
 
+def _exclude_newer_cutoff(days: int = 21) -> str:
+    """Return an ISO-8601 UTC timestamp for ``days`` ago — used as the uv --exclude-newer cutoff."""
+    import datetime
+    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
+    return cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _uv_bin(venv_python: Path) -> Path | None:
+    """Return the path to a uv binary usable from the tool venv, or None if unavailable."""
+    # Prefer uv installed inside the venv so it uses the same Python.
+    venv_dir = venv_python.parent.parent
+    candidates = [
+        venv_dir / ("Scripts" if os.name == "nt" else "bin") / ("uv.exe" if os.name == "nt" else "uv"),
+    ]
+    # Fall back to uv on PATH.
+    path_uv = shutil.which("uv")
+    if path_uv:
+        candidates.append(Path(path_uv))
+    for candidate in candidates:
+        # On Windows, os.X_OK doesn't test execute permission (the concept
+        # doesn't exist); is_file() is sufficient since we look for uv.exe.
+        if candidate.is_file() and (os.name == "nt" or os.access(candidate, os.X_OK)):
+            return candidate
+    return None
+
+
+def _bootstrap_uv(venv_python: Path) -> Path | None:
+    """Install uv into the tool venv via pip and return its path, or None on failure."""
+    print("uv not found — installing uv for package age enforcement ...", flush=True)
+    result = subprocess.run(
+        [str(venv_python), "-m", "pip", "install", "uv"],
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return _uv_bin(venv_python)
+
+
 def _install_deps(missing: list[str], venv_python: Path) -> None:
-    """Install missing packages into the tool venv."""
-    display = " ".join(f'"{dep}"' if "[" in dep or ">=" in dep or "<" in dep else dep for dep in missing)
-    cmd = [str(venv_python), "-m", "pip", "install"] + missing
+    """Install missing packages into the tool venv.
+
+    Prefers ``uv`` with ``--exclude-newer`` (21-day package age guard) to reduce
+    supply-chain risk from newly published packages.  Falls back to plain pip when
+    uv is not available and cannot be bootstrapped, but prints a prominent warning.
+    """
+    display = " ".join(
+        f'"{dep}"' if ("[" in dep or ">=" in dep or "<" in dep) else dep
+        for dep in missing
+    )
     print(f"Installing missing dependencies: {display}", flush=True)
+
+    uv = _uv_bin(venv_python) or _bootstrap_uv(venv_python)
+
+    if uv is not None:
+        cutoff = _exclude_newer_cutoff(days=21)
+        print(f"Using uv with --exclude-newer {cutoff} (21-day package age guard)", flush=True)
+        cmd = [
+            str(uv), "pip", "install",
+            "--python", str(venv_python),
+            "--exclude-newer", cutoff,
+        ] + missing
+    else:
+        print(
+            "WARNING: uv not available and could not be installed. "
+            "Falling back to pip without package age enforcement. "
+            "Install uv (https://docs.astral.sh/uv/) for supply-chain age checks.",
+            file=sys.stderr,
+        )
+        cmd = [str(venv_python), "-m", "pip", "install"] + missing
+
     result = subprocess.run(cmd, check=False)
     if result.returncode != 0:
+        installer = "uv" if uv is not None else "pip"
         print(
-            f"pip install failed (exit {result.returncode}). "
+            f"{installer} install failed (exit {result.returncode}). "
             "Check the output above and install manually, then rerun setup_index.py.",
             file=sys.stderr,
         )
@@ -130,6 +206,39 @@ def ensure_deps() -> None:
             file=sys.stderr,
         )
         raise SystemExit(2)
+
+
+def _reexec_with_venv_if_needed() -> None:
+    """Re-exec this script under the venv Python if we are not already running from it.
+
+    On a fresh install the caller is the system Python, which does not have the
+    framework packages. Once ``ensure_deps()`` has populated the venv, this
+    function replaces the current process (via ``os.execv``) with the venv Python
+    running the same script and arguments, so that ``prewarm_models()`` and the
+    index build can import framework packages directly.
+
+    No-ops when already running from the venv or when the venv does not exist.
+    """
+    venv_python = _tool_venv_python()
+    if not venv_python.exists():
+        return
+    # Use sys.prefix rather than sys.executable to detect venv membership.
+    # On macOS/Homebrew, venv Python is a symlink to the same underlying
+    # binary as the system Python, so executable path comparison gives false
+    # positives. sys.prefix is set to the venv directory when inside a venv
+    # and to the interpreter's installation prefix otherwise.
+    try:
+        if Path(sys.prefix).resolve() == venv_python.parent.parent.resolve():
+            return  # Already running inside the venv — nothing to do.
+    except Exception:
+        pass
+    if os.name == "nt":
+        # os.execv on Windows spawns a child and exits the parent with code 0,
+        # so the child's exit code is lost. Use subprocess to preserve it.
+        result = subprocess.run([str(venv_python)] + sys.argv, check=False)
+        sys.exit(result.returncode)
+    else:
+        os.execv(str(venv_python), [str(venv_python)] + sys.argv)
 
 
 def _indexer_models(include_code: bool) -> list[str]:
@@ -186,20 +295,214 @@ def _warm_reranker(model_name: str, *, local_files_only: bool) -> None:
     list(reranker.rerank("verification query", ["verification document"]))
 
 
+def _fastembed_cache_dir() -> Path:
+    cache_path = Path(os.getenv("FASTEMBED_CACHE_PATH") or str(FASTEMBED_CACHE_DEFAULT))
+    cache_path.mkdir(parents=True, exist_ok=True)
+    return cache_path
+
+
+_MODEL_CACHE_DIR_ALIASES: dict[str, tuple[str, ...]] = {
+    # FastEmbed stores the current BAAI embedding presets under Qdrant-hosted
+    # ONNX repo directories, not the public model IDs used by indexer.py.
+    "BAAI/bge-small-en-v1.5": ("qdrant/bge-small-en-v1.5-onnx-q",),
+    "BAAI/bge-base-en-v1.5": ("qdrant/bge-base-en-v1.5-onnx-q",),
+}
+
+
+def _model_cache_dir_candidates(model_name: str) -> tuple[Path, ...]:
+    names = [model_name, *_MODEL_CACHE_DIR_ALIASES.get(model_name, ())]
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for name in names:
+        repo_dir = f"models--{name.replace('/', '--')}"
+        if repo_dir in seen:
+            continue
+        seen.add(repo_dir)
+        deduped.append(_fastembed_cache_dir() / repo_dir)
+    return tuple(deduped)
+
+
+def _model_cache_dir(model_name: str) -> Path:
+    for candidate in _model_cache_dir_candidates(model_name):
+        if candidate.exists():
+            return candidate
+    return _model_cache_dir_candidates(model_name)[0]
+
+
+def _iter_model_cache_paths(model_dir: Path):
+    if not model_dir.exists():
+        return
+    yield model_dir
+    for path in model_dir.rglob("*"):
+        yield path
+
+
+def _model_cache_corruption_reason(model_name: str) -> str | None:
+    for model_dir in _model_cache_dir_candidates(model_name):
+        if not model_dir.exists():
+            continue
+        for path in _iter_model_cache_paths(model_dir):
+            if path.is_symlink():
+                target = path.resolve(strict=False)
+                if target.suffix == ".incomplete":
+                    return f"cache symlink points at incomplete blob: {path.relative_to(model_dir)}"
+                if not path.exists():
+                    return f"cache symlink target missing: {path.relative_to(model_dir)}"
+                try:
+                    if target.is_file() and target.stat().st_size == 0:
+                        return f"cache symlink target is zero-byte file: {path.relative_to(model_dir)}"
+                except OSError:
+                    return f"cache symlink target unreadable: {path.relative_to(model_dir)}"
+            elif path.is_file() and path.suffix == ".incomplete":
+                try:
+                    if path.stat().st_size == 0:
+                        return f"incomplete zero-byte blob present: {path.relative_to(model_dir)}"
+                except OSError:
+                    return f"incomplete blob unreadable: {path.relative_to(model_dir)}"
+        snapshots_dir = model_dir / "snapshots"
+        if snapshots_dir.is_dir():
+            try:
+                for snapshot_dir in snapshots_dir.iterdir():
+                    onnx_dir = snapshot_dir / "onnx"
+                    if not onnx_dir.is_dir():
+                        continue
+                    if not any(onnx_dir.rglob("*.onnx")):
+                        return f"missing onnx model artifact: {snapshot_dir.relative_to(model_dir)}"
+            except OSError:
+                return "snapshot onnx directory unreadable"
+    return None
+
+
+def _quarantine_model_cache(model_name: str) -> Path | None:
+    model_dir = _model_cache_dir(model_name)
+    if not model_dir.exists():
+        return None
+    stamp = int(time.time())
+    target = model_dir.with_name(f"{model_dir.name}.broken.{stamp}")
+    suffix = 0
+    while target.exists():
+        suffix += 1
+        target = model_dir.with_name(f"{model_dir.name}.broken.{stamp}.{suffix}")
+    shutil.move(str(model_dir), str(target))
+    return target
+
+
+def _exception_chain_messages(exc: BaseException) -> str:
+    parts: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        text = str(current).strip()
+        if text:
+            parts.append(text)
+        current = current.__cause__ or current.__context__
+    return " | ".join(parts)
+
+
+def _looks_like_network_failure(exc: BaseException) -> bool:
+    text = _exception_chain_messages(exc).lower()
+    markers = (
+        "connecterror",
+        "nodename nor servname provided",
+        "temporary failure in name resolution",
+        "name or service not known",
+        "failed to resolve",
+        "connection refused",
+        "connection reset",
+        "timed out",
+        "timeout",
+        "network is unreachable",
+        "offline",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _model_failure_message(
+    *,
+    model_name: str,
+    model_kind: str,
+    action: str,
+    exc: BaseException,
+    corruption_reason: str | None = None,
+    quarantined_to: Path | None = None,
+) -> str:
+    if _looks_like_network_failure(exc):
+        cause = "network or download host unavailable"
+    else:
+        cause = "model initialization failed"
+    details = [f"Required {model_kind} model '{model_name}' could not be prepared for {action}: {cause}."]
+    if corruption_reason:
+        details.append(f"Detected corrupted cache state: {corruption_reason}.")
+    if quarantined_to is not None:
+        details.append(f"Quarantined corrupted cache to: {quarantined_to}.")
+    details.append(f"Underlying error: {_exception_chain_messages(exc)}")
+    details.append(
+        "Retry setup when network access is available. If the issue persists, inspect the FastEmbed cache under "
+        f"{_fastembed_cache_dir()}."
+    )
+    return " ".join(details)
+
+
+def _prewarm_required_model(
+    model_name: str,
+    *,
+    model_kind: str,
+    action: str,
+    warm_fn,
+) -> None:
+    quarantined_to: Path | None = None
+    repaired = False
+    for attempt in range(2):
+        try:
+            warm_fn(model_name, local_files_only=False)
+            with _offline_env():
+                warm_fn(model_name, local_files_only=True)
+            return
+        except Exception as exc:
+            corruption_reason = _model_cache_corruption_reason(model_name)
+            if attempt == 0 and corruption_reason:
+                quarantined_to = _quarantine_model_cache(model_name)
+                repaired = True
+                print(
+                    f"Detected corrupted {model_kind} cache for {model_name}: {corruption_reason}",
+                    flush=True,
+                )
+                if quarantined_to is not None:
+                    print(f"Quarantined cache to {quarantined_to}; retrying once.", flush=True)
+                continue
+            raise ModelPrewarmError(
+                _model_failure_message(
+                    model_name=model_name,
+                    model_kind=model_kind,
+                    action=action,
+                    exc=exc,
+                    corruption_reason=corruption_reason if repaired or corruption_reason else None,
+                    quarantined_to=quarantined_to,
+                )
+            ) from exc
+
+
 def prewarm_models(*, include_code: bool) -> None:
     models = _indexer_models(include_code)
     for model_name in models:
         print(f"Prewarming semantic model cache: {model_name}", flush=True)
-        _warm_model(model_name, local_files_only=False)
-        with _offline_env():
-            _warm_model(model_name, local_files_only=True)
+        _prewarm_required_model(
+            model_name,
+            model_kind="embedding",
+            action="semantic index setup",
+            warm_fn=_warm_model,
+        )
         print(f"Verified offline semantic model cache: {model_name}", flush=True)
 
     reranker_model = _indexer_reranker_model()
     print(f"Prewarming reranker model cache: {reranker_model}", flush=True)
-    _warm_reranker(reranker_model, local_files_only=False)
-    with _offline_env():
-        _warm_reranker(reranker_model, local_files_only=True)
+    _prewarm_required_model(
+        reranker_model,
+        model_kind="reranker",
+        action="semantic index setup",
+        warm_fn=_warm_reranker,
+    )
     print(f"Verified offline reranker model cache: {reranker_model}", flush=True)
 
 
@@ -256,17 +559,31 @@ def _run_indexer(
         cmd.extend(["--project-include-prefix", prefix])
     if verbose:
         cmd.append("--verbose")
-    try:
-        subprocess.check_call(cmd)
-    except subprocess.CalledProcessError as exc:
-        if exc.returncode < 0:
-            signal_number = -exc.returncode
-            print(
-                f"Index build was killed by signal {signal_number}. "
-                "If this happened during code embedding, rerun without --include-code.",
-                file=sys.stderr,
-            )
-        raise
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    combined_output = f"{result.stdout}\n{result.stderr}"
+    if "Another index build is already running" in combined_output or "lock file busy" in combined_output:
+        lock_path = root / ".wavefoundry" / "index" / "index-build.lock"
+        print(
+            f"Index update skipped: another project index build is already running for {root / '.wavefoundry' / 'index'}.\n"
+            f"The existing build holds {lock_path}; wait for it to finish, then rerun update-indexes if you still need a refresh.",
+            file=sys.stderr,
+        )
+        return
+    if result.stdout:
+        print(result.stdout, end="", flush=True)
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr, flush=True)
+    if result.returncode == 0:
+        return
+
+    if result.returncode < 0:
+        signal_number = -result.returncode
+        print(
+            f"Index build was killed by signal {signal_number}. "
+            "If this happened during code embedding, rerun without --include-code.",
+            file=sys.stderr,
+        )
+    raise subprocess.CalledProcessError(result.returncode, cmd, output=result.stdout, stderr=result.stderr)
 
 
 def _merge_project_include_prefixes(
@@ -382,6 +699,7 @@ def main(argv: list[str] | None = None) -> int:
         except OSError:
             pass
     ensure_deps()
+    _reexec_with_venv_if_needed()
     include_prefixes = _workflow_project_include_prefixes(root)
     docs_prefixes = include_prefixes.get(DOCS_PREFIXES_KEY, ())
     code_prefixes = include_prefixes.get(CODE_PREFIXES_KEY, ())
@@ -392,7 +710,11 @@ def main(argv: list[str] | None = None) -> int:
             flush=True,
         )
     background_code = args.background_code and not args.include_code
-    prewarm_models(include_code=not background_code and args.include_code)
+    try:
+        prewarm_models(include_code=not background_code and args.include_code)
+    except ModelPrewarmError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     build_index(
         root,
         full=args.full,
@@ -405,7 +727,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     if background_code:
         _spawn_background_code_build(root, args)
-    print(f"\nDone. MCP server: python3 {SCRIPTS_DIR / 'server.py'} --root {root}", flush=True)
+    print(
+        f"\nDone. Project index update complete.\n"
+        f"MCP handoff: .wavefoundry/bin/mcp-server",
+        flush=True,
+    )
     return 0
 
 

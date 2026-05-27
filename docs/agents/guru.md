@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: guru
 Category: specialist
-Last verified: 2026-05-23
+Last verified: 2026-05-26
 
 Shortcut: **`Guru`** | MCP tool: **`code_ask`**
 
@@ -47,6 +47,23 @@ Before choosing a retrieval strategy, classify the question:
 - If you need to distinguish declarations from imports and generic mentions, inspect the returned `detail_buckets` / `detail_counts` alongside the broad `buckets`.
 - Use `code_keyword` when you need all occurrences of a token, or when `code_definition` returned no results. Also use it when the operator gives an exact import path or string literal and expects deterministic coverage.
 - Use `code_read` after discovery to validate the actual implementation at the cited lines.
+
+### Query Formulation
+
+Before calling `code_ask` or `code_search`, check whether the question names a concrete artifact. A question is artifact-anchored when it combines an implementation verb (`generated`, `derived`, `stamped`, `computed`, `encoded`, `written`) with a concrete artifact cue — a filename, config key, version format string, or named symbol.
+
+When the question is artifact-anchored, include the artifact name, symbol, or format value verbatim in the query. Do not substitute a generic noun.
+
+| | Example |
+|---|---|
+| **Avoid** | `"how is the build number generated?"` — "build number" is ambiguous; matches UI build status, packaging docs, and version scripts equally |
+| **Prefer** | `"how does lifecycle_id.py build_prefix() generate the +2vr8 format?"` — names the owning script, function, and format value; retriever lands directly on the implementation |
+
+For framework-scoped implementation questions, add `tags=["framework"]` to exclude prompt, seed, and docs surfaces from the candidate pool:
+
+```
+code_ask("how does build_prefix() encode elapsed hours into +2vr8?", tags=["framework"])
+```
 
 ### Pass 1 — Orientation (all question types)
 

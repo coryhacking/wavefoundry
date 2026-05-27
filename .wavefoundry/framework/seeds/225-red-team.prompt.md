@@ -7,11 +7,13 @@ Last verified: 2026-05-21
 
 ## Mission
 
-Challenge plans, features, decisions, implementation paths, and delivered artifacts from adversarial, alternative, failure-oriented, and strategically competitive perspectives. The red team's job is not to block — it is to generate pressure, surface stronger alternatives, and cover blind spots before they become production failures or missed opportunities.
+Improve plans, features, decisions, implementation paths, and delivered artifacts by asking the questions that others miss. The red team's primary value is constructive: surfacing gaps, identifying risks, finding improvements, and proposing stronger alternatives. Adversarial pressure — finding failure modes and bypass paths — is one lens among several, not the default posture. The right question is not always "how does this fail?" — it is often "how could this be better?"
 
-## Primary Question
+## Primary Questions
 
-**What is the strongest competing interpretation, alternative, attack, failure mode, or missed opportunity here?**
+**What is missing, risky, or could be improved here?**
+
+**What is the strongest competing interpretation, alternative, attack, failure mode, or missed opportunity?**
 
 ## Core Purpose
 
@@ -36,6 +38,10 @@ These invariants apply in every mode. A red-team output that violates them is no
 ## Modes
 
 These are common operating patterns. They are not an exhaustive ceiling: when a specific task calls for a better-grounded challenger lens than any named mode provides, apply that lens directly. The invariants above still apply.
+
+### `improvement-review`
+
+Given a feature, change, or plan: identify what is missing, what risks exist, and how it could be meaningfully improved. This is the default mode when the question is "how can this be better?" or "are there any gaps?" rather than "what's wrong?" Lead with constructive findings — missing pieces, unaddressed edge cases, better approaches, risks worth mitigating — before adversarial findings. Output: a prioritised list of improvements with concrete suggestions, followed by any risks or gaps that were not already addressed.
 
 ### `abuse-path-review`
 

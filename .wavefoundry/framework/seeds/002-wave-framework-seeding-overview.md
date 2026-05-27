@@ -84,8 +84,8 @@ A `00000 wave-zero-plans-and-specs` is the reserved baseline wave for historical
 
 The intended public surface is:
 
-- `Install Wavefoundry` (legacy: `Init wave framework` / `Init wave context`)
-- `Upgrade Wavefoundry` (legacy: `Upgrade wave framework` / `Upgrade wave context`)
+- `Init wave framework` (legacy aliases: `Install Wavefoundry`, `Install wave framework`, `Init wave context`, `Install wave context`)
+- `Upgrade wave framework` (legacy aliases: `Upgrade Wavefoundry`, `Upgrade wave context`, `Install wave framework` when init hands off to upgrade)
 - `Plan feature`
 - `Create wave`
 - `Add change to wave`
@@ -102,7 +102,7 @@ Alias behavior:
 
 - **`Install wave framework`** (legacy: **`Install wave context`**) is a convenience alias resolved through init-phase detection, not a separate parallel entrypoint
 - route **`Install wave framework` / `Install wave context`** through **`Init wave framework`** / **`Init wave context`** first so repository-state detection can decide whether to clean-bootstrap, harvest the reserved legacy baseline wave, or hand off to upgrade
-- Do not preserve pre-wave init/upgrade shortcut phrases as part of the wave-context public surface; migrations should normalize onto **`Init wave framework` / `Upgrade wave framework`** ( **`Init wave context` / `Upgrade wave context`** remain accepted backwards-compatible aliases).
+- Do not preserve install-branded or pre-wave init/upgrade shortcut phrases as the canonical public surface; migrations should normalize onto **`Init wave framework` / `Upgrade wave framework`** (`Install Wavefoundry`, `Upgrade Wavefoundry`, `Init wave context`, and `Upgrade wave context` remain accepted backwards-compatible aliases).
 
 ## Seeding Workflow
 
@@ -165,7 +165,7 @@ Use these examples to sanity-check whether the framework is still understandable
 
 Use **`Upgrade wave framework`** (legacy: **`Upgrade wave context`**) when init has already determined that the repository contains an installed Wave Framework layer that needs refresh or reconciliation.
 
-When one or more `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` distribution files exist at the **repository root**, under `~/.wavefoundry/`, or under `~/.wavefoundry/dist/`, the upgrade entrypoint (`160-upgrade-wavefoundry.prompt.md` **step 0**) should adopt the highest semver zip, regenerate tracked hooks via `render_platform_surfaces.py`, then continue with exploration, version guard (`VERSION` vs `docs/prompts/prompt-surface-manifest.json` **`framework_revision`**), and the rest of the upgrade flow — so operators can drop or build a new pack and run a single **Upgrade wave framework** (legacy: **Upgrade wave context**) without a separate manual unzip step. The one-time `0.9.0` bridge release is the exception and keeps the old date-style artifact name at repository root so legacy pre-semver flows can adopt it directly.
+When one or more `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` distribution files exist at the **repository root**, under `~/.wavefoundry/`, or under `~/.wavefoundry/dist/`, the upgrade entrypoint (`160-upgrade-wavefoundry.prompt.md` **step 0**) should adopt the highest semver zip, regenerate tracked hooks via `render_platform_surfaces.py`, then continue with exploration, version guard (`VERSION` vs `docs/prompts/prompt-surface-manifest.json` **`framework_revision`**), and the rest of the upgrade flow — so operators can drop or build a new pack and run a single **Upgrade wave framework** (legacy: **Upgrade wave context**) without a separate manual unzip step.
 
 The upgrade flow should:
 

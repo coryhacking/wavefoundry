@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-CROCKFORD_BASE32_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"
+BASE36_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
 DEFAULT_EPOCH_UTC = datetime(2020, 2, 2, 2, 2, tzinfo=timezone.utc)
 SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
@@ -85,7 +85,7 @@ def load_lifecycle_policy(repo_root: Path | None = None) -> tuple[datetime, int]
     return epoch, hour_offset
 
 
-def encode_crockford_base32(value: int) -> str:
+def encode_base36(value: int) -> str:
     if value < 0:
         raise ValueError("value must be non-negative")
     if value == 0:
@@ -94,9 +94,13 @@ def encode_crockford_base32(value: int) -> str:
     encoded: list[str] = []
     remaining = value
     while remaining > 0:
-        remaining, digit = divmod(remaining, 32)
-        encoded.append(CROCKFORD_BASE32_ALPHABET[digit])
+        remaining, digit = divmod(remaining, 36)
+        encoded.append(BASE36_ALPHABET[digit])
     return "".join(reversed(encoded))
+
+
+def decode_base36(s: str) -> int:
+    return int(s, 36)
 
 
 def current_utc_time() -> datetime:
@@ -116,8 +120,53 @@ def build_prefix(
             f"timestamp must not be earlier than the configured lifecycle epoch ({epoch.isoformat().replace('+00:00', 'Z')}) "
             f"after applying hour_offset ({hour_offset})",
         )
-    minute_bucket = (current_time.minute + 1) // 2
-    return encode_crockford_base32(elapsed_hours).rjust(4, "0") + CROCKFORD_BASE32_ALPHABET[minute_bucket]
+    elapsed_minutes = int((current_time - epoch).total_seconds() // 60)
+    return encode_base36(elapsed_hours).rjust(4, "0") + BASE36_ALPHABET[elapsed_minutes % 36]
+
+
+_PREFIX_RE = re.compile(r"^([0-9a-z]{5})[-\s]")
+
+
+def _existing_prefixes(repo_root: Path) -> set[str]:
+    prefixes: set[str] = set()
+    plans_dir = repo_root / "docs" / "plans"
+    if plans_dir.is_dir():
+        for p in plans_dir.glob("*.md"):
+            m = _PREFIX_RE.match(p.stem)
+            if m:
+                prefixes.add(m.group(1))
+    waves_dir = repo_root / "docs" / "waves"
+    if waves_dir.is_dir():
+        for wave_dir in waves_dir.iterdir():
+            if wave_dir.is_dir():
+                m = _PREFIX_RE.match(wave_dir.name)
+                if m:
+                    prefixes.add(m.group(1))
+        for p in waves_dir.glob("*/*.md"):
+            m = _PREFIX_RE.match(p.stem)
+            if m:
+                prefixes.add(m.group(1))
+    return prefixes
+
+
+def next_available_prefix(
+    timestamp: datetime | None = None,
+    *,
+    policy: tuple[datetime, int] | None = None,
+    repo_root: Path | None = None,
+) -> str:
+    base = build_prefix(timestamp, policy=policy)
+    if repo_root is None:
+        return base
+    existing = _existing_prefixes(repo_root)
+    if base not in existing:
+        return base
+    n = decode_base36(base)
+    while True:
+        n += 1
+        candidate = encode_base36(n).rjust(5, "0")
+        if candidate not in existing:
+            return candidate
 
 
 def validate_slug(slug: str, *, legacy: bool) -> str:
@@ -128,9 +177,20 @@ def validate_slug(slug: str, *, legacy: bool) -> str:
     return slug
 
 
-def build_id(kind: str, slug: str, *, legacy: bool, timestamp: datetime | None = None) -> str:
+def build_id(
+    kind: str,
+    slug: str,
+    *,
+    legacy: bool,
+    timestamp: datetime | None = None,
+    repo_root: Path | None = None,
+    policy: tuple[datetime, int] | None = None,
+) -> str:
     validated_slug = validate_slug(slug, legacy=legacy)
-    prefix = "00000" if legacy else build_prefix(timestamp)
+    if legacy:
+        prefix = "00000"
+    else:
+        prefix = next_available_prefix(timestamp, policy=policy, repo_root=repo_root)
     if kind == "wave":
         # Waves use `{prefix} {slug}` with no `-wave` token.
         return f"{prefix} {validated_slug}"
@@ -159,7 +219,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--prefix-only",
         action="store_true",
-        help="Print only the current generated Crockford lifecycle prefix.",
+        help="Print only the current generated base36 lifecycle prefix.",
     )
     parser.add_argument(
         "--unix-seconds",
@@ -182,11 +242,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
     try:
         timestamp = build_timestamp(args.unix_seconds)
+        repo_root = discover_repo_root()
         if args.prefix_only:
             print(build_prefix(timestamp))
             return 0
 
-        print(build_id(args.kind, args.slug, legacy=args.legacy, timestamp=timestamp))
+        print(build_id(args.kind, args.slug, legacy=args.legacy, timestamp=timestamp, repo_root=repo_root))
         return 0
     except ValueError as error:
         print(f"lifecycle_id: error: {error}", file=sys.stderr)

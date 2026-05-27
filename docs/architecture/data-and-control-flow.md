@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-23
+Last verified: 2026-05-26
 
 ## Primary Control Paths
 
@@ -46,7 +46,7 @@ Last verified: 2026-05-23
 2. Script derives the current lifecycle build suffix and validates manifest `framework_revision` against the packaged revision
 3. Stamps `.wavefoundry/framework/VERSION` to `MAJOR.MINOR.PATCH+<build>`
 4. Rebuilds the packaged framework semantic index at `.wavefoundry/framework/index/`
-5. Zips the canonical framework tree, including `framework/index/`, into `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` under `~/.wavefoundry/dist/` by default (`0.9.0` bridge keeps the old date-style artifact name)
+5. Zips the canonical framework tree, including `framework/index/`, into `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` under `~/.wavefoundry/dist/` by default
 
 **State read:** `.wavefoundry/framework/` tree, output directory listing
 **State written:** `.wavefoundry/framework/VERSION`, `.wavefoundry/framework/index/`, zip archive in the dist directory (or caller-supplied output dir)

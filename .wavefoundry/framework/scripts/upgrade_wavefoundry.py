@@ -206,14 +206,8 @@ def _find_zip(root: Path) -> Path | None:
 
     Search order:
       1. highest semver zip across repo root, ~/, ~/.wavefoundry/, and ~/.wavefoundry/dist/
-      2. repo root — wavefoundry-*.zip (legacy bridge / CI drop location)
     """
-    release = _find_latest_release_zip(root)
-    if release is not None:
-        return release
-    # Fallback: date-format or semver zip at repo root.
-    candidates = sorted(root.glob("wavefoundry-*.zip"))
-    return candidates[-1] if candidates else None
+    return _find_latest_release_zip(root)
 
 
 def _read_pack_version(root: Path) -> str | None:

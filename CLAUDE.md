@@ -18,8 +18,8 @@ Thin pointer. Read `AGENTS.md` first for the full agent operating surface.
 <!-- waveframework:auto-guru end -->
 
 ## Key Guardrails
-- Before editing framework seeds: call `wave_gate_open(gate="seed_edit_allowed")`; call `wave_gate_close(gate="seed_edit_allowed")` immediately after. CLI fallback: `.wavefoundry/bin/gate open seed_edit_allowed`
-- Before broad framework-maintenance edits: call `wave_gate_open(gate="framework_edit_allowed")`; restore with `wave_gate_close(gate="framework_edit_allowed")` after. CLI fallback: `.wavefoundry/bin/gate open framework_edit_allowed`
+- Before editing framework seeds: call `wave_gate_open(gate="seed_edit_allowed")`; call `wave_gate_close(gate="seed_edit_allowed")` immediately after. CLI fallback: `.wavefoundry/bin/wave-gate open seed_edit_allowed`
+- Before broad framework-maintenance edits: call `wave_gate_open(gate="framework_edit_allowed")`; restore with `wave_gate_close(gate="framework_edit_allowed")` after. CLI fallback: `.wavefoundry/bin/wave-gate open framework_edit_allowed`
 - Never run `git commit` unless the operator explicitly requests it in the current session
 - Stage gate applies before any code edit: change doc → wave admission → Prepare wave
 

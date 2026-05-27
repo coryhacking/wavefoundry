@@ -7,6 +7,8 @@ import os
 import re
 import subprocess
 import sys
+import time
+import contextlib
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -21,6 +23,12 @@ _WAVE_RE = re.compile(r"^Wave:\s+`([^`]+)`", re.MULTILINE)
 _SECTION_RE = re.compile(r"^##\s+(.+)$", re.MULTILINE)
 _TASK_RE = re.compile(r"^\s*-\s+(?:(?:\[(?P<mark>[ xX])\])\s+)?(?P<label>.+?)\s*$", re.MULTILINE)
 _ACTIVE_WAVE_RE = re.compile(r"^\*\*Active wave:\*\*\s+(.+)$", re.MULTILINE)
+DASHBOARD_START_LOCK_NAME = "dashboard-start.lock"
+DASHBOARD_PROCESS_LOCK_NAME = "dashboard-process.lock"
+
+
+class DashboardLockBusy(RuntimeError):
+    """Raised when another process holds a dashboard coordination lock."""
 
 
 def discover_root(override: str | None = None) -> Path:
@@ -131,6 +139,62 @@ def read_dashboard_config(root: Path) -> dict[str, Any]:
 
 def dashboard_metadata_path(root: Path) -> Path:
     return root / ".wavefoundry" / "dashboard-server.json"
+
+
+def dashboard_lock_path(root: Path, name: str) -> Path:
+    return root / ".wavefoundry" / name
+
+
+@contextlib.contextmanager
+def dashboard_lock(root: Path, name: str):
+    """Acquire a non-blocking OS lock for dashboard process coordination."""
+    lock_path = dashboard_lock_path(root, name)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fh = lock_path.open("a+", encoding="utf-8")
+    acquired = False
+    try:
+        if os.name == "nt":
+            import msvcrt
+            try:
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                acquired = True
+            except OSError as exc:
+                raise DashboardLockBusy(f"Dashboard lock busy: {lock_path}") from exc
+        else:
+            import fcntl
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except BlockingIOError as exc:
+                raise DashboardLockBusy(f"Dashboard lock busy: {lock_path}") from exc
+
+        fh.seek(0)
+        fh.truncate()
+        fh.write(json.dumps({"pid": os.getpid(), "started_at": time.time(), "lock": name}))
+        fh.flush()
+        yield
+    finally:
+        if acquired:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    fh.seek(0)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+        fh.close()
+
+
+def dashboard_start_lock(root: Path):
+    return dashboard_lock(root, DASHBOARD_START_LOCK_NAME)
+
+
+def dashboard_process_lock(root: Path):
+    return dashboard_lock(root, DASHBOARD_PROCESS_LOCK_NAME)
 
 
 def read_dashboard_metadata(root: Path) -> dict[str, Any]:
@@ -621,7 +685,45 @@ def list_git_changed_files(root: Path, since: date | None = None, limit: int = 5
             if rel and not rel.endswith("/") and rel not in seen:
                 seen[rel] = "modified"
 
-    return [{"path": p, "status": s} for p, s in seen.items()][:limit]
+    # Build line-count map from numstat (covers tracked modified/deleted files)
+    numstat_map: dict[str, tuple[int | None, int | None]] = {}
+    for numstat_args in (["diff", "--numstat", "HEAD"], ["diff", "--numstat", "--cached"]):
+        for line in run(*numstat_args).splitlines():
+            parts = line.split("\t", 2)
+            if len(parts) != 3:
+                continue
+            added_s, deleted_s, rel_path = parts
+            rel_path = rel_path.strip()
+            try:
+                a = int(added_s)
+            except ValueError:
+                a = None
+            try:
+                d = int(deleted_s)
+            except ValueError:
+                d = None
+            existing = numstat_map.get(rel_path, (None, None))
+            numstat_map[rel_path] = (
+                (existing[0] or 0) + (a or 0) if (existing[0] is not None or a is not None) else None,
+                (existing[1] or 0) + (d or 0) if (existing[1] is not None or d is not None) else None,
+            )
+
+    result = []
+    for p, s in seen.items():
+        la, ld = numstat_map.get(p, (None, None))
+        # Untracked new files don't appear in numstat — count lines directly
+        if la is None and s == "added":
+            try:
+                la = (root / p).read_text(encoding="utf-8", errors="replace").count("\n")
+            except OSError:
+                pass
+        entry: dict[str, object] = {"path": p, "status": s}
+        if la is not None:
+            entry["lines_added"] = la
+        if ld is not None:
+            entry["lines_deleted"] = ld
+        result.append(entry)
+    return result[:limit]
 
 
 def collect_activity(root: Path, change_sets: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
@@ -710,12 +812,16 @@ def collect_health(root: Path, wave_count: int, change_sets: dict[str, list[dict
             if "state" in project_build and "build_status" not in project_build:
                 project_build = {**project_build, "build_status": project_build.get("state")}
             project_health.update(project_build)
+        elif project_build.get("stale_locks_cleaned"):
+            project_health["stale_locks_cleaned"] = project_build["stale_locks_cleaned"]
     if isinstance(framework_build, dict):
         framework_state = str(framework_build.get("build_status") or framework_build.get("state") or "").strip().lower()
         if framework_state in {"running", "failed"}:
             if "state" in framework_build and "build_status" not in framework_build:
                 framework_build = {**framework_build, "build_status": framework_build.get("state")}
             framework_health.update(framework_build)
+        elif framework_build.get("stale_locks_cleaned"):
+            framework_health["stale_locks_cleaned"] = framework_build["stale_locks_cleaned"]
     return {
         "docs_lint": {"status": "unknown", "reason": "Run on demand outside the dashboard poll loop."},
         "index": {

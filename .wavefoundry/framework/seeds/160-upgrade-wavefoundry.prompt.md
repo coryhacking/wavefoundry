@@ -1,6 +1,6 @@
-# 160 - Upgrade Wavefoundry (Shortcut)
+# 160 - Upgrade Wave Framework (Shortcut)
 
-**Primary:** **`Upgrade wave framework`**, **`Install wave framework`** (when this handoff applies). **Backwards-compatible:** **`Upgrade wave context`**, **`Install wave context`** — identical behavior; keep accepting them from operators and older docs.
+**Primary:** **`Upgrade wave framework`**. **Handoff alias:** **`Install wave framework`** (when this handoff applies). **Backwards-compatible:** **`Upgrade Wavefoundry`**, **`Upgrade wave context`**, **`Install wave context`** — identical behavior; keep accepting them from operators and older docs.
 
 Use this when you want a single command-style request such as:
 
@@ -17,7 +17,7 @@ Intent:
 
 Terminology — do not confuse **upgrade** with **packaging**:
 
-- **Upgrade wave framework** (operator phrases such as *Upgrade wave framework*, *Upgrade wave context*, *upgrade the wave framework*, *upgrade from the latest zip*): adopt and reconcile **this** repository. When step 0 applies, it selects the highest semver `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` available from the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`, or the one-time `0.9.0` bridge pack when it is present at the repository root with the old date-style artifact name, runs `render_platform_surfaces.py`, then continues with drift detection, backfill, and verification in this prompt. This path **does not build** a new zip and **does not** run **Package Wavefoundry**.
+- **Upgrade wave framework** (operator phrases such as *Upgrade wave framework*, *Upgrade wave context*, *upgrade the wave framework*, *upgrade from the latest zip*): adopt and reconcile **this** repository. When step 0 applies, it selects the highest semver `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` available from the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`, runs `render_platform_surfaces.py`, then continues with drift detection, backfill, and verification in this prompt. This path **does not build** a new zip and **does not** run **Package Wavefoundry**.
 - **Package Wavefoundry** (maintainer / distribution): **creates** a new versioned zip and stamps `VERSION` / manifest `framework_revision` in the tree used for the build, then updates and compacts the packaged `framework/index/`. Use only when the operator explicitly asked to **package** or **cut a distribution**. Never substitute packaging for **Upgrade wave framework** when the operator asked to **upgrade** from zips already on disk (legacy phrasing: **Upgrade wave context**).
 
 Operator mental model — how framework updates actually work:
@@ -38,8 +38,8 @@ Do not describe upgrade as a manual unzip-only workflow. Do not describe packagi
 
 Execution flow:
 
-0. **Adopting a distribution zip (automatic when present):** When one or more semver-shaped `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` files exist at the **repository root**, under `~/.wavefoundry/`, or under `~/.wavefoundry/dist/`, **Upgrade wave framework** must apply the highest semver pack **before** step 1 — the operator does not need a separate unzip step. The one-time `0.9.0` bridge release is the exception: its artifact keeps the old date-style name (`wavefoundry-YYYY-MM-DDx.zip`) and should be placed at the repository root for legacy pre-semver installs. Non-matching archive names are ignored. On Windows, run this flow from **WSL2** rather than native `cmd.exe` or PowerShell. When no matching zip exists in any of those locations, skip this entire step with no error and continue at step 1.
- - **Select zip:** choose the highest semver zip across the repository root, `~/.wavefoundry/`, and `~/.wavefoundry/dist/`; compare by `MAJOR.MINOR.PATCH` first, then by the 4-character build suffix when versions tie. For the one-time `0.9.0` bridge release on legacy installs, the old date-style filename at repository root remains valid and is adopted by the legacy root-zip flow.
+0. **Adopting a distribution zip (automatic when present):** When one or more semver-shaped `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` files exist at the **repository root**, under `~/.wavefoundry/`, or under `~/.wavefoundry/dist/`, **Upgrade wave framework** must apply the highest semver pack **before** step 1 — the operator does not need a separate unzip step. Non-matching archive names are ignored. On Windows, run this flow from **WSL2** rather than native `cmd.exe` or PowerShell. When no matching zip exists in any of those locations, skip this entire step with no error and continue at step 1.
+ - **Select zip:** choose the highest semver zip across the repository root, `~/.wavefoundry/`, and `~/.wavefoundry/dist/`; compare by `MAJOR.MINOR.PATCH` first, then by the 4-character build suffix when versions tie.
  - **Save old MANIFEST before unpack** (if present) so the prune step can diff old vs new:
  ```bash
  cp .wavefoundry/framework/MANIFEST /tmp/wf-manifest-old.txt 2>/dev/null || true
@@ -64,7 +64,7 @@ Execution flow:
  - Do not delete the zip file unless the operator explicitly asks; root pack drops should stay gitignored per `seed-050` when those rules are present.
 1. Read `seed-020`.
 2. Before detecting drift or editing any files, use a **read-only Explore subagent** to map the current actual state of the repository's installed Wave Framework surface: which prompt docs exist, which topical artifact roots exist, which workflow config keys are present, and which wrappers are in place. The exploration lane must not edit files. Use this map as the baseline for drift detection in step 6 — do not rely on assumptions about what a prior init or upgrade produced. This step prevents confusion between stale template expectations and actual installed state.
-3. **Version guard:** Read `.wavefoundry/framework/VERSION` (the pack version) and `docs/prompts/prompt-surface-manifest.json` field `framework_revision` (the installed revision). Compare them using semver ordering on `MAJOR.MINOR.PATCH`, ignoring build metadata for precedence. The one-time `0.9.0` bridge release is packaged with the old date-style artifact name precisely so legacy pre-semver zip-adoption flows can land it without a manual manifest-reset step; once unpacked, the new semver-aware comparison logic is in place. If the pack version is **older** than the installed revision, stop and present a clear warning to the operator: state both versions and require explicit confirmation before continuing — do not proceed silently with a downgrade. If the pack version equals the installed revision, note this and continue (running for drift/alignment only). If the pack version is newer, proceed normally.
+3. **Version guard:** Read `.wavefoundry/framework/VERSION` (the pack version) and `docs/prompts/prompt-surface-manifest.json` field `framework_revision` (the installed revision). Compare them using semver ordering on `MAJOR.MINOR.PATCH`, ignoring build metadata for precedence. If the pack version is **older** than the installed revision, stop and present a clear warning to the operator: state both versions and require explicit confirmation before continuing — do not proceed silently with a downgrade. If the pack version equals the installed revision, note this and continue (running for drift/alignment only). If the pack version is newer, proceed normally.
 4. Use `seed-150` for targeted or full refresh. When invoked as `Upgrade wave framework` (rather than a targeted reindex), default to **`full` scope** in `150` so the holistic project state evaluation in task 2 runs — this ensures the upgrade reflects how the project actually exists today, not just framework-level drift. Explicitly run `150` task 2 across all dimensions: source module structure, dependency graph, build/test procedure currency, security surface, quality posture, reliability, spec currency, missing-docs gaps, contribution workflow, thin pointers, repo profile archetype, and license compliance. Explicitly run `150` task 12 so that spec gaps and divergence found in task 2 are acted on — not just noted — before the upgrade closes.
 5. If the repository still uses the legacy framework or has stale post-init migration drift, apply `seed-220` without redefining baseline-wave semantics.
 6. Validate the installed repo-local Wave Framework surface and detect drift across:
@@ -147,7 +147,7 @@ Execution flow:
  - **`.wavefoundry/bin/docs-lint`**, **`.wavefoundry/bin/docs-gardener`**, and any legacy **`./package-wave-framework`** repo-root wrapper so they point to the **current** script filenames under `.wavefoundry/framework/scripts/` or are retired when packaging is not supported in a target repository. These **bin** launchers (and any repo-root packaging helper) are **not** overwritten blindly by pack unpack, so reconcile them explicitly during upgrade. Required invocations for packs at `2026-04-22a` and later in this repository:
  - `.wavefoundry/bin/docs-lint` must invoke `scripts/docs_lint.py` (underscore) — the retired `scripts/docs-lint.py` path must not be referenced
  - `.wavefoundry/bin/docs-gardener` must invoke `scripts/docs_gardener.py` (underscore) — the retired `scripts/docs-gardener.py` path must not be referenced
- - `.wavefoundry/bin/wave_dashboard` must exist when `scripts/dashboard_server.py` is present in the pack; if missing, create it per `seed-152` task 2
+ - `.wavefoundry/bin/wave-dashboard` must exist when `scripts/dashboard_server.py` is present in the pack; if missing, create it per `seed-152` task 2
  - `./package-wave-framework`, when intentionally retained in a source repository, must invoke `scripts/build_pack.py` — the retired `scripts/build_zip.py` path must not be referenced
 
  Launcher filenames under **`.wavefoundry/bin/`** remain hyphenated for conventional CLI ergonomics; only the Python module filenames moved to snake_case.
@@ -155,7 +155,7 @@ Execution flow:
  - `docs/design-system/design-language.md` — backfill when `docs/repo-profile.json` `design_system.design_evidence.detected` is `true` but `docs/design-system/design-language.md` does not exist; use the canonical structure defined in `seed-040` task 13 and re-run `030` design surface scan to gather current evidence before seeding. When `design-language.md` exists but `design_system` in the profile has changed since last verified (check `Last verified:` date in the file vs profile `design_sensitivity` or `ui_roots` changes), flag as stale and prompt the operator to refresh the file before closing the upgrade.
  - **`docs/design-system/` extraction contract backfill (merge-safe upgrade)** — when `docs/design-system/` exists in the target repository, run the extraction contract backfill defined in `seed-040` task 14 and `seed-010` step 8. This backfill is **merge-safe**: never delete or overwrite existing files. Steps:
  1. For each required path in the core tree (see `seed-040` task 14 or `seed-010` step 8 checklist), create the path if it does not yet exist using the stub content defined in those seeds. Never overwrite any existing file.
- 2. **Schema-version reconciliation** — read the existing `docs/design-system/manifest.json`. Compare its `schemaVersion` field against the current framework's expected schema version (`"1.0.0"`). Use semver ordering: a manifest `schemaVersion` is stale when it is lexicographically earlier using semver rules (e.g. `"0.9.0"` < `"1.0.0"`). When the manifest's schema version is stale or when required top-level fields are absent, **add** the missing fields with their null/empty defaults (never remove or overwrite existing field values), then append a `meta`-category entry to `docs/design-system/gaps.md`:
+ 2. **Schema-version reconciliation** — read the existing `docs/design-system/manifest.json`. Compare its `schemaVersion` field against the current framework's expected schema version (`"1.0.0"`). Use semver ordering: a manifest `schemaVersion` is stale when it is lexicographically earlier using semver rules (e.g. `"0.8.0"` < `"1.0.0"`). When the manifest's schema version is stale or when required top-level fields are absent, **add** the missing fields with their null/empty defaults (never remove or overwrite existing field values), then append a `meta`-category entry to `docs/design-system/gaps.md`:
 
  ```
  ### [meta] Schema fields added by upgrade: <comma-separated list>
@@ -211,6 +211,7 @@ Execution flow:
  # Phase 2: code index in background — foreground returns immediately
  python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --background-code --full
  ```
+ If either setup command fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path: in agent-driven sessions, ask the operator for permission to rerun the same setup command with network access or host escalation enabled. Do not replace this with a separate manual model-download step.
  Call `wave_index_health()` after phase 1 to confirm MCP is ready. See `docs/contributing/build-and-verification.md` **Upgrade rebuild requirement** for full details.
 
 12. Re-run the docs gate (**MCP:** **`wave_garden`** then **`wave_validate`** when attached; **CLI:** **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`**).
@@ -354,7 +355,7 @@ Agents performing **Upgrade wave framework** in a target repository must apply *
 7. **Per-host operator follow-up** (document in upgrade summary; operator executes):
    - **Cursor:** enable `wavefoundry` MCP from `.cursor/mcp.json` if not auto-loaded
    - **Claude Code:** restart session so `.mcp.json` and `.claude/agents/guru.md` load; subagent delegates per `description`
-   - **Codex:** run `.wavefoundry/bin/register-codex-mcp`; attach the `wavefoundry-*` server for this checkout
+   - **Codex:** MCP server loads automatically from the committed `.codex/config.toml`; attach the `wavefoundry` server from the project-local config
    - **Junie / Copilot / Windsurf / Air / Warp:** tier-1 `AGENTS.md` + tier-2 thin-pointer bullet only; attach MCP per `AGENTS.md` MCP table
 8. **Docs gate, MCP restart, project index** — continue with existing upgrade verification (not optional).
 

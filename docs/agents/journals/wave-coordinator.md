@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-23
+Last verified: 2026-05-26
 
 Actor: wave-coordinator
 Schema version: 1.0
@@ -132,6 +132,10 @@ wave-id: `12pn3 search-retrieval-quality`
 
 wave-id: `12nbr code-intelligence-expansion`
 - Five code-intelligence changes: `code_callhierarchy`, LanceDB vector index, `code_hover`, `code_impact`, `code_outline` TS/SQL bug fix. Status: planned. Bug fix (`12nbp`) is independently deployable and highest-priority.
+
+## Active Waves
+
+wave-id: `12xfr id-generation-and-planning-improvements`
 
 ## Active Watchpoints
 

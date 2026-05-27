@@ -2016,6 +2016,11 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
 
 .file-tree-file {
   color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75em;
+  padding-left: 1.2em;
 }
 
 .file-tree-file--added {
@@ -2024,8 +2029,11 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
 
 .file-tree-file--deleted {
   color: #b91c1c;
-  text-decoration: line-through;
   opacity: 0.75;
+}
+
+.file-tree-file--deleted > span:first-child {
+  text-decoration: line-through;
 }
 
 .file-tree-file--modified {
@@ -2033,12 +2041,31 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
 }
 
 .file-tree-dir > .file-tree-dir-name::before {
-  content: "▸ ";
+  content: "▸";
+  display: inline-block;
+  width: 1.2em;
+  text-align: center;
   opacity: 0.5;
 }
 
+.file-tree-lines {
+  display: flex;
+  gap: 0.35em;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-size: inherit;
+}
+
+.file-tree-lines-added {
+  color: #4caf73;
+}
+
+.file-tree-lines-deleted {
+  color: #e05a5a;
+}
+
 .files-dialog {
-  max-width: 600px;
+  max-width: 660px;
 }
 
 .files-dialog .agent-dialog-header {

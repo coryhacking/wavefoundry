@@ -16,16 +16,26 @@ The hash covers every file under ``.wavefoundry/framework/`` except packaging
 artifacts (``VERSION``, ``MANIFEST``), the cache file itself, and the binary
 index directory.  This includes all Python scripts, seed documents, dashboard
 assets, and any test fixture files — anything that could change a test result.
+
+Parallel execution
+------------------
+Each test file runs in its own subprocess.  Up to 6 files run concurrently
+(capped below cpu_count to leave headroom for subprocess-heavy test files).
+Output is buffered and printed file-by-file after all workers finish so that
+output lines are never interleaved.
 """
 
 from __future__ import annotations
 
+import concurrent.futures
 import datetime
 import hashlib
 import json
 import os
+import re
+import subprocess
 import sys
-import unittest
+import time
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -37,6 +47,7 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 _TESTS_DIR = _SCRIPT_DIR / "tests"
 _FRAMEWORK_DIR = _SCRIPT_DIR.parent
 _CACHE_FILE = _FRAMEWORK_DIR / "test-cache.json"
+_LOCK_FILE = _FRAMEWORK_DIR / "test-run.lock"
 
 # Ensure scripts/ is on sys.path explicitly — tests/__init__.py handles this
 # for individual-file runs; repeat it here so run_tests.py is self-contained
@@ -124,10 +135,91 @@ def _cache_hit(inputs_hash: str) -> dict | None:
     return None
 
 
+def _test_runner_python() -> str:
+    """Return the Python executable used for per-file test workers."""
+    venv_root = Path(os.environ.get("WAVEFOUNDRY_TOOL_VENV", "~/.wavefoundry/venv")).expanduser()
+    venv_python = venv_root / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
+    return str(venv_python if venv_python.exists() else Path(sys.executable))
+
+
+def _acquire_run_lock():
+    """Acquire the runner lock or return (None, diagnostic) when already held."""
+    import fcntl
+
+    try:
+        lock_file = _LOCK_FILE.open("a+", encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        return None, f"Could not open test runner lock file {_LOCK_FILE}: {exc}"
+
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock_file.close()
+        return None, f"Another run_tests.py invocation is already running; lock file busy: {_LOCK_FILE}"
+    except Exception as exc:  # noqa: BLE001
+        lock_file.close()
+        return None, f"Could not acquire test runner lock: {exc}"
+
+    try:
+        lock_file.seek(0)
+        lock_file.truncate()
+        lock_file.write(f"{os.getpid()}\n")
+        lock_file.flush()
+    except Exception:  # noqa: BLE001
+        pass
+
+    return lock_file, None
+
+
+def _release_run_lock(lock_file) -> None:
+    """Release the runner lock and close the underlying file handle."""
+    import fcntl
+
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_UN)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        lock_file.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _run_file(file_path: Path) -> tuple[str, int, str, int]:
+    """Run one test file in a subprocess.
+
+    Returns (filename, returncode, combined_output, test_count).
+    unittest writes its verbose output to stderr; stdout carries any print()
+    calls made by tests themselves.  Both are captured and merged.
+    A 600 s per-file timeout prevents a hung test from blocking the whole run;
+    timeout is surfaced as a failure rather than propagating.
+    """
+    env = os.environ.copy()
+    env["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = "1"
+    try:
+        result = subprocess.run(
+            [_test_runner_python(), "-B", "-m", "unittest", "discover",
+             "-s", str(_TESTS_DIR), "-p", file_path.name, "-v"],
+            capture_output=True,
+            text=True,
+            cwd=str(_SCRIPT_DIR),
+            env=env,
+            timeout=600,
+        )
+        output = (result.stdout + result.stderr) if result.stdout else result.stderr
+        rc = result.returncode
+    except subprocess.TimeoutExpired as exc:
+        out = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        err = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        output = (out + err if out else err) + f"\nTIMEOUT: {file_path.name} exceeded 600 s per-file limit.\n"
+        rc = 1
+    m = re.search(r"Ran (\d+) tests?", output)
+    count = int(m.group(1)) if m else 0
+    return file_path.name, rc, output, count
+
+
 def main() -> int:
-    # Strip --no-cache before forwarding remaining args to unittest discover.
     no_cache = "--no-cache" in sys.argv
-    discover_argv = [a for a in sys.argv[1:] if a != "--no-cache"]
 
     # Compute the hash once — before any test execution — so the cache entry
     # always reflects the state that caused the run, not post-run file changes.
@@ -144,28 +236,66 @@ def main() -> int:
             )
             return 0
 
-    # Remove stale bytecode before running so no cached .pyc can influence results.
-    _clean_pycache()
+    lock_file, lock_error = _acquire_run_lock()
+    if lock_error is not None:
+        print(lock_error, file=sys.stderr)
+        return 1
 
-    argv = [
-        sys.argv[0],
-        "discover",
-        "-s",
-        str(_TESTS_DIR),
-        "-p",
-        "test_*.py",
-        "-v",
-        *discover_argv,
-    ]
-    program = unittest.main(module=None, argv=argv, exit=False)
-    assert program.result is not None
+    try:
+        # Remove stale bytecode before spawning workers.
+        _clean_pycache()
 
-    _clean_pycache()
+        test_files = sorted(_TESTS_DIR.glob("test_*.py"))
+        # Cap at 6: many test files spawn subprocesses; beyond 6 concurrent workers
+        # the system gets CPU/IO-saturated and individual file times balloon.
+        workers = min(len(test_files), min(os.cpu_count() or 4, 6))
 
-    if program.result.wasSuccessful():
-        _write_cache(inputs_hash, program.result.testsRun)
+        wall_start = time.monotonic()
+        file_results: list[tuple[str, int, str, int]] = []
+
+        print(f"Running {len(test_files)} test files across {workers} workers …", flush=True)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(_run_file, f): f for f in test_files}
+            done_count = 0
+            for future in concurrent.futures.as_completed(futures):
+                result = future.result()
+                name, rc, _output, count = result
+                done_count += 1
+                status = "ok" if rc == 0 else "FAIL"
+                print(f"  [{done_count}/{len(test_files)}] {name} — {count} tests {status}", flush=True)
+                file_results.append(result)
+
+        wall_elapsed = time.monotonic() - wall_start
+
+        # Print each file's full output in stable filename order.
+        file_results.sort(key=lambda r: r[0])
+        failed_files: list[str] = []
+        total_tests = 0
+
+        for name, rc, output, count in file_results:
+            total_tests += count
+            if rc != 0:
+                failed_files.append(name)
+                print(f"\n{'=' * 70}")
+                print(f"FAILED: {name}")
+                print("=" * 70)
+                print(output, end="")
+
+        print(f"\n{'-' * 70}")
+        if failed_files:
+            print(f"FAILED ({', '.join(failed_files)})")
+            print(f"Ran {total_tests} tests across {len(test_files)} files in {wall_elapsed:.3f}s")
+            _clean_pycache()
+            return 1
+
+        print(f"Ran {total_tests} tests across {len(test_files)} files in {wall_elapsed:.3f}s")
+        print("OK")
+        _clean_pycache()
+        _write_cache(inputs_hash, total_tests)
         return 0
-    return 1
+    finally:
+        _release_run_lock(lock_file)
 
 
 if __name__ == "__main__":

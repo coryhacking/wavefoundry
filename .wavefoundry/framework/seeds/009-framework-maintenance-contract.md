@@ -17,7 +17,7 @@ Treat the Wave Framework as complete enough for active use only when all of the 
 6. The framework includes example flows that demonstrate the intended operating model end to end.
 7. The repo-local specialization story is explicit: shared docs stay generic, while seeded repositories hold local reviewers, personas, exact artifact paths, and operating exceptions.
 8. The docs gate passes after framework doc changes.
-9. Maintainer docs and seeded `package-wavefoundry` / `build-and-verification` text stay aligned with `scripts/build_pack.py`: `--version MAJOR.MINOR.PATCH` is required; from `1.0.0` onward the new zip is written to `~/.wavefoundry/dist/` by default as `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip`; the one-time `0.9.0` bridge release is the exception and keeps the old date-style artifact name for legacy adoption; `docs/prompts/prompt-surface-manifest.json` **`framework_revision`** must match the packaged revision unless `--skip-manifest-check` is intentionally used; then `VERSION` is stamped to `MAJOR.MINOR.PATCH+<build>` using the rightmost 4 characters of the lifecycle prefix and `framework/index/` is updated and compacted before the zip is written.
+9. Maintainer docs and seeded `package-wavefoundry` / `build-and-verification` text stay aligned with `scripts/build_pack.py`: `--version MAJOR.MINOR.PATCH` is required and packaging is blocked below `1.0.0`; the zip is written to `~/.wavefoundry/dist/` by default as `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip`; `docs/prompts/prompt-surface-manifest.json` **`framework_revision`** must match the packaged revision unless `--skip-manifest-check` is intentionally used; then `VERSION` is stamped to `MAJOR.MINOR.PATCH+<build>` using the rightmost 4 characters of the lifecycle prefix and `framework/index/` is updated and compacted before the zip is written.
 
 When one or more items above are false, treat the framework as still hardening rather than complete.
 
@@ -31,7 +31,7 @@ When one or more items above are false, treat the framework as still hardening r
 
 ### Init contract
 
-**`Install Wavefoundry`** (legacy: **`Init wave framework`** / **`Init wave context`**) should create the project's first complete Wave Framework layer in the repository when no prior install already exists. At minimum it should create or normalize:
+**`Init wave framework`** (legacy aliases: **`Install Wavefoundry`**, **`Install wave framework`**, **`Init wave context`**) should create the project's first complete Wave Framework layer in the repository when no prior install already exists. At minimum it should create or normalize:
 
 - the canonical `docs/` structure and top-level indexes
 - repo-local orientation docs such as `docs/references/project-overview.md`
@@ -44,7 +44,7 @@ When one or more items above are false, treat the framework as still hardening r
 
 ### Upgrade contract
 
-**`Upgrade Wavefoundry`** (legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**) should refresh an existing wave-context or legacy project-context installation by:
+**`Upgrade wave framework`** (legacy aliases: **`Upgrade Wavefoundry`**, **`Upgrade wave context`**) should refresh an existing wave-context or legacy project-context installation by:
 
 - when dated `wavefoundry-*.zip` files are present at the repository root, adopting the newest pack per `160-upgrade-wavefoundry.prompt.md` **step 0** before reconciling repo-local outputs (unpack, `render_platform_surfaces.py`, then the standard upgrade sequence)
 - reading the current local docs, prompts, config, and artifact roots before writing changes

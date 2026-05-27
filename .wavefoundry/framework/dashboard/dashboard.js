@@ -779,34 +779,49 @@ function Metrics({ snapshot, scopeChanges, onWavesClick, onChangesClick, onAcsCl
 function buildFileTree(entries) {
   const root = {};
   for (const entry of entries) {
-    const { path, status = "modified" } = typeof entry === "string" ? { path: entry } : entry;
+    const { path, status = "modified", lines_added = null, lines_deleted = null } =
+      typeof entry === "string" ? { path: entry } : entry;
     const parts = path.split("/");
     let node = root;
     for (let i = 0; i < parts.length - 1; i++) {
-      if (typeof node[parts[i]] !== "object" || node[parts[i]] === null) node[parts[i]] = {};
+      if (!Array.isArray(node[parts[i]]) && (typeof node[parts[i]] !== "object" || node[parts[i]] === null))
+        node[parts[i]] = {};
       node = node[parts[i]];
     }
-    node[parts[parts.length - 1]] = status;
+    node[parts[parts.length - 1]] = [status, lines_added, lines_deleted];
   }
   return root;
 }
 
 function FileTree({ node, depth = 0 }) {
   const entries = Object.entries(node).sort(([ak, av], [bk, bv]) => {
-    const aDir = typeof av === "object" && av !== null;
-    const bDir = typeof bv === "object" && bv !== null;
+    const aDir = !Array.isArray(av) && typeof av === "object" && av !== null;
+    const bDir = !Array.isArray(bv) && typeof bv === "object" && bv !== null;
     if (aDir !== bDir) return bDir ? 1 : -1;
     return ak.localeCompare(bk);
   });
   return h("ul", { className: "file-tree", style: depth === 0 ? {} : { paddingLeft: "1.1em" } },
-    entries.map(([name, child]) =>
-      typeof child === "object" && child !== null
-        ? h("li", { key: name, className: "file-tree-dir" },
-            h("span", { className: "file-tree-dir-name" }, name + "/"),
-            h(FileTree, { node: child, depth: depth + 1 }),
+    entries.map(([name, child]) => {
+      const isDir = !Array.isArray(child) && typeof child === "object" && child !== null;
+      if (isDir) {
+        return h("li", { key: name, className: "file-tree-dir" },
+          h("span", { className: "file-tree-dir-name" }, name + "/"),
+          h(FileTree, { node: child, depth: depth + 1 }),
+        );
+      }
+      const [status, linesAdded, linesDeleted] = Array.isArray(child) ? child : [child, null, null];
+      const isNew = status === "added";
+      const lineCountEl = (linesAdded || linesDeleted)
+        ? h("span", { className: "file-tree-lines" },
+            linesAdded ? h("span", { className: "file-tree-lines-added" }, `+${linesAdded}`) : null,
+            (!isNew && linesDeleted) ? h("span", { className: "file-tree-lines-deleted" }, `-${linesDeleted}`) : null,
           )
-        : h("li", { key: name, className: `file-tree-file file-tree-file--${child}` }, name)
-    ),
+        : null;
+      return h("li", { key: name, className: `file-tree-file file-tree-file--${status}` },
+        h("span", null, name),
+        lineCountEl,
+      );
+    }),
   );
 }
 
@@ -995,6 +1010,7 @@ function IndexDialog({ health, onClose }) {
 
 function IndexSection({ label, idx }) {
   const buildStatus = idx.build_status;
+  const staleLocksCleaned = Array.isArray(idx.stale_locks_cleaned) ? idx.stale_locks_cleaned.length : 0;
   const buildAction = idx.mode === "rebuild"
     ? "Rebuilding"
     : "Updating";
@@ -1076,6 +1092,10 @@ function IndexSection({ label, idx }) {
       })(),
     ),
     buildBadge,
+    staleLocksCleaned ? h("div", { className: "index-build-status" },
+      h("span", { className: "index-build-badge index-build-badge--current" },
+        `Cleaned ${staleLocksCleaned} stale ${p(staleLocksCleaned, "lock", "locks")}`),
+    ) : null,
   );
 }
 
