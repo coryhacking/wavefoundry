@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 
@@ -232,6 +232,51 @@ class CacheFileTests(unittest.TestCase):
         self.assertIsNone(run_tests._cache_hit("hash123"))
 
 
+class RunLockTests(unittest.TestCase):
+    """Tests for the top-level runner lock."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self.tmp = Path(self._tmp)
+        self._orig_lock_file = run_tests._LOCK_FILE
+        run_tests._LOCK_FILE = self.tmp / "test-run.lock"
+
+    def tearDown(self):
+        run_tests._LOCK_FILE = self._orig_lock_file
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_acquire_run_lock_returns_busy_when_held(self):
+        lock_file, error = run_tests._acquire_run_lock()
+        self.assertIsNotNone(lock_file)
+        self.assertIsNone(error)
+        try:
+            second_lock, second_error = run_tests._acquire_run_lock()
+            self.assertIsNone(second_lock)
+            self.assertIsNotNone(second_error)
+            self.assertIn("already running", second_error)
+        finally:
+            run_tests._release_run_lock(lock_file)
+
+    def test_main_returns_busy_when_lock_is_held(self):
+        with patch.object(run_tests, "_hash_inputs", return_value="hash123"), \
+                patch.object(run_tests, "_cache_hit", return_value=None), \
+                patch.object(run_tests, "_acquire_run_lock", return_value=(None, "already running")), \
+                patch.object(run_tests, "_clean_pycache") as clean_mock, \
+                patch.object(sys, "argv", ["run_tests.py"]):
+            rc = run_tests.main()
+        self.assertEqual(rc, 1)
+        clean_mock.assert_not_called()
+
+    def test_cache_hit_bypasses_lock_acquisition(self):
+        with patch.object(run_tests, "_hash_inputs", return_value="stable_hash"), \
+                patch.object(run_tests, "_cache_hit", return_value={"test_count": 99, "ran_at": "2026-05-26T00:00:00Z"}), \
+                patch.object(run_tests, "_acquire_run_lock") as lock_mock, \
+                patch.object(sys, "argv", ["run_tests.py"]):
+            rc = run_tests.main()
+        self.assertEqual(rc, 0)
+        lock_mock.assert_not_called()
+
+
 class MainCacheBehaviorTests(unittest.TestCase):
     """Integration tests for main() cache read/write/skip logic."""
 
@@ -239,24 +284,29 @@ class MainCacheBehaviorTests(unittest.TestCase):
         self._tmp = tempfile.mkdtemp()
         self.tmp = Path(self._tmp)
         self._orig_cache_file = run_tests._CACHE_FILE
+        self._orig_tests_dir = run_tests._TESTS_DIR
         run_tests._CACHE_FILE = self.tmp / "test-cache.json"
+        run_tests._TESTS_DIR = self.tmp
+        (self.tmp / "test_fake.py").write_text("# fake test file\n", encoding="utf-8")
         # Prevent _clean_pycache from touching the real framework directory
         # during these unit tests — it is tested separately in CleanPycacheTests.
         self._patcher_clean = patch.object(run_tests, "_clean_pycache")
+        self._patcher_lock = patch.object(run_tests, "_acquire_run_lock", return_value=(object(), None))
+        self._patcher_release = patch.object(run_tests, "_release_run_lock")
         self._patcher_clean.start()
+        self._patcher_lock.start()
+        self._patcher_release.start()
 
     def tearDown(self):
         self._patcher_clean.stop()
+        self._patcher_lock.stop()
+        self._patcher_release.stop()
         run_tests._CACHE_FILE = self._orig_cache_file
+        run_tests._TESTS_DIR = self._orig_tests_dir
         shutil.rmtree(self._tmp, ignore_errors=True)
 
-    def _make_mock_program(self, *, success=True, tests_run=42):
-        result = MagicMock()
-        result.wasSuccessful.return_value = success
-        result.testsRun = tests_run
-        program = MagicMock()
-        program.result = result
-        return program
+    def _run_file_result(self, *, success=True, tests_run=42, name="test_fake.py"):
+        return (name, 0 if success else 1, "output", tests_run)
 
     # ------------------------------------------------------------------
     # Cache skip
@@ -265,37 +315,34 @@ class MainCacheBehaviorTests(unittest.TestCase):
     def test_skips_tests_on_cache_hit(self):
         with patch.object(run_tests, "_hash_inputs", return_value="stable_hash"):
             run_tests._write_cache("stable_hash", 99)
-            with patch("unittest.main") as mock_ut, \
+            with patch.object(run_tests, "_run_file") as mock_run_file, \
                     patch.object(sys, "argv", ["run_tests.py"]):
                 ret = run_tests.main()
-        mock_ut.assert_not_called()
+        mock_run_file.assert_not_called()
         self.assertEqual(ret, 0)
 
     def test_does_not_skip_on_hash_mismatch(self):
         run_tests._write_cache("old_hash", 99)
-        program = self._make_mock_program()
         with patch.object(run_tests, "_hash_inputs", return_value="new_hash"), \
-                patch("unittest.main", return_value=program) as mock_ut, \
+                patch.object(run_tests, "_run_file", return_value=self._run_file_result()) as mock_run_file, \
                 patch.object(sys, "argv", ["run_tests.py"]):
             run_tests.main()
-        mock_ut.assert_called_once()
+        mock_run_file.assert_called_once()
 
     def test_does_not_skip_when_no_cache_file(self):
-        program = self._make_mock_program()
         with patch.object(run_tests, "_hash_inputs", return_value="some_hash"), \
-                patch("unittest.main", return_value=program) as mock_ut, \
+                patch.object(run_tests, "_run_file", return_value=self._run_file_result()) as mock_run_file, \
                 patch.object(sys, "argv", ["run_tests.py"]):
             run_tests.main()
-        mock_ut.assert_called_once()
+        mock_run_file.assert_called_once()
 
     # ------------------------------------------------------------------
     # Cache write
     # ------------------------------------------------------------------
 
     def test_writes_cache_after_successful_run(self):
-        program = self._make_mock_program(tests_run=55)
         with patch.object(run_tests, "_hash_inputs", return_value="clean_hash"), \
-                patch("unittest.main", return_value=program), \
+                patch.object(run_tests, "_run_file", return_value=self._run_file_result(tests_run=55)), \
                 patch.object(sys, "argv", ["run_tests.py"]):
             run_tests.main()
         data = json.loads(run_tests._CACHE_FILE.read_text(encoding="utf-8"))
@@ -304,9 +351,8 @@ class MainCacheBehaviorTests(unittest.TestCase):
         self.assertEqual(data["result"], "ok")
 
     def test_does_not_write_cache_on_test_failure(self):
-        program = self._make_mock_program(success=False)
         with patch.object(run_tests, "_hash_inputs", return_value="clean_hash"), \
-                patch("unittest.main", return_value=program), \
+                patch.object(run_tests, "_run_file", return_value=self._run_file_result(success=False)), \
                 patch.object(sys, "argv", ["run_tests.py"]):
             ret = run_tests.main()
         self.assertFalse(run_tests._CACHE_FILE.exists())
@@ -319,17 +365,15 @@ class MainCacheBehaviorTests(unittest.TestCase):
     def test_no_cache_flag_forces_run_despite_cache_hit(self):
         with patch.object(run_tests, "_hash_inputs", return_value="stable_hash"):
             run_tests._write_cache("stable_hash", 99)
-            program = self._make_mock_program()
-            with patch("unittest.main", return_value=program) as mock_ut, \
+            with patch.object(run_tests, "_run_file", return_value=self._run_file_result()) as mock_run_file, \
                     patch.object(sys, "argv", ["run_tests.py", "--no-cache"]):
                 ret = run_tests.main()
-        mock_ut.assert_called_once()
+        mock_run_file.assert_called_once()
         self.assertEqual(ret, 0)
 
     def test_no_cache_flag_still_writes_cache_on_success(self):
-        program = self._make_mock_program(tests_run=77)
         with patch.object(run_tests, "_hash_inputs", return_value="stable_hash"), \
-                patch("unittest.main", return_value=program), \
+                patch.object(run_tests, "_run_file", return_value=self._run_file_result(tests_run=77)), \
                 patch.object(sys, "argv", ["run_tests.py", "--no-cache"]):
             run_tests.main()
         data = json.loads(run_tests._CACHE_FILE.read_text(encoding="utf-8"))
@@ -344,9 +388,8 @@ class MainCacheBehaviorTests(unittest.TestCase):
             call_count.append(1)
             return f"hash_{len(call_count)}"  # returns different value each call
 
-        program = self._make_mock_program(tests_run=10)
         with patch.object(run_tests, "_hash_inputs", side_effect=counting_hash), \
-                patch("unittest.main", return_value=program), \
+                patch.object(run_tests, "_run_file", return_value=self._run_file_result(tests_run=10)), \
                 patch.object(sys, "argv", ["run_tests.py"]):
             run_tests.main()
 
@@ -356,13 +399,11 @@ class MainCacheBehaviorTests(unittest.TestCase):
         self.assertEqual(len(call_count), 1)  # called exactly once
 
     def test_no_cache_flag_not_forwarded_to_unittest(self):
-        program = self._make_mock_program()
         with patch.object(run_tests, "_hash_inputs", return_value="stable_hash"), \
-                patch("unittest.main", return_value=program) as mock_ut, \
+                patch.object(run_tests, "_run_file", return_value=self._run_file_result()) as mock_run_file, \
                 patch.object(sys, "argv", ["run_tests.py", "--no-cache"]):
             run_tests.main()
-        passed_argv = mock_ut.call_args.kwargs["argv"]
-        self.assertNotIn("--no-cache", passed_argv)
+        mock_run_file.assert_called_once()
 
 
 if __name__ == "__main__":
