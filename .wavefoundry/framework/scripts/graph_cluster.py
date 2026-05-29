@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import Any
 
 CLUSTER_SCHEMA_VERSION = "1"
-CLUSTER_BUILDER_VERSION = "6"
+CLUSTER_BUILDER_VERSION = "7"
+
+# Document node kinds. These are pre-assigned to a single fixed "Documentation"
+# community (like Tests/Configuration) before Leiden runs, so docs stay visible
+# in the community overview without distorting the code communities.
+_DOC_NODE_KINDS = {"doc", "seed"}
 GRAPH_SCHEMA_VERSION = "1"
 GRAPH_BUILDER_VERSION = "1"
 
@@ -199,10 +204,13 @@ def _extract_fixed_communities(
     Returns the fixed community records, and a reduced nodes_by_id and adjacency
     containing only production nodes for Leiden/label-prop to operate on.
     """
-    buckets: dict[str, set[str]] = {
-        "Tests": set(), "Benchmarks": set(), "CI/CD": set(),
-        "Generated": set(), "Scripts": set(), "Configuration": set(),
-    }
+    # Ordered fixed categories. "Documentation" is kind-based (doc/seed nodes)
+    # and checked first; the rest are source_file-path based.
+    fixed_order = [
+        "Documentation", "Tests", "Benchmarks", "CI/CD",
+        "Generated", "Scripts", "Configuration",
+    ]
+    buckets: dict[str, set[str]] = {label: set() for label in fixed_order}
     # Checked in priority order — a file belongs to the first matching category.
     classifiers = [
         ("Tests", _is_test_source_file),
@@ -213,6 +221,9 @@ def _extract_fixed_communities(
         ("Configuration", _is_config_source_file),
     ]
     for node_id, node in nodes_by_id.items():
+        if str(node.get("kind") or "") in _DOC_NODE_KINDS:
+            buckets["Documentation"].add(node_id)
+            continue
         source_file = str(node.get("source_file") or "")
         for label, fn in classifiers:
             if fn(source_file):
@@ -226,7 +237,8 @@ def _extract_fixed_communities(
         if nid not in fixed_node_ids
     }
     fixed_communities: list[dict[str, Any]] = []
-    for label, node_ids in [(lbl, buckets[lbl]) for lbl, _ in classifiers]:
+    for label in fixed_order:
+        node_ids = buckets[label]
         if not node_ids:
             continue
         seed_node_id = _community_seed(node_ids, nodes_by_id, adjacency)

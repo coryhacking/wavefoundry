@@ -87,6 +87,40 @@ class GraphClusterTests(unittest.TestCase):
             self.assertIn("seed_node_id", community)
             self.assertIn("label", community)
 
+    def test_documents_grouped_into_documentation_community(self):
+        payload = self._payload()
+        payload["nodes"].extend([
+            {"id": "docs/guide.md", "label": "guide", "kind": "doc", "source_file": "docs/guide.md", "source_location": "1:0", "layer": "project"},
+            {"id": "docs/spec.md", "label": "spec", "kind": "doc", "source_file": "docs/spec.md", "source_location": "1:0", "layer": "project"},
+            {"id": ".wavefoundry/framework/seeds/001.md", "label": "001", "kind": "seed", "source_file": ".wavefoundry/framework/seeds/001.md", "source_location": "1:0", "layer": "project"},
+        ])
+        payload["edges"].extend([
+            {"source": "docs/guide.md", "target": "src/a.py::fn_a0", "relation": "doc_references_code", "confidence": "AMBIGUOUS"},
+            {"source": "docs/spec.md", "target": "src/b.py::fn_b0", "relation": "doc_references_code", "confidence": "AMBIGUOUS"},
+            {"source": ".wavefoundry/framework/seeds/001.md", "target": "src/b.py::fn_b0", "relation": "doc_references_code", "confidence": "AMBIGUOUS"},
+        ])
+        result = self.mod.update_graph_clusters(
+            root=self.root,
+            index_dir=self.root / ".wavefoundry" / "index",
+            layer="project",
+            graph_payload=payload,
+            verbose=False,
+        )
+        communities = result["communities"]
+        doc_communities = [c for c in communities if c.get("label") == "Documentation"]
+        self.assertEqual(len(doc_communities), 1, "docs should collapse into a single Documentation community")
+        doc_ids = set(doc_communities[0]["node_ids"])
+        self.assertEqual(
+            doc_ids,
+            {"docs/guide.md", "docs/spec.md", ".wavefoundry/framework/seeds/001.md"},
+        )
+        self.assertEqual(doc_communities[0].get("kind"), "fixed")
+        # Code communities must not contain any document node.
+        code_ids = {nid for c in communities if c.get("label") != "Documentation" for nid in c["node_ids"]}
+        self.assertNotIn("docs/guide.md", code_ids)
+        self.assertNotIn(".wavefoundry/framework/seeds/001.md", code_ids)
+        self.assertIn("src/a.py::fn_a0", code_ids)
+
     def test_update_graph_clusters_logs_backend_and_write(self):
         buf = io.StringIO()
         with redirect_stdout(buf):

@@ -5,7 +5,7 @@ Change Status: `planned`
 Owner: Engineering
 Status: planned
 Last verified: 2026-05-28
-Wave: TBD (future graph wave; follow-on to `12xr1 graph-index-extraction-and-visualization`)
+Wave: `12xr2 graph-query-surface`
 
 ## Rationale
 
@@ -129,8 +129,6 @@ Each row must be independently covered by tests, and a framework with no detecta
 `docs/architecture/data-and-control-flow.md` and `docs/architecture/chunking-and-indexing-pipeline.md` should note that the graph extractor now emits DI/injection edges for supported frameworks and that these edges carry `INFERRED` confidence for annotation-only inference. No layering-rule or domain-map boundary changes are expected.
 
 ## AC Priority
-
-(Populated at Prepare wave.)
 
 | AC | Priority | Rationale |
 | --- | --- | --- |

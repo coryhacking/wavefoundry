@@ -5,7 +5,7 @@ Change Status: `planned`
 Owner: Engineering
 Status: planned
 Last verified: 2026-05-28
-Wave: TBD (future graph wave; pairs with `12xr2 graph-query-surface`)
+Wave: `12xr2 graph-query-surface`
 
 ## Rationale
 
@@ -127,8 +127,6 @@ Both keep local-only intact (UMD globals served by the dashboard). The council l
 `docs/references/dashboard-adapter-model.md` and `docs/architecture/data-and-control-flow.md` should note that the dashboard graph view renders via WebGL with per-view layouts and an expand-on-demand interaction model backed by server-side neighbor queries, and that grouping/color derive from server-supplied Leiden communities rather than client-side recomputation.
 
 ## AC Priority
-
-(Populated at Prepare wave.)
 
 | AC | Priority | Rationale |
 | --- | --- | --- |
