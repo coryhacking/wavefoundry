@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-23
+Last verified: 2026-05-29
 
 **Shortcut phrases:** `Council review` · `Run council` · `Wave Council review`
 
@@ -54,20 +54,25 @@ Select from wave/artifact evidence: `docs-contract-reviewer` for prompt/seed/con
 
 ### Challenge Round (optional)
 
-Trigger at most one targeted challenge round when fixed seats materially disagree. `red-team` may run in `council-seat` mode here if a second adversarial pass is warranted.
+Trigger at most one targeted challenge round when the `seat_agreement_aggregate` is `split` — or when `max_severity` is `high`/`critical` and seats disagree on whether it blocks. `red-team` may run in `council-seat` mode here if a second adversarial pass is warranted.
 
 ### Synthesis
 
 `council-moderator` synthesizes across primer + all seat outputs. See `docs/agents/council-moderator.md`.
 
+The first synthesis pass runs on **anonymized** seat outputs (seat/role identity stripped, labeled `Seat 1..N` in randomized order) so findings are weighed on merit before identity is re-attached. **Non-waiver guard:** anonymization governs only the convergence/agreement assessment — a finding carrying blocking authority from a required specialist lane keeps its lane attribution and blocking status at all times and is never merit-weighted below blocking.
+
 Synthesis must include:
 - Red-team primer summary: what it surfaced and how seats responded
 - Seat roster and rotating seat "best alternative" brief
+- `seat_agreement_aggregate`: `seat_agreement` (`unanimous` / `majority` / `split`) and `max_severity` (`critical`/`high`/`medium`/`low`/`none`) — the triage signal that drives the challenge-round trigger
 - Strongest points of agreement
 - Material disagreements and how they were resolved or left unresolved
 - `strongest_alternative`: the best alternative surfaced, with "this would be better because..." reasoning
 - `improvements_recommended`: concrete improvements regardless of verdict
 - Final verdict: **pass**, **pass with conditions**, or **blocked**
+
+When the review is used for `Prepare wave`, the recorded verdict must be written back into `## Review Checkpoints` as a structured `prepare-council` line containing `moderator`, `primer-depth`, `seats`, `rotating-seat`, `strongest-challenge`, and `strongest-alternative`. The lifecycle gate only accepts that structured verdict, not a freeform marker.
 
 ---
 

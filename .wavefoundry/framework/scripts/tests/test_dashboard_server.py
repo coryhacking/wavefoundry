@@ -43,8 +43,9 @@ def _get_sse_client_class():
 class _MockStore:
     """Minimal SnapshotStore stand-in for handler tests."""
 
-    def __init__(self, snapshot: dict):
+    def __init__(self, snapshot: dict, root: Path | None = None):
         self._snapshot = snapshot
+        self._root = root or Path.cwd()
         self._clients = []
 
     def get(self) -> dict:
@@ -440,6 +441,49 @@ Wave: `12x test-wave`
         self.assertEqual(project["code_chunks"], 1)
         self.assertEqual(project["files_indexed"], 2)
 
+    def test_collect_dashboard_snapshot_includes_graph_health(self):
+        project_graph = self.root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
+        framework_graph = self.root / ".wavefoundry" / "framework" / "index" / "graph" / "framework-graph.json"
+        _write(
+            project_graph,
+            json.dumps(
+                {
+                    "schema_version": "1",
+                    "builder_version": "1",
+                    "layer": "project",
+                    "present": True,
+                    "counts": {"files": 2, "nodes": 3, "edges": 4},
+                    "nodes": [
+                        {"id": "src/app.py::run", "label": "run", "kind": "function", "source_file": "src/app.py", "source_location": "1:0", "layer": "project"}
+                    ],
+                    "edges": [],
+                }
+            ),
+        )
+        _write(
+            framework_graph,
+            json.dumps(
+                {
+                    "schema_version": "1",
+                    "builder_version": "1",
+                    "layer": "framework",
+                    "present": True,
+                    "counts": {"files": 1, "nodes": 1, "edges": 0},
+                    "nodes": [
+                        {"id": "docs/prompts/prepare-wave.prompt.md", "label": "prepare-wave", "kind": "doc", "source_file": "docs/prompts/prepare-wave.prompt.md", "source_location": "1:0", "layer": "framework"}
+                    ],
+                    "edges": [],
+                }
+            ),
+        )
+
+        snapshot = self.lib.collect_dashboard_snapshot(self.root)
+
+        self.assertTrue(snapshot["health"]["graph"]["project"]["present"])
+        self.assertEqual(snapshot["health"]["graph"]["project"]["counts"]["nodes"], 3)
+        self.assertTrue(snapshot["health"]["graph"]["framework"]["present"])
+        self.assertEqual(snapshot["health"]["graph"]["framework"]["counts"]["edges"], 0)
+
     def test_collect_dashboard_snapshot_parses_plain_bullet_items_for_complete_change(self):
         wave_dir = self.root / "docs" / "waves" / "12x test-wave"
         _write(
@@ -689,7 +733,7 @@ class _HandlerHarnessMixin:
 
     def _make_handler(self, path: str):
         srv = self.srv
-        store = _MockStore(self.snapshot)
+        store = _MockStore(self.snapshot, getattr(self, "root", None))
 
         class Harness(srv.DashboardHandler):
             def __init__(self, snapshot_store, req_path):
@@ -737,6 +781,120 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         self.assertEqual(handler.response_code, 200)
         payload = json.loads(handler.wfile.getvalue().decode("utf-8"))
         self.assertEqual(payload["project"]["active_wave_id"], "12x test-wave")
+
+    def test_api_graph_serves_layered_graph_payload(self):
+        project_graph = self.root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
+        framework_graph = self.root / ".wavefoundry" / "framework" / "index" / "graph" / "framework-graph.json"
+        _write(
+            project_graph,
+            json.dumps(
+                {
+                    "schema_version": "1",
+                    "builder_version": "1",
+                    "layer": "project",
+                    "present": True,
+                    "counts": {"files": 1, "nodes": 1, "edges": 1},
+                    "graph_mtime": 111,
+                    "nodes": [
+                        {"id": "src/app.py::run", "label": "run", "kind": "function", "source_file": "src/app.py", "source_location": "1:0", "layer": "project"}
+                    ],
+                    "edges": [
+                        {"source": "src/app.py", "target": "src/app.py::run", "relation": "defines", "confidence": "EXTRACTED"}
+                    ],
+                }
+            ),
+        )
+        _write(
+            self.root / ".wavefoundry" / "index" / "graph" / "project-graph-clusters.json",
+            json.dumps(
+                {
+                    "cluster_schema_version": "1",
+                    "cluster_builder_version": "1",
+                    "layer": "project",
+                    "graph_schema_version": "1",
+                    "graph_builder_version": "1",
+                    "graph_path": ".wavefoundry/index/graph/project-graph.json",
+                    "graph_mtime": 111,
+                    "cluster_mtime": 222,
+                    "projection": "derived-undirected",
+                    "community_count": 1,
+                    "communities": [
+                        {
+                            "community_id": "project:c0",
+                            "label": "core",
+                            "seed_node_id": "src/app.py::run",
+                            "node_ids": ["src/app.py::run"],
+                            "node_count": 1,
+                            "edge_count": 0,
+                            "boundary_node_count": 0,
+                        }
+                    ],
+                }
+            ),
+        )
+        _write(
+            framework_graph,
+            json.dumps(
+                {
+                    "schema_version": "1",
+                    "builder_version": "1",
+                    "layer": "framework",
+                    "present": True,
+                    "counts": {"files": 1, "nodes": 1, "edges": 0},
+                    "graph_mtime": 333,
+                    "nodes": [
+                        {"id": "docs/prompts/prepare-wave.prompt.md", "label": "prepare-wave", "kind": "doc", "source_file": "docs/prompts/prepare-wave.prompt.md", "source_location": "1:0", "layer": "framework"}
+                    ],
+                    "edges": [],
+                }
+            ),
+        )
+        _write(
+            self.root / ".wavefoundry" / "framework" / "index" / "graph" / "framework-graph-clusters.json",
+            json.dumps(
+                {
+                    "cluster_schema_version": "1",
+                    "cluster_builder_version": "1",
+                    "layer": "framework",
+                    "graph_schema_version": "1",
+                    "graph_builder_version": "1",
+                    "graph_path": ".wavefoundry/framework/index/graph/framework-graph.json",
+                    "graph_mtime": 333,
+                    "cluster_mtime": 444,
+                    "projection": "derived-undirected",
+                    "community_count": 0,
+                    "communities": [],
+                }
+            ),
+        )
+
+        project_handler = self._make_handler("/api/graph?layer=project")
+        project_handler.do_GET()
+        self.assertEqual(project_handler.response_code, 200)
+        project_payload = json.loads(project_handler.wfile.getvalue().decode("utf-8"))
+        self.assertEqual(project_payload["layer"], "project")
+        self.assertTrue(project_payload["present"])
+        self.assertEqual(project_payload["counts"]["nodes"], 1)
+        self.assertEqual(project_payload["graph_version"], max(project_payload["graph_mtime"], project_payload["cluster_mtime"]))
+        self.assertEqual(project_payload["clusters"]["community_count"], 1)
+        self.assertEqual(project_payload["clusters"]["communities"][0]["label"], "core")
+
+        framework_handler = self._make_handler("/api/graph?layer=framework")
+        framework_handler.do_GET()
+        self.assertEqual(framework_handler.response_code, 200)
+        framework_payload = json.loads(framework_handler.wfile.getvalue().decode("utf-8"))
+        self.assertEqual(framework_payload["layer"], "framework")
+        self.assertTrue(framework_payload["present"])
+        self.assertEqual(framework_payload["counts"]["edges"], 0)
+        self.assertEqual(framework_payload["graph_version"], max(framework_payload["graph_mtime"], framework_payload["cluster_mtime"]))
+        self.assertEqual(framework_payload["clusters"]["community_count"], 0)
+
+    def test_api_graph_rejects_unsupported_layer(self):
+        handler = self._make_handler("/api/graph?layer=bogus")
+        handler.do_GET()
+        self.assertEqual(handler.response_code, 400)
+        payload = json.loads(handler.wfile.getvalue().decode("utf-8"))
+        self.assertIn("Unsupported graph layer", payload.get("error", ""))
 
     def test_dashboard_html_serves_shell(self):
         handler = self._make_handler("/dashboard.html")
@@ -847,6 +1005,97 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
             'isHandoff ? h("span", { className: "handoff-pill", title: "Current session handoff" }, "↩ handoff") : null,\n        h("span", { className: badgeClass(wave.status) }, wave.status),',
             js,
         )
+
+    def test_dashboard_js_includes_readable_graph_overview_controls(self):
+        js = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+
+        self.assertIn('return { label: "Index", value, note, state, onClick: onIndexClick, variant: "index" };', js)
+        self.assertIn('h("h2", { className: "agent-dialog-title" }, "Index")', js)
+        self.assertIn('h(GraphIndexSection, { label: "Graph", idx: graphProj })', js)
+        self.assertNotIn('h(GraphIndexSection, { label: "Framework Graph"', js)
+        self.assertNotIn('const schema = idx.schema_version ? `schema ${idx.schema_version}` : null;', js)
+        self.assertNotIn('idx.graph_path ? h("span", { className: "index-meta-pill index-meta-pill--model" }, idx.graph_path) : null,', js)
+        self.assertIn('const [viewMode, setViewMode] = useState("overview");', js)
+        self.assertIn('const [hoveredNodeId, setHoveredNodeId] = useState("");', js)
+        self.assertIn('const [selectedFile, setSelectedFile] = useState("");', js)
+        self.assertIn('const [selectedRelations, setSelectedRelations] = useState(() => new Set(DEFAULT_GRAPH_RELATIONS));', js)
+        self.assertIn('const graphVersion = snapshot?.health?.graph?.[layer]?.graph_version || snapshot?.health?.graph?.[layer]?.graph_mtime || 0;', js)
+        self.assertIn('const previewNodeId = selectedNodeId || hoveredNodeId;', js)
+        self.assertIn('const graphKindOptions = nodeKinds.length ? nodeKinds : ["module", "class", "function", "doc", "seed", "external"];', js)
+        self.assertIn('function _communityInspectabilityScore(cluster) {', js)
+        self.assertIn('return (boundaryCount / nodeCount) * Math.log2(nodeCount + 1);', js)
+        self.assertIn('const GRAPH_OVERVIEW_COMMUNITY_LIMIT = 24;', js)
+        self.assertIn('const GRAPH_COMMUNITY_QUICK_PICK_LIMIT = 6;', js)
+        self.assertIn('const GRAPH_COMMUNITY_DRILLDOWN_LIMIT = 50;', js)
+        self.assertIn('const GRAPH_OVERVIEW_SEED_LIMIT = 24;', js)
+        self.assertIn('const GRAPH_MIN_COMMUNITY_NODES = 2;', js)
+        self.assertIn('function _isMeaningfulCommunity(cluster) {', js)
+        self.assertIn('return Math.max(0, Number(cluster?.node_count || 0)) >= GRAPH_MIN_COMMUNITY_NODES;', js)
+        self.assertIn('const minDist = (radii.get(nodes[i].id) || 10) + (radii.get(nodes[j].id) || 10) + 42;', js)
+        self.assertIn('const desired = (radii.get(nodes[sourceIndex].id) || 10) + (radii.get(nodes[targetIndex].id) || 10) + 84;', js)
+        self.assertIn('const topHubNodes = sortedByDegree.slice(0, 8);', js)
+        self.assertIn('const clusterCommunities = Array.isArray(graph?.clusters?.communities) ? graph.clusters.communities.slice() : [];', js)
+        self.assertIn('const meaningfulCommunities = clusterCommunities.filter(_isMeaningfulCommunity);', js)
+        self.assertIn('const [selectedClusterId, setSelectedClusterId] = useState("");', js)
+        self.assertIn('const communityOverview = viewMode === "overview" && !selectedClusterId && meaningfulCommunities.length > 0;', js)
+        self.assertIn('const overviewGraph = communityOverview', js)
+        self.assertIn('const hasCommunityOverview = Boolean(communityOverview && overviewGraph && overviewGraph.nodes.length);', js)
+        self.assertIn('const overviewNodes = viewMode === "overview"', js)
+        self.assertIn('_buildCommunityOverviewGraph(filteredNodes, edges, meaningfulCommunities, selectedRelations)', js)
+        self.assertIn('if (selectedRelations && selectedRelations.size && !selectedRelations.has(relation)) continue;', js)
+        self.assertIn('const realBuckets = buckets.filter(bucket => bucket.community_id !== fallbackId && bucket.node_count > 0);', js)
+        self.assertIn('const visibleClusterNodeIds = selectedClusterNodeIds ? new Set(clusterNodes.map(node => node.id)) : null;', js)
+        self.assertIn('const overviewSeedNodes = [];', js)
+        self.assertIn('overviewGraph?.fallback_nodes?.length', js)
+        self.assertIn('overviewSeedNodes.slice(0, GRAPH_OVERVIEW_SEED_LIMIT)', js)
+        self.assertIn('slice(0, GRAPH_COMMUNITY_DRILLDOWN_LIMIT)', js)
+        self.assertIn('slice(0, GRAPH_COMMUNITY_QUICK_PICK_LIMIT)', js)
+        self.assertIn('const nodeMatch = viewMode === "focus" && selectedNodeId', js)
+        self.assertNotIn('const graphMissing = !projectGraph.present;', js)
+        self.assertIn('const graphHeight = 760;', js)
+        self.assertIn('h("div", { className: "graph-mode-switch" }', js)
+        self.assertIn('h("details", { className: "graph-filter-details" }', js)
+        self.assertIn('h("div", { className: "graph-kind-pills" }', js)
+        self.assertIn('"Top hubs"', js)
+        self.assertIn('"Communities"', js)
+        self.assertIn('"File neighborhoods"', js)
+        self.assertIn('graph-filter-pill--kind', js)
+        self.assertIn('graph-node--dimmed', js)
+        self.assertIn('graph-edge--highlighted', js)
+        self.assertIn('graph-node--preview', js)
+        self.assertIn('graph-edge--preview', js)
+        self.assertIn('const showLabel = true;', js)
+        self.assertIn('const selectionCard = selectedNode', js)
+        self.assertIn(': selectedCluster', js)
+        self.assertIn(': selectedFile', js)
+        self.assertIn('className: "graph-breadcrumb"', js)
+        self.assertNotIn('"Back to overview"', js)
+        # An open modal dialog must own Escape; the graph back-nav handler bails
+        # out so the dialog closes first instead of navigating the graph behind it.
+        self.assertIn('if (document.querySelector("dialog[open]")) return;', js)
+        self.assertIn('hasCommunityOverview && node.kind === "community" ? selectCluster(node.community_id) : selectNode(node.id)', js)
+        self.assertIn('const showLabel = true;', js)
+        self.assertIn('const overviewLabel = hasCommunityOverview', js)
+        self.assertIn('const edgeLabel = hasCommunityOverview', js)
+        self.assertIn('markerUnits: "userSpaceOnUse"', js)
+        self.assertIn("graphEdgeArrowInset = 1.5", js)
+        self.assertIn('opacity: previewNodeId && !edgeFocused ? 0.08 : edgeSelected ? 0.58 : edgePreview ? 0.56 : 0.34', js)
+        self.assertIn('strokeWidth: edgeSelected ? 2.0 : edgePreview ? 1.85 : Math.min(4.0, 1.15 + Math.log2(edgeWeight + 1) * 0.35)', js)
+        self.assertIn('community: "#0f766e",', js)
+
+        css = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.css").read_text(encoding="utf-8")
+        self.assertIn('html[data-theme="dark"] .graph-svg {', css)
+        self.assertIn('background: transparent;', css)
+        self.assertIn('html[data-theme="dark"] .graph-node-label {', css)
+        self.assertIn('fill: #f4f7fb;', css)
+        self.assertIn('html[data-theme="dark"] .graph-filter-pill--kind {', css)
+        self.assertIn('color: #f4f7fb;', css)
+        self.assertIn('.graph-edge {', css)
+        self.assertIn('stroke-opacity: 0.34;', css)
+        self.assertIn('html[data-theme="dark"] .graph-edge {', css)
+        self.assertIn('stroke-opacity: 0.22;', css)
+        self.assertIn('.graph-edge--preview {', css)
+        self.assertIn('stroke-opacity: 0.56;', css)
 
     def test_metric_dialog_header_wraps_long_change_ids(self):
         css = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.css").read_text(encoding="utf-8")
@@ -2362,16 +2611,16 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
         self.assertIn('const statusText = buildStatus === "running"', source)
         self.assertIn('? "Indexing..."', source)
-        self.assertIn(': isStale', source)
-        self.assertIn('? "Stale..."', source)
-        self.assertIn('const buildAction = idx.mode === "rebuild"', source)
-        self.assertIn('const buildBadgeText = buildStatus === "running"', source)
-        self.assertIn('`${buildAction} index…`', source)
-        self.assertIn('"Index stale"', source)
+        self.assertNotIn(': isStale', source)
+        self.assertNotIn('? "Stale..."', source)
+        self.assertNotIn('const buildAction = idx.mode === "rebuild"', source)
+        self.assertNotIn('const buildBadgeText = buildStatus === "running"', source)
+        self.assertNotIn('"Index stale"', source)
         self.assertIn('"Build failed"', source)
-        self.assertIn('buildBadgeText', source)
         self.assertIn('stale_locks_cleaned', source)
         self.assertIn('Cleaned ${staleLocksCleaned} stale', source)
+        self.assertIn('const idxAction  = proj.mode === "rebuild"', source)
+        self.assertIn('index-build-badge--running', source)
 
     def test_background_build_status_surfaces_in_snapshot_health(self):
         import os

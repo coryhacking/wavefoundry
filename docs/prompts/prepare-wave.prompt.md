@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-23
+Last verified: 2026-05-29
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
@@ -16,7 +16,7 @@ Confirm wave readiness before implementation begins. The stage gate: implementat
 2. Confirm each change doc is complete: Rationale, Requirements, Scope, Acceptance Criteria, Affected architecture docs.
 3. Select required review lanes for each admitted change (see `docs/contributing/agent-team-workflow.md`).
 4. Confirm `qa-reviewer` is included for any bug fix (`review_policies.require_qa_reviewer_for_bug_fixes: true`).
-5. When `wave_council_policy.enabled` is true, run the Wave Council readiness pass in two phases: first, the `council-moderator` declares a **primer depth tier** (`lightweight` / `standard` / `full`) based on trust boundaries touched, files in scope, and change type — this sets how many stances and `primer_questions` Phase 1 produces; (1) `red-team` runs the adversarial primer (`council-adversarial-primer` mode) first in isolation at the declared depth — strongest challenge, best alternative, and `primer_questions`; (2) fixed seats each receive the standard briefing plus the primer output and must address `strongest_challenge` and `primer_questions` before producing their own findings; a rotating fifth seat finds the strongest alternative path the wave did not take; `council-moderator` synthesizes all outputs; record `wave-council-readiness` in `## Review Evidence` and the narrative verdict in `## Review checkpoints`. **`wave_prepare` signals this step with `status: "ready_for_council_review"` — run the review immediately when you see that status, then call `wave_prepare(mode='create')` again to complete prepare.**
+5. When `wave_council_policy.enabled` is true, run the Wave Council readiness pass in two phases: first, the `council-moderator` declares a **primer depth tier** (`lightweight` / `standard` / `full`) based on trust boundaries touched, files in scope, and change type — this sets how many stances and `primer_questions` Phase 1 produces; (1) `red-team` runs the adversarial primer (`council-adversarial-primer` mode) first in isolation at the declared depth — strongest challenge, best alternative, and `primer_questions`; (2) fixed seats each receive the standard briefing plus the primer output and must address `strongest_challenge` and `primer_questions` before producing their own findings; a rotating fifth seat finds the strongest alternative path the wave did not take; `council-moderator` synthesizes all outputs; record `wave-council-readiness` in `## Review Evidence` and the narrative verdict in `## Review checkpoints`. The recorded verdict must be a structured `prepare-council` line with `moderator`, `primer-depth`, `seats`, `rotating-seat`, `strongest-challenge`, and `strongest-alternative` fields. **`wave_prepare` signals this step with `status: "ready_for_council_review"` — run the review immediately when you see that status, then call `wave_prepare(mode='create')` again to complete prepare.**
 6. **AC priority check:** categorize each admitted change's ACs as required / important / nice-to-have / not-this-scope; record in `## AC priority` on the change doc; interrogate required and important ACs until each classification is explicitly justified.
 7. Record product-owner acknowledgment for product-impacting waves (feature changes shifting product behavior/UX/acceptance).
 8. Update wave record status to `Status: active`.

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-18
+Last verified: 2026-05-29
 
 ## The Problem
 
@@ -68,7 +68,7 @@ The vector retrieval layer uses **LanceDB** — an Apache 2.0 embedded in-proces
 
 1. **Memory-mapped files, not full matrix loads.** The legacy numpy path loaded the full `.npy` matrix into RAM on every cold start. LanceDB memory-maps Lance columnar files — only pages touched by a query are read.
 2. **Native HNSW index above threshold.** When a table reaches `LANCEDB_INDEX_THRESHOLD = 1000` rows, an `IVF_HNSW_SQ` index is built automatically. Below that threshold, LanceDB performs a flat scan (comparable to numpy) with no index overhead.
-3. **True deletion path.** The numpy backend had no deletion path — a file removal required a full rebuild. LanceDB supports `table.delete("path = '...'"`) for incremental updates.
+3. **True deletion path.** The numpy backend had no deletion path — a file removal required a full rebuild. LanceDB supports filtered deletes for incremental updates, including row-level deletes by chunk id.
 4. **Predicate pushdown.** `where` SQL predicates are pushed into the scan layer, avoiding loading filtered-out rows. The numpy path filtered post-scan.
 5. **Operational simplicity retained.** LanceDB is embedded (no server process) and stores tables as directories under `.wavefoundry/index/lancedb/`. The directory can be deleted and rebuilt with a single `setup_index.py` run.
 
@@ -76,7 +76,7 @@ The vector retrieval layer uses **LanceDB** — an Apache 2.0 embedded in-proces
 
 - `_build_lance_tables` writes `docs` and `code` tables under `index_dir/lancedb/`.
 - On full rebuild (`--full`), `_cleanup_legacy_index_files` verifies the Lance tables are non-empty and then deletes `docs.npy`, `docs.json`, `code.npy`, `code.json`. `meta.json` is never deleted.
-- During incremental updates, `_update_lance_table` deletes-then-adds rows for changed files. `_optimize_lance_table` compacts the table when the fragment count exceeds `LANCEDB_COMPACT_THRESHOLD = 20`.
+- During incremental updates, the indexer reads existing rows for stale paths, compares `chunk_hash` values against freshly generated chunks, reuses unchanged vectors, embeds only changed/new chunks, deletes removed or replaced row ids, and appends current rows. `_optimize_lance_table` compacts the table when the fragment count exceeds `LANCEDB_COMPACT_THRESHOLD = 20`.
 - If lancedb is not installed (e.g. CI without the extra dep), the numpy files are written and the numpy fallback path in `WaveIndex._ensure_loaded` is used transparently.
 
 **Fallback path:**
@@ -141,6 +141,8 @@ Both kinds are prepended to their file's chunk list so they appear first in retr
 The `answer` field is mechanically assembled from the top citation — it names the file and line range, not a synthesized prose response. This is intentional: the tool is designed to be called by an agent that will read the cited sources and reason over them, not to replace that reasoning. Synthesis is the caller's job; retrieval and citation is `code_ask`'s job.
 
 `confidence` is heuristic: `high` = 2+ citations, `medium` = 1 citation, `low` = 0. `index_freshness` is `"stale"` when any indexed chunker version differs from the current `CHUNKER_VERSION`.
+
+`CHUNKER_VERSION` `"22"` introduced per-row `chunk_hash` metadata so incremental updates can reuse existing LanceDB vectors for unchanged chunks inside a changed file. The version bump intentionally forces a one-time rebuild of existing tables so old rows without `chunk_hash` are not mixed with new rows that depend on it.
 
 `code_ask` citations preserve the pre-partition reranker `score`, but `final_rank` reflects the actual output order after the soft partition rules run. When `demoted: true` is present, the lower position is intentional and `partition_reason` explains whether the citation was demoted as `seed`, `feedback`, or a journal/report-style path.
 

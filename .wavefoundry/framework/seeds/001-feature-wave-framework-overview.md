@@ -89,7 +89,7 @@ flowchart TD
 - Readiness includes validating that admitted change docs are already in `docs/waves/<wave-id>/`, repairing staged-only drift when needed, and clearing duplicate staging copies.
 - The readiness evaluation determines which implementer lanes, reviewer lanes, persona lanes, and any required Wave Council seats must participate.
 - If a user asks to implement the wave directly, the coordinator should run or confirm this readiness evaluation automatically first.
-- When the project enables Wave Council, readiness is not complete until the council-moderator has synthesized the isolated council-seat outputs into a recorded `wave-council-readiness` verdict.
+- When the project enables Wave Council, readiness is not complete until the council-moderator has synthesized the isolated council-seat outputs into a recorded `wave-council-readiness` verdict and the wave record contains a structured `prepare-council` verdict line in `## Review Checkpoints`.
 
 ## 3. Implement The Wave
 
@@ -110,7 +110,7 @@ flowchart TD
 
 - Implementation should stay inside the admitted wave scope; changes outside the wave must wait for the next wave.
 - Implementation should start only after readiness has passed; otherwise the coordinator must block and repair the prerequisites first.
-- The mandatory first phase of `Implement wave` is a **pre-implementation review gate**: the coordinator runs a pre-mortem (3–5 most likely failure modes), verifies packet completeness, and records a `pre-implementation-review: passed/blocked (<date>)` verdict in `## Review Checkpoints` before the first code edit. No code edit may begin until the verdict is `passed`.
+- The mandatory first phase of `Implement wave` is a **pre-implementation review gate**: the coordinator runs a pre-mortem (3–5 most likely failure modes), verifies packet completeness, and records a `pre-implementation-review: passed/blocked (<date>)` verdict in `## Review Checkpoints` before the first code edit. No code edit may begin until the verdict is `passed`. If Wave Council is enabled, the gate also requires the structured `prepare-council` verdict line before implementation may start.
 - Admitted change docs should already live under `docs/waves/<wave-id>/` after `Add change to wave`; `Prepare wave` repairs drift defensively if staging copies remain.
 - Verification follows the project's build, test, docs, and smoke-check procedures before wave closure.
 - For exact reviewer roles, personas, and gate triggers, use the seeded project's agent-team workflow and review docs.

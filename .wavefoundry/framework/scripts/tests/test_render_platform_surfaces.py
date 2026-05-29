@@ -132,6 +132,8 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             aiignore_text = (repo_root / ".aiignore").read_text(encoding="utf-8")
             self.assertIn(".wavefoundry/index/", aiignore_text)
             self.assertIn(".wavefoundry/framework/index/", aiignore_text)
+            self.assertIn(".wavefoundry/*.lock", aiignore_text)
+            self.assertIn(".wavefoundry/framework/*.lock", aiignore_text)
             self.assertNotIn(".wavefoundry/framework/seeds/*.prompt.md", aiignore_text)
 
             # bin launchers created by render_bin_launchers (called unconditionally from main)

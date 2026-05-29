@@ -792,9 +792,9 @@ class UpgradeLogTests(unittest.TestCase):
         self.mod._log("timestamped line")
         self.mod._close_log()
         content = self._log_path().read_text(encoding="utf-8")
-        # Timestamps are [HH:MM:SS] format
+        # Timestamps are absolute UTC date-time stamps.
         import re
-        self.assertRegex(content, r"\[\d{2}:\d{2}:\d{2}\]")
+        self.assertRegex(content, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00 timestamped line")
 
     def test_err_also_written_to_log(self):
         self.mod._open_log(self.root, mode="w")

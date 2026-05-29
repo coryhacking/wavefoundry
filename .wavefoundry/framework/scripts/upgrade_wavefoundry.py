@@ -111,8 +111,8 @@ def _log(msg: str) -> None:
     print(msg, flush=True)
     if _log_file is not None:
         try:
-            ts = datetime.datetime.now().strftime("%H:%M:%S")
-            _log_file.write(f"[{ts}] {msg}\n")
+            ts = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+            _log_file.write(f"{ts} {msg}\n")
         except OSError:
             pass
 
@@ -122,8 +122,8 @@ def _err(msg: str) -> None:
     print(full, file=sys.stderr, flush=True)
     if _log_file is not None:
         try:
-            ts = datetime.datetime.now().strftime("%H:%M:%S")
-            _log_file.write(f"[{ts}] {full}\n")
+            ts = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+            _log_file.write(f"{ts} {full}\n")
         except OSError:
             pass
 

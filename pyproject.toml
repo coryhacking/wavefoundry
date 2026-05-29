@@ -28,7 +28,9 @@ classifiers = [
 dependencies = [
     "packaging>=24",
     "fastembed",
+    "igraph>=0.11",
     "lancedb",
+    "leidenalg>=0.10",
     "mcp[cli]",
     "numpy",
     "tree-sitter>=0.24,<0.26",

@@ -187,7 +187,7 @@ def _ts_collapse_body(text: str, max_lines: int = 150) -> str:
     return "\n".join(lines[:max_lines])
 
 
-CHUNKER_VERSION = "21"
+CHUNKER_VERSION = "22"
 
 # Lines per window and overlap for the line-window fallback chunker.
 WINDOW_SIZE = 120

@@ -721,38 +721,30 @@ function Metrics({ snapshot, scopeChanges, onWavesClick, onChangesClick, onAcsCl
     { label: p(gitFileCount, "File changed", "Files changed"), value: gitFileCount, note: fileNote, onClick: onFilesClick, variant: "files" },
     (() => {
       const projectIdx = health.index?.project || {};
-      const frameworkIdx = health.index?.framework || {};
-      const projectDocChunks = Number(projectIdx.doc_chunks) || 0;
-      const projectCodeChunks = Number(projectIdx.code_chunks) || 0;
-      const frameworkDocChunks = Number(frameworkIdx.doc_chunks) || 0;
-      const frameworkCodeChunks = Number(frameworkIdx.code_chunks) || 0;
-      const totalChunks = projectDocChunks + projectCodeChunks + frameworkDocChunks + frameworkCodeChunks;
-      const totalFiles = (Number(projectIdx.files_indexed) || 0) + (Number(frameworkIdx.files_indexed) || 0);
-      const buildStatus = projectIdx.build_status === "running" || frameworkIdx.build_status === "running"
+      const projectGraph = health.graph?.project || {};
+      const totalChunks = (Number(projectIdx.doc_chunks) || 0) + (Number(projectIdx.code_chunks) || 0);
+      const totalFiles = Number(projectIdx.files_indexed) || 0;
+      const graphNodes = Number(projectGraph.counts?.nodes) || 0;
+      const graphEdges = Number(projectGraph.counts?.edges) || 0;
+      const buildStatus = projectIdx.build_status === "running"
         ? "running"
-        : projectIdx.build_status === "failed" || frameworkIdx.build_status === "failed"
+        : projectIdx.build_status === "failed"
           ? "failed"
           : null;
-      const isStale = projectIdx.stale === true || frameworkIdx.stale === true;
-      const state = buildStatus === "running" ? "running" : buildStatus === "failed" ? "failed" : isStale ? "stale" : null;
+      const noSemanticIndex = !projectIdx.present;
+      const state = buildStatus === "running" ? "running" : buildStatus === "failed" ? "failed" : null;
       const statusText = buildStatus === "running"
         ? "Indexing..."
         : buildStatus === "failed"
           ? "Index build failed"
-          : isStale
-            ? "Stale..."
-            : (!projectIdx.present && !frameworkIdx.present)
-              ? "Not yet built"
-              : null;
+          : null;
       const note = h(React.Fragment, null,
         h("div", { className: "metric-subnote" }, `files, ${totalChunks.toLocaleString()} chunks`),
-        frameworkCodeChunks > 0
-          ? h("div", { className: "metric-subnote" }, `framework code, ${frameworkCodeChunks.toLocaleString()} chunks`)
-          : null,
+        h("div", { className: "metric-subnote" }, `${graphNodes.toLocaleString()} nodes · ${graphEdges.toLocaleString()} edges`),
         h("div", { className: "metric-status-line" }, statusText || "\u00A0"),
       );
       const value = totalFiles ? totalFiles.toLocaleString() : (buildStatus === "running" ? "Indexing…" : "Missing");
-      return { label: "Semantic Index", value, note, state, onClick: onIndexClick, variant: "index" };
+      return { label: "Index", value, note, state, onClick: onIndexClick, variant: "index" };
     })(),
   ];
 
@@ -793,7 +785,7 @@ function buildFileTree(entries) {
   return root;
 }
 
-function FileTree({ node, depth = 0 }) {
+function FileTree({ node, depth = 0, onFileClick = null, pathPrefix = "" }) {
   const entries = Object.entries(node).sort(([ak, av], [bk, bv]) => {
     const aDir = !Array.isArray(av) && typeof av === "object" && av !== null;
     const bDir = !Array.isArray(bv) && typeof bv === "object" && bv !== null;
@@ -803,10 +795,11 @@ function FileTree({ node, depth = 0 }) {
   return h("ul", { className: "file-tree", style: depth === 0 ? {} : { paddingLeft: "1.1em" } },
     entries.map(([name, child]) => {
       const isDir = !Array.isArray(child) && typeof child === "object" && child !== null;
+      const fullPath = pathPrefix ? `${pathPrefix}/${name}` : name;
       if (isDir) {
         return h("li", { key: name, className: "file-tree-dir" },
           h("span", { className: "file-tree-dir-name" }, name + "/"),
-          h(FileTree, { node: child, depth: depth + 1 }),
+          h(FileTree, { node: child, depth: depth + 1, onFileClick, pathPrefix: fullPath }),
         );
       }
       const [status, linesAdded, linesDeleted] = Array.isArray(child) ? child : [child, null, null];
@@ -817,12 +810,53 @@ function FileTree({ node, depth = 0 }) {
             (!isNew && linesDeleted) ? h("span", { className: "file-tree-lines-deleted" }, `-${linesDeleted}`) : null,
           )
         : null;
-      return h("li", { key: name, className: `file-tree-file file-tree-file--${status}` },
-        h("span", null, name),
-        lineCountEl,
-      );
+      const leafProps = {
+        key: name,
+        className: `file-tree-file file-tree-file--${status}`,
+        ...(onFileClick ? { "data-clickable": "1", onClick: () => onFileClick(fullPath) } : {}),
+      };
+      return h("li", leafProps, h("span", null, name), lineCountEl);
     }),
   );
+}
+
+function DiffDialog({ filePath, onClose }) {
+  const [diffText, setDiffText] = useState(null);
+  useEffect(() => {
+    fetch(`/api/diff?path=${encodeURIComponent(filePath)}`)
+      .then(r => r.text())
+      .then(text => setDiffText(text))
+      .catch(() => setDiffText(""));
+  }, [filePath]);
+
+  const renderDiff = (text) => {
+    if (text === null) return h("div", { className: "empty-state" }, "Loading…");
+    const trimmed = text.trim();
+    if (!trimmed) return h("div", { className: "empty-state" }, "No changes.");
+    const lines = text.split("\n").filter(line =>
+      !line.startsWith("diff ") && !line.startsWith("index ") &&
+      !line.startsWith("--- ") && !line.startsWith("+++ ")
+    );
+    return h("div", { className: "diff-view" },
+      h("div", { className: "diff-view-lines" },
+        lines.map((line, i) => {
+          let cls = "diff-line diff-line--context";
+          if (line.startsWith("@@")) cls = "diff-line diff-line--hunk";
+          else if (line.startsWith("+")) cls = "diff-line diff-line--added";
+          else if (line.startsWith("-")) cls = "diff-line diff-line--removed";
+          return h("span", { key: i, className: cls }, line || " ");
+        }),
+      ),
+    );
+  };
+
+  const fileName = filePath.split("/").pop();
+  return h(DialogFrame, {
+    className: "diff-dialog",
+    title: fileName,
+    subtitle: filePath,
+    onClose,
+  }, renderDiff(diffText));
 }
 
 function DialogFrame({ className, title, subtitle, meta, onClose, children }) {
@@ -954,6 +988,7 @@ function TasksDialog({ snapshot, onClose }) {
 
 function FilesDialog({ title, files, emptyMessage, onClose }) {
   const dialogRef = useRef(null);
+  const [diffFile, setDiffFile] = useState(null);
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
@@ -965,19 +1000,1015 @@ function FilesDialog({ title, files, emptyMessage, onClose }) {
   const handleBackdropClick = (e) => { if (e.target === dialogRef.current) onClose(); };
   const tree = buildFileTree(files);
 
-  return h("dialog", { ref: dialogRef, className: "agent-dialog files-dialog", onClick: handleBackdropClick },
-    h("div", { className: "agent-dialog-header" },
-      h("div", { className: "files-dialog-header-text" },
-        h("h2", { className: "agent-dialog-title" }, title),
-        h("span", { className: "files-dialog-subtitle" }, `${files.length} ${files.length === 1 ? "file" : "files"}`),
+  return h(
+    React.Fragment,
+    null,
+    h("dialog", { ref: dialogRef, className: "agent-dialog files-dialog", onClick: handleBackdropClick },
+      h("div", { className: "agent-dialog-header" },
+        h("div", { className: "files-dialog-header-text" },
+          h("h2", { className: "agent-dialog-title" }, title),
+          h("span", { className: "files-dialog-subtitle" }, `${files.length} ${files.length === 1 ? "file" : "files"}`),
+        ),
+        h("button", { className: "agent-dialog-close", "aria-label": "Close", onClick: onClose }, "×"),
       ),
-      h("button", { className: "agent-dialog-close", "aria-label": "Close", onClick: onClose }, "×"),
+      h("div", { className: "agent-dialog-body" },
+        files.length
+          ? h(FileTree, { node: tree, onFileClick: setDiffFile })
+          : h("div", { className: "empty-state" }, emptyMessage || "No files."),
+      ),
     ),
-    h("div", { className: "agent-dialog-body" },
-      files.length
-        ? h(FileTree, { node: tree })
-        : h("div", { className: "empty-state" }, emptyMessage || "No files."),
+    diffFile ? h(DiffDialog, { filePath: diffFile, onClose: () => setDiffFile(null) }) : null,
+  );
+}
+
+const GRAPH_KIND_COLORS = {
+  module: "#1976d2",
+  class: "#6f42c1",
+  function: "#53ac04",
+  doc: "#495057",
+  seed: "#c25800",
+  community: "#0f766e",
+  external: "#7a7f87",
+};
+
+const GRAPH_RELATION_COLORS = {
+  defines: "#1976d2",
+  imports: "#6f42c1",
+  calls: "#53ac04",
+  doc_references_code: "#ff9100",
+};
+
+const DEFAULT_GRAPH_RELATIONS = ["defines", "calls"];
+const GRAPH_MIN_COMMUNITY_NODES = 2;
+const GRAPH_OVERVIEW_COMMUNITY_LIMIT = 24;
+const GRAPH_COMMUNITY_QUICK_PICK_LIMIT = 6;
+const GRAPH_COMMUNITY_DRILLDOWN_LIMIT = 50;
+const GRAPH_OVERVIEW_SEED_LIMIT = 24;
+
+function _hexToRgba(hex, alpha) {
+  const value = String(hex || "").trim().replace(/^#/, "");
+  if (value.length !== 6) return `rgba(0, 0, 0, ${alpha})`;
+  const r = parseInt(value.slice(0, 2), 16);
+  const g = parseInt(value.slice(2, 4), 16);
+  const b = parseInt(value.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function _hashString(value) {
+  let h = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    h = Math.imul(31, h) + value.charCodeAt(i);
+    h |= 0;
+  }
+  return Math.abs(h);
+}
+
+function _graphKindBucket(kind) {
+  return GRAPH_KIND_COLORS[kind] ? kind : "external";
+}
+
+function _graphLabel(node) {
+  return String(node?.label || node?.id || "").trim();
+}
+
+function _graphNodeRadius(node, degree) {
+  const kind = _graphKindBucket(node?.kind);
+  const base = kind === "community"
+    ? 18
+    : kind === "module"
+      ? 14
+    : kind === "class"
+      ? 13
+      : kind === "function"
+        ? 12
+        : 10;
+  const clusterBoost = kind === "community"
+    ? Math.min(10, Math.max(0, Math.sqrt(Number(node?.node_count || node?.total_node_count || degree || 0))))
+    : Math.min(4, Math.max(0, degree / 4));
+  return Math.min(kind === "community" ? 28 : 21, base + clusterBoost);
+}
+
+function _graphSeedPosition(node, index, total, width, height) {
+  const key = `${node.id || index}`;
+  const angle = ((_hashString(key) % 360) / 180) * Math.PI;
+  const ring = total > 1 ? Math.min(width, height) * (0.16 + ((index % 5) * 0.08)) : Math.min(width, height) * 0.18;
+  return {
+    x: width / 2 + Math.cos(angle) * ring,
+    y: height / 2 + Math.sin(angle) * ring,
+  };
+}
+
+function _layoutGraph(nodes, edges, width, height) {
+  const positions = new Map();
+  const nodeIndex = new Map(nodes.map((node, index) => [node.id, index]));
+  const degree = new Map(nodes.map((node) => [node.id, 0]));
+  const links = [];
+
+  for (const edge of edges) {
+    const sourceIndex = nodeIndex.get(edge.source);
+    const targetIndex = nodeIndex.get(edge.target);
+    if (sourceIndex === undefined || targetIndex === undefined) continue;
+    links.push([sourceIndex, targetIndex, edge]);
+    degree.set(nodes[sourceIndex].id, (degree.get(nodes[sourceIndex].id) || 0) + 1);
+    degree.set(nodes[targetIndex].id, (degree.get(nodes[targetIndex].id) || 0) + 1);
+  }
+
+  for (let i = 0; i < nodes.length; i += 1) {
+    positions.set(nodes[i].id, {
+      ..._graphSeedPosition(nodes[i], i, nodes.length, width, height),
+      vx: 0,
+      vy: 0,
+    });
+  }
+
+  const radii = new Map(nodes.map((node) => [node.id, _graphNodeRadius(node, degree.get(node.id) || 0)]));
+
+  const repel = 4800;
+  const spring = 0.008;
+  const center = 0.0025;
+  const damping = 0.82;
+
+  for (let iter = 0; iter < 120; iter += 1) {
+    for (let i = 0; i < nodes.length; i += 1) {
+      const a = positions.get(nodes[i].id);
+      if (!a) continue;
+      for (let j = i + 1; j < nodes.length; j += 1) {
+        const b = positions.get(nodes[j].id);
+        if (!b) continue;
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const minDist = (radii.get(nodes[i].id) || 10) + (radii.get(nodes[j].id) || 10) + 42;
+        if (dist < minDist) dist = minDist;
+        const force = repel / (dist * dist);
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+        a.vx -= fx;
+        a.vy -= fy;
+        b.vx += fx;
+        b.vy += fy;
+      }
+    }
+
+    for (const [sourceIndex, targetIndex] of links) {
+      const a = positions.get(nodes[sourceIndex].id);
+      const b = positions.get(nodes[targetIndex].id);
+      if (!a || !b) continue;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const desired = (radii.get(nodes[sourceIndex].id) || 10) + (radii.get(nodes[targetIndex].id) || 10) + 84;
+      const force = (dist - desired) * spring;
+      const fx = (dx / dist) * force;
+      const fy = (dy / dist) * force;
+      a.vx += fx;
+      a.vy += fy;
+      b.vx -= fx;
+      b.vy -= fy;
+    }
+
+    for (const node of nodes) {
+      const pos = positions.get(node.id);
+      if (!pos) continue;
+      pos.vx += (width / 2 - pos.x) * center;
+      pos.vy += (height / 2 - pos.y) * center;
+      pos.vx *= damping;
+      pos.vy *= damping;
+      pos.x += pos.vx;
+      pos.y += pos.vy;
+      pos.x = Math.max(24, Math.min(width - 24, pos.x));
+      pos.y = Math.max(24, Math.min(height - 24, pos.y));
+    }
+  }
+
+  return positions;
+}
+
+function _graphCommunityNodeId(communityId) {
+  return `community:${String(communityId || "").trim() || "__ungrouped__"}`;
+}
+
+function _communityInspectabilityScore(cluster) {
+  const nodeCount = Math.max(0, Number(cluster?.node_count || 0));
+  const boundaryCount = Math.max(0, Number(cluster?.boundary_node_count || 0));
+  if (!nodeCount) return 0;
+  return (boundaryCount / nodeCount) * Math.log2(nodeCount + 1);
+}
+
+function _isMeaningfulCommunity(cluster) {
+  return Math.max(0, Number(cluster?.node_count || 0)) >= GRAPH_MIN_COMMUNITY_NODES;
+}
+
+function _buildCommunityOverviewGraph(nodes, edges, communities, selectedRelations) {
+  const nodeById = new Map(nodes.map(node => [String(node.id || ""), node]));
+  const communityByNodeId = new Map();
+  const communityById = new Map();
+  const orderedCommunities = Array.isArray(communities) ? communities.slice() : [];
+  orderedCommunities.sort((a, b) =>
+    _communityInspectabilityScore(b) - _communityInspectabilityScore(a)
+    || (Number(b.boundary_node_count) || 0) - (Number(a.boundary_node_count) || 0)
+    || (Number(b.node_count) || 0) - (Number(a.node_count) || 0)
+    || String(a.label || a.community_id || "").localeCompare(String(b.label || b.community_id || ""))
+  );
+
+  for (const cluster of orderedCommunities) {
+    const communityId = String(cluster?.community_id || "").trim();
+    if (!communityId) continue;
+    if (!_isMeaningfulCommunity(cluster)) continue;
+    const nodeIds = Array.isArray(cluster.node_ids) ? cluster.node_ids.map(id => String(id)) : [];
+    const meta = {
+      ...cluster,
+      community_id: communityId,
+      node_ids: nodeIds,
+      label: String(cluster.label || communityId).trim() || communityId,
+    };
+    communityById.set(communityId, meta);
+    for (const nodeId of nodeIds) {
+      if (!communityByNodeId.has(nodeId)) communityByNodeId.set(nodeId, meta);
+    }
+  }
+
+  const grouped = new Map();
+  const fallbackId = "__ungrouped__";
+
+  for (const node of nodes) {
+    const nodeId = String(node.id || "").trim();
+    if (!nodeId) continue;
+    const cluster = communityByNodeId.get(nodeId) || null;
+    const communityId = cluster ? cluster.community_id : fallbackId;
+    const community = cluster || communityById.get(communityId) || {
+      community_id: communityId,
+      label: "Ungrouped",
+      node_count: 0,
+      boundary_node_count: 0,
+      node_ids: [],
+    };
+    let bucket = grouped.get(communityId);
+    if (!bucket) {
+      bucket = {
+        community_id: community.community_id,
+        label: community.label || community.community_id,
+        node_ids: [],
+        node_count: 0,
+        total_node_count: Number(community.node_count) || 0,
+        boundary_node_count: Number(community.boundary_node_count) || 0,
+      };
+      grouped.set(communityId, bucket);
+    }
+    bucket.node_ids.push(nodeId);
+    bucket.node_count += 1;
+  }
+
+  const buckets = Array.from(grouped.values());
+  const realBuckets = buckets.filter(bucket => bucket.community_id !== fallbackId && bucket.node_count > 0);
+  const overviewBuckets = realBuckets.length
+    ? realBuckets
+        .sort((a, b) =>
+          _communityInspectabilityScore(b) - _communityInspectabilityScore(a)
+          || (Number(b.boundary_node_count) || 0) - (Number(a.boundary_node_count) || 0)
+          || (Number(b.node_count) || 0) - (Number(a.node_count) || 0)
+          || String(a.label || a.community_id || "").localeCompare(String(b.label || b.community_id || ""))
+        )
+        .slice(0, GRAPH_OVERVIEW_COMMUNITY_LIMIT)
+    : buckets
+        .filter(bucket => bucket.community_id === fallbackId && bucket.node_count > 0)
+        .slice(0, 1);
+
+  const overviewNodes = overviewBuckets
+    .sort((a, b) =>
+      _communityInspectabilityScore(b) - _communityInspectabilityScore(a)
+      || (Number(b.boundary_node_count) || 0) - (Number(a.boundary_node_count) || 0)
+      || (Number(b.node_count) || 0) - (Number(a.node_count) || 0)
+      || String(a.label || a.community_id || "").localeCompare(String(b.label || b.community_id || ""))
+    )
+    .map(bucket => ({
+      id: _graphCommunityNodeId(bucket.community_id),
+      label: bucket.label || bucket.community_id,
+      kind: "community",
+      community_id: bucket.community_id,
+      node_count: bucket.node_count,
+      total_node_count: bucket.total_node_count || bucket.node_count,
+      boundary_node_count: bucket.boundary_node_count || 0,
+    }));
+
+  if (!realBuckets.length) {
+    return {
+      nodes: [],
+      edges: [],
+      fallback_nodes: overviewNodes,
+    };
+  }
+
+  const aggregateByCommunityId = new Map(overviewNodes.map(node => [String(node.community_id || ""), node]));
+  const aggregatedEdges = new Map();
+
+  for (const edge of edges) {
+    const relation = String(edge.relation || "");
+    if (selectedRelations && selectedRelations.size && !selectedRelations.has(relation)) continue;
+    const sourceNode = nodeById.get(String(edge.source || ""));
+    const targetNode = nodeById.get(String(edge.target || ""));
+    if (!sourceNode || !targetNode) continue;
+    const sourceCluster = communityByNodeId.get(String(sourceNode.id || "")) || null;
+    const targetCluster = communityByNodeId.get(String(targetNode.id || "")) || null;
+    const sourceCommunityId = sourceCluster ? sourceCluster.community_id : fallbackId;
+    const targetCommunityId = targetCluster ? targetCluster.community_id : fallbackId;
+    if (sourceCommunityId === targetCommunityId) continue;
+    const sourceCommunity = aggregateByCommunityId.get(sourceCommunityId);
+    const targetCommunity = aggregateByCommunityId.get(targetCommunityId);
+    if (!sourceCommunity || !targetCommunity) continue;
+    const key = `${sourceCommunity.id}::${targetCommunity.id}::${relation}`;
+    const current = aggregatedEdges.get(key) || {
+      source: sourceCommunity.id,
+      target: targetCommunity.id,
+      relation,
+      count: 0,
+      weight: 0,
+    };
+    current.count += 1;
+    current.weight += 1;
+    aggregatedEdges.set(key, current);
+  }
+
+  return {
+    nodes: overviewNodes,
+    edges: Array.from(aggregatedEdges.values()).sort((a, b) =>
+      (Number(b.weight) || 0) - (Number(a.weight) || 0)
+      || String(a.source).localeCompare(String(b.source))
+      || String(a.target).localeCompare(String(b.target))
+      || String(a.relation).localeCompare(String(b.relation))
     ),
+  };
+}
+
+function GraphPanel({ snapshot }) {
+  // Project-layer only; framework-layer visualization is deferred to the graph
+  // visualization/navigation overhaul, not exposed in this panel.
+  const layer = "project";
+  const [graph, setGraph] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [viewMode, setViewMode] = useState("overview");
+  const [selectedKinds, setSelectedKinds] = useState(() => new Set());
+  const [selectedRelations, setSelectedRelations] = useState(() => new Set(DEFAULT_GRAPH_RELATIONS));
+  const [selectedNodeId, setSelectedNodeId] = useState("");
+  const [hoveredNodeId, setHoveredNodeId] = useState("");
+  const [selectedFile, setSelectedFile] = useState("");
+  const [selectedClusterId, setSelectedClusterId] = useState("");
+  const OVERVIEW_CRUMB = { label: "Overview", viewMode: "overview", selectedNodeId: "", selectedClusterId: "", selectedFile: "" };
+  const [navHistory, setNavHistory] = useState([OVERVIEW_CRUMB]);
+  // Refs for browser-history sync — avoid stale closures in popstate/keydown handlers.
+  const _navHistoryRef = useRef([OVERVIEW_CRUMB]);
+  const _browserNavIndexRef = useRef(0);
+  const _suppressPopstateRef = useRef(false);
+  const graphVersion = snapshot?.health?.graph?.[layer]?.graph_version || snapshot?.health?.graph?.[layer]?.graph_mtime || 0;
+
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    async function loadGraph() {
+      setLoading(true);
+      setError("");
+      try {
+        const response = await fetch(`/api/graph?layer=${encodeURIComponent(layer)}`, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) {
+          throw new Error(`Graph request failed with ${response.status}`);
+        }
+        const data = await response.json();
+        if (!cancelled) {
+          setGraph(data);
+          setSelectedNodeId("");
+        }
+      } catch (err) {
+        if (!cancelled && err.name !== "AbortError") {
+          setError(err.message || String(err));
+          setGraph(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    loadGraph();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [layer, graphVersion]);
+
+  const nodes = graph?.nodes || [];
+  const edges = graph?.edges || [];
+  const graphCounts = graph?.counts || {};
+  const clusterCommunities = Array.isArray(graph?.clusters?.communities) ? graph.clusters.communities.slice() : [];
+  const meaningfulCommunities = clusterCommunities.filter(_isMeaningfulCommunity);
+  const selectedCluster = selectedClusterId
+    ? meaningfulCommunities.find(cluster => String(cluster.community_id || "") === selectedClusterId) || null
+    : null;
+  const selectedClusterNodeIds = selectedCluster ? new Set((selectedCluster.node_ids || []).map(id => String(id))) : null;
+  const inFixedCommunity = selectedCluster?.kind === "fixed";
+  // Exclude fixed-community nodes only when drilling into a production community,
+  // so Tests/Config/etc. don't leak into focus views. In the overview and when
+  // viewing a fixed community itself, all nodes are visible.
+  const inProductionDrillDown = selectedCluster !== null && !inFixedCommunity;
+  const fixedNodeIds = inProductionDrillDown ? (() => {
+    const ids = new Set();
+    for (const c of clusterCommunities) {
+      if (c.kind === "fixed") for (const id of (c.node_ids || [])) ids.add(String(id));
+    }
+    return ids;
+  })() : null;
+  const relationKinds = Array.from(new Set(edges.map(e => String(e.relation || "")).filter(Boolean))).sort();
+  const nodeKinds = Array.from(new Set(nodes.map(n => String(n.kind || "")).filter(Boolean))).sort();
+  const graphKindOptions = nodeKinds.length ? nodeKinds : ["module", "class", "function", "doc", "seed", "external"];
+  const fileCounts = new Map();
+  for (const node of nodes) {
+    const key = String(node.source_file || "").trim();
+    if (!key) continue;
+    fileCounts.set(key, (fileCounts.get(key) || 0) + 1);
+  }
+  const fileOptions = Array.from(fileCounts.entries())
+    .sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
+    .slice(0, 24)
+    .map(([path, count]) => ({ path, count }));
+  const filteredNodes = nodes.filter(node => {
+    const q = query.trim().toLowerCase();
+    const matchesQuery = !q
+      || String(node.id || "").toLowerCase().includes(q)
+      || String(node.label || "").toLowerCase().includes(q)
+      || String(node.source_file || "").toLowerCase().includes(q);
+    const matchesKind = !selectedKinds.size || selectedKinds.has(String(node.kind || ""));
+    const matchesFile = !selectedFile || String(node.source_file || "") === selectedFile;
+    const matchesCluster = !selectedClusterNodeIds || selectedClusterNodeIds.has(node.id);
+    const notFixed = !fixedNodeIds || !fixedNodeIds.has(String(node.id || ""));
+    return matchesQuery && matchesKind && matchesFile && matchesCluster && notFixed;
+  });
+  const degreeMap = new Map();
+  for (const edge of edges) {
+    degreeMap.set(edge.source, (degreeMap.get(edge.source) || 0) + 1);
+    degreeMap.set(edge.target, (degreeMap.get(edge.target) || 0) + 1);
+  }
+  const previewNodeId = selectedNodeId || hoveredNodeId;
+  const connectedNodeIds = new Set();
+  if (selectedNodeId) {
+    connectedNodeIds.add(selectedNodeId);
+    for (const edge of edges) {
+      if (edge.source === selectedNodeId || edge.target === selectedNodeId) {
+        connectedNodeIds.add(edge.source);
+        connectedNodeIds.add(edge.target);
+      }
+    }
+  }
+  const sortedByDegree = filteredNodes
+    .slice()
+    .sort((a, b) => (degreeMap.get(b.id) || 0) - (degreeMap.get(a.id) || 0) || String(a.id).localeCompare(String(b.id)));
+  const topHubNodes = sortedByDegree.slice(0, 8);
+  const overviewSeedNodes = [];
+  const overviewSeenIds = new Set();
+  const addOverviewNode = (node) => {
+    if (!node || overviewSeenIds.has(node.id)) return;
+    overviewSeenIds.add(node.id);
+    overviewSeedNodes.push(node);
+  };
+  for (const node of topHubNodes) addOverviewNode(node);
+  for (const file of fileOptions.slice(0, 4)) {
+    const fileNodes = filteredNodes
+      .filter(node => String(node.source_file || "") === file.path)
+      .slice()
+      .sort((a, b) => (degreeMap.get(b.id) || 0) - (degreeMap.get(a.id) || 0) || String(a.id).localeCompare(String(b.id)))
+      .slice(0, 6);
+    for (const node of fileNodes) addOverviewNode(node);
+  }
+  const communityOverview = viewMode === "overview" && !selectedClusterId && meaningfulCommunities.length > 0;
+  const overviewGraph = communityOverview
+    ? _buildCommunityOverviewGraph(filteredNodes, edges, meaningfulCommunities, selectedRelations)
+    : null;
+  const hasCommunityOverview = Boolean(communityOverview && overviewGraph && overviewGraph.nodes.length);
+  const overviewNodes = viewMode === "overview"
+    ? hasCommunityOverview
+      ? overviewGraph.nodes
+      : overviewGraph?.fallback_nodes?.length
+        ? overviewGraph.fallback_nodes.slice(0, 1)
+        : overviewSeedNodes.slice(0, GRAPH_OVERVIEW_SEED_LIMIT)
+    : sortedByDegree.slice(0, 120);
+  const clusterNodes = selectedClusterNodeIds
+    ? filteredNodes
+        .filter(node => selectedClusterNodeIds.has(node.id))
+        .slice()
+        .sort((a, b) => (degreeMap.get(b.id) || 0) - (degreeMap.get(a.id) || 0) || String(a.id).localeCompare(String(b.id)))
+        .slice(0, GRAPH_COMMUNITY_DRILLDOWN_LIMIT)
+    : [];
+  const visibleClusterNodeIds = selectedClusterNodeIds ? new Set(clusterNodes.map(node => node.id)) : null;
+  const focusedNodes = selectedNodeId
+    ? filteredNodes.filter(node => connectedNodeIds.has(node.id))
+    : overviewNodes;
+  const focusedInCluster = selectedNodeId && selectedClusterId && selectedClusterNodeIds
+    ? focusedNodes.filter(node => selectedClusterNodeIds.has(node.id))
+    : null;
+  const visibleNodes = viewMode === "focus" && selectedNodeId
+    ? (focusedInCluster || focusedNodes)
+    : selectedClusterId
+      ? clusterNodes
+      : overviewNodes;
+  const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+  const visibleEdges = edges.filter(edge => {
+    const relation = String(edge.relation || "");
+    const relationOk = !selectedRelations.size || selectedRelations.has(relation);
+    const nodeMatch = viewMode === "focus" && selectedNodeId
+      ? (edge.source === selectedNodeId || edge.target === selectedNodeId) &&
+        (focusedInCluster ? visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target) : true)
+      : hasCommunityOverview
+        ? false
+        : visibleClusterNodeIds
+        ? visibleClusterNodeIds.has(edge.source) && visibleClusterNodeIds.has(edge.target)
+        : visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target);
+    return relationOk && nodeMatch;
+  });
+  const visibleCommunityEdges = hasCommunityOverview ? overviewGraph.edges : visibleEdges;
+  if (!selectedNodeId && previewNodeId) {
+    connectedNodeIds.add(previewNodeId);
+    for (const edge of visibleCommunityEdges) {
+      if (edge.source === previewNodeId || edge.target === previewNodeId) {
+        connectedNodeIds.add(edge.source);
+        connectedNodeIds.add(edge.target);
+      }
+    }
+  }
+  const graphWidth = 1040;
+  const graphHeight = 760;
+  const layout = React.useMemo(
+    () => _layoutGraph(visibleNodes, visibleCommunityEdges, graphWidth, graphHeight),
+    [visibleNodes, visibleCommunityEdges]
+  );
+  const selectedNode = visibleNodes.find(node => node.id === selectedNodeId) || null;
+  const selectedEdges = selectedNode
+    ? visibleCommunityEdges.filter(edge => edge.source === selectedNode.id || edge.target === selectedNode.id)
+    : [];
+  const topNodes = topHubNodes.slice(0, 6);
+  const communityQuickPickPool = clusterCommunities
+    .filter(cluster => _isMeaningfulCommunity(cluster))
+    .sort((a, b) =>
+      _communityInspectabilityScore(b) - _communityInspectabilityScore(a)
+      || (Number(b.boundary_node_count) || 0) - (Number(a.boundary_node_count) || 0)
+      || (Number(b.node_count) || 0) - (Number(a.node_count) || 0)
+      || String(a.label || a.community_id || "").localeCompare(String(b.label || b.community_id || ""))
+    );
+  const topCommunities = (communityQuickPickPool.length ? communityQuickPickPool : meaningfulCommunities.slice())
+    .sort((a, b) =>
+      _communityInspectabilityScore(b) - _communityInspectabilityScore(a)
+      || (Number(b.boundary_node_count) || 0) - (Number(a.boundary_node_count) || 0)
+      || (Number(b.node_count) || 0) - (Number(a.node_count) || 0)
+      || String(a.community_id || "").localeCompare(String(b.community_id || ""))
+    )
+    .slice(0, GRAPH_COMMUNITY_QUICK_PICK_LIMIT);
+  const truncated = filteredNodes.length > visibleNodes.length;
+  const overviewLabel = hasCommunityOverview
+    ? `${visibleNodes.length} communities`
+    : `${visibleNodes.length} visible nodes`;
+  const edgeLabel = hasCommunityOverview
+    ? `${visibleCommunityEdges.length} community links`
+    : `${visibleEdges.length} visible edges`;
+  const selectedMode = selectedNodeId ? "focus" : selectedClusterId ? "overview" : viewMode;
+  const graphEdgeArrowInset = 1.5;
+  const _applyNavState = (crumb) => {
+    setViewMode(crumb.viewMode);
+    setSelectedNodeId(crumb.selectedNodeId);
+    setSelectedClusterId(crumb.selectedClusterId);
+    setSelectedFile(crumb.selectedFile);
+    setHoveredNodeId("");
+  };
+
+  const _setNavHistory = (newHistory) => {
+    _navHistoryRef.current = newHistory;
+    setNavHistory(newHistory);
+  };
+
+  const navigateToCrumb = (index) => {
+    const sliced = _navHistoryRef.current.slice(0, index + 1);
+    if (!sliced.length) return;
+    const delta = index - _browserNavIndexRef.current;
+    if (delta !== 0) { _suppressPopstateRef.current = true; history.go(delta); }
+    _browserNavIndexRef.current = index;
+    _applyNavState(sliced[sliced.length - 1]);
+    _setNavHistory(sliced);
+  };
+
+  const backToOverview = () => {
+    const delta = -_browserNavIndexRef.current;
+    if (delta !== 0) { _suppressPopstateRef.current = true; history.go(delta); }
+    _browserNavIndexRef.current = 0;
+    _applyNavState(OVERVIEW_CRUMB);
+    _setNavHistory([OVERVIEW_CRUMB]);
+  };
+
+  // Stamp the base browser history entry so popstate can identify our entries.
+  useEffect(() => {
+    history.replaceState({ wfGraph: true, navIndex: 0 }, "");
+  }, []);
+
+  // Browser back/forward (trackpad swipe, browser buttons) → restore nav state.
+  useEffect(() => {
+    function onPopState(e) {
+      if (_suppressPopstateRef.current) { _suppressPopstateRef.current = false; return; }
+      if (!e.state?.wfGraph) return;
+      const targetIndex = e.state.navIndex ?? 0;
+      _browserNavIndexRef.current = targetIndex;
+      const sliced = _navHistoryRef.current.slice(0, targetIndex + 1);
+      if (!sliced.length) return;
+      _applyNavState(sliced[sliced.length - 1]);
+      _setNavHistory(sliced);
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []); // stable — all access via refs
+
+  // Backspace / Escape / Alt+← → go back one breadcrumb step (skip when typing).
+  useEffect(() => {
+    function onKeyDown(e) {
+      // A modal dialog owns the keyboard while open — let it handle Escape
+      // (its native `cancel` event closes it) instead of navigating the graph
+      // behind it.
+      if (document.querySelector("dialog[open]")) return;
+      const isBack =
+        e.key === "Backspace" ||
+        e.key === "Escape" ||
+        (e.key === "ArrowLeft" && e.altKey);
+      if (!isBack) return;
+      const tag = (e.target?.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || e.target?.isContentEditable) return;
+      if (_browserNavIndexRef.current < 1) return;
+      e.preventDefault();
+      history.back(); // triggers popstate which handles state update
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []); // stable — all access via refs
+  const selectionCard = selectedNode
+    ? h("div", { className: "graph-selection" },
+        h("div", { className: "graph-selection-title" }, _graphLabel(selectedNode)),
+        h("div", { className: "graph-selection-meta muted" }, `${selectedNode.kind} · ${selectedNode.source_file || selectedNode.id}`),
+        (selectedNode.is_chokepoint || selectedNode.is_entry_point || selectedNode.dead_code_risk)
+          ? h("div", { className: "graph-node-badges" },
+              selectedNode.is_chokepoint ? h("span", { className: "graph-node-badge graph-node-badge--chokepoint" }, "Chokepoint") : null,
+              selectedNode.is_entry_point ? h("span", { className: "graph-node-badge graph-node-badge--entry" }, "Entry point") : null,
+              selectedNode.dead_code_risk ? h("span", { className: "graph-node-badge graph-node-badge--dead" }, "Dead code risk") : null,
+            )
+          : null,
+        selectedEdges.length
+          ? h("ul", { className: "graph-selection-edges" },
+              selectedEdges.slice(0, 8).map((edge, i) =>
+                h("li", { key: `${edge.source}-${edge.target}-${i}` },
+                  h("span", { className: "graph-selection-rel" }, edge.relation.replace(/_/g, " ")),
+                  " ",
+                  h("span", { className: "graph-selection-target" },
+                    edge.source === selectedNode.id ? edge.target : edge.source,
+                  ),
+                )
+              ),
+            )
+          : null,
+      )
+    : selectedCluster
+      ? h("div", { className: "graph-selection" },
+          h("div", { className: "graph-selection-title" }, selectedCluster.label || selectedCluster.community_id),
+          h("div", { className: "graph-selection-meta muted" }, `${selectedCluster.node_count || 0} nodes · ${selectedCluster.boundary_node_count || 0} boundary nodes`),
+        )
+      : selectedFile
+        ? h("div", { className: "graph-selection" },
+            h("div", { className: "graph-selection-title" }, "File neighborhood"),
+            h("div", { className: "graph-selection-meta muted" }, selectedFile),
+          )
+        : null;
+
+  const toggleSelectionSet = (setter, value) => {
+    setter(prev => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  };
+
+  const clearGraphFilters = () => {
+    setSelectedKinds(new Set());
+    setSelectedRelations(new Set(DEFAULT_GRAPH_RELATIONS));
+    backToOverview();
+  };
+
+  const _pushCrumb = (crumb) => {
+    const prev = _navHistoryRef.current;
+    const existingIdx = prev.findIndex((c, i) =>
+      (c.selectedNodeId === crumb.selectedNodeId &&
+       c.selectedClusterId === crumb.selectedClusterId &&
+       c.selectedFile === crumb.selectedFile) ||
+      (i > 0 && c.label === crumb.label)
+    );
+    if (existingIdx >= 0) {
+      const sliced = prev.slice(0, existingIdx + 1);
+      const delta = existingIdx - _browserNavIndexRef.current;
+      if (delta !== 0) { _suppressPopstateRef.current = true; history.go(delta); }
+      _browserNavIndexRef.current = existingIdx;
+      _applyNavState(sliced[sliced.length - 1]);
+      _setNavHistory(sliced);
+    } else {
+      const newHistory = [...prev, crumb];
+      const newIndex = newHistory.length - 1;
+      history.pushState({ wfGraph: true, navIndex: newIndex }, "");
+      _browserNavIndexRef.current = newIndex;
+      _setNavHistory(newHistory);
+    }
+  };
+
+  const selectNode = (nodeId) => {
+    const node = nodes.find(n => String(n.id || "") === nodeId);
+    const label = node ? _graphLabel(node) : nodeId;
+    _pushCrumb({ label, viewMode: "focus", selectedNodeId: nodeId, selectedClusterId, selectedFile: "" });
+    setSelectedNodeId(nodeId);
+    setHoveredNodeId("");
+    setViewMode("focus");
+  };
+
+  const selectCluster = (clusterId) => {
+    const cluster = meaningfulCommunities.find(c => String(c.community_id || "") === clusterId);
+    const label = cluster ? (String(cluster.label || cluster.community_id || clusterId)) : clusterId;
+    _pushCrumb({ label, viewMode: "overview", selectedNodeId: "", selectedClusterId: clusterId, selectedFile: "" });
+    setSelectedClusterId(clusterId);
+    setSelectedNodeId("");
+    setHoveredNodeId("");
+    setSelectedFile("");
+    setViewMode("overview");
+  };
+
+  const selectFile = (filePath) => {
+    const shortLabel = filePath.split("/").slice(-2).join("/");
+    _pushCrumb({ label: shortLabel, viewMode: "files", selectedNodeId: "", selectedClusterId: "", selectedFile: filePath });
+    setSelectedFile(filePath);
+    setSelectedNodeId("");
+    setViewMode("files");
+  };
+
+  return h("article", { className: "graph-card" },
+    h("div", { className: "graph-header" },
+      h("div", null,
+        h("h2", { className: "panel-heading" }, "Graph"),
+        h("p", { className: "graph-subtitle muted" },
+          graph?.present ? `${graphCounts.nodes || nodes.length} nodes · ${graphCounts.edges || edges.length} edges` : "Graph index has not been built yet."
+        ),
+      ),
+      h("div", { className: "graph-layer-switch", role: "tablist", "aria-label": "Graph layer" },
+        h("button", {
+          type: "button",
+          className: "graph-layer-pill graph-layer-pill--active",
+          role: "tab",
+          "aria-selected": true,
+        }, "project"),
+      ),
+    ),
+    h("div", { className: "graph-mode-switch" },
+      ["overview", "focus", "files"].map(option =>
+        h("button", {
+          key: option,
+          type: "button",
+          className: `graph-layer-pill ${selectedMode === option ? "graph-layer-pill--active" : ""}`,
+          onClick: () => {
+            setViewMode(option);
+            if (option !== "focus") setSelectedNodeId("");
+          },
+        }, option === "overview" ? "Overview" : option === "focus" ? "Focus" : "Files")
+      ),
+      h("button", { type: "button", className: "graph-layer-pill", onClick: clearGraphFilters }, "Clear"),
+    ),
+      h("div", { className: "graph-toolbar" },
+        h("label", { className: "graph-search" },
+          h("span", { className: "graph-search-label" }, "Filter"),
+          h("input", {
+            type: "search",
+          value: query,
+          onChange: (e) => setQuery(e.target.value),
+          placeholder: "file, symbol, or path",
+          }),
+        ),
+        h("div", { className: "graph-filter-group" },
+          h("span", { className: "graph-filter-label" }, "Kinds"),
+          h("div", { className: "graph-kind-pills" },
+            graphKindOptions.map(kind => {
+              const kindColor = GRAPH_KIND_COLORS[_graphKindBucket(kind)] || "var(--panel-border)";
+              const active = selectedKinds.has(kind);
+              return h("button", {
+                key: kind,
+                type: "button",
+                className: `graph-filter-pill graph-filter-pill--kind ${active ? "graph-filter-pill--active" : ""}`,
+                onClick: () => toggleSelectionSet(setSelectedKinds, kind),
+                style: {
+                  "--kind-color": kindColor,
+                  "--kind-bg": active ? _hexToRgba(kindColor, 0.18) : _hexToRgba(kindColor, 0.08),
+                },
+              },
+                h("span", { className: "graph-kind-swatch", style: { backgroundColor: kindColor } }),
+                kind
+              );
+            }),
+          ),
+        ),
+    ),
+    h("details", { className: "graph-filter-details" },
+      h("summary", null, "Annotations"),
+      h("div", { className: "graph-node-badges graph-annotation-legend" },
+        h("span", { className: "graph-node-badge graph-node-badge--chokepoint" }, "Chokepoint — removal disconnects the graph"),
+        h("span", { className: "graph-node-badge graph-node-badge--entry" }, "Entry point — nothing imports this file"),
+        h("span", { className: "graph-node-badge graph-node-badge--dead" }, "Dead code risk — no external callers"),
+      ),
+    ),
+    h("details", { className: "graph-filter-details" },
+      h("summary", null, "Relations"),
+      h("div", { className: "graph-filter-group graph-filter-group--relation" },
+        (relationKinds.length ? relationKinds : ["defines", "imports", "calls", "doc_references_code"]).map(rel =>
+          h("button", {
+            key: rel,
+            type: "button",
+            className: `graph-filter-pill ${selectedRelations.has(rel) ? "graph-filter-pill--active" : ""}`,
+            onClick: () => toggleSelectionSet(setSelectedRelations, rel),
+          }, rel.replace(/_/g, " "))
+        ),
+      ),
+    ),
+      h("div", { className: "graph-quick-picks" },
+        h("div", { className: "graph-quick-picks-group" },
+          h("span", { className: "graph-filter-label" }, "Top hubs"),
+        topNodes.length
+          ? topNodes.map(node =>
+              h("button", {
+                key: node.id,
+                type: "button",
+                className: `graph-filter-pill ${selectedNodeId === node.id ? "graph-filter-pill--active" : ""}`,
+                "aria-pressed": selectedNodeId === node.id,
+                onClick: () => selectNode(node.id),
+              }, _graphLabel(node))
+            )
+          : h("span", { className: "graph-quick-picks-empty muted" }, "No nodes yet."),
+      ),
+      h("div", { className: "graph-quick-picks-group" },
+        h("span", { className: "graph-filter-label" }, "Communities"),
+        topCommunities.length
+          ? topCommunities.map(cluster =>
+              h("button", {
+                key: cluster.community_id,
+                type: "button",
+                className: `graph-filter-pill ${selectedClusterId === cluster.community_id ? "graph-filter-pill--active" : ""}`,
+                "aria-pressed": selectedClusterId === cluster.community_id,
+                onClick: () => selectCluster(cluster.community_id),
+                title: `${cluster.node_count || 0} nodes · ${cluster.boundary_node_count || 0} boundary nodes`,
+              }, `${cluster.label || cluster.community_id} · ${cluster.node_count || 0}`)
+            )
+          : h("span", { className: "graph-quick-picks-empty muted" }, "No communities yet."),
+      ),
+      h("div", { className: "graph-quick-picks-group" },
+        h("span", { className: "graph-filter-label" }, "File neighborhoods"),
+        fileOptions.length
+          ? fileOptions.slice(0, 6).map(file =>
+              h("button", {
+                key: file.path,
+                type: "button",
+                className: `graph-filter-pill ${selectedFile === file.path ? "graph-filter-pill--active" : ""}`,
+                onClick: () => selectFile(file.path),
+              }, file.path.split("/").slice(-2).join("/"))
+            )
+          : h("span", { className: "graph-quick-picks-empty muted" }, "No file groups yet."),
+      ),
+    ),
+    loading ? h("div", { className: "graph-state muted" }, "Loading graph…") : null,
+    error ? h("div", { className: "graph-state graph-state--error" }, error) : null,
+    h("nav", { className: "graph-breadcrumb", "aria-label": "Graph navigation" },
+      (() => {
+        const showEllipsis = navHistory.length > 5;
+        const rendered = [];
+        if (navHistory.length >= 1) rendered.push({ crumb: navHistory[0], realIdx: 0 });
+        if (navHistory.length >= 2) rendered.push({ crumb: navHistory[1], realIdx: 1 });
+        if (showEllipsis) rendered.push({ crumb: null, realIdx: -1 });
+        const shownSet = new Set(rendered.filter(r => r.realIdx >= 0).map(r => r.realIdx));
+        [-3, -2, -1].map(o => navHistory.length + o).filter(idx => idx >= 0 && !shownSet.has(idx))
+          .forEach(idx => rendered.push({ crumb: navHistory[idx], realIdx: idx }));
+        return rendered.map(({ crumb, realIdx }, visIdx) => {
+          if (crumb === null) return h(React.Fragment, { key: "ellipsis" },
+            h("span", { className: "graph-breadcrumb-sep", "aria-hidden": "true" }, "›"),
+            h("span", { className: "graph-breadcrumb-ellipsis" }, "…"),
+          );
+          const isLast = realIdx === navHistory.length - 1;
+          return h(React.Fragment, { key: realIdx },
+            visIdx > 0 ? h("span", { className: "graph-breadcrumb-sep", "aria-hidden": "true" }, "›") : null,
+            isLast
+              ? h("span", { className: "graph-breadcrumb-current" }, crumb.label)
+              : h("button", { type: "button", className: "graph-breadcrumb-item", onClick: () => navigateToCrumb(realIdx) }, crumb.label),
+          );
+        });
+      })(),
+    ),
+    graph?.present ? h("div", { className: "graph-shell" },
+      h("svg", { className: "graph-svg", viewBox: `0 0 ${graphWidth} ${graphHeight}`, role: "img", "aria-label": "Graph visualization" },
+        h("defs", null,
+          h("marker", {
+            id: "graph-arrow",
+            markerWidth: 6,
+            markerHeight: 6,
+            refX: 5.5,
+            refY: 3,
+            orient: "auto",
+            markerUnits: "userSpaceOnUse",
+          }, h("path", { d: "M0,0 L0,6 L9,3 z", fill: "currentColor", opacity: 0.58 })),
+        ),
+        visibleCommunityEdges.map((edge, index) => {
+          const source = layout.get(edge.source);
+          const target = layout.get(edge.target);
+          if (!source || !target) return null;
+          const relation = String(edge.relation || "");
+          const color = GRAPH_RELATION_COLORS[relation] || "var(--panel-border)";
+          const sourceNode = visibleNodes.find(node => node.id === edge.source) || null;
+          const targetNode = visibleNodes.find(node => node.id === edge.target) || null;
+          const sourceRadius = sourceNode ? _graphNodeRadius(sourceNode, degreeMap.get(edge.source) || 0) : 10;
+          const targetRadius = targetNode ? _graphNodeRadius(targetNode, degreeMap.get(edge.target) || 0) : 10;
+          const dx = target.x - source.x;
+          const dy = target.y - source.y;
+          const distance = Math.hypot(dx, dy) || 1;
+          const ux = dx / distance;
+          const uy = dy / distance;
+          const x1 = source.x + ux * (sourceRadius + graphEdgeArrowInset);
+          const y1 = source.y + uy * (sourceRadius + graphEdgeArrowInset);
+          const x2 = target.x - ux * (targetRadius + graphEdgeArrowInset + 0.75);
+          const y2 = target.y - uy * (targetRadius + graphEdgeArrowInset + 0.75);
+          const edgeFocusNodeId = hoveredNodeId && !selectedNodeId ? hoveredNodeId : selectedNodeId;
+          const edgeFocused = !edgeFocusNodeId || edge.source === edgeFocusNodeId || edge.target === edgeFocusNodeId;
+          const edgeSelected = selectedNodeId && edgeFocused;
+          const edgePreview = hoveredNodeId && !selectedNodeId && edgeFocused;
+          const edgeWeight = Math.max(1, Number(edge.weight || edge.count || 1));
+          return h("line", {
+            key: `${edge.source}-${edge.target}-${edge.relation}-${index}`,
+            x1,
+            y1,
+            x2,
+            y2,
+            className: `graph-edge${previewNodeId && !edgeFocused ? " graph-edge--dimmed" : ""}${edgeSelected ? " graph-edge--highlighted" : ""}${edgePreview ? " graph-edge--preview" : ""}`,
+            stroke: color,
+            "marker-end": "url(#graph-arrow)",
+            style: {
+              opacity: previewNodeId && !edgeFocused ? 0.08 : edgeSelected ? 0.58 : edgePreview ? 0.56 : 0.34,
+              strokeWidth: edgeSelected ? 2.0 : edgePreview ? 1.85 : Math.min(4.0, 1.15 + Math.log2(edgeWeight + 1) * 0.35),
+            },
+            onClick: () => selectNode(edge.source),
+          });
+        }),
+        visibleNodes.map((node, index) => {
+          const pos = layout.get(node.id);
+          if (!pos) return null;
+          const degree = degreeMap.get(node.id) || 0;
+          const radius = _graphNodeRadius(node, degree);
+          const kind = _graphKindBucket(node.kind);
+          const isSelected = selectedNodeId === node.id;
+          const isHovered = hoveredNodeId === node.id;
+          const isConnected = !previewNodeId || connectedNodeIds.has(node.id);
+          const showLabel = true;
+          return h("g", {
+            key: node.id,
+            className: `graph-node graph-node--${kind}${isSelected ? " graph-node--selected" : ""}${previewNodeId && !isConnected ? " graph-node--dimmed" : ""}${isHovered && !isSelected ? " graph-node--preview" : ""}`,
+            transform: `translate(${pos.x}, ${pos.y})`,
+            onClick: () => hasCommunityOverview && node.kind === "community" ? selectCluster(node.community_id) : selectNode(node.id),
+            onMouseEnter: () => setHoveredNodeId(node.id),
+            onMouseLeave: () => setHoveredNodeId(current => current === node.id ? "" : current),
+          },
+            node.is_chokepoint
+              ? h("circle", { r: radius + 5, fill: "none", stroke: "#e65100", strokeWidth: 2, strokeDasharray: "4 2.5", style: { opacity: 0.8 } })
+              : null,
+            node.is_entry_point
+              ? h("circle", { r: radius + 4, fill: "none", stroke: "#00897b", strokeWidth: 1.5, style: { opacity: 0.75 } })
+              : null,
+            node.dead_code_risk
+              ? h("circle", { r: radius + 4, fill: "none", stroke: "#b00020", strokeWidth: 1.5, strokeDasharray: "3 3", style: { opacity: 0.7 } })
+              : null,
+            h("circle", {
+              r: radius,
+              fill: GRAPH_KIND_COLORS[kind],
+              stroke: isSelected ? "var(--ink)" : "rgba(255,255,255,0.75)",
+              strokeWidth: isSelected ? 3 : 1.5,
+              style: { opacity: previewNodeId && !isConnected ? 0.26 : isSelected ? 1 : isHovered ? 0.98 : 0.9 },
+            }),
+            showLabel
+              ? h("text", { className: "graph-node-label", y: radius + 8, textAnchor: "middle" }, _graphLabel(node))
+              : null,
+          );
+        }),
+      ),
+        h("div", { className: "graph-summary" },
+        h("div", { className: "graph-summary-meta" },
+          h("span", { className: "graph-summary-pill" }, overviewLabel),
+          h("span", { className: "graph-summary-pill" }, edgeLabel),
+          viewMode === "overview" && !selectedClusterId && truncated
+            ? h("span", { className: "graph-summary-pill" }, communityOverview ? "Community overview" : `Showing top ${visibleNodes.length} by connectivity`)
+            : null,
+          selectedCluster
+            ? h("span", { className: "graph-summary-pill" }, `Community: ${selectedCluster.label || selectedCluster.community_id}`)
+            : null,
+          selectedFile ? h("span", { className: "graph-summary-pill" }, `File: ${selectedFile.split("/").slice(-2).join("/")}`) : null,
+        ),
+        selectionCard,
+      ),
+    ) : h("div", { className: "empty-state" }, "Graph data is not available yet."),
   );
 }
 
@@ -993,69 +2024,62 @@ function IndexDialog({ health, onClose }) {
   }, [onClose]);
   const handleBackdropClick = (e) => { if (e.target === dialogRef.current) onClose(); };
 
-  const proj = health?.index?.project   || {};
-  const fw   = health?.index?.framework || {};
+  const proj = health?.index?.project || {};
+  const graphProj = health?.graph?.project || {};
+
+  const idxStatus = String(proj.build_status || "").toLowerCase();
+  const idxRunning = idxStatus === "running";
+  const idxFailed  = idxStatus === "failed";
+  const idxAction  = proj.mode === "rebuild" ? "Rebuilding" : "Updating";
+  const statusPill = idxRunning
+    ? h("span", { className: "index-build-badge index-build-badge--running" }, `${idxAction}…`)
+    : idxFailed
+      ? h("span", { className: "index-build-badge index-build-badge--failed" }, "Build failed")
+      : null;
+  const age = relativeAge(proj.built_at);
 
   return h("dialog", { ref: dialogRef, className: "agent-dialog index-dialog", onClick: handleBackdropClick },
     h("div", { className: "agent-dialog-header" },
-      h("h2", { className: "agent-dialog-title" }, "Semantic Index"),
+      h("div", { className: "agent-dialog-header-text" },
+        h("h2", { className: "agent-dialog-title" }, "Index"),
+        (age || statusPill) ? h("div", { className: "index-dialog-header-pills" },
+          age ? h("span", { className: "index-meta-pill" }, `updated ${age}`) : null,
+          statusPill,
+        ) : null,
+      ),
       h("button", { className: "agent-dialog-close", "aria-label": "Close", onClick: onClose }, "×"),
     ),
     h("div", { className: "agent-dialog-body" },
-      h(IndexSection, { label: "Project", idx: proj }),
-      (fw.present || fw.built_at) ? h(IndexSection, { label: "Framework", idx: fw }) : null,
+      h(IndexSection, { label: "Semantic", idx: proj }),
+      h(GraphIndexSection, { label: "Graph", idx: graphProj }),
     ),
   );
 }
 
 function IndexSection({ label, idx }) {
-  const buildStatus = idx.build_status;
   const staleLocksCleaned = Array.isArray(idx.stale_locks_cleaned) ? idx.stale_locks_cleaned.length : 0;
-  const buildAction = idx.mode === "rebuild"
-    ? "Rebuilding"
-    : "Updating";
-  const buildBadgeText = buildStatus === "running"
-    ? `${buildAction} index…`
-    : buildStatus === "failed"
-      ? "Build failed"
-      : idx.stale === true
-        ? "Index stale"
-        : idx.stale === false
-          ? "Up to date"
-          : null;
-  const buildBadge = buildBadgeText
-    ? h("div", { className: "index-build-status" },
-        h("span", {
-          className: `index-build-badge ${
-            buildStatus === "running"
-              ? "index-build-badge--running"
-              : buildStatus === "failed"
-                ? "index-build-badge--failed"
-                : idx.stale === true
-                  ? "index-build-badge--stale"
-                  : "index-build-badge--current"
-          }`,
-        }, buildBadgeText),
-      )
-    : null;
 
   if (!idx.present) {
     return h("div", { className: "index-section index-section--missing" },
       h("div", { className: "index-section-label" }, label),
       h("span", { className: "index-stat-missing" }, "not built"),
-      buildBadge,
     );
   }
   const filesIndexed = Number(idx.files_indexed) || 0;
   const docChunks = Number(idx.doc_chunks) || 0;
   const codeChunks = Number(idx.code_chunks) || 0;
   const totalChunks = docChunks + codeChunks;
-  const age = relativeAge(idx.built_at);
-  const elapsed = idx.elapsed_seconds
-    ? (idx.elapsed_seconds >= 60
-        ? `${Math.round(idx.elapsed_seconds / 60)}m ${idx.elapsed_seconds % 60}s`
-        : `${idx.elapsed_seconds}s`)
-    : null;
+  const modelPill = (() => {
+    const dm = idx.docs_model, cm = idx.code_model;
+    if (dm && cm && dm !== cm) {
+      return [
+        h("span", { className: "index-meta-pill index-meta-pill--model", key: "dm" }, `docs: ${dm}`),
+        h("span", { className: "index-meta-pill index-meta-pill--model", key: "cm" }, `code: ${cm}`),
+      ];
+    }
+    const single = dm || cm || idx.model;
+    return single ? h("span", { className: "index-meta-pill index-meta-pill--model" }, single) : null;
+  })();
   return h("div", { className: "index-section" },
     h("div", { className: "index-section-label" }, label),
     h("div", { className: "index-stat-grid" },
@@ -1076,25 +2100,46 @@ function IndexSection({ label, idx }) {
         h("span", { className: "index-stat-label" }, "code"),
       ) : null,
     ),
-    h("div", { className: "index-meta-row" },
-      age    ? h("span", { className: "index-meta-pill" }, `built ${age}`) : null,
-      elapsed ? h("span", { className: "index-meta-pill" }, `${elapsed}${idx.mode ? ` ${idx.mode}` : ""}`) : null,
-      (() => {
-        const dm = idx.docs_model, cm = idx.code_model;
-        if (dm && cm && dm !== cm) {
-          return [
-            h("span", { className: "index-meta-pill index-meta-pill--model", key: "dm" }, `docs: ${dm}`),
-            h("span", { className: "index-meta-pill index-meta-pill--model", key: "cm" }, `code: ${cm}`),
-          ];
-        }
-        const single = dm || cm || idx.model;
-        return single ? h("span", { className: "index-meta-pill index-meta-pill--model" }, single) : null;
-      })(),
-    ),
-    buildBadge,
+    modelPill ? h("div", { className: "index-meta-row" }, modelPill) : null,
     staleLocksCleaned ? h("div", { className: "index-build-status" },
       h("span", { className: "index-build-badge index-build-badge--current" },
         `Cleaned ${staleLocksCleaned} stale ${p(staleLocksCleaned, "lock", "locks")}`),
+    ) : null,
+  );
+}
+
+function GraphIndexSection({ label, idx }) {
+
+  if (!idx.present) {
+    return h("div", { className: "index-section index-section--missing" },
+      h("div", { className: "index-section-label" }, label),
+      h("span", { className: "index-stat-missing" }, "not built"),
+    );
+  }
+
+  const nodeCount = Number(idx.counts?.nodes) || 0;
+  const edgeCount = Number(idx.counts?.edges) || 0;
+  const fileCount = Number(idx.counts?.files) || 0;
+  const clusterAlgorithm = idx.clusters?.cluster_algorithm;
+
+  return h("div", { className: "index-section" },
+    h("div", { className: "index-section-label" }, label),
+    h("div", { className: "index-stat-grid" },
+      h("div", { className: "index-stat" },
+        h("span", { className: "index-stat-value" }, fileCount.toLocaleString()),
+        h("span", { className: "index-stat-label" }, "files"),
+      ),
+      h("div", { className: "index-stat" },
+        h("span", { className: "index-stat-value" }, nodeCount.toLocaleString()),
+        h("span", { className: "index-stat-label" }, "nodes"),
+      ),
+      h("div", { className: "index-stat" },
+        h("span", { className: "index-stat-value" }, edgeCount.toLocaleString()),
+        h("span", { className: "index-stat-label" }, "edges"),
+      ),
+    ),
+    clusterAlgorithm ? h("div", { className: "index-meta-row" },
+      h("span", { className: "index-meta-pill index-meta-pill--model" }, clusterAlgorithm),
     ) : null,
   );
 }
@@ -1209,14 +2254,23 @@ function Activity({ activity, onChangeClick }) {
 
 function renderInline(str) {
   const parts = [];
-  const inlineRe = /(\*\*([^*]+)\*\*|`([^`]+)`)/g;
+  const inlineRe = /(\*\*([^*]+)\*\*|`([^`]+)`|\[([^\]]+)\]\(([^)]+)\))/g;
   let lastIndex = 0;
   let partKey = 0;
   let match;
   while ((match = inlineRe.exec(str)) !== null) {
     if (match.index > lastIndex) parts.push(str.slice(lastIndex, match.index));
-    if (match[2] !== undefined) parts.push(h("strong", { key: partKey++ }, match[2]));
-    else if (match[3] !== undefined) parts.push(h("code", { key: partKey++ }, match[3]));
+    if (match[2] !== undefined) {
+      parts.push(h("strong", { key: partKey++ }, match[2]));
+    } else if (match[3] !== undefined) {
+      parts.push(h("code", { key: partKey++ }, match[3]));
+    } else if (match[4] !== undefined) {
+      const url = match[5].trim();
+      const safe = url.startsWith("https://") || url.startsWith("http://");
+      parts.push(safe
+        ? h("a", { key: partKey++, href: url, target: "_blank", rel: "noopener noreferrer" }, renderInline(match[4]))
+        : match[0]);
+    }
     lastIndex = match.index + match[0].length;
   }
   if (lastIndex < str.length) parts.push(str.slice(lastIndex));
@@ -1230,6 +2284,7 @@ function renderMarkdownish(text) {
   let tableLines = [];
   let codeLines = null; // null = not in a code block; [] = collecting
   let key = 0;
+  let lastH2 = "";
 
   const flushList = () => {
     if (listItems.length) {
@@ -1255,6 +2310,8 @@ function renderMarkdownish(text) {
     return cells;
   };
 
+  const NOWRAP_FIRST_COL_SECTIONS = new Set(["AC Priority", "Progress Log", "Decision Log"]);
+
   const flushTable = () => {
     if (!tableLines.length) return;
     const rows = tableLines;
@@ -1274,7 +2331,8 @@ function renderMarkdownish(text) {
         cells.map((cell, j) => h("td", { key: j }, renderInline(cell)))
       ));
     }
-    result.push(h("table", { key: key++ },
+    const tableClass = NOWRAP_FIRST_COL_SECTIONS.has(lastH2) ? "table--nowrap-first" : undefined;
+    result.push(h("table", { key: key++, className: tableClass },
       thead,
       bodyRows.length ? h("tbody", { key: "tbody" }, bodyRows) : null
     ));
@@ -1311,6 +2369,7 @@ function renderMarkdownish(text) {
     } else if (line.startsWith("## ")) {
       flushList();
       flushTable();
+      lastH2 = line.slice(3).trim();
       result.push(h("h2", { key: key++ }, renderInline(line.slice(3))));
     } else if (line.startsWith("# ")) {
       flushList();
@@ -1516,6 +2575,7 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
           }),
           h(ProgressCard, { snapshot, scopeChanges }),
           h(FrameworkFlow, { onSelectProcess: setSelectedFrameworkProcess }),
+          h(GraphPanel, { snapshot }),
           agents.length ? h(Agents, { agents, onSelectAgent: setSelectedAgent }) : null,
         ),
       ),

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -24,12 +26,15 @@ def load_build_index():
     return mod
 
 
-def _make_embedder_mock(dim: int = 4):
+def _make_embedder_mock(dim: int = 4, calls: list[list[str]] | None = None):
     """Return a mock embedder whose .embed() yields zero vectors of given dimension."""
     import numpy as np
 
     def fake_embed(texts, batch_size=256):
-        for _ in texts:
+        text_list = list(texts)
+        if calls is not None:
+            calls.append(text_list)
+        for _ in text_list:
             yield np.zeros(dim, dtype=np.float32)
 
     mock = MagicMock()
@@ -115,6 +120,31 @@ class FileWalkerTests(unittest.TestCase):
             files = self.bi.walk_repo(self.root)
         rels = {str(f.relative_to(self.root)).replace("\\", "/") for f in files}
         self.assertEqual(rels, {"docs/workflow-config.json", "src/foo.py"})
+
+
+class TimestampedLogTests(unittest.TestCase):
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_timestamped_stream_prefixes_each_complete_line(self):
+        out = io.StringIO()
+        stream = self.bi._TimestampedStream(out)
+
+        stream.write("build_index: embedding doc chunks 1-2/2\n")
+        stream.write("build_index: index is up to date\n")
+        stream.flush()
+
+        lines = out.getvalue().splitlines()
+        self.assertEqual(len(lines), 2)
+        for line in lines:
+            self.assertRegex(line, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00 build_index: ")
+        self.assertIn("embedding doc chunks 1-2/2", lines[0])
+        self.assertIn("index is up to date", lines[1])
 
     def test_walk_repo_returns_sorted_paths(self):
         _make_repo(self.root, {
@@ -581,6 +611,123 @@ class IncrementalBuildTests(unittest.TestCase):
 
         self.assertEqual(result["files_indexed"], 1)
 
+    def test_incremental_markdown_embeds_only_changed_heading_chunk(self):
+        _make_repo(self.root, {
+            "docs/guide.md": textwrap.dedent("""\
+                # Guide
+
+                ## Alpha
+
+                Alpha body stays the same.
+
+                ## Beta
+
+                Beta body before.
+                """),
+        })
+        self._run_build(full=True)
+
+        (self.root / "docs" / "guide.md").write_text(textwrap.dedent("""\
+            # Guide
+
+            ## Alpha
+
+            Alpha body stays the same.
+
+            ## Beta
+
+            Beta body after.
+            """), encoding="utf-8")
+
+        doc_calls: list[list[str]] = []
+        code_calls: list[list[str]] = []
+        docs_mock = _make_embedder_mock(dim=4, calls=doc_calls)
+        code_mock = _make_embedder_mock(dim=4, calls=code_calls)
+        stdout = io.StringIO()
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            with contextlib.redirect_stdout(stdout):
+                self.bi.build_index(self.root, full=False, content="all", verbose=False)
+
+        embedded_doc_texts = [text for batch in doc_calls for text in batch]
+        embedded_code_texts = [text for batch in code_calls for text in batch]
+        self.assertEqual(len(embedded_doc_texts), 1)
+        self.assertIn("Beta body after.", embedded_doc_texts[0])
+        self.assertEqual(embedded_code_texts, [])
+        self.assertRegex(
+            stdout.getvalue(),
+            r"semantic file update path=docs/guide\.md table=docs written=1 removed=1 unchanged=3",
+        )
+
+    def test_incremental_python_embeds_only_changed_code_chunk_for_mixed_path(self):
+        _make_repo(self.root, {
+            "src/tools.py": textwrap.dedent('''\
+                def alpha():
+                    """Alpha docs."""
+                    return 1
+
+                def beta():
+                    return 2
+                '''),
+        })
+        self._run_build(full=True)
+
+        (self.root / "src" / "tools.py").write_text(textwrap.dedent('''\
+            def alpha():
+                """Alpha docs."""
+                return 42
+
+            def beta():
+                return 2
+            '''), encoding="utf-8")
+
+        doc_calls: list[list[str]] = []
+        code_calls: list[list[str]] = []
+        docs_mock = _make_embedder_mock(dim=4, calls=doc_calls)
+        code_mock = _make_embedder_mock(dim=4, calls=code_calls)
+        stdout = io.StringIO()
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            with contextlib.redirect_stdout(stdout):
+                self.bi.build_index(self.root, full=False, content="all", verbose=False)
+
+        embedded_doc_texts = [text for batch in doc_calls for text in batch]
+        embedded_code_texts = [text for batch in code_calls for text in batch]
+        self.assertEqual(embedded_doc_texts, [])
+        self.assertEqual(len(embedded_code_texts), 1)
+        self.assertIn("return 42", embedded_code_texts[0])
+        self.assertNotIn("def beta", embedded_code_texts[0])
+        output = stdout.getvalue()
+        self.assertRegex(output, r"semantic file update path=src/tools\.py table=docs written=0 removed=0 unchanged=1")
+        self.assertRegex(output, r"semantic file update path=src/tools\.py table=code written=1 removed=1 unchanged=2")
+
+    def test_incremental_line_window_shift_reembeds_affected_chunks(self):
+        source = "\n".join(f"line {i}" for i in range(1, 151)) + "\n"
+        _make_repo(self.root, {"notes.custom": source})
+        self._run_build(full=True)
+
+        shifted = "inserted line\n" + source
+        (self.root / "notes.custom").write_text(shifted, encoding="utf-8")
+
+        doc_calls: list[list[str]] = []
+        code_calls: list[list[str]] = []
+        docs_mock = _make_embedder_mock(dim=4, calls=doc_calls)
+        code_mock = _make_embedder_mock(dim=4, calls=code_calls)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            self.bi.build_index(self.root, full=False, content="all", verbose=False)
+
+        embedded_doc_texts = [text for batch in doc_calls for text in batch]
+        embedded_code_texts = [text for batch in code_calls for text in batch]
+        # Line-window ids are line-range based. A leading insertion changes the
+        # window boundaries, so the safe behavior is to re-embed affected windows
+        # instead of guessing at vector reuse.
+        self.assertEqual(len(embedded_code_texts), 2)
+        self.assertTrue(any("inserted line" in text for text in embedded_code_texts))
+        self.assertEqual(embedded_doc_texts, [])
+
+        rows = _read_index_chunks(self.root / ".wavefoundry" / "index", "code")
+        shifted_rows = [row for row in rows if row["path"] == "notes.custom"]
+        self.assertTrue(any(row["lines"][0] > 1 for row in shifted_rows))
+        self.assertTrue(all(row.get("chunk_hash") for row in shifted_rows))
+
     def test_meta_records_file_meta(self):
         _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
         self._run_build(full=True)
@@ -694,7 +841,11 @@ class IncrementalBuildTests(unittest.TestCase):
         meta = json.loads((index_dir / "meta.json").read_text())
         chunks = _read_index_chunks(index_dir, "docs")
         self.assertIn("docs/guide.md", meta["file_meta"])
-        self.assertNotIn(".wavefoundry/framework/README.md", meta["file_meta"])
+        # Framework files are hash-tracked in the broad file_meta so that a subsequent
+        # code run (which includes framework scripts) sees a consistent baseline and
+        # does not cycle between "93 added" / "93 removed" on alternating runs.
+        self.assertIn(".wavefoundry/framework/README.md", meta["file_meta"])
+        # But framework content must not appear in the semantic docs index.
         self.assertFalse(any(c["path"].startswith(".wavefoundry/framework/") for c in chunks))
 
     def test_explicit_framework_index_can_include_framework_source(self):
@@ -770,6 +921,98 @@ class IncrementalBuildTests(unittest.TestCase):
         self.assertIn(".wavefoundry/framework/scripts/server.py", meta["file_meta"])
         self.assertTrue(any(c["path"] == ".wavefoundry/framework/scripts/server.py" for c in code_chunks))
         self.assertIn("vendor/docs/custom.py", meta["file_meta"])
+
+    def test_docs_only_graph_includes_workflow_code_prefixes_without_cli_args(self):
+        _make_repo(self.root, {
+            "docs/guide.md": "## Intro\n\nHello.\n",
+            ".wavefoundry/framework/scripts/tools.py": "def helper():\n    return 1\n",
+        })
+        (self.root / "docs" / "workflow-config.json").write_text(
+            json.dumps(
+                {
+                    "lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0},
+                    "indexing": {
+                        "project_include_prefixes": {
+                            "docs": [],
+                            "code": [".wavefoundry/framework/scripts"],
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        docs_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
+            self.bi.build_index(
+                self.root,
+                full=True,
+                content="docs",
+                verbose=False,
+            )
+        graph_path = self.root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
+        self.assertTrue(graph_path.exists())
+        graph = json.loads(graph_path.read_text(encoding="utf-8"))
+        node_ids = {n["id"] for n in graph.get("nodes", [])}
+        self.assertIn(".wavefoundry/framework/scripts/tools.py::helper", node_ids)
+
+    def test_code_pass_self_reads_workflow_code_prefixes_without_cli_args(self):
+        _make_repo(self.root, {
+            "src/app.py": "def app(): pass\n",
+            ".wavefoundry/framework/scripts/server.py": "def server_main(): pass\n",
+        })
+        (self.root / "docs" / "workflow-config.json").write_text(
+            json.dumps(
+                {
+                    "indexing": {
+                        "project_include_prefixes": {
+                            "docs": [],
+                            "code": [".wavefoundry/framework/scripts"],
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            self.bi.build_index(
+                self.root,
+                full=True,
+                content="code",
+                verbose=False,
+            )
+        index_dir = self.root / ".wavefoundry" / "index"
+        meta = json.loads((index_dir / "meta.json").read_text())
+        code_chunks = _read_index_chunks(index_dir, "code")
+        self.assertIn(".wavefoundry/framework/scripts/server.py", meta["file_meta"])
+        self.assertTrue(
+            any(c["path"] == ".wavefoundry/framework/scripts/server.py" for c in code_chunks)
+        )
+
+    def test_legacy_include_framework_boolean_indexes_framework_scripts(self):
+        _make_repo(self.root, {
+            "src/app.py": "def app(): pass\n",
+            ".wavefoundry/framework/scripts/server.py": "def server_main(): pass\n",
+        })
+        (self.root / "docs" / "workflow-config.json").write_text(
+            json.dumps(
+                {"indexing": {"include_framework_code_for_code_search": True}}
+            ),
+            encoding="utf-8",
+        )
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            self.bi.build_index(
+                self.root,
+                full=True,
+                content="code",
+                verbose=False,
+            )
+        index_dir = self.root / ".wavefoundry" / "index"
+        meta = json.loads((index_dir / "meta.json").read_text())
+        self.assertIn(".wavefoundry/framework/scripts/server.py", meta["file_meta"])
 
 
 class StatCacheTests(unittest.TestCase):
@@ -939,6 +1182,36 @@ class ModelVersionChangeTests(unittest.TestCase):
         self.assertEqual(meta["chunker_versions"]["docs"], current_cv)
 
 
+    def test_graph_only_rebuild_preserves_docs_code_chunker_versions(self):
+        """graph-only rebuild must not wipe docs/code chunker_versions from metadata."""
+        _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
+        index_dir = self.root / ".wavefoundry" / "index"
+        index_dir.mkdir(parents=True, exist_ok=True)
+        current_cv = self.bi._get_chunker().CHUNKER_VERSION
+        (index_dir / "meta.json").write_text(
+            json.dumps({
+                "model_versions": {
+                    "docs": self.bi.DOCS_MODEL,
+                    "code": self.bi.CODE_MODEL,
+                },
+                "chunker_versions": {
+                    "docs": current_cv,
+                    "code": current_cv,
+                },
+                "walker_version": self.bi.WALKER_VERSION,
+                "content": ["docs", "code"],
+                "file_meta": {},
+            }),
+            encoding="utf-8",
+        )
+        self.bi.build_index(self.root, full=True, content="graph", verbose=False)
+        meta = json.loads((index_dir / "meta.json").read_text())
+        self.assertEqual(meta.get("chunker_versions", {}).get("docs"), current_cv)
+        self.assertEqual(meta.get("chunker_versions", {}).get("code"), current_cv)
+        self.assertIn("docs", meta.get("content", []))
+        self.assertIn("code", meta.get("content", []))
+
+
 class WalkerVersionTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -1085,6 +1358,38 @@ class MakeLanceRowsNullNormalizationTests(unittest.TestCase):
         self._call(chunk)
         self.assertIsNone(chunk["language"])
         self.assertIsNone(chunk["section"])
+
+
+class PlanLanceDeltaRowsTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_build_index()
+
+    def _chunk(self, chunk_id: str, text: str) -> dict:
+        return {"id": chunk_id, "text": text, "path": "src/a.py", "kind": "function"}
+
+    def test_missing_chunk_hash_key_forces_full_rebuild(self):
+        existing = [{"id": "c1", "text": "old"}]  # no chunk_hash key
+        new_chunks = [self._chunk("c1", "new")]
+        delete_ids, rows_to_add, fallback_required, stats = self.mod._plan_lance_delta_rows(
+            existing_rows=existing,
+            new_chunks=new_chunks,
+            embedder=_make_embedder_mock(),
+            label="project",
+        )
+        self.assertTrue(fallback_required)
+        self.assertEqual(delete_ids, set())
+        self.assertEqual(rows_to_add, [])
+
+    def test_empty_chunk_hash_value_forces_full_rebuild(self):
+        existing = [{"id": "c1", "text": "old", "chunk_hash": "   "}]  # present but blank
+        new_chunks = [self._chunk("c1", "new")]
+        delete_ids, rows_to_add, fallback_required, stats = self.mod._plan_lance_delta_rows(
+            existing_rows=existing,
+            new_chunks=new_chunks,
+            embedder=_make_embedder_mock(),
+            label="project",
+        )
+        self.assertTrue(fallback_required)
 
 
 if __name__ == "__main__":

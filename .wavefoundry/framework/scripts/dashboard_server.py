@@ -253,18 +253,8 @@ class IndexBuilder:
         try:
             layer_cmds: list[tuple[str, list[str]]] = []
             if "project" in active_layers:
+                # indexer.py reads workflow-config project include-prefixes itself.
                 project_cmd = [python_exec, str(indexer_path), "--root", str(self._root), "--content", "all"]
-                try:
-                    wf_cfg = json.loads((self._root / "docs" / "workflow-config.json").read_text(encoding="utf-8"))
-                    code_prefixes = (wf_cfg.get("indexing") or {}).get("project_include_prefixes", {})
-                    if isinstance(code_prefixes, dict):
-                        code_prefixes = code_prefixes.get("code") or []
-                    elif not isinstance(code_prefixes, list):
-                        code_prefixes = []
-                    for prefix in code_prefixes:
-                        project_cmd.extend(["--project-include-prefix", str(prefix)])
-                except Exception:
-                    pass
                 layer_cmds.append(("project", project_cmd))
             if "framework" in active_layers:
                 layer_cmds.append(("framework", [
@@ -295,6 +285,7 @@ class IndexBuilder:
                             close_fds=True,
                             stdout=log_file,
                             stderr=log_file,
+                            env={**os.environ, "WAVEFOUNDRY_TIMESTAMP_LOGS": "1"},
                         )
                         state_path.write_text(
                             json.dumps({"pid": proc.pid, "started_at": started_at, "content": "all" if layer == "project" else "docs", "layer": layer, "full": False, "mode": "update"}),
@@ -596,8 +587,10 @@ class SnapshotStore:
             r / ".wavefoundry" / "index" / "index-build.json",
             r / ".wavefoundry" / "index" / "background-build.pid",
             r / ".wavefoundry" / "index" / "index-build-stats.json",
+            r / ".wavefoundry" / "index" / "graph" / "project-graph.json",
             r / ".wavefoundry" / "framework" / "index" / "index-build.json",
             r / ".wavefoundry" / "framework" / "index" / "index-build-stats.json",
+            r / ".wavefoundry" / "framework" / "index" / "graph" / "framework-graph.json",
             r / ".wavefoundry" / "logs" / "project-index-build.log",
             r / ".wavefoundry" / "logs" / "project-index-build-docs.log",
             r / ".wavefoundry" / "logs" / "project-index-build-code.log",
@@ -989,6 +982,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return self._send_json(snapshot.get("health", {}))
         if path == "/api/project":
             return self._send_json(snapshot.get("project", {}))
+        if path == "/api/graph":
+            params = parse_qs(urlparse(self.path).query)
+            layer = (params.get("layer") or ["project"])[0].strip().lower() or "project"
+            if layer not in ("project", "framework"):
+                return self._send_json({"error": f"Unsupported graph layer: {layer}"}, status=HTTPStatus.BAD_REQUEST)
+            return self._send_json(dashboard_lib.read_graph_payload(self._store._root, layer))
+        if path == "/api/diff":
+            params = parse_qs(urlparse(self.path).query)
+            rel_path = unquote((params.get("path") or [""])[0]).strip()
+            if not rel_path:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Missing path parameter")
+                return
+            diff_text, status_code = dashboard_lib.get_file_diff(self._store._root, rel_path)
+            if status_code == 400:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Path traversal denied")
+                return
+            data = diff_text.encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+            return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
     def _handle_doc(self) -> None:
@@ -1082,8 +1099,9 @@ def main(argv: list[str] | None = None) -> int:
 
     httpd = _QuietThreadingHTTPServer((host, port), DashboardHandler)
     httpd.repo_root = root  # type: ignore[attr-defined]
-    httpd.snapshot_store = SnapshotStore(root)  # type: ignore[attr-defined]
 
+    # Write metadata immediately after binding so MCP callers can detect the URL
+    # without waiting for the (potentially slow) initial snapshot build.
     entrypoint = cfg["entrypoint"]
     url = f"http://{host}:{port}/{entrypoint}"
     dashboard_lib.write_dashboard_metadata(
@@ -1097,10 +1115,11 @@ def main(argv: list[str] | None = None) -> int:
             "started_at": datetime.now(UTC).isoformat(),
         },
     )
-
     print(url, flush=True)
     if args.open and dashboard_lib.dashboard_browser_open_enabled():
         webbrowser.open(url, new=2)
+
+    httpd.snapshot_store = SnapshotStore(root)  # type: ignore[attr-defined]
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

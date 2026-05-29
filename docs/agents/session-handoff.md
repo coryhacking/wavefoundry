@@ -2,7 +2,7 @@
 
 Owner: wave-coordinator
 Status: active
-Last verified: 2026-05-26
+Last verified: 2026-05-29
 
 ## Active Wave
 
@@ -36,3 +36,5 @@ Last verified: 2026-05-26
 ## Current Session
 
 **Active wave:** *(none)*
+
+**Stage-gate waiver (operator-approved, 2026-05-29):** Operator explicitly authorized a direct framework-code change (no wave) to centralize project include-prefix config reading inside `indexer.py`. Scope: `indexer.py` now self-reads `docs/workflow-config.json` (content-scoped, plus legacy `include_framework_code_for_code_search` boolean) with CLI `--project-include-prefix` as an override; redundant config-read+forward removed from the post-edit hook (live + render template), `dashboard_server.py`, and `server_impl.py` (run_index_build, staleness dry-run, background refresh). `setup_index.py` left unchanged as the explicit orchestrator. Verified via the framework test suite.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import datetime
 import importlib.util
 import json
 import os
@@ -21,8 +22,11 @@ if not os.environ.get("FASTEMBED_CACHE_PATH"):
     os.environ["FASTEMBED_CACHE_PATH"] = str(FASTEMBED_CACHE_DEFAULT)
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
+TIMESTAMP_LOGS_ENV = "WAVEFOUNDRY_TIMESTAMP_LOGS"
 REQUIRED_IMPORTS = {
     "fastembed": "fastembed",
+    "igraph>=0.11": "igraph",
+    "leidenalg>=0.10": "leidenalg",
     "numpy": "numpy",
     "mcp[cli]": "mcp",
     # Tree-sitter grammars for AST-accurate code chunking. chunker.py falls back to regex /
@@ -56,6 +60,44 @@ REQUIRED_IMPORTS = {
     "tree-sitter-powershell": "tree_sitter_powershell",
     "lancedb": "lancedb",
 }
+
+
+class _TimestampedStream:
+    """Line-buffering stream wrapper for log files."""
+
+    def __init__(self, wrapped):
+        self._wrapped = wrapped
+        self._buffer = ""
+
+    def write(self, text: str) -> int:
+        if not text:
+            return 0
+        self._buffer += text
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            self._wrapped.write(f"{_utc_log_timestamp()} {line}\n")
+        return len(text)
+
+    def flush(self) -> None:
+        if self._buffer:
+            self._wrapped.write(f"{_utc_log_timestamp()} {self._buffer}")
+            self._buffer = ""
+        self._wrapped.flush()
+
+    def isatty(self) -> bool:
+        return bool(getattr(self._wrapped, "isatty", lambda: False)())
+
+    def __getattr__(self, name: str):
+        return getattr(self._wrapped, name)
+
+
+def _utc_log_timestamp() -> str:
+    return datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+
+
+def _enable_timestamped_stdio() -> None:
+    sys.stdout = _TimestampedStream(sys.stdout)
+    sys.stderr = _TimestampedStream(sys.stderr)
 
 INDEXING_WORKFLOW_KEY = "indexing"
 INCLUDE_FRAMEWORK_CODE_KEY = "include_framework_code_for_code_search"  # compatibility shim
@@ -521,7 +563,12 @@ def _spawn_background_code_build(root: Path, args: argparse.Namespace) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = open(log_path, "w", encoding="utf-8")  # noqa: SIM115
     try:
-        kwargs: dict = {"stdout": log_file, "stderr": log_file, "stdin": subprocess.DEVNULL}
+        kwargs: dict = {
+            "stdout": log_file,
+            "stderr": log_file,
+            "stdin": subprocess.DEVNULL,
+            "env": {**os.environ, TIMESTAMP_LOGS_ENV: "1"},
+        }
         if os.name == "nt":
             kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
         else:
@@ -559,8 +606,27 @@ def _run_indexer(
         cmd.extend(["--project-include-prefix", prefix])
     if verbose:
         cmd.append("--verbose")
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    combined_output = f"{result.stdout}\n{result.stderr}"
+    # indexer.py always timestamps its own output.  Pass the env through unchanged
+    # so no env manipulation is needed.  Stream line-by-line and write to the raw
+    # underlying stream so the parent's _TimestampedWriter doesn't double-stamp.
+    child_env = {**os.environ}
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        env=child_env,
+    )
+    collected: list[str] = []
+    assert proc.stdout is not None
+    raw_out = getattr(sys.stdout, "_wrapped", sys.stdout)
+    for line in proc.stdout:
+        collected.append(line)
+        raw_out.write(line)
+        raw_out.flush()
+    proc.wait()
+    combined_output = "".join(collected)
     if "Another index build is already running" in combined_output or "lock file busy" in combined_output:
         lock_path = root / ".wavefoundry" / "index" / "index-build.lock"
         print(
@@ -569,21 +635,17 @@ def _run_indexer(
             file=sys.stderr,
         )
         return
-    if result.stdout:
-        print(result.stdout, end="", flush=True)
-    if result.stderr:
-        print(result.stderr, end="", file=sys.stderr, flush=True)
-    if result.returncode == 0:
+    if proc.returncode == 0:
         return
 
-    if result.returncode < 0:
-        signal_number = -result.returncode
+    if proc.returncode < 0:
+        signal_number = -proc.returncode
         print(
             f"Index build was killed by signal {signal_number}. "
             "If this happened during code embedding, rerun without --include-code.",
             file=sys.stderr,
         )
-    raise subprocess.CalledProcessError(result.returncode, cmd, output=result.stdout, stderr=result.stderr)
+    raise subprocess.CalledProcessError(proc.returncode, cmd, output=combined_output)
 
 
 def _merge_project_include_prefixes(
@@ -682,6 +744,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--full", action="store_true", help="Force full rebuild")
     p.add_argument("--include-code", action="store_true", help="Also build semantic code embeddings (slower and more memory-intensive)")
     p.add_argument("--background-code", action="store_true", help="Build docs index synchronously (unblocks MCP immediately), then spawn a detached background process for code embedding")
+    p.add_argument("--graph-only", action="store_true", help="Rebuild only the graph index without re-embedding semantic vectors")
     p.add_argument("--include-tests", action="store_true", help="Include target test files in semantic code indexing")
     p.add_argument("--include-generated", action="store_true", help="Include generated platform hook files in semantic code indexing")
     p.add_argument("--verbose", "-v", action="store_true")
@@ -689,6 +752,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if os.environ.get(TIMESTAMP_LOGS_ENV) == "1":
+        _enable_timestamped_stdio()
     args = parse_args(argv)
     root = Path(args.root).expanduser().resolve() if args.root else Path.cwd().resolve()
 
@@ -709,6 +774,20 @@ def main(argv: list[str] | None = None) -> int:
             f"(docs={list(docs_prefixes)}, code={list(code_prefixes)})",
             flush=True,
         )
+    if args.graph_only:
+        graph_prefixes = tuple(dict.fromkeys((*docs_prefixes, *code_prefixes)))
+        _run_indexer(
+            root,
+            full=args.full,
+            content="graph",
+            verbose=args.verbose,
+            include_tests=False,
+            include_generated=False,
+            project_include_prefixes=graph_prefixes,
+        )
+        print("\nDone. Graph index rebuild complete.", flush=True)
+        return 0
+
     background_code = args.background_code and not args.include_code
     try:
         prewarm_models(include_code=not background_code and args.include_code)

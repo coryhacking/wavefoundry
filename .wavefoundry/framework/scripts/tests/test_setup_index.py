@@ -169,12 +169,18 @@ class SetupIndexTests(unittest.TestCase):
                         self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON)
         self.assertEqual(raised.exception.code, 2)
 
+    def _make_popen_mock(self, returncode: int = 0, lines: list[str] | None = None) -> MagicMock:
+        proc = MagicMock()
+        proc.returncode = returncode
+        proc.stdout = iter(lines or [])
+        proc.wait.return_value = None
+        return proc
+
     def test_build_index_uses_venv_python(self):
         root = Path("/tmp/wavefoundry-test-root")
 
         with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
-            with patch("subprocess.run") as run_mock:
-                run_mock.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            with patch("subprocess.Popen", return_value=self._make_popen_mock()) as popen_mock:
                 with redirect_stdout(io.StringIO()):
                     self.mod.build_index(
                         root,
@@ -187,7 +193,7 @@ class SetupIndexTests(unittest.TestCase):
                         project_include_prefixes_for_code=(),
                     )
 
-        calls = [call.args[0] for call in run_mock.call_args_list]
+        calls = [c.args[0] for c in popen_mock.call_args_list]
         self.assertEqual(len(calls), 1)
         cmd = calls[0]
         self.assertEqual(cmd[0], str(FAKE_VENV_PYTHON))
@@ -204,8 +210,7 @@ class SetupIndexTests(unittest.TestCase):
     def test_build_index_can_forward_project_include_prefixes_for_code_pass(self):
         root = Path("/tmp/wavefoundry-test-root")
         with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
-            with patch("subprocess.run") as run_mock:
-                run_mock.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            with patch("subprocess.Popen", return_value=self._make_popen_mock()) as popen_mock:
                 with redirect_stdout(io.StringIO()):
                     self.mod.build_index(
                         root,
@@ -215,7 +220,7 @@ class SetupIndexTests(unittest.TestCase):
                         project_include_prefixes_for_docs=("docs/external",),
                         project_include_prefixes_for_code=(".wavefoundry/framework/scripts", "vendor/docs"),
                     )
-        calls = [call.args[0] for call in run_mock.call_args_list]
+        calls = [c.args[0] for c in popen_mock.call_args_list]
         self.assertEqual(len(calls), 1)
         cmd = calls[0]
         self.assertIn("--content", cmd)
@@ -227,16 +232,14 @@ class SetupIndexTests(unittest.TestCase):
 
     def test_run_indexer_lock_busy_prints_friendly_message(self):
         root = Path("/tmp/wavefoundry-test-root")
-        proc = MagicMock()
-        proc.returncode = 1
-        proc.stdout = ""
-        proc.stderr = (
+        lock_line = (
             "build_index: Another index build is already running for /tmp/wavefoundry-test-root/.wavefoundry/index; "
             "lock file busy: /tmp/wavefoundry-test-root/.wavefoundry/index/index-build.lock\n"
         )
+        proc = self._make_popen_mock(returncode=1, lines=[lock_line])
 
         with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
-            with patch("subprocess.run", return_value=proc) as run_mock:
+            with patch("subprocess.Popen", return_value=proc) as popen_mock:
                 stdout = io.StringIO()
                 stderr = io.StringIO()
                 with redirect_stdout(stdout), redirect_stderr(stderr):
@@ -250,7 +253,7 @@ class SetupIndexTests(unittest.TestCase):
                         project_include_prefixes=(),
                     )
 
-        run_mock.assert_called_once()
+        popen_mock.assert_called_once()
         self.assertIn("Index update skipped: another project index build is already running", stderr.getvalue())
         self.assertIn("rerun update-indexes if you still need a refresh", stderr.getvalue())
 
@@ -276,6 +279,12 @@ class SetupIndexTests(unittest.TestCase):
     def test_required_imports_include_lancedb(self):
         self.assertIn("lancedb", self.mod.REQUIRED_IMPORTS)
         self.assertEqual(self.mod.REQUIRED_IMPORTS["lancedb"], "lancedb")
+
+    def test_required_imports_include_leiden(self):
+        self.assertIn("igraph>=0.11", self.mod.REQUIRED_IMPORTS)
+        self.assertEqual(self.mod.REQUIRED_IMPORTS["igraph>=0.11"], "igraph")
+        self.assertIn("leidenalg>=0.10", self.mod.REQUIRED_IMPORTS)
+        self.assertEqual(self.mod.REQUIRED_IMPORTS["leidenalg>=0.10"], "leidenalg")
 
     def test_prewarm_models_warms_then_verifies_offline(self):
         with patch.object(self.mod, "_indexer_models", return_value=["model-a", "model-b"]):

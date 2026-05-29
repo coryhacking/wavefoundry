@@ -1350,43 +1350,6 @@ def _read_project_sensors(root: Path) -> list[dict]:
     return out
 
 
-def _normalize_prefix_list(raw: object) -> tuple[str, ...]:
-    if not isinstance(raw, list):
-        return ()
-    normalized: list[str] = []
-    for item in raw:
-        if not isinstance(item, str):
-            continue
-        token = item.strip().replace("\\", "/").strip("/")
-        if token and token not in normalized:
-            normalized.append(token)
-    return tuple(normalized)
-
-
-def _workflow_project_include_prefixes(root: Path) -> dict[str, tuple[str, ...]]:
-    data = _read_workflow_config(root)
-    if not isinstance(data, dict):
-        return {"docs": (), "code": ()}
-    indexing = data.get("indexing", {})
-    if not isinstance(indexing, dict):
-        return {"docs": (), "code": ()}
-
-    configured = indexing.get("project_include_prefixes", {})
-    if isinstance(configured, list):
-        prefixes = _normalize_prefix_list(configured)
-        return {"docs": prefixes, "code": prefixes}
-
-    docs_prefixes: tuple[str, ...] = ()
-    code_prefixes: tuple[str, ...] = ()
-    if isinstance(configured, dict):
-        docs_prefixes = _normalize_prefix_list(configured.get("docs"))
-        code_prefixes = _normalize_prefix_list(configured.get("code"))
-
-    if not code_prefixes and bool(indexing.get("include_framework_code_for_code_search", False)):
-        code_prefixes = (".wavefoundry/framework/scripts",)
-    return {"docs": docs_prefixes, "code": code_prefixes}
-
-
 _WAVE_ID_PATTERN = re.compile(r"^wave-id:\s+`([^`]+)`", re.MULTILINE)
 _STATUS_PATTERN = re.compile(r"^Status:\s+(\S+)", re.MULTILINE)
 _CHANGE_ID_PATTERN = re.compile(r"^Change ID:\s+`([^`]+)`", re.MULTILINE)
@@ -2228,12 +2191,11 @@ def _index_is_up_to_date(root: Path, layer: str, content: str = "docs") -> bool:
     index_dir = _index_dir_for_layer(root, layer)
     if not (index_dir / "meta.json").exists():
         return False
-    include_prefixes = _workflow_project_include_prefixes(root) if layer == "project" else {"docs": (), "code": ()}
-    if layer == "project" and content == "all":
-        # setup_index.py doesn't support --dry-run; check docs layer as a proxy
-        check_content = "docs"
+    if layer == "project" and content in {"all", "graph"}:
+        # setup_index.py (all) and graph-only mode don't support --dry-run; treat as always stale
+        return False
     else:
-        check_content = content if content != "all" else "docs"
+        check_content = content
     cmd = [
         _preferred_python(), str(scripts_dir / "indexer.py"),
         "--root", str(root), "--content", check_content, "--dry-run",
@@ -2244,9 +2206,7 @@ def _index_is_up_to_date(root: Path, layer: str, content: str = "docs") -> bool:
             "--include-prefix", ".wavefoundry/framework",
             "--no-ignore-files",
         ])
-    elif layer == "project" and check_content in {"docs", "code"}:
-        for prefix in (include_prefixes["docs"] if check_content == "docs" else include_prefixes["code"]):
-            cmd.extend(["--project-include-prefix", prefix])
+    # Project layer: indexer.py reads workflow-config include-prefixes itself.
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, cwd=str(root),
@@ -2482,7 +2442,7 @@ def run_index_rebuild(
     """
     import subprocess
     import time
-    if content not in {"docs", "code", "all"}:
+    if content not in {"docs", "code", "all", "graph"}:
         raise ValueError(f"Unsupported content '{content}'.")
     if layer not in {"project", "framework"}:
         raise ValueError(f"Unsupported layer '{layer}'.")
@@ -2510,12 +2470,14 @@ def run_index_rebuild(
         }
 
     scripts_dir = Path(__file__).resolve().parent
-    include_prefixes = _workflow_project_include_prefixes(root) if layer == "project" else {"docs": (), "code": ()}
     python_exec = _preferred_python()
 
     if layer == "project" and content == "all":
         script = scripts_dir / "setup_index.py"
         cmd = [python_exec, str(script), "--root", str(root), "--include-code", "--verbose"]
+    elif layer == "project" and content == "graph":
+        script = scripts_dir / "setup_index.py"
+        cmd = [python_exec, str(script), "--root", str(root), "--graph-only", "--verbose"]
     else:
         script = scripts_dir / "indexer.py"
         cmd = [python_exec, str(script), "--root", str(root), "--content", content, "--verbose"]
@@ -2525,10 +2487,7 @@ def run_index_rebuild(
             "--include-prefix", ".wavefoundry/framework",
             "--no-ignore-files",
         ])
-    elif layer == "project" and content in {"docs", "code"}:
-        configured_prefixes = include_prefixes["docs"] if content == "docs" else include_prefixes["code"]
-        for prefix in configured_prefixes:
-            cmd.extend(["--project-include-prefix", prefix])
+    # Project layer (docs/code): indexer.py reads workflow-config include-prefixes itself.
     if full:
         cmd.append("--full")
 
@@ -2602,12 +2561,13 @@ def run_index_rebuild(
             "stderr": log_file,
             "stdin": subprocess.DEVNULL,
             "cwd": str(root),
-            "env": {
-                **os.environ,
-                "PROJECT_ROOT": str(root),
-                "WAVEFOUNDRY_INDEX_BUILD_STATE_PATH": str(state_path),
-            },
-        }
+                "env": {
+                    **os.environ,
+                    "PROJECT_ROOT": str(root),
+                    "WAVEFOUNDRY_INDEX_BUILD_STATE_PATH": str(state_path),
+                    "WAVEFOUNDRY_TIMESTAMP_LOGS": "1",
+                },
+            }
         if os.name == "nt":
             kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
         else:
@@ -2627,7 +2587,13 @@ def run_index_rebuild(
         _prev_files = _build_stats.get("files_indexed", "?")
         _timing_hint = f" Last build took ~{_mins} minute{'s' if _mins != 1 else ''} for {_prev_files} files — expect similar."
 
-    if full:
+    if content == "graph":
+        notice = (
+            f"Rebuilding graph index ({layer} layer) — extracting nodes/edges and re-clustering communities. "
+            f"No semantic embedding — typically completes in ~10 seconds. "
+            f"Watch progress: {log_path}"
+        )
+    elif full:
         notice = (
             f"Rebuilding {_index_label} index ({layer} layer) — {_file_count} source files. "
             f"The index is being built locally and may take 5–10 minutes depending on repository size."
@@ -3614,7 +3580,7 @@ def _table_lock_paths(index_dir: Path) -> list[Path]:
     return [index_dir / f"{kind}.lance" / ".lock" for kind in ("docs", "code")]
 
 
-def _cleanup_stale_table_locks(index_dir: Path) -> list[dict[str, Any]]:
+def _cleanup_stale_table_locks(index_dir: Path, *, remove_stale_running_pid: bool = False) -> list[dict[str, Any]]:
     """Remove dead Lance table lock markers and return cleanup details."""
     import time as _time
 
@@ -3633,7 +3599,8 @@ def _cleanup_stale_table_locks(index_dir: Path) -> list[dict[str, Any]]:
         except OSError:
             continue
         pid_dead = pid is None or not _pid_is_running(pid)
-        if not pid_dead:
+        lock_stale = age >= BACKGROUND_INDEX_LOCK_STALE_SECONDS
+        if not pid_dead and not (remove_stale_running_pid and lock_stale):
             continue
         try:
             lock_path.unlink()
@@ -3644,7 +3611,7 @@ def _cleanup_stale_table_locks(index_dir: Path) -> list[dict[str, Any]]:
             "path": str(lock_path),
             "pid": pid,
             "age_seconds": int(age),
-            "reason": "pid_dead",
+            "reason": "stale" if lock_stale and remove_stale_running_pid else "pid_dead",
             "removed": removed,
         })
     return cleaned
@@ -3654,7 +3621,7 @@ def _background_refresh_active(state_path: Path) -> bool:
     # Primary guard: if any per-table .lock file exists and is fresh, a build is actively
     # running — regardless of what the state file says.
     index_dir = state_path.parent
-    _cleanup_stale_table_locks(index_dir)
+    _cleanup_stale_table_locks(index_dir, remove_stale_running_pid=True)
     if any(_lock_is_fresh(p) for p in _table_lock_paths(index_dir)):
         return True
 
@@ -3694,6 +3661,9 @@ def _start_background_index_refresh(root: Path, layer: str) -> bool:
             ".wavefoundry/framework",
             "--no-ignore-files",
         ])
+    # Project layer: indexer.py reads workflow-config project include-prefixes
+    # itself (docs+code merged for the co-running graph extraction), so the
+    # background refresh launches it bare.
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.DEVNULL,
@@ -5846,16 +5816,91 @@ def _select_prepare_council_rotating_seat(wave_text: str) -> tuple[str | None, s
     return None, "No clear domain signal; red-team fixed seat only"
 
 
-def _prepare_council_verdict_present(wave_text: str) -> bool:
-    """True if ## Review Checkpoints contains a prepare-council verdict line."""
+_PREPARE_COUNCIL_VERDICT_RE = re.compile(
+    r"^\s*-\s*\*\*Prepare-phase Wave Council \[prepare-council\] — (?P<date>[^:]+): (?P<verdict>PASS(?: WITH NOTES)?|BLOCKED)\*\*(?:\s*\((?P<meta>.*)\))?\s*$",
+    re.IGNORECASE,
+)
+_PREPARE_COUNCIL_REQUIRED_META_FIELDS = (
+    "moderator",
+    "primer-depth",
+    "seats",
+    "rotating-seat",
+    "strongest-challenge",
+    "strongest-alternative",
+)
+
+
+def _prepare_council_verdict_info(wave_text: str) -> dict[str, Any]:
+    """Parse the prepare-phase Wave Council verdict from ## Review Checkpoints."""
     _heading_pat = re.compile(r"^(#{1,6} .+)$", re.MULTILINE)
     headings = list(_heading_pat.finditer(wave_text))
     for i, m in enumerate(headings):
         if m.group(1).strip() == "## Review Checkpoints":
             end = headings[i + 1].start() if i + 1 < len(headings) else len(wave_text)
             checkpoints = wave_text[m.end():end]
-            return "prepare-council" in checkpoints.casefold()
-    return False
+            for raw in checkpoints.splitlines():
+                line = raw.strip()
+                if "prepare-council" not in line.casefold():
+                    continue
+                match = _PREPARE_COUNCIL_VERDICT_RE.match(line)
+                if not match:
+                    return {
+                        "present": True,
+                        "valid": False,
+                        "line": line,
+                        "verdict": "",
+                        "date": "",
+                        "meta": {},
+                        "missing_fields": list(_PREPARE_COUNCIL_REQUIRED_META_FIELDS),
+                    }
+                meta_text = match.group("meta") or ""
+                meta: dict[str, str] = {}
+                for raw_part in re.split(r";\s*", meta_text):
+                    if not raw_part.strip():
+                        continue
+                    key, sep, value = raw_part.partition(":")
+                    if not sep:
+                        continue
+                    meta[key.strip().casefold()] = value.strip()
+                missing_fields = [field for field in _PREPARE_COUNCIL_REQUIRED_META_FIELDS if not meta.get(field)]
+                verdict = match.group("verdict").strip().upper()
+                valid = not missing_fields and verdict in {"PASS", "PASS WITH NOTES"}
+                return {
+                    "present": True,
+                    "valid": valid,
+                    "line": line,
+                    "verdict": verdict,
+                    "date": match.group("date").strip(),
+                    "meta": meta,
+                    "missing_fields": missing_fields,
+                }
+    return {
+        "present": False,
+        "valid": False,
+        "line": "",
+        "verdict": "",
+        "date": "",
+        "meta": {},
+        "missing_fields": list(_PREPARE_COUNCIL_REQUIRED_META_FIELDS),
+    }
+
+
+def _prepare_council_verdict_present(wave_text: str) -> bool:
+    """True if a valid prepare-council verdict line is recorded."""
+    return bool(_prepare_council_verdict_info(wave_text).get("valid"))
+
+
+def _prepare_council_verdict_template(rotating_seat: str | None) -> str:
+    rotating_part = rotating_seat or "none"
+    seat_list = ["red-team", "architecture-reviewer", "security-reviewer", "qa-reviewer", "reality-checker"]
+    if rotating_seat:
+        seat_list.append(rotating_seat)
+    seats = ", ".join(seat_list)
+    return (
+        "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** "
+        f"(moderator: council-moderator; primer-depth: standard; seats: {seats}; rotating-seat: {rotating_part}; "
+        "strongest-challenge: <summary>; strongest-alternative: <summary>)"
+    )
 
 
 def _build_prepare_council_brief(wave_id: str, wave_text: str, change_ids: list[str]) -> dict[str, Any]:
@@ -5874,15 +5919,11 @@ def _build_prepare_council_brief(wave_id: str, wave_text: str, change_ids: list[
         "instructions": (
             "Run each council seat in isolation against the admitted change docs and wave record. "
             "Have council-moderator synthesize findings. "
-            "Record the verdict in ## Review Checkpoints with a 'prepare-council' marker "
-            "(e.g. '- **Prepare-phase Wave Council — <date>: PASS** (red-team fixed seat; "
-            f"{rotating_seat + ' rotating seat' if rotating_seat else 'red-team only'})') "
+            "Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line "
+            f"(e.g. `{_prepare_council_verdict_template(rotating_seat)}`) "
             "before calling wave_prepare(mode='create')."
         ),
-        "verdict_format": (
-            f"- **Prepare-phase Wave Council — <date>: PASS** "
-            f"(red-team fixed seat{'; ' + rotating_seat + ' rotating seat' if rotating_seat else ''})"
-        ),
+        "verdict_format": _prepare_council_verdict_template(rotating_seat),
     }
 
 
@@ -6051,11 +6092,13 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
     # Prepare-phase Wave Council review — final step of wave_prepare (12sp5).
     # Always generate the council brief; block create-mode completion until verdict is recorded.
     council_brief = _build_prepare_council_brief(wave_id, text, change_ids)
-    verdict_present = _prepare_council_verdict_present(text)
+    verdict_info = _prepare_council_verdict_info(text)
+    verdict_present = bool(verdict_info.get("present"))
+    verdict_valid = bool(verdict_info.get("valid"))
     if not verdict_present:
         council_usage = (
             "Run the prepare-phase Wave Council review now (seats and scope in council_brief), "
-            "record the verdict in ## Review Checkpoints with a 'prepare-council' marker, "
+            "record the verdict in ## Review Checkpoints with a structured 'prepare-council' line, "
             "then call wave_prepare(mode='create') to complete prepare."
         )
         if mode_s == "create":
@@ -6066,7 +6109,7 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
                     "prepare_council_verdict_missing",
                     "Technical checks passed. Ready to run prepare-phase Wave Council review. "
                     "Run each council seat in isolation against the admitted change docs, "
-                    "record the verdict in ## Review Checkpoints with a 'prepare-council' marker, "
+                    "record the verdict in ## Review Checkpoints with a structured 'prepare-council' line, "
                     "then call wave_prepare(mode='create') again to complete prepare.",
                     recovery_tools=["wave_prepare"],
                     recovery_usage="wave_prepare(mode='create')",
@@ -6082,6 +6125,43 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
             recovery_tools=["wave_prepare"],
             recovery_usage="wave_prepare(mode='create')",
         ))
+    elif not verdict_valid:
+        diagnostics.append(
+            _diagnostic(
+                "prepare_council_verdict_invalid",
+                "A prepare-phase Wave Council verdict exists, but it is not structurally valid. "
+                "Record a structured verdict in ## Review Checkpoints with moderator, primer-depth, seats, rotating-seat, strongest-challenge, and strongest-alternative fields before calling wave_prepare(mode='create').",
+                recovery_tools=["wave_prepare"],
+                recovery_usage="wave_prepare(mode='create')",
+            )
+        )
+        if mode_s == "create":
+            return _response(
+                "error",
+                {
+                    "wave_id": wave_id,
+                    "mode": mode_s,
+                    "change_count": len(change_ids),
+                    "lint_passed": lint_passed,
+                    "garden_passed": garden_passed,
+                    "repairs_needed": repairs_needed,
+                    "repaired": repaired,
+                    "required_council_signoffs": required_council_signoffs,
+                    "council_brief": council_brief,
+                    "council_verdict_present": verdict_present,
+                    "council_verdict_valid": verdict_valid,
+                },
+                diagnostics=diagnostics,
+                next_tools=["wave_prepare"],
+                usage="wave_prepare(mode='create')",
+            )
+    if diagnostics:
+        error_data = {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "repairs_needed": repairs_needed, "repaired": repaired}
+        error_data["required_council_signoffs"] = required_council_signoffs
+        error_data["council_brief"] = council_brief
+        error_data["council_verdict_present"] = verdict_present
+        error_data["council_verdict_valid"] = verdict_valid
+        return _response("error", error_data, diagnostics=diagnostics, next_tools=["wave_prepare"], usage="wave_prepare(mode='create')")
     if mode_s == "create":
         status_match = _STATUS_PATTERN.search(text)
         if status_match and status_match.group(1) != "active":
@@ -6094,7 +6174,7 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
             root,
             [wave_md, *(_wave_change_doc_path(root, wave_md, change_id) for change_id in change_ids)],
         )
-    resp_data = {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired, "required_council_signoffs": required_council_signoffs, "council_brief": council_brief, "council_verdict_present": verdict_present}
+    resp_data = {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired, "required_council_signoffs": required_council_signoffs, "council_brief": council_brief, "council_verdict_present": verdict_present, "council_verdict_valid": verdict_valid}
     return _response("dry_run" if mode_s == "dry_run" else "ok", resp_data, diagnostics=_ac_advisories if _ac_advisories else None, next_tools=["wave_current"], usage="wave_current()")
 
 
@@ -6310,12 +6390,21 @@ def wave_implement_response(root: Path, wave_id: str, mode: str = "dry_run", cac
     diagnostics: list[dict[str, Any]] = []
 
     # Gate 1: council verdict
-    if not _prepare_council_verdict_present(wave_text):
+    verdict_info = _prepare_council_verdict_info(wave_text)
+    if not verdict_info.get("present"):
         diagnostics.append(_diagnostic(
             "prepare_council_verdict_missing",
             "No prepare-phase Wave Council verdict found in `## Review Checkpoints`. "
             "Run the council review (red-team fixed seat + rotating seat) and record the verdict "
-            "with a 'prepare-council' marker before calling wave_implement.",
+            "with a structured 'prepare-council' line before calling wave_implement.",
+            recovery_tools=["wave_prepare", "wave_current"],
+            recovery_usage=f"wave_prepare(wave_id={wave_id!r}, mode='dry_run')",
+        ))
+    elif not verdict_info.get("valid"):
+        diagnostics.append(_diagnostic(
+            "prepare_council_verdict_invalid",
+            "A prepare-phase Wave Council verdict was found, but it is not structurally valid. "
+            "Record a structured verdict with moderator, primer-depth, seats, rotating-seat, strongest-challenge, and strongest-alternative before calling wave_implement.",
             recovery_tools=["wave_prepare", "wave_current"],
             recovery_usage=f"wave_prepare(wave_id={wave_id!r}, mode='dry_run')",
         ))
@@ -10468,15 +10557,25 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_index_build(content: str = "docs", mode: str = "update", layer: str = "project", **kwargs: Any) -> dict[str, Any]:
-        """Run a synchronous semantic index **build** for the current repo root.
+        """Run a semantic index **build** for the current repo root.
 
         Use ``mode='update'`` (default) for an incremental hash-based refresh of changed files.
         Use ``mode='rebuild'`` to force a full rebuild of the selected ``content`` for ``layer``.
         Successful responses include ``mode``, ``index_scope``, and runtime ``stats``.
 
+        **content values:**
+
+        - ``docs`` — rebuild the docs/seed semantic embedding index only
+        - ``code`` — rebuild the code semantic embedding index only
+        - ``all`` — rebuild both docs and code embedding indexes together (slowest; ~5–10 min)
+        - ``graph`` — rebuild **only the graph index** (node/edge extraction + community clustering).
+          Skips all semantic embedding. Completes in ~10 seconds. Use this when you need to
+          refresh the codebase graph or community map without re-running the full embedding pipeline.
+          Equivalent to "rebuild graph index" or "rebuild just the graph."
+
         Args:
-            content: One of `docs`, `code`, or `all`.
-            mode: `update` (incremental) or `rebuild` (full).
+            content: One of `docs`, `code`, `all`, or `graph`.
+            mode: `update` (incremental) or `rebuild` (full). For `graph`, always use `rebuild`.
             layer: `project` for the repo-local index or `framework` for packaged framework docs/seeds.
         """
         bad = _ensure_no_extra_args("wave_index_build", kwargs)

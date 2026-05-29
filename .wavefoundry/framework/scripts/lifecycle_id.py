@@ -14,6 +14,11 @@ BASE36_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
 DEFAULT_EPOCH_UTC = datetime(2020, 2, 2, 2, 2, tzinfo=timezone.utc)
 SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
+# In-process floor: tracks the last prefix assigned in this process so rapid
+# same-second calls produce unique prefixes before the filesystem scan sees the
+# earlier write.  Subprocess invocations always start with None (fresh module).
+_last_assigned_prefix: str | None = None
+
 
 def discover_repo_root() -> Path | None:
     """Walk up from CWD to find the repo root anchored by ``workflow-config.json``.
@@ -155,18 +160,27 @@ def next_available_prefix(
     policy: tuple[datetime, int] | None = None,
     repo_root: Path | None = None,
 ) -> str:
+    global _last_assigned_prefix
     base = build_prefix(timestamp, policy=policy)
-    if repo_root is None:
-        return base
-    existing = _existing_prefixes(repo_root)
-    if base not in existing:
-        return base
-    n = decode_base36(base)
+    existing = _existing_prefixes(repo_root) if repo_root is not None else set()
+
+    # Start from the greater of the time-based prefix and one past the last
+    # in-process assignment.  This prevents rapid same-second calls from
+    # returning identical prefixes before the earlier directory write is visible
+    # to the filesystem scan.
+    start_n = decode_base36(base)
+    if _last_assigned_prefix is not None:
+        last_n = decode_base36(_last_assigned_prefix)
+        if last_n >= start_n:
+            start_n = last_n + 1
+
+    n = start_n
     while True:
-        n += 1
         candidate = encode_base36(n).rjust(5, "0")
         if candidate not in existing:
+            _last_assigned_prefix = candidate
             return candidate
+        n += 1
 
 
 def validate_slug(slug: str, *, legacy: bool) -> str:

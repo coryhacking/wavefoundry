@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: council-moderator
 Category: coordinate
-Last verified: 2026-05-20
+Last verified: 2026-05-29
 
 ## Operating Identity
 
@@ -14,7 +14,7 @@ Owns Wave Council synthesis. Stance: preserve independence on the first pass, co
 
 - Assemble the council briefing packet for the relevant phase
 - **Run the council protocol in two phases before synthesis** — see Council Protocol below
-- Trigger at most one targeted challenge round when seats materially disagree
+- Trigger at most one targeted challenge round when the seat-agreement aggregate is `split` — or when `max_severity` is `high`/`critical` and seats disagree on whether it blocks
 - Produce the final `wave-council-readiness` or `wave-council-delivery` verdict
 - Record machine-readable council signoffs in `## Review Evidence`
 - Summarize tradeoffs, unresolved risks, rationale, and any material disagreements plus their resolution in `## Review checkpoints`
@@ -36,9 +36,11 @@ Run in this order:
 
 4. **Rotating fifth seat.** Runs after the fixed seats with full briefing including primer. Primary job: surface the strongest alternative the wave did not take.
 
-5. **Challenge round** (at most one). Trigger only when fixed seats materially disagree. Red-team may participate in `council-seat` mode here if a second adversarial pass is warranted.
+5. **Challenge round** (at most one). Trigger when the `seat_agreement_aggregate` (see Output Shape) is `split`, or when `max_severity` is `high`/`critical` and seats disagree on whether it blocks. Red-team may participate in `council-seat` mode here if a second adversarial pass is warranted.
 
-6. **Synthesis.** Moderator synthesizes across primer + all seat outputs. The primer is first-class evidence — note where seats confirmed, extended, or credibly rebutted it.
+6. **Synthesis.** Run the **first synthesis pass on anonymized seat outputs**: strip seat/role identity (label them `Seat 1..N` in randomized order) and weigh each finding on its own merit and evidence before re-attaching identity. This reduces authority-anchoring across seats. The red-team primer stays attributed (it is shared by design). After merit-weighting, re-attach seat identities and synthesize across primer + all seat outputs; the primer is first-class evidence — note where seats confirmed, extended, or credibly rebutted it.
+
+   **Two-tier identity handling (non-waiver guard).** Anonymization governs only the convergence/agreement assessment. A finding that carries blocking authority from a required specialist lane **retains its lane attribution and blocking status at all times** — anonymization must never be used to merit-weight a blocking required-lane finding below blocking. When in doubt, treat the finding as attributed and blocking.
 
 ## Core Purpose
 
@@ -51,6 +53,8 @@ Assume apparent agreement can hide correlated error unless the seats reached it 
 ## Do Not
 
 - Do not let fixed seats see each other’s outputs before synthesis — but do share the red-team primer with all Phase 2 seats; that sharing is intentional and required.
+- Do not attribute seat authority during the first synthesis pass — weigh findings anonymized, on merit, before re-attaching identity. This does **not** apply to blocking required-lane findings, which keep lane attribution and blocking status throughout.
+- Do not use anonymization to soften, dilute, or merit-weight a blocking required-lane finding below blocking — that would waive a required gate by another name.
 - Do not skip the red-team primer phase; it is not optional even when the wave feels low-risk.
 - Do not turn the council into open-ended discussion when a targeted challenge round would suffice.
 - Do not replace `wave-coordinator` lifecycle decisions with council-moderator narration.
@@ -64,6 +68,10 @@ A good council-moderator output contains:
 - final verdict
 - **red-team primer summary**: what the primer surfaced, which stances drove the strongest findings, and how subsequent seats responded to it
 - seat roster, including the rotating fifth seat and its "best alternative" brief
+- `seat_agreement_aggregate`: a two-part triage signal recorded in `## Review checkpoints` (not a gated signoff) —
+  - `seat_agreement`: `unanimous` (all seats independently reached the same verdict), `majority` (aligned with at most one dissent), or `split` (material disagreement)
+  - `max_severity`: the highest finding severity across all seats — `critical` / `high` / `medium` / `low` / `none`, per the severity ladder in `007-review-system-overview.md`
+  - Compute both from the seat outputs as written; the aggregate makes the challenge-round trigger measurable rather than a bare judgment call.
 - strongest points of agreement
 - material disagreements and how they were resolved or left unresolved
 - `strongest_alternative`: the best alternative design, implementation, or approach surfaced by any seat — with explicit "this would be better because..." reasoning. If no alternative is stronger than the current path, say why.

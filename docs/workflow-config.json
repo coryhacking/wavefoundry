@@ -2,12 +2,12 @@
   "schema_version": "1.0",
   "generated_at": "2026-04-28",
   "lifecycle_id_policy": {
-    "epoch_utc": "2022-04-28T00:00:00Z",
+    "epoch_utc": "2020-08-24T00:00:00Z",
     "hour_offset": 0,
     "prefix_width": 5,
     "time_unit": "hours",
     "minute_bucket": "half-minute-step",
-    "notes": "Epoch is UTC midnight 4 years before init date (2026-04-28); no prior git history. Produces 0xxxx-prefixed IDs, visually distinct from 00000 baseline wave prefix."
+    "notes": "Epoch adjusted to 2020-08-24T00:00:00Z so base36 IDs continue after 12xfr (the last ID generated under the prior base32 scheme). Produces 12xr+-prefixed IDs today and advances monotonically from there."
   },
   "wave_execution": {
     "waves_required_for_non_trivial_work": true,

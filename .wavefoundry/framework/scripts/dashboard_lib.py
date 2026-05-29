@@ -25,6 +25,15 @@ _TASK_RE = re.compile(r"^\s*-\s+(?:(?:\[(?P<mark>[ xX])\])\s+)?(?P<label>.+?)\s*
 _ACTIVE_WAVE_RE = re.compile(r"^\*\*Active wave:\*\*\s+(.+)$", re.MULTILINE)
 DASHBOARD_START_LOCK_NAME = "dashboard-start.lock"
 DASHBOARD_PROCESS_LOCK_NAME = "dashboard-process.lock"
+GRAPH_DIRNAME = "graph"
+GRAPH_FILENAMES = {
+    "project": "project-graph.json",
+    "framework": "framework-graph.json",
+}
+GRAPH_CLUSTER_FILENAMES = {
+    "project": "project-graph-clusters.json",
+    "framework": "framework-graph-clusters.json",
+}
 
 
 class DashboardLockBusy(RuntimeError):
@@ -206,6 +215,91 @@ def write_dashboard_metadata(root: Path, payload: dict[str, Any]) -> None:
     path = dashboard_metadata_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def graph_path(root: Path, layer: str) -> Path:
+    if layer not in GRAPH_FILENAMES:
+        raise ValueError(f"Unsupported graph layer: {layer}")
+    if layer == "framework":
+        return root / ".wavefoundry" / "framework" / "index" / GRAPH_DIRNAME / GRAPH_FILENAMES[layer]
+    return root / ".wavefoundry" / "index" / GRAPH_DIRNAME / GRAPH_FILENAMES[layer]
+
+
+def graph_cluster_path(root: Path, layer: str) -> Path:
+    if layer not in GRAPH_CLUSTER_FILENAMES:
+        raise ValueError(f"Unsupported graph layer: {layer}")
+    if layer == "framework":
+        return root / ".wavefoundry" / "framework" / "index" / GRAPH_DIRNAME / GRAPH_CLUSTER_FILENAMES[layer]
+    return root / ".wavefoundry" / "index" / GRAPH_DIRNAME / GRAPH_CLUSTER_FILENAMES[layer]
+
+
+def read_graph_cluster_payload(root: Path, layer: str) -> dict[str, Any]:
+    path = graph_cluster_path(root, layer)
+    data = _read_json(path, {})
+    if isinstance(data, dict) and data:
+        data.setdefault("layer", layer)
+        data.setdefault("cluster_schema_version", "1")
+        data.setdefault("communities", [])
+        data.setdefault("community_count", len(data.get("communities") or []))
+        try:
+            data["cluster_mtime"] = path.stat().st_mtime_ns
+        except OSError:
+            data["cluster_mtime"] = 0
+        data["present"] = True
+        data["cluster_path"] = str(path.relative_to(root)).replace("\\", "/")
+        return data
+    return {
+        "layer": layer,
+        "cluster_schema_version": "1",
+        "cluster_mtime": 0,
+        "present": False,
+        "cluster_path": str(path.relative_to(root)).replace("\\", "/"),
+        "communities": [],
+        "community_count": 0,
+    }
+
+
+def read_graph_payload(root: Path, layer: str) -> dict[str, Any]:
+    path = graph_path(root, layer)
+    data = _read_json(path, {})
+    if isinstance(data, dict) and data:
+        data.setdefault("layer", layer)
+        data.setdefault("schema_version", "1")
+        data.setdefault("nodes", [])
+        data.setdefault("edges", [])
+        data.setdefault("counts", {"files": 0, "nodes": len(data.get("nodes") or []), "edges": len(data.get("edges") or [])})
+        cluster_data = read_graph_cluster_payload(root, layer)
+        try:
+            data["graph_mtime"] = path.stat().st_mtime_ns
+        except OSError:
+            data["graph_mtime"] = 0
+        data["cluster_mtime"] = int(cluster_data.get("cluster_mtime") or 0)
+        data["graph_version"] = max(int(data.get("graph_mtime") or 0), int(data.get("cluster_mtime") or 0))
+        data["clusters"] = cluster_data
+        data["present"] = True
+        data["graph_path"] = str(path.relative_to(root)).replace("\\", "/")
+        return data
+    return {
+        "layer": layer,
+        "schema_version": "1",
+        "graph_mtime": 0,
+        "cluster_mtime": 0,
+        "graph_version": 0,
+        "present": False,
+        "graph_path": str(path.relative_to(root)).replace("\\", "/"),
+        "nodes": [],
+        "edges": [],
+        "counts": {"files": 0, "nodes": 0, "edges": 0},
+        "clusters": {
+            "layer": layer,
+            "cluster_schema_version": "1",
+            "cluster_mtime": 0,
+            "present": False,
+            "cluster_path": str(graph_cluster_path(root, layer).relative_to(root)).replace("\\", "/"),
+            "communities": [],
+            "community_count": 0,
+        },
+    }
 
 
 def dashboard_browser_open_enabled() -> bool:
@@ -726,6 +820,42 @@ def list_git_changed_files(root: Path, since: date | None = None, limit: int = 5
     return result[:limit]
 
 
+def get_file_diff(root: Path, rel_path: str) -> tuple[str, int]:
+    """Return (diff_text, http_status) for rel_path within root.
+
+    Returns 400 for path traversal attempts. Untracked files are rendered
+    as synthetic full-addition diffs. All other files use git diff HEAD.
+    """
+    try:
+        resolved = (root / rel_path).resolve()
+        resolved.relative_to(root.resolve())
+    except (ValueError, OSError):
+        return ("", 400)
+
+    def _run(*args: str) -> str:
+        try:
+            r = subprocess.run(list(args), cwd=root, capture_output=True, text=True, timeout=10)
+            return r.stdout
+        except Exception:
+            return ""
+
+    status_out = _run("git", "status", "--porcelain", "--", rel_path)
+    is_untracked = any(line.startswith("??") for line in status_out.splitlines())
+
+    if is_untracked:
+        try:
+            content = resolved.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ("", 200)
+        lines = content.splitlines()
+        n = len(lines)
+        header = f"--- /dev/null\n+++ b/{rel_path}\n@@ -0,0 +1,{n} @@\n"
+        body = "".join(f"+{line}\n" for line in lines)
+        return (header + body, 200)
+
+    return (_run("git", "diff", "HEAD", "--", rel_path), 200)
+
+
 def collect_activity(root: Path, change_sets: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     handoff_path = root / "docs" / "agents" / "session-handoff.md"
     handoff_text = handoff_path.read_text(encoding="utf-8") if handoff_path.exists() else ""
@@ -802,6 +932,8 @@ def collect_health(root: Path, wave_count: int, change_sets: dict[str, list[dict
     index_stats      = _read_json(index_dir    / "index-build-stats.json", {})
     fw_index_meta    = _read_json(fw_index_dir / "meta.json", {})
     fw_index_stats   = _read_json(fw_index_dir / "index-build-stats.json", {})
+    project_graph    = read_graph_payload(root, "project")
+    framework_graph   = read_graph_payload(root, "framework")
     project_build    = server.wave_index_build_status_response(root, layer="project").get("data", {})
     framework_build  = server.wave_index_build_status_response(root, layer="framework").get("data", {})
     project_health   = _index_stats(index_meta,    index_stats,    index_dir)
@@ -827,6 +959,10 @@ def collect_health(root: Path, wave_count: int, change_sets: dict[str, list[dict
         "index": {
             "project": project_health,
             "framework": framework_health,
+        },
+        "graph": {
+            "project": project_graph,
+            "framework": framework_graph,
         },
         "counts": {
             "waves": wave_count,

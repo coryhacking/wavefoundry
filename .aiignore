@@ -1,3 +1,7 @@
 # Wavefoundry semantic index (binary and per-machine — not project source)
 .wavefoundry/index/
 .wavefoundry/framework/index/
+
+# Wavefoundry runtime lock files (host-local process/test locks — not project source)
+.wavefoundry/*.lock
+.wavefoundry/framework/*.lock

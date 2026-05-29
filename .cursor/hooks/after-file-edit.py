@@ -177,6 +177,8 @@ def maybe_trigger_reindex(file_path: str) -> None:
     python_exec = _venv_python_path()
     if not Path(python_exec).exists():
         python_exec = sys.executable
+    # indexer.py reads docs/workflow-config.json itself for project
+    # include-prefixes — launchers run bare, no prefix forwarding.
     subprocess.Popen(
         [python_exec, str(indexer), "--root", str(REPO_ROOT)],
         stdout=subprocess.DEVNULL,

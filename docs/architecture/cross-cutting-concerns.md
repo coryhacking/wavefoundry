@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-05-29
 
 ## Configuration
 
@@ -19,6 +19,8 @@ Only `render_platform_surfaces.py` writes to platform config files.
 ## Logging / Output
 
 - Framework scripts log to stdout/stderr (human-readable). No structured logging system yet.
+- Log files under `.wavefoundry/logs/` use absolute UTC date-time prefixes on entries so long-running operations can be correlated by wall-clock time.
+- Index build logs keep compact batch progress during full rebuilds, while incremental semantic updates also log one per-file chunk-accounting line per affected semantic table: path, table, chunks written, chunks removed, and chunks unchanged.
 - `docs_lint.py` exits non-zero on failure with actionable error messages.
 - MCP server: structured JSON responses (MCP protocol).
 - Dashboard server: browser assets plus JSON snapshot responses over loopback HTTP; prints the final bound URL on startup.

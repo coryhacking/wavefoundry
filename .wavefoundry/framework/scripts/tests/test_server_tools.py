@@ -68,6 +68,24 @@ def _make_wave(tmp: Path, wave_id: str, status: str, changes: list[dict]) -> Pat
     return wave_dir
 
 
+def _prepare_council_verdict_line(
+    *,
+    date: str = "2026-05-21",
+    verdict: str = "PASS",
+    rotating_seat: str = "none",
+    strongest_challenge: str = "red-team identified the remaining unknowns",
+    strongest_alternative: str = "keep the verdict structured and machine-readable",
+) -> str:
+    seats = "red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker"
+    if rotating_seat and rotating_seat != "none":
+        seats = f"{seats}, {rotating_seat}"
+    return (
+        f"- **Prepare-phase Wave Council [prepare-council] — {date}: {verdict}** "
+        f"(moderator: council-moderator; primer-depth: standard; seats: {seats}; rotating-seat: {rotating_seat}; "
+        f"strongest-challenge: {strongest_challenge}; strongest-alternative: {strongest_alternative})"
+    )
+
+
 def _write_index_layer(root: Path, chunks: list[dict], vectors, *, model: str = "test-model") -> None:
     import numpy as np
     import lancedb
@@ -1270,7 +1288,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
-            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (red-team fixed seat)\n",
+            + f"\n## Review Checkpoints\n\n{_prepare_council_verdict_line()}\n",
             encoding="utf-8",
         )
 
@@ -2108,7 +2126,9 @@ class RunIndexRebuildTests(unittest.TestCase):
         self.assertIn("--include-code", cmd)
         self.assertIn("--full", cmd)
 
-    def test_project_code_rebuild_forwards_workflow_include_prefixes(self):
+    def test_project_code_rebuild_does_not_forward_prefixes_indexer_self_reads(self):
+        # indexer.py reads workflow-config project include-prefixes itself, so
+        # run_index_rebuild launches the indexer bare for the project layer.
         (self.root / "docs").mkdir(parents=True, exist_ok=True)
         (self.root / "docs" / "workflow-config.json").write_text(
             json.dumps({
@@ -2127,9 +2147,10 @@ class RunIndexRebuildTests(unittest.TestCase):
             popen.return_value = mock_proc
             self.srv.run_index_rebuild(self.root, content="code")
         cmd = popen.call_args.args[0]
-        self.assertIn("--project-include-prefix", cmd)
-        self.assertIn(".wavefoundry/framework/scripts", cmd)
-        self.assertIn("vendor/docs", cmd)
+        self.assertIn("indexer.py", str(cmd[1]))
+        self.assertIn("--content", cmd)
+        self.assertIn("code", cmd)
+        self.assertNotIn("--project-include-prefix", cmd)
 
     def test_framework_layer_uses_framework_index_args(self):
         mock_proc = MagicMock()
@@ -4760,7 +4781,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
-            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (red-team fixed seat)\n",
+            + f"\n## Review Checkpoints\n\n{_prepare_council_verdict_line()}\n",
             encoding="utf-8",
         )
 
@@ -9801,7 +9822,15 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
-            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (red-team fixed seat)\n",
+            + f"\n## Review Checkpoints\n\n{_prepare_council_verdict_line()}\n",
+            encoding="utf-8",
+        )
+
+    def _add_invalid_verdict(self, wave_id: str) -> None:
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8")
+            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (moderator: council-moderator; seats: red-team; rotating-seat: none)\n",
             encoding="utf-8",
         )
 
@@ -9828,6 +9857,17 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         self.assertIn("Status: active", wave_md.read_text(encoding="utf-8"))
+
+    def test_prepare_create_blocks_on_malformed_council_verdict(self):
+        """AC-4: malformed prepare-council verdicts are rejected."""
+        wave_id = self._make_wave("council-gate-invalid")
+        self._add_invalid_verdict(wave_id)
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_prepare_response(self.root, wave_id, mode="create")
+        self.assertEqual(result["status"], "error")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertIn("prepare_council_verdict_invalid", codes)
 
     def test_prepare_dry_run_includes_council_brief_without_verdict(self):
         """AC-1: dry_run includes council_brief when no verdict is present."""
@@ -9909,7 +9949,7 @@ class WaveImplementTests(unittest.TestCase):
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
-            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (red-team fixed seat)\n",
+            + f"\n## Review Checkpoints\n\n{_prepare_council_verdict_line()}\n",
             encoding="utf-8",
         )
 

@@ -273,6 +273,33 @@ class BorrowFromFutureTests(unittest.TestCase):
         self.assertNotIn("wave.", prefixes)
         self.assertIn("0x8mg", prefixes)  # from directory name
 
+    def test_rapid_successive_calls_return_unique_prefixes(self) -> None:
+        mod = self.mod
+        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0x8mg'
+        p1 = mod.next_available_prefix(ts, policy=self._policy(), repo_root=self.repo_root)
+        p2 = mod.next_available_prefix(ts, policy=self._policy(), repo_root=self.repo_root)
+        p3 = mod.next_available_prefix(ts, policy=self._policy(), repo_root=self.repo_root)
+        self.assertEqual(p1, "0x8mg")
+        self.assertEqual(p2, "0x8mh")
+        self.assertEqual(p3, "0x8mi")
+
+    def test_in_memory_floor_not_applied_when_time_advances(self) -> None:
+        mod = self.mod
+        ts1 = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0x8mg'
+        ts2 = datetime.fromtimestamp(1735773300, tz=timezone.utc)  # → '0x99d'
+        p1 = mod.next_available_prefix(ts1, policy=self._policy(), repo_root=self.repo_root)
+        self.assertEqual(p1, "0x8mg")
+        p2 = mod.next_available_prefix(ts2, policy=self._policy(), repo_root=self.repo_root)
+        self.assertEqual(p2, "0x99d")
+
+    def test_in_memory_floor_applies_without_repo_root(self) -> None:
+        mod = self.mod
+        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0x8mg'
+        p1 = mod.next_available_prefix(ts, policy=self._policy(), repo_root=None)
+        self.assertEqual(p1, "0x8mg")
+        p2 = mod.next_available_prefix(ts, policy=self._policy(), repo_root=None)
+        self.assertEqual(p2, "0x8mh")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-26
+Last verified: 2026-05-29
 
 Actor: wave-coordinator
 Schema version: 1.0
@@ -79,6 +79,14 @@ wave-id: `12m6b dashboard-ac-numbered-list-parser`
 wave-id: `12hsd dashboard-completed-wave-pending-filter`
 
 - Closed 2026-05-10: two pending-row bugs — exclude `completed` from pendingWaves(); stack title below ID in .pending-wave-left.
+
+wave-id: `12xr1 graph-index-extraction-and-visualization`
+
+- Planned 2026-05-27: first graph wave for deterministic graph export, incremental invalidation, and dashboard validation before query tooling.
+
+wave-id: `12xr2 graph-query-surface`
+
+wave-id: `12xr3 graph-augmentation-promotion`
 
 wave-id: `12hs9 dashboard-pending-wave-id-wrap`
 

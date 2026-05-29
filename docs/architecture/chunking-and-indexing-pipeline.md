@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-23
+Last verified: 2026-05-29
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -35,7 +35,7 @@ Repository files
           Embedding            -- docs model / code model (768-dim each)
                 |
                 v
-          LanceDB write        -- incremental delete+append or full overwrite
+          LanceDB write        -- chunk-delta update or full overwrite
                 |
                 v
           Index build          -- HNSW vector index + FTS (BM25)
@@ -122,7 +122,7 @@ A full rebuild is triggered automatically when any of the following values diffe
 the stored `meta.json`:
 
 - The embedding model name or version
-- `CHUNKER_VERSION` (currently `"21"`) — bumped whenever the chunk format changes
+- `CHUNKER_VERSION` (currently `"22"`) — bumped whenever the chunk format changes
 - `WALKER_VERSION` (currently `"5"`) — bumped when the file-walk logic changes
 
 On a forced rebuild, change detection is bypassed and every file is re-processed.
@@ -151,6 +151,7 @@ Every chunk includes:
 | `language` | Canonical language name for `code_search(language=...)` (code paths) |
 | `lines` | 1-based `(start, end)` line range in the source file |
 | `id` | Stable key, e.g. `path::QualifiedName` or `path#L10-L80` |
+| `chunk_hash` | Index-row fingerprint for fields that affect retrieval semantics; used for chunk-level vector reuse |
 
 **Chunk kinds:**
 
@@ -340,13 +341,26 @@ rebuild.
 
 ### Incremental write
 
-1. **Delete** — all existing rows for files in `removed` and `updated` are deleted by
-   filtering on the `path` column.
-2. **Append** — new rows for files in `changed` (which covers both `added` and `updated`)
-   are appended via `_stream_embed_write`, batch by batch.
+Incremental writes are file-scoped for change detection but chunk-scoped for embedding work.
+For each stale path, the indexer reads existing LanceDB rows from the relevant table and
+compares them with the freshly generated chunks:
 
-An updated file is handled as a delete-then-reinsert rather than an in-place update, because
-LanceDB's copy-on-write format makes deletion and append cheaper than row-level mutation.
+1. **Read current rows** — existing rows are fetched by `path` from the `docs` and/or `code`
+   table, including vectors.
+2. **Classify chunks** — new chunks are matched against existing rows by stable `id` plus
+   `chunk_hash`. Unchanged chunks keep their existing row. Changed, added, removed, and
+   ambiguous chunks are identified per path.
+3. **Reuse vectors where safe** — when chunk text and retrieval-relevant metadata are
+   unchanged, no embedding call is made. If the vector is reusable but row metadata such as
+   `lines`, `section`, or `id` changed, the row is rewritten with current metadata and the
+   reused vector.
+4. **Embed only the delta** — only added or changed chunks are sent to the embedder.
+5. **Delete and append** — removed/changed old rows are deleted by `id`; changed/new rows
+   are appended. If existing rows lack compatible `chunk_hash` metadata, the path falls back
+   to the previous delete-all-for-path replacement behavior.
+
+Line-window fallback chunks are treated conservatively because their IDs include line ranges.
+When matching is ambiguous, correctness wins and the affected chunk is re-embedded.
 
 ### Full rebuild
 
@@ -397,7 +411,7 @@ changed since the last run.
 
 | Constant                  | Value  | Effect of change                                 |
 |---------------------------|--------|--------------------------------------------------|
-| `CHUNKER_VERSION`         | `"21"` | Forces full rebuild of the affected layer        |
+| `CHUNKER_VERSION`         | `"22"` | Forces full rebuild of the affected layer        |
 | `WALKER_VERSION`          | `"5"`  | Forces full rebuild of all layers                |
 | `WINDOW_SIZE`             | 120    | Line-window fallback window (lines per chunk)    |
 | `WINDOW_OVERLAP`          | 10     | Reserved; structured fallbacks often advance without overlap |
@@ -411,9 +425,10 @@ Whenever `CHUNKER_VERSION` is bumped — for example because a breadcrumb format
 new tree-sitter language is added — every file in the affected layer is re-chunked and
 re-embedded on the next build. The same applies when the embedding model name changes.
 
-After deploying `CHUNKER_VERSION` `"21"`, run a **full index rebuild** so existing chunks
-match the new boundaries (e.g. `python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full`
-or `wave_index_build` with full mode).
+After deploying `CHUNKER_VERSION` `"22"`, run a **full index rebuild** so existing LanceDB
+rows include `chunk_hash` consistently before chunk-level vector reuse is used (e.g.
+`python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full` or `wave_index_build`
+with full mode).
 
 ---
 

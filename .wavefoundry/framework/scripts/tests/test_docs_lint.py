@@ -1171,7 +1171,7 @@ class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
         wave_md = root / self.ACTIVE_WAVE
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
-            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (red-team fixed seat)\n",
+            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (moderator: council-moderator; primer-depth: standard; seats: red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker; rotating-seat: none; strongest-challenge: red-team identified the remaining unknowns; strongest-alternative: keep the verdict structured and machine-readable)\n",
             encoding="utf-8",
         )
 

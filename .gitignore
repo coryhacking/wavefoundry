@@ -17,6 +17,10 @@ build/
 # Wavefoundry dashboard runtime state (host-local: pid, port, url — never commit)
 .wavefoundry/dashboard-server.json
 
+# Wavefoundry runtime lock files (host-local process/test locks — never commit)
+.wavefoundry/*.lock
+.wavefoundry/framework/*.lock
+
 # Wavefoundry runtime logs — all logs consolidated here (upgrade, index build, dashboard)
 .wavefoundry/logs/
 
@@ -39,3 +43,6 @@ build/
 # IDE
 .idea/
 *.swp
+
+# slides folder
+slides/

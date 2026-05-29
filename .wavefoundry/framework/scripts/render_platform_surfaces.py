@@ -330,6 +330,8 @@ def hook_helpers() -> str:
             python_exec = _venv_python_path()
             if not Path(python_exec).exists():
                 python_exec = sys.executable
+            # indexer.py reads docs/workflow-config.json itself for project
+            # include-prefixes — launchers run bare, no prefix forwarding.
             subprocess.Popen(
                 [python_exec, str(indexer), "--root", str(REPO_ROOT)],
                 stdout=subprocess.DEVNULL,
@@ -1002,6 +1004,10 @@ def render_aiignore(repo_root: Path) -> None:
         "# Wavefoundry semantic index (binary and per-machine — not project source)",
         ".wavefoundry/index/",
         ".wavefoundry/framework/index/",
+        "",
+        "# Wavefoundry runtime lock files (host-local process/test locks — not project source)",
+        ".wavefoundry/*.lock",
+        ".wavefoundry/framework/*.lock",
     ]
     lines: list[str] = []
     if aiignore.exists():
@@ -1022,8 +1028,13 @@ def render_aiignore(repo_root: Path) -> None:
 
     def _is_index_meta_line(line: str) -> bool:
         s = line.strip()
-        return s in (".wavefoundry/index/", ".wavefoundry/framework/index/") or s.startswith(
-            "# Wavefoundry semantic index"
+        return s in (
+            ".wavefoundry/index/",
+            ".wavefoundry/framework/index/",
+            ".wavefoundry/*.lock",
+            ".wavefoundry/framework/*.lock",
+        ) or s.startswith("# Wavefoundry semantic index") or s.startswith(
+            "# Wavefoundry runtime lock files"
         )
 
     rest = [ln for ln in lines if not _is_index_meta_line(ln)]

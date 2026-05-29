@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -10,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
@@ -29,6 +31,7 @@ META_JSON = "meta.json"
 INDEX_BUILD_LOCK_NAME = "index-build.lock"
 TABLE_LOCK_NAME = ".lock"   # written inside docs.lance/ and code.lance/
 LOCK_STALE_SECONDS = 60 * 60
+TIMESTAMP_LOGS_ENV = "WAVEFOUNDRY_TIMESTAMP_LOGS"
 
 DOCS_MODEL = "BAAI/bge-small-en-v1.5"
 CODE_MODEL = "BAAI/bge-small-en-v1.5"
@@ -69,7 +72,45 @@ SORT_WINDOW_SIZE = 2048          # sliding sort buffer size (8× EMBED_BATCH_SIZ
 LANCEDB_NPROBES = 20             # ANN search probes (recall vs latency)
 LANCEDB_REFINE_FACTOR = 10       # reranking candidates multiplier
 RERANKER_MODEL = "BAAI/bge-reranker-base"
-CONTENT_CHOICES = ("docs", "code", "all")
+CONTENT_CHOICES = ("docs", "code", "all", "graph")
+
+
+class _TimestampedStream:
+    """Line-buffering stream wrapper that prefixes complete log lines."""
+
+    def __init__(self, wrapped):
+        self._wrapped = wrapped
+        self._buffer = ""
+
+    def write(self, text: str) -> int:
+        if not text:
+            return 0
+        self._buffer += text
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            self._wrapped.write(f"{_utc_log_timestamp()} {line}\n")
+        return len(text)
+
+    def flush(self) -> None:
+        if self._buffer:
+            self._wrapped.write(f"{_utc_log_timestamp()} {self._buffer}")
+            self._buffer = ""
+        self._wrapped.flush()
+
+    def isatty(self) -> bool:
+        return bool(getattr(self._wrapped, "isatty", lambda: False)())
+
+    def __getattr__(self, name: str):
+        return getattr(self._wrapped, name)
+
+
+def _utc_log_timestamp() -> str:
+    return datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+
+
+def _enable_timestamped_stdio() -> None:
+    sys.stdout = _TimestampedStream(sys.stdout)
+    sys.stderr = _TimestampedStream(sys.stderr)
 
 
 class IndexBuildAlreadyRunning(RuntimeError):
@@ -534,15 +575,79 @@ def _normalize_prefixes(prefixes: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(normalized)
 
 
-def _content_project_include_prefixes(
-    content: str,
+def _workflow_project_include_prefixes(root: Path) -> dict[str, tuple[str, ...]]:
+    """Read docs/code project include-prefix lists from workflow-config.json."""
+    cfg = root / "docs" / "workflow-config.json"
+    if not cfg.exists():
+        return {"docs": (), "code": ()}
+    try:
+        data = json.loads(cfg.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"docs": (), "code": ()}
+    if not isinstance(data, dict):
+        return {"docs": (), "code": ()}
+    indexing = data.get("indexing", {})
+    if not isinstance(indexing, dict):
+        return {"docs": (), "code": ()}
+    configured = indexing.get("project_include_prefixes", {})
+    docs_prefixes: tuple[str, ...] = ()
+    code_prefixes: tuple[str, ...] = ()
+    if isinstance(configured, list):
+        merged = _normalize_prefixes(tuple(configured))
+        docs_prefixes = merged
+        code_prefixes = merged
+    elif isinstance(configured, dict):
+        docs_prefixes = _normalize_prefixes(tuple(configured.get("docs") or ()))
+        code_prefixes = _normalize_prefixes(tuple(configured.get("code") or ()))
+    # Legacy boolean: index framework scripts under the code layer when the
+    # explicit code prefix list is empty.
+    if not code_prefixes and bool(indexing.get("include_framework_code_for_code_search", False)):
+        code_prefixes = (".wavefoundry/framework/scripts",)
+    return {"docs": docs_prefixes, "code": code_prefixes}
+
+
+def _effective_project_include_prefixes(
+    root: Path,
+    index_dir: Path,
+    content_for_filter: str,
+    override: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Resolve project-layer semantic include-prefixes for this run.
+
+    Explicit ``override`` (a CLI ``--project-include-prefix`` or a direct call
+    argument) always wins. Otherwise, for the project layer, the indexer reads
+    ``docs/workflow-config.json`` itself and selects the prefix list matching
+    this run's content — so launchers (hooks, dashboard, background refresh) no
+    longer have to read the config and forward prefixes on every invocation.
+    """
+    if override:
+        return _normalize_prefixes(override)
+    if _graph_layer_for_index_dir(index_dir) != "project":
+        return ()
+    wf = _workflow_project_include_prefixes(root)
+    if content_for_filter == "docs":
+        selected: tuple[str, ...] = wf["docs"]
+    elif content_for_filter == "code":
+        selected = wf["code"]
+    else:  # "all"
+        selected = (*wf["docs"], *wf["code"])
+    return _normalize_prefixes(selected)
+
+
+def _merged_project_include_prefixes_for_graph(
+    root: Path,
     configured_prefixes: tuple[str, ...],
 ) -> tuple[str, ...]:
-    if not configured_prefixes:
-        return ()
-    if content not in CONTENT_CHOICES:
-        return ()
-    return _normalize_prefixes(configured_prefixes)
+    """Union of workflow-config docs+code prefixes for graph extraction.
+
+    Graph runs on every index pass (including docs-only). Semantic layers still
+    scope prefixes by content mode; the graph must always see the full configured
+    project surface (e.g. ``.wavefoundry/framework/scripts`` under code prefixes).
+    """
+    if configured_prefixes:
+        return _normalize_prefixes(configured_prefixes)
+    wf = _workflow_project_include_prefixes(root)
+    return _normalize_prefixes((*wf["docs"], *wf["code"]))
 
 
 def _is_generated_code_path(rel_path: str) -> bool:
@@ -814,23 +919,216 @@ def _delete_lance_chunks(db_path: Path, table_name: str, file_path: str) -> None
         _optimize_lance_table(table)
 
 
-def _make_lance_rows(chunks: list[dict], vecs: "np.ndarray") -> list[dict]:
+def _chunk_hash(chunk: dict) -> str:
+    """Return a stable fingerprint for the chunk content that affects retrieval."""
+    payload = {
+        "kind": str(chunk.get("kind") or ""),
+        "language": str(chunk.get("language") or ""),
+        "section": str(chunk.get("section") or ""),
+        "text": str(chunk.get("text") or ""),
+        "tags": chunk.get("tags") or [],
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _normalize_chunk_row_metadata(row: dict) -> dict:
+    """Normalize row metadata so freshly chunked rows compare cleanly to Lance rows."""
+    normalized = {
+        "id": str(row.get("id") or ""),
+        "path": str(row.get("path") or ""),
+        "kind": str(row.get("kind") or ""),
+        "language": str(row.get("language") or ""),
+        "section": str(row.get("section") or ""),
+        "text": str(row.get("text") or ""),
+        "chunk_hash": str(row.get("chunk_hash") or ""),
+    }
+    tags = row.get("tags")
+    if isinstance(tags, list):
+        normalized["tags"] = " ".join(str(t) for t in tags)
+    else:
+        normalized["tags"] = str(tags or "")
+    lines = row.get("lines")
+    if hasattr(lines, "tolist"):
+        lines = lines.tolist()
+    if isinstance(lines, tuple):
+        lines = list(lines)
+    normalized["lines"] = [int(v) for v in lines] if isinstance(lines, list) else []
+    return normalized
+
+
+def _row_metadata_matches_current(existing: dict, current: dict) -> bool:
+    return _normalize_chunk_row_metadata(existing) == _normalize_chunk_row_metadata(current)
+
+
+def _make_lance_rows(chunks: list[dict], vecs: "np.ndarray | list") -> list[dict]:
     """Convert chunk dicts + vector array into LanceDB row dicts."""
     rows = []
     for chunk, vec in zip(chunks, vecs):
         row = dict(chunk)
         if isinstance(row.get("tags"), list):
             row["tags"] = " ".join(str(t) for t in row["tags"])
+        row["chunk_hash"] = _chunk_hash(chunk)
         # Normalize nullable string fields to "" so LanceDB always sees a non-null
-        # string column type. If the first batch is all-None (e.g. Markdown-only),
+        # string column type. If the first batch is all-None (e.g. Markdown-only), 
         # LanceDB infers the column as Null; a later batch with a real string value
         # then raises: ValueError: cannot cast field 'language' from Utf8 to Null.
         for _nullable_str in ("language", "section"):
             if row.get(_nullable_str) is None:
                 row[_nullable_str] = ""
-        row["vector"] = vec.tolist()
+        row["vector"] = vec.tolist() if hasattr(vec, "tolist") else list(vec)
         rows.append(row)
     return rows
+
+
+def _read_lance_rows_for_paths(db_path: Path, table_name: str, paths: set[str]) -> list[dict]:
+    """Return existing LanceDB rows, including vectors, for the given paths."""
+    if not paths or not (db_path / f"{table_name}.lance").is_dir():
+        return []
+    try:
+        db = _get_lance_db(db_path)
+        table = db.open_table(table_name)
+        escaped = [p.replace("'", "''") for p in paths]
+        in_clause = ", ".join(f"'{p}'" for p in escaped)
+        return table.search().where(f"path IN ({in_clause})", prefilter=True).limit(None).to_arrow().to_pylist()
+    except Exception:
+        return []
+
+
+def _delete_lance_rows_by_ids(table, ids: set[str]) -> None:
+    if not ids:
+        return
+    ordered = sorted(ids)
+    # Keep delete predicates compact; very large updates can otherwise create
+    # unwieldy SQL strings for LanceDB's filter parser.
+    for idx in range(0, len(ordered), 100):
+        batch = [item.replace("'", "''") for item in ordered[idx:idx + 100]]
+        in_clause = ", ".join(f"'{item}'" for item in batch)
+        table.delete(f"id IN ({in_clause})")
+
+
+def _embed_chunks_for_incremental(label: str, chunks: list[dict], embedder) -> "Optional[np.ndarray]":
+    """Embed only the chunks that changed during the incremental path."""
+    if not chunks:
+        return None
+    total = len(chunks)
+    order = sorted(range(total), key=lambda i: len(chunks[i]["text"]))
+    inverse = [0] * total
+    for new_pos, old_pos in enumerate(order):
+        inverse[old_pos] = new_pos
+    sorted_texts = [chunks[i]["text"] for i in order]
+    import numpy as _np
+    sorted_vecs = _embed_texts(embedder, sorted_texts)
+    return sorted_vecs[inverse]
+
+
+def _log_semantic_file_delta(path: str, table_name: str, stats: dict[str, int], *, fallback: bool = False) -> None:
+    note = " fallback=file-replace" if fallback else ""
+    print(
+        "build_index: semantic file update "
+        f"path={path} table={table_name} "
+        f"written={stats.get('written', 0)} "
+        f"removed={stats.get('removed', 0)} "
+        f"unchanged={stats.get('unchanged', 0)}{note}",
+        flush=True,
+    )
+
+
+def _plan_lance_delta_rows(
+    *,
+    existing_rows: list[dict],
+    new_chunks: list[dict],
+    embedder,
+    label: str,
+) -> tuple[set[str], list[dict], bool, dict[str, int]]:
+    """Plan row deletes/adds for a table and embed only changed/new chunks.
+
+    Returns (delete_ids, rows_to_add, fallback_required, stats).
+    """
+    new_by_id = {str(chunk.get("id") or ""): chunk for chunk in new_chunks if chunk.get("id")}
+    if not new_by_id:
+        delete_ids = {str(row.get("id") or "") for row in existing_rows if row.get("id")}
+        return delete_ids, [], False, {"written": 0, "removed": len(delete_ids), "unchanged": 0}
+    # Table-wide chunk_hash homogeneity preflight: if any existing row lacks a
+    # usable chunk_hash (missing key OR present-but-empty value), the delta plan
+    # cannot reliably match content, so force a full table rebuild rather than
+    # silently retaining stale rows.
+    if any(not str(row.get("chunk_hash") or "").strip() for row in existing_rows):
+        return set(), [], True, {"written": 0, "removed": 0, "unchanged": 0}
+
+    existing_by_id = {str(row.get("id") or ""): row for row in existing_rows if row.get("id")}
+    existing_by_hash: dict[str, list[dict]] = {}
+    for row in existing_rows:
+        chunk_hash = str(row.get("chunk_hash") or "")
+        if chunk_hash:
+            existing_by_hash.setdefault(chunk_hash, []).append(row)
+
+    delete_ids: set[str] = set()
+    rows_to_add: list[dict] = []
+    chunks_to_embed: list[dict] = []
+    chunk_positions: list[int] = []
+    reused_vectors = 0
+    unchanged = 0
+
+    for chunk_id, chunk in new_by_id.items():
+        current_row = dict(chunk)
+        current_row["chunk_hash"] = _chunk_hash(chunk)
+        current_hash = current_row["chunk_hash"]
+        existing = existing_by_id.get(chunk_id)
+        if existing is not None and str(existing.get("chunk_hash") or "") == current_hash:
+            if not _row_metadata_matches_current(existing, current_row):
+                delete_ids.add(chunk_id)
+                vector = existing.get("vector")
+                rows_to_add.append(_make_lance_rows([chunk], [vector])[0])
+                reused_vectors += 1
+            else:
+                unchanged += 1
+            continue
+
+        if existing is not None:
+            delete_ids.add(chunk_id)
+
+        # If a line-window or fallback chunk got a new id but the text fingerprint
+        # is unique, reuse the vector while writing the current metadata.
+        hash_matches = existing_by_hash.get(current_hash) or []
+        if len(hash_matches) == 1:
+            matched = hash_matches[0]
+            matched_id = str(matched.get("id") or "")
+            if matched_id and matched_id not in new_by_id:
+                delete_ids.add(matched_id)
+                vector = matched.get("vector")
+                rows_to_add.append(_make_lance_rows([chunk], [vector])[0])
+                reused_vectors += 1
+                continue
+        elif len(hash_matches) > 1:
+            chunks_to_embed.append(chunk)
+            chunk_positions.append(len(rows_to_add))
+            rows_to_add.append({})
+            continue
+
+        chunks_to_embed.append(chunk)
+        chunk_positions.append(len(rows_to_add))
+        rows_to_add.append({})
+
+    for old_id in set(existing_by_id) - set(new_by_id):
+        old_hash = str(existing_by_id[old_id].get("chunk_hash") or "")
+        if len(existing_by_hash.get(old_hash, [])) == 1 and any(_chunk_hash(c) == old_hash for c in new_chunks):
+            continue
+        delete_ids.add(old_id)
+
+    if chunks_to_embed:
+        vecs = _embed_chunks_for_incremental(label, chunks_to_embed, embedder)
+        embedded_rows = _make_lance_rows(chunks_to_embed, vecs)
+        for pos, row in zip(chunk_positions, embedded_rows):
+            rows_to_add[pos] = row
+
+    rows_to_add = [row for row in rows_to_add if row]
+    return delete_ids, rows_to_add, False, {
+        "written": len(rows_to_add),
+        "removed": len(delete_ids),
+        "unchanged": unchanged,
+    }
 
 
 def _count_chunks_for_paths(db_path: Path, table_name: str, paths: set[str]) -> int:
@@ -851,18 +1149,18 @@ def _lance_incremental_write(
     db_path: Path,
     stale: set[str],
     new_doc_chunks: list[dict],
-    new_doc_vecs: "Optional[np.ndarray]",
+    docs_embedder,
     new_code_chunks: list[dict],
-    new_code_vecs: "Optional[np.ndarray]",
+    code_embedder,
     build_docs: bool,
     build_code: bool,
     verbose: bool = False,
 ) -> None:
-    """Delete stale rows and add new rows to existing Lance tables."""
+    """Apply incremental row deltas, embedding only changed/new chunks."""
     db = _get_lance_db(db_path)
-    for table_name, build_flag, chunks, vecs in (
-        ("docs", build_docs, new_doc_chunks, new_doc_vecs),
-        ("code", build_code, new_code_chunks, new_code_vecs),
+    for table_name, build_flag, chunks, embedder, label in (
+        ("docs", build_docs, new_doc_chunks, docs_embedder, "doc"),
+        ("code", build_code, new_code_chunks, code_embedder, "code"),
     ):
         if not build_flag:
             continue
@@ -870,18 +1168,89 @@ def _lance_incremental_write(
         with _table_lock(table_dir):
             if not table_dir.is_dir():
                 # Table absent — create with new rows only (shouldn't happen after upgrade guard).
+                vecs = _embed_chunks_for_incremental(label, chunks, embedder) if chunks else None
                 if chunks and vecs is not None:
                     tbl = db.create_table(table_name, data=_make_lance_rows(chunks, vecs), mode="create")
                     _create_fts_index(tbl, table_name, replace=False)
+                    chunks_by_path: dict[str, list[dict]] = {}
+                    for chunk in chunks:
+                        chunks_by_path.setdefault(str(chunk.get("path") or ""), []).append(chunk)
+                    for file_path, path_chunks in sorted(chunks_by_path.items()):
+                        _log_semantic_file_delta(
+                            file_path,
+                            table_name,
+                            {"written": len(path_chunks), "removed": 0, "unchanged": 0},
+                        )
                 continue
             table = db.open_table(table_name)
+            chunks_by_path: dict[str, list[dict]] = {}
+            for chunk in chunks:
+                chunks_by_path.setdefault(str(chunk.get("path") or ""), []).append(chunk)
+            existing_rows = _read_lance_rows_for_paths(db_path, table_name, stale)
+            existing_by_path: dict[str, list[dict]] = {}
+            for row in existing_rows:
+                existing_by_path.setdefault(str(row.get("path") or ""), []).append(row)
+
+            rows_to_add: list[dict] = []
+            ids_to_delete: set[str] = set()
+            fallback_paths: set[str] = set()
+
             for file_path in stale:
+                path_existing = existing_by_path.get(file_path, [])
+                path_chunks = chunks_by_path.get(file_path, [])
+                delete_ids, add_rows, fallback_required, stats = _plan_lance_delta_rows(
+                    existing_rows=path_existing,
+                    new_chunks=path_chunks,
+                    embedder=embedder,
+                    label=label,
+                )
+                if fallback_required:
+                    fallback_paths.add(file_path)
+                    continue
+                ids_to_delete.update(delete_ids)
+                rows_to_add.extend(add_rows)
+                if path_existing or path_chunks:
+                    _log_semantic_file_delta(file_path, table_name, stats)
+
+            _delete_lance_rows_by_ids(table, ids_to_delete)
+
+            for file_path in sorted(fallback_paths):
                 safe_path = file_path.replace("'", "''")
                 table.delete(f"path = '{safe_path}'")
-            if chunks and vecs is not None:
-                table.add(_make_lance_rows(chunks, vecs))
+                path_chunks = chunks_by_path.get(file_path, [])
+                vecs = _embed_chunks_for_incremental(label, path_chunks, embedder) if path_chunks else None
+                if path_chunks and vecs is not None:
+                    rows_to_add.extend(_make_lance_rows(path_chunks, vecs))
+                _log_semantic_file_delta(
+                    file_path,
+                    table_name,
+                    {"written": len(path_chunks), "removed": len(existing_by_path.get(file_path, [])), "unchanged": 0},
+                    fallback=True,
+                )
+
+            if rows_to_add:
+                table.add(rows_to_add)
             if _lance_fragment_count(table) > LANCEDB_COMPACT_THRESHOLD:
+                if verbose:
+                    print(f"build_index: compacting {table_name} table", flush=True)
                 _optimize_lance_table(table)
+                try:
+                    row_count = table.count_rows()
+                except Exception:
+                    row_count = 0
+                if row_count >= LANCEDB_INDEX_THRESHOLD:
+                    try:
+                        table.create_index(metric="cosine", index_type="IVF_HNSW_SQ", replace=True)
+                        if verbose:
+                            print(
+                                f"build_index: LanceDB IVF_HNSW_SQ index rebuilt for '{table_name}' ({row_count} rows)",
+                                flush=True,
+                            )
+                    except Exception as exc:
+                        print(
+                            f"build_index: LanceDB index rebuild for '{table_name}' skipped ({exc})",
+                            file=sys.stderr,
+                        )
             _create_fts_index(table, table_name, replace=True)
 
 
@@ -1048,6 +1417,8 @@ def _is_docs_kind(kind: str) -> bool:
 
 # We cache the chunker module after first load
 _chunker_mod = None
+_graph_indexer_mod = None
+_graph_cluster_mod = None
 
 def _get_chunker():
     global _chunker_mod
@@ -1062,12 +1433,108 @@ def _get_chunker():
     return _chunker_mod
 
 
+def _get_graph_indexer():
+    global _graph_indexer_mod
+    if _graph_indexer_mod is None:
+        import importlib.util
+        graph_indexer_path = Path(__file__).resolve().parent / "graph_indexer.py"
+        spec = importlib.util.spec_from_file_location("graph_indexer", graph_indexer_path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["graph_indexer"] = mod
+        spec.loader.exec_module(mod)
+        _graph_indexer_mod = mod
+    return _graph_indexer_mod
+
+
+def _get_graph_cluster():
+    global _graph_cluster_mod
+    if _graph_cluster_mod is None:
+        import importlib.util
+        graph_cluster_path = Path(__file__).resolve().parent / "graph_cluster.py"
+        spec = importlib.util.spec_from_file_location("graph_cluster", graph_cluster_path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["graph_cluster"] = mod
+        spec.loader.exec_module(mod)
+        _graph_cluster_mod = mod
+    return _graph_cluster_mod
+
+
+def _build_graph_artifacts(
+    *,
+    root: Path,
+    index_dir: Path,
+    layer: str,
+    files: list[Path],
+    current_file_meta: dict[str, dict[str, Any]],
+    changed: set[str],
+    removed: set[str],
+    walker_version: str,
+    chunker_version: str,
+    verbose: bool = False,
+) -> dict[str, Any]:
+    graph_indexer = _get_graph_indexer()
+    graph_cluster = _get_graph_cluster()
+    _t0 = time.monotonic()
+    if verbose:
+        print(f"build_index: graph extraction starting ({layer} layer)", flush=True)
+    graph_payload = graph_indexer.update_graph_index(
+        root=root,
+        index_dir=index_dir,
+        layer=layer,
+        files=files,
+        current_file_meta=current_file_meta,
+        changed=changed,
+        removed=removed,
+        walker_version=walker_version,
+        chunker_version=chunker_version,
+        verbose=verbose,
+    )
+    if verbose:
+        counts = graph_payload.get("counts") or {}
+        print(
+            f"build_index: graph extraction complete ({layer} layer) — "
+            f"{counts.get('nodes', 0)} nodes, {counts.get('edges', 0)} edges",
+            flush=True,
+        )
+        print(f"build_index: graph clustering starting ({layer} layer)", flush=True)
+    cluster_payload = graph_cluster.update_graph_clusters(
+        root=root,
+        index_dir=index_dir,
+        layer=layer,
+        graph_payload=graph_payload,
+        verbose=verbose,
+    )
+    if verbose:
+        print(
+            f"build_index: graph phase complete ({layer} layer) — "
+            f"{cluster_payload.get('community_count', 0)} communities via "
+            f"{cluster_payload.get('cluster_algorithm') or 'unknown'}",
+            flush=True,
+        )
+    elapsed = time.monotonic() - _t0
+    counts = graph_payload.get("counts") or {}
+    print(
+        f"build_index: finished graph: {len(changed)} changed, {len(removed)} removed"
+        f" | nodes: {counts.get('nodes', 0)} | edges: {counts.get('edges', 0)}"
+        f" in {elapsed:.1f}s",
+        flush=True,
+    )
+    return {"graph_payload": graph_payload, "cluster_payload": cluster_payload}
+
+
 def _chunks_for_file(rel_path: str, content: str) -> tuple[list[dict], list[dict]]:
     chunker = _get_chunker()
     raw = chunker.chunk_file(content, rel_path)
     doc_chunks = [c.to_dict() for c in raw if _is_docs_kind(c.kind)]
     code_chunks = [c.to_dict() for c in raw if not _is_docs_kind(c.kind)]
     return doc_chunks, code_chunks
+
+
+def _graph_layer_for_index_dir(index_dir: Path) -> str:
+    normalized = str(index_dir).replace("\\", "/")
+    if normalized.endswith("/.wavefoundry/framework/index"):
+        return "framework"
+    return "project"
 
 
 # ---------------------------------------------------------------------------
@@ -1159,7 +1626,9 @@ def _build_index_locked(
 
     build_docs = content in ("docs", "all")
     build_code = content in ("code", "all")
-    meta = {} if full else _load_meta(index_dir)
+    # Graph-only runs always load existing meta so docs/code chunker_versions,
+    # model_versions, and content fields are preserved across graph rebuilds.
+    meta = _load_meta(index_dir) if content == "graph" else ({} if full else _load_meta(index_dir))
     old_file_meta: dict[str, dict] = meta.get("file_meta", {})
     old_model_versions: dict[str, str] = meta.get("model_versions", {})
     # chunker_versions tracks per-content-layer chunker version so that a
@@ -1225,14 +1694,33 @@ def _build_index_locked(
         files = _filter_by_prefixes(files, root, include_prefixes)
         if str(index_dir).replace("\\", "/").endswith("/.wavefoundry/framework/index"):
             files = _filter_framework_pack_artifacts(files, root)
+        # Capture the broad file set for meta tracking BEFORE project-include-prefix
+        # filtering.  The docs run and the code run use different include-prefix sets
+        # (code adds .wavefoundry/framework/scripts etc.), so they would otherwise
+        # write different file_meta dicts to the same meta.json — causing the
+        # 93-files-added / 93-files-removed alternating cycle on consecutive runs.
+        files_for_meta = files
         content_for_filter = "all" if build_docs and build_code else ("docs" if build_docs else "code")
-        resolved_project_includes = _content_project_include_prefixes(content_for_filter, project_include_prefixes)
+        resolved_project_includes = _effective_project_include_prefixes(
+            root, index_dir, content_for_filter, project_include_prefixes
+        )
         files = _filter_project_index_excludes(
-            files,
+            files_for_meta,
             root,
             include_prefixes,
             project_include_prefixes=resolved_project_includes,
         )
+        graph_layer = _graph_layer_for_index_dir(index_dir)
+        if graph_layer == "project":
+            graph_includes = _merged_project_include_prefixes_for_graph(root, project_include_prefixes)
+            files_for_graph = _filter_project_index_excludes(
+                files_for_meta,
+                root,
+                include_prefixes,
+                project_include_prefixes=graph_includes,
+            )
+        else:
+            files_for_graph = files
     else:
         normalized_files: list[Path] = []
         seen: set[str] = set()
@@ -1252,6 +1740,18 @@ def _build_index_locked(
         files = sorted(normalized_files, key=lambda p: str(p.relative_to(root)).replace("\\", "/"))
         if str(index_dir).replace("\\", "/").endswith("/.wavefoundry/framework/index"):
             files = _filter_framework_pack_artifacts(files, root)
+        files_for_meta = files
+        graph_layer = _graph_layer_for_index_dir(index_dir)
+        if graph_layer == "project":
+            graph_includes = _merged_project_include_prefixes_for_graph(root, project_include_prefixes)
+            files_for_graph = _filter_project_index_excludes(
+                files_for_meta,
+                root,
+                include_prefixes,
+                project_include_prefixes=graph_includes,
+            )
+        else:
+            files_for_graph = files
     files_for_content = files
     if build_code and not build_docs:
         files_for_content = _filter_code_files(
@@ -1260,19 +1760,33 @@ def _build_index_locked(
             include_tests=include_tests,
             include_generated=include_generated,
         )
+    # Hash the broad file set so meta.json captures every walkable file regardless
+    # of which content type (docs/code/graph) this run is building.  Then scope
+    # changed/removed/stale to the content-type-filtered walk so LanceDB operations
+    # only touch chunks that belong to the current run's scope.
     if full:
         # Full rebuild: hash everything, populate stat cache for future incremental updates
         current_file_meta = {}
-        for f in files:
+        for f in files_for_meta:
             rel = str(f.relative_to(root)).replace("\\", "/")
             mtime, size, inode = _stat_entry(f)
             digest = _sha256(f)
             current_file_meta[rel] = {"hash": digest, "mtime": mtime, "size": size, "inode": inode}
-        changed = set(current_file_meta.keys())
-        removed: set[str] = set()
+        changed_broad: set[str] = set(current_file_meta.keys())
+        removed_broad: set[str] = set()
     else:
         # Incremental: use stat cache — only read files with changed mtime/size/inode
-        current_file_meta, changed, removed = _detect_changes(files, root, old_file_meta)
+        current_file_meta, changed_broad, removed_broad = _detect_changes(files_for_meta, root, old_file_meta)
+    # changed: scope to the content-type-filtered walk — don't re-embed files that
+    # are outside this run's scope (e.g. framework scripts for a docs-only run).
+    # removed: use the broad result directly — a file absent from files_for_meta is
+    # truly deleted from disk (not merely filtered out), so its chunks must be evicted
+    # regardless of which content type's run discovers the deletion.
+    files_rel = {str(f.relative_to(root)).replace("\\", "/") for f in files}
+    changed = changed_broad & files_rel
+    files_for_graph_rel = {str(f.relative_to(root)).replace("\\", "/") for f in files_for_graph}
+    changed_for_graph = changed_broad & files_for_graph_rel
+    removed = removed_broad
     added = changed - set(old_file_meta.keys()) if not full else changed
     updated = changed & set(old_file_meta.keys()) if not full else set()
     stale = changed | removed
@@ -1297,12 +1811,13 @@ def _build_index_locked(
     else:
         print(
             f"build_index: updating {_index_label} index — "
-            f"{len(changed)} file(s) changed, {len(removed)} removed\n"
-            "  This may take several minutes to complete.",
+            f"{len(changed)} file(s) changed, {len(removed)} removed",
             flush=True,
         )
     if verbose:
-        if not build_code:
+        if content == "graph":
+            print("build_index: graph-only mode — skipping semantic embedding", flush=True)
+        elif not build_code:
             print("build_index: semantic code embedding disabled (use setup_index.py --include-code to enable)", flush=True)
         elif build_code and not build_docs:
             skipped = len(files) - len(files_for_content)
@@ -1324,12 +1839,12 @@ def _build_index_locked(
             )
             full = True
             current_file_meta = {}
-            for f in files:
+            for f in files_for_meta:
                 rel = str(f.relative_to(root)).replace("\\", "/")
                 mtime, size, inode = _stat_entry(f)
                 digest = _sha256(f)
                 current_file_meta[rel] = {"hash": digest, "mtime": mtime, "size": size, "inode": inode}
-            changed = set(current_file_meta.keys())
+            changed = files_rel & set(current_file_meta.keys())
             removed = set()
             stale = changed
 
@@ -1370,32 +1885,6 @@ def _build_index_locked(
         code_embedder = _get_embedder(CODE_MODEL)
         _progress(verbose, f"build_index: loaded code model {CODE_MODEL}")
 
-    def _embed_chunks(label: str, chunks: list[dict], embedder) -> Optional["np.ndarray"]:
-        """Embed chunks for the incremental path; sorts by length before embedding."""
-        if not chunks:
-            _progress(verbose, f"build_index: no new {label} chunks to embed")
-            return None
-        total = len(chunks)
-        print(f"build_index: embedding {total} {label} chunks", flush=True)
-
-        # Pre-sort by text length for padding efficiency (_embed_texts no longer sorts).
-        order = sorted(range(total), key=lambda i: len(chunks[i]["text"]))
-        inverse = [0] * total
-        for new_pos, old_pos in enumerate(order):
-            inverse[old_pos] = new_pos
-        sorted_texts = [chunks[i]["text"] for i in order]
-
-        import numpy as _np
-        t_start = time.monotonic()
-        sorted_vecs = _embed_texts(embedder, sorted_texts)
-        print(
-            f"build_index: embedded {total} {label} chunks "
-            f"in {time.monotonic() - t_start:.1f}s",
-            flush=True,
-        )
-        # Restore original chunk order so vecs align with chunks list.
-        return sorted_vecs[inverse]
-
     # Write to LanceDB — the only index format.
     lance_db_path = index_dir
 
@@ -1422,37 +1911,99 @@ def _build_index_locked(
 
     try:
         import numpy as _np
-        if full:
-            db = _get_lance_db(lance_db_path)
-            if build_docs:
-                if new_doc_chunks:
-                    with _table_lock(lance_db_path / "docs.lance", create_dir=True):
-                        _stream_embed_write(
-                            db, "docs", new_doc_chunks, docs_embedder, "doc", verbose=verbose,
-                        )
-                else:
-                    _stream_embed_write(
-                        db, "docs", [], docs_embedder, "doc", verbose=verbose,
-                    )
-            if build_code:
-                if new_code_chunks:
-                    with _table_lock(lance_db_path / "code.lance", create_dir=True):
-                        _stream_embed_write(
-                            db, "code", new_code_chunks, code_embedder, "code", verbose=verbose,
-                        )
-                else:
-                    _stream_embed_write(
-                        db, "code", [], code_embedder, "code", verbose=verbose,
-                    )
-        else:
-            new_doc_vecs = _embed_chunks("doc", new_doc_chunks, docs_embedder) if build_docs else None
-            new_code_vecs = _embed_chunks("code", new_code_chunks, code_embedder) if build_code else None
-            _lance_incremental_write(
-                lance_db_path, stale,
-                new_doc_chunks, new_doc_vecs,
-                new_code_chunks, new_code_vecs,
-                build_docs=build_docs, build_code=build_code, verbose=verbose,
-            )
+        graph_layer = _graph_layer_for_index_dir(index_dir)
+        # Docs, code, and graph run concurrently — each writes to a separate
+        # location (docs.lance, code.lance, graph/) so there are no write conflicts.
+        # Each LanceDB worker gets its own connection to avoid shared-state issues.
+        n_workers = 1 + (1 if build_docs else 0) + (1 if build_code else 0)
+        _docs_elapsed: list[float] = []
+        _code_elapsed: list[float] = []
+        with ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix="wavefoundry-index") as executor:
+            futures = []
+            futures.append(executor.submit(
+                _build_graph_artifacts,
+                root=root,
+                index_dir=index_dir,
+                layer=graph_layer,
+                files=files_for_graph,
+                current_file_meta=current_file_meta,
+                changed=changed_for_graph,
+                removed=removed,
+                walker_version=WALKER_VERSION,
+                chunker_version=current_chunker_version,
+                verbose=verbose,
+            ))
+            if verbose:
+                layers = ", ".join(filter(None, [
+                    "docs" if build_docs else "",
+                    "code" if build_code else "",
+                    "graph",
+                ]))
+                print(f"build_index: {layers} running concurrently ({graph_layer} layer)", flush=True)
+            if full:
+                if build_docs:
+                    def _write_docs_full(
+                        _db_path=lance_db_path,
+                        _chunks=new_doc_chunks,
+                        _emb=docs_embedder,
+                        _verbose=verbose,
+                        _elapsed=_docs_elapsed,
+                    ) -> None:
+                        _t0 = time.monotonic()
+                        _db = _get_lance_db(_db_path)
+                        if _chunks:
+                            with _table_lock(_db_path / "docs.lance", create_dir=True):
+                                _stream_embed_write(_db, "docs", _chunks, _emb, "doc", verbose=_verbose)
+                        else:
+                            _stream_embed_write(_db, "docs", [], _emb, "doc", verbose=_verbose)
+                        _elapsed.append(time.monotonic() - _t0)
+                    futures.append(executor.submit(_write_docs_full))
+                if build_code:
+                    def _write_code_full(
+                        _db_path=lance_db_path,
+                        _chunks=new_code_chunks,
+                        _emb=code_embedder,
+                        _verbose=verbose,
+                        _elapsed=_code_elapsed,
+                    ) -> None:
+                        _t0 = time.monotonic()
+                        _db = _get_lance_db(_db_path)
+                        if _chunks:
+                            with _table_lock(_db_path / "code.lance", create_dir=True):
+                                _stream_embed_write(_db, "code", _chunks, _emb, "code", verbose=_verbose)
+                        else:
+                            _stream_embed_write(_db, "code", [], _emb, "code", verbose=_verbose)
+                        _elapsed.append(time.monotonic() - _t0)
+                    futures.append(executor.submit(_write_code_full))
+            else:
+                if build_docs:
+                    def _write_docs_incr(
+                        _db_path=lance_db_path,
+                        _stale=stale,
+                        _doc_chunks=new_doc_chunks,
+                        _docs_emb=docs_embedder,
+                        _verbose=verbose,
+                        _elapsed=_docs_elapsed,
+                    ) -> None:
+                        _t0 = time.monotonic()
+                        _lance_incremental_write(_db_path, _stale, _doc_chunks, _docs_emb, [], None, True, False, _verbose)
+                        _elapsed.append(time.monotonic() - _t0)
+                    futures.append(executor.submit(_write_docs_incr))
+                if build_code:
+                    def _write_code_incr(
+                        _db_path=lance_db_path,
+                        _stale=stale,
+                        _code_chunks=new_code_chunks,
+                        _code_emb=code_embedder,
+                        _verbose=verbose,
+                        _elapsed=_code_elapsed,
+                    ) -> None:
+                        _t0 = time.monotonic()
+                        _lance_incremental_write(_db_path, _stale, [], None, _code_chunks, _code_emb, False, True, _verbose)
+                        _elapsed.append(time.monotonic() - _t0)
+                    futures.append(executor.submit(_write_code_incr))
+            for f in futures:
+                f.result()
         # Get total chunk counts from Lance tables for the summary.
         total_doc_chunks = 0
         total_code_chunks = 0
@@ -1466,7 +2017,7 @@ def _build_index_locked(
             total_doc_chunks = len(new_doc_chunks)
             total_code_chunks = len(new_code_chunks)
     except Exception as exc:
-        print(f"build_index: LanceDB write failed: {exc}", file=sys.stderr)
+        print(f"build_index: index update failed: {exc}", file=sys.stderr)
         raise
 
     new_model_versions = dict(old_model_versions)
@@ -1507,8 +2058,9 @@ def _build_index_locked(
             doc_chunk_summary = f"{len(new_doc_chunks)} new"
         else:
             doc_chunk_summary = f"{doc_chunks_added} added, {doc_chunks_updated_new} updated, {doc_chunks_removed_net} removed"
+        _docs_time = f" in {_docs_elapsed[0]:.1f}s" if _docs_elapsed else ""
         print(
-            f"build_index: finished docs — {files_summary} | chunks: {doc_chunk_summary}",
+            f"build_index: finished docs — {files_summary} | chunks: {doc_chunk_summary}{_docs_time}",
             flush=True,
         )
     if build_code:
@@ -1516,10 +2068,13 @@ def _build_index_locked(
             code_chunk_summary = f"{len(new_code_chunks)} new"
         else:
             code_chunk_summary = f"{code_chunks_added} added, {code_chunks_updated_new} updated, {code_chunks_removed_net} removed"
+        _code_time = f" in {_code_elapsed[0]:.1f}s" if _code_elapsed else ""
         print(
-            f"build_index: finished code — {files_summary} | chunks: {code_chunk_summary}",
+            f"build_index: finished code — {files_summary} | chunks: {code_chunk_summary}{_code_time}",
             flush=True,
         )
+    if content == "graph":
+        print(f"build_index: finished graph — {files_summary}", flush=True)
     return summary
 
 
@@ -1636,6 +2191,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _enable_timestamped_stdio()
     args = parse_args(argv)
     root = args.root.resolve() if args.root else _discover_root()
 
