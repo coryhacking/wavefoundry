@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 import subprocess
+import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,7 +23,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "3"
+GRAPH_BUILDER_VERSION = "7"
 GRAPH_DIRNAME = "graph"
 GRAPH_FILENAMES = {
     "project": "project-graph.json",
@@ -100,14 +101,22 @@ _STOP_TERMS = {
 _DOC_MATCH_STOP_TERMS = _STOP_TERMS | {
     "accept", "action", "active", "apply", "assert", "buffer", "caller",
     "client", "config", "create", "cursor", "define", "delete", "enable",
-    "errors", "export", "filter", "format", "handle", "header", "helper",
+    "enabled", "errors", "export", "filter", "format", "handle", "header", "helper",
     "import", "insert", "length", "logger", "lookup", "method", "object",
     "option", "output", "params", "parser", "plugin", "reader", "record",
     "reduce", "remove", "render", "report", "result", "return", "runner",
     "schema", "search", "select", "sender", "server", "signal", "simple",
     "single", "source", "static", "status", "stream", "string", "struct",
     "suffix", "target", "update", "values", "verify", "worker", "writer",
+    # Common config / JSON field names — too ambiguous for doc→code keyword edges.
+    "auto_index", "change", "dashboard", "entrypoint", "host", "include_dirs",
+    "poll_interval_ms", "port_range_end", "port_range_start", "preferred_port",
+    "project_label", "task", "terminology", "version", "wave",
 }
+_DOC_PATH_SUFFIXES = (
+    ".md", ".markdown", ".py", ".json", ".jsonc", ".js", ".jsx", ".mjs", ".cjs",
+    ".ts", ".tsx", ".css", ".html", ".txt", ".yaml", ".yml", ".toml",
+)
 _DOC_SCAN_EXCLUDE_PREFIXES = frozenset({
     "docs/waves/", "docs/plans/", "docs/contributing/", "docs/reports/",
 })
@@ -279,26 +288,156 @@ def _extract_code_contexts(source_text: str) -> str:
     return " ".join(parts)
 
 
+def _extract_inline_code_contexts(source_text: str) -> str:
+    """Inline backtick spans only — excludes fenced blocks (e.g. JSON config examples)."""
+    parts: list[str] = []
+    fenced_ranges: list[tuple[int, int]] = []
+    for m in _FENCED_CODE_RE.finditer(source_text):
+        fenced_ranges.append((m.start(), m.end()))
+    for m in _INLINE_CODE_RE.finditer(source_text):
+        if any(fs <= m.start() < fe for fs, fe in fenced_ranges):
+            continue
+        parts.append(m.group(1))
+    return " ".join(parts)
+
+
+def _resolve_doc_path_ref(href: str, rel_path: str, current_paths: set[str]) -> str | None:
+    href = href.strip().split("#")[0].strip()
+    if not href or href.startswith(("http://", "https://", "mailto:", "ftp://")):
+        return None
+    if href.startswith("/"):
+        raw = href.lstrip("/")
+    elif href.startswith(("./", "../")) or (href.startswith(".") and "/" in href):
+        raw = href
+    else:
+        doc_dir = rel_path.rsplit("/", 1)[0] if "/" in rel_path else ""
+        raw = (doc_dir + "/" + href) if doc_dir else href
+    parts: list[str] = []
+    for part in raw.split("/"):
+        if part == "..":
+            if parts:
+                parts.pop()
+        elif part and part != ".":
+            parts.append(part)
+    resolved = "/".join(parts)
+    if not resolved or resolved == rel_path or resolved not in current_paths:
+        return None
+    return resolved
+
+
+def _extract_doc_backtick_paths(source_text: str, rel_path: str, current_paths: set[str]) -> list[str]:
+    """Repo-relative paths written in backticks (Cross-Links, path callouts)."""
+    targets: list[str] = []
+    seen: set[str] = set()
+    for m in _INLINE_CODE_RE.finditer(source_text):
+        raw = m.group(1).strip()
+        if not raw or " " in raw:
+            continue
+        looks_like_path = (
+            "/" in raw
+            or raw.startswith(".")
+            or any(raw.endswith(suffix) for suffix in _DOC_PATH_SUFFIXES)
+        )
+        if not looks_like_path:
+            continue
+        resolved = _resolve_doc_path_ref(raw, rel_path, current_paths)
+        if resolved and resolved not in seen:
+            seen.add(resolved)
+            targets.append(resolved)
+    return targets
+
+
+def _is_module_node_id(node_id: str) -> bool:
+    return bool(node_id) and "::" not in node_id
+
+
+def _is_json_config_node_id(node_id: str) -> bool:
+    if "::" not in node_id:
+        return False
+    return node_id.split("::", 1)[0].endswith((".json", ".jsonc"))
+
+
+def _doc_term_allows_json_target(term: str, target_id: str) -> bool:
+    if not _is_json_config_node_id(target_id):
+        return True
+    key = target_id.split("::", 1)[1]
+    lower_term = term.lower()
+    if "." in lower_term:
+        return True
+    key_tail = key.rsplit(".", 1)[-1].lower()
+    if lower_term != key_tail:
+        return False
+    return len(lower_term) >= 10 or "_" in lower_term
+
+
+def _filter_doc_code_targets(term: str, targets: set[str]) -> list[str]:
+    if term in _DOC_MATCH_STOP_TERMS:
+        return []
+    path_like = (
+        "/" in term
+        or any(term.endswith(suffix) for suffix in _DOC_PATH_SUFFIXES)
+    )
+    kept: list[str] = []
+    for target in sorted(targets):
+        if not _doc_term_allows_json_target(term, target):
+            continue
+        if path_like and not _is_module_node_id(target):
+            continue
+        kept.append(target)
+    return kept
+
+
+def _doc_code_reference_confidence(term: str, target_id: str, *, match_count: int) -> str:
+    if _is_module_node_id(target_id) and (
+        "/" in term or any(term.endswith(suffix) for suffix in _DOC_PATH_SUFFIXES)
+    ):
+        return "EXTRACTED"
+    if match_count == 1 and (len(term) >= 12 or "_" in term):
+        return "EXTRACTED"
+    return "AMBIGUOUS"
+
+
+_DOC_MATCH_TERM_STRIP = ".,;:!?)]}\"'"
+
+
+def _extract_doc_match_terms(code_ctx: str) -> set[str]:
+    """Whole-token terms from markdown code spans for symbol lookup.
+
+    Keeps hyphenated names and path segments intact — never splits
+    ``project-context-memory`` into ``context``.
+    """
+    terms: set[str] = set()
+    if not code_ctx:
+        return terms
+    for raw in re.split(r"\s+", code_ctx):
+        chunk = raw.strip(_DOC_MATCH_TERM_STRIP)
+        if not chunk:
+            continue
+        terms.add(chunk.lower())
+        if "/" in chunk:
+            base = chunk.rsplit("/", 1)[-1].strip(_DOC_MATCH_TERM_STRIP)
+            if base:
+                terms.add(base.lower())
+                if "." in base:
+                    stem = base.rsplit(".", 1)[0]
+                    if stem:
+                        terms.add(stem.lower())
+        elif "." in chunk and not chunk.startswith("."):
+            parts = chunk.split(".")
+            for end in range(1, len(parts)):
+                prefix = ".".join(parts[:end])
+                if prefix:
+                    terms.add(prefix.lower())
+    return terms
+
+
 def _extract_doc_links(source_text: str, rel_path: str, current_paths: set[str]) -> list[str]:
     """Return repo-relative paths of known files explicitly linked from this document."""
     targets: list[str] = []
     seen: set[str] = set()
-    rel = rel_path.replace("\\", "/")
-    doc_dir = rel.rsplit("/", 1)[0] if "/" in rel else ""
     for m in _MD_LINK_RE.finditer(source_text):
-        href = m.group(2).strip().split("#")[0].strip()
-        if not href or href.startswith(("http://", "https://", "mailto:", "ftp://", "/")):
-            continue
-        raw = (doc_dir + "/" + href) if doc_dir else href
-        parts: list[str] = []
-        for part in raw.split("/"):
-            if part == "..":
-                if parts:
-                    parts.pop()
-            elif part and part != ".":
-                parts.append(part)
-        resolved = "/".join(parts)
-        if resolved and resolved != rel and resolved in current_paths and resolved not in seen:
+        resolved = _resolve_doc_path_ref(m.group(2).strip(), rel_path, current_paths)
+        if resolved and resolved not in seen:
             seen.add(resolved)
             targets.append(resolved)
     return targets
@@ -335,13 +474,14 @@ def _kind_for_path(rel_path: str) -> str:
     rel = rel_path.replace("\\", "/")
     if rel.startswith(".wavefoundry/framework/seeds/"):
         return "seed"
-    if rel.startswith("docs/") or rel.startswith(".wavefoundry/framework/seeds/"):
-        return "doc"
-    if Path(rel).name in _CODE_FILENAMES:
-        return "code"
+    name = Path(rel).name
     suffix = Path(rel).suffix.lower()
+    if name in _CODE_FILENAMES:
+        return "code"
     if suffix in _CODE_EXTENSIONS:
         return "code"
+    if rel.startswith("docs/") or rel.startswith(".wavefoundry/framework/seeds/"):
+        return "doc"
     if suffix in _DOC_EXTENSIONS or rel.endswith(".prompt.md"):
         return "doc"
     return "doc"
@@ -392,6 +532,25 @@ def _read_json(path: Path, default: Any) -> Any:
         return default
 
 
+_DI_SIGNALS_MOD = None
+
+
+def _load_di_signals_module():
+    global _DI_SIGNALS_MOD
+    if _DI_SIGNALS_MOD is None:
+        import importlib.util
+
+        di_path = Path(__file__).resolve().parent / "graph_di_signals.py"
+        spec = importlib.util.spec_from_file_location("graph_di_signals", di_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Unable to load graph_di_signals from {di_path}")
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = mod
+        spec.loader.exec_module(mod)
+        _DI_SIGNALS_MOD = mod
+    return _DI_SIGNALS_MOD
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -410,6 +569,16 @@ def _simple_name(symbol_id: str) -> str:
 def _path_term(path: str) -> str:
     stem = _file_stem(path)
     return stem if stem else path
+
+
+def _is_module_graph_node(node: dict[str, Any]) -> bool:
+    node_id = str(node.get("id") or "")
+    if not node_id or "::" in node_id:
+        return False
+    if str(node.get("kind") or "") == "module":
+        return True
+    source_file = str(node.get("source_file") or "")
+    return bool(source_file) and node_id == source_file
 
 
 @dataclass(frozen=True)
@@ -1272,6 +1441,41 @@ class GraphIndexSession:
             "mentioned_symbols": [],
         }
 
+    def _extract_json_artifact(self, rel_path: str, source_text: str) -> dict[str, Any]:
+        ts_artifact = self._extract_tree_sitter_artifact(rel_path, source_text, "json")
+        if ts_artifact is not None and ts_artifact.get("defined_symbols"):
+            return ts_artifact
+        try:
+            payload = json.loads(source_text)
+        except json.JSONDecodeError:
+            return self._empty_code_artifact(rel_path, source_text)
+        module_id = rel_path
+        nodes: list[dict[str, Any]] = [
+            _node(module_id, _path_term(rel_path), "module", rel_path, "1:0", layer=self.layer)
+        ]
+        edges: list[dict[str, Any]] = []
+        defined_symbols: list[str] = []
+        if isinstance(payload, dict):
+            for key in sorted(payload.keys()):
+                if not isinstance(key, str) or not key:
+                    continue
+                node_id = f"{rel_path}::{key}"
+                nodes.append(
+                    _node(node_id, key, "class", rel_path, "1:0", layer=self.layer)
+                )
+                edges.append(_edge(module_id, node_id, "defines", confidence="EXTRACTED"))
+                defined_symbols.append(node_id)
+        return {
+            "kind": "code",
+            "path": rel_path,
+            "source_hash": _sha256_text(source_text),
+            "nodes": nodes,
+            "edges": edges,
+            "defined_symbols": defined_symbols,
+            "simple_names": {},
+            "mentioned_symbols": [],
+        }
+
     def _extract_tree_sitter_artifact(self, rel_path: str, source_text: str, lang_key: str) -> dict[str, Any] | None:
         profile = _TS_LANGUAGE_PROFILES.get(lang_key)
         if profile is None:
@@ -1417,27 +1621,37 @@ class GraphIndexSession:
     def _extract_code_artifact(self, rel_path: str, source_text: str) -> dict[str, Any]:
         suffix = Path(rel_path).suffix.lower()
         if suffix == ".py":
-            return self._extract_python_artifact(rel_path, source_text)
-        lang_key = _ts_language_key_for_path(rel_path)
-        if lang_key:
-            artifact = self._extract_tree_sitter_artifact(rel_path, source_text, lang_key)
-            if artifact is not None:
-                return artifact
-            if lang_key in {"javascript", "typescript"}:
-                return self._extract_js_artifact(rel_path, source_text)
-            return self._empty_code_artifact(rel_path, source_text)
-        if suffix in {".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"}:
-            return self._extract_js_artifact(rel_path, source_text)
-        return {
-            "kind": "code",
-            "path": rel_path,
-            "source_hash": _sha256_text(source_text),
-            "nodes": [_node(rel_path, _path_term(rel_path), "module", rel_path, "1:0", layer=self.layer)],
-            "edges": [],
-            "defined_symbols": [],
-            "simple_names": {},
-            "mentioned_symbols": [],
-        }
+            artifact = self._extract_python_artifact(rel_path, source_text)
+        elif suffix in {".json", ".jsonc"}:
+            artifact = self._extract_json_artifact(rel_path, source_text)
+        else:
+            lang_key = _ts_language_key_for_path(rel_path)
+            if lang_key:
+                artifact = self._extract_tree_sitter_artifact(rel_path, source_text, lang_key)
+                if artifact is None:
+                    if lang_key in {"javascript", "typescript"}:
+                        artifact = self._extract_js_artifact(rel_path, source_text)
+                    else:
+                        artifact = self._empty_code_artifact(rel_path, source_text)
+            elif suffix in {".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"}:
+                artifact = self._extract_js_artifact(rel_path, source_text)
+            else:
+                artifact = {
+                    "kind": "code",
+                    "path": rel_path,
+                    "source_hash": _sha256_text(source_text),
+                    "nodes": [_node(rel_path, _path_term(rel_path), "module", rel_path, "1:0", layer=self.layer)],
+                    "edges": [],
+                    "defined_symbols": [],
+                    "simple_names": {},
+                    "mentioned_symbols": [],
+                }
+        try:
+            di_mod = _load_di_signals_module()
+            artifact["di_signals"] = di_mod.collect_di_signals(rel_path, source_text)
+        except Exception:
+            artifact["di_signals"] = []
+        return artifact
 
     # ------------------------------------------------------------------
     # Doc extraction
@@ -1464,23 +1678,31 @@ class GraphIndexSession:
             matcher = self._compile_doc_matcher(symbol_terms)
         simple_lower, complex_pattern, complex_lower = matcher
 
-        # Only scan code-formatted text (backtick spans + fenced blocks) for symbol references.
+        # Only scan inline backtick spans for simple keyword matches (skip JSON/config fences).
+        inline_ctx = _extract_inline_code_contexts(source_text)
+        inline_terms = _extract_doc_match_terms(inline_ctx)
         code_ctx = _extract_code_contexts(source_text)
 
-        # Simple pure-identifier terms: tokenize once, O(1) set lookups.
-        word_tokens = {w.lower() for w in re.findall(r"[A-Za-z0-9_]+", code_ctx)}
         for lower_term, targets in simple_lower.items():
-            if lower_term not in word_tokens:
+            if lower_term not in inline_terms:
                 continue
             matched_terms.add(lower_term)
-            for target in sorted(targets):
-                if target not in mentioned_set:
-                    mentioned_set.add(target)
-                    edges.append(
-                        _edge(module_id, target, "doc_references_code", confidence="AMBIGUOUS", evidence=lower_term)
+            filtered = _filter_doc_code_targets(lower_term, targets)
+            for target in filtered:
+                if target in mentioned_set:
+                    continue
+                mentioned_set.add(target)
+                edges.append(
+                    _edge(
+                        module_id,
+                        target,
+                        "doc_references_code",
+                        confidence=_doc_code_reference_confidence(lower_term, target, match_count=len(filtered)),
+                        evidence=lower_term,
                     )
+                )
 
-        # Dotted/complex terms: one combined regex pass over code context.
+        # Dotted/complex terms: one combined regex pass over all code context.
         if complex_pattern:
             for m in complex_pattern.finditer(code_ctx):
                 key = m.group().lower()
@@ -1488,15 +1710,28 @@ class GraphIndexSession:
                 if not targets:
                     continue
                 matched_terms.add(key)
-                for target in sorted(targets):
-                    if target not in mentioned_set:
-                        mentioned_set.add(target)
-                        edges.append(
-                            _edge(module_id, target, "doc_references_code", confidence="AMBIGUOUS", evidence=key)
+                filtered = _filter_doc_code_targets(key, targets)
+                for target in filtered:
+                    if target in mentioned_set:
+                        continue
+                    mentioned_set.add(target)
+                    edges.append(
+                        _edge(
+                            module_id,
+                            target,
+                            "doc_references_code",
+                            confidence=_doc_code_reference_confidence(key, target, match_count=len(filtered)),
+                            evidence=key,
                         )
+                    )
 
-        # Explicit markdown links to other known files in the index.
+        # Explicit markdown links and backtick file paths to other known files.
+        linked_paths: set[str] = set()
         for linked_path in _extract_doc_links(source_text, rel_path, self._current_paths):
+            linked_paths.add(linked_path)
+        for linked_path in _extract_doc_backtick_paths(source_text, rel_path, self._current_paths):
+            linked_paths.add(linked_path)
+        for linked_path in sorted(linked_paths):
             edges.append(_edge(module_id, linked_path, "doc_references_doc", confidence="EXTRACTED"))
 
         mentioned = sorted(mentioned_set)
@@ -1540,9 +1775,11 @@ class GraphIndexSession:
                 simple = _simple_name(node_id)
                 if simple and simple != label and simple != qname and simple not in _STOP_TERMS:
                     terms.setdefault(simple, set()).add(node_id)
-                stem = _path_term(str(node.get("source_file") or node_id.split("::", 1)[0]))
-                if stem and stem not in _STOP_TERMS:
-                    terms.setdefault(stem, set()).add(node_id)
+                if _is_module_graph_node(node):
+                    source_file = str(node.get("source_file") or node_id)
+                    stem = _path_term(source_file)
+                    if stem and stem not in _STOP_TERMS:
+                        terms.setdefault(stem, set()).add(node_id)
         return terms
 
     _SIMPLE_TERM_RE = re.compile(r"^[A-Za-z0-9_]+$")
@@ -1721,6 +1958,35 @@ class GraphIndexSession:
                 if not all(key):
                     continue
                 edge_map.setdefault(key, edge)
+
+        try:
+            di_mod = _load_di_signals_module()
+            for edge in di_mod.resolve_di_edges(artifacts, node_map):
+                if not isinstance(edge, dict):
+                    continue
+                key = (
+                    str(edge.get("source") or ""),
+                    str(edge.get("target") or ""),
+                    str(edge.get("relation") or ""),
+                    str(edge.get("confidence") or ""),
+                )
+                if not all(key):
+                    continue
+                edge_map.setdefault(key, edge)
+                for endpoint in (key[0], key[1]):
+                    if endpoint and endpoint not in node_map:
+                        file_part = endpoint.split("::")[0] if "::" in endpoint else endpoint
+                        label = endpoint.split("::")[-1]
+                        node_map[endpoint] = _node(
+                            endpoint,
+                            label,
+                            "class" if "::" in endpoint else "module",
+                            file_part,
+                            "1:0",
+                            layer=self.layer,
+                        )
+        except Exception:
+            pass
 
         # Reverse invalidation: drop edges left dangling by deletions/renames in
         # surviving (unchanged) referrer files. A cached referrer artifact can still
@@ -1919,6 +2185,21 @@ def update_graph_index(
     )
     changed_set = {str(rel).replace("\\", "/") for rel in changed}
     removed_set = {str(rel).replace("\\", "/") for rel in removed}
+    # After builder/walker/chunker bumps GraphIndexSession starts with empty cached
+    # artifacts. Incremental indexer runs only pass a small ``changed`` set (e.g. docs
+    # from the post-edit hook), which would otherwise write a nearly empty graph.
+    if not (session._state.get("files") or {}):
+        changed_set = {
+            str(file_path.relative_to(root)).replace("\\", "/")
+            for file_path in files
+            if file_path.is_file()
+        }
+        if verbose and changed_set:
+            print(
+                f"build_index: graph state empty for {layer} layer — "
+                f"re-extracting {len(changed_set)} file(s) in corpus",
+                flush=True,
+            )
     if verbose:
         print(
             f"build_index: graph extraction inputs for {layer} layer — "

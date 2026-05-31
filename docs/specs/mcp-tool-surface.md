@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-15
+Last verified: 2026-05-31
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -215,6 +215,7 @@ once envelope migration is complete.
 - Optional `max_per_file`: cap results per file path (`0` means no cap). Use `1` for orientation passes when you want breadth over repeated hits from one file.
 - Optional `tags`: pre-filter the search space before semantic ranking. Current tags: `wave`, `agent`, `journal`, `lifecycle`, `reference`, `prompt`, `seed`, `framework`, `test`, `config`.
 - Optional `limit`: number of results to return, default `5`, clamped `[1, 20]`.
+- **Graph augmentation on by default** (since wave `12xr3`): the response appends a `graph_neighbors` block listing 1-hop structural relations (imports, calls) for the top hits. Pass `graph=false` to suppress when the lean response is preferred. `graph_limit` (default 5) caps the number of top hits expanded.
 - Returns path, line range, score, excerpt, trust label, and a stable result ID
 once envelope migration is complete.
 
@@ -414,14 +415,65 @@ for the project layer, or rerun the framework-targeted `indexer.py` command if a
 All navigation tools are shipped. Path containment and allowed-root validation
 is enforced; structured diagnostics are returned for rejected paths.
 
-- `code_keyword` — exact substring search (single `query` or batch `queries` list), always available, no index required; batch mode merges results deduplicated by (path, line) with `matched_query` tagging
+- `code_keyword` — exact substring search (single `query` or batch `queries` list), always available, no index required; batch mode merges results deduplicated by (path, line) with `matched_query` tagging; **graph augmentation on by default** — appends `graph_neighbors` for top hits; pass `graph=false` to suppress for size-sensitive callers
 - `code_constants` — batch constant value lookup by name; returns name/value/file/line/kind per match; handles multiline container literals (frozenset, list, dict); not-found symbols included with null value; `glob` parameter scopes search to matching file paths
 - `code_pattern` — regex pattern search across repository files; `pattern` is a Python `re`-compatible string; results capped at `max_results` (default 50) with `truncated`/`total_matches_found` fields; `ignore_case` flag; files over 1 MB skipped (ReDoS guard)
 - `code_outline` — structural symbol map of a source file; tiered: Python AST → tree-sitter (11 languages) → regex fallback; returns `{name, kind, start_line, end_line, docstring}` per symbol with `parser_used` field
 - `code_read` — read a file by repo-relative path with optional line range
 - `code_list_files` — list repo files with optional glob filter
-- `code_definition` — symbol definition lookup across Python AST, tree-sitter-backed Java/C#/JS/TS/SQL navigation, and supported non-Python structural matchers; falls back to broad keyword matches when no structural definition is found
-- `code_references` — symbol reference search across Python plus tree-sitter-backed Java/C#/JS/TS/SQL navigation, with language-aware text matching and broad keyword fallback for the rest. Supports `exclude_tests`, `exclude_docs`, `call_sites_only`, and `limit`; the default response remains evidence-complete, while filtered responses preserve excluded counts so agents can see how much signal was removed. The response also surfaces richer detail buckets for definitions, imports, and mentions alongside the broad call-site/doc/test breakdown.
+- `code_definition` — symbol definition lookup across Python AST, tree-sitter-backed Java/C#/JS/TS/SQL navigation, and supported non-Python structural matchers; falls back to broad keyword matches when no structural definition is found; **graph augmentation on by default** — appends `graph_neighbors` for the resolved definition; pass `graph=false` to suppress. **Graph-narrowed lookup** (wave `12xr3`): when the symbol is in the graph, scanners skip the full repo walk and run only on candidate files derived from graph nodes — turns 38–43s cold calls into sub-300ms responses. When the graph has no candidate, an incremental refresh runs (~4ms when nothing has changed) and retries; if still no match, the graph is treated as source of truth and a fast `graph_definitive_not_found` is returned. When the graph is missing entirely the existing structural walk still runs (preserves existing behavior during initial setup) but the response carries a `graph_index_missing_degraded` advisory diagnostic recommending `wave_index_build(content='graph')`. Response carries `lookup_method: graph_narrowed | graph_narrowed_after_refresh | graph_definitive_not_found | graph_index_missing_degraded | keyword_fallback`.
+- `code_references` — symbol reference search across Python plus tree-sitter-backed Java/C#/JS/TS/SQL navigation, with language-aware text matching and broad keyword fallback for the rest. Supports `exclude_tests`, `exclude_docs`, `call_sites_only`, and `limit`; the default response remains evidence-complete, while filtered responses preserve excluded counts so agents can see how much signal was removed. The response also surfaces richer detail buckets for definitions, imports, and mentions alongside the broad call-site/doc/test breakdown. **Graph augmentation on by default** — appends `graph_neighbors` for top reference seeds; pass `graph=false` to suppress.
+- `code_hover` — return the symbol (function, class, or method) enclosing a given line number; returns `{name, kind, signature, docstring, start_line, end_line}` and `parser_used`; faster than `code_outline` when the line is already known
+- `code_callhierarchy` — direct callers and callees for a symbol with call-site line numbers and snippets; depth is always 1; requires a built graph index; `direction` selects `"incoming"` (callers), `"outgoing"` (callees), or `"both"` (default); prefer over `code_references` for structural caller/callee questions
+- `code_callgraph` — call-tree traversal to arbitrary depth; `depth` (default 1) and `direction` control scope; edges include `line` when the call site was located; `include_tests` (default `False`) filters test-path nodes and their edges, symmetric with `code_impact`; use for depth > 1 or when raw graph edges are more useful than the incoming/outgoing framing of `code_callhierarchy`
+- `code_impact` — upstream caller/importer blast-radius analysis; two modes: `symbol=` for graph-backed transitive caller traversal (`max_hops`, `relations`); `path=` for heuristic reverse-import scan; use before modifying a shared symbol to enumerate all affected callers and files
+- `wave_graph_report` — structural whole-graph summary; sections: `fan_in` (most-called symbols by in-degree), `fan_out` (most-calling symbols), `chokepoints` (high fan-out nodes ≥ threshold), `orphan_docs` (doc nodes with no `doc_references_code` edges), `cross_layer` (project/framework boundary edges, union layer only); use for codebase orientation and hotspot identification
+
+## MCP Resources
+
+The server exposes read-only **MCP resources** and **resource templates** via the standard MCP `ListResources` / `ReadResource` protocol. Resources return raw markdown strings — no structured envelope, no tool-call slot consumed. Prefer resources when attaching stable reference content as context; prefer tools when you need structured envelopes with `diagnostics`, `next_tools`, and recovery hints.
+
+### When to prefer resources vs. tools
+
+| Situation | Prefer | Reason |
+|---|---|---|
+| Attach project overview, AGENTS guide, wave state, or architecture doc as conversation context | **resource** | Raw markdown, no tool-call overhead, no envelope parsing needed |
+| Need error diagnostics, `next_tools`, or recovery hints | **tool** | Structured envelope with `diagnostics` and `next_tools` |
+| Attach a specific change doc or seed as ambient reference | **resource** | `wavefoundry://change/{id}`, `wavefoundry://seed/{slug}` |
+| Query with parameters that influence retrieval depth or layer | **tool** | `wave_get_change`, `seed_get`, etc. support filtered, layered lookup |
+| Check quick ambient status (index ready? graph present?) | **resource** | `wavefoundry://index/status`, `wavefoundry://graph/status` |
+| Need full indexed health with stale/missing diagnostics | **tool** | `wave_index_health` returns `readiness_overview`, `stale_layers`, etc. |
+
+### Stable resources
+
+No parameters — read directly or attach to context:
+
+| URI | MIME | Content | Equivalent tool |
+|---|---|---|---|
+| `wavefoundry://overview` | `text/markdown` | `docs/references/project-overview.md` | — |
+| `wavefoundry://prompts` | `text/markdown` | `docs/prompts/index.md` (command catalogue) | — |
+| `wavefoundry://architecture/current-state` | `text/markdown` | `docs/architecture/current-state.md` | — |
+| `wavefoundry://wave/current` | `text/markdown` | Active `wave.md` as markdown | `wave_current()` |
+| `wavefoundry://session-handoff` | `text/markdown` | `docs/agents/session-handoff.md` | `wave_get_handoff()` |
+| `wavefoundry://agents` | `text/markdown` | `AGENTS.md` (primary agent operating guide) | — |
+| `wavefoundry://index/status` | `text/markdown` | Semantic index present/absent, graph index present/absent, node/edge/file counts, builder version, artifact path | `wave_index_health()` |
+| `wavefoundry://graph/status` | `text/markdown` | Graph payload metadata: present, node/edge/file counts, builder version, graph path | `wave_graph_report()` |
+| `wavefoundry://graph/communities` | `text/markdown` | Catalog of code-graph communities — id, label, node count, boundary count, top-3 members by degree, ordered by size. Read first to discover available `community_id` values | `code_graph_community(community_id=…)` |
+| `wavefoundry://waves` | `text/markdown` | Markdown summary of all waves — one `##` heading per wave, status, bullet list of admitted changes | `wave_list_waves()` |
+
+### Resource templates
+
+Parameterized reads — supply the URI variable to select a specific document:
+
+| URI template | MIME | Content | Equivalent tool |
+|---|---|---|---|
+| `wavefoundry://change/{change_id}` | `text/markdown` | Change doc matching ID or prefix | `wave_get_change(change_id=…)` |
+| `wavefoundry://wave/{wave_id}` | `text/markdown` | `wave.md` for the given wave ID or prefix | `wave_get_change(wave_id=…)` |
+| `wavefoundry://prompt/{slug}` | `text/markdown` | Prompt doc matching slug or shortcut | `wave_get_prompt(shortcut=…)` |
+| `wavefoundry://seed/{slug}` | `text/markdown` | Seed doc matching slug or name | `seed_get(name=…)` |
+| `wavefoundry://architecture/{slug}` | `text/markdown` | Architecture doc matching slug (e.g. `domain-map`) | — |
+
+Missing resources return a `# Not Found` markdown message rather than raising an error.
 
 ## Tool Selection Guide
 
@@ -444,6 +496,10 @@ Use this table to select the right tool for a query type.
 | Combined health check after a mutation | `wave_audit` | `wave_validate` + `wave_index_health` |
 | Lint-only targeted check | `wave_validate` | `wave_audit` (`data.validation` contains the same lint result) |
 | Check semantic index layer readiness | `wave_index_health` | `wave_audit` (`data.index` contains the same health summary) |
+| Identify structural hotspots across the whole graph | `wave_graph_report` | `code_search` (semantic) |
+| Find direct callers/callees of a symbol with line numbers | `code_callhierarchy` | `code_references` |
+| Trace call tree beyond one hop or get raw graph edges | `code_callgraph` | `code_callhierarchy` chained |
+| Find all upstream callers of a symbol transitively | `code_impact` | `code_callhierarchy` chained |
 
 ### Which Code Tool To Use
 
@@ -451,7 +507,12 @@ Use this table to select the right tool for a query type.
 |---|---|---|
 | Find code by concept or behavior and you do not know the exact symbol or file | `code_search` | Semantic discovery across indexed code |
 | Find the defining declaration for a known symbol | `code_definition` | Structural symbol navigation beats broad search |
-| Find call sites or usages of a known symbol | `code_references` | Reference-oriented structural lookup |
+| Find call sites or usages of a known symbol (all reference kinds) | `code_references` | Reference-oriented structural lookup; includes definitions, imports, and mentions alongside call sites |
+| Find direct callers and callees of a symbol with exact line numbers | `code_callhierarchy` | Graph-backed structural caller/callee lookup; prefer over `code_references` when the question is purely structural |
+| Trace the call tree beyond one hop | `code_callgraph` | Depth-controlled traversal with line numbers on edges; use for depth > 1 or raw graph edge access |
+| Find all upstream callers of a symbol transitively | `code_impact` | Blast-radius analysis before modifying a shared symbol |
+| Orient to structural hotspots across the whole codebase | `wave_graph_report` | Whole-graph fan_in/fan_out/chokepoint summary; run once per investigation |
+| Look up the symbol enclosing a specific line number | `code_hover` | Faster than `code_outline` when the line is already known |
 | Find an exact token, import path, or string literal | `code_keyword` | Deterministic exhaustive substring search |
 | Read the actual implementation once you know the file | `code_read` | Source-of-truth file content with line numbers |
 | Search markdown docs, prompts, specs, or seeds instead of source code | `docs_search` | Semantic retrieval over docs, not code |

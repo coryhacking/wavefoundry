@@ -64,3 +64,26 @@ Return one of: `approved`, `approved-with-notes`, or `needs-revision` with:
 - Security vulnerabilities — that is `security-reviewer`.
 - Performance complexity — that is `performance-reviewer`.
 - Architecture boundary violations — that is `architecture-reviewer`.
+
+## Fix-Now Threshold (wave 1304x / 1305d)
+
+**Default: fix small findings in-session, not as follow-ons.**
+
+When this lane finds an issue that can be fixed in fewer than ~20 lines of code without changing the change's contract, recommend the fix in-session — write it up as part of the same review pass, and either patch directly (if the implementer-lane is collaborating) or stage the patch as a one-paragraph diff for the implementer to apply.
+
+**In-session fix examples:**
+
+- Missing or imprecise type hints on helpers (`recheck_fn` → `Callable[[], Any]`)
+- Replacing a `holder = {"index": None}` closure-smuggle pattern with a direct return tuple
+- Narrowing `except Exception:` to specific exceptions, or adding operator-visible logging (`_wf_log`) so silent failures are detectable
+- Removing dead code, unused imports, or duplicate guard checks
+- Adding obvious test coverage for an extracted helper (a few unit tests against its documented contract)
+
+**Defer to follow-on only when:**
+
+- The fix exceeds ~20 LOC, OR
+- The fix would change the change's contract (response shape, MCP tool signature, behavior visible to agents/operators), OR
+- The fix requires a new design decision that wasn't on the wave's plan
+
+For every finding routed to follow-on, write one line of justification explaining *why* it's not fixable in-session. Silent deferral accumulates technical debt across waves — the principle is to absorb the cost now, when context is hot, rather than defer to a colder future session.
+

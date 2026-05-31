@@ -30,7 +30,7 @@ ASSET_ROOT = Path(__file__).resolve().parent.parent / "dashboard"
 _GIT_INTERVAL = 60       # seconds between git stat rebuilds
 _WATCH_INTERVAL = 3.0    # seconds between mtime polls
 _SSE_HEARTBEAT = 15      # seconds between SSE keep-alive comments
-_STALENESS_CHECK_INTERVAL = 60.0  # seconds between periodic git-based index staleness checks
+_STALENESS_CHECK_INTERVAL = 60.0  # seconds between periodic meta-based index staleness checks
 _INDEX_LAYERS = ("project", "framework")
 _INDEXER_MOD = None
 _FRAMEWORK_STALE_IGNORE_FILENAMES = {"MANIFEST", "VERSION"}
@@ -326,36 +326,39 @@ class IndexBuilder:
         return self._root / ".wavefoundry" / "logs" / f"{prefix}-index-build-{content}.log"
 
 
-def _path_matches_index_layer(path: str, layer: str) -> bool:
-    normalized = path.replace("\\", "/").strip()
-    while normalized.startswith("./"):
-        normalized = normalized[2:]
-    if not normalized:
-        return False
-    parts = [part for part in normalized.split("/") if part]
-    if "__pycache__" in parts or normalized.endswith(".pyc"):
-        return False
-    if normalized.startswith(".wavefoundry/index/") or normalized == ".wavefoundry/index":
-        return layer == "project" and False
-    if normalized.startswith(".wavefoundry/framework/index/") or normalized == ".wavefoundry/framework/index":
-        return False
-    if layer == "framework":
-        return normalized.startswith(".wavefoundry/framework/")
-    return not normalized.startswith(".wavefoundry/framework/")
+def _get_graph_query():
+    global _GRAPH_QUERY_MOD
+    if _GRAPH_QUERY_MOD is None:
+        import importlib.util
+
+        query_path = Path(__file__).resolve().parent / "graph_query.py"
+        spec = importlib.util.spec_from_file_location("dashboard_graph_query", query_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Unable to load graph_query from {query_path}")
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = mod
+        spec.loader.exec_module(mod)
+        _GRAPH_QUERY_MOD = mod
+    return _GRAPH_QUERY_MOD
 
 
-def _is_git_status_directory_entry(raw_path: str, root: Path) -> bool:
-    normalized = raw_path.replace("\\", "/").strip()
-    while normalized.startswith("./"):
-        normalized = normalized[2:]
-    if not normalized:
-        return False
-    if normalized.endswith("/"):
-        return True
+_GRAPH_QUERY_MOD = None
+
+
+def _graph_neighbors_payload(root: Path, *, layer: str, symbol: str) -> dict[str, Any]:
     try:
-        return (root / normalized).is_dir()
-    except OSError:
-        return False
+        gq = _get_graph_query()
+        index = gq.GraphQueryIndex.from_root(root, layer=layer)
+        if not index.present:
+            return {"present": False, "layer": layer, "symbol": symbol, "diagnostic": "graph_not_ready"}
+        node_id = index.resolve_symbol(symbol)
+        if not node_id:
+            return {"present": False, "layer": layer, "symbol": symbol, "diagnostic": "symbol_not_found"}
+        neighbors = index.one_hop_neighbors([node_id])
+        neighbors["focus_node_id"] = node_id
+        return neighbors
+    except Exception as exc:  # noqa: BLE001
+        return {"present": False, "layer": layer, "symbol": symbol, "diagnostic": "error", "message": str(exc)}
 
 
 def _framework_index_inputs_stale(root: Path, meta: dict[str, Any]) -> bool | None:
@@ -424,10 +427,11 @@ def _project_index_inputs_stale(root: Path, meta: dict[str, Any]) -> bool | None
 
 
 def _index_is_stale(root: Path, layer: str = "project") -> bool:
-    """Return True if the selected index layer is missing or older than the current git state.
+    """Return True if the selected index layer is missing or its inputs differ from meta.json.
 
-    A file is only considered stale if it was modified *after* the last index build —
-    files that were dirty before the build are already indexed and do not count.
+    Staleness is derived from the index ``file_meta`` snapshot (and related meta fields),
+    not from git history or working-tree dirtiness. Uncommitted or committed git changes
+    that do not alter indexed input hashes must not mark the layer stale.
     """
     if layer not in _INDEX_LAYERS:
         raise ValueError(f"Unsupported index layer: {layer}")
@@ -440,10 +444,8 @@ def _index_is_stale(root: Path, layer: str = "project") -> bool:
         return True
     try:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        built_at = meta.get("built_at", "")
-        if not built_at:
+        if not meta.get("built_at", ""):
             return True
-        built_at_ts = datetime.fromisoformat(built_at.replace("Z", "+00:00")).timestamp()
     except (OSError, json.JSONDecodeError, ValueError):
         return True
 
@@ -457,37 +459,6 @@ def _index_is_stale(root: Path, layer: str = "project") -> bool:
         if framework_file_meta_stale is not None:
             return framework_file_meta_stale
 
-    git = ["git", "-C", str(root)]
-    try:
-        r = subprocess.run(
-            git + ["log", f"--since={built_at}", "--name-only", "--pretty=format:"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if r.returncode == 0 and r.stdout.strip():
-            for line in r.stdout.splitlines():
-                if _path_matches_index_layer(line, layer):
-                    return True
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        r = subprocess.run(
-            git + ["status", "--porcelain", "--untracked-files=all"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if r.returncode == 0 and r.stdout.strip():
-            for line in r.stdout.splitlines():
-                filename = line[3:].strip().split(" -> ")[-1]
-                if _is_git_status_directory_entry(filename, root):
-                    continue
-                if not _path_matches_index_layer(filename, layer):
-                    continue
-                try:
-                    if (root / filename).stat().st_mtime > built_at_ts:
-                        return True
-                except OSError:
-                    pass
-    except Exception:  # noqa: BLE001
-        pass
     return False
 
 
@@ -777,8 +748,8 @@ class SnapshotStore:
                     # Git timer expired — refresh git stats, notify only if they changed.
                     if self._rebuild(force_git=True):
                         self._notify_sse()
-                # Periodic git-based staleness check: catches source code edits that
-                # fall outside the watched-path set (e.g. any file in the working tree).
+                # Periodic meta-based staleness check: compares indexed inputs against
+                # the layer's file_meta snapshot in meta.json.
                 now = time.monotonic()
                 if now - self._last_staleness_check >= _STALENESS_CHECK_INTERVAL and (
                     self._index_builder is None or not self._index_builder._running
@@ -988,6 +959,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if layer not in ("project", "framework"):
                 return self._send_json({"error": f"Unsupported graph layer: {layer}"}, status=HTTPStatus.BAD_REQUEST)
             return self._send_json(dashboard_lib.read_graph_payload(self._store._root, layer))
+        if path == "/api/graph/neighbors":
+            params = parse_qs(urlparse(self.path).query)
+            layer = (params.get("layer") or ["project"])[0].strip().lower() or "project"
+            symbol = unquote((params.get("symbol") or [""])[0]).strip()
+            if layer not in ("project", "framework", "union"):
+                return self._send_json({"error": f"Unsupported graph layer: {layer}"}, status=HTTPStatus.BAD_REQUEST)
+            if not symbol:
+                return self._send_json({"error": "Missing symbol parameter"}, status=HTTPStatus.BAD_REQUEST)
+            return self._send_json(_graph_neighbors_payload(self._store._root, layer=layer, symbol=symbol))
         if path == "/api/diff":
             params = parse_qs(urlparse(self.path).query)
             rel_path = unquote((params.get("path") or [""])[0]).strip()

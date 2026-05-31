@@ -120,10 +120,13 @@ When MCP is attached, exploration before any code edit follows this order. Agent
 1. `code_ask` — cross-cutting "what does this currently do?" questions
 2. `code_search` — conceptual or module-level discovery
 3. `code_definition` — declarations and symbol ownership
-4. `code_references` — call sites and impact radius
-5. `code_keyword` — exact token or string matches
-6. `code_outline` — before a broad `code_read` on a large file
-7. `rg` / `grep` / broad file reads — fallback only
+4. `code_references` — call sites and impact radius (all reference kinds: call sites, imports, mentions)
+5. `code_callhierarchy` — direct callers and callees with exact line numbers and snippets; prefer over `code_references` when the question is purely structural ("what calls X?" / "what does X call?")
+6. `code_impact` — transitive upstream callers up to N hops; run before modifying a shared symbol to size the full blast radius across the codebase before the first edit
+7. `code_keyword` — exact token or string matches
+8. `code_outline` — before a broad `code_read` on a large file
+9. `code_callgraph` — call tree beyond 1 hop (depth > 1) when broader call structure is needed
+10. `rg` / `grep` / broad file reads — fallback only
 
 Shell search and broad file reads are fallback when: (a) MCP is not attached; (b) the relevant tool is unavailable in the host session; (c) index health or freshness makes results unreliable; or (d) MCP results are genuinely insufficient after a reasonable pass.
 
@@ -185,6 +188,8 @@ Participant responsibilities inside an active wave:
 Required tasks:
 
 1. Load the active execution plan, spec refs, and wave artifacts. Consult `docs/references/project-context-memory.md` and relevant role journals (`docs/agents/journals/`) for active cautions and known pitfalls that apply to the current wave's scope. If memory records a past mistake in this area, treat it as a constraint on implementation — not a suggestion.
+
+   **MCP resource orientation** — before reaching for tool calls to load stable reference content, prefer attaching it directly as context via MCP resources. Stable resources available without parameters: `wavefoundry://overview` (project orientation), `wavefoundry://wave/current` (active wave record), `wavefoundry://agents` (AGENTS.md operating guide), `wavefoundry://graph/status` (graph index health), `wavefoundry://graph/communities` (catalog of code-graph communities for blast-radius and refactor planning). Use `wavefoundry://change/{change_id}`, `wavefoundry://seed/{slug}`, and `wavefoundry://architecture/{slug}` for parameterized reads. Resources return raw markdown with no tool-call overhead; fall back to tools (`wave_get_change`, `seed_get`, etc.) when you need structured envelopes with `diagnostics` and `next_tools`.
 2. Determine whether the next `planned` wave is ready to become `active`.
 3. If the selected wave still has a provisional holding name, review the admitted changes and rename the wave slug/title to a descriptive summary before activation.
 4. Confirm admitted change docs already live under `docs/waves/<wave-id>/` after `Add change to wave`; if any remain under `docs/plans/`, repair placement before continuing.

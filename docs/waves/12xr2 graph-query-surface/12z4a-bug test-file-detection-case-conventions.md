@@ -1,10 +1,10 @@
 # Fixed-community classifiers miss case-variant dirs and non-Python conventions
 
 Change ID: `12z4a-bug test-file-detection-case-conventions`
-Change Status: `planned`
+Change Status: `complete`
 Owner: framework-maintainer
-Status: planned
-Last verified: 2026-05-29
+Status: complete
+Last verified: 2026-05-31
 Wave: `12xr2 graph-query-surface`
 
 ## Rationale
@@ -178,56 +178,56 @@ files outside those dirs. Implementers should use **stem/suffix checks that do n
 
 ### Tests — multi-language
 
-- [ ] AC-1: Swift — `_is_test_source_file("SolarisMonitor/Tests/HueAuthorizationTests.swift")` → `True`.
-- [ ] AC-2: Python — `_is_test_source_file("scripts/tests/test_chunker.py")` → `True` (regression).
-- [ ] AC-3: Go — `_is_test_source_file("internal/api/handler_test.go")` → `True`.
-- [ ] AC-4: Java — `_is_test_source_file("src/test/java/com/example/UserServiceTest.java")` → `True`.
-- [ ] AC-5: C# — `_is_test_source_file("MyApp.Tests/Controllers/HomeControllerTests.cs")` → `True`.
-- [ ] AC-6: Rust — `_is_test_source_file("tests/integration_test.rs")` → `True`.
-- [ ] AC-7: TypeScript — `_is_test_source_file("src/components/Button.test.tsx")` → `True`.
-- [ ] AC-8: JavaScript — `_is_test_source_file("src/__tests__/auth.spec.js")` → `True`.
-- [ ] AC-9: Negative — `_is_test_source_file("src/indexer.py")` → `False`.
-- [ ] AC-10: Case variants — `Tests/`, `TEST/`, `__TESTS__/`, `Spec/` directories match.
-- [ ] AC-11: Ambiguous PascalCase stems (e.g. production file named `Contest.swift` outside
+- [x] AC-1: Swift — `_is_test_source_file("SolarisMonitor/Tests/HueAuthorizationTests.swift")` → `True`.
+- [x] AC-2: Python — `_is_test_source_file("scripts/tests/test_chunker.py")` → `True` (regression).
+- [x] AC-3: Go — `_is_test_source_file("internal/api/handler_test.go")` → `True`.
+- [x] AC-4: Java — `_is_test_source_file("src/test/java/com/example/UserServiceTest.java")` → `True`.
+- [x] AC-5: C# — `_is_test_source_file("MyApp.Tests/Controllers/HomeControllerTests.cs")` → `True`.
+- [x] AC-6: Rust — `_is_test_source_file("tests/integration_test.rs")` → `True`.
+- [x] AC-7: TypeScript — `_is_test_source_file("src/components/Button.test.tsx")` → `True`.
+- [x] AC-8: JavaScript — `_is_test_source_file("src/__tests__/auth.spec.js")` → `True`.
+- [x] AC-9: Negative — `_is_test_source_file("src/indexer.py")` → `False`.
+- [x] AC-10: Case variants — `Tests/`, `TEST/`, `__TESTS__/`, `Spec/` directories match.
+- [x] AC-11: Ambiguous PascalCase stems (e.g. production file named `Contest.swift` outside
   test dirs) documented or guarded; false-positive rate acceptable per decision log.
 
 ### Cross-classifier parity
 
-- [ ] AC-12: `_is_bench_source_file("Benchmarks/embed_bench.swift")` or Go
+- [x] AC-12: `_is_bench_source_file("Benchmarks/embed_bench.swift")` or Go
   `foo_bench_test.go` returns `True`; Python `benchmarks/` paths unchanged.
-- [ ] AC-13: `_is_scripts_source_file("Scripts/seed.py")` and `Bin/update-indexes` → `True`;
+- [x] AC-13: `_is_scripts_source_file("Scripts/seed.py")` and `Bin/update-indexes` → `True`;
   deep `pkg/framework/scripts/` still excluded.
-- [ ] AC-14: `_is_generated_source_file("Generated/models.swift")` → `True`; `_pb2.py` suffix
+- [x] AC-14: `_is_generated_source_file("Generated/models.swift")` → `True`; `_pb2.py` suffix
   unchanged.
-- [ ] AC-15: `_is_config_source_file("Config/settings.swift")` → `True`; `pyproject.toml` /
+- [x] AC-15: `_is_config_source_file("Config/settings.swift")` → `True`; `pyproject.toml` /
   `tsconfig.json` unchanged.
-- [ ] AC-16: `_is_cicd_source_file("CI/workflow.yml")` → `True`; `Dockerfile` exact match
+- [x] AC-16: `_is_cicd_source_file("CI/workflow.yml")` → `True`; `Dockerfile` exact match
   preserved.
 
 ### Verification
 
-- [ ] AC-17: `test_graph_cluster.py` includes a table-driven or explicit case per language
+- [x] AC-17: `test_graph_cluster.py` includes a table-driven or explicit case per language
   in the reference table; full framework test suite passes.
 - [ ] AC-18: After graph rebuild, observed Swift test paths and spot-checked Java/Go/C# paths
   land in the **Tests** fixed community.
 
 ## Tasks
 
-- [ ] Add shared helper `_path_has_dir_segment(parts, names)` using `part.casefold()`.
-- [ ] Refactor all six `_is_*_source_file` functions to use the helper for directory checks.
-- [ ] Implement `_is_test_source_file` filename policy per reference table:
-  - Generalize `*_test.py` → `*_test.<any-ext>`
-  - Add PascalCase stem rules (`Tests`, `Test`, `Test*` prefix)
-  - Add JS/TS `.test.` / `.spec.` infix detection
-  - Extend `_TEST_DIR_NAMES` with `spec`, `specs`, `__tests__` (already partially covered)
-- [ ] Implement `_is_bench_source_file` multi-language parity (`*_bench.*`, `*_bench_test.go`,
+- [x] Add shared helper `_path_has_dir_segment(parts, names)` using `part.casefold()`.
+- [x] Refactor all six `_is_*_source_file` functions to use the helper for directory checks.
+- [x] Implement `_is_test_source_file` filename policy per reference table:
+  - [x] Generalize `*_test.py` → `*_test.<any-ext>`
+  - [x] Add PascalCase stem rules (`Tests`, `Test`, `Test*` prefix)
+  - [x] Add JS/TS `.test.` / `.spec.` infix detection
+  - [x] Extend `_TEST_DIR_NAMES` with `spec`, `specs`, `__tests__` (already partially covered)
+- [x] Implement `_is_bench_source_file` multi-language parity (`*_bench.*`, `*_bench_test.go`,
   `*Benchmark*` stems).
-- [ ] **Scripts / Generated / Config / CI/CD:** case-insensitive dirs; document exact-case
+- [x] **Scripts / Generated / Config / CI/CD:** case-insensitive dirs; document exact-case
   exceptions.
-- [ ] Add **table-driven** regression tests: one path per language row + title-case dir cases
+- [x] Add **table-driven** regression tests: one path per language row + title-case dir cases
   for each classifier touched.
-- [ ] Bump `CLUSTER_BUILDER_VERSION`.
-- [ ] Rebuild graph index on affected repositories after merge.
+- [x] Bump `CLUSTER_BUILDER_VERSION`.
+- [x] Rebuild graph index on affected repositories after merge.
 
 ## Agent Execution Graph
 
@@ -282,7 +282,7 @@ path classifiers and case-insensitive directory matching.
 | ---------- | ------ | -------- |
 | 2026-05-29 | Bug reported from Swift/Xcode project; test files misclassified. | `graph_cluster.py` L131–138 |
 | 2026-05-29 | Scope expanded: audit shows same case-sensitive dir pattern in all six `_is_*_source_file` classifiers; parity fix bundled into same change. | `graph_cluster.py` L24–195 |
-| 2026-05-29 | Requirement added: detection must work across Python, Go, Rust, Java/Kotlin, C#, Swift, JS/TS, C/C++ — language technology reference table and per-language ACs added. | operator feedback |
+| 2026-05-29 | Implemented shared `_path_has_dir_segment`, multi-language test/bench rules, cross-classifier case-insensitive dirs; `CLUSTER_BUILDER_VERSION=8`. | `graph_cluster.py`, `test_graph_cluster.py` |
 
 
 ## Decision Log

@@ -224,77 +224,23 @@ The project-local index is stored at `.wavefoundry/index/` (gitignored). Package
 }
 ```
 
-**Available tools:** `wave_help`, `wave_server_info`, `wave_audit`, `wave_map`, `docs_search`, `code_search`, `code_ask`, `seed_get`, `wave_current`, `wave_list_waves`, `wave_list_plans`, `wave_get_change`, `wave_get_prompt`, `wave_get_handoff`, `wave_set_handoff`, `wave_gate_open`, `wave_gate_close`, `wave_gate_status`, `wave_create_wave`, `wave_add_change`, `wave_remove_change`, `wave_prepare`, `wave_pause`, `wave_review`, `wave_close`, `wave_new_feature`, `wave_new_bug`, `wave_new_enhancement`, `wave_new_refactor`, `wave_new_change`, `wave_new_documentation`, `wave_new_tech_debt`, `wave_new_task`, `wave_new_maintenance`, `wave_new_operations`, `wave_validate`, `wave_garden`, `wave_sync_surfaces`, `wave_index_health`, `wave_index_build_status`, `wave_index_build`, `wave_dashboard_start`, `wave_dashboard_stop`, `wave_dashboard_restart`, `code_list_files`, `code_read`, `code_keyword`, `code_constants`, `code_pattern`, `code_outline`, `code_definition`, `code_references`, `code_dependencies`.
+**Available tools:** `wave_help`, `wave_server_info`, `wave_audit`, `wave_map`, `docs_search`, `code_search`, `code_ask`, `seed_get`, `wave_current`, `wave_list_waves`, `wave_list_plans`, `wave_get_change`, `wave_get_prompt`, `wave_get_handoff`, `wave_set_handoff`, `wave_gate_open`, `wave_gate_close`, `wave_gate_status`, `wave_create_wave`, `wave_add_change`, `wave_remove_change`, `wave_prepare`, `wave_pause`, `wave_review`, `wave_close`, `wave_new_feature`, `wave_new_bug`, `wave_new_enhancement`, `wave_new_refactor`, `wave_new_change`, `wave_new_documentation`, `wave_new_tech_debt`, `wave_new_task`, `wave_new_maintenance`, `wave_new_operations`, `wave_validate`, `wave_garden`, `wave_sync_surfaces`, `wave_index_health`, `wave_index_build_status`, `wave_index_build`, `wave_mcp_reload`, `wave_implement`, `wave_reopen`, `wave_dashboard_start`, `wave_dashboard_stop`, `wave_dashboard_restart`, `wave_dashboard_open`, `code_list_files`, `code_read`, `code_keyword`, `code_constants`, `code_pattern`, `code_outline`, `code_definition`, `code_references`, `code_dependencies`, `code_impact`, `code_callgraph`, `code_callhierarchy`, `code_graph_path`, `code_graph_community`, `wave_graph_report`.
+
+**Graph index:** `wave_index_build(content='graph', mode='rebuild')` rebuilds only the structural graph (no semantic embedding). Graph query tools default to `layer='project'` (target-repo code under workflow include-prefixes). Use `layer='framework'` for packaged seeds/docs only; `layer='union'` merges both at query time (requires `networkx` in the tool venv via `setup_wavefoundry.py`).
 
 **Codebase Q&A shortcut:** `code_ask(question)` — ask a cross-cutting natural-language question about the codebase; returns `{answer, citations, reranked, confidence, gaps, question_type, index_freshness, partition_applied, demotion_count, second_hop_symbols, total_ms, vector_ms, rerank_ms}`. Each citation may also include `final_rank`, `demoted`, and `partition_reason`. Synthesize from `citations` directly — the `answer` field is a navigation pointer, not a synthesized answer. `score` is the pre-partition reranker score; `final_rank` is the post-partition output order. `reranked: true` means cross-encoder ranking ran (trust the order unless a citation is explicitly `demoted: true`); `reranked: false` means RRF fallback (index/model unavailable, slightly lower quality). Use `code_search`/`docs_search` instead when you want raw results to browse. See `docs/agents/guru.md` for retrieval loop, citation format, and uncertainty protocol.
 
-**Retrieval signal notes for `code_ask`:** `confidence` is a retrieval signal (High = 2+ citations, Medium = 1, Low = 0) — not an answer-quality guarantee. Evaluate citations by path and content layer, not score alone. For explanatory questions, citations from scaffolding-layer paths (constructs/, stacks/, routes/, config/, modules/) confirm wiring only — always follow up with reads of the actual handler or service layer before synthesizing. When `question_type == "explanatory"` and `reranked: true`, the tool automatically performs two-hop symbol expansion: symbol names are extracted from top citations and a second keyword retrieval pass fetches their definitions. `second_hop_symbols` (when present) lists the symbols that were chased — do not re-chase them manually; start the next retrieval pass from the layer they represent. If `partition_applied` is true, the visible citation order intentionally differs from score order; trust `final_rank` over `score` when deciding which citation is primary.
+Full tool reference — `code_ask` signal notes, `wave_new_*` creation tools, session handoff, edit gates, Codex server selection, wave lifecycle notes: `docs/specs/mcp-tool-surface.md` → **Tool Detail** section.
 
-For change-plan creation, use the **`wave_new_<kind>` tools** — one call per kind, no `kind` argument needed: `wave_new_feature`, `wave_new_bug`, `wave_new_enhancement`, `wave_new_refactor`, `wave_new_change`, `wave_new_documentation`, `wave_new_tech_debt`, `wave_new_task`, `wave_new_maintenance`, `wave_new_operations`. All MCP creation tools wrap lifecycle ID generation and scaffold `docs/plans/<change-id>.md` in one call. Use `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>` only as a CLI fallback when MCP is unavailable, or for wave-folder IDs until lifecycle mutation tools exist.
+### Code Navigation
 
-**Session handoff tools:**
-
-- `wave_get_handoff()` — read `docs/agents/session-handoff.md`; returns `content` (null if the file doesn't exist yet), `mtime`, and `path`
-- `wave_set_handoff(content=...)` — write (or create) `docs/agents/session-handoff.md` with the provided content; use this to record active session state across context windows
-
-**Edit gate tools:**
-
-- `wave_gate_open(gate=...)` — enable an edit guard in `.wavefoundry/guard-overrides.json`. Valid gates: `seed_edit_allowed`, `framework_edit_allowed`, `design_system_edit_allowed`. Returns an error if the gate is already open (double-open indicates a forgotten close). Every open must be paired with a `wave_gate_close` call.
-- `wave_gate_close(gate=...)` — disable an edit guard. Returns `status: "ok"` with an advisory diagnostic if the gate was already closed (harmless). Use `.wavefoundry/bin/wave-gate open|close <gate>` as a CLI fallback.
-- `wave_gate_status()` — return the current enabled/disabled state of all gates. Use to inspect gate posture before implementation or at lifecycle transitions.
-- **Auto-close:** `wave_pause` and `wave_close` (create mode) automatically close all open gates and emit a `gates_forced_closed` advisory if any were open. `wave_close` dry-run emits the diagnostic without writing.
-- Do **not** edit `.wavefoundry/guard-overrides.json` directly — use these tools instead.
-
-### Codex server selection
-
-When Codex is attached to multiple Wavefoundry repos, use the project-local MCP entry and confirm the returned `repo_root` from `wave_server_info()` before using any other tools.
-
-Do not infer the attached repository from display labels alone. The project-local launcher/config is the attachment source of truth, and `wave_server_info()` is the source of truth for the connected repository.
-
-**Bulk wave_get_change:** `wave_get_change(wave_id=...)` (without `change_id`) returns all admitted changes for the wave in `data.changes`, each with `id`, `status`, `path`, and `content` (capped at 300 lines). Use this at session start to ingest all change context in one call.
-
-**Drift detection:** `wave_current` surfaces a non-blocking `change_status_drift` advisory when wave.md Change Status fields disagree with the actual change doc files. Status remains `ok`; update wave.md to resolve.
-
-**`wave_current` returns `data.waves[]`:** The response carries all non-closed waves in `data.waves` (array), not `data.wave` (single object). Order: active first (0 or 1), then planned, then paused, then other in lifecycle-ID order. Each entry includes `wave_id`, `status`, `changes`, `path`, and `next_action` — `implement_wave` (active), `prepare_wave` (planned), `resume_wave` (paused). The `resume_wave` next-action is a semantic hint; the underlying transition is `wave_prepare` on the paused wave.
-
-**Single-active-wave rule:** Only one wave may be `Status: active` at a time. `wave_prepare` enforces this with an `another_wave_active` diagnostic when another wave is already active; recovery is `wave_pause` on that wave, then re-run `wave_prepare` on the target. `wave_pause(mode='create')` transitions `active → paused` (and writes a session-handoff entry); resuming a paused wave means re-running `wave_prepare` on it (the guard still applies — resume is blocked if any other wave is active).
-
-**Search mode transparency:** `docs_search` responses now include a `mode` field (`"semantic"` or `"lexical"`) alongside the existing `search_mode` field, for clear fallback visibility.
-
-### Code Navigation (three layers)
-
-The MCP server exposes three complementary code-navigation layers — use the right layer for the task:
-
-> **Naming rule:** a tool carries the `_search` suffix **if and only if it uses the semantic index** (vector embeddings + reranker). Tools that operate by filesystem scan, regex, AST, or exact-key lookup do not carry `_search`. Use this to infer retrieval strategy from the tool name alone.
-
-| Layer | Tools | When to use |
-| --------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Semantic search** | `docs_search`, `code_search` | Find conceptually related content when you don't know the exact text; great for orientation and discovery |
-| **Exact navigation** | `code_keyword`, `code_constants`, `code_read`, `code_list_files` | Deterministic lookup when you know the exact text, function name, constant name, or file; use for code review, implementation, debugging |
-| **Symbol navigation** | `code_definition`, `code_references` | Jump-to-definition and find-references across Python plus supported non-Python languages; Python uses AST, JS/TS/Java/C#/Go/Rust/C/C++/Kotlin/Bash/SQL use tree-sitter-backed navigation, broader language support uses structural/text fallback |
-
-
-**Exact navigation tools:**
-
-- `code_list_files(glob?)` — list all repo-relative file paths; respects `.gitignore`/`.aiignore` and hardcoded excludes
-- `code_read(path, start_line?, end_line?)` — read a file with line-numbered output; rejects absolute and traversal paths
-- `code_keyword(query?, glob?, queries?)` — exact substring search; single `query` or batch `queries` list; batch mode merges results with `matched_query` tagging; `glob` applies across all queries
-- `code_constants(symbols, glob?)` — batch constant value lookup; returns name/value/file/line/kind for each symbol; supports scalar and multiline values (frozenset, list, dict); not-found symbols included with null value
-- `code_pattern(pattern, glob?, max_results?, ignore_case?)` — Python regex search across repository files; invalid patterns return structured error; files over 1 MB skipped; results include `truncated`/`total_matches_found`
-- `code_outline(path)` — structural symbol map of a file; tiered parser (Python AST → tree-sitter → regex); returns functions, classes, methods, constants with line ranges and docstrings
-
-**Symbol navigation tools (milestone 2):**
-
-- `code_definition(symbol)` — finds Python definitions via AST, JS/TS/Java/C#/Go/Rust/C/C++/Kotlin/Bash/SQL definitions via tree-sitter-backed navigation when available, and other supported non-Python definitions via structural fallback; falls back to broad keyword matches when no structural definition is found
-- `code_references(symbol)` — finds Python references plus tree-sitter-backed JS/TS/Java/C#/Go/Rust/C/C++/Kotlin/Bash/SQL references, then falls back to language-aware text matching and broad keyword matches when needed
-
-**Quick chooser:**
+See `docs/specs/mcp-tool-surface.md` → **Code Navigation** for the full three-layer listing (semantic search, exact navigation, symbol navigation, graph query) with per-tool parameter docs. Quick chooser:
 
 - Use `code_search` when you know the behavior or concept but not the exact symbol or file.
 - Use `code_definition` when you know the symbol and want its defining declaration.
 - Use `code_references` when you know the symbol and want call sites or usages.
-- Use `code_keyword` when you need exact-token or exact-string matches; use `queries=[...]` for multiple patterns in one call.
-- Use `code_constants` when you need the current value of one or more named constants without parsing raw grep output.
+- Use `code_keyword` when you need exact-token or exact-string matches; use `queries=[...]` for multiple patterns.
+- Use `code_constants` when you need the current value of one or more named constants.
 - Use `code_pattern` when you need regex matching (non-literal patterns like `def .*handler`).
 - Use `code_outline` when you need the structural shape of a file before deciding what to read.
 - Use `code_read` after any of the above once you know which file to inspect directly.
@@ -303,6 +249,8 @@ The MCP server exposes three complementary code-navigation layers — use the ri
 
 The server also exposes read-only **MCP resources** and **resource templates** for stable context discovery without tool calls:
 
+Full resource documentation: `docs/specs/mcp-tool-surface.md` → **MCP Resources** section.
+
 **Stable resources** (no parameters — attach to context directly):
 
 - `wavefoundry://overview` — project overview doc
@@ -310,6 +258,11 @@ The server also exposes read-only **MCP resources** and **resource templates** f
 - `wavefoundry://architecture/current-state` — architecture current-state summary
 - `wavefoundry://wave/current` — active wave.md as markdown
 - `wavefoundry://session-handoff` — session handoff state
+- `wavefoundry://agents` — AGENTS.md (this file; primary agent operating guide)
+- `wavefoundry://index/status` — semantic + graph index health summary (present/absent, counts, builder version)
+- `wavefoundry://graph/status` — graph index metadata (present, node/edge/file counts, builder version, path)
+- `wavefoundry://graph/communities` — catalog of code-graph communities (id, label, node count, boundary count, top members by degree); read first before `code_graph_community(community_id=…)`
+- `wavefoundry://waves` — markdown summary of all wave records and admitted changes
 
 **Resource templates** (parameterized reads):
 
@@ -329,129 +282,9 @@ The server also exposes read-only **MCP resources** and **resource templates** f
 
 **Prefer MCP over shell launchers.** Use `**wave_validate`** for docs lint results, `**wave_garden**` for metadata gardening (follow the tool’s `mode` contract), and `**wave_audit**` when you need wave state + validation + index health in one structured response. Treat `**.wavefoundry/bin/docs-lint**` and `**.wavefoundry/bin/docs-gardener**` as **CLI fallbacks** for hooks, CI, terminals, or any host where MCP is not attached — not the default path for agent instructions. More broadly: **before reaching for `ls`, `grep`, or filesystem tools to answer any question about wave state, plans, or change docs, check the MCP tool list first** — `wave_list_plans`, `wave_list_waves`, `wave_current`, `wave_get_change`, and related tools return structured answers directly without shell round-trips.
 
-## Repository Layout
+## Repository Shape and Ownership
 
-Current repository shape:
-
-```text
-wavefoundry/
- AGENTS.md
- README.md
- docs/
- .wavefoundry/
- bin/ ← docs-lint, docs-gardener launchers (canonical CLI for hooks/CI)
- framework/
- README.md
- VERSION
- seeds/ ← canonical seed prompts and framework reference material
- scripts/ ← validation, packaging, rendering, MCP server, index builder
- index/ ← gitignored; generated by indexer.py
-```
-
-`.wavefoundry/framework/seeds/` contains canonical seed prompts and framework reference material. `.wavefoundry/framework/scripts/` contains framework validation, packaging, rendering, migration, maintenance, and MCP tooling.
-
-## Target Repository Model
-
-A target repository may contain:
-
-- `AGENTS.md`
-- `docs/prompts/`
-- `docs/prompts/agents/`
-- `docs/prompts/prompt-surface-manifest.json`
-- `docs/agents/`
-- `docs/agents/session-handoff.md`
-- `docs/agents/journals/`
-- `docs/waves/`
-- `docs/plans/`
-- `docs/workflow-config.json`
-- `docs/repo-profile.json`
-- project-specific `docs/specs/`, `docs/architecture/`, `docs/contributing/`, `docs/references/`
-
-Wavefoundry may also support repositories that do not yet have these files, using install/bootstrap tools.
-
-## What Wavefoundry Owns
-
-- Canonical Wave Framework seed prompts.
-- Framework reference docs.
-- Renderers for project-local prompt and agent surfaces.
-- Install and upgrade logic.
-- Lifecycle ID generation.
-- Wave validation and docs-lint style checks.
-- Docs-gardener style metadata refresh.
-- Framework packaging/export logic.
-- Local MCP server tools.
-- Optional local code index and source search.
-
-## What Target Repositories Own
-
-- Product code and product docs.
-- Local rendered framework surfaces.
-- Wave and plan records.
-- Project-specific workflow config and repo profile.
-- Product/persona/reviewer policy customizations.
-- Any local modifications that should be preserved during upgrade.
-
-## Initial MCP Tool Surface
-
-Start with a small, reliable read-only tool set.
-
-- `wave.current`
- - Return active wave, last closed wave, handoff state, admitted changes, and next lifecycle action.
-- `wave.validate`
- - Run framework validation against a target repository and return structured failures.
-- `wave.prompt_surface_audit`
- - Compare shortcut table, prompt index, manifest, seed references, and rendered local prompt bodies.
-- `wave.resolve_seed`
- - Resolve `seed-175`, `prepare-wave`, or similar references to canonical files and generated local surfaces.
-- `code.search`
- - Local exact search over target repository files.
-- `code.read`
- - Read file ranges with line numbers.
-
-Add `wave.lifecycle_id` early if lifecycle ID generation is needed before mutation tools.
-
-## Later MCP Tool Surface
-
-- `wave.lifecycle_id`
-- `wave.install`
-- `wave.upgrade`
-- `wave.package`
-- `wave.create`
-- `wave.add_change`
-- `wave.prepare`
-- `wave.review`
-- `wave.close`
-- `wave.archive_reports`
-- `wave.memory_candidates`
-- `code.symbols`
-- `code.references`
-- `code.semantic_search`
-
-Lifecycle mutation tools should be introduced only after validation and audit tools are trustworthy.
-
-## Configuration Sketch
-
-Target repositories should be configured explicitly.
-
-```json
-{
- "allowed_roots": [
- "/path/to/target-repository"
- ],
- "default_root": "/path/to/target-repository",
- "index": {
- "enabled": true,
- "path": ".wavefoundry/index.sqlite",
- "ignore": [".git", ".build", "DerivedData", "node_modules", "__pycache__"]
- },
- "framework": {
- "canonical_revision": "local-dev",
- "render_project_surfaces": true
- }
-}
-```
-
-Use real target paths only in local configuration, fixtures, or operator-provided examples. Do not hardcode any one product repository as the only supported target.
+See `docs/references/project-overview.md` for repository layout, target repository model, and framework vs. target ownership boundaries.
 
 ## Safety Rules
 
@@ -470,26 +303,3 @@ Use real target paths only in local configuration, fixtures, or operator-provide
 **Framework distribution zip archives:** Zip files at the repository root (`wavefoundry-*.zip`) are transport artifacts only. Never commit them. If a zip was accidentally committed, remove it with `git rm --cached <file>.zip`.
 
 **Seed prompts:** Never delete or overwrite seed prompts under `.wavefoundry/framework/seeds/` without an explicit wave and `seed_edit_allowed` guard approval. Open the gate with `wave_gate_open(gate="seed_edit_allowed")` before editing and close it immediately after with `wave_gate_close(gate="seed_edit_allowed")`. Seed edits affect all target repositories.
-
-## Initial Milestones
-
-1. Inventory `.wavefoundry/framework/seeds/` and `.wavefoundry/framework/scripts/`.
-2. Implement `wave.current`, `code.search`, and `code.read`.
-3. Port lifecycle ID generation into Wavefoundry.
-4. Port or wrap validation logic for `wave.validate`.
-5. Add `wave.resolve_seed` for canonical seed lookup.
-6. Add `wave.prompt_surface_audit` for shortcut/index/manifest/seed drift.
-7. Add install/upgrade rendering for project-local surfaces.
-8. Add package/export support.
-9. Add local code index only after exact search and wave tools are stable.
-
-## Definition Of Done For MVP
-
-- Runs as a local MCP stdio server.
-- Can inspect a configured target repository without modifying it.
-- Can report active wave state and validation failures as structured JSON.
-- Can search and read target repository files.
-- Can resolve canonical seed references.
-- Can audit prompt surface drift.
-- Has tests for target-root safety, seed resolution, exact search, and prompt-surface audit behavior.
-- Uses `Wavefoundry` consistently for the project identity.

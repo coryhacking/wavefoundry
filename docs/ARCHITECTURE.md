@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-18
+Last verified: 2026-05-31
 
 Hub index for Wavefoundry architecture documentation. Child docs provide detail; this file provides scope, update triggers, and cross-links.
 
@@ -24,6 +24,7 @@ Wavefoundry is a framework and tooling repository: canonical Wave Framework seed
 | `docs/architecture/performance-budget.md` | Performance expectations and hotspots | active |
 | `docs/architecture/design-system.md` | Design-system extraction philosophy, regeneration semantics, semantic index relationship | active |
 | `docs/architecture/search-architecture.md` | Semantic index layers, retrieval, reranking, and `code_ask` behavior | active |
+| `docs/architecture/graph-index-system.md` | Graph schema, generation pipeline, query layer, clustering, and MCP tool integration | active |
 | `docs/architecture/chunking-and-indexing-pipeline.md` | End-to-end file discovery, chunking, embedding, and index storage | active |
 | `docs/architecture/decisions/` | Architecture Decision Records (ADRs) | active |
 

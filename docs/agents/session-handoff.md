@@ -2,32 +2,50 @@
 
 Owner: wave-coordinator
 Status: active
-Last verified: 2026-05-29
+Last verified: 2026-05-31
 
 ## Active Wave
 
 **Wave:** `12xr2 graph-query-surface`  
-**Status:** active — pre-implementation review **passed** 2026-05-29; ready for **Implement wave** (first code edit)  
-**Changes (all planned):**
-- `12z48-bug stale-index-build-lock-cleanup` — stale `index-build.lock` cleanup after dead PIDs
-- `12z4a-bug test-file-detection-case-conventions` — fixed-community classifiers + multi-language test detection
-- `12xs4-feat graph-query-surface` — `graph_query.py`, `code_impact` symbol mode, `code_callgraph`, `wave_graph_report`, `graph=true` augmentation
-- `12ynp-enh graph-dependency-injection-wiring` — DI wiring extraction from graph
-- `12yro-enh graph-visualization-navigation-overhaul` — dashboard graph navigation overhaul
+**Status:** active — all five admitted changes implemented (uncommitted)
 
-**Implementation order:** `12z48` → `12z4a` → `12xs4` → `12ynp` → `12yro`
+**Complete (uncommitted):**
+- `12z48-bug stale-index-build-lock-cleanup` — liveness-aware lock, hook debounce, meta-only staleness
+- `12z4a-bug test-file-detection-case-conventions` — multi-language fixed-community classifiers (`CLUSTER_BUILDER_VERSION=8`)
+- `12xs4-feat graph-query-surface` — `graph_query.py`, `code_callgraph`, `wave_graph_report`, graph `code_impact`, `graph=true` augmentation on four MCP tools
+- `12ynp-enh graph-dependency-injection-wiring` — `graph_di_signals.py`, `binds`/`injects` edges, `GRAPH_BUILDER_VERSION=4`
+- `12yro-enh graph-visualization-navigation-overhaul` — WebGL `GraphWebGLView` (`force-graph` + `elkjs`), per-view layouts (force / ELK / radial), `GraphTreeNav` peer, server `degree`/`community_id` enrichment, SVG/`_layoutGraph` removed
 
-**Next:** **Implement wave** — open `framework_edit_allowed` gate before framework script edits; follow serialization order above.
+**Tests:** 1797 framework tests passing (2026-05-29).
+
+**Next:** Operator review diff; run **Review wave** lanes; commit when ready; close wave on operator instruction.
+
+**Graph rebuild (2026-05-29):** Project graph ~4558 nodes / ~29479 edges. Framework graph ~125 nodes. Union layer works after `networkx` in tool venv.
+
+**Bugfix (2026-05-29):** `graph_indexer.update_graph_index` re-extracts full corpus when graph state is empty.
+
+## AC-1 Graph Size Measurement (12yro)
+
+Recorded 2026-05-29 after full project graph rebuild:
+
+| Layer | Nodes | Edges | Notes |
+|-------|-------|-------|-------|
+| project | 4557 | 29479 | includes scripts + dashboard + tests in project layer |
+| framework | 125 | 1311 | pack-filtered docs/config only |
+| union | compose | — | `wave_graph_report(layer=union)` OK after rebuild + networkx |
+
+**Tier decision:** Lighter `force-graph` + ELK; rendered views capped (≤24 communities overview, ≤120 detail, 1-hop focus via neighbors API).
 
 ## Last Closed Wave
 
-**Wave:** `12xr1 graph-index-extraction` — shipped 2026-05-29 (commit `60cc21a`, Wavefoundry 1.1.0+2z2x)
+**Wave:** `12xr1 graph-index-extraction` — shipped 2026-05-29 (commit `60cc21a`)
 
 ## Open Questions / Deferred Decisions
 
-- Uncommitted local work: `graph_cluster.py` Documentation fixed community (`CLUSTER_BUILDER_VERSION=7`) — not admitted to 12xr2; may belong in a follow-on change.
-- Stale `index-build.lock` from post-edit hook overlap — manual cleanup may still be needed until `12z48` lands.
+- `12z4a` AC-18: operator graph rebuild + spot-check on external Swift repo.
+- Commit when ready — all wave code is local/uncommitted.
+- FA2 worker / sigma stack only if dashboard view caps are raised beyond measured budget.
 
 ## Current Session
 
-**Stage-gate waiver (operator-approved, 2026-05-29):** Indexer centralization (`indexer.py` self-reads `docs/workflow-config.json`) — committed in `60cc21a`, outside current wave.
+**Active wave:** *(none)*

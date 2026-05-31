@@ -50,3 +50,18 @@ Return one of: `approved`, `approved-with-notes`, or `needs-revision` with:
 - Correctness, test coverage, or behavioral contract compliance — those are `code-reviewer` and `qa-reviewer`.
 - Architecture boundary violations — that is `architecture-reviewer`.
 - Latency benchmarks or profiling runs — this lane reviews code structure for complexity risk, not measured numbers.
+
+## Fix-Now Threshold (wave 1304x / 1305d)
+
+**Default: fix small performance findings in-session, not as follow-ons.**
+
+Performance concerns that involve measurable but small overhead in already-touched code should be fixed in the same session: extra hash lookups, unnecessary copies, missing short-circuits, repeated computation that's trivially cacheable within the function scope, an O(N) scan inside a loop that's easily O(1) with a precomputed set.
+
+**Defer to follow-on only when:**
+
+- The fix is a redesign (parallelization, caching layer, algorithmic substitution), OR
+- The fix would change the contract (response shape, latency budget), OR
+- The fix requires measurement that hasn't been done
+
+For every perf finding routed to follow-on, write one line of justification. Small inefficiencies that compound across hot paths are how systems get slow; fix them while the context is hot.
+

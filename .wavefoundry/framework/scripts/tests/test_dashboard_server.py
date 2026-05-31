@@ -878,6 +878,8 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         self.assertEqual(project_payload["graph_version"], max(project_payload["graph_mtime"], project_payload["cluster_mtime"]))
         self.assertEqual(project_payload["clusters"]["community_count"], 1)
         self.assertEqual(project_payload["clusters"]["communities"][0]["label"], "core")
+        self.assertEqual(project_payload["nodes"][0]["degree"], 1)
+        self.assertEqual(project_payload["nodes"][0]["community_id"], "project:c0")
 
         framework_handler = self._make_handler("/api/graph?layer=framework")
         framework_handler.do_GET()
@@ -896,11 +898,54 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         payload = json.loads(handler.wfile.getvalue().decode("utf-8"))
         self.assertIn("Unsupported graph layer", payload.get("error", ""))
 
+    def test_api_graph_neighbors_returns_focus_neighborhood(self):
+        graph_path = self.root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
+        graph_path.parent.mkdir(parents=True, exist_ok=True)
+        graph_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "1",
+                    "builder_version": "1",
+                    "layer": "project",
+                    "counts": {"files": 2, "nodes": 3, "edges": 1},
+                    "nodes": [
+                        {"id": "src/a.py::caller", "label": "caller", "kind": "function", "source_file": "src/a.py", "layer": "project"},
+                        {"id": "src/b.py::callee", "label": "callee", "kind": "function", "source_file": "src/b.py", "layer": "project"},
+                        {"id": "src/b.py", "label": "b", "kind": "module", "source_file": "src/b.py", "layer": "project"},
+                    ],
+                    "edges": [
+                        {"source": "src/a.py::caller", "target": "src/b.py::callee", "relation": "calls", "confidence": "EXTRACTED"},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        handler = self._make_handler("/api/graph/neighbors?layer=project&symbol=src/b.py::callee")
+        handler.do_GET()
+        self.assertEqual(handler.response_code, 200)
+        payload = json.loads(handler.wfile.getvalue().decode("utf-8"))
+        self.assertTrue(payload.get("present"))
+        self.assertEqual(payload.get("focus_node_id"), "src/b.py::callee")
+        node_ids = {node["id"] for node in payload.get("nodes") or []}
+        self.assertIn("src/a.py::caller", node_ids)
+
     def test_dashboard_html_serves_shell(self):
         handler = self._make_handler("/dashboard.html")
         handler.do_GET()
         self.assertEqual(handler.response_code, 200)
-        self.assertIn('<div id="app"></div>', handler.wfile.getvalue().decode("utf-8"))
+        html = handler.wfile.getvalue().decode("utf-8")
+        self.assertIn('<div id="app"></div>', html)
+        self.assertIn("https://unpkg.com/react@18.3.1/umd/react.production.min.js", html)
+        self.assertIn("https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js", html)
+        self.assertIn("https://unpkg.com/elkjs@0.10.0/lib/elk.bundled.js", html)
+        self.assertNotIn("force-graph", html)
+        self.assertIn('<script src="/dashboard.js"></script>', html)
+
+    def test_dashboard_html_loads_graph_libs_from_cdn_not_local_assets(self):
+        handler = self._make_handler("/dashboard.html")
+        handler.do_GET()
+        html = handler.wfile.getvalue().decode("utf-8")
+        self.assertNotIn('src="/react.production.min.js"', html)
 
     def test_dashboard_html_title_includes_repo_name(self):
         handler = self._make_handler("/dashboard.html")
@@ -1018,21 +1063,21 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         self.assertIn('const [viewMode, setViewMode] = useState("overview");', js)
         self.assertIn('const [hoveredNodeId, setHoveredNodeId] = useState("");', js)
         self.assertIn('const [selectedFile, setSelectedFile] = useState("");', js)
-        self.assertIn('const [selectedRelations, setSelectedRelations] = useState(() => new Set(DEFAULT_GRAPH_RELATIONS));', js)
+        self.assertNotIn('const [selectedRelations, setSelectedRelations]', js)
+        self.assertIn('const ALL_GRAPH_RELATIONS = ["calls", "imports", "defines", "doc_references_code", "doc_references_doc"];', js)
         self.assertIn('const graphVersion = snapshot?.health?.graph?.[layer]?.graph_version || snapshot?.health?.graph?.[layer]?.graph_mtime || 0;', js)
         self.assertIn('const previewNodeId = selectedNodeId || hoveredNodeId;', js)
         self.assertIn('const graphKindOptions = nodeKinds.length ? nodeKinds : ["module", "class", "function", "doc", "seed", "external"];', js)
         self.assertIn('function _communityInspectabilityScore(cluster) {', js)
         self.assertIn('return (boundaryCount / nodeCount) * Math.log2(nodeCount + 1);', js)
         self.assertIn('const GRAPH_OVERVIEW_COMMUNITY_LIMIT = 24;', js)
-        self.assertIn('const GRAPH_COMMUNITY_QUICK_PICK_LIMIT = 6;', js)
+        self.assertNotIn('graph-quick-picks', js)
+        self.assertNotIn('GRAPH_COMMUNITY_QUICK_PICK_LIMIT', js)
         self.assertIn('const GRAPH_COMMUNITY_DRILLDOWN_LIMIT = 50;', js)
         self.assertIn('const GRAPH_OVERVIEW_SEED_LIMIT = 24;', js)
         self.assertIn('const GRAPH_MIN_COMMUNITY_NODES = 2;', js)
         self.assertIn('function _isMeaningfulCommunity(cluster) {', js)
         self.assertIn('return Math.max(0, Number(cluster?.node_count || 0)) >= GRAPH_MIN_COMMUNITY_NODES;', js)
-        self.assertIn('const minDist = (radii.get(nodes[i].id) || 10) + (radii.get(nodes[j].id) || 10) + 42;', js)
-        self.assertIn('const desired = (radii.get(nodes[sourceIndex].id) || 10) + (radii.get(nodes[targetIndex].id) || 10) + 84;', js)
         self.assertIn('const topHubNodes = sortedByDegree.slice(0, 8);', js)
         self.assertIn('const clusterCommunities = Array.isArray(graph?.clusters?.communities) ? graph.clusters.communities.slice() : [];', js)
         self.assertIn('const meaningfulCommunities = clusterCommunities.filter(_isMeaningfulCommunity);', js)
@@ -1041,61 +1086,190 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         self.assertIn('const overviewGraph = communityOverview', js)
         self.assertIn('const hasCommunityOverview = Boolean(communityOverview && overviewGraph && overviewGraph.nodes.length);', js)
         self.assertIn('const overviewNodes = viewMode === "overview"', js)
-        self.assertIn('_buildCommunityOverviewGraph(filteredNodes, edges, meaningfulCommunities, selectedRelations)', js)
-        self.assertIn('if (selectedRelations && selectedRelations.size && !selectedRelations.has(relation)) continue;', js)
+        self.assertIn('_buildCommunityOverviewGraph(filteredNodes, edges, meaningfulCommunities)', js)
+        self.assertIn('const GRAPH_COMMUNITY_OVERVIEW_RELATIONS = new Set(["calls", "imports", "defines"]);', js)
+        self.assertIn('const ALL_GRAPH_RELATIONS_SET = new Set(ALL_GRAPH_RELATIONS);', js)
+        self.assertIn('const GRAPH_COMMUNITY_PALETTE = [', js)
+        self.assertIn('function _graphCommunityColor(', js)
+        self.assertIn('function _graphNodeFillColor(', js)
+        self.assertIn('if (!GRAPH_COMMUNITY_OVERVIEW_RELATIONS.has(relation)) continue;', js)
+        self.assertIn('const relationOk = !relation || ALL_GRAPH_RELATIONS_SET.has(relation);', js)
         self.assertIn('const realBuckets = buckets.filter(bucket => bucket.community_id !== fallbackId && bucket.node_count > 0);', js)
         self.assertIn('const visibleClusterNodeIds = selectedClusterNodeIds ? new Set(clusterNodes.map(node => node.id)) : null;', js)
         self.assertIn('const overviewSeedNodes = [];', js)
         self.assertIn('overviewGraph?.fallback_nodes?.length', js)
         self.assertIn('overviewSeedNodes.slice(0, GRAPH_OVERVIEW_SEED_LIMIT)', js)
         self.assertIn('slice(0, GRAPH_COMMUNITY_DRILLDOWN_LIMIT)', js)
-        self.assertIn('slice(0, GRAPH_COMMUNITY_QUICK_PICK_LIMIT)', js)
         self.assertIn('const nodeMatch = viewMode === "focus" && selectedNodeId', js)
         self.assertNotIn('const graphMissing = !projectGraph.present;', js)
-        self.assertIn('const graphHeight = 760;', js)
-        self.assertIn('h("div", { className: "graph-mode-switch" }', js)
+        self.assertIn('function _layoutGraph(', js)
+        self.assertIn('async function _layoutGraphAsync(', js)
+        self.assertIn('function _graphResolveLayoutMode(', js)
+        layout_mode_start = js.index('function _graphResolveLayoutMode(')
+        layout_mode_end = js.index('function _graphLayoutModeLabel(', layout_mode_start)
+        layout_mode_fn = js[layout_mode_start:layout_mode_end]
+        self.assertIn('viewMode === "focus" && selectedNodeId) return "hierarchical"', layout_mode_fn)
+        self.assertLess(
+            layout_mode_fn.index('if (selectedClusterId'),
+            layout_mode_fn.index('viewMode === "focus"'),
+            "community drill-down should prefer hierarchical layout before focus selection",
+        )
+        self.assertIn('function _layoutGraphKindLayers(', js)
+        self.assertIn('function _graphModuleSubgraphs(', js)
+        self.assertIn('mergedImports = true', js)
+        self.assertIn('function _graphPackModuleSubgraphs(', js)
+        self.assertIn('function _graphPackModuleSubgraphRows(', js)
+        self.assertIn('selectionNodeId: selectionId', js)
+        self.assertIn('layoutOpts.docFocus || layoutOpts.moduleFocus', js)
+        self.assertIn('_graphAppendWrappedRowSpecs(rowSpecs, linkedRemainder', js)
+        self.assertIn('fill both side slots before rows below', js)
+        self.assertIn('function _graphLayoutHierarchicalRowGap(', js)
+        self.assertIn('_graphLayoutHierarchicalRowGap(shallow)', js)
+        self.assertIn('function _graphLayoutSubRowGap(', js)
+        self.assertIn('_graphLayoutSubRowGap(', js)
+        self.assertIn('yCursor += rowInBand * subRowGap', js)
+        self.assertNotIn('bandGap', js)
+        self.assertIn('layoutOpts.moduleFocus && bandKind === "external"', js)
+        self.assertIn('&& !layoutOpts.moduleFocus', js)
+        self.assertIn('layoutOpts.moduleFocus && bandKind === "module"', js)
+        self.assertIn('function _graphFocusSideNeighbors(', js)
+        self.assertIn('function _graphFocusLinkedNeighborSet(', js)
+        self.assertIn('function _graphAppendWrappedRowSpecs(', js)
+        self.assertIn('function _graphLayoutMaxRowWidth(', js)
+        self.assertIn('function _graphCenterOutRowOrder(', js)
+        self.assertIn('_graphWrapIdsByWidthCenterOut', js)
+        self.assertIn('_graphAppendWrappedRowSpecs(rowSpecs, linkedRemainder', js)
+        self.assertIn('GRAPH_FOCUS_MAX_SIDE_NEIGHBORS', js)
+        self.assertIn('sideRelation: "doc_references_doc"', js)
+        self.assertIn('focusNodeId: layoutOpts.focusNodeId', js)
+        self.assertIn('(availWidth - totalRowWidth) / 2', js)
+        self.assertIn('rowOriginX + row.hGap * (index - (count - 1) / 2)', js)
+        self.assertIn('function _graphWrapIds(', js)
+        self.assertIn('const GRAPH_KIND_LAYOUT_MAX_ROW_NODES = 8;', js)
+        self.assertIn('function _graphIsShallowFanOut(', js)
+        self.assertIn('function _graphViewBoxFromLayout(', js)
+        self.assertIn('const labelPadBelow = maxNodeRadius + _graphLayoutLabelPadBelowCircle()', js)
+        self.assertIn('function _graphLabelParts(', js)
+        self.assertIn('function _graphRenderNodeLabel(', js)
+        self.assertIn('GRAPH_LABEL_MAX_CHARS_PER_LINE', js)
+        self.assertIn('_graphRenderNodeLabel(node, radius)', js)
+        self.assertIn('graph-svg-wrap', js)
+        self.assertIn('graphViewBox.width', js)
+        self.assertIn('_graphBandStacksNodesVertically(bandIdx, layoutOpts.layerOrder)', js)
+        self.assertIn('_graphWithinBandSubLayers(bandNodeIds, edges, nodeById, layoutOpts)', js)
+        self.assertIn('const GRAPH_KIND_LAYOUT_RELATIONS = new Set(["calls", "imports", "defines", "doc_references_code"]);', js)
+        self.assertIn('function _graphKindLayerIndex(', js)
+        self.assertIn('async function _graphElkLayout(', js)
+        self.assertIn('function _layoutGraphTopoLayers(', js)
+        self.assertIn('function _graphLayoutModeLabel(', js)
+        self.assertIn('function _graphEdgeStrokeWidth(', js)
+        self.assertNotIn('graph-arrow-dim', js)
+        self.assertIn('function _layoutGraphCommunityBubbles(', js)
+        self.assertIn('const maxR = Math.min(width, height) * 0.37', js)
+        self.assertIn('const innerRing = maxR * 0.54', js)
+        self.assertIn('const ringBase = maxR * 0.62', js)
+        self.assertIn('const ringStep = maxR * 0.16', js)
+        self.assertIn('_graphNodeRadius(b, 0) - _graphNodeRadius(a, 0)', js)
+        self.assertIn('const twistPerSlot = (2 * Math.PI) / (spokeCount * 1.6)', js)
+        self.assertIn('radialSlot * twistPerSlot', js)
+        self.assertIn('const spokeCount = 7', js)
+        self.assertIn('const radialSlot = Math.floor(index / spokeCount)', js)
+        self.assertIn('radialSlot % 3', js)
+        self.assertIn('const spoke = index % spokeCount', js)
+        self.assertIn('const highlightPreviewNodeId = graphHighlightFocus ? previewNodeId : ""', js)
+        self.assertIn('const nodesWithLayoutEdges = React.useMemo', js)
+        self.assertIn('graph-node--hover-isolated', js)
+        self.assertIn('function _graphPickLayoutHubId(', js)
+        self.assertIn('function _graphFilterDocFocusNeighborhood(', js)
+        self.assertIn('edge.confidence === "EXTRACTED"', js)
+        self.assertIn('GRAPH_CATEGORY_COMMUNITY_LABELS', js)
+        self.assertIn('cluster_kind', js)
+        self.assertIn('function _graphLayoutRadialAngularSlot(', js)
+        self.assertIn('nodes.every(node => node.kind === "community")', js)
+        self.assertIn('nodes.every(node => node.kind === "community")) return false', js)
+        self.assertIn('layoutInputKey', js)
+        self.assertIn('layoutPending && layoutNodes.length', js)
+        self.assertIn('nodeCount: layoutNodes.length', js)
+        self.assertIn('function _graphNodeRadius(', js)
+        self.assertIn('function _graphMostConnectedNodeId(', js)
+        self.assertIn('const treeNavFocusNodeId = selectedNodeId', js)
+        self.assertIn('function _graphDefaultCommunityFocusNodeId(', js)
+        self.assertIn('const GRAPH_COMMUNITY_FOCUS_KIND_ORDER = ["module", "class", "function"];', js)
+        self.assertIn('const GRAPH_NEIGHBOR_KIND_ORDER = ["module", "class", "function", "doc", "seed", "external"];', js)
+        self.assertIn('const GRAPH_COMMUNITY_OVERVIEW_FOCUS_KIND_ORDER = ["module", "class", "function", "doc", "seed"];', js)
+        self.assertIn('const GRAPH_KIND_LAYER_ORDER = ["module", "class", "function", "external", "doc", "seed"];', js)
+        self.assertIn('const GRAPH_KIND_LAYER_ORDER_DOC_FOCUS = ["doc", "seed", "module", "class", "function", "external"];', js)
+        self.assertIn('function _graphLayoutOptions(', js)
+        self.assertIn('function _graphSortBandNodeIds(', js)
+        self.assertIn('_layoutGraphKindLayers(nodes, edges, width, height, focusId || "");', js)
+        self.assertIn('function _graphIsDocumentationKind(', js)
+        self.assertIn('function _layoutGraphKindLayersCode(', js)
+        self.assertIn('const sectionGap = 52;', js)
+        self.assertIn('_graphDefaultCommunityFocusNodeId(clusterNodes, degreeMap)', js)
+        self.assertIn('focusNodeId: treeNavFocusNodeId', js)
+        self.assertIn('function _graphSeedPosition(', js)
+        self.assertIn('const graphWidth = 1040;', js)
+        self.assertIn('_layoutGraphAsync(', js)
+        self.assertIn('className: "graph-svg"', js)
+        # Wave 1305t / 1305v: the explicit graph-mode-switch row was removed; view mode is now
+        # fully determined by selection (clicking a node → focus; clicking a cluster → overview).
+        self.assertNotIn('"graph-mode-switch"', js)
         self.assertIn('h("details", { className: "graph-filter-details" }', js)
         self.assertIn('h("div", { className: "graph-kind-pills" }', js)
-        self.assertIn('"Top hubs"', js)
+        self.assertNotIn('"Top hubs"', js)
+        self.assertNotIn('"Relations"', js)
         self.assertIn('"Communities"', js)
-        self.assertIn('"File neighborhoods"', js)
+        self.assertNotIn('"File neighborhoods"', js)
         self.assertIn('graph-filter-pill--kind', js)
-        self.assertIn('graph-node--dimmed', js)
-        self.assertIn('graph-edge--highlighted', js)
-        self.assertIn('graph-node--preview', js)
-        self.assertIn('graph-edge--preview', js)
-        self.assertIn('const showLabel = true;', js)
-        self.assertIn('const selectionCard = selectedNode', js)
+        self.assertIn('function _graphNeighborTooltip(', js)
+        self.assertIn('function GraphTreeNav(', js)
+        self.assertIn('function _graphOverviewHubCommunityNode(', js)
+        self.assertIn('function _graphCommunityMemberNodes(', js)
+        self.assertIn('const selectedCommunityBubbleId = hasCommunityOverview && !selectedClusterId', js)
+        self.assertIn('|| (kind === "community" && selectedCommunityBubbleId === node.id)', js)
+        self.assertIn('GRAPH_NEIGHBOR_KIND_ORDER)', js)
+        self.assertIn('_graphSortNeighborNodes(neighborNodes)', js)
+        self.assertNotIn('_graphFilterOverviewNeighbors', js)
+        self.assertIn('function _graphSortNeighborNodes(', js)
+        self.assertIn('_graphSortNeighborNodes(', js)
+        self.assertIn('visibleNeighborNodes', js)
+        self.assertIn('|| overviewHubFocusNodeId;', js)
+        self.assertIn('const treeNavFocusNode = selectedNode', js)
+        self.assertIn('focusNode: treeNavFocusNode', js)
+        self.assertIn('title: tooltip || undefined', js)
+        self.assertNotIn('function GraphWebGLView(', js)
+        self.assertNotIn('function GraphCommunityOverviewSvg(', js)
+        self.assertIn('const focusFirstSearchMatch = () => {', js)
+        self.assertIn('focusNeighborhood', js)
+        self.assertIn('graph-tree-nav-item--active', js)
+        self.assertNotIn('const selectionCard', js)
+        self.assertNotIn('graph-selection-edges', js)
+        self.assertNotIn('graph-summary-pill', js)
+        self.assertNotIn('const overviewLabel', js)
+        self.assertNotIn('const edgeLabel', js)
         self.assertIn(': selectedCluster', js)
-        self.assertIn(': selectedFile', js)
+        self.assertIn('const [selectedFile, setSelectedFile]', js)
         self.assertIn('className: "graph-breadcrumb"', js)
         self.assertNotIn('"Back to overview"', js)
         # An open modal dialog must own Escape; the graph back-nav handler bails
         # out so the dialog closes first instead of navigating the graph behind it.
         self.assertIn('if (document.querySelector("dialog[open]")) return;', js)
-        self.assertIn('hasCommunityOverview && node.kind === "community" ? selectCluster(node.community_id) : selectNode(node.id)', js)
-        self.assertIn('const showLabel = true;', js)
-        self.assertIn('const overviewLabel = hasCommunityOverview', js)
-        self.assertIn('const edgeLabel = hasCommunityOverview', js)
-        self.assertIn('markerUnits: "userSpaceOnUse"', js)
-        self.assertIn("graphEdgeArrowInset = 1.5", js)
-        self.assertIn('opacity: previewNodeId && !edgeFocused ? 0.08 : edgeSelected ? 0.58 : edgePreview ? 0.56 : 0.34', js)
-        self.assertIn('strokeWidth: edgeSelected ? 2.0 : edgePreview ? 1.85 : Math.min(4.0, 1.15 + Math.log2(edgeWeight + 1) * 0.35)', js)
+        self.assertIn('hasCommunityOverview && node.kind === "community"', js)
         self.assertIn('community: "#0f766e",', js)
 
         css = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.css").read_text(encoding="utf-8")
-        self.assertIn('html[data-theme="dark"] .graph-svg {', css)
-        self.assertIn('background: transparent;', css)
-        self.assertIn('html[data-theme="dark"] .graph-node-label {', css)
-        self.assertIn('fill: #f4f7fb;', css)
+        self.assertIn('.graph-webgl-wrap {', css)
+        self.assertIn('.graph-webgl-viewport {', css)
+        self.assertIn('.graph-canvas-column {', css)
+        self.assertIn('html[data-theme="dark"] .graph-webgl-wrap {', css)
+        self.assertIn('.graph-tree-nav-item--active {', css)
+        self.assertIn('align-items: stretch;', css)
+        self.assertIn('--graph-band-height: min(85vh, 920px)', css)
+        self.assertIn('.graph-tree-nav-header {', css)
+        self.assertIn('graph-svg-banner', js)
+        self.assertNotIn('max-height: min(60vh, 600px)', css)
         self.assertIn('html[data-theme="dark"] .graph-filter-pill--kind {', css)
         self.assertIn('color: #f4f7fb;', css)
-        self.assertIn('.graph-edge {', css)
-        self.assertIn('stroke-opacity: 0.34;', css)
-        self.assertIn('html[data-theme="dark"] .graph-edge {', css)
-        self.assertIn('stroke-opacity: 0.22;', css)
-        self.assertIn('.graph-edge--preview {', css)
-        self.assertIn('stroke-opacity: 0.56;', css)
 
     def test_metric_dialog_header_wraps_long_change_ids(self):
         css = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.css").read_text(encoding="utf-8")
@@ -2101,7 +2275,7 @@ class IndexBuilderTests(unittest.TestCase):
 
 
 class IndexStalenessTests(unittest.TestCase):
-    """Verify _index_is_stale detects missing index and git-based staleness."""
+    """Verify _index_is_stale detects missing index and meta-based staleness."""
 
     def setUp(self):
         self.lib, self.srv = load_dashboard_modules()
@@ -2139,69 +2313,89 @@ class IndexStalenessTests(unittest.TestCase):
         self._write_meta("")
         self.assertTrue(self.srv._index_is_stale(self.root))
 
-    def test_stale_when_git_log_returns_commits(self):
+    def test_not_stale_when_built_at_only_without_file_meta(self):
+        """Git history or dirtiness alone must not mark the index stale."""
         self._write_meta("2026-01-01T00:00:00+00:00")
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                MagicMock(returncode=0, stdout="abc1234 some commit\n"),  # git log
-            ]
+        with patch("subprocess.run", side_effect=AssertionError("staleness must not invoke git")):
             result = self.srv._index_is_stale(self.root)
-        self.assertTrue(result)
+        self.assertFalse(result)
 
-    def test_stale_when_dirty_file_modified_after_build(self):
-        """A dirty file with mtime newer than built_at is genuinely stale."""
-        import time as _time
+    def test_stale_when_project_file_meta_detects_changed_input_on_disk(self):
+        """Real project input changes must still mark the project layer stale."""
         built_at = "2026-01-01T00:00:00+00:00"
-        self._write_meta(built_at)
-        # Write a file whose mtime is clearly after the built_at timestamp.
-        dirty = self.root / "src" / "foo.py"
-        dirty.parent.mkdir(parents=True, exist_ok=True)
-        dirty.write_text("changed", encoding="utf-8")
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                MagicMock(returncode=0, stdout=""),            # git log — no new commits
-                MagicMock(returncode=0, stdout=" M src/foo.py\n"),  # git status — dirty
-            ]
-            result = self.srv._index_is_stale(self.root)
+        project_file = self.root / "docs" / "guide.md"
+        project_file.parent.mkdir(parents=True, exist_ok=True)
+        project_file.write_text("# Guide updated\n", encoding="utf-8")
+        stat = project_file.stat()
+        self._write_meta_payload(
+            {
+                "built_at": built_at,
+                "file_meta": {
+                    "docs/guide.md": {
+                        "hash": "stale-hash",
+                        "mtime": stat.st_mtime - 1,
+                        "size": max(stat.st_size - 1, 0),
+                        "inode": stat.st_ino,
+                    }
+                },
+            },
+            layer="project",
+        )
+        with patch("subprocess.run", side_effect=AssertionError("project file_meta path should bypass git")):
+            result = self.srv._index_is_stale(self.root, "project")
         self.assertTrue(result)
 
-    def test_not_stale_when_dirty_file_modified_before_build(self):
-        """A dirty file with mtime older than built_at was already indexed — not stale."""
-        import time as _time
-        # Use a far-future built_at so any real file mtime is older.
-        built_at = "2099-01-01T00:00:00+00:00"
-        self._write_meta(built_at)
-        dirty = self.root / "src" / "foo.py"
-        dirty.parent.mkdir(parents=True, exist_ok=True)
-        dirty.write_text("old change", encoding="utf-8")
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                MagicMock(returncode=0, stdout=""),            # git log — nothing new
-                MagicMock(returncode=0, stdout=" M src/foo.py\n"),  # git status — dirty
-            ]
-            result = self.srv._index_is_stale(self.root)
+    def test_not_stale_when_project_file_meta_matches_despite_git_dirty(self):
+        """Uncommitted changes already reflected in file_meta must not look stale."""
+        project_file = self.root / "docs" / "guide.md"
+        project_file.parent.mkdir(parents=True, exist_ok=True)
+        project_file.write_text("# Guide\n", encoding="utf-8")
+        digest = hashlib.sha256(project_file.read_bytes()).hexdigest()
+        stat = project_file.stat()
+        self._write_meta_payload(
+            {
+                "built_at": "2099-01-01T00:00:00+00:00",
+                "file_meta": {
+                    "docs/guide.md": {
+                        "hash": digest,
+                        "mtime": stat.st_mtime,
+                        "size": stat.st_size,
+                        "inode": stat.st_ino,
+                    }
+                },
+            },
+            layer="project",
+        )
+        with patch("subprocess.run", side_effect=AssertionError("project file_meta path should bypass git")):
+            result = self.srv._index_is_stale(self.root, "project")
         self.assertFalse(result)
 
     def test_not_stale_when_git_clean_and_no_new_commits(self):
         self._write_meta("2026-01-01T00:00:00+00:00")
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                MagicMock(returncode=0, stdout=""),  # git log — nothing new
-                MagicMock(returncode=0, stdout=""),  # git status — clean
-            ]
+        with patch("subprocess.run", side_effect=AssertionError("staleness must not invoke git")):
             result = self.srv._index_is_stale(self.root)
         self.assertFalse(result)
 
-    def test_framework_stale_when_dirty_framework_file_modified_after_build(self):
-        self._write_meta("2026-01-01T00:00:00+00:00", layer="framework")
-        dirty = self.root / ".wavefoundry" / "framework" / "seeds" / "100-sample.prompt.md"
-        dirty.parent.mkdir(parents=True, exist_ok=True)
-        dirty.write_text("changed", encoding="utf-8")
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                MagicMock(returncode=0, stdout=""),
-                MagicMock(returncode=0, stdout=" M .wavefoundry/framework/seeds/100-sample.prompt.md\n"),
-            ]
+    def test_framework_stale_when_framework_file_meta_detects_changed_input_on_disk(self):
+        framework_file = self.root / ".wavefoundry" / "framework" / "seeds" / "100-sample.prompt.md"
+        framework_file.parent.mkdir(parents=True, exist_ok=True)
+        framework_file.write_text("changed", encoding="utf-8")
+        stat = framework_file.stat()
+        self._write_meta_payload(
+            {
+                "built_at": "2026-01-01T00:00:00+00:00",
+                "file_meta": {
+                    ".wavefoundry/framework/seeds/100-sample.prompt.md": {
+                        "hash": "stale-hash",
+                        "mtime": stat.st_mtime - 1,
+                        "size": max(stat.st_size - 1, 0),
+                        "inode": stat.st_ino,
+                    }
+                },
+            },
+            layer="framework",
+        )
+        with patch("subprocess.run", side_effect=AssertionError("framework file_meta path should bypass git")):
             result = self.srv._index_is_stale(self.root, "framework")
         self.assertTrue(result)
 
@@ -2302,11 +2496,7 @@ class IndexStalenessTests(unittest.TestCase):
         self._write_meta("2026-01-01T00:00:00+00:00", layer="framework")
         dirty = self.root / ".wavefoundry" / "framework" / "scripts" / "__pycache__"
         dirty.mkdir(parents=True, exist_ok=True)
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                MagicMock(returncode=0, stdout=""),
-                MagicMock(returncode=0, stdout="?? .wavefoundry/framework/scripts/__pycache__/\n"),
-            ]
+        with patch("subprocess.run", side_effect=AssertionError("staleness must not invoke git")):
             result = self.srv._index_is_stale(self.root, "framework")
         self.assertFalse(result)
 
@@ -2315,11 +2505,7 @@ class IndexStalenessTests(unittest.TestCase):
         dirty = self.root / ".wavefoundry" / "framework" / "scripts" / "__pycache__" / "dashboard_server.cpython-313.pyc"
         dirty.parent.mkdir(parents=True, exist_ok=True)
         dirty.write_bytes(b"compiled")
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                MagicMock(returncode=0, stdout=""),
-                MagicMock(returncode=0, stdout="?? .wavefoundry/framework/scripts/__pycache__/dashboard_server.cpython-313.pyc\n"),
-            ]
+        with patch("subprocess.run", side_effect=AssertionError("staleness must not invoke git")):
             result = self.srv._index_is_stale(self.root, "framework")
         self.assertFalse(result)
 
@@ -2327,24 +2513,33 @@ class IndexStalenessTests(unittest.TestCase):
         self._write_meta("2026-01-01T00:00:00+00:00", layer="framework")
         framework_dir = self.root / ".wavefoundry" / "framework"
         (framework_dir / "index").mkdir(parents=True, exist_ok=True)
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                MagicMock(returncode=0, stdout=""),
-                MagicMock(returncode=0, stdout="?? .wavefoundry/framework/\n"),
-            ]
+        with patch("subprocess.run", side_effect=AssertionError("staleness must not invoke git")):
             result = self.srv._index_is_stale(self.root, "framework")
         self.assertFalse(result)
 
-    def test_framework_stale_when_untracked_framework_file_modified_after_build(self):
-        self._write_meta("2026-01-01T00:00:00+00:00", layer="framework")
+    def test_framework_stale_when_untracked_framework_file_not_in_file_meta(self):
+        other = self.root / ".wavefoundry" / "framework" / "seeds" / "other.prompt.md"
+        other.parent.mkdir(parents=True, exist_ok=True)
+        other.write_text("# Other\n", encoding="utf-8")
+        other_stat = other.stat()
+        other_digest = hashlib.sha256(other.read_bytes()).hexdigest()
+        self._write_meta_payload(
+            {
+                "built_at": "2026-01-01T00:00:00+00:00",
+                "file_meta": {
+                    ".wavefoundry/framework/seeds/other.prompt.md": {
+                        "hash": other_digest,
+                        "mtime": other_stat.st_mtime,
+                        "size": other_stat.st_size,
+                        "inode": other_stat.st_ino,
+                    }
+                },
+            },
+            layer="framework",
+        )
         dirty = self.root / ".wavefoundry" / "framework" / "seeds" / "100-sample.prompt.md"
-        dirty.parent.mkdir(parents=True, exist_ok=True)
         dirty.write_text("changed", encoding="utf-8")
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                MagicMock(returncode=0, stdout=""),
-                MagicMock(returncode=0, stdout="?? .wavefoundry/framework/seeds/100-sample.prompt.md\n"),
-            ]
+        with patch("subprocess.run", side_effect=AssertionError("framework file_meta path should bypass git")):
             result = self.srv._index_is_stale(self.root, "framework")
         self.assertTrue(result)
 
@@ -2446,31 +2641,16 @@ class IndexStalenessTests(unittest.TestCase):
         dirty = self.root / ".wavefoundry" / "framework" / "seeds" / "100-sample.prompt.md"
         dirty.parent.mkdir(parents=True, exist_ok=True)
         dirty.write_text("changed", encoding="utf-8")
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                MagicMock(returncode=0, stdout=""),
-                MagicMock(returncode=0, stdout=" M .wavefoundry/framework/seeds/100-sample.prompt.md\n"),
-            ]
+        with patch("subprocess.run", side_effect=AssertionError("staleness must not invoke git")):
             result = self.srv._index_is_stale(self.root, "project")
         self.assertFalse(result)
 
-    def test_not_stale_when_git_unavailable(self):
-        """If git commands fail, staleness check should not raise and return False."""
+    def test_staleness_never_invokes_git(self):
+        """Staleness checks must not shell out to git."""
         self._write_meta("2026-01-01T00:00:00+00:00")
-        with patch("subprocess.run", side_effect=FileNotFoundError("git not found")):
+        with patch("subprocess.run", side_effect=AssertionError("staleness must not invoke git")):
             result = self.srv._index_is_stale(self.root)
         self.assertFalse(result)
-
-    def test_git_status_uses_file_level_untracked_entries(self):
-        self._write_meta("2026-01-01T00:00:00+00:00")
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                MagicMock(returncode=0, stdout=""),
-                MagicMock(returncode=0, stdout=""),
-            ]
-            self.srv._index_is_stale(self.root)
-        status_args = mock_run.call_args_list[1].args[0]
-        self.assertIn("--untracked-files=all", status_args)
 
     def test_signal_startup_fires_build(self):
         done_event = threading.Event()

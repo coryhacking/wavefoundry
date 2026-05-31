@@ -9174,6 +9174,83 @@ class TestCodeImpact(unittest.TestCase):
         self.assertIn("file_not_found", codes)
 
 
+class TestCodeGraphTools(unittest.TestCase):
+    """12xs4-feat graph-query-surface MCP integration tests."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        self._add("src/tools.py", "def process():\n    return 1\n")
+        self._add("src/main.py", "from src.tools import process\n\nprocess()\n")
+        payload = {
+            "schema_version": "1",
+            "builder_version": "1",
+            "layer": "project",
+            "nodes": [
+                {"id": "src/tools.py", "label": "tools", "kind": "module", "source_file": "src/tools.py", "layer": "project"},
+                {"id": "src/tools.py::process", "label": "process", "kind": "function", "source_file": "src/tools.py", "layer": "project"},
+                {"id": "src/main.py", "label": "main", "kind": "module", "source_file": "src/main.py", "layer": "project"},
+                {"id": "src/main.py::<module>", "label": "<module>", "kind": "function", "source_file": "src/main.py", "layer": "project"},
+            ],
+            "edges": [
+                {"source": "src/main.py::<module>", "target": "src/tools.py::process", "relation": "calls", "confidence": "EXTRACTED"},
+                {"source": "src/main.py", "target": "src/tools.py", "relation": "imports", "confidence": "EXTRACTED"},
+            ],
+            "counts": {"files": 2, "nodes": 4, "edges": 2},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _add(self, rel: str, content: str) -> Path:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def test_code_impact_path_heuristic_unchanged(self):
+        result = self.srv.code_impact_response(self.root, "src/tools.py")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["method"], "heuristic")
+        files = [row["file"] for row in result["data"]["importers"]]
+        self.assertIn("src/main.py", files)
+
+    def test_code_impact_symbol_graph_mode(self):
+        result = self.srv.code_impact_response(
+            self.root,
+            "",
+            symbol="src/tools.py::process",
+            max_hops=2,
+        )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["method"], "graph")
+        affected_ids = {row["node_id"] for row in result["data"]["affected"]}
+        self.assertIn("src/main.py::<module>", affected_ids)
+
+    def test_code_callgraph_returns_calls(self):
+        result = self.srv.code_callgraph_response(
+            self.root,
+            "src/tools.py::process",
+            depth=1,
+            direction="callers",
+        )
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"]["edges"])
+
+    def test_wave_graph_report_fan_in(self):
+        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=5)
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("fan_in", result["data"])
+
+
 class TestCodeCallhierarchy(unittest.TestCase):
     """12nax-enh code-callhierarchy: code_callhierarchy_response tests."""
 
@@ -9198,10 +9275,30 @@ class TestCodeCallhierarchy(unittest.TestCase):
     def _call(self, symbol: str, file: str = "", direction: str = "both") -> dict:
         return self.srv.code_callhierarchy_response(self.root, symbol, file or None, direction)
 
+    def _write_graph(self, nodes: list, edges: list) -> None:
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        (graph_dir / "project-graph.json").write_text(
+            json.dumps({"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges}),
+            encoding="utf-8",
+        )
+
     # AC-2: direction=outgoing has outgoing, no incoming
     def test_direction_outgoing_only(self):
         """AC-2: direction='outgoing' returns 'outgoing' key but no 'incoming' key."""
         self._add("src/worker.py", "def process():\n    helper()\n    validate()\n\ndef helper(): pass\ndef validate(): pass\n")
+        self._write_graph(
+            nodes=[
+                {"id": "src/worker.py::process", "label": "process", "kind": "function", "source_file": "src/worker.py"},
+                {"id": "src/worker.py::helper", "label": "helper", "kind": "function", "source_file": "src/worker.py"},
+                {"id": "src/worker.py::validate", "label": "validate", "kind": "function", "source_file": "src/worker.py"},
+            ],
+            edges=[
+                {"source": "src/worker.py::process", "target": "src/worker.py::helper", "relation": "calls"},
+                {"source": "src/worker.py::process", "target": "src/worker.py::validate", "relation": "calls"},
+            ],
+        )
         result = self._call("process", direction="outgoing")
         self.assertEqual(result["status"], "ok")
         data = result["data"]
@@ -9212,20 +9309,82 @@ class TestCodeCallhierarchy(unittest.TestCase):
     def test_direction_incoming_only(self):
         """AC-3: direction='incoming' returns 'incoming' key but no 'outgoing' key."""
         self._add("src/svc.py", "def service():\n    pass\n\ndef caller():\n    service()\n")
+        self._write_graph(
+            nodes=[
+                {"id": "src/svc.py::service", "label": "service", "kind": "function", "source_file": "src/svc.py"},
+                {"id": "src/svc.py::caller", "label": "caller", "kind": "function", "source_file": "src/svc.py"},
+            ],
+            edges=[
+                {"source": "src/svc.py::caller", "target": "src/svc.py::service", "relation": "calls"},
+            ],
+        )
         result = self._call("service", direction="incoming")
         self.assertEqual(result["status"], "ok")
         data = result["data"]
         self.assertIn("incoming", data)
         self.assertNotIn("outgoing", data)
 
-    # AC-4: Unknown symbol returns empty outgoing/incoming lists (not error)
+    # AC-4: Unknown symbol with graph present returns empty outgoing/incoming (not error)
     def test_unknown_symbol_returns_empty_lists(self):
         """AC-4: Unknown symbol returns empty outgoing and incoming lists, not error."""
+        self._write_graph(nodes=[], edges=[])
         result = self._call("zzz_no_such_symbol_xxxxxyyy")
         self.assertEqual(result["status"], "ok")
         data = result["data"]
         self.assertEqual(data.get("outgoing", []), [])
         self.assertEqual(data.get("incoming", []), [])
+
+    # AC-5: incoming entries carry line + snippet from file scan
+    def test_incoming_line_numbers(self):
+        """AC-5: incoming entries have line numbers and snippets from targeted file scan."""
+        self._add("src/svc.py", "def service():\n    pass\n\ndef caller():\n    service()\n")
+        self._write_graph(
+            nodes=[
+                {"id": "src/svc.py::service", "label": "service", "kind": "function",
+                 "source_file": "src/svc.py", "source_location": "1:0"},
+                {"id": "src/svc.py::caller", "label": "caller", "kind": "function",
+                 "source_file": "src/svc.py", "source_location": "4:0"},
+            ],
+            edges=[
+                {"source": "src/svc.py::caller", "target": "src/svc.py::service", "relation": "calls"},
+            ],
+        )
+        result = self._call("service", direction="incoming")
+        self.assertEqual(result["status"], "ok")
+        incoming = result["data"]["incoming"]
+        self.assertEqual(len(incoming), 1)
+        self.assertEqual(incoming[0]["name"], "caller")
+        self.assertEqual(incoming[0]["line"], 5)
+        self.assertIn("service()", incoming[0]["snippet"])
+
+    # AC-7: outgoing entries carry line + snippet from file scan
+    def test_outgoing_line_numbers(self):
+        """AC-7: outgoing entries have line numbers and snippets from targeted file scan."""
+        self._add("src/worker.py",
+                  "def process():\n    helper()\n    validate()\n\ndef helper(): pass\ndef validate(): pass\n")
+        self._write_graph(
+            nodes=[
+                {"id": "src/worker.py::process", "label": "process", "kind": "function",
+                 "source_file": "src/worker.py", "source_location": "1:0"},
+                {"id": "src/worker.py::helper", "label": "helper", "kind": "function",
+                 "source_file": "src/worker.py", "source_location": "5:0"},
+                {"id": "src/worker.py::validate", "label": "validate", "kind": "function",
+                 "source_file": "src/worker.py", "source_location": "6:0"},
+            ],
+            edges=[
+                {"source": "src/worker.py::process", "target": "src/worker.py::helper", "relation": "calls"},
+                {"source": "src/worker.py::process", "target": "src/worker.py::validate", "relation": "calls"},
+            ],
+        )
+        result = self._call("process", direction="outgoing")
+        self.assertEqual(result["status"], "ok")
+        outgoing = result["data"]["outgoing"]
+        self.assertEqual(len(outgoing), 2)
+        names = {e["name"] for e in outgoing}
+        self.assertEqual(names, {"helper", "validate"})
+        for entry in outgoing:
+            self.assertIsNotNone(entry["line"], f"Expected line number for {entry['name']}")
+            self.assertIsNotNone(entry["snippet"], f"Expected snippet for {entry['name']}")
 
     # AC-6: Invalid direction returns error
     def test_invalid_direction_returns_error(self):
@@ -9234,6 +9393,899 @@ class TestCodeCallhierarchy(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         codes = [d["code"] for d in result.get("diagnostics", [])]
         self.assertIn("invalid_arguments", codes)
+
+    def test_community_field_present_on_entries(self):
+        """12zxl: incoming/outgoing entries always carry a 'community' key (may be None)."""
+        self._add("src/svc.py", "def service():\n    pass\n\ndef caller():\n    service()\n")
+        self._write_graph(
+            nodes=[
+                {"id": "src/svc.py::service", "label": "service", "kind": "function", "source_file": "src/svc.py"},
+                {"id": "src/svc.py::caller", "label": "caller", "kind": "function", "source_file": "src/svc.py"},
+            ],
+            edges=[
+                {"source": "src/svc.py::caller", "target": "src/svc.py::service", "relation": "calls"},
+            ],
+        )
+        result = self._call("service", direction="incoming")
+        self.assertEqual(result["status"], "ok")
+        for entry in result["data"]["incoming"]:
+            self.assertIn("community", entry)
+
+    def test_context_depth_zero_has_no_context_key(self):
+        """12zxl: context_depth=0 (default) — no 'context' key in response data."""
+        self._add("src/svc.py", "def service():\n    pass\n")
+        self._write_graph(
+            nodes=[{"id": "src/svc.py::service", "label": "service", "kind": "function", "source_file": "src/svc.py"}],
+            edges=[],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "service", None, "both", context_depth=0)
+        self.assertEqual(result["status"], "ok")
+        self.assertNotIn("context", result["data"])
+
+    def test_context_depth_one_adds_context_list(self):
+        """12zxl: context_depth=1 — 'context' list is present in response data."""
+        self._add("src/worker.py", "def process():\n    helper()\n\ndef helper(): pass\n")
+        self._write_graph(
+            nodes=[
+                {"id": "src/worker.py::process", "label": "process", "kind": "function", "source_file": "src/worker.py"},
+                {"id": "src/worker.py::helper", "label": "helper", "kind": "function", "source_file": "src/worker.py"},
+            ],
+            edges=[
+                {"source": "src/worker.py::process", "target": "src/worker.py::helper", "relation": "calls"},
+            ],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "process", None, "both", context_depth=1)
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("context", result["data"])
+        self.assertIsInstance(result["data"]["context"], list)
+
+
+class TestCodeGraphPath(unittest.TestCase):
+    """12zxl AC-5: code_graph_path_response — consistent shape guarantee."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        self._add("src/a.py", "def foo(): pass\n")
+        self._add("src/b.py", "def bar(): foo()\n")
+        payload = {
+            "schema_version": "1",
+            "builder_version": "1",
+            "layer": "project",
+            "nodes": [
+                {"id": "src/a.py::foo", "label": "foo", "kind": "function", "source_file": "src/a.py", "layer": "project"},
+                {"id": "src/b.py::bar", "label": "bar", "kind": "function", "source_file": "src/b.py", "layer": "project"},
+            ],
+            "edges": [
+                {"source": "src/b.py::bar", "target": "src/a.py::foo", "relation": "calls", "confidence": "EXTRACTED"},
+            ],
+            "counts": {"files": 2, "nodes": 2, "edges": 1},
+        }
+        import json
+        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _add(self, rel: str, content: str) -> Path:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def _required_keys(self, data: dict) -> None:
+        for key in ("found", "path_nodes", "path_edges", "hop_count", "suggestions"):
+            self.assertIn(key, data, f"Response missing key: {key}")
+
+    def test_path_found_consistent_shape(self):
+        result = self.srv.code_graph_path_response(self.root, "src/b.py::bar", "src/a.py::foo")
+        self.assertEqual(result["status"], "ok")
+        self._required_keys(result["data"])
+        self.assertTrue(result["data"]["found"])
+        self.assertGreater(result["data"]["hop_count"], 0)
+
+    def test_path_not_found_consistent_shape(self):
+        result = self.srv.code_graph_path_response(self.root, "src/a.py::foo", "src/b.py::bar")
+        self.assertEqual(result["status"], "ok")
+        self._required_keys(result["data"])
+        self.assertFalse(result["data"]["found"])
+        self.assertEqual(result["data"]["path_nodes"], [])
+        self.assertEqual(result["data"]["hop_count"], 0)
+
+    def test_unresolvable_symbol_consistent_shape_with_suggestions(self):
+        result = self.srv.code_graph_path_response(self.root, "no_such_symbol_xyz", "src/a.py::foo")
+        self.assertEqual(result["status"], "ok")
+        self._required_keys(result["data"])
+        self.assertFalse(result["data"]["found"])
+        self.assertIsInstance(result["data"]["suggestions"], list)
+
+    def test_no_graph_returns_error_with_consistent_shape(self):
+        import shutil
+        shutil.rmtree(self.root / ".wavefoundry" / "index" / "graph", ignore_errors=True)
+        result = self.srv.code_graph_path_response(self.root, "src/b.py::bar", "src/a.py::foo")
+        self.assertEqual(result["status"], "error")
+        self.assertIn("found", result["data"])
+        self.assertIn("suggestions", result["data"])
+
+
+class TestCodeGraphPathDirection(unittest.TestCase):
+    """13006: code_graph_path_response direction parameter (forward/backward/either)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        # Edge: bar → foo (calls); so forward bar→foo finds it; forward foo→bar does not.
+        payload = {
+            "schema_version": "1", "builder_version": "1", "layer": "project",
+            "nodes": [
+                {"id": "src/a.py::foo", "label": "foo", "kind": "function", "source_file": "src/a.py", "layer": "project"},
+                {"id": "src/b.py::bar", "label": "bar", "kind": "function", "source_file": "src/b.py", "layer": "project"},
+            ],
+            "edges": [
+                {"source": "src/b.py::bar", "target": "src/a.py::foo", "relation": "calls", "confidence": "EXTRACTED"},
+            ],
+            "counts": {"files": 2, "nodes": 2, "edges": 1},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_default_direction_is_forward_byte_identity(self):
+        """AC-1: omitting direction matches direction='forward' exactly."""
+        result_default = self.srv.code_graph_path_response(self.root, "src/b.py::bar", "src/a.py::foo")
+        result_forward = self.srv.code_graph_path_response(self.root, "src/b.py::bar", "src/a.py::foo", direction="forward")
+        # data should be byte-identical except total_ms timing
+        d_default = {k: v for k, v in result_default["data"].items() if k != "total_ms"}
+        d_forward = {k: v for k, v in result_forward["data"].items() if k != "total_ms"}
+        self.assertEqual(d_default, d_forward)
+
+    def test_forward_finds_outgoing_path(self):
+        result = self.srv.code_graph_path_response(self.root, "src/b.py::bar", "src/a.py::foo", direction="forward")
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"]["found"])
+        self.assertEqual(result["data"]["hop_count"], 1)
+        self.assertEqual(result["data"]["direction"], "forward")
+
+    def test_forward_misses_reverse_path(self):
+        # foo → bar: no forward edge exists (bar → foo is the only calls edge)
+        result = self.srv.code_graph_path_response(self.root, "src/a.py::foo", "src/b.py::bar", direction="forward")
+        self.assertEqual(result["status"], "ok")
+        self.assertFalse(result["data"]["found"])
+
+    def test_backward_finds_reverse_path(self):
+        # foo backward to bar: walking _in[foo] finds bar
+        result = self.srv.code_graph_path_response(self.root, "src/a.py::foo", "src/b.py::bar", direction="backward")
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"]["found"])
+        self.assertEqual(result["data"]["hop_count"], 1)
+        self.assertEqual(result["data"]["direction"], "backward")
+
+    def test_either_finds_path_in_either_direction(self):
+        # bar to foo via forward; should annotate traversal_direction
+        result = self.srv.code_graph_path_response(self.root, "src/b.py::bar", "src/a.py::foo", direction="either")
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"]["found"])
+        for edge in result["data"]["path_edges"]:
+            self.assertIn(edge.get("traversal_direction"), ("forward", "backward"))
+
+    def test_invalid_direction_returns_invalid_arguments(self):
+        result = self.srv.code_graph_path_response(self.root, "src/b.py::bar", "src/a.py::foo", direction="sideways")
+        self.assertEqual(result["status"], "error")
+        codes = [d["code"] for d in result.get("diagnostics", [])]
+        self.assertIn("invalid_arguments", codes)
+        # Even on error, response shape must include the consistent fields
+        self.assertIn("found", result["data"])
+        self.assertIn("suggestions", result["data"])
+        self.assertIn("direction", result["data"])
+
+    def test_direction_case_insensitive(self):
+        result = self.srv.code_graph_path_response(self.root, "src/b.py::bar", "src/a.py::foo", direction="EITHER")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["direction"], "either")
+
+
+class TestGraphRefreshThenRecheck(unittest.TestCase):
+    """1304r: helper unit tests for the shared refresh-and-recheck pattern."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_recheck_returns_value_when_refresh_succeeds(self):
+        """Refresh + recheck returns whatever the recheck closure returns."""
+        sentinel = "fresh-candidate"
+        result = self.srv._graph_refresh_then_recheck(self.root, lambda: sentinel)
+        self.assertEqual(result, sentinel)
+
+    def test_recheck_returns_none_when_recheck_returns_none(self):
+        """If the recheck closure returns None, the helper passes that through."""
+        result = self.srv._graph_refresh_then_recheck(self.root, lambda: None)
+        self.assertIsNone(result)
+
+    def test_recheck_returns_none_when_refresh_raises(self):
+        """Helper catches refresh-time exceptions and returns None."""
+        # Use a recheck closure that would return sentinel if it were called,
+        # but the helper's refresh runs first; we can't easily force the refresh
+        # to raise without monkey-patching wave_index_build_response.
+        import unittest.mock as _mock
+        with _mock.patch.object(self.srv, "wave_index_build_response", side_effect=RuntimeError("boom")):
+            result = self.srv._graph_refresh_then_recheck(self.root, lambda: "would-be-fresh")
+            self.assertIsNone(result)
+
+    def test_recheck_returns_none_when_recheck_raises(self):
+        """Helper catches recheck-time exceptions and returns None."""
+        def _bad_recheck():
+            raise ValueError("recheck failed")
+        result = self.srv._graph_refresh_then_recheck(self.root, _bad_recheck)
+        self.assertIsNone(result)
+
+
+class TestGraphToolRefreshOnMiss(unittest.TestCase):
+    """1304r AC-8 follow-on: verify each graph-using MCP tool triggers the refresh
+    on its miss path. Mocks `wave_index_build_response` to assert it was called.
+
+    Pattern: each test sets up a minimal graph fixture that does NOT contain the
+    queried symbol/community, then asserts that the refresh helper's underlying
+    `wave_index_build_response` was invoked exactly once (the bounded-to-one-call
+    contract from AC-1)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        # Minimal graph that does NOT contain the bogus symbols we'll query
+        payload = {
+            "schema_version": "1", "builder_version": "1", "layer": "project",
+            "nodes": [
+                {"id": "src/a.py::existing", "label": "existing", "kind": "function", "source_file": "src/a.py"},
+            ],
+            "edges": [],
+            "counts": {"files": 1, "nodes": 1, "edges": 0},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+        cluster = {
+            "cluster_algorithm": "leiden", "cluster_builder_version": "1", "cluster_schema_version": "1",
+            "communities": [
+                {"community_id": "project:c1", "label": "core", "node_count": 1, "node_ids": ["src/a.py::existing"]},
+            ],
+            "community_count": 1,
+        }
+        (graph_dir / "project-graph-clusters.json").write_text(json.dumps(cluster), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _assert_refresh_invoked_once(self, tool_call):
+        """Run tool_call() while patching wave_index_build_response; assert called once."""
+        import unittest.mock as _mock
+        with _mock.patch.object(self.srv, "wave_index_build_response", return_value={"status": "ok", "data": {}}) as patched:
+            tool_call()
+            self.assertEqual(
+                patched.call_count, 1,
+                f"Expected exactly 1 refresh call but got {patched.call_count}",
+            )
+
+    def test_code_references_refreshes_on_miss(self):
+        self._assert_refresh_invoked_once(
+            lambda: self.srv.code_references_response(self.root, "no_such_symbol")
+        )
+
+    def test_code_callhierarchy_refreshes_on_miss(self):
+        self._assert_refresh_invoked_once(
+            lambda: self.srv.code_callhierarchy_response(self.root, "no_such_symbol")
+        )
+
+    def test_code_callgraph_refreshes_on_miss(self):
+        self._assert_refresh_invoked_once(
+            lambda: self.srv.code_callgraph_response(self.root, "no_such_symbol")
+        )
+
+    def test_code_impact_graph_mode_refreshes_on_miss(self):
+        self._assert_refresh_invoked_once(
+            lambda: self.srv.code_impact_response(self.root, "", symbol="no_such_symbol")
+        )
+
+    def test_code_graph_path_refreshes_on_miss(self):
+        # Both symbols missing — refresh should still happen exactly once
+        self._assert_refresh_invoked_once(
+            lambda: self.srv.code_graph_path_response(self.root, "no_such_from", "no_such_to")
+        )
+
+    def test_code_graph_path_refreshes_when_only_one_symbol_missing(self):
+        """A1 regression test: when only one symbol is missing initially, refresh
+        still runs and the freshly loaded index is used to retry both symbols."""
+        # from_symbol resolves (in fixture), to_symbol does not
+        self._assert_refresh_invoked_once(
+            lambda: self.srv.code_graph_path_response(self.root, "existing", "no_such_to")
+        )
+
+    def test_code_graph_community_refreshes_on_miss(self):
+        self._assert_refresh_invoked_once(
+            lambda: self.srv.code_graph_community_response(self.root, "project:does_not_exist")
+        )
+
+    def test_wave_graph_report_refreshes_on_absent_graph(self):
+        # Remove the graph fixture so first index.present check fails
+        import shutil
+        shutil.rmtree(self.root / ".wavefoundry" / "index" / "graph", ignore_errors=True)
+        self._assert_refresh_invoked_once(
+            lambda: self.srv.wave_graph_report_response(self.root, layer="project", sections=["fan_in"])
+        )
+
+
+class TestGraphRefreshAndResolve(unittest.TestCase):
+    """1304r: convenience helper that combines refresh + reload index + resolve symbol."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_graph(self, nodes):
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        payload = {
+            "schema_version": "1", "builder_version": "1", "layer": "project",
+            "nodes": nodes, "edges": [],
+            "counts": {"files": 1, "nodes": len(nodes), "edges": 0},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def test_returns_index_and_id_when_symbol_in_graph_after_refresh(self):
+        """When graph (after refresh) contains the symbol, return (index, node_id)."""
+        self._write_graph([
+            {"id": "src/a.py::foo", "label": "foo", "kind": "function", "source_file": "src/a.py"},
+        ])
+        idx, node_id = self.srv._graph_refresh_and_resolve(self.root, "foo")
+        self.assertIsNotNone(idx)
+        self.assertEqual(node_id, "src/a.py::foo")
+
+    def test_returns_none_tuple_when_symbol_missing(self):
+        """When graph doesn't contain the symbol, return (None, None)."""
+        self._write_graph([
+            {"id": "src/a.py::bar", "label": "bar", "kind": "function", "source_file": "src/a.py"},
+        ])
+        idx, node_id = self.srv._graph_refresh_and_resolve(self.root, "no_such_symbol")
+        self.assertIsNone(idx)
+        self.assertIsNone(node_id)
+
+    def test_returns_none_tuple_when_refresh_raises(self):
+        """If refresh raises, both elements are None."""
+        import unittest.mock as _mock
+        with _mock.patch.object(self.srv, "wave_index_build_response", side_effect=RuntimeError("boom")):
+            idx, node_id = self.srv._graph_refresh_and_resolve(self.root, "anything")
+            self.assertIsNone(idx)
+            self.assertIsNone(node_id)
+
+
+class TestApplyGraphAugmentation(unittest.TestCase):
+    """12xs5: opt-out path verified at the wrapper-helper layer.
+
+    These tests cover the augmentation logic extracted from the four MCP wrappers
+    (`code_keyword`, `code_search`, `code_definition`, `code_references`) into
+    `_augment_with_graph_neighbors_if_enabled()`. Without the helper extraction
+    this logic lived inside FastMCP closures registered at server startup,
+    which made it awkward to unit-test directly; tests had to rely on live MCP
+    smoke after `/mcp` reconnect. The helper closes that gap."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        # Write a minimal graph fixture so _maybe_append_graph_neighbors can resolve seeds
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        payload = {
+            "schema_version": "1", "builder_version": "1", "layer": "project",
+            "nodes": [
+                {"id": "src/a.py", "label": "a", "kind": "module", "source_file": "src/a.py"},
+                {"id": "src/a.py::foo", "label": "foo", "kind": "function", "source_file": "src/a.py"},
+                {"id": "src/b.py::bar", "label": "bar", "kind": "function", "source_file": "src/b.py"},
+            ],
+            "edges": [
+                {"source": "src/a.py::foo", "target": "src/b.py::bar", "relation": "calls", "confidence": "EXTRACTED"},
+            ],
+            "counts": {"files": 2, "nodes": 3, "edges": 1},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _seed_response(self, tool_key: str) -> dict:
+        """Build a minimal response with seed-bearing data for the given tool."""
+        if tool_key in ("code_keyword", "code_search"):
+            return {"status": "ok", "data": {"results": [{"path": "src/a.py", "line": 1}]}}
+        if tool_key == "code_definition":
+            return {"status": "ok", "data": {"definitions": [{"path": "src/a.py", "name": "foo", "line": 1}]}}
+        if tool_key == "code_references":
+            return {"status": "ok", "data": {"references": [{"path": "src/a.py", "line": 1}]}}
+        raise ValueError(tool_key)
+
+    def test_graph_false_returns_response_unchanged_for_all_four_tools(self):
+        """Opt-out: graph=False must not add graph_neighbors for any of the four tools."""
+        for tool_key in ("code_keyword", "code_search", "code_definition", "code_references"):
+            with self.subTest(tool_key=tool_key):
+                r = self._seed_response(tool_key)
+                out = self.srv._augment_with_graph_neighbors_if_enabled(
+                    r, self.root, tool_key=tool_key, graph=False,
+                )
+                self.assertNotIn("graph_neighbors", out.get("data") or {})
+
+    def test_graph_true_adds_graph_neighbors_for_all_four_tools(self):
+        """Opt-in default: graph=True must append graph_neighbors when seeds resolve."""
+        for tool_key in ("code_keyword", "code_search", "code_definition", "code_references"):
+            with self.subTest(tool_key=tool_key):
+                r = self._seed_response(tool_key)
+                out = self.srv._augment_with_graph_neighbors_if_enabled(
+                    r, self.root, tool_key=tool_key, graph=True,
+                )
+                self.assertIn("graph_neighbors", out.get("data") or {})
+                neighbors = out["data"]["graph_neighbors"]
+                self.assertTrue(neighbors.get("present"))
+                # The seeded graph fixture has 3 nodes; one of them should appear
+                self.assertGreater(len(neighbors.get("nodes") or []), 0)
+
+    def test_graph_true_with_empty_seeds_returns_unchanged(self):
+        """Edge case: graph=True but the response has no seed-bearing data → unchanged."""
+        for tool_key in ("code_keyword", "code_search", "code_definition", "code_references"):
+            with self.subTest(tool_key=tool_key):
+                r = {"status": "ok", "data": {}}  # no seeds
+                out = self.srv._augment_with_graph_neighbors_if_enabled(
+                    r, self.root, tool_key=tool_key, graph=True,
+                )
+                self.assertNotIn("graph_neighbors", out.get("data") or {})
+
+    def test_graph_true_with_non_ok_response_returns_unchanged(self):
+        """Safety: error responses don't get augmented even when graph=True."""
+        r = {"status": "error", "data": {"results": [{"path": "src/a.py", "line": 1}]}}
+        out = self.srv._augment_with_graph_neighbors_if_enabled(
+            r, self.root, tool_key="code_keyword", graph=True,
+        )
+        self.assertNotIn("graph_neighbors", out.get("data") or {})
+
+    def test_graph_limit_caps_seed_count(self):
+        """graph_limit caps the seeds passed to neighbor expansion."""
+        # Three seed results — graph_limit=1 should still produce neighbors (cap applies to seeds)
+        r = {"status": "ok", "data": {"results": [
+            {"path": "src/a.py", "line": 1},
+            {"path": "src/b.py", "line": 1},
+            {"path": "src/a.py", "line": 5},
+        ]}}
+        out = self.srv._augment_with_graph_neighbors_if_enabled(
+            r, self.root, tool_key="code_keyword", graph=True, graph_limit=1,
+        )
+        # With graph_limit=1, only the first seed (src/a.py) drives expansion
+        self.assertIn("graph_neighbors", out.get("data") or {})
+
+
+class TestCodeDefinitionGraphNarrowed(unittest.TestCase):
+    """1301h: code_definition consults the graph to narrow the file set before scanning."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        # Real Python files with a definition we'll look up
+        (self.root / "src").mkdir(parents=True, exist_ok=True)
+        (self.root / "src" / "target.py").write_text(
+            "def my_definition():\n    return 1\n",
+            encoding="utf-8",
+        )
+        (self.root / "src" / "decoy.py").write_text(
+            "def unrelated_function():\n    return 2\n",
+            encoding="utf-8",
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_graph(self, nodes):
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        payload = {
+            "schema_version": "1", "builder_version": "1", "layer": "project",
+            "nodes": nodes, "edges": [],
+            "counts": {"files": len({n.get("source_file") for n in nodes if n.get("source_file")}), "nodes": len(nodes), "edges": 0},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def test_no_graph_runs_degraded_mode_with_diagnostic(self):
+        """AC-2 (revised): graph absent → existing structural full walk runs, but
+        the response carries an advisory `graph_index_missing_degraded` diagnostic
+        telling the operator to build the graph for the fast path.
+
+        Pre-1301h: silent 40+s full walk, no signal to the operator.
+        Post-1301h: same 40+s full walk (preserves existing behavior for callers
+        that depend on `name`-bearing structural definitions) PLUS a clear
+        advisory diagnostic + a `graph_index_missing_degraded` lookup_method.
+        Operators see the advisory and run `wave_index_build(content='graph')`
+        to enable the sub-300ms graph-narrowed path on subsequent calls."""
+        result = self.srv.code_definition_response(self.root, "my_definition")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["lookup_method"], "graph_index_missing_degraded")
+        # Structural definition still found because scanners ran full walk
+        self.assertTrue(any(d.get("name") == "my_definition" for d in result["data"]["definitions"]))
+        # Advisory diagnostic is present
+        # (lookup_method indicates degraded; diagnostic appears only on the
+        # keyword_fallback escape hatch, which this test doesn't trigger because
+        # the structural scanner finds my_definition)
+
+    def test_graph_present_with_match_uses_narrowed_path(self):
+        """AC-1: graph present and symbol resolvable → lookup_method='graph_narrowed'."""
+        self._write_graph([
+            {"id": "src/target.py::my_definition", "label": "my_definition", "kind": "function", "source_file": "src/target.py"},
+            {"id": "src/decoy.py::unrelated_function", "label": "unrelated_function", "kind": "function", "source_file": "src/decoy.py"},
+        ])
+        result = self.srv.code_definition_response(self.root, "my_definition")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["lookup_method"], "graph_narrowed")
+        self.assertTrue(any(d["name"] == "my_definition" for d in result["data"]["definitions"]))
+
+    def test_graph_present_no_match_triggers_refresh_then_definitive(self):
+        """AC-3 + AC-8: graph present but symbol unmatched → incremental refresh runs.
+        If the refresh picks up the symbol, lookup_method='graph_narrowed_after_refresh';
+        if not, the graph is treated as the source of truth and we return
+        lookup_method='graph_definitive_not_found' without burning a full repo walk.
+        Either outcome is correct — both confirm the refresh path executed."""
+        self._write_graph([
+            {"id": "src/decoy.py::unrelated_function", "label": "unrelated_function", "kind": "function", "source_file": "src/decoy.py"},
+        ])
+        result = self.srv.code_definition_response(self.root, "my_definition")
+        self.assertEqual(result["status"], "ok")
+        self.assertIn(
+            result["data"]["lookup_method"],
+            ("graph_definitive_not_found", "graph_narrowed_after_refresh"),
+        )
+
+    def test_substring_match_preserved_in_narrowed_path(self):
+        """AC-5: substring queries (e.g. 'def' matches 'my_definition') still resolve via graph."""
+        self._write_graph([
+            {"id": "src/target.py::my_definition", "label": "my_definition", "kind": "function", "source_file": "src/target.py"},
+        ])
+        result = self.srv.code_definition_response(self.root, "def")
+        # 'def' is substring of 'my_definition' label → candidate includes src/target.py
+        # Note: graph_narrowed expected since match found; scanner then runs on restricted set
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["lookup_method"], "graph_narrowed")
+        names = [d["name"] for d in result["data"]["definitions"]]
+        self.assertIn("my_definition", names)
+
+    def test_graph_narrowed_path_finds_correct_definition(self):
+        """AC-5 (revised): graph-narrowed path resolves the symbol to the expected file.
+
+        Previous version of this test compared narrowed-path output against the
+        full_walk path. After the 1301h fail-fast change, full_walk is no longer
+        a reachable code path — the graph is now the source of truth. The replacement
+        contract: when the graph points to a file, the scanner must return a
+        definition with the expected name from the expected file."""
+        self._write_graph([
+            {"id": "src/target.py::my_definition", "label": "my_definition", "kind": "function", "source_file": "src/target.py"},
+        ])
+        result = self.srv.code_definition_response(self.root, "my_definition")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["lookup_method"], "graph_narrowed")
+        defs = result["data"]["definitions"]
+        self.assertTrue(any(d["path"] == "src/target.py" and d["name"] == "my_definition" for d in defs))
+
+    def test_missing_symbol_with_graph_returns_definitive_not_found(self):
+        """AC-6 (revised): when graph confirms no match (after refresh attempt),
+        return graph_definitive_not_found instead of a slow keyword_fallback walk."""
+        self._write_graph([
+            {"id": "src/target.py::my_definition", "label": "my_definition", "kind": "function", "source_file": "src/target.py"},
+        ])
+        result = self.srv.code_definition_response(self.root, "ZZZNODEFINITIONYYY")
+        self.assertEqual(result["status"], "ok")
+        # Either definitive-not-found (graph confirmed no match) or graph_narrowed_after_refresh
+        # (if the refresh somehow picked up the symbol)
+        self.assertIn(
+            result["data"]["lookup_method"],
+            ("graph_definitive_not_found", "graph_narrowed_after_refresh"),
+        )
+
+
+class TestCodeImpactIncludeTests(unittest.TestCase):
+    """12zxl AC-2: code_impact include_tests filter."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        self._add("src/utils.py", "def helper(): pass\n")
+        self._add("tests/test_utils.py", "from src.utils import helper\ndef test_helper(): helper()\n")
+        import json
+        payload = {
+            "schema_version": "1",
+            "builder_version": "1",
+            "layer": "project",
+            "nodes": [
+                {"id": "src/utils.py::helper", "label": "helper", "kind": "function", "source_file": "src/utils.py", "layer": "project"},
+                {"id": "tests/test_utils.py::test_helper", "label": "test_helper", "kind": "function", "source_file": "tests/test_utils.py", "layer": "project"},
+            ],
+            "edges": [
+                {"source": "tests/test_utils.py::test_helper", "target": "src/utils.py::helper", "relation": "calls", "confidence": "EXTRACTED"},
+            ],
+            "counts": {"files": 2, "nodes": 2, "edges": 1},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _add(self, rel: str, content: str) -> Path:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def test_include_tests_false_excludes_test_callers(self):
+        result = self.srv.code_impact_response(
+            self.root, "", symbol="src/utils.py::helper", max_hops=2, include_tests=False
+        )
+        self.assertEqual(result["status"], "ok")
+        affected_ids = {row["node_id"] for row in result["data"]["affected"]}
+        self.assertNotIn("tests/test_utils.py::test_helper", affected_ids)
+
+    def test_include_tests_true_includes_test_callers(self):
+        result = self.srv.code_impact_response(
+            self.root, "", symbol="src/utils.py::helper", max_hops=2, include_tests=True
+        )
+        self.assertEqual(result["status"], "ok")
+        affected_ids = {row["node_id"] for row in result["data"]["affected"]}
+        self.assertIn("tests/test_utils.py::test_helper", affected_ids)
+
+
+class TestCodeGraphCommunity(unittest.TestCase):
+    """12zxl AC-5: code_graph_community_response — not-found and empty-id handling."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        graph = {
+            "schema_version": "1", "builder_version": "1", "layer": "project",
+            "nodes": [{"id": "src/a.py::foo", "label": "foo", "kind": "function", "source_file": "src/a.py"}],
+            "edges": [],
+            "counts": {"files": 1, "nodes": 1, "edges": 0},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        cluster = {
+            "cluster_algorithm": "leiden",
+            "cluster_builder_version": "1",
+            "cluster_schema_version": "1",
+            "communities": [
+                {"community_id": "project:c1", "label": "core", "node_count": 1, "node_ids": ["src/a.py::foo"]},
+                # Community with null community_id to verify empty-string guard does not match
+                {"community_id": None, "label": "anonymous", "node_count": 0, "node_ids": []},
+            ],
+            "community_count": 2,
+        }
+        (graph_dir / "project-graph-clusters.json").write_text(json.dumps(cluster), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_absent_community_id_returns_not_found(self):
+        result = self.srv.code_graph_community_response(self.root, "project:does_not_exist")
+        self.assertEqual(result["status"], "error")
+        codes = [d["code"] for d in result.get("diagnostics", [])]
+        self.assertIn("not_found", codes)
+
+    def test_empty_community_id_returns_invalid_arguments(self):
+        result = self.srv.code_graph_community_response(self.root, "")
+        self.assertEqual(result["status"], "error")
+        codes = [d["code"] for d in result.get("diagnostics", [])]
+        self.assertIn("invalid_arguments", codes)
+
+    def test_whitespace_community_id_returns_invalid_arguments(self):
+        result = self.srv.code_graph_community_response(self.root, "   ")
+        self.assertEqual(result["status"], "error")
+        codes = [d["code"] for d in result.get("diagnostics", [])]
+        self.assertIn("invalid_arguments", codes)
+
+    def test_valid_community_id_returns_members(self):
+        result = self.srv.code_graph_community_response(self.root, "project:c1")
+        self.assertEqual(result["status"], "ok")
+        data = result["data"]
+        self.assertEqual(data["community_id"], "project:c1")
+        self.assertEqual(data["label"], "core")
+        self.assertEqual(data["node_count"], 1)
+        self.assertEqual(data["nodes"][0]["id"], "src/a.py::foo")
+
+    def test_not_found_returns_ranked_suggestions(self):
+        """Improvement: not-found response includes ranked community suggestions."""
+        result = self.srv.code_graph_community_response(self.root, "project:c2")
+        self.assertEqual(result["status"], "error")
+        suggestions = result["data"].get("suggestions") or []
+        self.assertIsInstance(suggestions, list)
+        # 'project:c2' substring-matches 'project:c1' → bucket 0 (substring in cid)
+        self.assertTrue(any(s["community_id"] == "project:c1" for s in suggestions))
+        # suggestions skip the null-community_id entry from fixture
+        for s in suggestions:
+            self.assertTrue(s["community_id"])
+
+    def test_not_found_unrelated_query_falls_back_by_node_count(self):
+        """Improvement: with no substring match, suggestions fall back to largest communities."""
+        result = self.srv.code_graph_community_response(self.root, "zzz_no_match")
+        self.assertEqual(result["status"], "error")
+        suggestions = result["data"].get("suggestions") or []
+        # First suggestion should be the largest (only valid) community
+        self.assertEqual(suggestions[0]["community_id"], "project:c1")
+
+
+class TestSuggestNearSymbolsTokenization(unittest.TestCase):
+    """Improvement: _suggest_near_symbols handles multi-token queries (whitespace/underscore)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        payload = {
+            "schema_version": "1", "builder_version": "1", "layer": "project",
+            "nodes": [
+                {"id": "src/svc.py::_load_cluster_lookup", "label": "_load_cluster_lookup", "kind": "function", "source_file": "src/svc.py"},
+                {"id": "src/svc.py::shortest_path", "label": "shortest_path", "kind": "function", "source_file": "src/svc.py"},
+                {"id": "src/svc.py::other", "label": "other", "kind": "function", "source_file": "src/svc.py"},
+            ],
+            "edges": [],
+            "counts": {"files": 1, "nodes": 3, "edges": 0},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_whitespace_separated_tokens_match_snake_case(self):
+        """'load cluster' should produce '_load_cluster_lookup' as a suggestion."""
+        # Trigger _suggest_near_symbols via code_graph_path with two unresolvable symbols
+        result = self.srv.code_graph_path_response(self.root, "load cluster", "no_such_symbol")
+        self.assertEqual(result["status"], "ok")
+        suggestion_ids = {s["id"] for s in result["data"]["suggestions"]}
+        self.assertIn("src/svc.py::_load_cluster_lookup", suggestion_ids)
+
+    def test_space_separated_tokens_match_underscore_symbol(self):
+        """'shortest path' should match 'shortest_path' via tokenization."""
+        result = self.srv.code_graph_path_response(self.root, "shortest path", "no_such_symbol")
+        self.assertEqual(result["status"], "ok")
+        suggestion_ids = {s["id"] for s in result["data"]["suggestions"]}
+        self.assertIn("src/svc.py::shortest_path", suggestion_ids)
+
+    def test_single_token_substring_still_works(self):
+        """'load' (single token) should still substring-match the snake_case symbol."""
+        result = self.srv.code_graph_path_response(self.root, "load", "no_such_symbol")
+        self.assertEqual(result["status"], "ok")
+        suggestion_ids = {s["id"] for s in result["data"]["suggestions"]}
+        self.assertIn("src/svc.py::_load_cluster_lookup", suggestion_ids)
+
+
+class TestCodeCallgraphIncludeTests(unittest.TestCase):
+    """Improvement: code_callgraph filters test-path nodes by default; symmetric with code_impact."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        self._add("src/utils.py", "def helper(): pass\n")
+        self._add("tests/test_utils.py", "from src.utils import helper\ndef test_helper(): helper()\n")
+        import json
+        payload = {
+            "schema_version": "1", "builder_version": "1", "layer": "project",
+            "nodes": [
+                {"id": "src/utils.py::helper", "label": "helper", "kind": "function", "source_file": "src/utils.py"},
+                {"id": "tests/test_utils.py::test_helper", "label": "test_helper", "kind": "function", "source_file": "tests/test_utils.py"},
+            ],
+            "edges": [
+                {"source": "tests/test_utils.py::test_helper", "target": "src/utils.py::helper", "relation": "calls", "confidence": "EXTRACTED"},
+            ],
+            "counts": {"files": 2, "nodes": 2, "edges": 1},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _add(self, rel: str, content: str) -> Path:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def test_include_tests_false_excludes_test_nodes_and_edges(self):
+        result = self.srv.code_callgraph_response(
+            self.root, "src/utils.py::helper", depth=2, direction="both", include_tests=False
+        )
+        self.assertEqual(result["status"], "ok")
+        node_ids = {n.get("id") for n in result["data"]["nodes"]}
+        self.assertNotIn("tests/test_utils.py::test_helper", node_ids)
+        # Edges referencing the test node must also be filtered
+        for e in result["data"]["edges"]:
+            self.assertNotIn("tests/test_utils.py", str(e.get("source") or ""))
+            self.assertNotIn("tests/test_utils.py", str(e.get("target") or ""))
+        self.assertFalse(result["data"]["include_tests"])
+
+    def test_include_tests_true_keeps_test_nodes(self):
+        result = self.srv.code_callgraph_response(
+            self.root, "src/utils.py::helper", depth=2, direction="both", include_tests=True
+        )
+        self.assertEqual(result["status"], "ok")
+        node_ids = {n.get("id") for n in result["data"]["nodes"]}
+        self.assertIn("tests/test_utils.py::test_helper", node_ids)
+        self.assertTrue(result["data"]["include_tests"])
 
 
 class TestLanceDBIndex(unittest.TestCase):

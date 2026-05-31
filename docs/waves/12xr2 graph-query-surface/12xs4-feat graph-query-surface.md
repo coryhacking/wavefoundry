@@ -1,10 +1,10 @@
 # Graph Query Surface
 
 Change ID: `12xs4-feat graph-query-surface`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
-Last verified: 2026-05-29
+Status: complete
+Last verified: 2026-05-31
 Wave: `12xr2 graph-query-surface`
 
 ## Rationale
@@ -141,38 +141,38 @@ preserve byte-identical default output.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `graph_query.load_graph(root, layer="project")` returns nodes/edges from
+- [x] AC-1: `graph_query.load_graph(root, layer="project")` returns nodes/edges from
   `project-graph.json`; missing file returns empty graph + diagnostic.
-- [ ] AC-2: `load_union(root)` composes project + framework graphs; every node retains
+- [x] AC-2: `load_union(root)` composes project + framework graphs; every node retains
   `layer`; no file written under `.wavefoundry/index/`.
-- [ ] AC-3: `code_impact(symbol="src/foo.py::bar", max_hops=2)` returns graph-backed
+- [x] AC-3: `code_impact(symbol="src/foo.py::bar", max_hops=2)` returns graph-backed
   affected symbols/files with `method: "graph"` and edge provenance.
-- [ ] AC-4: `code_impact(path="src/foo.py")` behavior unchanged from pre-wave (import
+- [x] AC-4: `code_impact(path="src/foo.py")` behavior unchanged from pre-wave (import
   heuristic, `method: "heuristic"`).
-- [ ] AC-5: `code_callgraph(symbol=..., depth=1, direction="both")` returns callers and
+- [x] AC-5: `code_callgraph(symbol=..., depth=1, direction="both")` returns callers and
   callees from `calls` edges only.
-- [ ] AC-6: `wave_graph_report(layer="union")` returns fan-in ranking, orphan docs list,
+- [x] AC-6: `wave_graph_report(layer="union")` returns fan-in ranking, orphan docs list,
   and cross-layer edge summary on fixture graph.
-- [ ] AC-7: `code_keyword(..., graph=false)` output matches pre-wave snapshot tests;
+- [x] AC-7: `code_keyword(..., graph=false)` output matches pre-wave snapshot tests;
   `graph=true` adds supplemental neighbor section without altering base result ordering.
-- [ ] AC-8: Same augmentation contract for `code_search`, `code_definition`,
+- [x] AC-8: Same augmentation contract for `code_search`, `code_definition`,
   `code_references`.
-- [ ] AC-9: All new tools registered as read-only; full framework test suite passes.
-- [ ] AC-10: `networkx` (or documented fallback) covered by tests; setup path documented
+- [x] AC-9: All new tools registered as read-only; full framework test suite passes.
+- [x] AC-10: `networkx` (or documented fallback) covered by tests; setup path documented
   when union compose unavailable.
 
 ## Tasks
 
-- [ ] Add `networkx` to tool-venv / setup dependencies (union compose only).
-- [ ] Implement `graph_query.py`: load, adjacency index, union, BFS traversals, report
+- [x] Add `networkx` to tool-venv / setup dependencies (union compose only).
+- [x] Implement `graph_query.py`: load, adjacency index, union, BFS traversals, report
   aggregations.
-- [ ] Wire `code_impact` graph mode (`symbol`, `max_hops`, `layer`, `relations`).
-- [ ] Implement `code_callgraph` MCP tool.
-- [ ] Implement `wave_graph_report` MCP tool.
-- [ ] Add `graph: bool = False` to four existing tools; implement 1-hop neighbor appendix.
-- [ ] Add `test_graph_query.py` + extend `test_server_tools.py`.
-- [ ] Update `AGENTS.md` and architecture docs.
-- [ ] Open/close `framework_edit_allowed` gate for framework script edits.
+- [x] Wire `code_impact` graph mode (`symbol`, `max_hops`, `layer`, `relations`).
+- [x] Implement `code_callgraph` MCP tool.
+- [x] Implement `wave_graph_report` MCP tool.
+- [x] Add `graph: bool = False` to four existing tools; implement 1-hop neighbor appendix.
+- [x] Add `test_graph_query.py` + extend `test_server_tools.py`.
+- [x] Update `AGENTS.md` and architecture docs.
+- [x] Open/close `framework_edit_allowed` gate for framework script edits.
 
 ## Agent Execution Graph
 
@@ -220,6 +220,7 @@ preserve byte-identical default output.
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-05-29 | Change doc authored for wave 12xr2 admission. | `12xr1` closed; graph artifacts validated in dashboard |
+| 2026-05-29 | Implementation complete; 1796 tests green; `AGENTS.md` graph tools section added. | `graph_query.py`, MCP wiring, golden snapshots |
 
 
 ## Decision Log

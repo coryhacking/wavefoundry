@@ -90,3 +90,26 @@ Guru must not treat the write-up as complete until this review finishes. When `w
 - Performance complexity — that is `performance-reviewer`.
 - Security vulnerabilities — that is `security-reviewer`.
 - Automated fitness-function enforcement (ArchUnit-style) — that is a future computational sensor.
+
+## Fix-Now Threshold (wave 1304x / 1305d)
+
+**Default: fix small architectural findings in-session, not as follow-ons.**
+
+When this lane finds an issue that can be fixed in fewer than ~20 lines without changing a contract, recommend the fix in-session.
+
+**In-session fix examples:**
+
+- Helper boundary cleanup (e.g., the closure-smuggle `holder` pattern flagged in wave `1304x` close-review)
+- Signature consolidation (collapsing a near-duplicate helper into a parameterized one)
+- Removing redundant indirection (e.g., a helper that only forwards to another)
+- Adding type hints to a public-ish helper that already has stable callers
+- Renaming for consistency when the call sites are all in the same change
+
+**Defer to follow-on only when:**
+
+- The fix exceeds ~20 LOC, OR
+- The fix changes a published contract (response shape, MCP tool signature, library API), OR
+- The fix requires a new architectural decision
+
+For every architecture finding routed to follow-on, write one line of justification explaining *why* it's not fixable in-session. The cumulative cost of deferred architectural cleanups is the largest single source of long-tail technical debt in self-hosting frameworks.
+

@@ -1,10 +1,10 @@
 # Graph Dependency-Injection Wiring
 
 Change ID: `12ynp-enh graph-dependency-injection-wiring`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
-Last verified: 2026-05-28
+Status: complete
+Last verified: 2026-05-31
 Wave: `12xr2 graph-query-surface`
 
 ## Rationale
@@ -89,25 +89,25 @@ Each row must be independently covered by tests, and a framework with no detecta
 
 ## Acceptance Criteria
 
-- [ ] AC-1: The graph edge vocabulary includes directional injection relation(s) (`injects`, and a registration `binds` relation) distinct from `calls`/`imports`, with per-edge provenance and confidence.
-- [ ] AC-2: Spring/CDI/JSR-330 provider stereotypes and injection points produce injection edges connecting consumers to the resolved implementation (directly, or via interface → implementation binding).
-- [ ] AC-3: .NET `IServiceCollection` registrations in generic and factory forms produce `binds` edges from the service type to the implementation type, and constructor-injected consumers produce `injects` edges.
-- [ ] AC-4: Guice/Dagger module bindings (`bind().to()`, `@Provides`/`@Binds`) produce `binds` edges to the provided implementation.
-- [ ] AC-5: Binding targets resolve to existing graph nodes when a match exists; unresolved targets are labeled explicitly rather than dropped or fabricated.
-- [ ] AC-6: Confidence is honest — explicit interface+impl registrations are higher-confidence than annotation-only inference; ambiguous single-interface/multi-implementation cases do not emit a guessed single edge.
-- [ ] AC-7: The canonical graph contract is preserved (directional edges, provenance, versioned persistence); `GRAPH_BUILDER_VERSION` is bumped so stale caches rebuild.
-- [ ] AC-8: Tests cover each framework row in the coverage table, including a negative case proving no injection edges are emitted when signals are absent.
-- [ ] AC-9: Extraction follows the two-phase design — per-file signal collection during the tree walk and cross-file resolution in the global assembly pass — verified by a test where a registration, an implementation, and a consumer live in three separate files and still resolve into connected `binds`/`injects` edges.
+- [x] AC-1: The graph edge vocabulary includes directional injection relation(s) (`injects`, and a registration `binds` relation) distinct from `calls`/`imports`, with per-edge provenance and confidence.
+- [x] AC-2: Spring/CDI/JSR-330 provider stereotypes and injection points produce injection edges connecting consumers to the resolved implementation (directly, or via interface → implementation binding).
+- [x] AC-3: .NET `IServiceCollection` registrations in generic and factory forms produce `binds` edges from the service type to the implementation type, and constructor-injected consumers produce `injects` edges.
+- [x] AC-4: Guice/Dagger module bindings (`bind().to()`, `@Provides`/`@Binds`) produce `binds` edges to the provided implementation.
+- [x] AC-5: Binding targets resolve to existing graph nodes when a match exists; unresolved targets are labeled explicitly rather than dropped or fabricated.
+- [x] AC-6: Confidence is honest — explicit interface+impl registrations are higher-confidence than annotation-only inference; ambiguous single-interface/multi-implementation cases do not emit a guessed single edge.
+- [x] AC-7: The canonical graph contract is preserved (directional edges, provenance, versioned persistence); `GRAPH_BUILDER_VERSION` is bumped so stale caches rebuild.
+- [x] AC-8: Tests cover each framework row in the coverage table, including a negative case proving no injection edges are emitted when signals are absent.
+- [x] AC-9: Extraction follows the two-phase design — per-file signal collection during the tree walk and cross-file resolution in the global assembly pass — verified by a test where a registration, an implementation, and a consumer live in three separate files and still resolve into connected `binds`/`injects` edges.
 
 ## Tasks
 
-- [ ] Define the injection edge relation(s) and confidence conventions; document them alongside existing relations.
-- [ ] Add a per-file DI **signal-record** collection layer to the existing tree walk (Phase 1), without resolving targets.
-- [ ] Add Java/Kotlin annotation and module signal collection (Spring, CDI/JSR-330, Guice, Dagger) on the tree-sitter path with regex fallback.
-- [ ] Add .NET registration and constructor-injection signal collection (Microsoft DI + Autofac) on the tree-sitter path with regex fallback.
-- [ ] Implement Phase 2 resolution in the global assembly pass: match signals to nodes, disambiguate qualifiers, infer single-implementation bindings, emit `binds`/`injects` edges, and record unresolved/ambiguous signals explicitly.
-- [ ] Bump `GRAPH_BUILDER_VERSION` and confirm cache invalidation behaves like other extractor-semantic changes.
-- [ ] Add per-framework fixtures and negative tests in `test_graph_indexer.py`, plus a cross-file resolution test (registration, implementation, consumer in three files).
+- [x] Define the injection edge relation(s) and confidence conventions; document them alongside existing relations.
+- [x] Add a per-file DI **signal-record** collection layer to the existing tree walk (Phase 1), without resolving targets.
+- [x] Add Java/Kotlin annotation and module signal collection (Spring, CDI/JSR-330, Guice, Dagger) on the tree-sitter path with regex fallback.
+- [x] Add .NET registration and constructor-injection signal collection (Microsoft DI + Autofac) on the tree-sitter path with regex fallback.
+- [x] Implement Phase 2 resolution in the global assembly pass: match signals to nodes, disambiguate qualifiers, infer single-implementation bindings, emit `binds`/`injects` edges, and record unresolved/ambiguous signals explicitly.
+- [x] Bump `GRAPH_BUILDER_VERSION` and confirm cache invalidation behaves like other extractor-semantic changes.
+- [x] Add per-framework fixtures and negative tests in `test_graph_indexer.py`, plus a cross-file resolution test (registration, implementation, consumer in three files).
 
 ## Agent Execution Graph
 

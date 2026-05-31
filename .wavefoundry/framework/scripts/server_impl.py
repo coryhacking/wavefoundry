@@ -14,7 +14,7 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Any, Iterable, Literal, Optional
+from typing import Any, Callable, Iterable, Literal, Optional
 
 sys.dont_write_bytecode = True
 
@@ -3670,6 +3670,7 @@ def _start_background_index_refresh(root: Path, layer: str) -> bool:
         stderr=subprocess.DEVNULL,
         cwd=str(root),
         start_new_session=True,
+        close_fds=os.name != "nt",
     )
     import time
     state_path.write_text(
@@ -7903,12 +7904,26 @@ def _definition_sort_key(defn: dict[str, Any], symbol: str) -> tuple[int, int, i
     )
 
 
-def _python_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
-    """Find function/class definitions matching *symbol* in Python files via AST."""
+def _python_definitions(
+    root: Path,
+    symbol: str,
+    *,
+    restrict_files: frozenset[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Find function/class definitions matching *symbol* in Python files via AST.
+
+    When ``restrict_files`` is non-None, the repo walk is skipped entirely — file
+    paths are constructed directly from the restriction set (wave 12xr3, 1301h).
+    This turns 10s+ cold walks into <50ms direct reads on the common path.
+    """
     import ast as _ast
     results: list[dict[str, Any]] = []
     root_r = root.resolve()
-    for p in _walk_repo_for_navigation(root):
+    if restrict_files is not None:
+        files: Iterable[Path] = (root_r / rel for rel in restrict_files)
+    else:
+        files = _walk_repo_for_navigation(root)
+    for p in files:
         if p.suffix.lower() != ".py":
             continue
         try:
@@ -7934,20 +7949,22 @@ def _python_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
     return results
 
 
-def _python_reference_call_sites(root: Path, symbol: str) -> list[dict[str, Any]]:
+def _python_reference_call_sites(root: Path, symbol: str, *, restrict_files: frozenset[str] | None = None, _files: list | None = None) -> list[dict[str, Any]]:
     """Find structural Python call sites for *symbol* via AST."""
     import ast as _ast
     results: list[dict[str, Any]] = []
     root_r = root.resolve()
-    for p in _walk_repo_for_navigation(root):
+    for p in (_files if _files is not None else _walk_repo_for_navigation(root)):
         if p.suffix.lower() != ".py":
+            continue
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+        if restrict_files is not None and rel not in restrict_files:
             continue
         try:
             source = p.read_text(encoding="utf-8", errors="replace")
             tree = _ast.parse(source, filename=str(p))
         except (SyntaxError, OSError):
             continue
-        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
         lines = source.splitlines()
         for node in _ast.walk(tree):
             if not isinstance(node, _ast.Call):
@@ -7974,25 +7991,27 @@ def _python_reference_call_sites(root: Path, symbol: str) -> list[dict[str, Any]
     return results
 
 
-def _python_references(root: Path, symbol: str) -> list[dict[str, Any]]:
+def _python_references(root: Path, symbol: str, *, restrict_files: frozenset[str] | None = None, _files: list | None = None) -> list[dict[str, Any]]:
     """Find references to *symbol* in Python files via AST call-site detection plus text fallback."""
     results: list[dict[str, Any]] = []
     root_r = root.resolve()
     pattern = _symbol_search_pattern(symbol)
     call_sites_by_path: dict[str, set[int]] = {}
-    for ref in _python_reference_call_sites(root, symbol):
+    for ref in _python_reference_call_sites(root, symbol, restrict_files=restrict_files, _files=_files):
         ref["reference_kind"] = "call_sites"
         ref["method"] = "ast"
         results.append(ref)
         call_sites_by_path.setdefault(ref["path"], set()).add(ref["line"])
-    for p in _walk_repo_for_navigation(root):
+    for p in (_files if _files is not None else _walk_repo_for_navigation(root)):
         if p.suffix.lower() != ".py":
+            continue
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+        if restrict_files is not None and rel not in restrict_files:
             continue
         try:
             source = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
         call_site_lines = call_sites_by_path.get(rel, set())
         for lineno, line in enumerate(source.splitlines(), 1):
             if pattern.search(line):
@@ -8009,8 +8028,17 @@ def _python_references(root: Path, symbol: str) -> list[dict[str, Any]]:
     return results
 
 
-def _treesitter_definition_results(root: Path, symbol: str) -> list[dict[str, Any]]:
-    """Find definitions in tree-sitter-backed languages using chunker parse helpers."""
+def _treesitter_definition_results(
+    root: Path,
+    symbol: str,
+    *,
+    restrict_files: frozenset[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Find definitions in tree-sitter-backed languages using chunker parse helpers.
+
+    When ``restrict_files`` is non-None, the repo walk is skipped — file paths are
+    constructed directly from the restriction set.
+    """
     chunker = _get_chunker_module()
     by_language = {
         "javascript": chunker.chunk_js_ts_treesitter,
@@ -8021,7 +8049,11 @@ def _treesitter_definition_results(root: Path, symbol: str) -> list[dict[str, An
     }
     results: list[dict[str, Any]] = []
     root_r = root.resolve()
-    for p in _walk_repo_for_navigation(root):
+    if restrict_files is not None:
+        files: Iterable[Path] = (root_r / rel for rel in restrict_files)
+    else:
+        files = _walk_repo_for_navigation(root)
+    for p in files:
         rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
         lang = _detect_language(rel)
         if lang not in _TREE_SITTER_DEFINITION_LANGS:
@@ -8104,15 +8136,17 @@ _TS_DEFINITION_PARENT_TYPES: dict[str, set[str]] = {
 }
 
 
-def _treesitter_references(root: Path, symbol: str) -> list[dict[str, Any]]:
+def _treesitter_references(root: Path, symbol: str, *, restrict_files: frozenset[str] | None = None, _files: list | None = None) -> list[dict[str, Any]]:
     """Find identifier references in tree-sitter-backed languages."""
     chunker = _get_chunker_module()
     results: list[dict[str, Any]] = []
     root_r = root.resolve()
-    for p in _walk_repo_for_navigation(root):
+    for p in (_files if _files is not None else _walk_repo_for_navigation(root)):
         rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
         lang = _detect_language(rel)
         if lang not in _TREE_SITTER_REFERENCE_LANGS:
+            continue
+        if restrict_files is not None and rel not in restrict_files:
             continue
         try:
             source = p.read_text(encoding="utf-8", errors="replace")
@@ -8149,11 +8183,25 @@ def _treesitter_references(root: Path, symbol: str) -> list[dict[str, Any]]:
     return results
 
 
-def _regex_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
-    """Find structural definitions in supported non-Python languages via regex."""
+def _regex_definitions(
+    root: Path,
+    symbol: str,
+    *,
+    restrict_files: frozenset[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Find structural definitions in supported languages via regex (non-AST path).
+
+    When ``restrict_files`` is non-None, the repo walk is skipped — file paths are
+    constructed directly from the restriction set.
+    """
     results: list[dict[str, Any]] = []
     root_r = root.resolve()
-    for p in _walk_repo_for_navigation(root):
+    if restrict_files is not None:
+        files: Iterable[Path] = (root_r / rel for rel in restrict_files)
+    else:
+        files = _walk_repo_for_navigation(root)
+    for p in files:
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
         lang = _detect_language(str(p))
         patterns = _DEFINITION_PATTERNS.get(lang)
         if not patterns:
@@ -8162,7 +8210,6 @@ def _regex_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
             source = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
         for lineno, line in enumerate(source.splitlines(), 1):
             stripped = line.strip()
             for kind, pattern in patterns:
@@ -8184,8 +8231,17 @@ def _regex_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
     return results
 
 
-def _css_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
-    """Find CSS/SCSS class, ID, custom-property, keyframe, and mixin definitions."""
+def _css_definitions(
+    root: Path,
+    symbol: str,
+    *,
+    restrict_files: frozenset[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Find CSS/SCSS class, ID, custom-property, keyframe, and mixin definitions.
+
+    When ``restrict_files`` is non-None, the repo walk is skipped — file paths are
+    constructed directly from the restriction set.
+    """
     results: list[dict[str, Any]] = []
     root_r = root.resolve()
     structural_patterns = (
@@ -8193,7 +8249,12 @@ def _css_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
         ("keyframes",       _CSS_KEYFRAME_RE),
         ("mixin",           _CSS_MIXIN_RE),
     )
-    for p in _walk_repo_for_navigation(root):
+    if restrict_files is not None:
+        files: Iterable[Path] = (root_r / rel for rel in restrict_files)
+    else:
+        files = _walk_repo_for_navigation(root)
+    for p in files:
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
         lang = _detect_language(str(p))
         if lang not in {"css", "scss"}:
             continue
@@ -8201,7 +8262,6 @@ def _css_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
             source = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
         for lineno, line in enumerate(source.splitlines(), 1):
             stripped = line.strip()
             if not stripped or stripped.startswith("//") or stripped.startswith("/*"):
@@ -8238,21 +8298,23 @@ def _css_definitions(root: Path, symbol: str) -> list[dict[str, Any]]:
     return results
 
 
-def _non_python_references(root: Path, symbol: str) -> list[dict[str, Any]]:
-    """Find references to *symbol* across non-Python files via text search."""
+def _non_python_references(root: Path, symbol: str, *, restrict_files: frozenset[str] | None = None, _files: list | None = None) -> list[dict[str, Any]]:
+    """Find references to *symbol* across non-AST-parsed files via text search."""
     results: list[dict[str, Any]] = []
     root_r = root.resolve()
     pattern = _symbol_search_pattern(symbol)
     sql_variants = _sql_symbol_variants(symbol) if "." in symbol else {symbol}
-    for p in _walk_repo_for_navigation(root):
-        lang = _detect_language(str(p))
+    for p in (_files if _files is not None else _walk_repo_for_navigation(root)):
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+        lang = _detect_language(rel)
         if lang == "python":
+            continue
+        if restrict_files is not None and rel not in restrict_files:
             continue
         try:
             source = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
         for lineno, line in enumerate(source.splitlines(), 1):
             if lang == "sql" and sql_variants:
                 matched = any(
@@ -8477,32 +8539,127 @@ def _apply_reference_filters(
     return filtered, filtered_counts, all_counts, detail_filtered_counts, detail_all_counts
 
 
+def _graph_definition_candidate_files(root: Path, symbol: str) -> frozenset[str] | None:
+    """Return candidate file set from graph nodes whose label/id matches symbol.
+
+    Returns:
+        - ``None`` when the graph index is absent or fails to load — signals caller to
+          fall back to full repo walk.
+        - ``frozenset()`` (empty) when graph is present but no nodes match — caller
+          should also fall back, since the symbol may be in code added since the last
+          graph build.
+        - A non-empty frozenset of repo-relative ``source_file`` paths when graph
+          candidates match. Mirrors the scanner predicate ``name == symbol or
+          symbol in name`` so substring queries still resolve.
+
+    Implementation of wave 12xr3 / 1301h: short-circuits the four-pass full repo walk
+    for the common case where the symbol is in the graph.
+    """
+    try:
+        gq = _load_graph_query()
+        index = gq.GraphQueryIndex.from_root(root, layer="project")
+    except Exception:
+        return None
+    if not index.present:
+        return None
+    suffix_key = f"::{symbol}"
+    files: set[str] = set()
+    for nid, node in index._node_by_id.items():
+        label = str(node.get("label") or "")
+        # Mirror scanner predicate: exact match, suffix on id, or substring on label
+        if label == symbol or nid.endswith(suffix_key) or symbol in label:
+            sf = node.get("source_file")
+            if isinstance(sf, str) and sf:
+                files.add(sf)
+    return frozenset(files)
+
+
 def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[str, Any]:
-    """Find definition(s) for a symbol across Python AST and supported non-Python regex matchers."""
+    """Find definition(s) for a symbol across all supported languages using best available parser."""
     symbol = symbol_or_path_position.strip()
     retry_symbol = _sql_schema_retry_symbol(symbol)
     if not symbol:
         return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("invalid_arguments", "Symbol must be a non-empty string.")], next_tools=["code_keyword"], usage="code_keyword(query='MyClass')")
+    # Wave 12xr3 / 1301h: consult the graph to narrow the file set before scanning.
+    candidate_files = _graph_definition_candidate_files(root, symbol)
+    graph_present = candidate_files is not None
+    if not graph_present:
+        # Graph never built — emit an advisory diagnostic but degrade gracefully.
+        # The pre-1301h full structural walk was 40+s (4 × walk_repo); we skip it
+        # and go straight to the keyword fallback (single walk, ~10s) so the
+        # response is bounded. Operators see the diagnostic and can run
+        # wave_index_build(content='graph') to enable the fast path on next call.
+        graph_missing_diagnostic = _diagnostic(
+            "graph_index_missing_degraded",
+            "Graph index is not built. `code_definition` is running in degraded mode (keyword fallback, ~10s). For sub-300ms lookups, run `wave_index_build(content='graph')` once.",
+            recovery_tools=["wave_index_build"],
+            recovery_usage="wave_index_build(content='graph', mode='create')",
+        )
+        lookup_method = "graph_index_missing_degraded"
+    else:
+        graph_missing_diagnostic = None
+        lookup_method = "graph_narrowed" if candidate_files else "graph_refresh_pending"
+    # When the graph is present but had no match, try a cheap incremental
+    # graph update — recently-added code is a common case and refresh is ~4ms
+    # when nothing has changed. Skip when graph was absent entirely.
+    refresh_attempted = False
+    if graph_present and not candidate_files:
+        try:
+            wave_index_build_response(root, content="graph", mode="update")
+            refresh_attempted = True
+            refreshed = _graph_definition_candidate_files(root, symbol)
+            if refreshed:
+                candidate_files = refreshed
+                lookup_method = "graph_narrowed_after_refresh"
+        except Exception:
+            # Refresh attempt is best-effort; if it fails, fall through to definitive-not-found
+            pass
+    # When the graph is present and the incremental refresh confirmed no match,
+    # the graph is the source of truth — skip the structural full walk and the
+    # keyword fallback. Return a fast not-found response with a clear recovery hint.
+    if refresh_attempted and not candidate_files:
+        return _response(
+            "ok",
+            {"symbol": symbol, "definitions": [], "method": "graph_definitive_not_found", "lookup_method": "graph_definitive_not_found"},
+            diagnostics=[_diagnostic(
+                "not_found",
+                f"No definition for '{symbol}' in the project graph (refreshed). If the symbol is in a file type the graph does not index, fall back to code_keyword.",
+                recovery_tools=["code_keyword"],
+                recovery_usage=f"code_keyword(query={symbol!r})",
+            )],
+            next_tools=["code_keyword"],
+            usage=f"code_keyword(query={symbol!r})",
+        )
+    # When graph is absent, fall back to the pre-1301h structural full walk so the
+    # tests and callers that rely on `name`-bearing structural definitions still
+    # work. The advisory diagnostic above ("graph_index_missing_degraded") tells
+    # the operator to run wave_index_build(content='graph') to switch to the fast
+    # graph-narrowed path.
+    restrict = candidate_files if candidate_files else None
     try:
-        python_definitions = _python_definitions(root, symbol)
-        treesitter_definitions = _treesitter_definition_results(root, symbol)
-        regex_definitions = _regex_definitions(root, symbol)
-        css_definitions = _css_definitions(root, symbol)
+        python_definitions = _python_definitions(root, symbol, restrict_files=restrict)
+        treesitter_definitions = _treesitter_definition_results(root, symbol, restrict_files=restrict)
+        regex_definitions = _regex_definitions(root, symbol, restrict_files=restrict)
+        css_definitions = _css_definitions(root, symbol, restrict_files=restrict)
     except Exception as exc:
-        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Definition search failed: {exc}")], next_tools=["code_keyword"], usage=f"code_keyword(query={symbol!r})")
+        return _response("error", {"symbol": symbol, "lookup_method": lookup_method}, diagnostics=[_diagnostic("navigation_error", f"Definition search failed: {exc}")], next_tools=["code_keyword"], usage=f"code_keyword(query={symbol!r})")
     definitions = _dedupe_navigation_results(
         python_definitions + treesitter_definitions + regex_definitions + css_definitions,
         ("path", "line", "language", "name"),
     )
     note = None
     if not definitions and retry_symbol is not None:
+        retry_candidates = _graph_definition_candidate_files(root, retry_symbol)
+        retry_restrict = retry_candidates if retry_candidates else None
+        if retry_candidates is not None and not retry_candidates:
+            lookup_method = "full_walk"  # retry path falls through full-walk too
         try:
-            python_definitions = _python_definitions(root, retry_symbol)
-            treesitter_definitions = _treesitter_definition_results(root, retry_symbol)
-            regex_definitions = _regex_definitions(root, retry_symbol)
-            css_definitions = _css_definitions(root, retry_symbol)
+            python_definitions = _python_definitions(root, retry_symbol, restrict_files=retry_restrict)
+            treesitter_definitions = _treesitter_definition_results(root, retry_symbol, restrict_files=retry_restrict)
+            regex_definitions = _regex_definitions(root, retry_symbol, restrict_files=retry_restrict)
+            css_definitions = _css_definitions(root, retry_symbol, restrict_files=retry_restrict)
         except Exception as exc:
-            return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Definition search failed: {exc}")], next_tools=["code_keyword"], usage=f"code_keyword(query={symbol!r})")
+            return _response("error", {"symbol": symbol, "lookup_method": lookup_method}, diagnostics=[_diagnostic("navigation_error", f"Definition search failed: {exc}")], next_tools=["code_keyword"], usage=f"code_keyword(query={symbol!r})")
         definitions = _dedupe_navigation_results(
             python_definitions + treesitter_definitions + regex_definitions + css_definitions,
             ("path", "line", "language", "name"),
@@ -8514,10 +8671,12 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
         languages = sorted({d.get("language") for d in definitions if d.get("language")})
         definition_methods = {d.get("method") for d in definitions}
         method = "multi_language"
+        structural_diagnostics = [graph_missing_diagnostic] if graph_missing_diagnostic is not None else []
         if definition_methods == {"ast"}:
             return _response(
                 "ok",
-                {"symbol": symbol, "language": "python", "definitions": definitions, "supported_languages": sorted(_SUPPORTED_DEFINITION_LANGS), "method": "ast", **({"note": note} if note else {})},
+                {"symbol": symbol, "language": "python", "definitions": definitions, "supported_languages": sorted(_SUPPORTED_DEFINITION_LANGS), "method": "ast", "lookup_method": lookup_method, **({"note": note} if note else {})},
+                diagnostics=structural_diagnostics,
                 next_tools=["code_read"],
                 usage=f"code_read(path={definitions[0]['path']!r}, start_line={definitions[0]['line']}, end_line={definitions[0]['line'] + 20})",
             )
@@ -8533,8 +8692,10 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
                     "supported_languages": sorted(_SUPPORTED_DEFINITION_LANGS),
                     "method": method,
                     "languages": languages,
+                    "lookup_method": lookup_method,
                     **({"note": note} if note else {}),
                 },
+                diagnostics=structural_diagnostics,
                 next_tools=["code_read"],
                 usage=f"code_read(path={definitions[0]['path']!r}, start_line={definitions[0]['line']}, end_line={definitions[0]['line'] + 20})",
             )
@@ -8543,18 +8704,24 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
     try:
         fallback = _keyword_fallback_definitions(root, fallback_symbol)
     except Exception as exc:
-        return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Fallback search failed: {exc}")], next_tools=["code_keyword"], usage=f"code_keyword(query={symbol!r})")
+        return _response("error", {"symbol": symbol, "lookup_method": lookup_method}, diagnostics=[_diagnostic("navigation_error", f"Fallback search failed: {exc}")], next_tools=["code_keyword"], usage=f"code_keyword(query={symbol!r})")
+    fallback_diagnostics: list[dict[str, Any]] = []
+    if graph_missing_diagnostic is not None:
+        fallback_diagnostics.append(graph_missing_diagnostic)
+    fallback_lookup_method = lookup_method if not graph_present else "keyword_fallback"
     if not fallback:
+        fallback_diagnostics.append(_diagnostic("not_found", f"No definition found for '{symbol}' in any language.", recovery_tools=["code_keyword"], recovery_usage=f"code_keyword(query={symbol!r})"))
         return _response(
             "ok",
-            {"symbol": symbol, "definitions": [], "method": "keyword_fallback"},
-            diagnostics=[_diagnostic("not_found", f"No definition found for '{symbol}' in any language.", recovery_tools=["code_keyword"], recovery_usage=f"code_keyword(query={symbol!r})")],
+            {"symbol": symbol, "definitions": [], "method": "keyword_fallback", "lookup_method": fallback_lookup_method},
+            diagnostics=fallback_diagnostics,
             next_tools=["code_keyword"],
             usage=f"code_keyword(query={symbol!r})",
         )
     return _response(
         "ok",
-        {"symbol": symbol, "definitions": fallback, "method": "keyword_fallback", "note": note or (f"Retried lookup with schema-stripped SQL symbol '{retry_symbol}'." if retry_symbol else "No structural definition matcher found a result. Returning broad keyword matches across the repo.")},
+        {"symbol": symbol, "definitions": fallback, "method": "keyword_fallback", "lookup_method": fallback_lookup_method, "note": note or (f"Retried lookup with schema-stripped SQL symbol '{retry_symbol}'." if retry_symbol else "No structural definition matcher found a result. Returning broad keyword matches across the repo.")},
+        diagnostics=fallback_diagnostics,
         next_tools=["code_read"],
         usage=f"code_read(path={fallback[0]['path']!r}, start_line={fallback[0]['line']}, end_line={fallback[0]['line'] + 20})",
     )
@@ -8576,10 +8743,21 @@ def code_references_response(
         return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("invalid_arguments", "Symbol must be a non-empty string.")], next_tools=["code_keyword"], usage="code_keyword(query='my_func')")
     if limit is not None and limit < 0:
         return _response("error", {"symbol": symbol, "limit": limit}, diagnostics=[_diagnostic("invalid_arguments", "limit must be a non-negative integer or omitted.")], next_tools=["code_help"], usage="code_help()")
+    restrict_files = _graph_references_candidate_files(root, symbol)
+    # Wave 1304x / 1304r: refresh-then-recheck on graph miss before falling through to walk.
+    if restrict_files is None:
+        refreshed = _graph_refresh_then_recheck(root, lambda: _graph_references_candidate_files(root, symbol))
+        if refreshed is not None:
+            restrict_files = refreshed
+    # When graph gives candidate files, build the Path list once — avoids 4× repo walks
+    _ref_files: list | None = (
+        [root / rel for rel in sorted(restrict_files) if (root / rel).is_file()]
+        if restrict_files is not None else None
+    )
     try:
-        python_refs = _python_references(root, symbol)
-        treesitter_refs = _treesitter_references(root, symbol)
-        other_refs = _non_python_references(root, symbol)
+        python_refs = _python_references(root, symbol, restrict_files=restrict_files, _files=_ref_files)
+        treesitter_refs = _treesitter_references(root, symbol, restrict_files=restrict_files, _files=_ref_files)
+        other_refs = _non_python_references(root, symbol, restrict_files=restrict_files, _files=_ref_files)
     except Exception as exc:
         return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Reference search failed: {exc}")], next_tools=["code_keyword"], usage=f"code_keyword(query={symbol!r})")
     refs = _dedupe_navigation_results(
@@ -8649,6 +8827,7 @@ def code_references_response(
                     "exclude_docs": exclude_docs,
                     "call_sites_only": call_sites_only,
                     "limit": limit,
+                    "graph_assisted": restrict_files is not None,
                 },
                 next_tools=["code_read"],
                 usage=f"code_read(path='...', start_line=N, end_line=N+20)",
@@ -8681,15 +8860,21 @@ def code_references_response(
                 "exclude_docs": exclude_docs,
                 "call_sites_only": call_sites_only,
                 "limit": limit,
+                "graph_assisted": restrict_files is not None,
             },
             next_tools=["code_read"],
             usage=f"code_read(path='...', start_line=N, end_line=N+20)",
         )
     if retry_symbol is not None:
+        retry_restrict = _graph_references_candidate_files(root, retry_symbol)
+        _retry_files: list | None = (
+            [root / rel for rel in sorted(retry_restrict) if (root / rel).is_file()]
+            if retry_restrict is not None else None
+        )
         try:
-            python_refs = _python_references(root, retry_symbol)
-            treesitter_refs = _treesitter_references(root, retry_symbol)
-            other_refs = _non_python_references(root, retry_symbol)
+            python_refs = _python_references(root, retry_symbol, restrict_files=retry_restrict, _files=_retry_files)
+            treesitter_refs = _treesitter_references(root, retry_symbol, restrict_files=retry_restrict, _files=_retry_files)
+            other_refs = _non_python_references(root, retry_symbol, restrict_files=retry_restrict, _files=_retry_files)
         except Exception as exc:
             return _response("error", {"symbol": symbol}, diagnostics=[_diagnostic("navigation_error", f"Reference search failed: {exc}")], next_tools=["code_keyword"], usage=f"code_keyword(query={symbol!r})")
         refs = _dedupe_navigation_results(
@@ -8871,53 +9056,14 @@ def code_references_response(
 # code_callhierarchy — call graph for a symbol (depth 1)
 # ---------------------------------------------------------------------------
 
-MAX_CALLHIERARCHY_OUTGOING = 30
-MAX_CALLHIERARCHY_INCOMING = 50
-
-
-def _extract_outgoing_calls(root: Path, symbol: str, definitions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Extract function calls made within the body of *symbol*."""
-    calls: dict[str, dict[str, Any]] = {}
-    for defn in definitions:
-        defn_path = defn.get("path", "")
-        start_line = defn.get("line", 1)
-        end_line = defn.get("end_line") or defn.get("line", start_line)
-        if not defn_path:
-            continue
-        abs_path = _resolve_repo_path(root, defn_path)
-        if abs_path is None:
-            continue
-        try:
-            source = abs_path.read_text(encoding="utf-8", errors="replace")
-        except (OSError, UnicodeDecodeError):
-            continue
-        lines = source.splitlines()
-        body_lines = lines[max(0, start_line - 1): end_line]
-        body = "\n".join(body_lines)
-        found: set[str] = set()
-        for m in _RE_CALL.finditer(body):
-            found.add(m.group(1))
-        for m in _RE_SQL_EXEC.finditer(body):
-            found.add(m.group(1))
-        for name in found:
-            if name in _SYMBOL_BLOCKLIST:
-                continue
-            if name == symbol:
-                continue
-            if name not in calls:
-                calls[name] = {"name": name, "file": defn_path, "line": None}
-        if len(calls) >= MAX_CALLHIERARCHY_OUTGOING:
-            break
-    return list(calls.values())[:MAX_CALLHIERARCHY_OUTGOING]
-
-
 def code_callhierarchy_response(
     root: Path,
     symbol: str,
     file: Optional[str] = None,
     direction: str = "both",
+    context_depth: int = 0,
 ) -> dict[str, Any]:
-    """Return the call hierarchy for a symbol: outgoing calls and/or incoming callers."""
+    """Return the call hierarchy for a symbol using the persisted graph."""
     if direction not in {"both", "outgoing", "incoming"}:
         return _response(
             "error", {"symbol": symbol, "direction": direction},
@@ -8932,44 +9078,197 @@ def code_callhierarchy_response(
         )
     symbol = symbol.strip()
 
-    # Get definitions
-    def_resp = code_definition_response(root, symbol)
-    definitions: list[dict[str, Any]] = []
-    parser_used = "regex"
-    if def_resp.get("status") == "ok":
-        definitions = def_resp["data"].get("definitions", [])
-        parser_used = def_resp["data"].get("method", "regex")
+    gq = _load_graph_query()
+    try:
+        index = gq.GraphQueryIndex.from_root(root, layer="project")
+    except Exception as exc:
+        return _response(
+            "error", {"symbol": symbol},
+            diagnostics=[_diagnostic("graph_error", f"Failed to load graph: {exc}")],
+            next_tools=["wave_index_build"],
+            usage="wave_index_build(content='graph', mode='create')",
+        )
 
+    if not index.present:
+        return _response(
+            "error", {"symbol": symbol},
+            diagnostics=[gq.graph_not_ready_diagnostic("project")],
+            next_tools=["wave_index_build"],
+            usage="wave_index_build(content='graph', mode='create')",
+        )
+
+    # Resolve symbol — prefer file-qualified node when file is given
+    node_id: Optional[str] = None
     if file:
-        definitions = [d for d in definitions if d.get("path", "") == file] or definitions
+        candidate = f"{file}::{symbol}"
+        if index.get_node(candidate) is not None:
+            node_id = candidate
+    if node_id is None:
+        node_id = index.resolve_symbol(symbol)
+
+    if node_id is None:
+        # Wave 1304x / 1304r: refresh-then-resolve before emitting suggestions
+        new_index, refreshed_id = _graph_refresh_and_resolve(root, symbol)
+        if refreshed_id is not None:
+            index = new_index
+            node_id = refreshed_id
+
+    if node_id is None:
+        suggestions = _suggest_near_symbols(index, symbol)
+        data: dict[str, Any] = {"symbol": symbol, "node_id": None, "definition_file": None, "parser_used": "graph", "suggestions": suggestions}
+        if direction in {"both", "outgoing"}:
+            data["outgoing"] = []
+        if direction in {"both", "incoming"}:
+            data["incoming"] = []
+        return _response(
+            "ok", data,
+            diagnostics=[_diagnostic(
+                "graph_symbol_not_found",
+                f"Symbol '{symbol}' does not resolve to a graph node (refresh attempted).",
+                recovery_tools=["code_keyword", "wave_index_build"],
+                recovery_usage=f"code_keyword(query={symbol!r})",
+            )],
+            next_tools=["wave_index_build"], usage="wave_index_build(content='graph', mode='create')",
+        )
+
+    node = index.get_node(node_id) or {}
+    definition_file = node.get("source_file") or (node_id.split("::")[0] if "::" in node_id else node_id)
+    _cloc = node.get("source_location") or "0:0"
+    try:
+        _current_start = int(str(_cloc).split(":")[0])
+    except (ValueError, IndexError):
+        _current_start = 0
 
     data: dict[str, Any] = {
         "symbol": symbol,
-        "definition_file": definitions[0]["path"] if definitions else None,
-        "parser_used": parser_used,
+        "node_id": node_id,
+        "definition_file": definition_file,
+        "parser_used": "graph",
     }
 
+    community_lookup = _load_cluster_lookup(root)
+
+    def _node_entry(nid: str) -> dict[str, Any]:
+        n = index.get_node(nid) or {}
+        label = n.get("label") or (nid.split("::")[-1] if "::" in nid else nid)
+        src = n.get("source_file") or (nid.split("::")[0] if "::" in nid else nid)
+        loc = n.get("source_location") or "0:0"
+        try:
+            start_line = int(str(loc).split(":")[0])
+        except (ValueError, IndexError):
+            start_line = 0
+        return {"name": label, "file": src, "line": None, "snippet": None, "community": community_lookup.get(nid), "_start_line": start_line}
+
     if direction in {"both", "outgoing"}:
-        outgoing = _extract_outgoing_calls(root, symbol, definitions)
+        _, out_edges, _ = index.traverse(node_id, relations=["calls"], max_hops=1, direction="callees")
+        out_entries: list[tuple[str, dict[str, Any]]] = []
+        for e in out_edges:
+            tgt = e.get("target")
+            if not isinstance(tgt, str):
+                continue
+            out_entries.append((tgt, _node_entry(tgt)))
+        # Batch: scan definition_file once for all non-external callees
+        if definition_file:
+            callee_names = [
+                entry["name"] for tgt_id, entry in out_entries
+                if not tgt_id.startswith("external::")
+            ]
+            all_out_sites = _scan_all_call_sites_in_file(root, callee_names, definition_file)
+        else:
+            all_out_sites = {}
+        outgoing: list[dict[str, Any]] = []
+        for tgt_id, entry in out_entries:
+            if not tgt_id.startswith("external::") and definition_file:
+                sites = all_out_sites.get(entry["name"], [])
+                ref = _first_call_site_at_or_after(sites, _current_start)
+                if ref:
+                    entry["line"] = ref["line"]
+                    entry["snippet"] = ref.get("snippet")
+            entry.pop("_start_line", None)
+            outgoing.append(entry)
         data["outgoing"] = outgoing
 
     if direction in {"both", "incoming"}:
-        ref_resp = code_references_response(
-            root, symbol, call_sites_only=True, limit=MAX_CALLHIERARCHY_INCOMING
-        )
-        incoming: list[dict[str, Any]] = []
-        if ref_resp.get("status") == "ok":
-            refs = ref_resp["data"].get("references", [])
-            for ref in refs:
-                incoming.append({
-                    "name": symbol,
-                    "file": ref.get("path", ""),
-                    "line": ref.get("line"),
-                    "snippet": ref.get("snippet", ""),
-                })
+        _, in_edges, _ = index.traverse(node_id, relations=["calls"], max_hops=1, direction="callers")
+        incoming_raw: list[tuple[str, dict[str, Any]]] = []
+        for e in in_edges:
+            src = e.get("source")
+            if not isinstance(src, str):
+                continue
+            incoming_raw.append((src, _node_entry(src)))
+
+        # Group by source file — scan each file once
+        by_file: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+        for src_id, entry in incoming_raw:
+            f = entry.get("file", "")
+            if f and not src_id.startswith("external::"):
+                by_file.setdefault(f, []).append((src_id, entry))
+
+        for source_file, file_entries in by_file.items():
+            sites = _scan_call_sites_in_file(root, symbol, source_file)
+            if not sites:
+                continue
+            # Sort callers by their definition start line to attribute call sites correctly
+            sorted_entries = sorted(file_entries, key=lambda x: x[1].get("_start_line", 0))
+            used_lines: set[int] = set()
+            for _src_id, entry in sorted_entries:
+                start_line = entry.get("_start_line", 0)
+                for ref in sites:
+                    line = ref.get("line") or 0
+                    if line >= start_line and line not in used_lines:
+                        entry["line"] = line
+                        entry["snippet"] = ref.get("snippet")
+                        used_lines.add(line)
+                        break
+
+        incoming = []
+        for _src_id, entry in incoming_raw:
+            entry.pop("_start_line", None)
+            incoming.append(entry)
         data["incoming"] = incoming
 
-    return _response("ok", data, next_tools=["code_read"], usage="code_read(...)")
+    if context_depth > 0:
+        # Gather all immediate caller/callee ids in one pass
+        immediate_ids: set[str] = set()
+        if direction in {"both", "outgoing"}:
+            for edges in (index._out.get(node_id, []),):
+                for e in edges:
+                    if e.get("relation") != "calls":
+                        continue
+                    tgt = e.get("target")
+                    if isinstance(tgt, str):
+                        immediate_ids.add(tgt)
+        if direction in {"both", "incoming"}:
+            for edges in (index._in.get(node_id, []),):
+                for e in edges:
+                    if e.get("relation") != "calls":
+                        continue
+                    src = e.get("source")
+                    if isinstance(src, str):
+                        immediate_ids.add(src)
+        immediate_ids.discard(node_id)
+        # Single combined one-hop expansion across all immediate neighbors
+        already_known = immediate_ids | {node_id}
+        neighborhood = index.one_hop_neighbors(immediate_ids, relations=["calls"])
+        context_entries: list[dict[str, Any]] = []
+        seen_context: set[str] = set()
+        for e in neighborhood.get("edges") or []:
+            for other in (e.get("source"), e.get("target")):
+                if not isinstance(other, str) or other in already_known or other in seen_context:
+                    continue
+                n = index.get_node(other) or {}
+                context_entries.append({
+                    "id": other,
+                    "label": n.get("label", other),
+                    "kind": n.get("kind"),
+                    "source_file": n.get("source_file"),
+                    "community": community_lookup.get(other),
+                    "relation": e.get("relation"),
+                })
+                seen_context.add(other)
+        data["context"] = context_entries
+
+    return _response("ok", data, next_tools=["code_read", "code_callgraph"], usage=f"code_callgraph(symbol={symbol!r}, direction='both')")
 
 
 # ---------------------------------------------------------------------------
@@ -9162,7 +9461,7 @@ def _match_import_to_target(import_entry: dict[str, Any], target_rel: str, impor
     return False
 
 
-def code_impact_response(root: Path, path: str, max_results: int = 50) -> dict[str, Any]:
+def _code_impact_heuristic_response(root: Path, path: str, max_results: int = 50) -> dict[str, Any]:
     """Find all files that import a given file (reverse dependency analysis)."""
     resolved = _resolve_repo_path(root, path)
     if resolved is None:
@@ -9237,6 +9536,952 @@ def code_impact_response(root: Path, path: str, max_results: int = 50) -> dict[s
         },
         next_tools=["code_read"],
         usage=f"code_read(path='{target_rel}')",
+    )
+
+
+# ---------------------------------------------------------------------------
+# graph_query — structural graph traversal (12xs4-feat)
+# ---------------------------------------------------------------------------
+
+def _load_graph_query():
+    return _load_script("graph_query")
+
+
+def _suggest_near_symbols(index: Any, query: str, n: int = 3) -> list[dict[str, Any]]:
+    """Return up to n near-match candidates when resolve_symbol() returned None.
+
+    Candidates are ranked by match quality: exact suffix/id > label exact > id substring >
+    label substring > all-tokens in id > all-tokens in label. Tokens are derived by splitting
+    on whitespace and underscores so 'load cluster' matches `_load_cluster_lookup` and
+    'shortest path' matches `shortest_path`. Within each tier, shorter ids rank first.
+    Called only on error paths; O(N) scan is acceptable for infrequent miss recovery.
+    """
+    query_lower = query.strip().lower()
+    if not query_lower:
+        return []
+    suffix_key = f"::{query_lower}"
+    tokens = [t for t in re.split(r"[\s_]+", query_lower) if t]
+    multi_token = len(tokens) > 1
+    # Six quality buckets, highest confidence first.
+    buckets: list[list[tuple[int, str, dict[str, Any]]]] = [[], [], [], [], [], []]
+    for nid, node in index._node_by_id.items():
+        nid_lower = nid.lower()
+        label_lower = str(node.get("label") or "").lower()
+        if nid_lower.endswith(suffix_key) or nid_lower == query_lower:
+            buckets[0].append((len(nid), nid, node))
+        elif label_lower == query_lower:
+            buckets[1].append((len(nid), nid, node))
+        elif query_lower in nid_lower:
+            buckets[2].append((len(nid), nid, node))
+        elif query_lower in label_lower:
+            buckets[3].append((len(nid), nid, node))
+        elif multi_token and all(tok in nid_lower for tok in tokens):
+            buckets[4].append((len(nid), nid, node))
+        elif multi_token and all(tok in label_lower for tok in tokens):
+            buckets[5].append((len(nid), nid, node))
+    results: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for bucket in buckets:
+        for _, nid, node in sorted(bucket, key=lambda x: x[0]):
+            if nid not in seen:
+                results.append({"id": nid, "label": node.get("label", nid), "kind": node.get("kind")})
+                seen.add(nid)
+            if len(results) >= n:
+                return results
+    return results
+
+
+def _suggest_near_communities(
+    communities: list[dict[str, Any]], query: str, n: int = 5
+) -> list[dict[str, Any]]:
+    """Return up to n near-match communities ranked by id/label substring then node count."""
+    query_lower = (query or "").strip().lower()
+    # Buckets: 0=substring in community_id, 1=substring in label, 2=fallback by size
+    buckets: list[list[tuple[int, dict[str, Any]]]] = [[], [], []]
+    for c in communities:
+        cid = str(c.get("community_id") or "")
+        if not cid:
+            continue
+        label = str(c.get("label") or "")
+        node_count = int(c.get("node_count") or 0)
+        entry = {"community_id": cid, "label": label, "node_count": node_count}
+        if query_lower and query_lower in cid.lower():
+            buckets[0].append((-node_count, entry))
+        elif query_lower and query_lower in label.lower():
+            buckets[1].append((-node_count, entry))
+        else:
+            buckets[2].append((-node_count, entry))
+    results: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for bucket in buckets:
+        for _, entry in sorted(bucket, key=lambda x: x[0]):
+            cid = entry["community_id"]
+            if cid in seen:
+                continue
+            results.append(entry)
+            seen.add(cid)
+            if len(results) >= n:
+                return results
+    return results
+
+
+def _load_cluster_lookup(root: Path, layer: str = "project") -> dict[str, str]:
+    """Return node_id → community_label mapping from the cluster artifact.
+
+    Returns an empty dict when the artifact is absent or cannot be loaded.
+    """
+    try:
+        gc = _load_script("graph_cluster")
+        payload = gc.read_cluster_payload(root, layer)
+        if not payload.get("present"):
+            return {}
+        lookup: dict[str, str] = {}
+        for community in (payload.get("communities") or []):
+            label = str(community.get("label") or "")
+            for nid in (community.get("node_ids") or []):
+                lookup[str(nid)] = label
+        return lookup
+    except Exception:
+        return {}
+
+
+def _graph_references_candidate_files(root: Path, symbol: str) -> frozenset[str] | None:
+    """Return files the graph says reference symbol, or None if graph unavailable/empty."""
+    try:
+        gq = _load_graph_query()
+        index = gq.GraphQueryIndex.from_root(root, layer="project")
+        if not index.present:
+            return None
+        node_id = index.resolve_symbol(symbol)
+        if node_id is None:
+            return None
+        files: set[str] = set()
+        for edge in index._in.get(node_id, []):
+            src = edge.get("source")
+            if not isinstance(src, str) or src.startswith("external::"):
+                continue
+            src_node = index.get_node(src)
+            if src_node:
+                sf = src_node.get("source_file")
+                if isinstance(sf, str) and sf:
+                    files.add(sf)
+            elif "::" in src:
+                files.add(src.split("::")[0])
+            else:
+                files.add(src)
+        return frozenset(files) if files else None
+    except Exception:
+        return None
+
+
+def _scan_call_sites_in_file(root: Path, callee_label: str, source_file: str) -> list[dict[str, Any]]:
+    """Scan source_file for call sites of callee_label. Returns list sorted by line."""
+    p = root / source_file
+    if not p.is_file():
+        return []
+    files = [p]
+    restrict = frozenset({source_file})
+    if source_file.endswith(".py"):
+        refs = _python_reference_call_sites(root, callee_label, restrict_files=restrict, _files=files)
+    else:
+        ts_refs = _treesitter_references(root, callee_label, restrict_files=restrict, _files=files)
+        refs = [r for r in ts_refs if r.get("reference_kind") == "call_sites"]
+        if not refs:
+            text_refs = _non_python_references(root, callee_label, restrict_files=restrict, _files=files)
+            refs = [r for r in text_refs if r.get("reference_kind") == "call_sites"]
+    return sorted(refs, key=lambda r: r.get("line") or 0)
+
+
+def _scan_all_call_sites_in_file(
+    root: Path, callee_labels: list[str], source_file: str
+) -> dict[str, list[dict[str, Any]]]:
+    """Scan source_file once for all callee_labels. Returns dict: label → sorted call sites."""
+    if not callee_labels:
+        return {}
+    p = root / source_file
+    result: dict[str, list[dict[str, Any]]] = {label: [] for label in callee_labels}
+    if not p.is_file():
+        return result
+    label_set = set(callee_labels)
+    if source_file.endswith(".py"):
+        import ast as _ast
+        try:
+            source = p.read_text(encoding="utf-8", errors="replace")
+            tree = _ast.parse(source, filename=str(p))
+        except (SyntaxError, OSError):
+            return result
+        lines = source.splitlines()
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.Call):
+                continue
+            func = node.func
+            matched_label: str | None = None
+            if isinstance(func, _ast.Name) and func.id in label_set:
+                matched_label = func.id
+            elif isinstance(func, _ast.Attribute) and func.attr in label_set:
+                matched_label = func.attr
+            if matched_label is None:
+                continue
+            line = getattr(node, "lineno", 0)
+            if line <= 0 or line > len(lines):
+                continue
+            result[matched_label].append({
+                "path": source_file,
+                "line": line,
+                "snippet": lines[line - 1].rstrip(),
+                "language": "python",
+                "method": "ast",
+                "reference_kind": "call_sites",
+            })
+        for label in result:
+            result[label].sort(key=lambda r: r.get("line") or 0)
+    else:
+        files = [p]
+        restrict = frozenset({source_file})
+        for label in callee_labels:
+            ts_refs = _treesitter_references(root, label, restrict_files=restrict, _files=files)
+            refs = [r for r in ts_refs if r.get("reference_kind") == "call_sites"]
+            if not refs:
+                text_refs = _non_python_references(root, label, restrict_files=restrict, _files=files)
+                refs = [r for r in text_refs if r.get("reference_kind") == "call_sites"]
+            result[label] = sorted(refs, key=lambda r: r.get("line") or 0)
+    return result
+
+
+def _first_call_site_at_or_after(call_sites: list[dict[str, Any]], start_line: int) -> dict[str, Any] | None:
+    """Return first call site at or after start_line, or None if none found."""
+    for ref in call_sites:
+        if (ref.get("line") or 0) >= start_line:
+            return ref
+    return None
+
+
+def _graph_layer_value(layer: str) -> str:
+    normalized = (layer or "project").strip().lower()
+    if normalized not in ("project", "framework", "union"):
+        raise ValueError(f"Unsupported graph layer: {layer}")
+    return normalized
+
+
+def _maybe_append_graph_neighbors(
+    response: dict[str, Any],
+    root: Path,
+    *,
+    graph: bool,
+    node_ids: list[str],
+    layer: str = "project",
+    max_nodes: int = 50,
+) -> dict[str, Any]:
+    if not graph or response.get("status") != "ok":
+        return response
+    unique_ids = [nid for nid in dict.fromkeys(node_ids) if nid]
+    if not unique_ids:
+        return response
+    try:
+        gq = _load_graph_query()
+        index = gq.GraphQueryIndex.from_root(root, layer=_graph_layer_value(layer))
+        if not index.present:
+            return response
+        neighbors = index.one_hop_neighbors(unique_ids)
+        if not neighbors.get("nodes"):
+            return response
+        if max_nodes > 0 and len(neighbors["nodes"]) > max_nodes:
+            kept_nodes = neighbors["nodes"][:max_nodes]
+            kept_ids = {n["id"] for n in kept_nodes if isinstance(n.get("id"), str)}
+            kept_edges = [
+                e for e in neighbors.get("edges") or []
+                if e.get("source") in kept_ids and e.get("target") in kept_ids
+            ]
+            neighbors = {**neighbors, "nodes": kept_nodes, "edges": kept_edges, "truncated": True}
+        data = dict(response.get("data") or {})
+        data["graph_neighbors"] = neighbors
+        return {**response, "data": data}
+    except Exception:
+        return response
+
+
+def _inject_timing(result: dict[str, Any], t_start: float, tool: str = "") -> dict[str, Any]:
+    total_ms = round((time.monotonic() - t_start) * 1000)
+    if tool:
+        _wf_log(f"[wavefoundry] {tool} timing: total={total_ms}ms")
+    data = dict(result.get("data") or {})
+    data["total_ms"] = total_ms
+    return {**result, "data": data}
+
+
+def _graph_seed_node_ids(data: dict[str, Any], tool: str) -> list[str]:
+    """Collect graph node id seeds from a tool response data payload."""
+    ids: list[str] = []
+    if tool in ("code_keyword", "code_search"):
+        for row in data.get("results") or []:
+            if isinstance(row, dict):
+                path = row.get("path")
+                if isinstance(path, str) and path:
+                    ids.append(path)
+    elif tool == "code_definition":
+        for row in data.get("definitions") or []:
+            if not isinstance(row, dict):
+                continue
+            path = row.get("path")
+            name = row.get("name")
+            if isinstance(path, str) and path:
+                if isinstance(name, str) and name:
+                    ids.append(f"{path}::{name}")
+                else:
+                    ids.append(path)
+    elif tool == "code_references":
+        for row in data.get("references") or []:
+            if isinstance(row, dict):
+                path = row.get("path")
+                if isinstance(path, str) and path:
+                    ids.append(path)
+    return ids
+
+
+def _graph_refresh_then_recheck(
+    root: Path,
+    recheck_fn: Callable[[], Any],
+) -> Any:
+    """Run an incremental graph update, then re-call ``recheck_fn`` and return its result.
+
+    Wave 1304x / 1304r: shared helper used by every graph-using MCP tool when its
+    initial graph query returns no result. Incremental refresh is ~4ms when nothing
+    has changed (measured during wave 12xr3 close-review), so it's cheap to attempt
+    inline. Returns ``None`` on any exception so callers fall through to their
+    existing not-found / suggestions path without surfacing the refresh error;
+    exceptions are logged to stderr via ``_wf_log`` so operators see real failures
+    rather than silent degradation.
+
+    Usage pattern:
+        candidate = primary_query(...)
+        if candidate is None or empty:
+            candidate = _graph_refresh_then_recheck(root, lambda: primary_query(...))
+            if candidate:
+                # found after refresh — proceed
+            else:
+                # genuinely missing — emit suggestions / not-found
+    """
+    try:
+        wave_index_build_response(root, content="graph", mode="update")
+    except Exception as exc:
+        _wf_log(f"[wavefoundry] graph refresh failed during recheck: {exc!r}")
+        return None
+    try:
+        return recheck_fn()
+    except Exception as exc:
+        _wf_log(f"[wavefoundry] recheck closure failed after graph refresh: {exc!r}")
+        return None
+
+
+def _graph_refresh_and_resolve(
+    root: Path,
+    symbol: str,
+    layer: str = "project",
+) -> tuple[Any, Optional[str]]:
+    """Refresh graph, reload index, resolve symbol — convenience for resolve-symbol callers.
+
+    Returns ``(fresh_index, node_id)`` on success or ``(None, None)`` on refresh
+    failure or symbol-still-missing. The caller should swap its existing ``index``
+    for ``fresh_index`` so subsequent traversal sees the new graph state (the
+    original ``index`` is a stale snapshot).
+
+    Note: returns ``(None, None)`` even when the refresh succeeded but the specific
+    symbol still doesn't resolve — callers that need the fresh index for *other*
+    symbols (e.g. ``code_graph_path`` with two symbols) should use
+    ``_graph_refresh_then_recheck`` directly with a recheck closure that returns
+    everything they need to reuse.
+    """
+    try:
+        wave_index_build_response(root, content="graph", mode="update")
+    except Exception as exc:
+        _wf_log(f"[wavefoundry] graph refresh failed during resolve: {exc!r}")
+        return None, None
+    try:
+        gq = _load_graph_query()
+        new_index = gq.GraphQueryIndex.from_root(root, layer=layer)
+    except Exception as exc:
+        _wf_log(f"[wavefoundry] graph index reload failed after refresh: {exc!r}")
+        return None, None
+    node_id = new_index.resolve_symbol(symbol)
+    if node_id is None:
+        return None, None
+    return new_index, node_id
+
+
+def _augment_with_graph_neighbors_if_enabled(
+    result: dict[str, Any],
+    root: Path,
+    *,
+    tool_key: str,
+    graph: bool,
+    graph_limit: int = 5,
+    layer: str = "project",
+) -> dict[str, Any]:
+    """Apply opt-out-able graph augmentation to a tool response.
+
+    Used by `code_keyword`, `code_search`, `code_definition`, `code_references`
+    MCP wrappers. Returns ``result`` unchanged when ``graph=False``. Otherwise
+    collects seed node ids via ``_graph_seed_node_ids(data, tool_key)``, caps
+    at ``graph_limit`` (default 5, ``0`` means no cap), and appends
+    ``graph_neighbors`` via ``_maybe_append_graph_neighbors``.
+
+    Extracted so the wrapper logic is unit-testable without invoking the
+    FastMCP tool registry (wave 12xr3 / 12xs5 wrapper-test gap closure).
+    """
+    if not graph:
+        return result
+    data = result.get("data") or {}
+    seeds = _graph_seed_node_ids(data, tool_key)
+    return _maybe_append_graph_neighbors(
+        result,
+        root,
+        graph=True,
+        node_ids=seeds[:graph_limit] if graph_limit > 0 else seeds,
+        layer=layer,
+    )
+
+
+def _code_impact_graph_response(
+    root: Path,
+    symbol: str,
+    *,
+    max_hops: int = 3,
+    layer: str = "project",
+    relations: Optional[list[str]] = None,
+    max_results: int = 50,
+    include_tests: bool = False,
+) -> dict[str, Any]:
+    gq = _load_graph_query()
+    try:
+        layer_value = _graph_layer_value(layer)
+    except ValueError as exc:
+        return _response(
+            "error",
+            {"symbol": symbol, "method": "graph"},
+            diagnostics=[_diagnostic("invalid_arguments", str(exc))],
+            next_tools=["wave_help"],
+            usage="code_impact(symbol='path::symbol', layer='project')",
+        )
+    index = gq.GraphQueryIndex.from_root(root, layer=layer_value)
+    if not index.present:
+        return _response(
+            "error",
+            {"symbol": symbol, "method": "graph", "layer": layer_value},
+            diagnostics=[gq.graph_not_ready_diagnostic(layer_value)],
+            next_tools=["wave_index_build"],
+            usage="wave_index_build(content='graph', mode='create')",
+        )
+    impact = index.graph_impact(symbol, max_hops=max(1, max_hops), relations=relations)
+    if not impact.get("resolved"):
+        # Wave 1304x / 1304r: refresh-then-resolve before emitting suggestions
+        new_index, refreshed_id = _graph_refresh_and_resolve(root, symbol, layer=layer_value if layer_value != "union" else "project")
+        if refreshed_id is not None:
+            index = new_index
+            impact = index.graph_impact(symbol, max_hops=max(1, max_hops), relations=relations)
+    if not impact.get("resolved"):
+        suggestions = _suggest_near_symbols(index, symbol)
+        return _response(
+            "error",
+            {"symbol": symbol, "method": "graph", "layer": layer_value, "suggestions": suggestions},
+            diagnostics=[_diagnostic(
+                "graph_symbol_not_found",
+                f"Symbol '{symbol}' does not resolve to a graph node (refresh attempted).",
+                recovery_tools=["code_definition", "code_keyword"],
+                recovery_usage=f"code_definition(symbol_or_path_position={symbol!r})",
+            )],
+            next_tools=["code_definition"],
+            usage=f"code_definition(symbol_or_path_position={symbol!r})",
+        )
+    community_lookup = _load_cluster_lookup(root, layer_value if layer_value != "union" else "project")
+    affected_raw = impact.get("affected") or []
+    if not include_tests:
+        affected_raw = [a for a in affected_raw if not _is_test_path(str(a.get("source_file") or ""))]
+    # Attach community field to each affected node
+    affected_enriched = [
+        {**a, "community": community_lookup.get(a.get("node_id", ""))} for a in affected_raw
+    ]
+    truncated = len(affected_enriched) > max_results
+    # Recompute affected_files after test filter
+    affected_files = sorted({str(a.get("source_file") or "") for a in affected_enriched if a.get("source_file")})
+    return _response(
+        "ok",
+        {
+            "symbol": symbol,
+            "node_id": impact.get("node_id"),
+            "layer": layer_value,
+            "method": "graph",
+            "max_hops": max_hops,
+            "relations": impact.get("relations") or [],
+            "include_tests": include_tests,
+            "affected": affected_enriched[:max_results],
+            "affected_files": affected_files,
+            "edges": impact.get("edges") or [],
+            "truncated": truncated,
+            "total_found": len(affected_enriched),
+        },
+        next_tools=["code_callgraph", "code_read"],
+        usage=f"code_callgraph(symbol={symbol!r}, direction='both')",
+    )
+
+
+def code_impact_response(
+    root: Path,
+    path: str = "",
+    max_results: int = 50,
+    *,
+    symbol: str = "",
+    max_hops: int = 3,
+    layer: str = "project",
+    relations: Optional[list[str]] = None,
+    include_tests: bool = False,
+) -> dict[str, Any]:
+    """Reverse dependency / impact analysis — heuristic (path) or graph-backed (symbol)."""
+    if symbol.strip():
+        return _code_impact_graph_response(
+            root,
+            symbol.strip(),
+            max_hops=max_hops,
+            layer=layer,
+            relations=relations,
+            max_results=max_results,
+            include_tests=include_tests,
+        )
+    if not path.strip():
+        return _response(
+            "error",
+            {"path": path, "symbol": symbol},
+            diagnostics=[_diagnostic("invalid_arguments", "Provide path= for heuristic mode or symbol= for graph mode.")],
+            next_tools=["code_impact"],
+            usage="code_impact(path='src/module.py')",
+        )
+    return _code_impact_heuristic_response(root, path, max_results)
+
+
+def code_callgraph_response(
+    root: Path,
+    symbol: str,
+    *,
+    depth: int = 1,
+    direction: str = "both",
+    layer: str = "project",
+    include_tests: bool = False,
+) -> dict[str, Any]:
+    gq = _load_graph_query()
+    try:
+        layer_value = _graph_layer_value(layer)
+    except ValueError as exc:
+        return _response(
+            "error",
+            {"symbol": symbol},
+            diagnostics=[_diagnostic("invalid_arguments", str(exc))],
+            next_tools=["wave_help"],
+            usage="code_callgraph(symbol='path::symbol')",
+        )
+    direction_value = (direction or "both").strip().lower()
+    if direction_value not in ("callers", "callees", "both"):
+        return _response(
+            "error",
+            {"symbol": symbol, "direction": direction},
+            diagnostics=[_diagnostic("invalid_arguments", "direction must be callers, callees, or both.")],
+            next_tools=["code_callgraph"],
+            usage="code_callgraph(symbol='path::symbol', direction='both')",
+        )
+    index = gq.GraphQueryIndex.from_root(root, layer=layer_value)
+    if not index.present:
+        return _response(
+            "error",
+            {"symbol": symbol, "layer": layer_value},
+            diagnostics=[gq.graph_not_ready_diagnostic(layer_value)],
+            next_tools=["wave_index_build"],
+            usage="wave_index_build(content='graph', mode='create')",
+        )
+    result = index.callgraph(symbol, depth=max(1, depth), direction=direction_value)  # type: ignore[arg-type]
+    if not result.get("resolved"):
+        # Wave 1304x / 1304r: refresh-then-resolve before emitting suggestions
+        new_index, refreshed_id = _graph_refresh_and_resolve(root, symbol, layer=layer_value)
+        if refreshed_id is not None:
+            index = new_index
+            result = index.callgraph(symbol, depth=max(1, depth), direction=direction_value)  # type: ignore[arg-type]
+    if not result.get("resolved"):
+        suggestions = _suggest_near_symbols(index, symbol)
+        return _response(
+            "error",
+            {"symbol": symbol, "layer": layer_value, "suggestions": suggestions},
+            diagnostics=[_diagnostic(
+                "graph_symbol_not_found",
+                f"Symbol '{symbol}' does not resolve to a graph node (refresh attempted).",
+                recovery_tools=["code_definition", "code_keyword"],
+                recovery_usage=f"code_definition(symbol_or_path_position={symbol!r})",
+            )],
+            next_tools=["code_definition"],
+            usage=f"code_definition(symbol_or_path_position={symbol!r})",
+        )
+
+    if not include_tests:
+        nodes_kept = [
+            n for n in (result.get("nodes") or [])
+            if not _is_test_path(str(n.get("source_file") or ""))
+        ]
+        kept_ids = {n.get("id") for n in nodes_kept if n.get("id")}
+        edges_kept = [
+            e for e in (result.get("edges") or [])
+            if e.get("source") in kept_ids and e.get("target") in kept_ids
+        ]
+        result["nodes"] = nodes_kept
+        result["edges"] = edges_kept
+
+    # Enrich call edges with call-site line numbers via targeted file scan
+    _node_map: dict[str, dict[str, Any]] = {
+        n["id"]: n for n in (result.get("nodes") or []) if isinstance(n.get("id"), str)
+    }
+    # Pre-collect all (src_file → callee_labels) and batch-scan each file once
+    _file_callees: dict[str, set[str]] = {}
+    for edge in (result.get("edges") or []):
+        if edge.get("relation") != "calls":
+            continue
+        src_id = str(edge.get("source") or "")
+        tgt_id = str(edge.get("target") or "")
+        if src_id.startswith("external::"):
+            continue
+        src_node = _node_map.get(src_id) or {}
+        tgt_node = _node_map.get(tgt_id) or {}
+        src_file = src_node.get("source_file") or (src_id.split("::")[0] if "::" in src_id else "")
+        callee_label = tgt_node.get("label") or (tgt_id.rsplit("::", 1)[-1] if "::" in tgt_id else tgt_id)
+        if src_file and callee_label:
+            _file_callees.setdefault(src_file, set()).add(callee_label)
+    _batch_sites: dict[str, dict[str, list[dict[str, Any]]]] = {
+        src_file: _scan_all_call_sites_in_file(root, list(labels), src_file)
+        for src_file, labels in _file_callees.items()
+    }
+    enriched_edges: list[dict[str, Any]] = []
+    for edge in (result.get("edges") or []):
+        new_edge = dict(edge)
+        if edge.get("relation") == "calls":
+            src_id = str(edge.get("source") or "")
+            tgt_id = str(edge.get("target") or "")
+            if not src_id.startswith("external::"):
+                src_node = _node_map.get(src_id) or {}
+                tgt_node = _node_map.get(tgt_id) or {}
+                src_file = src_node.get("source_file") or (src_id.split("::")[0] if "::" in src_id else "")
+                callee_label = tgt_node.get("label") or (tgt_id.rsplit("::", 1)[-1] if "::" in tgt_id else tgt_id)
+                if src_file and callee_label:
+                    sites = _batch_sites.get(src_file, {}).get(callee_label, [])
+                    src_loc = src_node.get("source_location") or "0:0"
+                    try:
+                        src_start = int(str(src_loc).split(":")[0])
+                    except (ValueError, IndexError):
+                        src_start = 0
+                    ref = _first_call_site_at_or_after(sites, src_start)
+                    if ref:
+                        new_edge["line"] = ref["line"]
+        enriched_edges.append(new_edge)
+
+    return _response(
+        "ok",
+        {
+            "symbol": symbol,
+            "node_id": result.get("node_id"),
+            "layer": layer_value,
+            "depth": depth,
+            "direction": direction_value,
+            "include_tests": include_tests,
+            "nodes": result.get("nodes") or [],
+            "edges": enriched_edges,
+        },
+        next_tools=["code_impact", "code_read"],
+        usage=f"code_impact(symbol={symbol!r}, max_hops=2)",
+    )
+
+
+def wave_graph_report_response(
+    root: Path,
+    *,
+    layer: str = "project",
+    limit: int = 20,
+    sections: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    gq = _load_graph_query()
+    try:
+        layer_value = _graph_layer_value(layer)
+    except ValueError as exc:
+        return _response(
+            "error",
+            {"layer": layer},
+            diagnostics=[_diagnostic("invalid_arguments", str(exc))],
+            next_tools=["wave_help"],
+            usage="wave_graph_report(layer='project')",
+        )
+    index = gq.GraphQueryIndex.from_root(root, layer=layer_value)
+    if not index.present:
+        # Wave 1304x / 1304r: refresh-then-recheck on absent graph
+        def _recheck_present():
+            new_index = gq.GraphQueryIndex.from_root(root, layer=layer_value)
+            return new_index if new_index.present else None
+        refreshed_index = _graph_refresh_then_recheck(root, _recheck_present)
+        if refreshed_index is not None:
+            index = refreshed_index
+    if not index.present:
+        return _response(
+            "error",
+            {"layer": layer_value},
+            diagnostics=[gq.graph_not_ready_diagnostic(layer_value)],
+            next_tools=["wave_index_build"],
+            usage="wave_index_build(content='graph', mode='create')",
+        )
+    report = index.report(limit=max(1, min(limit, 100)), sections=sections)
+    return _response(
+        "ok",
+        report,
+        next_tools=["code_callgraph", "code_impact"],
+        usage="code_callgraph(symbol='path::symbol')",
+    )
+
+
+# ---------------------------------------------------------------------------
+# code_graph_path — BFS shortest path between two graph symbols
+# ---------------------------------------------------------------------------
+
+def code_graph_path_response(
+    root: Path,
+    from_symbol: str,
+    to_symbol: str,
+    *,
+    relations: Optional[list[str]] = None,
+    max_hops: int = 10,
+    layer: str = "project",
+    direction: str = "forward",
+) -> dict[str, Any]:
+    """Find the shortest connecting path between two symbols in the graph.
+
+    Prefer when: tracing dependency chains, understanding how module A reaches module B,
+    or identifying indirect coupling between two symbols. Always returns the consistent
+    shape {found, path_nodes, path_edges, hop_count, suggestions} regardless of outcome.
+
+    Response fields:
+    - found: true when a path exists within max_hops
+    - path_nodes: ordered list of {node_id, label, kind, source_file} from from_symbol to to_symbol
+    - path_edges: ordered list of traversed edges; when direction="either" each edge carries
+      an extra ``traversal_direction`` field ("forward" or "backward")
+    - hop_count: number of edges in the path (0 when symbols are identical, 0 when not found)
+    - suggestions: list of {id, label, kind} near-matches when either symbol is unresolvable
+    - direction: echoes the requested direction
+
+    Args:
+        from_symbol: Starting graph node id or resolvable symbol.
+        to_symbol: Target graph node id or resolvable symbol.
+        relations: Optional edge relation filter (default: all relations).
+        max_hops: Maximum hops before giving up (default 10).
+        layer: Graph layer (default ``project``).
+        direction: ``forward`` (default), ``backward``, or ``either``. Forward walks outgoing
+            edges only; backward walks incoming; either walks both with per-edge
+            ``traversal_direction`` annotations.
+    """
+    direction_value = (direction or "forward").strip().lower()
+    if direction_value not in ("forward", "backward", "either"):
+        return _response(
+            "error",
+            {"from_symbol": from_symbol, "to_symbol": to_symbol, "direction": direction, "found": False, "path_nodes": [], "path_edges": [], "hop_count": 0, "suggestions": []},
+            diagnostics=[_diagnostic("invalid_arguments", f"direction must be 'forward', 'backward', or 'either'; got {direction!r}.")],
+            next_tools=["wave_help"],
+            usage="code_graph_path(from_symbol='...', to_symbol='...', direction='forward')",
+        )
+    gq = _load_graph_query()
+    try:
+        layer_value = _graph_layer_value(layer)
+    except ValueError as exc:
+        return _response(
+            "error",
+            {"from_symbol": from_symbol, "to_symbol": to_symbol, "direction": direction_value, "found": False, "path_nodes": [], "path_edges": [], "hop_count": 0, "suggestions": []},
+            diagnostics=[_diagnostic("invalid_arguments", str(exc))],
+            next_tools=["wave_help"],
+            usage="code_graph_path(from_symbol='...', to_symbol='...')",
+        )
+    index = gq.GraphQueryIndex.from_root(root, layer=layer_value)
+    if not index.present:
+        return _response(
+            "error",
+            {"from_symbol": from_symbol, "to_symbol": to_symbol, "direction": direction_value, "found": False, "path_nodes": [], "path_edges": [], "hop_count": 0, "suggestions": []},
+            diagnostics=[gq.graph_not_ready_diagnostic(layer_value)],
+            next_tools=["wave_index_build"],
+            usage="wave_index_build(content='graph', mode='create')",
+        )
+    suggestions: list[dict[str, Any]] = []
+    from_id = index.resolve_symbol(from_symbol)
+    to_id = index.resolve_symbol(to_symbol)
+    # Wave 1304x / 1304r: refresh + reload + re-resolve BOTH symbols if either missed.
+    # We can't use _graph_refresh_and_resolve here because it returns (None, None)
+    # when its single target symbol still misses post-refresh — that would discard
+    # the freshly loaded index even though the OTHER symbol might now resolve.
+    if from_id is None or to_id is None:
+        def _recheck_both_paths():
+            new_index = gq.GraphQueryIndex.from_root(root, layer=layer_value)
+            return (new_index, new_index.resolve_symbol(from_symbol), new_index.resolve_symbol(to_symbol))
+        refreshed = _graph_refresh_then_recheck(root, _recheck_both_paths)
+        if refreshed is not None:
+            new_index, new_from_id, new_to_id = refreshed
+            index = new_index
+            if from_id is None:
+                from_id = new_from_id
+            if to_id is None:
+                to_id = new_to_id
+    if from_id is None:
+        suggestions.extend(_suggest_near_symbols(index, from_symbol))
+    if to_id is None:
+        for s in _suggest_near_symbols(index, to_symbol):
+            if s not in suggestions:
+                suggestions.append(s)
+    if from_id is None or to_id is None:
+        missing_label = (
+            f"both symbols '{from_symbol}' and '{to_symbol}'" if from_id is None and to_id is None
+            else f"'{from_symbol}'" if from_id is None
+            else f"'{to_symbol}'"
+        )
+        return _response(
+            "ok",
+            {"from_symbol": from_symbol, "to_symbol": to_symbol, "direction": direction_value, "found": False, "path_nodes": [], "path_edges": [], "hop_count": 0, "suggestions": suggestions},
+            diagnostics=[_diagnostic(
+                "graph_symbol_not_found",
+                f"Could not resolve {missing_label} to a graph node (refresh attempted).",
+                recovery_tools=["code_definition", "code_keyword"],
+                recovery_usage=f"code_definition(symbol_or_path_position={from_symbol if from_id is None else to_symbol!r})",
+            )],
+            next_tools=["code_callhierarchy"],
+            usage="code_callhierarchy(symbol='...')",
+        )
+    result = index.shortest_path(from_id, to_id, relations=relations, max_hops=max_hops, direction=direction_value)
+    return _response(
+        "ok",
+        {
+            "from_symbol": from_symbol,
+            "to_symbol": to_symbol,
+            "direction": direction_value,
+            "layer": layer_value,
+            "found": result["found"],
+            "path_nodes": result["path_nodes"],
+            "path_edges": result["path_edges"],
+            "hop_count": result["hop_count"],
+            "suggestions": suggestions,
+        },
+        next_tools=["code_callhierarchy", "code_impact"],
+        usage=f"code_callhierarchy(symbol={from_symbol!r})",
+    )
+
+
+# ---------------------------------------------------------------------------
+# code_graph_community — drill down into a single community's member nodes
+# ---------------------------------------------------------------------------
+
+def code_graph_community_response(
+    root: Path,
+    community_id: str,
+    *,
+    layer: str = "project",
+) -> dict[str, Any]:
+    """Return all member nodes of a community from the cluster artifact.
+
+    Prefer when: drilling into a specific community identified from wave_graph_report
+    or the cluster dashboard. Returns members sorted by degree descending so the
+    most-connected nodes appear first.
+
+    Response fields:
+    - community_id: the requested community identifier
+    - label: human-readable community label
+    - node_count: total number of member nodes
+    - nodes: list of {id, label, kind, source_file, degree} sorted by degree descending
+
+    Args:
+        community_id: Community ID as returned in the cluster artifact.
+        layer: Graph layer (default ``project``).
+    """
+    if not community_id or not community_id.strip():
+        return _response(
+            "error",
+            {"community_id": community_id},
+            diagnostics=[_diagnostic("invalid_arguments", "community_id must be a non-empty string.")],
+            next_tools=["wave_graph_report"],
+            usage="wave_graph_report(layer='project')",
+        )
+    community_id = community_id.strip()
+    try:
+        layer_value = _graph_layer_value(layer)
+    except ValueError as exc:
+        return _response(
+            "error",
+            {"community_id": community_id},
+            diagnostics=[_diagnostic("invalid_arguments", str(exc))],
+            next_tools=["wave_help"],
+            usage="code_graph_community(community_id='...')",
+        )
+    gq = _load_graph_query()
+    try:
+        gc = _load_script("graph_cluster")
+    except Exception as exc:
+        return _response(
+            "error",
+            {"community_id": community_id},
+            diagnostics=[_diagnostic("load_error", f"Failed to load graph_cluster: {exc}")],
+            next_tools=["wave_index_build"],
+            usage="wave_index_build(content='graph', mode='create')",
+        )
+    payload = gc.read_cluster_payload(root, layer_value if layer_value != "union" else "project")
+    if not payload.get("present"):
+        return _response(
+            "error",
+            {"community_id": community_id},
+            diagnostics=[_diagnostic("cluster_not_ready", "Cluster artifact is absent. Run graph indexing with clustering enabled.")],
+            next_tools=["wave_index_build"],
+            usage="wave_index_build(content='graph', mode='create')",
+        )
+    def _find_community(_payload):
+        for c in (_payload.get("communities") or []):
+            if str(c.get("community_id") or "") == community_id:
+                return c
+        return None
+    target: Optional[dict[str, Any]] = _find_community(payload)
+    if target is None:
+        # Wave 1304x / 1304r: refresh-then-recheck before emitting suggestions
+        def _recheck_community():
+            refreshed_payload = gc.read_cluster_payload(root, layer_value if layer_value != "union" else "project")
+            return _find_community(refreshed_payload) or {}  # truthy on hit, {} so it's falsy on miss but not None
+        refreshed = _graph_refresh_then_recheck(root, _recheck_community)
+        if refreshed:
+            target = refreshed
+            payload = gc.read_cluster_payload(root, layer_value if layer_value != "union" else "project")
+    if target is None:
+        suggestions = _suggest_near_communities(payload.get("communities") or [], community_id, n=5)
+        return _response(
+            "error",
+            {"community_id": community_id, "suggestions": suggestions},
+            diagnostics=[_diagnostic("not_found", f"No community found with id '{community_id}'.")],
+            next_tools=["wave_graph_report"],
+            usage="wave_graph_report(layer='project')",
+        )
+    # Load graph to get degree information
+    index = gq.GraphQueryIndex.from_root(root, layer=layer_value if layer_value != "union" else "project")
+    node_ids = target.get("node_ids") or []
+    nodes: list[dict[str, Any]] = []
+    for nid in node_ids:
+        n = index.get_node(nid) or {}
+        in_deg = len(index._in.get(nid, []))
+        out_deg = len(index._out.get(nid, []))
+        nodes.append({
+            "id": nid,
+            "label": n.get("label", nid),
+            "kind": n.get("kind"),
+            "source_file": n.get("source_file"),
+            "degree": in_deg + out_deg,
+        })
+    nodes.sort(key=lambda x: -x["degree"])
+    return _response(
+        "ok",
+        {
+            "community_id": community_id,
+            "label": target.get("label", community_id),
+            "node_count": len(nodes),
+            "nodes": nodes,
+        },
+        next_tools=["code_callhierarchy", "code_impact"],
+        usage=f"code_callhierarchy(symbol='{nodes[0]['id'] if nodes else '...'}', direction='both')",
     )
 
 
@@ -9885,7 +11130,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return docs_search_response(get_handler().index, query, kind, limit=limit, tags=tags or None)
 
     @mcp.tool(annotations=_READONLY_TOOL)
-    def code_search(query: str, language: str = "", kind: str = "", max_per_file: int = 0, tags: list = [], limit: int = 7, **kwargs: Any) -> dict[str, Any]:
+    def code_search(query: str, language: str = "", kind: str = "", max_per_file: int = 0, tags: list = [], limit: int = 7, graph: bool = True, graph_limit: int = 5, layer: str = "project", **kwargs: Any) -> dict[str, Any]:
         """Semantic search over indexed source code chunks. Requires a built code index (wave_index_build content='code').
 
         Prefer when: searching for code by concept, behavior, or intent (e.g. "React component with loading state").
@@ -9917,11 +11162,23 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             max_per_file: Optional — cap results per file path (0 = no cap). Use 1 for orientation pass diversity.
             tags: Optional list of classification tags to pre-filter results. See tag vocabulary above.
             limit: Maximum results to return (1–20, default 7).
+            graph: When True (default), append 1-hop ``graph_neighbors`` for top hits. Pass ``graph=False`` to suppress augmentation when you need the lean response.
+            graph_limit: Number of top hits to expand when ``graph=True`` (default 5). Use 0 for no cap.
+            layer: Graph layer for ``graph=True`` (default ``project``).
+
+        Response fields:
+        - graph_neighbors: (present unless ``graph=False``) 1-hop structural neighbors of the top-ranked hits, sourced from the graph index — file-level imports and symbol-level call relations.
         """
         bad = _ensure_no_extra_args("code_search", kwargs)
         if bad is not None:
             return bad
-        return code_search_response(get_handler().index, query, language, limit=limit, kind=kind or None, max_per_file=max_per_file or None, tags=tags or None)
+        t_start = time.monotonic()
+        result = code_search_response(get_handler().index, query, language, limit=limit, kind=kind or None, max_per_file=max_per_file or None, tags=tags or None)
+        result = _augment_with_graph_neighbors_if_enabled(
+            result, get_handler().root,
+            tool_key="code_search", graph=graph, graph_limit=graph_limit, layer=layer,
+        )
+        return _inject_timing(result, t_start, "code_search")
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def seed_get(name: str, **kwargs: Any) -> dict[str, Any]:
@@ -9950,7 +11207,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("code_dependencies", kwargs)
         if bad is not None:
             return bad
-        return code_dependencies_response(get_handler().root, path)
+        t_start = time.monotonic()
+        return _inject_timing(code_dependencies_response(get_handler().root, path), t_start, "code_dependencies")
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_hover(path: str, line: int, **kwargs: Any) -> dict[str, Any]:
@@ -9973,36 +11231,153 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("code_hover", kwargs)
         if bad is not None:
             return bad
-        return code_hover_response(get_handler().root, path, line)
+        t_start = time.monotonic()
+        return _inject_timing(code_hover_response(get_handler().root, path, line), t_start, "code_hover")
 
     @mcp.tool(annotations=_READONLY_TOOL)
-    def code_impact(path: str, max_results: int = 50, **kwargs: Any) -> dict[str, Any]:
-        """Find all files that import a given file (reverse dependency / impact analysis).
+    def code_impact(
+        path: str = "",
+        max_results: int = 50,
+        symbol: str = "",
+        max_hops: int = 3,
+        layer: str = "project",
+        relations: list[str] | None = None,
+        include_tests: bool = False,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Find files/symbols affected by a change — import heuristics (path) or graph traversal (symbol).
 
-        Prefer when: assessing the blast radius of a change, planning a file deletion,
-        or tracing who depends on a module. Complements code_dependencies (which shows
-        what a file imports) with the reverse direction.
+        Prefer when: assessing blast radius before editing or deleting a module. Use ``path=`` for
+        classic reverse-import analysis (``method: heuristic``). Use ``symbol=`` for graph-backed
+        upstream impact via ``imports``/``calls`` edges (``method: graph``).
 
-        Matching is heuristic (not compiler-resolved): three strategies are tried —
-        module-path normalization, filename-stem match (≥4 chars), and relative
-        ./..  path resolution for JS/TS imports. Results include method="heuristic"
-        to signal approximate matching.
+        Response fields (graph mode — symbol=):
+        - symbol: the queried symbol name
+        - resolved: true when the symbol was found in the graph
+        - node_id: resolved graph node id
+        - affected: list of {node_id, label, kind, source_file, community} — upstream callers/importers; test callers excluded by default
+        - affected_files: sorted list of unique files containing affected nodes
+        - edges: traversed edges
+        - include_tests: whether test-path nodes were included
+        - suggestions: near-match candidates when the symbol is not found in the graph
 
-        Response fields:
-        - path: repo-relative path of the target file
-        - importers: list of {file, import_statement, kind} — files that import the target
-        - truncated: true when more than max_results importers were found
-        - total_found: total importer count before truncation
+        Response fields (heuristic mode — path=):
+        - path: the queried file path
+        - importers: list of {file, line, snippet} — files that import the queried path
+        - truncated: true when results were capped at max_results
         - method: "heuristic"
 
         Args:
-            path: Repo-relative path of the file to find importers for, e.g. "src/auth/user.py".
-            max_results: Maximum importers to return (default 50).
+            path: Repo-relative file path for heuristic import analysis.
+            max_results: Maximum results to return (default 50).
+            symbol: Qualified graph node id or resolvable symbol for graph mode.
+            max_hops: Reverse traversal depth for graph mode (default 3).
+            layer: Graph layer (default ``project`` — target-repo code and docs). Use
+                ``framework`` only for packaged framework seeds/docs; ``union`` merges both.
+            relations: Optional edge relation filter for graph mode.
+            include_tests: When False (default), affected nodes in test paths are excluded from
+                the production blast-radius view. Set True to include test callers.
         """
         bad = _ensure_no_extra_args("code_impact", kwargs)
         if bad is not None:
             return bad
-        return code_impact_response(get_handler().root, path, max_results)
+        t_start = time.monotonic()
+        return _inject_timing(code_impact_response(
+            get_handler().root,
+            path,
+            max_results,
+            symbol=symbol,
+            max_hops=max_hops,
+            layer=layer,
+            relations=relations,
+            include_tests=include_tests,
+        ), t_start, "code_impact")
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_callgraph(
+        symbol: str,
+        depth: int = 1,
+        direction: str = "both",
+        layer: str = "project",
+        include_tests: bool = False,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Return direct (and optionally deeper) ``calls`` edges for a graph symbol.
+
+        Prefer when: tracing execution paths beyond one hop (depth > 1), building a full call
+        tree, or when raw graph edges with line numbers are more useful than the
+        incoming/outgoing framing of code_callhierarchy. Use code_callhierarchy for targeted
+        depth-1 caller/callee lookups; use code_callgraph when the broader call structure is needed.
+
+        Response fields:
+        - symbol: the queried symbol name
+        - node_id: resolved graph node id
+        - depth: the requested expansion depth
+        - direction: the traversal direction used
+        - include_tests: whether test-path nodes were included
+        - nodes: list of graph nodes in the subgraph, each with id, label, kind, source_file
+        - edges: list of call edges; ``calls`` edges include ``line`` when the call site was located
+        - has_cycles: true when a back-edge to an already-visited node was encountered
+
+        Args:
+            symbol: Required graph node id or resolvable symbol.
+            depth: Expansion depth (default 1).
+            direction: ``callers``, ``callees``, or ``both``.
+            layer: Graph layer (default ``project``). Omit unless querying framework or union.
+            include_tests: When False (default), test-path nodes (and edges referencing them)
+                are excluded from the response. Symmetric with code_impact's filter.
+        """
+        bad = _ensure_no_extra_args("code_callgraph", kwargs)
+        if bad is not None:
+            return bad
+        t_start = time.monotonic()
+        return _inject_timing(code_callgraph_response(
+            get_handler().root,
+            symbol,
+            depth=depth,
+            direction=direction,
+            layer=layer,
+            include_tests=include_tests,
+        ), t_start, "code_callgraph")
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def wave_graph_report(
+        layer: str = "project",
+        limit: int = 20,
+        sections: list[str] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Structural summary over the persisted code/doc graph.
+
+        Prefer when: orienting to a codebase for the first time, identifying over-connected
+        modules before a cross-cutting refactor, or finding documentation gaps. Run once per
+        investigation rather than per-symbol; use code_callhierarchy or code_impact for
+        per-symbol follow-up.
+
+        Response fields (one key per requested section):
+        - fan_in: ranked list of {node_id, label, kind, count} — most-called symbols (by ``calls`` edge in-degree)
+        - fan_out: ranked list of {node_id, label, kind, count} — symbols that call the most others
+        - chokepoints: nodes with fan_out >= threshold (default 20) — potential bottlenecks
+        - orphan_docs: doc/seed nodes with no ``doc_references_code`` edges — disconnected documentation
+        - cross_layer: count + edge list of edges that cross the project/framework boundary (union layer only)
+        - betweenness: ranked list of {node_id, label, kind, score} — nodes with high betweenness centrality
+          (bridge nodes on shortest paths); requires igraph; skipped with diagnostic when graph > 10,000 nodes
+
+        Args:
+            layer: Graph layer (default ``project``). Use ``union`` for cross-layer summaries.
+            limit: Max rows per ranking section (default 20).
+            sections: Optional subset: fan_in, fan_out, orphan_docs, chokepoints, cross_layer, betweenness.
+        """
+        bad = _ensure_no_extra_args("wave_graph_report", kwargs)
+        if bad is not None:
+            return bad
+        t_start = time.monotonic()
+        return _inject_timing(wave_graph_report_response(
+            get_handler().root,
+            layer=layer,
+            limit=limit,
+            sections=sections,
+        ), t_start, "wave_graph_report")
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_ask(question: str, **kwargs: Any) -> dict[str, Any]:
@@ -10822,6 +12197,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         query: str = "",
         glob: str = "",
         queries: list[str] | None = None,
+        graph: bool = True,
+        graph_limit: int = 5,
+        layer: str = "project",
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Search repository files for an exact keyword or substring.
@@ -10843,11 +12221,23 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             query: Exact text to search for (substring match). Omit when using ``queries``.
             glob: Optional glob to restrict the search, e.g. "**/*.py" or "*.md".
             queries: List of exact strings to search for in a single call. Omit when using ``query``.
+            graph: When True (default), append 1-hop ``graph_neighbors`` for top hits. Pass ``graph=False`` to suppress augmentation when you need the lean response.
+            graph_limit: Number of top hits to expand when ``graph=True`` (default 5). Use 0 for no cap.
+            layer: Graph layer for ``graph=True`` (default ``project``).
+
+        Response fields:
+        - graph_neighbors: (present unless ``graph=False``) 1-hop structural neighbors of the top hits, sourced from the graph index — file-level imports and symbol-level call relations.
         """
         bad = _ensure_no_extra_args("code_keyword", kwargs)
         if bad is not None:
             return bad
-        return code_keyword_response(get_handler().root, query, glob=glob, queries=queries)
+        t_start = time.monotonic()
+        result = code_keyword_response(get_handler().root, query, glob=glob, queries=queries)
+        result = _augment_with_graph_neighbors_if_enabled(
+            result, get_handler().root,
+            tool_key="code_keyword", graph=graph, graph_limit=graph_limit, layer=layer,
+        )
+        return _inject_timing(result, t_start, "code_keyword")
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_constants(symbols: list[str], glob: str = "", **kwargs: Any) -> dict[str, Any]:
@@ -10884,7 +12274,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("code_constants", kwargs)
         if bad is not None:
             return bad
-        return code_constants_response(get_handler().root, symbols, glob=glob)
+        t_start = time.monotonic()
+        return _inject_timing(code_constants_response(get_handler().root, symbols, glob=glob), t_start, "code_constants")
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_pattern(
@@ -10918,8 +12309,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("code_pattern", kwargs)
         if bad is not None:
             return bad
-        return code_pattern_response(get_handler().root, pattern, glob=glob,
-                                     max_results=max_results, ignore_case=ignore_case)
+        t_start = time.monotonic()
+        return _inject_timing(code_pattern_response(get_handler().root, pattern, glob=glob,
+                                     max_results=max_results, ignore_case=ignore_case), t_start, "code_pattern")
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_outline(path: str, **kwargs: Any) -> dict[str, Any]:
@@ -10950,19 +12342,20 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         bad = _ensure_no_extra_args("code_outline", kwargs)
         if bad is not None:
             return bad
-        return code_outline_response(get_handler().root, path)
+        t_start = time.monotonic()
+        return _inject_timing(code_outline_response(get_handler().root, path), t_start, "code_outline")
 
     @mcp.tool(annotations=_READONLY_TOOL)
-    def code_definition(symbol_or_path_position: str, **kwargs: Any) -> dict[str, Any]:
-        """Find definition(s) for a symbol name across Python and supported non-Python languages.
+    def code_definition(symbol_or_path_position: str, graph: bool = True, graph_limit: int = 5, layer: str = "project", **kwargs: Any) -> dict[str, Any]:
+        """Find definition(s) for a symbol name across supported languages.
 
         Prefer when: looking up where a function, class, interface, enum, or similar symbol is defined.
-        Python uses AST-based lookup. Java, C#, JavaScript, and TypeScript use tree-sitter-backed navigation
-        when parser support is available. Other supported non-Python languages use structural regex matchers.
+        Uses the best available parser for each language: AST for Python, tree-sitter for JS/TS/Java/C#,
+        structural regex for Go/Rust/Kotlin/Swift, and CSS-aware matchers for stylesheets.
         If no structural definition is found, the response includes a broad code_keyword-style fallback.
 
         Supported languages:
-        - Python: AST-based function/class/async-function definitions
+        - Python: AST — functions, classes, async-functions
         - JavaScript/TypeScript/Java/C#: tree-sitter-backed structural definitions when available
         - Go/Rust/Kotlin/Swift: regex-based structural definitions
         - CSS/SCSS: class selectors, ID selectors, custom properties (--var), @keyframes, @mixin/@function
@@ -10971,11 +12364,23 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             symbol_or_path_position: Symbol name to look up (e.g. "MyClass", "process_wave",
                                      "agent-dialog-header", "--brand-color", "fade-in").
                                      Exact or partial match against supported symbol names.
+            graph: When True (default), append 1-hop ``graph_neighbors`` for the definition. Pass ``graph=False`` to suppress augmentation when you need the lean response.
+            graph_limit: Number of top definitions to expand when ``graph=True`` (default 5). Use 0 for no cap.
+            layer: Graph layer for ``graph=True`` (default ``project``).
+
+        Response fields:
+        - graph_neighbors: (present unless ``graph=False``) 1-hop structural neighbors of the resolved definition, sourced from the graph index — calls in/out and import relations.
         """
         bad = _ensure_no_extra_args("code_definition", kwargs)
         if bad is not None:
             return bad
-        return code_definition_response(get_handler().root, symbol_or_path_position)
+        t_start = time.monotonic()
+        result = code_definition_response(get_handler().root, symbol_or_path_position)
+        result = _augment_with_graph_neighbors_if_enabled(
+            result, get_handler().root,
+            tool_key="code_definition", graph=graph, graph_limit=graph_limit, layer=layer,
+        )
+        return _inject_timing(result, t_start, "code_definition")
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_references(
@@ -10983,15 +12388,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         exclude_tests: bool = False,
         exclude_docs: bool = False,
         call_sites_only: bool = False,
-        limit: int = 0,
+        limit: int = 50,
+        graph: bool = True,
+        graph_limit: int = 5,
+        layer: str = "project",
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Find references to a symbol across known code languages via text matching.
 
         Prefer when: tracing call sites for a known symbol more directly than broad code_keyword.
-        Python uses AST-backed call-site detection plus text fallback for broader mentions. Java, C#, JavaScript,
-        and TypeScript use tree-sitter-backed identifier traversal when parser support is available. Other known
-        code languages use language-aware text matching.
+        Uses the best available parser for each language: AST for Python, tree-sitter for JS/TS/Java/C#,
+        and language-aware text matching for all other supported languages.
         If no known-language references are found, the response includes a broad keyword fallback.
         Optional filters can suppress test/doc hits or restrict the response to call sites only.
         Optional limit caps returned hits after ordering and filtering while preserving matched counts.
@@ -11004,25 +12411,38 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             exclude_tests: When true, omit references classified as tests.
             exclude_docs: When true, omit references classified as docs.
             call_sites_only: When true, omit all non-call-site references.
-            limit: Optional cap on the number of hits returned. Use 0 to keep all hits.
+            limit: Cap on the number of hits returned (default 50). Use 0 to keep all hits.
+            graph: When True (default), append 1-hop ``graph_neighbors`` for top reference seeds. Pass ``graph=False`` to suppress augmentation when you need the lean response.
+            graph_limit: Number of top hits to expand when ``graph=True`` (default 5). Use 0 for no cap.
+            layer: Graph layer for ``graph=True`` (default ``project``).
+
+        Response fields:
+        - graph_neighbors: (present unless ``graph=False``) 1-hop structural neighbors of the top reference seeds, sourced from the graph index — file-level imports and symbol-level call relations.
         """
         bad = _ensure_no_extra_args("code_references", kwargs)
         if bad is not None:
             return bad
-        return code_references_response(
-            root,
+        t_start = time.monotonic()
+        result = code_references_response(
+            get_handler().root,
             symbol_or_path_position,
             exclude_tests=exclude_tests,
             exclude_docs=exclude_docs,
             call_sites_only=call_sites_only,
             limit=limit if limit and limit > 0 else None,
         )
+        result = _augment_with_graph_neighbors_if_enabled(
+            result, get_handler().root,
+            tool_key="code_references", graph=graph, graph_limit=graph_limit, layer=layer,
+        )
+        return _inject_timing(result, t_start, "code_references")
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_callhierarchy(
         symbol: str,
         file: str = "",
         direction: str = "both",
+        context_depth: int = 0,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Return the call hierarchy for a symbol: what it calls (outgoing) and what calls it (incoming).
@@ -11034,19 +12454,119 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Response fields:
         - symbol: the queried symbol name
         - definition_file: path of the file where the symbol is defined (null if not found)
-        - outgoing: list of {name, file, line} — symbols called by this symbol (when direction includes "outgoing")
-        - incoming: list of {name, file, line, snippet} — symbols that call this symbol (when direction includes "incoming")
+        - outgoing: list of {name, file, line, snippet, community} — symbols called by this symbol (when direction includes "outgoing")
+        - incoming: list of {name, file, line, snippet, community} — symbols that call this symbol (when direction includes "incoming")
+        - context: (when context_depth > 0) one-hop expansion from all immediate callers/callees; each entry is {id, label, kind, source_file, community, relation}
+        - suggestions: near-match candidates when the symbol is not found in the graph
         - parser_used: method used for definition lookup
 
         Args:
             symbol: Symbol name to query (e.g. "process_payment", "UserService").
             file: Optional repo-relative file path to disambiguate when the symbol appears in multiple files.
             direction: "both" (default), "outgoing" (callee direction only), or "incoming" (caller direction only).
+            context_depth: When > 0, appends a ``context`` list with one additional BFS hop from all immediate callers/callees (single combined traversal). Default 0 (no expansion).
         """
         bad = _ensure_no_extra_args("code_callhierarchy", kwargs)
         if bad is not None:
             return bad
-        return code_callhierarchy_response(get_handler().root, symbol, file or None, direction)
+        t_start = time.monotonic()
+        return _inject_timing(code_callhierarchy_response(get_handler().root, symbol, file or None, direction, context_depth=context_depth), t_start, "code_callhierarchy")
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_graph_path(
+        from_symbol: str,
+        to_symbol: str,
+        relations: list[str] | None = None,
+        max_hops: int = 10,
+        layer: str = "project",
+        direction: str = "forward",
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Find the shortest connecting path between two graph symbols using BFS.
+
+        Prefer when:
+        - ``direction="forward"`` (default): tracing dependency chains — "does A reach B
+          through outgoing calls/imports?". Use when directionality is part of the question.
+        - ``direction="backward"``: reverse dependency — "is A reached by B?" / "what
+          upstream chain leads to A from B?". Use when you know the destination but want
+          to find the caller chain.
+        - ``direction="either"``: general coupling — "are A and B connected at all,
+          regardless of direction?". Use when you don't know which way the call flows.
+          Each ``path_edges`` entry carries a ``traversal_direction`` field so the chain
+          is unambiguous.
+
+        Response fields:
+        - found: true when a path exists within max_hops
+        - path_nodes: ordered list of {node_id, label, kind, source_file} from from_symbol to to_symbol
+        - path_edges: ordered list of traversed edges; in ``direction="either"`` each edge
+          includes ``traversal_direction`` ("forward" or "backward")
+        - hop_count: number of edges in the path (0 when symbols are identical or path not found)
+        - direction: echoes the resolved direction value
+        - suggestions: list of {id, label, kind} near-match candidates when either symbol is unresolvable
+
+        Args:
+            from_symbol: Starting graph node id or resolvable symbol.
+            to_symbol: Target graph node id or resolvable symbol.
+            relations: Optional edge relation filter (default: all relations).
+            max_hops: Maximum hops before giving up (default 10).
+            layer: Graph layer (default ``project``).
+            direction: ``forward`` (default — outgoing edges only), ``backward`` (incoming
+                edges only), or ``either`` (both, with per-edge ``traversal_direction``).
+        """
+        bad = _ensure_no_extra_args("code_graph_path", kwargs)
+        if bad is not None:
+            return bad
+        t_start = time.monotonic()
+        return _inject_timing(code_graph_path_response(
+            get_handler().root,
+            from_symbol,
+            to_symbol,
+            relations=relations,
+            max_hops=max_hops,
+            layer=layer,
+            direction=direction,
+        ), t_start, "code_graph_path")
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_graph_community(
+        community_id: str,
+        layer: str = "project",
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Return all member nodes of a graph community from the cluster artifact.
+
+        Prefer when: drilling into a specific community identified from wave_graph_report or
+        the cluster dashboard to understand what code belongs to it. Returns members sorted
+        by degree descending so the most-connected nodes (likely the community's key APIs) appear first.
+
+        Read ``wavefoundry://graph/communities`` first to discover available community ids
+        without a tool call.
+
+        Response fields (success):
+        - community_id: the requested community identifier
+        - label: human-readable community label
+        - node_count: total number of member nodes
+        - nodes: list of {id, label, kind, source_file, degree} sorted by degree descending
+
+        Response fields (not-found error):
+        - community_id: the requested community identifier
+        - suggestions: list of up to 5 {community_id, label, node_count} near-match
+          communities — substring-matched on id/label first, then ranked by node count.
+          Use these to recover from a typo or stale id without a second tool call.
+
+        Args:
+            community_id: Community ID as returned in the cluster artifact or wave_graph_report.
+            layer: Graph layer (default ``project``).
+        """
+        bad = _ensure_no_extra_args("code_graph_community", kwargs)
+        if bad is not None:
+            return bad
+        t_start = time.monotonic()
+        return _inject_timing(code_graph_community_response(
+            get_handler().root,
+            community_id,
+            layer=layer,
+        ), t_start, "code_graph_community")
 
     # --- Read-only MCP Resources ---
     # These expose stable context as MCP resources rather than tool calls.
@@ -11208,6 +12728,178 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 if slug_lower in p.stem.lower():
                     return p.read_text(encoding="utf-8")
         return f"# Not Found\n\nNo architecture doc found matching `{slug}` in docs/architecture/.\n"
+
+    @mcp.resource(
+        "wavefoundry://agents",
+        name="agents_guide",
+        description="Primary agent operating guide (AGENTS.md at the repo root).",
+        mime_type="text/markdown",
+    )
+    def resource_agents() -> str:
+        """Return AGENTS.md — the primary agent operating guide."""
+        return _read_doc_or_not_found(get_handler().root / "AGENTS.md", "AGENTS.md")
+
+    @mcp.resource(
+        "wavefoundry://index/status",
+        name="index_status",
+        description="Semantic and graph index health summary — present/absent, counts, builder version, artifact paths.",
+        mime_type="text/markdown",
+    )
+    def resource_index_status() -> str:
+        """Return a markdown summary of semantic + graph index health without traversal."""
+        _root = get_handler().root
+        lines: list[str] = ["# Index Status\n"]
+        # Semantic index
+        sem_meta = _root / ".wavefoundry" / "index" / "meta.json"
+        sem_present = sem_meta.exists()
+        lines.append(f"## Semantic Index\n\n**Present:** {'yes' if sem_present else 'no'}\n")
+        if sem_present:
+            try:
+                meta = json.loads(sem_meta.read_text(encoding="utf-8"))
+                files_count = len(meta.get("file_meta") or meta.get("file_hashes") or {})
+                lines.append(f"**Tracked files:** {files_count}\n")
+            except Exception:
+                pass
+        else:
+            lines.append("Run `wave_index_build(content='docs', mode='update')` to build.\n")
+        # Graph index
+        graph_payload = _load_graph_query().load_graph(_root, layer="project")
+        graph_present = graph_payload.get("present", False)
+        lines.append(f"\n## Graph Index\n\n**Present:** {'yes' if graph_present else 'no'}\n")
+        if graph_present:
+            counts = graph_payload.get("counts") or {}
+            lines.append(f"**Nodes:** {counts.get('nodes', 0)}\n")
+            lines.append(f"**Edges:** {counts.get('edges', 0)}\n")
+            lines.append(f"**Files:** {counts.get('files', 0)}\n")
+            builder = graph_payload.get("builder_version") or "unknown"
+            lines.append(f"**Builder version:** {builder}\n")
+            graph_path_str = graph_payload.get("graph_path") or ""
+            if graph_path_str:
+                lines.append(f"**Artifact:** `{graph_path_str}`\n")
+        else:
+            lines.append("Run `wave_index_build(content='graph', mode='rebuild')` to build.\n")
+        return "".join(lines)
+
+    @mcp.resource(
+        "wavefoundry://graph/status",
+        name="graph_status",
+        description="Graph index metadata summary — present, node/edge/file counts, builder version, artifact path.",
+        mime_type="text/markdown",
+    )
+    def resource_graph_status() -> str:
+        """Return a markdown summary of graph payload metadata without edge traversal."""
+        _root = get_handler().root
+        payload = _load_graph_query().load_graph(_root, layer="project")
+        if not payload.get("present"):
+            graph_path_str = payload.get("graph_path") or ".wavefoundry/index/graph/project-graph.json"
+            return (
+                "# Graph Index Status\n\n"
+                "**Present:** no\n\n"
+                f"Graph artifact not found at `{graph_path_str}`. "
+                "Run `wave_index_build(content='graph', mode='rebuild')` to build.\n"
+            )
+        counts = payload.get("counts") or {}
+        builder = payload.get("builder_version") or "unknown"
+        graph_path_str = payload.get("graph_path") or ""
+        lines = [
+            "# Graph Index Status\n\n",
+            "**Present:** yes\n",
+            f"**Nodes:** {counts.get('nodes', 0)}\n",
+            f"**Edges:** {counts.get('edges', 0)}\n",
+            f"**Files:** {counts.get('files', 0)}\n",
+            f"**Builder version:** {builder}\n",
+        ]
+        if graph_path_str:
+            lines.append(f"**Artifact:** `{graph_path_str}`\n")
+        return "".join(lines)
+
+    @mcp.resource(
+        "wavefoundry://graph/communities",
+        name="graph_communities",
+        description="Catalog of all graph communities — id, label, node count, boundary count, top members by degree.",
+        mime_type="text/markdown",
+    )
+    def resource_graph_communities() -> str:
+        """Return a markdown catalog of all graph communities with top-degree members."""
+        _root = get_handler().root
+        try:
+            gc = _load_script("graph_cluster")
+            payload = gc.read_cluster_payload(_root, "project")
+        except Exception as exc:
+            return f"# Graph Communities\n\nFailed to load cluster artifact: {exc}\n"
+        if not payload.get("present"):
+            return (
+                "# Graph Communities\n\n"
+                "Cluster artifact not found. "
+                "Run `wave_index_build(content='graph', mode='rebuild')` to build with clustering.\n"
+            )
+        try:
+            gq = _load_graph_query()
+            index = gq.GraphQueryIndex.from_root(_root, layer="project")
+        except Exception:
+            index = None
+        communities = payload.get("communities") or []
+        if not communities:
+            return "# Graph Communities\n\n*(no communities in cluster artifact)*\n"
+        communities_sorted = sorted(
+            communities,
+            key=lambda c: -int(c.get("node_count") or 0),
+        )
+        lines: list[str] = [f"# Graph Communities ({len(communities_sorted)} total)\n\n"]
+        for c in communities_sorted:
+            cid = str(c.get("community_id") or "")
+            if not cid:
+                continue
+            label = str(c.get("label") or "?")
+            node_count = int(c.get("node_count") or 0)
+            boundary = int(c.get("boundary_node_count") or 0)
+            lines.append(f"## {label}\n\n")
+            lines.append(f"- **community_id:** `{cid}`\n")
+            lines.append(f"- **Nodes:** {node_count}\n")
+            lines.append(f"- **Boundary nodes:** {boundary}\n")
+            if index is not None and index.present:
+                node_ids = c.get("node_ids") or []
+                ranked = sorted(
+                    (
+                        (len(index._in.get(nid, [])) + len(index._out.get(nid, [])), nid)
+                        for nid in node_ids
+                    ),
+                    key=lambda x: -x[0],
+                )[:3]
+                if ranked:
+                    lines.append("- **Top members:**\n")
+                    for deg, nid in ranked:
+                        lines.append(f"  - `{nid}` (degree {deg})\n")
+            lines.append("\n")
+        return "".join(lines)
+
+    @mcp.resource(
+        "wavefoundry://waves",
+        name="waves_summary",
+        description="Markdown summary of all wave records and their statuses.",
+        mime_type="text/markdown",
+    )
+    def resource_waves() -> str:
+        """Return a markdown summary of all waves — one ## heading per wave with status and change list."""
+        _root = get_handler().root
+        waves = list_waves(_root)
+        if not waves:
+            return "# Waves\n\nNo wave records found in `docs/waves/`.\n"
+        lines: list[str] = ["# Waves\n\n"]
+        for wave in waves:
+            wave_id = wave.get("wave_id") or "unknown"
+            status = wave.get("status") or "unknown"
+            changes = wave.get("changes") or []
+            lines.append(f"## {wave_id}\n\n**Status:** {status}\n\n")
+            if changes:
+                for change in changes:
+                    cid = change.get("id") or "?"
+                    cst = change.get("status") or "?"
+                    lines.append(f"- `{cid}` — {cst}\n")
+            else:
+                lines.append("*(no admitted changes)*\n")
+            lines.append("\n")
+        return "".join(lines)
 
     tool_names = _registered_mcp_tool_names(mcp)
     violations = first_party_tool_names_violating_prefix(tool_names)

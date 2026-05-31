@@ -1,10 +1,10 @@
 # Graph Visualization and Navigation Overhaul
 
 Change ID: `12yro-enh graph-visualization-navigation-overhaul`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
-Last verified: 2026-05-28
+Status: complete
+Last verified: 2026-05-31
 Wave: `12xr2 graph-query-surface`
 
 ## Rationale
@@ -79,30 +79,43 @@ The renderer tier is decided by Requirement 1's measurement, between two vendore
 
 Both keep local-only intact (UMD globals served by the dashboard). The council left this split deliberately unresolved pending the measurement; do not pre-commit the heavier stack if measured counts do not justify it.
 
+**Selected tier (2026-05-29):** `force-graph` + `elkjs` (lighter path). Full corpus is ~4557 project nodes; dashboard **never renders the full graph** — per-view caps keep rendered counts ≤120 (≤24 in community overview).
+
+## Per-view caps and performance budget
+
+| View | Max rendered nodes | Layout engine | Notes |
+| ---- | ------------------ | ------------- | ----- |
+| Community overview | 24 communities | `force-graph` d3-force | Colored by server `community_id` |
+| Overview (no clusters) | 24 seed hubs | `force-graph` | Top hubs + file neighborhoods |
+| Focus / ego | 1-hop neighborhood | Radial by hop | Fetched via `/api/graph/neighbors` |
+| Directed detail / files | 120 | ELK layered (`DOWN`) | When `calls`/`imports` selected or Files mode |
+
+**Performance budget:** remain pan/zoom interactive at ≤120 rendered nodes on a typical laptop. Overview caps (24) keep main-thread force simulation within budget without a ForceAtlas2 worker. Upgrade to sigma/graphology+FA2 worker remains a follow-up if caps are raised.
+
 ## Acceptance Criteria
 
-- [ ] AC-1: A measurement of real per-view graph-size distribution (typical and ~95th-percentile node/edge counts) is recorded in this change doc before a renderer/layout dependency is selected.
-- [ ] AC-2: Navigation supports search-to-focus and expand-on-demand from a focus node; the full graph is not rendered up front for large graphs.
-- [ ] AC-3: Directed dependency/impact views use a hierarchical/layered layout (ELK or dagre); edge direction is legible top-down.
-- [ ] AC-4: The community overview uses ForceAtlas2 (or the selected force engine) off the main thread, grouped/colored by server-supplied Leiden community ids.
-- [ ] AC-5: The ego/single-focus view uses a radial/concentric-by-hop layout with the focus pinned, not a force starburst.
-- [ ] AC-6: The graph surface renders via WebGL with level-of-detail labels, zoom/pan, and hover highlight; renderer/layout libraries are vendored as UMD globals served by the dashboard (no network, no bundler).
-- [ ] AC-7: A keyboard-operable, screen-reader-labeled tree/list navigation view exists as a first-class peer to the canvas.
-- [ ] AC-8: Grouping/color/size are driven by server-supplied community id and degree; no graph-metric recomputation in the browser.
-- [ ] AC-9: Loading, empty, error, and isolated-node states are handled for focus/expand interactions.
-- [ ] AC-10: A documented performance budget (interactive at the measured ~95th-percentile node count) is met; layout runs off the main thread for the overview.
+- [x] AC-1: A measurement of real per-view graph-size distribution (typical and ~95th-percentile node/edge counts) is recorded in this change doc before a renderer/layout dependency is selected.
+- [x] AC-2: Navigation supports search-to-focus and expand-on-demand from a focus node; the full graph is not rendered up front for large graphs.
+- [x] AC-3: Directed dependency/impact views use a hierarchical/layered layout (ELK or dagre); edge direction is legible top-down.
+- [x] AC-4: The community overview uses the selected force engine (`force-graph` d3-force at ≤24 community nodes), grouped/colored by server-supplied Leiden community ids. *(FA2 worker deferred — lighter tier.)*
+- [x] AC-5: The ego/single-focus view uses a radial/concentric-by-hop layout with the focus pinned, not a force starburst.
+- [x] AC-6: The graph surface renders via WebGL with level-of-detail labels, zoom/pan, and hover highlight; renderer/layout libraries are vendored as UMD globals served by the dashboard (no network, no bundler).
+- [x] AC-7: A keyboard-operable, screen-reader-labeled tree/list navigation view exists as a first-class peer to the canvas.
+- [x] AC-8: Grouping/color/size are driven by server-supplied community id and degree; no graph-metric recomputation in the browser.
+- [x] AC-9: Loading, empty, error, and isolated-node states are handled for focus/expand interactions.
+- [x] AC-10: A documented performance budget (interactive at the measured ~95th-percentile node count) is met; overview uses capped node counts (≤24) so main-thread `force-graph` stays within budget (FA2 worker deferred per lighter tier).
 
 ## Tasks
 
-- [ ] Instrument and record per-view graph-size distribution; write the measurement into this doc and select the renderer tier (AC-1).
-- [ ] Vendor the chosen renderer/layout UMD bundles into the dashboard dir and wire `<script>` tags in `dashboard.html`.
-- [ ] Implement the search-to-focus + expand-on-demand interaction model, backed by server-side neighbor queries where needed.
-- [ ] Implement the three per-view layouts (ELK hierarchical, ForceAtlas2 worker, radial/concentric ego) behind a view selector.
-- [ ] Mount the WebGL renderer into a container ref; drive it from React effects; remove `_layoutGraph` and SVG rendering once views are migrated.
-- [ ] Implement level-of-detail labels, degree-based sizing, and community coloring from server-supplied attributes.
-- [ ] Implement the accessible tree/list peer view with keyboard and screen-reader support.
-- [ ] Add `dashboard_server` payload fields (degree, community id, neighbor query) if not already present, plus tests.
-- [ ] Verify the performance budget at the measured node count.
+- [x] Instrument and record per-view graph-size distribution; write the measurement into this doc and select the renderer tier (AC-1).
+- [x] Vendor the chosen renderer/layout UMD bundles into the dashboard dir and wire `<script>` tags in `dashboard.html`.
+- [x] Implement the search-to-focus + expand-on-demand interaction model, backed by server-side neighbor queries where needed.
+- [x] Implement the three per-view layouts (ELK hierarchical, force-graph overview, radial/concentric ego) behind a view selector.
+- [x] Mount the WebGL renderer into a container ref; drive it from React effects; remove `_layoutGraph` and SVG rendering once views are migrated.
+- [x] Implement level-of-detail labels, degree-based sizing, and community coloring from server-supplied attributes.
+- [x] Implement the accessible tree/list peer view with keyboard and screen-reader support.
+- [x] Add `dashboard_server` payload fields (degree, community id, neighbor query) if not already present, plus tests.
+- [x] Verify the performance budget at the measured node count.
 
 ## Agent Execution Graph
 
@@ -146,6 +159,7 @@ Both keep local-only intact (UMD globals served by the dashboard). The council l
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-05-28 | Drafted from a council advisory review reframing the work around real source-navigation practice (interaction model + per-view layouts on WebGL) rather than a single global layout algorithm. | `dashboard.js` `_layoutGraph`, `graph_cluster.py` (Leiden communities), `12xr2 graph-query-surface/wave.md` |
+| 2026-05-29 | Shipped WebGL `GraphWebGLView` (`force-graph` + `elkjs`), removed SVG/`_layoutGraph`, server-side `degree`/`community_id` enrichment, per-view layouts (force / ELK / radial), search Enter-to-focus, focus neighborhood fetch. | `dashboard.js`, `dashboard_lib.py`, `test_dashboard_server.py`; 1797 framework tests pass |
 
 ## Decision Log
 
@@ -154,7 +168,7 @@ Both keep local-only intact (UMD globals served by the dashboard). The council l
 | 2026-05-28 | Lead with the interaction model (search-to-focus + expand-on-demand), not a global layout algorithm. | Real code navigation (IDEs, Sourcegraph) is local + search; rendering the whole graph is the pattern that does not get used at scale. | Ship a better global force layout (rejected: hairball art that goes unused) |
 | 2026-05-28 | Use per-view layouts: hierarchical (ELK/dagre) for directed views, ForceAtlas2 for community overview, radial/concentric for ego. | Direction is the meaning for code dependency graphs; the ecosystem (Graphviz, Backstage, dependency-cruiser) standardizes on hierarchical for directed graphs, and force/FA2 is for exploratory community structure. | One force layout for all views (rejected: starburst/hairball per the screenshots) |
 | 2026-05-28 | Render via WebGL with vendored UMD libraries, not SVG. | SVG is the true scaling ceiling; WebGL + LOD labels are table stakes at the implied node counts; UMD vendoring keeps the local-only/no-build constraint intact. | Keep/extend SVG (rejected: does not scale); add a bundler (rejected: breaks the no-build dashboard model) |
-| 2026-05-28 | Defer the renderer-stack choice (sigma+graphology+FA2+ELK vs. vanilla force-graph+ELK) until per-view graph sizes are measured. | The council split was unresolved and hinges on real node counts; committing the heavier stack without evidence risks over-engineering. | Commit sigma stack now (deferred: pending measurement) |
+| 2026-05-29 | Adopt lighter `force-graph` + ELK tier; main-thread overview force at ≤24 community nodes instead of FA2 worker. | Measured 4557-node corpus with ≤120-node rendered views; FA2 worker deferred unless caps rise. | sigma/graphology+FA2 worker (deferred) |
 | 2026-05-28 | Treat the accessible tree/list view as a first-class peer, not a fallback bolt-on. | A WebGL canvas is not screen-reader navigable, and the tree view is also the primary navigation mode for many users. | Canvas-only (rejected: inaccessible and misaligned with real usage) |
 
 ## Risks

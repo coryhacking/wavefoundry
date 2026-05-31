@@ -97,6 +97,45 @@ class GraphIndexerTests(unittest.TestCase):
         node_ids = {node["id"] for node in payload["nodes"]}
         self.assertIn("src/tools.py::process", node_ids)
 
+    def test_fresh_graph_state_reextracts_full_corpus_not_only_changed(self):
+        self._build(
+            "import os\n\n\ndef process():\n    return os.path.join('a', 'b')\n",
+            "Call `process` from the guide.\n",
+        )
+        state_path = self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.json"
+        state_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": self.mod.GRAPH_SCHEMA_VERSION,
+                    "builder_version": self.mod.GRAPH_BUILDER_VERSION,
+                    "layer": "project",
+                    "walker_version": "1",
+                    "chunker_version": "1",
+                    "files": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        src = self.root / "src" / "tools.py"
+        doc_path = self.root / "docs" / "guide.md"
+        payload = self.mod.update_graph_index(
+            root=self.root,
+            index_dir=self.root / ".wavefoundry" / "index",
+            layer="project",
+            files=[src, doc_path],
+            current_file_meta={
+                "src/tools.py": {"hash": "src-hash"},
+                "docs/guide.md": {"hash": "doc-hash"},
+            },
+            changed={"docs/guide.md"},
+            removed=set(),
+            walker_version="1",
+            chunker_version="1",
+            verbose=False,
+        )
+        node_ids = {node["id"] for node in payload["nodes"]}
+        self.assertIn("src/tools.py::process", node_ids)
+
     def test_update_graph_index_drops_doc_reference_when_symbol_is_removed(self):
         self._build(
             "import os\n\n\ndef process():\n    return os.path.join('a', 'b')\n",
@@ -323,7 +362,98 @@ class GraphIndexerTests(unittest.TestCase):
         self.assertTrue(doc_edges)
         self.assertTrue(all(e["confidence"] == "AMBIGUOUS" for e in doc_edges))
 
-    def test_builder_version_bump_discards_stale_state(self):
+    def test_doc_match_requires_full_hyphenated_name_not_subtoken(self):
+        payload = self._run(
+            {
+                "src/context.py": "def build_context():\n    return 1\n",
+                "docs/guide.md": "Promote lessons to `docs/references/project-context-memory.md`.\n",
+            },
+            changed={"src/context.py", "docs/guide.md"},
+            removed=set(),
+        )
+        doc_edges = [e for e in payload["edges"] if e["relation"] == "doc_references_code"]
+        self.assertFalse(
+            any(
+                e["target"] == "src/context.py" and e.get("evidence") == "context"
+                for e in doc_edges
+            ),
+            "hyphenated path must not match the context.py module via subtoken 'context'",
+        )
+
+    def test_docs_json_files_indexed_as_code_with_top_level_keys(self):
+        payload = self._run(
+            {
+                "docs/workflow-config.json": json.dumps(
+                    {"factor_review_policy": {"findings_advisory": True}}
+                ),
+            },
+            changed={"docs/workflow-config.json"},
+            removed=set(),
+        )
+        node_ids = {node["id"] for node in payload["nodes"]}
+        self.assertIn("docs/workflow-config.json", node_ids)
+        self.assertIn("docs/workflow-config.json::factor_review_policy", node_ids)
+        state_path = self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            state["files"]["docs/workflow-config.json"]["artifact"]["kind"],
+            "code",
+        )
+
+    def test_doc_references_workflow_config_key_by_full_name(self):
+        payload = self._run(
+            {
+                "docs/workflow-config.json": json.dumps(
+                    {"factor_review_policy": {"findings_advisory": True}}
+                ),
+                "docs/agents/factor-03-config.md": (
+                    "Policy per `docs/workflow-config.json` "
+                    "`factor_review_policy.findings_advisory: true`.\n"
+                ),
+            },
+            changed={"docs/workflow-config.json", "docs/agents/factor-03-config.md"},
+            removed=set(),
+        )
+        doc_edges = [
+            e for e in payload["edges"]
+            if e["relation"] == "doc_references_code"
+            and e["source"] == "docs/agents/factor-03-config.md"
+            and e["target"] == "docs/workflow-config.json::factor_review_policy"
+        ]
+        self.assertTrue(doc_edges)
+        self.assertEqual(doc_edges[0].get("evidence"), "factor_review_policy")
+
+    def test_doc_file_stem_reference_links_module_only(self):
+        payload = self._run(
+            {
+                "src/tools.py": "def alpha():\n    return 1\n\ndef beta():\n    return 2\n",
+                "docs/guide.md": "See `src/tools.py` for helpers.\n",
+            },
+            changed={"src/tools.py", "docs/guide.md"},
+            removed=set(),
+        )
+        doc_edges = [
+            e for e in payload["edges"]
+            if e["relation"] == "doc_references_code" and e["source"] == "docs/guide.md"
+        ]
+        targets = {e["target"] for e in doc_edges}
+        self.assertIn("src/tools.py", targets)
+        self.assertNotIn("src/tools.py::alpha", targets)
+        self.assertNotIn("src/tools.py::beta", targets)
+        self.assertEqual(len(doc_edges), 1)
+
+    def test_doc_symbol_reference_still_links_defined_function(self):
+        payload = self._build(
+            "def process():\n    return 1\n",
+            "Call `process` from the guide.\n",
+        )
+        doc_edges = [e for e in payload["edges"] if e["relation"] == "doc_references_code"]
+        self.assertEqual(
+            {e["target"] for e in doc_edges},
+            {"src/tools.py::process"},
+        )
+
+    def test_builder_version_bump_reextracts_full_corpus(self):
         a = "def alpha():\n    return 1\n"
         b = "def beta():\n    return 2\n"
         self._run(
@@ -339,8 +469,9 @@ class GraphIndexerTests(unittest.TestCase):
             self.mod.GRAPH_BUILDER_VERSION = original
         node_ids = {n["id"] for n in payload["nodes"]}
         self.assertIn("src/a.py::alpha", node_ids)
-        # Stale state was discarded, so the unchanged b.py was not carried forward.
-        self.assertNotIn("src/b.py::beta", node_ids)
+        # Empty graph state after a builder bump must re-extract every file in the corpus,
+        # not only the indexer "changed" set (which may be a single doc from the hook).
+        self.assertIn("src/b.py::beta", node_ids)
 
     def test_framework_layer_writes_framework_graph_file(self):
         payload = self._run(
@@ -367,3 +498,160 @@ class GraphIndexerTests(unittest.TestCase):
         node_ids = {node["id"] for node in payload["nodes"]}
         self.assertTrue(any("workflow" in node_id for node_id in node_ids))
         self.assertTrue(any("name" in node_id or "steps" in node_id for node_id in node_ids))
+
+    def test_doc_json_fence_config_keys_do_not_create_code_edges(self):
+        payload = self._run(
+            {
+                "docs/workflow-config.json": json.dumps({"dashboard": {"enabled": True}}),
+                ".wavefoundry/framework/scripts/dashboard_lib.py": (
+                    "def collect_waves():\n    return []\n\n"
+                    "def collect_agents():\n    return []\n"
+                ),
+                "docs/adapter.md": (
+                    "```json\n"
+                    '{\n  "dashboard": {\n    "enabled": true,\n    "auto_index": true\n  }\n}\n'
+                    "```\n\n"
+                    "| Reader | Function |\n|---|---|\n| Waves | `collect_waves` |\n"
+                ),
+            },
+            changed={
+                "docs/workflow-config.json",
+                ".wavefoundry/framework/scripts/dashboard_lib.py",
+                "docs/adapter.md",
+            },
+            removed=set(),
+        )
+        code_edges = [
+            e for e in payload["edges"]
+            if e["source"] == "docs/adapter.md" and e["relation"] == "doc_references_code"
+        ]
+        targets = {e["target"] for e in code_edges}
+        self.assertIn(".wavefoundry/framework/scripts/dashboard_lib.py::collect_waves", targets)
+        self.assertFalse(any(e.get("evidence") == "enabled" for e in code_edges))
+        self.assertFalse(any("::enabled" in t or t.endswith("::dashboard") for t in targets))
+
+    def test_doc_backtick_path_creates_doc_reference(self):
+        payload = self._run(
+            {
+                "docs/a.md": "See `.wavefoundry/framework/scripts/dashboard_lib.py`.\n",
+                ".wavefoundry/framework/scripts/dashboard_lib.py": "def helper():\n    return 1\n",
+            },
+            changed={"docs/a.md", ".wavefoundry/framework/scripts/dashboard_lib.py"},
+            removed=set(),
+        )
+        doc_edges = [
+            e for e in payload["edges"]
+            if e["source"] == "docs/a.md" and e["relation"] == "doc_references_doc"
+        ]
+        self.assertEqual(
+            {e["target"] for e in doc_edges},
+            {".wavefoundry/framework/scripts/dashboard_lib.py"},
+        )
+
+    def test_doc_named_reader_gets_extracted_confidence(self):
+        payload = self._run(
+            {
+                ".wavefoundry/framework/scripts/dashboard_lib.py": "def collect_dashboard_snapshot():\n    return {}\n",
+                "docs/adapter.md": "Snapshot via `collect_dashboard_snapshot`.\n",
+            },
+            changed={
+                ".wavefoundry/framework/scripts/dashboard_lib.py",
+                "docs/adapter.md",
+            },
+            removed=set(),
+        )
+        edges = [
+            e for e in payload["edges"]
+            if e["source"] == "docs/adapter.md" and e["relation"] == "doc_references_code"
+        ]
+        self.assertEqual(len(edges), 1)
+        self.assertEqual(edges[0].get("confidence"), "EXTRACTED")
+
+
+class GraphDependencyInjectionTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files: dict[str, str]) -> dict:
+        paths = []
+        meta = {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root,
+            index_dir=self.root / ".wavefoundry" / "index",
+            layer="project",
+            files=paths,
+            current_file_meta=meta,
+            changed=set(meta.keys()),
+            removed=set(),
+            walker_version="1",
+            chunker_version="1",
+            verbose=False,
+        )
+
+    def test_spring_three_file_di_resolution(self):
+        payload = self._build(
+            {
+                "src/AppConfig.java": """
+                @Configuration
+                public class AppConfig {
+                    @Bean
+                    public IFooService fooService() { return new FooService(); }
+                }
+                """.strip(),
+                "src/FooService.java": """
+                @Service
+                public class FooService implements IFooService {}
+                """.strip(),
+                "src/BarController.java": """
+                @RestController
+                public class BarController {
+                    public BarController(IFooService fooService) {}
+                }
+                """.strip(),
+            }
+        )
+        relations = {edge["relation"] for edge in payload["edges"]}
+        self.assertIn("binds", relations)
+        self.assertIn("injects", relations)
+
+    def test_dotnet_registration_and_injection(self):
+        payload = self._build(
+            {
+                "src/Startup.cs": """
+                public class Startup {
+                    public void ConfigureServices(IServiceCollection services) {
+                        services.AddScoped<IFoo, Foo>();
+                    }
+                }
+                """.strip(),
+                "src/Foo.cs": "public class Foo : IFoo {}",
+                "src/Consumer.cs": """
+                public class Consumer {
+                    public Consumer(IFoo foo) {}
+                }
+                """.strip(),
+            }
+        )
+        relations = {edge["relation"] for edge in payload["edges"]}
+        self.assertIn("binds", relations)
+        self.assertIn("injects", relations)
+
+    def test_no_di_signals_for_plain_python(self):
+        payload = self._build({"src/plain.py": "def run():\n    return 1\n"})
+        relations = {edge["relation"] for edge in payload["edges"]}
+        self.assertNotIn("binds", relations)
+        self.assertNotIn("injects", relations)
+

@@ -59,6 +59,7 @@ REQUIRED_IMPORTS = {
     "tree-sitter-css": "tree_sitter_css",
     "tree-sitter-powershell": "tree_sitter_powershell",
     "lancedb": "lancedb",
+    "networkx>=3.0": "networkx",
 }
 
 
@@ -628,12 +629,21 @@ def _run_indexer(
     proc.wait()
     combined_output = "".join(collected)
     if "Another index build is already running" in combined_output or "lock file busy" in combined_output:
-        lock_path = root / ".wavefoundry" / "index" / "index-build.lock"
-        print(
-            f"Index update skipped: another project index build is already running for {root / '.wavefoundry' / 'index'}.\n"
-            f"The existing build holds {lock_path}; wait for it to finish, then rerun update-indexes if you still need a refresh.",
-            file=sys.stderr,
-        )
+        index_dir = root / ".wavefoundry" / "index"
+        lock_path = index_dir / "index-build.lock"
+        detail = f"The existing build holds {lock_path}; wait for it to finish, then rerun update-indexes if you still need a refresh."
+        try:
+            spec = importlib.util.spec_from_file_location(
+                "wavefoundry_indexer_for_setup_lock",
+                SCRIPTS_DIR / "indexer.py",
+            )
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                detail = mod.format_index_build_lock_conflict(index_dir, lock_path=lock_path)
+        except Exception:
+            pass
+        print(f"Index update skipped: {detail}", file=sys.stderr)
         return
     if proc.returncode == 0:
         return

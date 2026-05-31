@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-26
+Last verified: 2026-05-31
 
 Reference doc covering how the local dashboard feature moves from the Wavefoundry framework pack into target repositories. Addresses packaging (build_pack.py), install (seed-010), upgrade (seed-160), and the sibling-directory runtime option.
 
 ## Overview
 
-The dashboard is a framework feature, not a per-repo app. Its assets (HTML shell, CSS, React JS bundle) and server scripts are packaged into the semver framework zip distribution and seeded into target repositories through the standard install and upgrade flows. No Node.js, npm, or build toolchain is required in target repos at install or runtime.
+The dashboard is a framework feature, not a per-repo app. Its assets (HTML shell, CSS, application JS) and server scripts are packaged into the semver framework zip distribution and seeded into target repositories through the standard install and upgrade flows. React, React DOM, force-graph, and elkjs load from pinned unpkg CDN URLs in `dashboard.html`; `dashboard.js` and `dashboard.css` are still served locally by the dashboard server. No Node.js, npm, or build toolchain is required in target repos at install or runtime. The dashboard graph view requires network access on first load (or a warm browser cache) for those CDN scripts.
 
 ## Packaging (build_pack.py)
 
@@ -19,8 +19,6 @@ The dashboard is a framework feature, not a per-repo app. Its assets (HTML shell
 dashboard/dashboard.html
 dashboard/dashboard.css
 dashboard/dashboard.js
-dashboard/react.production.min.js
-dashboard/react-dom.production.min.js
 scripts/dashboard_lib.py
 scripts/dashboard_server.py
 seeds/152-start-dashboard.prompt.md

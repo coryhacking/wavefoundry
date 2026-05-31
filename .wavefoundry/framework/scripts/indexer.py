@@ -115,6 +115,120 @@ def _enable_timestamped_stdio() -> None:
 
 class IndexBuildAlreadyRunning(RuntimeError):
     """Raised when another process already holds the whole-index build lock."""
+
+
+HOOK_REINDEX_DEBOUNCE_SECONDS = 2.0
+HOOK_REINDEX_LAST_SPAWN_NAME = "hook-reindex.last-spawn"
+
+
+def _pid_is_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return str(pid) in result.stdout
+        except OSError:
+            return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def read_index_build_lock_metadata(lock_path: Path) -> Optional[dict]:
+    if not lock_path.exists():
+        return None
+    try:
+        loaded = json.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
+def classify_index_build_lock_owner(metadata: Optional[dict]) -> str:
+    """Return ``live``, ``stale``, ``completed``, or ``unknown`` for index-build.lock metadata.
+
+    ``completed`` means the recorded owner pid is no longer running but ``started_at`` is
+    recent — a normal finished build, not an abandoned lock marker.
+    """
+    if not metadata:
+        return "unknown"
+    pid = metadata.get("pid")
+    started_at = metadata.get("started_at")
+    if isinstance(pid, int) and _pid_is_running(pid):
+        return "live"
+    if isinstance(started_at, (int, float)):
+        age = time.time() - float(started_at)
+        if age >= LOCK_STALE_SECONDS:
+            return "stale"
+        if isinstance(pid, int):
+            return "completed"
+    if isinstance(pid, int):
+        return "stale"
+    return "unknown"
+
+
+def format_index_build_lock_conflict(index_dir: Path, *, lock_path: Optional[Path] = None) -> str:
+    lock_path = lock_path or (index_dir / INDEX_BUILD_LOCK_NAME)
+    metadata = read_index_build_lock_metadata(lock_path)
+    owner = classify_index_build_lock_owner(metadata)
+    pid = metadata.get("pid") if metadata else None
+    base = (
+        f"Another index build is already running for {index_dir}; "
+        f"lock file busy: {lock_path}"
+    )
+    if owner == "live":
+        detail = f"live build in progress (owner pid {pid})"
+    elif owner == "stale":
+        detail = (
+            f"recorded owner pid {pid} appears stale — the OS lock is held by another "
+            f"process (possible inherited lock descriptor); wait for the holder to exit or "
+            f"remove {lock_path} after confirming no build is active"
+        )
+    elif owner == "completed":
+        detail = (
+            f"recorded owner pid {pid} finished recently — the OS lock is held by another "
+            f"process; wait for the active build to finish"
+        )
+    else:
+        detail = "lock holder could not be classified from metadata"
+    return f"{base} — {detail}"
+
+
+def should_coalesce_hook_reindex(index_dir: Path) -> bool:
+    """Return True when a hook-triggered reindex spawn should be skipped."""
+    lock_path = index_dir / INDEX_BUILD_LOCK_NAME
+    if classify_index_build_lock_owner(read_index_build_lock_metadata(lock_path)) == "live":
+        return True
+    debounce_path = index_dir / HOOK_REINDEX_LAST_SPAWN_NAME
+    if not debounce_path.exists():
+        return False
+    try:
+        last_spawn = float(debounce_path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return False
+    return (time.time() - last_spawn) < HOOK_REINDEX_DEBOUNCE_SECONDS
+
+
+def record_hook_reindex_spawn(index_dir: Path) -> None:
+    index_dir.mkdir(parents=True, exist_ok=True)
+    (index_dir / HOOK_REINDEX_LAST_SPAWN_NAME).write_text(
+        str(time.time()),
+        encoding="utf-8",
+    )
+
+
 SOURCE_CODE_EXTENSIONS = {
     ".py",
     ".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs",
@@ -1264,6 +1378,7 @@ def _index_build_lock(index_dir: Path):
     """
     lock_path = index_dir / INDEX_BUILD_LOCK_NAME
     lock_path.parent.mkdir(parents=True, exist_ok=True)
+    prior_owner = classify_index_build_lock_owner(read_index_build_lock_metadata(lock_path))
     fh = lock_path.open("a+", encoding="utf-8")
     acquired = False
     try:
@@ -1275,7 +1390,7 @@ def _index_build_lock(index_dir: Path):
                 acquired = True
             except OSError as exc:
                 raise IndexBuildAlreadyRunning(
-                    f"Another index build is already running for {index_dir}; lock file busy: {lock_path}"
+                    format_index_build_lock_conflict(index_dir, lock_path=lock_path)
                 ) from exc
         else:
             import fcntl
@@ -1284,9 +1399,14 @@ def _index_build_lock(index_dir: Path):
                 acquired = True
             except BlockingIOError as exc:
                 raise IndexBuildAlreadyRunning(
-                    f"Another index build is already running for {index_dir}; lock file busy: {lock_path}"
+                    format_index_build_lock_conflict(index_dir, lock_path=lock_path)
                 ) from exc
 
+        if prior_owner == "stale":
+            print(
+                f"build_index: reclaimed stale {INDEX_BUILD_LOCK_NAME} at {lock_path}",
+                file=sys.stderr,
+            )
         fh.seek(0)
         fh.truncate()
         fh.write(json.dumps({"pid": os.getpid(), "started_at": time.time()}))
@@ -2060,7 +2180,7 @@ def _build_index_locked(
             doc_chunk_summary = f"{doc_chunks_added} added, {doc_chunks_updated_new} updated, {doc_chunks_removed_net} removed"
         _docs_time = f" in {_docs_elapsed[0]:.1f}s" if _docs_elapsed else ""
         print(
-            f"build_index: finished docs — {files_summary} | chunks: {doc_chunk_summary}{_docs_time}",
+            f"build_index: finished doc files: {files_summary} | chunks: {doc_chunk_summary}{_docs_time}",
             flush=True,
         )
     if build_code:
@@ -2070,11 +2190,9 @@ def _build_index_locked(
             code_chunk_summary = f"{code_chunks_added} added, {code_chunks_updated_new} updated, {code_chunks_removed_net} removed"
         _code_time = f" in {_code_elapsed[0]:.1f}s" if _code_elapsed else ""
         print(
-            f"build_index: finished code — {files_summary} | chunks: {code_chunk_summary}{_code_time}",
+            f"build_index: finished code files: {files_summary} | chunks: {code_chunk_summary}{_code_time}",
             flush=True,
         )
-    if content == "graph":
-        print(f"build_index: finished graph — {files_summary}", flush=True)
     return summary
 
 

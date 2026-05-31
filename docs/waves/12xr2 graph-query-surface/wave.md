@@ -1,8 +1,8 @@
 # Wave Record
 
 Owner: Engineering
-Status: active
-Last verified: 2026-05-29
+Status: closed
+Last verified: 2026-05-31
 
 wave-id: `12xr2 graph-query-surface`
 Title: Graph Query Surface
@@ -15,44 +15,42 @@ Backed by the validated graph index from wave `12xr1`.
 
 ## Changes
 
-Change ID: `12xs4-feat graph-query-surface`
-Change Status: `planned`
-
 Change ID: `12z48-bug stale-index-build-lock-cleanup`
-Change Status: `planned`
+Change Status: `complete`
 
 Change ID: `12z4a-bug test-file-detection-case-conventions`
-Change Status: `planned`
+Change Status: `complete`
+
+Change ID: `12xs4-feat graph-query-surface`
+Change Status: `complete`
 
 Change ID: `12ynp-enh graph-dependency-injection-wiring`
-Change Status: `planned`
+Change Status: `complete`
 
 Change ID: `12yro-enh graph-visualization-navigation-overhaul`
-Change Status: `planned`
+Change Status: `complete`
+
+Change ID: `12zxl-enh graph-mcp-layer-improvements`
+Change Status: `implemented`
+
+Change ID: `12zyc-enh mcp-resource-surface-documentation`
+Change Status: `implemented`
+
+Completed At: 2026-05-30
 
 ## Wave Summary
 
-**Core (`12xs4`):** Adds `graph_query.py`, extends `code_impact` with graph-backed `symbol=`
-mode (preserving existing `path=` import heuristics), new `code_callgraph` and
-`wave_graph_report` MCP tools, query-time project+framework union via `networkx.compose()`,
-and `graph=true` opt-in augmentation on `code_keyword`, `code_search`, `code_definition`, and
-`code_references`. Default tool output unchanged when `graph=false`.
+Wave `12xr2` (Graph Query Surface) delivered 7 changes: Stale index-build lock blocks manual rebuilds, Fixed-community classifiers miss case-variant dirs and non-Python conventions, Graph Query Surface, Graph Dependency-Injection Wiring, Graph Visualization and Navigation Overhaul, Graph MCP Layer Improvements (Graphify Analysis), and MCP Resource Surface Documentation and Expansion. Notable adjustments during implementation: Fixed-community classifiers miss case-variant dirs and non-Python conventions: Scope expanded: audit shows same case-sensitive dir pattern in all six `_is_*_source_file` classifiers; parity fix bundled into same change.; Graph Query Surface: Implementation complete; 1796 tests green; `AGENTS.md` graph tools section added.; Graph Dependency-Injection Wiring: Added the tree-sitter capability analysis and recommended a two-phase collect-then-resolve extraction pipeline grounded in the indexer's existing global assembly pass.
 
-**Infra (`12z48`):** Stale `index-build.lock` reclaim, live-vs-stale diagnostics, hook
-reindex coalescing — unblocks reliable graph/index rebuilds.
+**Changes delivered:**
 
-**Clustering (`12z4a`):** Case-insensitive, multi-language fixed-community classifiers so
-Tests/Benchmarks/Scripts/etc. buckets work for Swift, Go, Java, C#, JS/TS, not just Python.
-
-**Extraction (`12ynp`):** DI framework wiring edges (`binds`/`injects`) for Spring, CDI,
-Guice/Dagger, .NET — improves graph-backed impact/callgraph on enterprise stacks.
-
-**Dashboard (`12yro`):** WebGL renderer, per-view layouts, search-to-focus +
-expand-on-demand navigation; consumes the query surface for neighborhood expansion.
-
-**Suggested implementation order:** `12z48` → `12z4a` → `12xs4` → `12ynp` (parallel with
-late `12xs4` if graph API stable) → `12yro` last.
-
+- **Stale index-build lock blocks manual rebuilds** (`12z48-bug stale-index-build-lock-cleanup`) — 5 ACs completed. Key decisions: --------
+- **Fixed-community classifiers miss case-variant dirs and non-Python conventions** (`12z4a-bug test-file-detection-case-conventions`) — 17 ACs completed. Key decisions: --------; Bundle non-test classifier dir fixes in same change (not follow-up)
+- **Graph Query Surface** (`12xs4-feat graph-query-surface`) — 10 ACs completed. Key decisions: --------; Extend `code_impact` with `symbol=` graph mode; keep `path=` heuristic
+- **Graph Dependency-Injection Wiring** (`12ynp-enh graph-dependency-injection-wiring`) — 9 ACs completed. Key decisions: --------; Model DI wiring as new `injects`/`binds` edge relations rather than overloading `calls`.
+- **Graph Visualization and Navigation Overhaul** (`12yro-enh graph-visualization-navigation-overhaul`) — 10 ACs completed. Key decisions: --------; Lead with the interaction model (search-to-focus + expand-on-demand), not a global layout algorithm.
+- **Graph MCP Layer Improvements (Graphify Analysis)** (`12zxl-enh graph-mcp-layer-improvements`) — 9 ACs completed. Key decisions: BFS (not Dijkstra) for code_graph_path; Betweenness computed at report time, not stored in graph artifact
+- **MCP Resource Surface Documentation and Expansion** (`12zyc-enh mcp-resource-surface-documentation`) — 8 ACs completed. Key decisions: Document resources in mcp-tool-surface.md rather than creating a separate spec; wavefoundry://index/status reads headers only, no traversal
 ## Acceptance Criteria
 
 - `code_impact(symbol)` returns files and symbols that would be affected by changing the given symbol, traversing the graph up to a configurable hop limit
@@ -93,7 +91,14 @@ late `12xs4` if graph API stable) → `12yro` last.
 ## Review Evidence
 
 - wave-council-readiness: approved-with-conditions — full-tier prepare council 2026-05-29; conditions: golden snapshots before `graph=true`, measure graph sizes before 12yro renderer pick, profile union memory, serialize 12yro after query API stable.
-- operator-signoff: <approved when operator confirms closure>
+- architecture-reviewer: approved-with-fixes — 2026-05-30; close-review identified library/presentation boundary held (`graph_query.py` pure, `server_impl.py` owns presentation); flagged A1 (dead-code duplicate in `resolve_symbol`) and A3 (`context_depth` AC-8 violation: N traverse calls → single `one_hop_neighbors`); both fixed before close.
+- code-reviewer: approved-with-fixes — 2026-05-30; reviewed `_suggest_near_symbols` ordering, `_load_cluster_lookup` defensive catch, `code_graph_community_response` empty-list guard, betweenness 0-score filter, and `context_depth` dead `pass` block (C2); all fixes landed.
+- qa-reviewer: approved — 2026-05-30; golden snapshot tests for `graph=false` byte-identity confirmed (pre-mortem #1 risk mitigated); `GraphQueryShortestPathTests` (5), `GraphQueryBetweennessTests` (3), `TestCodeGraphPath` (4), `TestCodeImpactIncludeTests` (2), `TestCodeGraphCommunity` (5 incl. not-found + empty guard), `TestSuggestNearSymbolsTokenization` (3), `TestCodeCallgraphIncludeTests` (2) all green; 1835/1835 tests pass.
+- security-reviewer: approved — 2026-05-30; all new tools read-only; `_ensure_no_extra_args` enforced; `community_id` non-empty guard prevents null-id community match (Red-1); `_load_cluster_lookup` broad-except is defensive non-leaking; no path/shell injection vectors; resource handlers (`wavefoundry://agents`, `index/status`, `graph/status`, `graph/communities`, `waves`) stay within repo root and are strictly read-only.
+- performance-reviewer: approved — 2026-05-30; `context_depth` switched from N-traverse to single `one_hop_neighbors` (A3); betweenness `_BETWEENNESS_NODE_LIMIT=10_000` guard validated against ~2k-node project graph; union compose memory acceptable below 50k combined nodes; smoke test latencies: `code_graph_path` 23ms (resolved-id fast path via A2), `code_callhierarchy context_depth=1` 252ms on a hub symbol, `wave_graph_report betweenness` under 2s.
+- docs-contract-reviewer: approved — 2026-05-30; 12zyc AC-1 (`mcp-tool-surface.md` MCP Resources section) complete; AGENTS.md at 304 lines (target ≤320); tool docstrings for `code_graph_path`, `code_graph_community`, `code_impact`, `code_callhierarchy`, `code_callgraph` follow "Prefer when / Response fields / Args" pattern; post-implementation doc-gap pass added `wavefoundry://graph/communities` to all four resource catalogs (mcp-tool-surface.md, AGENTS.md, current-state.md, data-and-control-flow.md) and added `include_tests` to `code_callgraph` quick-ref + graph-index-system.md; seeds `211-guru.prompt.md` and `180-implement-feature.prompt.md` updated to teach the new affordances before per-project surfaces.
+- wave-council-delivery: approved-with-fixes — 2026-05-30; inline council review passed with 7 issues (4 required, 3 optional); all 7 fixed in-session including `_suggest_near_symbols` ranking improvement and three follow-on discovery improvements (community suggestions on not-found, `wavefoundry://graph/communities` resource, `code_callgraph include_tests`); future work captured as `docs/plans/13006-enh bidirectional-graph-path-search.md`; no blocking concerns remain.
+- operator-signoff: approved — 2026-05-30; operator requested close after smoke tests verified all four discovery improvements live, doc gaps closed, and `13006` follow-on plan filed.
 
 ## Review Checkpoints
 

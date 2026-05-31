@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 CLUSTER_SCHEMA_VERSION = "1"
-CLUSTER_BUILDER_VERSION = "7"
+CLUSTER_BUILDER_VERSION = "8"
 
 # Document node kinds. These are pre-assigned to a single fixed "Documentation"
 # community (like Tests/Configuration) before Leiden runs, so docs stay visible
@@ -21,7 +21,7 @@ GRAPH_BUILDER_VERSION = "1"
 
 MIN_COMMUNITY_SIZE = 12
 
-_TEST_DIR_NAMES = {"test", "tests", "__tests__"}
+_TEST_DIR_NAMES = {"test", "tests", "__tests__", "spec", "specs"}
 _BENCH_DIR_NAMES = {"benchmarks", "benchmark"}
 # Shallow-only: only match when within the first 2 path segments from root, to avoid
 # misclassifying deep application directories named "scripts" as auxiliary scripts.
@@ -128,14 +128,37 @@ def _community_label(seed_node_id: str, nodes_by_id: dict[str, dict[str, Any]]) 
     return label or "community"
 
 
+def _path_has_dir_segment(parts: list[str], names: set[str]) -> bool:
+    """Case-insensitive directory match; dot-prefixed names stay exact-case."""
+    exact = {name for name in names if name.startswith(".")}
+    folded = {name.casefold() for name in names if not name.startswith(".")}
+    for part in parts[:-1]:
+        if part in exact or part.casefold() in folded:
+            return True
+    return False
+
+
+def _filename_stem(filename: str) -> str:
+    return Path(filename).stem
+
+
 def _is_test_source_file(source_file: str) -> bool:
     if not source_file:
         return False
     parts = source_file.replace("\\", "/").split("/")
     filename = parts[-1]
-    if filename.startswith("test_") or filename.endswith("_test.py"):
+    if _path_has_dir_segment(parts, _TEST_DIR_NAMES):
         return True
-    return any(part in _TEST_DIR_NAMES for part in parts[:-1])
+    if filename.startswith("test_"):
+        return True
+    stem = _filename_stem(filename)
+    if stem.endswith("_test"):
+        return True
+    if stem.endswith("Tests") or stem.endswith("Test") or stem.startswith("Test"):
+        return True
+    if ".test." in filename or ".spec." in filename:
+        return True
+    return False
 
 
 def _is_bench_source_file(source_file: str) -> bool:
@@ -143,9 +166,16 @@ def _is_bench_source_file(source_file: str) -> bool:
         return False
     parts = source_file.replace("\\", "/").split("/")
     filename = parts[-1]
-    if filename.startswith("bench_") or filename.endswith("_bench.py"):
+    if _path_has_dir_segment(parts, _BENCH_DIR_NAMES):
         return True
-    return any(part in _BENCH_DIR_NAMES for part in parts[:-1])
+    if filename.startswith("bench_"):
+        return True
+    stem = _filename_stem(filename)
+    if stem.endswith("_bench") or stem.endswith("_bench_test"):
+        return True
+    if "Benchmark" in stem:
+        return True
+    return False
 
 
 def _is_scripts_source_file(source_file: str) -> bool:
@@ -154,9 +184,9 @@ def _is_scripts_source_file(source_file: str) -> bool:
     parts = source_file.replace("\\", "/").split("/")
     dir_parts = parts[:-1]
     for i, part in enumerate(dir_parts):
-        if part in _SCRIPTS_ANY_DEPTH_NAMES:
+        if part.casefold() in {name.casefold() for name in _SCRIPTS_ANY_DEPTH_NAMES}:
             return True
-        if part in _SCRIPTS_SHALLOW_NAMES and i <= 1:
+        if part.casefold() in {name.casefold() for name in _SCRIPTS_SHALLOW_NAMES} and i <= 1:
             return True
     return False
 
@@ -168,7 +198,7 @@ def _is_generated_source_file(source_file: str) -> bool:
     filename = parts[-1]
     if any(filename.endswith(suffix) for suffix in _GENERATED_FILE_SUFFIXES):
         return True
-    return any(part in _GENERATED_DIR_NAMES for part in parts[:-1])
+    return _path_has_dir_segment(parts, _GENERATED_DIR_NAMES)
 
 
 def _is_cicd_source_file(source_file: str) -> bool:
@@ -180,7 +210,7 @@ def _is_cicd_source_file(source_file: str) -> bool:
         return True
     if any(filename.startswith(prefix) for prefix in _CICD_PREFIXES):
         return True
-    return any(part in _CICD_DIR_NAMES for part in parts[:-1])
+    return _path_has_dir_segment(parts, _CICD_DIR_NAMES)
 
 
 def _is_config_source_file(source_file: str) -> bool:
@@ -192,7 +222,7 @@ def _is_config_source_file(source_file: str) -> bool:
         return True
     if any(filename.endswith(suffix) for suffix in _CONFIG_FILE_SUFFIXES):
         return True
-    return any(part in _CONFIG_DIR_NAMES for part in parts[:-1])
+    return _path_has_dir_segment(parts, _CONFIG_DIR_NAMES)
 
 
 def _extract_fixed_communities(

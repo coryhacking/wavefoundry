@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-29
+Last verified: 2026-05-31
 
 ## Primary Control Paths
 
@@ -89,7 +89,7 @@ Last verified: 2026-05-29
 ### Path 6b: MCP Resource and Resource-Template Reads
 
 1. MCP client requests a **resource** or **resource template** URI via the MCP resources protocol
-2. **Stable resources** (`wavefoundry://overview`, `wavefoundry://prompts`, `wavefoundry://architecture/current-state`, `wavefoundry://wave/current`, `wavefoundry://session-handoff`): read the corresponding file(s) from `docs/` and return raw markdown text; missing files return a structured `# Not Found` markdown message
+2. **Stable resources** (`wavefoundry://overview`, `wavefoundry://prompts`, `wavefoundry://architecture/current-state`, `wavefoundry://wave/current`, `wavefoundry://session-handoff`, `wavefoundry://agents`, `wavefoundry://index/status`, `wavefoundry://graph/status`, `wavefoundry://graph/communities`, `wavefoundry://waves`): read the corresponding file(s) or index artifacts and return raw markdown text; missing files return a structured `# Not Found` markdown message
 3. **Resource templates** (`wavefoundry://change/{change_id}`, `wavefoundry://wave/{wave_id}`, `wavefoundry://prompt/{slug}`, `wavefoundry://seed/{slug}`, `wavefoundry://architecture/{slug}`): parameterized reads of the matching doc in `docs/` or `.wavefoundry/framework/seeds/`; matched by name prefix; unknown identifiers return `# Not Found`
 4. All resource reads are **strictly read-only** — no writes, no side effects, no background refresh requests. Use tools when a structured response envelope (`diagnostics`, `next_tools`, `usage`) is needed.
 
@@ -107,7 +107,7 @@ Last verified: 2026-05-29
 2. Script reads `docs/workflow-config.json` `dashboard` settings to determine host, preferred port, fallback range, poll interval, and optional `include_dirs` for file-activity metrics
 3. Script resolves the runtime port using a preference-then-fallback strategy across a configured range; reuses the recorded port from `.wavefoundry/dashboard-server.json` when available and free
 4. Script writes host-local endpoint metadata to `.wavefoundry/dashboard-server.json` (pid, host, port, url, started_at)
-5. Browser loads `dashboard.html` (shell), `dashboard.css` (design system tokens + layout), `dashboard.js` (React application), `react.production.min.js`, and `react-dom.production.min.js` from the loopback server; no build toolchain required in target repos
+5. Browser loads `dashboard.html` (shell), `dashboard.css` (design system tokens + layout), and `dashboard.js` (React application) from the loopback server; pinned React, React DOM, force-graph, and elkjs load from unpkg CDN URLs embedded in the HTML. No build toolchain required in target repos; graph scripts need network (or cache) on first load.
 6. Browser React app polls `/api/dashboard` on a graduated backoff schedule (2 → 5 → 8 → 13 → 21 → 30 s); resets to 2 s when the snapshot hash changes; UI state (selected agent, scroll) stays in browser memory
 7. On each poll, `dashboard_lib.collect_dashboard_snapshot` assembles the snapshot from:
    - `docs/waves/` and `docs/plans/` — wave and change records (status, tasks, AC counts, progress logs, participants, review evidence)

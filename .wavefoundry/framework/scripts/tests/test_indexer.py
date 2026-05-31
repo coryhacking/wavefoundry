@@ -9,7 +9,9 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -553,6 +555,78 @@ class IndexBuildLockTests(unittest.TestCase):
         finally:
             proc.terminate()
             proc.communicate(timeout=5)
+
+    def test_stale_lock_metadata_is_reclaimed_on_acquire(self):
+        lock_path = self.index_dir / self.bi.INDEX_BUILD_LOCK_NAME
+        lock_path.write_text(
+            json.dumps({"pid": 99999999, "started_at": 0.0}),
+            encoding="utf-8",
+        )
+        err_buf = io.StringIO()
+        with redirect_stderr(err_buf):
+            with self.bi._index_build_lock(self.index_dir):
+                data = json.loads(lock_path.read_text(encoding="utf-8"))
+                self.assertEqual(data.get("pid"), os.getpid())
+        self.assertIn("reclaimed stale", err_buf.getvalue())
+
+    def test_classify_index_build_lock_owner_live_and_stale(self):
+        live = self.bi.classify_index_build_lock_owner(
+            {"pid": os.getpid(), "started_at": time.time()}
+        )
+        self.assertEqual(live, "live")
+        stale = self.bi.classify_index_build_lock_owner(
+            {"pid": 99999999, "started_at": 0.0}
+        )
+        self.assertEqual(stale, "stale")
+        completed = self.bi.classify_index_build_lock_owner(
+            {"pid": 99999999, "started_at": time.time()}
+        )
+        self.assertEqual(completed, "completed")
+
+    def test_recent_completed_owner_does_not_log_reclaimed_stale(self):
+        lock_path = self.index_dir / self.bi.INDEX_BUILD_LOCK_NAME
+        lock_path.write_text(
+            json.dumps({"pid": 99999999, "started_at": time.time()}),
+            encoding="utf-8",
+        )
+        err_buf = io.StringIO()
+        with redirect_stderr(err_buf):
+            with self.bi._index_build_lock(self.index_dir):
+                pass
+        self.assertNotIn("reclaimed stale", err_buf.getvalue())
+
+    def test_format_index_build_lock_conflict_distinguishes_live_and_stale(self):
+        (self.index_dir / self.bi.INDEX_BUILD_LOCK_NAME).write_text(
+            json.dumps({"pid": os.getpid(), "started_at": time.time()}),
+            encoding="utf-8",
+        )
+        live_msg = self.bi.format_index_build_lock_conflict(self.index_dir)
+        self.assertIn("live build in progress", live_msg)
+
+        (self.index_dir / self.bi.INDEX_BUILD_LOCK_NAME).write_text(
+            json.dumps({"pid": 99999999, "started_at": 0.0}),
+            encoding="utf-8",
+        )
+        stale_msg = self.bi.format_index_build_lock_conflict(self.index_dir)
+        self.assertIn("appears stale", stale_msg)
+
+    def test_should_coalesce_hook_reindex_when_live_or_recent_spawn(self):
+        lock_path = self.index_dir / self.bi.INDEX_BUILD_LOCK_NAME
+        lock_path.write_text(
+            json.dumps({"pid": os.getpid(), "started_at": time.time()}),
+            encoding="utf-8",
+        )
+        self.assertTrue(self.bi.should_coalesce_hook_reindex(self.index_dir))
+
+        lock_path.write_text(
+            json.dumps({"pid": 99999999, "started_at": 0.0}),
+            encoding="utf-8",
+        )
+        self.bi.record_hook_reindex_spawn(self.index_dir)
+        self.assertTrue(self.bi.should_coalesce_hook_reindex(self.index_dir))
+
+        time.sleep(self.bi.HOOK_REINDEX_DEBOUNCE_SECONDS + 0.05)
+        self.assertFalse(self.bi.should_coalesce_hook_reindex(self.index_dir))
 
 
 class IncrementalBuildTests(unittest.TestCase):

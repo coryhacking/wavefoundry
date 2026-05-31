@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-26
+Last verified: 2026-05-31
 
 ## Runtime Topology
 
@@ -54,7 +54,9 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
               │       └── docs_lint.py / docs_gardener.py / render_platform_surfaces.py (subprocess)
               ├── [resources] wavefoundry://overview, wavefoundry://prompts, wavefoundry://architecture/current-state
               │       wavefoundry://wave/current, wavefoundry://session-handoff
-              │       └── docs/ (read-only, raw markdown; no-write guarantee)
+              │       wavefoundry://agents, wavefoundry://index/status, wavefoundry://graph/status,
+              │       wavefoundry://graph/communities, wavefoundry://waves
+              │       └── docs/ + AGENTS.md (read-only, raw markdown; no-write guarantee)
               └── [resource templates] wavefoundry://change/{id}, wavefoundry://wave/{id}
                       wavefoundry://prompt/{slug}, wavefoundry://seed/{slug}, wavefoundry://architecture/{slug}
                       └── docs/ + .wavefoundry/framework/seeds/ (read-only, raw markdown)

@@ -1031,19 +1031,52 @@ const GRAPH_KIND_COLORS = {
   external: "#7a7f87",
 };
 
+const GRAPH_COMMUNITY_PALETTE = [
+  "#1976d2",
+  "#6f42c1",
+  "#0f766e",
+  "#00897b",
+  "#e65100",
+  "#f57c00",
+  "#ef6c00",
+  "#ff9800",
+  "#7b1fa2",
+  "#4527a0",
+  "#0288d1",
+  "#29b6f6",
+  "#ab47bc",
+  "#26c6da",
+  "#66bb6a",
+  "#ad1457",
+  "#5c6bc0",
+  "#ffa726",
+  "#9c27b0",
+  "#00acc1",
+];
+
 const GRAPH_RELATION_COLORS = {
   defines: "#1976d2",
   imports: "#6f42c1",
   calls: "#53ac04",
   doc_references_code: "#ff9100",
+  doc_references_doc: "#00897b",
 };
 
-const DEFAULT_GRAPH_RELATIONS = ["defines", "calls"];
+const ALL_GRAPH_RELATIONS = ["calls", "imports", "defines", "doc_references_code", "doc_references_doc"];
+/** Hover preview: brighten calls/imports edges only; defines stay faint but nodes still light up. */
+const GRAPH_HOVER_HIGHLIGHT_RELATIONS = new Set(["calls", "imports"]);
+/** Community overview bubbles: code dependencies only (no doc reference spokes). */
+const GRAPH_COMMUNITY_OVERVIEW_RELATIONS = new Set(["calls", "imports", "defines"]);
+const ALL_GRAPH_RELATIONS_SET = new Set(ALL_GRAPH_RELATIONS);
 const GRAPH_MIN_COMMUNITY_NODES = 2;
 const GRAPH_OVERVIEW_COMMUNITY_LIMIT = 24;
-const GRAPH_COMMUNITY_QUICK_PICK_LIMIT = 6;
 const GRAPH_COMMUNITY_DRILLDOWN_LIMIT = 50;
 const GRAPH_OVERVIEW_SEED_LIMIT = 24;
+/** Pre-assigned category communities from graph_cluster (never use as layout hub). */
+const GRAPH_CATEGORY_COMMUNITY_LABELS = new Set([
+  "Documentation", "Tests", "Benchmarks", "CI/CD",
+  "Generated", "Scripts", "Configuration",
+]);
 
 function _hexToRgba(hex, alpha) {
   const value = String(hex || "").trim().replace(/^#/, "");
@@ -1054,6 +1087,1143 @@ function _hexToRgba(hex, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+function _graphKindBucket(kind) {
+  return GRAPH_KIND_COLORS[kind] ? kind : "external";
+}
+
+function _graphCommunityColor(communityId) {
+  const id = String(communityId || "").trim();
+  if (!id) return GRAPH_KIND_COLORS.external;
+  const idx = Math.abs(_hashString(id)) % GRAPH_COMMUNITY_PALETTE.length;
+  return GRAPH_COMMUNITY_PALETTE[idx];
+}
+
+function _shouldColorNodeByCommunity(node, { hasCommunityOverview, selectedClusterId, viewMode }) {
+  if (node?.kind === "community") return true;
+  if (hasCommunityOverview) return true;
+  return viewMode === "overview" && !selectedClusterId && Boolean(node?.community_id);
+}
+
+function _graphNodeFillColor(node, colorContext) {
+  if (_shouldColorNodeByCommunity(node, colorContext) && node?.community_id) {
+    return _graphCommunityColor(node.community_id);
+  }
+  return GRAPH_KIND_COLORS[_graphKindBucket(node?.kind)];
+}
+
+function _graphLabel(node) {
+  return String(node?.label || node?.id || "").trim();
+}
+
+const GRAPH_LABEL_MAX_CHARS_PER_LINE = 18;
+const GRAPH_LABEL_MAX_LINES = 3;
+const GRAPH_LABEL_LINE_HEIGHT = 14;
+const GRAPH_LABEL_BASELINE_OFFSET = 12;
+const GRAPH_LAYOUT_MAX_NODE_RADIUS = 21;
+const GRAPH_LAYOUT_COMMUNITY_MAX_NODE_RADIUS = 28;
+
+/** Label block below a node circle: max lines plus one blank line. */
+function _graphLayoutLabelPadBelowCircle() {
+  return GRAPH_LABEL_BASELINE_OFFSET
+    + GRAPH_LABEL_MAX_LINES * GRAPH_LABEL_LINE_HEIGHT
+    + GRAPH_LABEL_LINE_HEIGHT;
+}
+
+/** Center-to-center vertical stride between hierarchical graph rows. */
+function _graphLayoutSubRowGap(maxNodeRadius = GRAPH_LAYOUT_MAX_NODE_RADIUS) {
+  return 2 * maxNodeRadius + _graphLayoutLabelPadBelowCircle();
+}
+
+/** Layered (horizontal-band) rows: typical node size, three label lines, no extra blank line. */
+function _graphLayoutHierarchicalRowGap(shallow = false) {
+  const radius = shallow ? 16 : 14;
+  const labelPad = GRAPH_LABEL_BASELINE_OFFSET + GRAPH_LABEL_MAX_LINES * GRAPH_LABEL_LINE_HEIGHT;
+  return 2 * radius + labelPad;
+}
+
+/** Angular spacing along one radial ring (node circle + label block). */
+function _graphLayoutRadialAngularSlot(avgNodeRadius, densityBonus = 0) {
+  return 2 * avgNodeRadius + _graphLayoutLabelPadBelowCircle() + densityBonus;
+}
+
+/** Radial gap between concentric rings — tighter than full center-to-center stride. */
+function _graphLayoutRadialHopGap(angularSlot) {
+  return Math.max(angularSlot * 0.55, 48);
+}
+
+function _graphLabelParts(label) {
+  const text = String(label || "").trim();
+  if (!text) return [""];
+  const tokens = text.split(/[\s._\-/\\:]+/).filter(Boolean);
+  if (!tokens.length) return [text.slice(0, GRAPH_LABEL_MAX_CHARS_PER_LINE)];
+  const lines = [];
+  let current = "";
+  let truncated = false;
+  const pushLine = (line) => {
+    if (!line || lines.length >= GRAPH_LABEL_MAX_LINES) return false;
+    lines.push(line);
+    return lines.length >= GRAPH_LABEL_MAX_LINES;
+  };
+  const pushLongToken = (token) => {
+    for (let index = 0; index < token.length; index += GRAPH_LABEL_MAX_CHARS_PER_LINE) {
+      if (pushLine(token.slice(index, index + GRAPH_LABEL_MAX_CHARS_PER_LINE))) return true;
+    }
+    return false;
+  };
+  for (const token of tokens) {
+    const candidate = current ? `${current} ${token}` : token;
+    if (candidate.length <= GRAPH_LABEL_MAX_CHARS_PER_LINE) {
+      current = candidate;
+      continue;
+    }
+    if (current && pushLine(current)) {
+      truncated = true;
+      break;
+    }
+    current = "";
+    if (token.length > GRAPH_LABEL_MAX_CHARS_PER_LINE) {
+      if (pushLongToken(token)) {
+        truncated = true;
+        break;
+      }
+      continue;
+    }
+    current = token;
+  }
+  if (!truncated && current) pushLine(current);
+  else if (current) truncated = true;
+  if (!lines.length) lines.push(text.slice(0, GRAPH_LABEL_MAX_CHARS_PER_LINE));
+  if (truncated && lines.length) {
+    const lastIndex = lines.length - 1;
+    const last = lines[lastIndex];
+    lines[lastIndex] = last.length >= GRAPH_LABEL_MAX_CHARS_PER_LINE
+      ? `${last.slice(0, GRAPH_LABEL_MAX_CHARS_PER_LINE - 1)}…`
+      : `${last}…`;
+  }
+  return lines;
+}
+
+function _graphLabelMetrics(label) {
+  const lines = _graphLabelParts(label);
+  const maxLineChars = Math.max(...lines.map(line => line.length), 1);
+  return { lines, lineCount: lines.length, maxLineChars };
+}
+
+function _graphRenderNodeLabel(node, radius) {
+  const { lines } = _graphLabelMetrics(_graphLabel(node));
+  const startY = radius + GRAPH_LABEL_BASELINE_OFFSET;
+  return h(
+    "text",
+    { className: "graph-node-label", textAnchor: "middle" },
+    lines.map((line, index) =>
+      h("tspan", {
+        key: `${index}-${line}`,
+        x: 0,
+        y: index === 0 ? startY : undefined,
+        dy: index === 0 ? 0 : GRAPH_LABEL_LINE_HEIGHT,
+      }, line)
+    ),
+  );
+}
+
+const GRAPH_COMMUNITY_FOCUS_KIND_ORDER = ["module", "class", "function"];
+const GRAPH_COMMUNITY_OVERVIEW_FOCUS_KIND_ORDER = ["module", "class", "function", "doc", "seed"];
+const GRAPH_NEIGHBOR_KIND_ORDER = ["module", "class", "function", "doc", "seed", "external"];
+const GRAPH_KIND_LAYER_ORDER = ["module", "class", "function", "external", "doc", "seed"];
+const GRAPH_KIND_LAYER_ORDER_DOC_FOCUS = ["doc", "seed", "module", "class", "function", "external"];
+
+function _graphKindLayerIndex(node, layerOrder = GRAPH_KIND_LAYER_ORDER) {
+  const kind = _graphKindBucket(node?.kind);
+  const idx = layerOrder.indexOf(kind);
+  return idx >= 0 ? idx : layerOrder.indexOf("external");
+}
+
+function _graphLayoutOptions(focusNodeId, nodeById) {
+  const selectionId = focusNodeId ? String(focusNodeId) : "";
+  const selected = selectionId ? nodeById.get(selectionId) : null;
+  const docFocus = Boolean(selected && _graphIsDocumentationKind(selected));
+  let layoutFocusId = selectionId;
+  let moduleFocus = false;
+  if (selected && !docFocus) {
+    if (_graphKindBucket(selected.kind) === "module") {
+      moduleFocus = true;
+      layoutFocusId = selectionId;
+    } else {
+      const moduleId = String(selected.source_file || "").split("::")[0];
+      const moduleNode = moduleId ? nodeById.get(moduleId) : null;
+      if (moduleNode && _graphKindBucket(moduleNode.kind) === "module") {
+        moduleFocus = true;
+        layoutFocusId = moduleId;
+      }
+    }
+  }
+  return {
+    layerOrder: docFocus ? GRAPH_KIND_LAYER_ORDER_DOC_FOCUS : GRAPH_KIND_LAYER_ORDER,
+    focusNodeId: layoutFocusId,
+    selectionNodeId: selectionId,
+    docFocus,
+    moduleFocus,
+  };
+}
+
+function _graphSortBandNodeIds(ids, nodeById, subLayers, focusNodeId) {
+  return ids.slice().sort((a, b) => {
+    if (focusNodeId && focusNodeId === a) return -1;
+    if (focusNodeId && focusNodeId === b) return 1;
+    const layerDelta = (subLayers.get(a) || 0) - (subLayers.get(b) || 0);
+    if (layerDelta) return layerDelta;
+    return _graphCompareNodesByFileAndLabel(nodeById.get(a), nodeById.get(b));
+  });
+}
+
+function _graphIsDocumentationKind(node) {
+  const kind = _graphKindBucket(node?.kind);
+  return kind === "doc" || kind === "seed";
+}
+
+/** Doc focus: keep EXTRACTED doc links; drop noisy AMBIGUOUS keyword matches. */
+function _graphFilterDocFocusNeighborhood(data, focusNodeId) {
+  if (!data?.present || !focusNodeId) return data;
+  const focusNode = (data.nodes || []).find(node => node.id === focusNodeId);
+  if (!focusNode || !_graphIsDocumentationKind(focusNode)) return data;
+  const edges = (data.edges || []).filter(edge =>
+    edge.relation !== "doc_references_code" || edge.confidence === "EXTRACTED"
+  );
+  const nodeIds = new Set([focusNodeId]);
+  for (const edge of edges) {
+    nodeIds.add(edge.source);
+    nodeIds.add(edge.target);
+  }
+  const nodes = (data.nodes || []).filter(node => nodeIds.has(node.id));
+  return { ...data, nodes, edges };
+}
+
+function _graphCompareNodesByFileAndLabel(nodeA, nodeB) {
+  const fileA = String(nodeA?.source_file || nodeA?.id || "").split("::")[0];
+  const fileB = String(nodeB?.source_file || nodeB?.id || "").split("::")[0];
+  return fileA.localeCompare(fileB)
+    || String(_graphLabel(nodeA)).localeCompare(String(_graphLabel(nodeB)));
+}
+
+const GRAPH_KIND_LAYOUT_RELATIONS = new Set(["calls", "imports", "defines", "doc_references_code"]);
+/** At most one linked neighbor on each side of a focused node to keep edge lines readable. */
+const GRAPH_FOCUS_MAX_SIDE_NEIGHBORS = 1;
+const GRAPH_KIND_LAYOUT_MAX_ROW_NODES = 8;
+const GRAPH_KIND_LAYOUT_SHALLOW_MAX_ROW_NODES = 5;
+const GRAPH_KIND_LAYOUT_SUBGRAPH_GAP = 56;
+const GRAPH_KIND_LAYOUT_MIN_CELL_WIDTH = 80;
+const GRAPH_KIND_LAYOUT_SHALLOW_CELL_WIDTH = 108;
+const GRAPH_KIND_LAYOUT_SHALLOW_ROW_GAP = 28;
+
+function _graphSortNodeIds(ids, nodeById) {
+  return ids.slice().sort((a, b) =>
+    _graphCompareNodesByFileAndLabel(nodeById.get(a), nodeById.get(b))
+  );
+}
+
+/** Neighbors with a direct edge to the focus node for the given relation. */
+function _graphFocusLinkedNeighborSet(focusId, neighborIds, edges, relation) {
+  const neighborSet = new Set(neighborIds);
+  const linked = new Set();
+  for (const edge of edges) {
+    const rel = String(edge.relation || "");
+    if (rel !== relation) continue;
+    if (edge.source === focusId && neighborSet.has(edge.target)) linked.add(edge.target);
+    if (edge.target === focusId && neighborSet.has(edge.source)) linked.add(edge.source);
+  }
+  return linked;
+}
+
+/** Pick at most one left and one right linked neighbor; balance same-direction links across both slots. */
+function _graphFocusSideNeighbors(focusId, neighborIds, edges, relation, nodeById) {
+  const linkedSet = _graphFocusLinkedNeighborSet(focusId, neighborIds, edges, relation);
+  const linkedNeighbors = neighborIds.filter(id => linkedSet.has(id));
+  const unlinked = _graphSortNodeIds(neighborIds.filter(id => !linkedSet.has(id)), nodeById);
+  const leftIds = [];
+  const rightIds = [];
+  for (const edge of edges) {
+    const rel = String(edge.relation || "");
+    if (rel !== relation) continue;
+    if (edge.source === focusId && linkedSet.has(edge.target)) {
+      rightIds.push(edge.target);
+    } else if (edge.target === focusId && linkedSet.has(edge.source)) {
+      leftIds.push(edge.source);
+    }
+  }
+  const sortedLeft = _graphSortNodeIds(leftIds, nodeById);
+  const sortedRight = _graphSortNodeIds(rightIds, nodeById);
+  let left = sortedLeft.slice(0, GRAPH_FOCUS_MAX_SIDE_NEIGHBORS);
+  let right = sortedRight.slice(0, GRAPH_FOCUS_MAX_SIDE_NEIGHBORS);
+  // Imports/doc links often share one direction — fill both side slots before rows below.
+  if (!left.length && sortedRight.length > 1) {
+    right = sortedRight.slice(0, 1);
+    left = sortedRight.slice(1, 2);
+  } else if (!right.length && sortedLeft.length > 1) {
+    left = sortedLeft.slice(0, 1);
+    right = sortedLeft.slice(1, 2);
+  }
+  const used = new Set([...left, ...right]);
+  const linkedRemainder = _graphSortNodeIds(
+    linkedNeighbors.filter(id => !used.has(id)),
+    nodeById,
+  );
+  return { left, right, linkedRemainder, unlinked };
+}
+
+function _graphAppendFocusBandRowSpecs(
+  rowSpecs,
+  {
+    focusId,
+    neighborIds,
+    edges,
+    sideRelation,
+    nodeById,
+    shallow,
+    subRowGap,
+    yCursor,
+    rowInBand,
+    rowGap,
+    layoutWidth,
+  },
+) {
+  const { left, right, linkedRemainder, unlinked } = _graphFocusSideNeighbors(
+    focusId,
+    neighborIds,
+    edges,
+    sideRelation,
+    nodeById,
+  );
+  const focusRowIds = [...left, focusId, ...right];
+  rowSpecs.push({
+    rowIds: focusRowIds,
+    hGap: shallow ? GRAPH_KIND_LAYOUT_SHALLOW_CELL_WIDTH : GRAPH_KIND_LAYOUT_MIN_CELL_WIDTH,
+    y: yCursor + rowInBand * subRowGap,
+    variableWidth: focusRowIds.length > 1,
+    rowGap,
+  });
+  rowInBand += 1;
+  const wrapOpts = { variableWidth: true };
+  if (linkedRemainder.length) {
+    rowInBand = _graphAppendWrappedRowSpecs(rowSpecs, linkedRemainder, {
+      nodeById,
+      shallow,
+      layoutWidth,
+      rowGap,
+      subRowGap,
+      yCursor,
+      rowInBand,
+      ...wrapOpts,
+    });
+  }
+  rowInBand = _graphAppendWrappedRowSpecs(rowSpecs, unlinked, {
+    nodeById,
+    shallow,
+    layoutWidth,
+    rowGap,
+    subRowGap,
+    yCursor,
+    rowInBand,
+    ...wrapOpts,
+  });
+  return rowInBand;
+}
+
+function _graphModuleFileKey(node) {
+  return String(node?.source_file || node?.id || "").split("::")[0];
+}
+
+function _graphWrapIds(ids, maxPerRow) {
+  const limit = Math.max(1, maxPerRow);
+  const rows = [];
+  for (let index = 0; index < ids.length; index += limit) {
+    rows.push(ids.slice(index, index + limit));
+  }
+  return rows.length ? rows : [[]];
+}
+
+function _graphNodeLayoutCellWidth(node, shallow = false) {
+  const { maxLineChars } = _graphLabelMetrics(_graphLabel(node));
+  const floor = shallow ? GRAPH_KIND_LAYOUT_SHALLOW_CELL_WIDTH : GRAPH_KIND_LAYOUT_MIN_CELL_WIDTH;
+  return Math.min(240, Math.max(floor, maxLineChars * 6.4 + 24));
+}
+
+function _graphWrapIdsByWidth(ids, nodeById, maxRowWidth, gap, shallow = false) {
+  const rows = [];
+  let currentRow = [];
+  let rowWidth = 0;
+  for (const id of ids) {
+    const cellWidth = _graphNodeLayoutCellWidth(nodeById.get(id), shallow);
+    const nextWidth = rowWidth + (currentRow.length ? gap : 0) + cellWidth;
+    if (currentRow.length && nextWidth > maxRowWidth) {
+      rows.push(currentRow);
+      currentRow = [];
+      rowWidth = 0;
+    }
+    if (currentRow.length) rowWidth += gap;
+    rowWidth += cellWidth;
+    currentRow.push(id);
+  }
+  if (currentRow.length) rows.push(currentRow);
+  return rows.length ? rows : [[]];
+}
+
+/** Order row ids from center outward (+1, -1, +2, -2, …) so rows balance under a focus node. */
+function _graphCenterOutRowOrder(ids, flip = false) {
+  if (ids.length <= 1) return ids.slice();
+  const slotById = new Map();
+  let leftDepth = 0;
+  let rightDepth = 0;
+  ids.forEach((id, index) => {
+    const pickRight = flip ? index % 2 !== 0 : index % 2 === 0;
+    if (pickRight) {
+      rightDepth += 1;
+      slotById.set(id, rightDepth);
+    } else {
+      leftDepth += 1;
+      slotById.set(id, -leftDepth);
+    }
+  });
+  return ids.slice().sort((a, b) => slotById.get(a) - slotById.get(b));
+}
+
+function _graphWrapIdsByWidthCenterOut(ids, nodeById, maxRowWidth, gap, shallow = false) {
+  const rows = [];
+  let currentRow = [];
+  let rowFlip = false;
+  for (const id of ids) {
+    const trial = _graphCenterOutRowOrder([...currentRow, id], rowFlip);
+    const trialWidth = _graphRowTotalWidth(trial, nodeById, gap, shallow);
+    if (currentRow.length && trialWidth > maxRowWidth) {
+      rows.push(_graphCenterOutRowOrder(currentRow, rowFlip));
+      rowFlip = !rowFlip;
+      currentRow = [id];
+    } else {
+      currentRow.push(id);
+    }
+  }
+  if (currentRow.length) rows.push(_graphCenterOutRowOrder(currentRow, rowFlip));
+  return rows.length ? rows : [[]];
+}
+
+function _graphLayoutMaxRowWidth(layoutWidth) {
+  return Math.max(320, layoutWidth - 88);
+}
+
+function _graphAppendWrappedRowSpecs(rowSpecs, ids, {
+  nodeById,
+  shallow,
+  layoutWidth,
+  rowGap,
+  subRowGap,
+  yCursor,
+  rowInBand,
+  variableWidth = false,
+}) {
+  if (!ids.length) return rowInBand;
+  const useVariableWidth = variableWidth;
+  const wrappedRows = _graphWrapIdsByWidthCenterOut(
+    ids,
+    nodeById,
+    _graphLayoutMaxRowWidth(layoutWidth),
+    rowGap,
+    useVariableWidth || shallow,
+  );
+  for (const rowIds of wrappedRows) {
+    rowSpecs.push({
+      rowIds,
+      hGap: useVariableWidth || shallow
+        ? GRAPH_KIND_LAYOUT_SHALLOW_CELL_WIDTH
+        : Math.max(GRAPH_KIND_LAYOUT_MIN_CELL_WIDTH, 96 / Math.max(1, rowIds.length)),
+      y: yCursor + rowInBand * subRowGap,
+      variableWidth: useVariableWidth || shallow,
+      rowGap,
+    });
+    rowInBand += 1;
+  }
+  return rowInBand;
+}
+
+function _graphRowTotalWidth(rowIds, nodeById, gap, shallow = false) {
+  if (!rowIds.length) return 0;
+  let total = 0;
+  rowIds.forEach((id, index) => {
+    total += _graphNodeLayoutCellWidth(nodeById.get(id), shallow);
+    if (index) total += gap;
+  });
+  return total;
+}
+
+function _graphGroupMaxLayoutDepth(nodeIds, edges, nodeById, layoutOpts) {
+  layoutOpts = layoutOpts || _graphLayoutOptions("", nodeById);
+  const byKindBand = new Map();
+  for (const id of nodeIds) {
+    const node = nodeById.get(id);
+    if (!node) continue;
+    const band = _graphKindLayerIndex(node, layoutOpts.layerOrder);
+    if (!byKindBand.has(band)) byKindBand.set(band, []);
+    byKindBand.get(band).push(id);
+  }
+  let maxDepth = 0;
+  for (const bandNodeIds of byKindBand.values()) {
+    const subLayers = _graphWithinBandSubLayers(bandNodeIds, edges, nodeById, layoutOpts);
+    for (const depth of subLayers.values()) maxDepth = Math.max(maxDepth, depth);
+  }
+  return maxDepth;
+}
+
+function _graphIsShallowFanOut(nodeIds, edges, nodeById, layoutOpts) {
+  if (!nodeIds.length) return false;
+  layoutOpts = layoutOpts || _graphLayoutOptions("", nodeById);
+  if (!_graphBandHasLayoutEdges(nodeIds, edges, nodeById, layoutOpts)) return true;
+  return _graphGroupMaxLayoutDepth(nodeIds, edges, nodeById, layoutOpts) <= 1;
+}
+
+function _graphCenterLayoutExpanded(positions, minWidth, minHeight, padding = 44) {
+  if (!positions.size) return { positions, viewWidth: minWidth, viewHeight: minHeight };
+  const bounds = _graphPositionsBounds(positions, padding);
+  const viewWidth = Math.max(minWidth, bounds.width);
+  const viewHeight = Math.max(minHeight, bounds.height);
+  const midX = (bounds.minX + bounds.maxX) / 2;
+  const midY = (bounds.minY + bounds.maxY) / 2;
+  const centered = new Map();
+  for (const [id, pos] of positions.entries()) {
+    centered.set(id, {
+      x: viewWidth / 2 + pos.x - midX,
+      y: viewHeight / 2 + pos.y - midY,
+    });
+  }
+  return { positions: centered, viewWidth, viewHeight };
+}
+
+function _graphViewBoxFromLayout(positions, defaultWidth, defaultHeight, padding = 56) {
+  if (!positions.size) return { width: defaultWidth, height: defaultHeight };
+  const maxNodeRadius = Math.max(GRAPH_LAYOUT_MAX_NODE_RADIUS, GRAPH_LAYOUT_COMMUNITY_MAX_NODE_RADIUS);
+  const labelPadBelow = maxNodeRadius + _graphLayoutLabelPadBelowCircle();
+  const bounds = _graphPositionsBounds(positions, padding);
+  return {
+    width: Math.max(defaultWidth, Math.ceil(bounds.maxX + padding / 2 + maxNodeRadius)),
+    height: Math.max(defaultHeight, Math.ceil(bounds.maxY + padding / 2 + labelPadBelow)),
+  };
+}
+
+function _graphPositionsBounds(positions, padding = 24) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const pos of positions.values()) {
+    minX = Math.min(minX, pos.x);
+    minY = Math.min(minY, pos.y);
+    maxX = Math.max(maxX, pos.x);
+    maxY = Math.max(maxY, pos.y);
+  }
+  if (!Number.isFinite(minX)) {
+    return { minX: 0, minY: 0, maxX: padding * 2, maxY: padding * 2, width: padding * 2, height: padding * 2 };
+  }
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: Math.max(padding * 2, maxX - minX + padding * 2),
+    height: Math.max(padding * 2, maxY - minY + padding * 2),
+  };
+}
+
+/** Group nodes into module-rooted mini-graphs for separated layout regions. */
+function _graphModuleSubgraphs(nodes, edges) {
+  const nodeById = new Map(nodes.map(node => [node.id, node]));
+  const modules = nodes.filter(node => _graphKindBucket(node.kind) === "module");
+  if (!modules.length) {
+    return [{ key: "all", nodeIds: nodes.map(node => node.id) }];
+  }
+
+  const groupNodeIds = new Map(modules.map(mod => [mod.id, new Set([mod.id])]));
+  const nodeGroup = new Map(modules.map(mod => [mod.id, mod.id]));
+  const moduleIdSet = new Set(modules.map(mod => mod.id));
+
+  for (const node of nodes) {
+    if (_graphKindBucket(node.kind) === "module") continue;
+    const fileKey = _graphModuleFileKey(node);
+    let groupKey = moduleIdSet.has(fileKey) ? fileKey : "";
+    if (!groupKey) {
+      for (const modId of moduleIdSet) {
+        if (fileKey === modId || fileKey.endsWith(`/${modId}`) || modId.endsWith(fileKey)) {
+          groupKey = modId;
+          break;
+        }
+      }
+    }
+    if (!groupKey) continue;
+    if (!groupNodeIds.has(groupKey)) groupNodeIds.set(groupKey, new Set());
+    groupNodeIds.get(groupKey).add(node.id);
+    nodeGroup.set(node.id, groupKey);
+  }
+
+  for (const edge of edges) {
+    if (String(edge.relation || "") !== "defines") continue;
+    const source = nodeById.get(edge.source);
+    if (!source || _graphKindBucket(source.kind) !== "module") continue;
+    const groupKey = source.id;
+    if (!groupNodeIds.has(groupKey)) groupNodeIds.set(groupKey, new Set([groupKey]));
+    groupNodeIds.get(groupKey).add(edge.target);
+    nodeGroup.set(edge.target, groupKey);
+  }
+
+  for (const node of nodes) {
+    if (nodeGroup.has(node.id)) continue;
+    for (const edge of edges) {
+      if (edge.target !== node.id) continue;
+      const sourceGroup = nodeGroup.get(edge.source);
+      if (!sourceGroup) continue;
+      groupNodeIds.get(sourceGroup).add(node.id);
+      nodeGroup.set(node.id, sourceGroup);
+      break;
+    }
+  }
+
+  const unassigned = nodes.filter(node => !nodeGroup.has(node.id)).map(node => node.id);
+  if (unassigned.length) {
+    const idSet = new Set(unassigned);
+    const adjacency = new Map(unassigned.map(id => [id, new Set()]));
+    for (const edge of edges) {
+      if (!idSet.has(edge.source) || !idSet.has(edge.target)) continue;
+      adjacency.get(edge.source).add(edge.target);
+      adjacency.get(edge.target).add(edge.source);
+    }
+    const visited = new Set();
+    for (const startId of unassigned) {
+      if (visited.has(startId)) continue;
+      const component = [];
+      const queue = [startId];
+      visited.add(startId);
+      while (queue.length) {
+        const current = queue.shift();
+        component.push(current);
+        for (const nextId of adjacency.get(current) || []) {
+          if (visited.has(nextId)) continue;
+          visited.add(nextId);
+          queue.push(nextId);
+        }
+      }
+      const key = component.length === 1 ? component[0] : `shared:${component[0]}`;
+      groupNodeIds.set(key, new Set(component));
+      for (const id of component) nodeGroup.set(id, key);
+    }
+  }
+
+  let mergedImports = true;
+  while (mergedImports) {
+    mergedImports = false;
+    for (const edge of edges) {
+      if (String(edge.relation || "") !== "imports") continue;
+      const sourceGroup = nodeGroup.get(edge.source);
+      const targetGroup = nodeGroup.get(edge.target);
+      if (!sourceGroup || !targetGroup || sourceGroup === targetGroup) continue;
+      const targetMembers = groupNodeIds.get(targetGroup);
+      if (!targetMembers?.size) continue;
+      const moduleOnly = [...targetMembers].every(id => {
+        const node = nodeById.get(id);
+        return node && _graphKindBucket(node.kind) === "module";
+      });
+      if (!moduleOnly) continue;
+      const sourceMembers = groupNodeIds.get(sourceGroup);
+      if (!sourceMembers) continue;
+      for (const id of targetMembers) {
+        sourceMembers.add(id);
+        nodeGroup.set(id, sourceGroup);
+      }
+      groupNodeIds.delete(targetGroup);
+      mergedImports = true;
+    }
+  }
+
+  return [...groupNodeIds.entries()]
+    .map(([key, idSet]) => ({
+      key,
+      nodeIds: [...idSet],
+      moduleLabel: _graphLabel(nodeById.get(key) || { id: key }),
+    }))
+    .filter(group => group.nodeIds.length)
+    .sort((a, b) => b.nodeIds.length - a.nodeIds.length
+      || String(a.moduleLabel).localeCompare(String(b.moduleLabel)));
+}
+
+/** Sub-rows inside one kind band from within-band and incoming cross-band dependency edges. */
+function _graphWithinBandSubLayers(nodeIds, edges, nodeById, layoutOpts) {
+  layoutOpts = layoutOpts || _graphLayoutOptions("", nodeById);
+  const idSet = new Set(nodeIds);
+  const subLayer = new Map(nodeIds.map(id => [id, 0]));
+  const bandEdges = [];
+  for (const edge of edges) {
+    const relation = String(edge.relation || "");
+    if (!GRAPH_KIND_LAYOUT_RELATIONS.has(relation)) continue;
+    const sourceIn = idSet.has(edge.source);
+    const targetIn = idSet.has(edge.target);
+    if (sourceIn && targetIn) {
+      bandEdges.push(edge);
+      continue;
+    }
+    if (!targetIn || sourceIn || !nodeById) continue;
+    const sourceNode = nodeById.get(edge.source);
+    const targetNode = nodeById.get(edge.target);
+    if (!sourceNode || !targetNode) continue;
+    if (_graphKindLayerIndex(sourceNode, layoutOpts.layerOrder) < _graphKindLayerIndex(targetNode, layoutOpts.layerOrder)) {
+      bandEdges.push(edge);
+    }
+  }
+  if (!bandEdges.length) return subLayer;
+
+  let changed = true;
+  let iterations = 0;
+  const maxIterations = Math.max(12, nodeIds.length * 2);
+  while (changed && iterations < maxIterations) {
+    changed = false;
+    iterations += 1;
+    for (const edge of bandEdges) {
+      const sourceDepth = idSet.has(edge.source) ? (subLayer.get(edge.source) || 0) : 0;
+      const next = sourceDepth + 1;
+      if (next > (subLayer.get(edge.target) || 0)) {
+        subLayer.set(edge.target, next);
+        changed = true;
+      }
+    }
+  }
+  if (layoutOpts.focusNodeId && idSet.has(layoutOpts.focusNodeId)) {
+    if (layoutOpts.docFocus || layoutOpts.moduleFocus) {
+      subLayer.set(layoutOpts.focusNodeId, 0);
+    }
+  }
+  return subLayer;
+}
+
+function _graphBandStacksNodesVertically(bandIdx, layerOrder = GRAPH_KIND_LAYER_ORDER) {
+  const kind = layerOrder[bandIdx] || "";
+  return kind === "module" || kind === "external" || kind === "doc" || kind === "seed";
+}
+
+function _graphBandHasLayoutEdges(bandNodeIds, edges, nodeById, layoutOpts) {
+  layoutOpts = layoutOpts || _graphLayoutOptions("", nodeById);
+  const idSet = new Set(bandNodeIds);
+  for (const edge of edges) {
+    const relation = String(edge.relation || "");
+    if (!GRAPH_KIND_LAYOUT_RELATIONS.has(relation)) continue;
+    const sourceIn = idSet.has(edge.source);
+    const targetIn = idSet.has(edge.target);
+    if (sourceIn && targetIn) return true;
+    if (!targetIn || sourceIn || !nodeById) continue;
+    const sourceNode = nodeById.get(edge.source);
+    const targetNode = nodeById.get(edge.target);
+    if (!sourceNode || !targetNode) continue;
+    if (_graphKindLayerIndex(sourceNode, layoutOpts.layerOrder) < _graphKindLayerIndex(targetNode, layoutOpts.layerOrder)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function _layoutGraphKindLayersGroup(nodeIds, edges, nodeById, layoutWidth = 1040, layoutOpts) {
+  layoutOpts = layoutOpts || _graphLayoutOptions("", nodeById);
+  const shallow = _graphIsShallowFanOut(nodeIds, edges, nodeById, layoutOpts);
+  const subRowGap = _graphLayoutHierarchicalRowGap(shallow);
+  const rowGap = shallow ? GRAPH_KIND_LAYOUT_SHALLOW_ROW_GAP : 12;
+  const focusWrap = layoutOpts.moduleFocus || layoutOpts.docFocus;
+  const positions = new Map();
+  const rowSpecs = [];
+  let yCursor = 0;
+  const byKindBand = new Map();
+
+  for (const id of nodeIds) {
+    const node = nodeById.get(id);
+    if (!node) continue;
+    const band = _graphKindLayerIndex(node, layoutOpts.layerOrder);
+    if (!byKindBand.has(band)) byKindBand.set(band, []);
+    byKindBand.get(band).push(id);
+  }
+
+  for (const bandIdx of [...byKindBand.keys()].sort((a, b) => a - b)) {
+    const bandNodeIds = byKindBand.get(bandIdx);
+    const subLayers = _graphWithinBandSubLayers(bandNodeIds, edges, nodeById, layoutOpts);
+    let rowInBand = 0;
+    const bandKind = layoutOpts.layerOrder[bandIdx] || "";
+    const focusSort = layoutOpts.focusNodeId
+      && bandNodeIds.includes(layoutOpts.focusNodeId)
+      && (
+        (layoutOpts.docFocus && (bandKind === "doc" || bandKind === "seed"))
+        || (layoutOpts.moduleFocus && bandKind === "module")
+      );
+
+    if (layoutOpts.docFocus && (bandKind === "doc" || bandKind === "seed") && bandNodeIds.includes(layoutOpts.focusNodeId)) {
+      rowInBand = _graphAppendFocusBandRowSpecs(rowSpecs, {
+        focusId: layoutOpts.focusNodeId,
+        neighborIds: bandNodeIds.filter(id => id !== layoutOpts.focusNodeId),
+        edges,
+        sideRelation: "doc_references_doc",
+        nodeById,
+        shallow,
+        subRowGap,
+        yCursor,
+        rowInBand,
+        rowGap,
+        layoutWidth,
+      });
+    } else if (layoutOpts.docFocus && bandKind === "module" && bandNodeIds.length) {
+      rowInBand = _graphAppendWrappedRowSpecs(rowSpecs, _graphSortNodeIds(bandNodeIds, nodeById), {
+        nodeById,
+        shallow,
+        layoutWidth,
+        rowGap,
+        subRowGap,
+        yCursor,
+        rowInBand,
+        variableWidth: true,
+      });
+    } else if (layoutOpts.moduleFocus && bandKind === "module" && bandNodeIds.includes(layoutOpts.focusNodeId)) {
+      rowInBand = _graphAppendFocusBandRowSpecs(rowSpecs, {
+        focusId: layoutOpts.focusNodeId,
+        neighborIds: bandNodeIds.filter(id => id !== layoutOpts.focusNodeId),
+        edges,
+        sideRelation: "imports",
+        nodeById,
+        shallow,
+        subRowGap,
+        yCursor,
+        rowInBand,
+        rowGap,
+        layoutWidth,
+      });
+    } else if (layoutOpts.moduleFocus && bandKind === "external" && bandNodeIds.length) {
+      rowInBand = _graphAppendWrappedRowSpecs(rowSpecs, _graphSortNodeIds(bandNodeIds, nodeById), {
+        nodeById,
+        shallow,
+        layoutWidth,
+        rowGap,
+        subRowGap,
+        yCursor,
+        rowInBand,
+        variableWidth: true,
+      });
+    } else if (_graphBandStacksNodesVertically(bandIdx, layoutOpts.layerOrder)
+      && _graphBandHasLayoutEdges(bandNodeIds, edges, nodeById, layoutOpts)
+      && !layoutOpts.moduleFocus) {
+      const sortedIds = focusSort
+        ? _graphSortBandNodeIds(bandNodeIds, nodeById, subLayers, layoutOpts.focusNodeId)
+        : bandNodeIds.slice().sort((a, b) => {
+          const layerDelta = (subLayers.get(a) || 0) - (subLayers.get(b) || 0);
+          if (layerDelta) return layerDelta;
+          return _graphCompareNodesByFileAndLabel(nodeById.get(a), nodeById.get(b));
+        });
+      for (const id of sortedIds) {
+        rowSpecs.push({
+          rowIds: [id],
+          hGap: shallow ? GRAPH_KIND_LAYOUT_SHALLOW_CELL_WIDTH : GRAPH_KIND_LAYOUT_MIN_CELL_WIDTH,
+          y: yCursor + rowInBand * subRowGap,
+          variableWidth: false,
+          rowGap,
+        });
+        rowInBand += 1;
+      }
+    } else {
+      const bySubRow = new Map();
+      for (const id of bandNodeIds) {
+        const subRow = subLayers.get(id) || 0;
+        if (!bySubRow.has(subRow)) bySubRow.set(subRow, []);
+        bySubRow.get(subRow).push(id);
+      }
+      const subRowKeys = [...bySubRow.keys()].sort((a, b) => a - b);
+      for (const subRow of subRowKeys) {
+        const ids = focusSort
+          ? _graphSortBandNodeIds(bySubRow.get(subRow), nodeById, subLayers, layoutOpts.focusNodeId)
+          : bySubRow.get(subRow).slice().sort((a, b) =>
+            _graphCompareNodesByFileAndLabel(nodeById.get(a), nodeById.get(b))
+          );
+        const wrappedRows = _graphWrapIdsByWidthCenterOut(
+          ids,
+          nodeById,
+          _graphLayoutMaxRowWidth(layoutWidth),
+          rowGap,
+          focusWrap || shallow,
+        );
+        for (const rowIds of wrappedRows) {
+          const hGap = focusWrap || shallow
+            ? GRAPH_KIND_LAYOUT_SHALLOW_CELL_WIDTH
+            : Math.max(GRAPH_KIND_LAYOUT_MIN_CELL_WIDTH, 96 / Math.max(1, rowIds.length));
+          rowSpecs.push({
+            rowIds,
+            hGap,
+            y: yCursor + rowInBand * subRowGap,
+            variableWidth: focusWrap || shallow,
+            rowGap,
+          });
+          rowInBand += 1;
+        }
+      }
+    }
+
+    if (rowInBand) {
+      yCursor += rowInBand * subRowGap;
+    }
+  }
+
+  const maxRowSpan = rowSpecs.reduce((max, row) => {
+    if (row.variableWidth) {
+      return Math.max(max, _graphRowTotalWidth(row.rowIds, nodeById, row.rowGap, true));
+    }
+    return Math.max(max, row.rowIds.length * row.hGap);
+  }, shallow ? GRAPH_KIND_LAYOUT_SHALLOW_CELL_WIDTH : GRAPH_KIND_LAYOUT_MIN_CELL_WIDTH);
+  const originX = maxRowSpan / 2;
+  rowSpecs.forEach((row, rowIndex) => {
+    const brickShift = rowIndex % 2 === 1
+      ? (row.rowGap + (row.variableWidth ? GRAPH_KIND_LAYOUT_SHALLOW_CELL_WIDTH : row.hGap)) / 2
+      : 0;
+    const rowOriginX = originX + brickShift;
+    if (row.variableWidth) {
+      const totalSpan = _graphRowTotalWidth(row.rowIds, nodeById, row.rowGap, true);
+      let x = rowOriginX - totalSpan / 2;
+      for (const id of row.rowIds) {
+        const cellWidth = _graphNodeLayoutCellWidth(nodeById.get(id), true);
+        x += cellWidth / 2;
+        positions.set(id, { x, y: row.y });
+        x += cellWidth / 2 + row.rowGap;
+      }
+      return;
+    }
+    const count = row.rowIds.length;
+    row.rowIds.forEach((id, index) => {
+      positions.set(id, {
+        x: rowOriginX + row.hGap * (index - (count - 1) / 2),
+        y: row.y,
+      });
+    });
+  });
+
+  const bounds = _graphPositionsBounds(positions);
+  return { positions, bounds, shallow };
+}
+
+function _graphPackModuleSubgraphRows(subgraphs, availWidth, gap) {
+  const rows = [];
+  let row = [];
+  let rowWidth = 0;
+  const flushRow = () => {
+    if (row.length) rows.push({ subgraphs: row, width: rowWidth });
+    row = [];
+    rowWidth = 0;
+  };
+
+  for (const subgraph of subgraphs) {
+    const nextWidth = row.length ? rowWidth + gap + subgraph.bounds.width : subgraph.bounds.width;
+    if (row.length && nextWidth > availWidth) flushRow();
+    if (row.length) rowWidth += gap;
+    rowWidth += subgraph.bounds.width;
+    row.push(subgraph);
+  }
+  flushRow();
+  return rows;
+}
+
+function _graphPackModuleSubgraphs(subgraphs, width, height, { fit = true, focusNodeId = "" } = {}) {
+  const gap = GRAPH_KIND_LAYOUT_SUBGRAPH_GAP;
+  const padding = 44;
+  const availWidth = width - padding * 2;
+  const merged = new Map();
+  if (!subgraphs.length) return merged;
+
+  const focusId = String(focusNodeId || "");
+  let rowGroups;
+  if (focusId && subgraphs.length > 1) {
+    const primary = subgraphs.filter(subgraph => subgraph.positions?.has(focusId));
+    const satellites = subgraphs.filter(subgraph => !subgraph.positions?.has(focusId));
+    if (primary.length && satellites.length) {
+      rowGroups = [
+        ..._graphPackModuleSubgraphRows(primary, availWidth, gap),
+        ..._graphPackModuleSubgraphRows(satellites, availWidth, gap),
+      ];
+    }
+  }
+  if (!rowGroups) {
+    rowGroups = _graphPackModuleSubgraphRows(subgraphs, availWidth, gap);
+  }
+
+  let yCursor = padding;
+  for (const { subgraphs: rowSubs, width: totalRowWidth } of rowGroups) {
+    let xCursor = padding + Math.max(0, (availWidth - totalRowWidth) / 2);
+    let rowHeight = 0;
+    for (const subgraph of rowSubs) {
+      const { bounds, positions: subgraphPositions } = subgraph;
+      const offsetX = xCursor - bounds.minX;
+      const offsetY = yCursor - bounds.minY;
+      for (const [id, pos] of subgraphPositions.entries()) {
+        merged.set(id, { x: pos.x + offsetX, y: pos.y + offsetY });
+      }
+      xCursor += bounds.width + gap;
+      rowHeight = Math.max(rowHeight, bounds.height);
+    }
+    yCursor += rowHeight + gap;
+  }
+
+  return fit ? _fitLayoutPositions(merged, width, height) : merged;
+}
+
+/** Code-only layout: module subgraphs with kind bands and packed separation. */
+function _layoutGraphKindLayersFinish(merged, nodeIds, edges, nodeById, width, height, layoutOpts) {
+  layoutOpts = layoutOpts || _graphLayoutOptions("", nodeById);
+  if (layoutOpts.docFocus || layoutOpts.moduleFocus) {
+    return _graphCenterLayoutExpanded(merged, width, height).positions;
+  }
+  if (_graphIsShallowFanOut(nodeIds, edges, nodeById, layoutOpts)) {
+    return _graphCenterLayoutExpanded(merged, width, height).positions;
+  }
+  return _fitLayoutPositions(merged, width, height);
+}
+
+function _layoutGraphKindLayersCode(nodes, edges, nodeById, width, height, layoutOpts) {
+  layoutOpts = layoutOpts || _graphLayoutOptions("", nodeById);
+  const nodeIds = nodes.map(node => node.id);
+  const subgraphSpecs = _graphModuleSubgraphs(nodes, edges);
+  if (subgraphSpecs.length <= 1) {
+    const ids = subgraphSpecs[0]?.nodeIds || nodeIds;
+    const { positions } = _layoutGraphKindLayersGroup(ids, edges, nodeById, width, layoutOpts);
+    return _layoutGraphKindLayersFinish(positions, ids, edges, nodeById, width, height, layoutOpts);
+  }
+
+  const packedSubgraphs = subgraphSpecs.map(spec => {
+    const idSet = new Set(spec.nodeIds);
+    const subgraphEdges = edges.filter(edge => idSet.has(edge.source) && idSet.has(edge.target));
+    return _layoutGraphKindLayersGroup(spec.nodeIds, subgraphEdges, nodeById, width, layoutOpts);
+  });
+  const merged = _graphPackModuleSubgraphs(packedSubgraphs, width, height, {
+    fit: false,
+    focusNodeId: layoutOpts.focusNodeId || "",
+  });
+  return _layoutGraphKindLayersFinish(merged, nodeIds, edges, nodeById, width, height, layoutOpts);
+}
+
+/** Module-rooted code graphs with documentation nodes pinned to the bottom. */
+function _layoutGraphKindLayers(nodes, edges, width, height, focusNodeId = "") {
+  const nodeById = new Map(nodes.map(node => [node.id, node]));
+  const layoutOpts = _graphLayoutOptions(focusNodeId, nodeById);
+  const nodeIds = nodes.map(node => node.id);
+
+  if (layoutOpts.docFocus || layoutOpts.moduleFocus) {
+    const { positions } = _layoutGraphKindLayersGroup(nodeIds, edges, nodeById, width, layoutOpts);
+    return _layoutGraphKindLayersFinish(positions, nodeIds, edges, nodeById, width, height, layoutOpts);
+  }
+
+  const docNodes = nodes.filter(node => _graphIsDocumentationKind(node));
+  const codeNodes = nodes.filter(node => !_graphIsDocumentationKind(node));
+  const docIdSet = new Set(docNodes.map(node => node.id));
+  const codeEdges = edges.filter(edge => !docIdSet.has(edge.source) && !docIdSet.has(edge.target));
+
+  let merged = new Map();
+  if (codeNodes.length) {
+    merged = _layoutGraphKindLayersCode(codeNodes, codeEdges, nodeById, width, height, layoutOpts);
+  }
+  if (!docNodes.length) {
+    return merged;
+  }
+
+  const docEdges = edges.filter(edge => docIdSet.has(edge.source) || docIdSet.has(edge.target));
+  const { positions: docPositions, bounds: docBounds } = _layoutGraphKindLayersGroup(
+    docNodes.map(node => node.id),
+    docEdges,
+    nodeById,
+    width,
+    layoutOpts,
+  );
+
+  const sectionGap = 52;
+  let yOffset;
+  if (merged.size) {
+    let codeMaxY = -Infinity;
+    for (const pos of merged.values()) codeMaxY = Math.max(codeMaxY, pos.y);
+    yOffset = codeMaxY + sectionGap - docBounds.minY;
+  } else {
+    yOffset = 52 - docBounds.minY;
+  }
+
+  let alignMidX = width / 2;
+  if (merged.size) {
+    let codeMinX = Infinity;
+    let codeMaxX = -Infinity;
+    for (const pos of merged.values()) {
+      codeMinX = Math.min(codeMinX, pos.x);
+      codeMaxX = Math.max(codeMaxX, pos.x);
+    }
+    alignMidX = (codeMinX + codeMaxX) / 2;
+  }
+  const xOffset = alignMidX - (docBounds.minX + docBounds.maxX) / 2;
+
+  for (const [id, pos] of docPositions.entries()) {
+    merged.set(id, { x: pos.x + xOffset, y: pos.y + yOffset });
+  }
+
+  return _layoutGraphKindLayersFinish(merged, nodeIds, edges, nodeById, width, height, layoutOpts);
+}
+
+function _graphMostConnectedNodeId(nodes, degreeMap) {
+  if (!nodes.length) return "";
+  let best = nodes[0];
+  let bestDegree = degreeMap.get(best.id) || 0;
+  for (const node of nodes) {
+    const degree = degreeMap.get(node.id) || 0;
+    if (
+      degree > bestDegree
+      || (degree === bestDegree && String(node.id).localeCompare(String(best.id)) < 0)
+    ) {
+      best = node;
+      bestDegree = degree;
+    }
+  }
+  return String(best.id || "");
+}
+
+/** Default community drill-down focus: module, then class, then function; degree breaks ties within a kind. */
+function _graphDefaultCommunityFocusNodeId(nodes, degreeMap, kindOrder = GRAPH_COMMUNITY_FOCUS_KIND_ORDER) {
+  if (!nodes.length) return "";
+  for (const kind of kindOrder) {
+    const candidates = nodes.filter(node => _graphKindBucket(node.kind) === kind);
+    if (candidates.length) return _graphMostConnectedNodeId(candidates, degreeMap);
+  }
+  if (kindOrder === GRAPH_COMMUNITY_FOCUS_KIND_ORDER) {
+    return _graphMostConnectedNodeId(nodes, degreeMap);
+  }
+  return "";
+}
+
+function _graphSortNeighborNodes(nodes) {
+  return nodes.slice().sort((a, b) =>
+    _graphKindLayerIndex(a, GRAPH_NEIGHBOR_KIND_ORDER) - _graphKindLayerIndex(b, GRAPH_NEIGHBOR_KIND_ORDER)
+    || String(_graphLabel(a) || a.label || a.id || "").localeCompare(
+      String(_graphLabel(b) || b.label || b.id || ""),
+      undefined,
+      { sensitivity: "base" },
+    )
+    || String(a.id || "").localeCompare(String(b.id || "")),
+  );
+}
+
+function _graphCompareCommunitiesByInspectability(a, b) {
+  return _communityInspectabilityScore(b) - _communityInspectabilityScore(a)
+    || (Number(b.boundary_node_count) || 0) - (Number(a.boundary_node_count) || 0)
+    || (Number(b.node_count || b.total_node_count) || 0) - (Number(a.node_count || a.total_node_count) || 0)
+    || String(a.label || a.community_id || a.id || "").localeCompare(String(b.label || b.community_id || b.id || ""));
+}
+
+/** Center bubble in community overview (matches _layoutGraphCommunityBubbles hub pick). */
+function _graphOverviewHubCommunityNode(overviewNodes) {
+  if (!overviewNodes.length) return null;
+  const production = overviewNodes.filter(node => !_graphIsCategoryCommunity(node)).sort(_graphCompareCommunitiesByInspectability);
+  return production[0] || overviewNodes.slice().sort(_graphCompareCommunitiesByInspectability)[0] || null;
+}
+
+function _graphCommunityMemberNodes(communityId, communities, allNodes) {
+  const cluster = (communities || []).find(entry => String(entry.community_id || "") === String(communityId || ""));
+  if (!cluster) return [];
+  const nodeIds = new Set((cluster.node_ids || []).map(id => String(id)));
+  return allNodes.filter(node => nodeIds.has(String(node.id || "")));
+}
+
 function _hashString(value) {
   let h = 0;
   for (let i = 0; i < value.length; i += 1) {
@@ -1061,14 +2231,6 @@ function _hashString(value) {
     h |= 0;
   }
   return Math.abs(h);
-}
-
-function _graphKindBucket(kind) {
-  return GRAPH_KIND_COLORS[kind] ? kind : "external";
-}
-
-function _graphLabel(node) {
-  return String(node?.label || node?.id || "").trim();
 }
 
 function _graphNodeRadius(node, degree) {
@@ -1088,14 +2250,428 @@ function _graphNodeRadius(node, degree) {
   return Math.min(kind === "community" ? 28 : 21, base + clusterBoost);
 }
 
-function _graphSeedPosition(node, index, total, width, height) {
+function _graphSeedPosition(node, index, total, width, height, nodeDegree = 0, maxDegree = 1) {
   const key = `${node.id || index}`;
   const angle = ((_hashString(key) % 360) / 180) * Math.PI;
-  const ring = total > 1 ? Math.min(width, height) * (0.16 + ((index % 5) * 0.08)) : Math.min(width, height) * 0.18;
+  const base = Math.min(width, height);
+  const ringSpread = total > 1 ? base * (0.14 + ((index % 5) * 0.07)) : base * 0.16;
+  const hubFactor = maxDegree > 0 ? 1 - (nodeDegree / maxDegree) * 0.62 : 1;
+  const ring = ringSpread * Math.max(0.28, hubFactor);
   return {
     x: width / 2 + Math.cos(angle) * ring,
     y: height / 2 + Math.sin(angle) * ring,
   };
+}
+
+function _graphHopGroups(hubId, nodeIds, edges) {
+  const allowed = new Set(nodeIds);
+  const hops = new Map();
+  if (hubId && allowed.has(hubId)) hops.set(hubId, 0);
+  const queue = hubId && allowed.has(hubId) ? [hubId] : [];
+  while (queue.length) {
+    const current = queue.shift();
+    const depth = hops.get(current);
+    for (const edge of edges) {
+      for (const [from, to] of [[edge.source, edge.target], [edge.target, edge.source]]) {
+        if (from === current && allowed.has(to) && !hops.has(to)) {
+          hops.set(to, depth + 1);
+          queue.push(to);
+        }
+      }
+    }
+  }
+  let fallbackHop = 1;
+  for (const value of hops.values()) fallbackHop = Math.max(fallbackHop, value + 1);
+  const groups = new Map();
+  for (const id of nodeIds) {
+    const hop = hops.has(id) ? hops.get(id) : fallbackHop;
+    if (!groups.has(hop)) groups.set(hop, []);
+    groups.get(hop).push(id);
+  }
+  return groups;
+}
+
+function _shouldUseHubRadialLayout(nodes, edges, degree, hubId) {
+  const n = nodes.length;
+  if (n > 40 || n < 16 || !hubId) return false;
+  if (nodes.every(node => node.kind === "community")) return false;
+  const hubDegree = degree.get(hubId) || 0;
+  if (hubDegree < 8) return false;
+  if (hubDegree >= (n - 1) * 0.55) return true;
+  return hubDegree >= edges.length * 0.4 && hubDegree >= n * 0.35;
+}
+
+/** Even rings around a hub for dense star / drill-down views (e.g. server_impl). */
+function _layoutGraphHubRadial(nodes, edges, width, height, hubId, radii) {
+  const cx = width / 2;
+  const cy = height / 2;
+  const n = nodes.length;
+  const maxR = Math.min(width, height) * 0.38;
+  const groups = _graphHopGroups(hubId, nodes.map(node => node.id), edges);
+  const hopLevels = [...groups.keys()].filter(h => h > 0).sort((a, b) => a - b);
+  const positions = new Map();
+  positions.set(hubId, { x: cx, y: cy });
+
+  let prevOuter = 0;
+  for (const hop of hopLevels) {
+    const members = groups.get(hop).slice().sort((a, b) => String(a).localeCompare(String(b)));
+    const count = members.length;
+    if (!count) continue;
+    let avgNodeR = 0;
+    for (const id of members) avgNodeR += radii.get(id) || 12;
+    avgNodeR /= count;
+    const densityBonus = Math.min(18, Math.floor(n / 4));
+    const angularSlot = _graphLayoutRadialAngularSlot(avgNodeR, densityBonus);
+    const hopGap = _graphLayoutRadialHopGap(angularSlot);
+    const innerR = Math.max(prevOuter + hopGap, hop === 1 ? Math.max(88, hopGap) : prevOuter + hopGap);
+    const minLayoutR = (count * angularSlot) / (2 * Math.PI);
+    const layoutMaxR = Math.max(maxR, minLayoutR * 1.08);
+    const ringsNeeded = Math.max(1, Math.ceil((count * angularSlot) / (2 * Math.PI * layoutMaxR)));
+    const perRing = Math.ceil(count / ringsNeeded);
+    const ringGap = ringsNeeded === 1
+      ? 0
+      : Math.max((layoutMaxR - innerR) / (ringsNeeded - 1), hopGap);
+    for (let ringIdx = 0; ringIdx < ringsNeeded; ringIdx += 1) {
+      const chunk = members.slice(ringIdx * perRing, (ringIdx + 1) * perRing);
+      const chunkCount = chunk.length;
+      if (!chunkCount) continue;
+      const ringFromCount = (chunkCount * angularSlot) / (2 * Math.PI);
+      const ringR = ringsNeeded === 1
+        ? Math.max(innerR, ringFromCount)
+        : innerR + ringGap * ringIdx;
+      prevOuter = ringR + avgNodeR + _graphLayoutLabelPadBelowCircle() * 0.35;
+      chunk.forEach((id, index) => {
+        const angle = (2 * Math.PI * index) / chunkCount - Math.PI / 2;
+        positions.set(id, {
+          x: cx + ringR * Math.cos(angle),
+          y: cy + ringR * Math.sin(angle),
+        });
+      });
+    }
+  }
+
+  const nonHub = nodes.filter(node => node.id !== hubId);
+  const collisionMaxR = Math.max(maxR, prevOuter * 1.05);
+  for (let iter = 0; iter < 48; iter += 1) {
+    const alpha = 1 - iter / 48;
+    for (let i = 0; i < nonHub.length; i += 1) {
+      for (let j = i + 1; j < nonHub.length; j += 1) {
+        const a = positions.get(nonHub[i].id);
+        const b = positions.get(nonHub[j].id);
+        if (!a || !b) continue;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const ra = radii.get(nonHub[i].id) || 10;
+        const rb = radii.get(nonHub[j].id) || 10;
+        const minDist = ra + rb + _graphLayoutLabelPadBelowCircle();
+        if (dist >= minDist) continue;
+        const push = ((minDist - dist) / dist) * 0.55 * alpha;
+        a.x -= dx * push;
+        a.y -= dy * push;
+        b.x += dx * push;
+        b.y += dy * push;
+      }
+    }
+    for (const node of nonHub) {
+      const pos = positions.get(node.id);
+      if (!pos) continue;
+      const dx = pos.x - cx;
+      const dy = pos.y - cy;
+      const r = Math.hypot(dx, dy) || 1;
+      if (r > collisionMaxR) {
+        pos.x = cx + (dx / r) * collisionMaxR;
+        pos.y = cy + (dy / r) * collisionMaxR;
+      }
+    }
+  }
+
+  return positions;
+}
+
+function _graphLayoutInputKey(nodes, edges, mode, focusId, width, height) {
+  const nodePart = nodes.map(node => String(node.id || "")).join("\0");
+  const edgePart = edges.map(edge => `${edge.source}\0${edge.target}\0${edge.relation || ""}`).join("\1");
+  return `${mode}|${focusId}|${width}|${height}|${nodePart}|${edgePart}`;
+}
+
+function _layoutGraphCommunityBubbles(nodes, width, height) {
+  const cx = width / 2;
+  const cy = height / 2;
+  const byScore = (a, b) =>
+    _communityInspectabilityScore(b) - _communityInspectabilityScore(a)
+    || (Number(b.boundary_node_count) || 0) - (Number(a.boundary_node_count) || 0)
+    || (Number(b.node_count || b.total_node_count) || 0) - (Number(a.node_count || a.total_node_count) || 0)
+    || String(a.label || a.id || "").localeCompare(String(b.label || b.id || ""));
+
+  const production = nodes.filter(node => !_graphIsCategoryCommunity(node)).sort(byScore);
+  const categories = nodes.filter(node => _graphIsCategoryCommunity(node)).sort(byScore);
+  const center = production[0] || nodes.slice().sort(byScore)[0];
+  const positions = new Map();
+  if (!center) return positions;
+
+  const ringNodes = [
+    ...production.filter(node => node.id !== center.id),
+    ...categories,
+  ].sort((a, b) =>
+    _graphNodeRadius(b, 0) - _graphNodeRadius(a, 0)
+    || String(a.label || a.id || "").localeCompare(String(b.label || b.id || "")),
+  );
+
+  positions.set(center.id, { x: cx, y: cy });
+  const spokeCount = 7;
+  const maxR = Math.min(width, height) * 0.37;
+  const innerRing = maxR * 0.54;
+  const ringStep = maxR * 0.16;
+  const ringBase = maxR * 0.62;
+  const outerRing = ringBase + 2 * ringStep;
+  const tierSpan = outerRing - innerRing + ringStep;
+  const twistPerSlot = (2 * Math.PI) / (spokeCount * 1.6);
+  ringNodes.forEach((node, index) => {
+    const spoke = index % spokeCount;
+    const radialSlot = Math.floor(index / spokeCount);
+    const band = radialSlot % 3;
+    const tier = Math.floor(radialSlot / 3);
+    const bandRing = band === 0 ? innerRing : ringBase + band * ringStep;
+    const ring = bandRing + tier * tierSpan;
+    const angle = (2 * Math.PI * spoke) / spokeCount - Math.PI / 2 + radialSlot * twistPerSlot;
+    positions.set(node.id, {
+      x: cx + ring * Math.cos(angle),
+      y: cy + ring * Math.sin(angle),
+    });
+  });
+  return positions;
+}
+
+function _graphResolveLayoutMode({
+  viewMode,
+  selectedNodeId,
+  hasCommunityOverview,
+  selectedClusterId,
+  nodeCount,
+}) {
+  if (hasCommunityOverview) return "force";
+  if (selectedClusterId || viewMode === "files") return "hierarchical";
+  if (viewMode === "focus" && selectedNodeId) return "hierarchical";
+  if (nodeCount > 28) return "hierarchical";
+  return "force";
+}
+
+function _graphLayoutModeLabel(mode) {
+  if (mode === "hierarchical") return "Layered layout";
+  if (mode === "radial") return "Radial layout";
+  return "Force layout";
+}
+
+function _graphElkNodeSize(node) {
+  const { maxLineChars, lineCount } = _graphLabelMetrics(_graphLabel(node));
+  return {
+    width: Math.min(240, Math.max(64, maxLineChars * 6.2)),
+    height: Math.max(36, 20 + lineCount * GRAPH_LABEL_LINE_HEIGHT),
+  };
+}
+
+function _fitLayoutPositions(positions, width, height, padding = 44) {
+  if (!positions.size) return positions;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const pos of positions.values()) {
+    minX = Math.min(minX, pos.x);
+    minY = Math.min(minY, pos.y);
+    maxX = Math.max(maxX, pos.x);
+    maxY = Math.max(maxY, pos.y);
+  }
+  const boxW = Math.max(1, maxX - minX);
+  const boxH = Math.max(1, maxY - minY);
+  const scale = Math.min(
+    (width - padding * 2) / boxW,
+    (height - padding * 2) / boxH,
+    2.4,
+  );
+  const midX = (minX + maxX) / 2;
+  const midY = (minY + maxY) / 2;
+  const fitted = new Map();
+  for (const [id, pos] of positions.entries()) {
+    fitted.set(id, {
+      x: width / 2 + (pos.x - midX) * scale,
+      y: height / 2 + (pos.y - midY) * scale,
+    });
+  }
+  return fitted;
+}
+
+async function _graphElkLayout(nodes, edges, width, height) {
+  if (typeof ELK !== "function") {
+    throw new Error("ELK layout library not loaded");
+  }
+  const elk = new ELK();
+  const children = nodes.map((node) => {
+    const size = _graphElkNodeSize(node);
+    return { id: node.id, width: size.width, height: size.height };
+  });
+  const elkEdges = edges.map((edge, index) => ({
+    id: `e${index}`,
+    sources: [edge.source],
+    targets: [edge.target],
+  }));
+  const nodeCount = Math.max(1, nodes.length);
+  const nodeSpacing = Math.max(44, Math.min(96, Math.floor(720 / Math.sqrt(nodeCount))));
+  const layerSpacing = Math.max(
+    _graphLayoutHierarchicalRowGap(false),
+    Math.min(88, 80 - Math.floor(nodeCount / 10)),
+  );
+  const layout = await elk.layout({
+    id: "root",
+    layoutOptions: {
+      "elk.algorithm": "layered",
+      "elk.direction": "DOWN",
+      "elk.spacing.nodeNode": String(nodeSpacing),
+      "elk.layered.spacing.nodeNodeBetweenLayers": String(layerSpacing),
+      "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+      "elk.layered.cycleBreaking.strategy": "GREEDY",
+      "elk.padding": "[top=24,left=24,bottom=24,right=24]",
+    },
+    children,
+    edges: elkEdges,
+  });
+  const positions = new Map();
+  for (const child of layout.children || []) {
+    positions.set(child.id, {
+      x: (child.x || 0) + (child.width || 64) / 2,
+      y: (child.y || 0) + (child.height || 36) / 2,
+    });
+  }
+  if (!positions.size) {
+    nodes.forEach((node, index) => {
+      positions.set(node.id, { x: width / 2, y: 48 + index * _graphLayoutSubRowGap(GRAPH_LAYOUT_MAX_NODE_RADIUS) });
+    });
+  }
+  return _fitLayoutPositions(positions, width, height);
+}
+
+/** Radial rings by hop distance from a focus node (focus / ego views). */
+function _layoutGraphRadialByHop(nodes, edges, width, height, focusId, radii) {
+  const cx = width / 2;
+  const cy = height / 2;
+  const maxR = Math.min(width, height) * 0.4;
+  const groups = _graphHopGroups(focusId, nodes.map(node => node.id), edges);
+  const hopLevels = [...groups.keys()].sort((a, b) => a - b);
+  const positions = new Map();
+  if (focusId) positions.set(focusId, { x: cx, y: cy });
+
+  let prevOuter = 0;
+  for (const hop of hopLevels) {
+    if (hop === 0) continue;
+    const members = groups.get(hop).slice().sort((a, b) => String(a).localeCompare(String(b)));
+    const count = members.length;
+    if (!count) continue;
+    let avgNodeR = 0;
+    for (const id of members) avgNodeR += radii.get(id) || 12;
+    avgNodeR /= count;
+    const angularSlot = _graphLayoutRadialAngularSlot(avgNodeR);
+    const hopGap = _graphLayoutRadialHopGap(angularSlot);
+    const innerR = Math.max(prevOuter + hopGap, 72 + hop * 18);
+    const minLayoutR = (count * angularSlot) / (2 * Math.PI);
+    const layoutMaxR = Math.max(maxR, minLayoutR * 1.08);
+    const ringsNeeded = Math.max(1, Math.ceil((count * angularSlot) / (2 * Math.PI * layoutMaxR)));
+    const perRing = Math.ceil(count / ringsNeeded);
+    const ringGap = ringsNeeded === 1
+      ? 0
+      : Math.max((layoutMaxR - innerR) / (ringsNeeded - 1), hopGap);
+    for (let ringIdx = 0; ringIdx < ringsNeeded; ringIdx += 1) {
+      const chunk = members.slice(ringIdx * perRing, (ringIdx + 1) * perRing);
+      const chunkCount = chunk.length;
+      if (!chunkCount) continue;
+      const ringFromCount = (chunkCount * angularSlot) / (2 * Math.PI);
+      const ringR = ringsNeeded === 1
+        ? Math.max(innerR, ringFromCount)
+        : innerR + ringGap * ringIdx;
+      prevOuter = ringR + avgNodeR + _graphLayoutLabelPadBelowCircle() * 0.35;
+      chunk.forEach((id, index) => {
+        const angle = (2 * Math.PI * index) / chunkCount - Math.PI / 2;
+        positions.set(id, {
+          x: cx + ringR * Math.cos(angle),
+          y: cy + ringR * Math.sin(angle),
+        });
+      });
+    }
+  }
+  for (const node of nodes) {
+    if (!positions.has(node.id)) {
+      positions.set(node.id, { x: cx + maxR * 0.9, y: cy });
+    }
+  }
+  return positions;
+}
+
+/** Simple top-down layering when ELK is unavailable (better than force hairballs). */
+function _layoutGraphTopoLayers(nodes, edges, width, height) {
+  const nodeIds = nodes.map(node => node.id);
+  const layers = new Map();
+  const inDegree = new Map(nodeIds.map(id => [id, 0]));
+  for (const edge of edges) {
+    if (inDegree.has(edge.target)) {
+      inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1);
+    }
+  }
+  const queue = nodeIds.filter(id => (inDegree.get(id) || 0) === 0);
+  if (!queue.length && nodeIds.length) queue.push(nodeIds[0]);
+  for (const id of queue) layers.set(id, 0);
+  while (queue.length) {
+    const current = queue.shift();
+    const depth = layers.get(current);
+    for (const edge of edges) {
+      if (edge.source === current && !layers.has(edge.target)) {
+        layers.set(edge.target, depth + 1);
+        queue.push(edge.target);
+      }
+    }
+  }
+  let maxLayer = 0;
+  for (const depth of layers.values()) maxLayer = Math.max(maxLayer, depth);
+  for (const id of nodeIds) {
+    if (!layers.has(id)) layers.set(id, maxLayer + 1);
+  }
+  const byLayer = new Map();
+  for (const id of nodeIds) {
+    const layer = layers.get(id);
+    if (!byLayer.has(layer)) byLayer.set(layer, []);
+    byLayer.get(layer).push(id);
+  }
+  const positions = new Map();
+  const layerKeys = [...byLayer.keys()].sort((a, b) => a - b);
+  const vGap = Math.max(64, Math.min(92, Math.floor(680 / Math.max(1, layerKeys.length))));
+  for (const layer of layerKeys) {
+    const members = byLayer.get(layer).slice().sort((a, b) => String(a).localeCompare(String(b)));
+    const hGap = Math.max(56, width / (members.length + 1));
+    members.forEach((id, index) => {
+      positions.set(id, { x: hGap * (index + 1), y: 52 + layer * vGap });
+    });
+  }
+  return _fitLayoutPositions(positions, width, height);
+}
+
+async function _layoutGraphAsync(nodes, edges, width, height, { mode, focusId } = {}) {
+  if (!nodes.length) return new Map();
+  const degree = new Map(nodes.map(node => [node.id, 0]));
+  for (const edge of edges) {
+    degree.set(edge.source, (degree.get(edge.source) || 0) + 1);
+    degree.set(edge.target, (degree.get(edge.target) || 0) + 1);
+  }
+  const radii = new Map(nodes.map(node => [node.id, _graphNodeRadius(node, degree.get(node.id) || 0)]));
+
+  if (mode === "hierarchical") {
+    return _layoutGraphKindLayers(nodes, edges, width, height, focusId || "");
+  }
+  if (mode === "radial" && focusId) {
+    return _layoutGraphRadialByHop(nodes, edges, width, height, focusId, radii);
+  }
+  if (mode === "force" && nodes.length && nodes.every(node => node.kind === "community")) {
+    return _layoutGraphCommunityBubbles(nodes, width, height);
+  }
+  return _layoutGraph(nodes, edges, width, height);
 }
 
 function _layoutGraph(nodes, edges, width, height) {
@@ -1113,22 +2689,40 @@ function _layoutGraph(nodes, edges, width, height) {
     degree.set(nodes[targetIndex].id, (degree.get(nodes[targetIndex].id) || 0) + 1);
   }
 
+  let maxDegree = 0;
+  const hubId = _graphPickLayoutHubId(nodes, degree);
+  for (const node of nodes) {
+    maxDegree = Math.max(maxDegree, degree.get(node.id) || 0);
+  }
+
+  const cx = width / 2;
+  const cy = height / 2;
+  const radii = new Map(nodes.map((node) => [node.id, _graphNodeRadius(node, degree.get(node.id) || 0)]));
+
+  if (_shouldUseHubRadialLayout(nodes, edges, degree, hubId)) {
+    return _layoutGraphHubRadial(nodes, edges, width, height, hubId, radii);
+  }
+
   for (let i = 0; i < nodes.length; i += 1) {
-    positions.set(nodes[i].id, {
-      ..._graphSeedPosition(nodes[i], i, nodes.length, width, height),
+    const node = nodes[i];
+    positions.set(node.id, {
+      ..._graphSeedPosition(node, i, nodes.length, width, height, degree.get(node.id) || 0, maxDegree),
       vx: 0,
       vy: 0,
     });
   }
 
-  const radii = new Map(nodes.map((node) => [node.id, _graphNodeRadius(node, degree.get(node.id) || 0)]));
+  const n = Math.max(1, nodes.length);
+  const linkPad = 72 + Math.min(22, Math.floor(n / 4));
+  const repel = 5200 + n * 200;
+  const spring = 0.0085;
+  const center = 0.0045 + Math.min(0.0035, n * 0.0001);
+  const damping = 0.81;
+  const iterations = Math.min(200, 96 + n * 2);
+  const margin = 32;
 
-  const repel = 4800;
-  const spring = 0.008;
-  const center = 0.0025;
-  const damping = 0.82;
-
-  for (let iter = 0; iter < 120; iter += 1) {
+  for (let iter = 0; iter < iterations; iter += 1) {
+    const alpha = 1 - iter / iterations;
     for (let i = 0; i < nodes.length; i += 1) {
       const a = positions.get(nodes[i].id);
       if (!a) continue;
@@ -1138,9 +2732,11 @@ function _layoutGraph(nodes, edges, width, height) {
         let dx = b.x - a.x;
         let dy = b.y - a.y;
         let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const minDist = (radii.get(nodes[i].id) || 10) + (radii.get(nodes[j].id) || 10) + 42;
+        const ra = radii.get(nodes[i].id) || 10;
+        const rb = radii.get(nodes[j].id) || 10;
+        const minDist = ra + rb + 46;
         if (dist < minDist) dist = minDist;
-        const force = repel / (dist * dist);
+        const force = (repel * alpha) / (dist * dist);
         const fx = (dx / dist) * force;
         const fy = (dy / dist) * force;
         a.vx -= fx;
@@ -1157,8 +2753,12 @@ function _layoutGraph(nodes, edges, width, height) {
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      const desired = (radii.get(nodes[sourceIndex].id) || 10) + (radii.get(nodes[targetIndex].id) || 10) + 84;
-      const force = (dist - desired) * spring;
+      const desired = (radii.get(nodes[sourceIndex].id) || 10)
+        + (radii.get(nodes[targetIndex].id) || 10)
+        + linkPad;
+      const stretch = dist - desired;
+      const capped = Math.max(-desired * 0.2, Math.min(stretch, desired * 0.42));
+      const force = capped * spring * alpha;
       const fx = (dx / dist) * force;
       const fy = (dy / dist) * force;
       a.vx += fx;
@@ -1170,18 +2770,56 @@ function _layoutGraph(nodes, edges, width, height) {
     for (const node of nodes) {
       const pos = positions.get(node.id);
       if (!pos) continue;
-      pos.vx += (width / 2 - pos.x) * center;
-      pos.vy += (height / 2 - pos.y) * center;
+      pos.vx += (cx - pos.x) * center * alpha;
+      pos.vy += (cy - pos.y) * center * alpha;
       pos.vx *= damping;
       pos.vy *= damping;
       pos.x += pos.vx;
       pos.y += pos.vy;
-      pos.x = Math.max(24, Math.min(width - 24, pos.x));
-      pos.y = Math.max(24, Math.min(height - 24, pos.y));
+      pos.x = Math.max(margin, Math.min(width - margin, pos.x));
+      pos.y = Math.max(margin, Math.min(height - margin, pos.y));
     }
   }
 
   return positions;
+}
+
+function _graphEdgeLineOpacity({ edgePreview, edgeSelected, edgeFocused, edgeConnectedToHover, previewNodeId }) {
+  if (edgePreview) return 0.72;
+  if (edgeSelected) return 0.62;
+  if (edgeFocused) return 0.58;
+  if (edgeConnectedToHover) return 0.46;
+  if (previewNodeId) return 0.16;
+  return 0.42;
+}
+
+function _graphEdgeLineOpacity({ edgePreview, edgeSelected, edgeFocused, edgeConnectedToHover, previewNodeId }) {
+  if (edgePreview) return 0.92;
+  if (edgeSelected) return 0.85;
+  if (edgeFocused) return 0.82;
+  if (edgeConnectedToHover) return 0.74;
+  if (previewNodeId) return 0.12;
+  return 0.48;
+}
+
+function _graphEdgeStrokeWidth({ edgePreview, edgeSelected, edgeFocused, edgeConnectedToHover }, edgeWeight) {
+  const base = Math.min(4.0, 1.15 + Math.log2(edgeWeight + 1) * 0.35);
+  if (edgePreview || edgeSelected) return 2.0;
+  if (edgeFocused) return 1.75;
+  if (edgeConnectedToHover) return 1.45;
+  return base;
+}
+
+function _graphEdgeArrowMarkers() {
+  return h("marker", {
+    id: "graph-arrow",
+    markerWidth: 6,
+    markerHeight: 6,
+    refX: 5.5,
+    refY: 3,
+    orient: "auto",
+    markerUnits: "userSpaceOnUse",
+  }, h("path", { d: "M0,0 L0,6 L9,3 z", fill: "currentColor" }));
 }
 
 function _graphCommunityNodeId(communityId) {
@@ -1189,17 +2827,40 @@ function _graphCommunityNodeId(communityId) {
 }
 
 function _communityInspectabilityScore(cluster) {
-  const nodeCount = Math.max(0, Number(cluster?.node_count || 0));
+  const nodeCount = Math.max(0, Number(cluster?.node_count || cluster?.total_node_count || 0));
   const boundaryCount = Math.max(0, Number(cluster?.boundary_node_count || 0));
   if (!nodeCount) return 0;
   return (boundaryCount / nodeCount) * Math.log2(nodeCount + 1);
+}
+
+function _graphIsCategoryCommunity(node) {
+  if (!node) return false;
+  if (String(node.cluster_kind || "").trim() === "fixed") return true;
+  if (String(node.kind || "").trim() === "fixed") return true;
+  return GRAPH_CATEGORY_COMMUNITY_LABELS.has(String(node.label || "").trim());
+}
+
+/** Prefer a production (non-category) community/module as the radial or force hub. */
+function _graphPickLayoutHubId(nodes, degree) {
+  const eligible = nodes.filter(node => !_graphIsCategoryCommunity(node));
+  const pool = eligible.length ? eligible : nodes;
+  let hubId = pool[0]?.id || "";
+  let maxDegree = -1;
+  for (const node of pool) {
+    const nodeDegree = degree.get(node.id) || 0;
+    if (nodeDegree > maxDegree) {
+      maxDegree = nodeDegree;
+      hubId = node.id;
+    }
+  }
+  return hubId;
 }
 
 function _isMeaningfulCommunity(cluster) {
   return Math.max(0, Number(cluster?.node_count || 0)) >= GRAPH_MIN_COMMUNITY_NODES;
 }
 
-function _buildCommunityOverviewGraph(nodes, edges, communities, selectedRelations) {
+function _buildCommunityOverviewGraph(nodes, edges, communities) {
   const nodeById = new Map(nodes.map(node => [String(node.id || ""), node]));
   const communityByNodeId = new Map();
   const communityById = new Map();
@@ -1248,6 +2909,7 @@ function _buildCommunityOverviewGraph(nodes, edges, communities, selectedRelatio
       bucket = {
         community_id: community.community_id,
         label: community.label || community.community_id,
+        cluster_kind: String(community.kind || "").trim(),
         node_ids: [],
         node_count: 0,
         total_node_count: Number(community.node_count) || 0,
@@ -1285,6 +2947,7 @@ function _buildCommunityOverviewGraph(nodes, edges, communities, selectedRelatio
       id: _graphCommunityNodeId(bucket.community_id),
       label: bucket.label || bucket.community_id,
       kind: "community",
+      cluster_kind: bucket.cluster_kind || "",
       community_id: bucket.community_id,
       node_count: bucket.node_count,
       total_node_count: bucket.total_node_count || bucket.node_count,
@@ -1304,7 +2967,7 @@ function _buildCommunityOverviewGraph(nodes, edges, communities, selectedRelatio
 
   for (const edge of edges) {
     const relation = String(edge.relation || "");
-    if (selectedRelations && selectedRelations.size && !selectedRelations.has(relation)) continue;
+    if (!GRAPH_COMMUNITY_OVERVIEW_RELATIONS.has(relation)) continue;
     const sourceNode = nodeById.get(String(edge.source || ""));
     const targetNode = nodeById.get(String(edge.target || ""));
     if (!sourceNode || !targetNode) continue;
@@ -1340,6 +3003,158 @@ function _buildCommunityOverviewGraph(nodes, edges, communities, selectedRelatio
   };
 }
 
+function _graphEdgeRelationLabel(relation) {
+  return String(relation || "").replace(/_/g, " ").toUpperCase();
+}
+
+function _graphEdgeTooltipLabel(edge, focusId) {
+  const other = edge.source === focusId ? edge.target : edge.source;
+  return `${_graphEdgeRelationLabel(edge.relation)} ${other}`;
+}
+
+function _graphNeighborTooltip(focusId, neighborId, edges) {
+  return edges
+    .filter(edge =>
+      (edge.source === focusId && edge.target === neighborId)
+      || (edge.target === focusId && edge.source === neighborId),
+    )
+    .map(edge => _graphEdgeTooltipLabel(edge, focusId))
+    .join("\n");
+}
+
+function GraphTreeNav({ focusNodeId, focusNode, layer, onSelectNode }) {
+  const [payload, setPayload] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    if (!focusNodeId) {
+      setPayload(null);
+      setError("");
+      setActiveIndex(0);
+      return undefined;
+    }
+    let cancelled = false;
+    const controller = new AbortController();
+    async function loadNeighbors() {
+      setLoading(true);
+      setError("");
+      try {
+        const response = await fetch(
+          `/api/graph/neighbors?layer=${encodeURIComponent(layer)}&symbol=${encodeURIComponent(focusNodeId)}`,
+          { cache: "no-store", signal: controller.signal },
+        );
+        if (!response.ok) throw new Error(`Neighbor request failed with ${response.status}`);
+        const data = await response.json();
+        if (!cancelled) setPayload(data);
+      } catch (err) {
+        if (!cancelled && err.name !== "AbortError") {
+          setError(err.message || String(err));
+          setPayload(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    loadNeighbors();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [focusNodeId, layer]);
+
+  const neighborNodes = Array.isArray(payload?.nodes)
+    ? payload.nodes.filter(node => String(node.id || "") !== String(focusNodeId))
+    : [];
+  const visibleNeighborNodes = _graphSortNeighborNodes(neighborNodes);
+  const edges = Array.isArray(payload?.edges) ? payload.edges : [];
+  const focusNodeRecord = focusNode
+    || (Array.isArray(payload?.nodes)
+      ? payload.nodes.find(node => String(node.id || "") === String(focusNodeId))
+      : null)
+    || null;
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [focusNodeId, payload]);
+
+  const onTreeKeyDown = (event) => {
+    if (!visibleNeighborNodes.length) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveIndex(index => Math.min(visibleNeighborNodes.length - 1, index + 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex(index => Math.max(0, index - 1));
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      const node = visibleNeighborNodes[activeIndex];
+      if (node) onSelectNode(String(node.id || ""));
+    }
+  };
+
+  if (!focusNodeId) {
+    return h("aside", { className: "graph-tree-nav", "aria-label": "Graph tree navigation" },
+      h("div", { className: "graph-tree-nav-header" },
+        h("h3", { className: "graph-tree-nav-title" }, "Neighbors"),
+        h("p", { className: "muted" }, "Select a node to load 1-hop neighbors."),
+      ),
+    );
+  }
+  return h("aside", {
+    className: "graph-tree-nav",
+    "aria-label": "Graph tree navigation",
+    tabIndex: 0,
+    onKeyDown: onTreeKeyDown,
+  },
+    h("div", { className: "graph-tree-nav-header" },
+      h("h3", { className: "graph-tree-nav-title" }, "Neighbors"),
+      focusNodeRecord
+        ? h(React.Fragment, null,
+            h("div", { className: "graph-selection-title graph-tree-nav-focus-title" }, _graphLabel(focusNodeRecord)),
+            h("div", { className: "graph-selection-meta graph-tree-nav-focus-meta muted" },
+              `${focusNodeRecord.kind || "node"} · ${focusNodeRecord.source_file || focusNodeRecord.id}`,
+            ),
+            (focusNodeRecord.is_chokepoint || focusNodeRecord.is_entry_point || focusNodeRecord.dead_code_risk)
+              ? h("div", { className: "graph-node-badges graph-tree-nav-badges" },
+                  focusNodeRecord.is_chokepoint ? h("span", { className: "graph-node-badge graph-node-badge--chokepoint" }, "Chokepoint") : null,
+                  focusNodeRecord.is_entry_point ? h("span", { className: "graph-node-badge graph-node-badge--entry" }, "Entry point") : null,
+                  focusNodeRecord.dead_code_risk ? h("span", { className: "graph-node-badge graph-node-badge--dead" }, "Dead code risk") : null,
+                )
+              : null,
+          )
+        : h("p", { className: "graph-tree-nav-focus muted" }, focusNodeId),
+      loading ? h("p", { className: "muted" }, "Loading neighbors…") : null,
+      error ? h("p", { className: "graph-error" }, error) : null,
+      !loading && !error && !payload?.present
+        ? h("p", { className: "muted" }, payload?.diagnostic || "Graph unavailable.")
+        : null,
+      !loading && !error && payload?.present && !visibleNeighborNodes.length
+        ? h("p", { className: "muted" }, "No neighbors — isolated node.")
+        : null,
+    ),
+    h("ul", { className: "graph-tree-nav-list", role: "tree" },
+      visibleNeighborNodes.slice(0, 40).map((node, index) => {
+        const neighborId = String(node.id || "");
+        const tooltip = _graphNeighborTooltip(focusNodeId, neighborId, edges);
+        return h("li", { key: node.id, role: "treeitem" },
+          h("button", {
+            type: "button",
+            className: `graph-tree-nav-item${index === activeIndex ? " graph-tree-nav-item--active" : ""}`,
+            "aria-current": index === activeIndex ? "true" : undefined,
+            title: tooltip || undefined,
+            onClick: () => onSelectNode(neighborId),
+          }, `${node.label || node.id} (${node.kind || "node"})`),
+        );
+      }),
+    ),
+    edges.length
+      ? h("p", { className: "graph-tree-nav-meta muted" }, `${edges.length} connecting edge(s)`)
+      : h("p", { className: "graph-tree-nav-meta muted" }, visibleNeighborNodes.length ? "No connecting edges." : null),
+  );
+}
+
 function GraphPanel({ snapshot }) {
   // Project-layer only; framework-layer visualization is deferred to the graph
   // visualization/navigation overhaul, not exposed in this panel.
@@ -1350,12 +3165,13 @@ function GraphPanel({ snapshot }) {
   const [query, setQuery] = useState("");
   const [viewMode, setViewMode] = useState("overview");
   const [selectedKinds, setSelectedKinds] = useState(() => new Set());
-  const [selectedRelations, setSelectedRelations] = useState(() => new Set(DEFAULT_GRAPH_RELATIONS));
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const [hoveredNodeId, setHoveredNodeId] = useState("");
   const [selectedFile, setSelectedFile] = useState("");
   const [selectedClusterId, setSelectedClusterId] = useState("");
-  const OVERVIEW_CRUMB = { label: "Overview", viewMode: "overview", selectedNodeId: "", selectedClusterId: "", selectedFile: "" };
+  const [focusNeighborhood, setFocusNeighborhood] = useState(null);
+  const [focusNeighborsLoading, setFocusNeighborsLoading] = useState(false);
+  const OVERVIEW_CRUMB = { label: "Communities", viewMode: "overview", selectedNodeId: "", selectedClusterId: "", selectedFile: "" };
   const [navHistory, setNavHistory] = useState([OVERVIEW_CRUMB]);
   // Refs for browser-history sync — avoid stale closures in popstate/keydown handlers.
   const _navHistoryRef = useRef([OVERVIEW_CRUMB]);
@@ -1395,6 +3211,38 @@ function GraphPanel({ snapshot }) {
     };
   }, [layer, graphVersion]);
 
+  useEffect(() => {
+    if (viewMode !== "focus" || !selectedNodeId) {
+      setFocusNeighborhood(null);
+      setFocusNeighborsLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    const controller = new AbortController();
+    async function loadFocusNeighborhood() {
+      setFocusNeighborsLoading(true);
+      try {
+        const response = await fetch(
+          `/api/graph/neighbors?layer=${encodeURIComponent(layer)}&symbol=${encodeURIComponent(selectedNodeId)}`,
+          { cache: "no-store", signal: controller.signal },
+        );
+        if (!response.ok) throw new Error(`Neighbor request failed with ${response.status}`);
+        const data = await response.json();
+        const focusId = data.focus_node_id || selectedNodeId;
+        if (!cancelled) setFocusNeighborhood(_graphFilterDocFocusNeighborhood(data, focusId));
+      } catch (err) {
+        if (!cancelled && err.name !== "AbortError") setFocusNeighborhood({ present: false, diagnostic: err.message || String(err) });
+      } finally {
+        if (!cancelled) setFocusNeighborsLoading(false);
+      }
+    }
+    loadFocusNeighborhood();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [viewMode, selectedNodeId, layer, graphVersion]);
+
   const nodes = graph?.nodes || [];
   const edges = graph?.edges || [];
   const graphCounts = graph?.counts || {};
@@ -1416,7 +3264,6 @@ function GraphPanel({ snapshot }) {
     }
     return ids;
   })() : null;
-  const relationKinds = Array.from(new Set(edges.map(e => String(e.relation || "")).filter(Boolean))).sort();
   const nodeKinds = Array.from(new Set(nodes.map(n => String(n.kind || "")).filter(Boolean))).sort();
   const graphKindOptions = nodeKinds.length ? nodeKinds : ["module", "class", "function", "doc", "seed", "external"];
   const fileCounts = new Map();
@@ -1442,21 +3289,24 @@ function GraphPanel({ snapshot }) {
     return matchesQuery && matchesKind && matchesFile && matchesCluster && notFixed;
   });
   const degreeMap = new Map();
+  for (const node of nodes) {
+    if (node.degree != null) degreeMap.set(node.id, Number(node.degree) || 0);
+  }
   for (const edge of edges) {
-    degreeMap.set(edge.source, (degreeMap.get(edge.source) || 0) + 1);
-    degreeMap.set(edge.target, (degreeMap.get(edge.target) || 0) + 1);
+    if (!degreeMap.has(edge.source)) degreeMap.set(edge.source, (degreeMap.get(edge.source) || 0) + 1);
+    if (!degreeMap.has(edge.target)) degreeMap.set(edge.target, (degreeMap.get(edge.target) || 0) + 1);
   }
   const previewNodeId = selectedNodeId || hoveredNodeId;
-  const connectedNodeIds = new Set();
-  if (selectedNodeId) {
-    connectedNodeIds.add(selectedNodeId);
+  const focusModeConnectedIds = selectedNodeId ? (() => {
+    const ids = new Set([selectedNodeId]);
     for (const edge of edges) {
       if (edge.source === selectedNodeId || edge.target === selectedNodeId) {
-        connectedNodeIds.add(edge.source);
-        connectedNodeIds.add(edge.target);
+        ids.add(edge.source);
+        ids.add(edge.target);
       }
     }
-  }
+    return ids;
+  })() : null;
   const sortedByDegree = filteredNodes
     .slice()
     .sort((a, b) => (degreeMap.get(b.id) || 0) - (degreeMap.get(a.id) || 0) || String(a.id).localeCompare(String(b.id)));
@@ -1479,7 +3329,7 @@ function GraphPanel({ snapshot }) {
   }
   const communityOverview = viewMode === "overview" && !selectedClusterId && meaningfulCommunities.length > 0;
   const overviewGraph = communityOverview
-    ? _buildCommunityOverviewGraph(filteredNodes, edges, meaningfulCommunities, selectedRelations)
+    ? _buildCommunityOverviewGraph(filteredNodes, edges, meaningfulCommunities)
     : null;
   const hasCommunityOverview = Boolean(communityOverview && overviewGraph && overviewGraph.nodes.length);
   const overviewNodes = viewMode === "overview"
@@ -1496,9 +3346,26 @@ function GraphPanel({ snapshot }) {
         .sort((a, b) => (degreeMap.get(b.id) || 0) - (degreeMap.get(a.id) || 0) || String(a.id).localeCompare(String(b.id)))
         .slice(0, GRAPH_COMMUNITY_DRILLDOWN_LIMIT)
     : [];
+  const overviewHubCommunityNode = hasCommunityOverview && overviewGraph?.nodes?.length
+    ? _graphOverviewHubCommunityNode(overviewGraph.nodes)
+    : null;
+  const overviewHubMemberNodes = overviewHubCommunityNode?.community_id
+    ? _graphCommunityMemberNodes(overviewHubCommunityNode.community_id, meaningfulCommunities, filteredNodes)
+    : [];
+  const overviewHubFocusNodeId = hasCommunityOverview && !selectedNodeId && !selectedClusterId && overviewHubMemberNodes.length
+    ? _graphDefaultCommunityFocusNodeId(overviewHubMemberNodes, degreeMap, GRAPH_COMMUNITY_OVERVIEW_FOCUS_KIND_ORDER)
+    : "";
+  const selectedCommunityBubbleId = hasCommunityOverview && !selectedClusterId && overviewHubCommunityNode?.community_id
+    ? _graphCommunityNodeId(overviewHubCommunityNode.community_id)
+    : "";
+  const treeNavFocusNodeId = selectedNodeId
+    || (selectedClusterId && clusterNodes.length
+      ? _graphDefaultCommunityFocusNodeId(clusterNodes, degreeMap)
+      : "")
+    || overviewHubFocusNodeId;
   const visibleClusterNodeIds = selectedClusterNodeIds ? new Set(clusterNodes.map(node => node.id)) : null;
-  const focusedNodes = selectedNodeId
-    ? filteredNodes.filter(node => connectedNodeIds.has(node.id))
+  const focusedNodes = focusModeConnectedIds
+    ? filteredNodes.filter(node => focusModeConnectedIds.has(node.id))
     : overviewNodes;
   const focusedInCluster = selectedNodeId && selectedClusterId && selectedClusterNodeIds
     ? focusedNodes.filter(node => selectedClusterNodeIds.has(node.id))
@@ -1511,7 +3378,7 @@ function GraphPanel({ snapshot }) {
   const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
   const visibleEdges = edges.filter(edge => {
     const relation = String(edge.relation || "");
-    const relationOk = !selectedRelations.size || selectedRelations.has(relation);
+    const relationOk = !relation || ALL_GRAPH_RELATIONS_SET.has(relation);
     const nodeMatch = viewMode === "focus" && selectedNodeId
       ? (edge.source === selectedNodeId || edge.target === selectedNodeId) &&
         (focusedInCluster ? visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target) : true)
@@ -1523,51 +3390,108 @@ function GraphPanel({ snapshot }) {
     return relationOk && nodeMatch;
   });
   const visibleCommunityEdges = hasCommunityOverview ? overviewGraph.edges : visibleEdges;
-  if (!selectedNodeId && previewNodeId) {
-    connectedNodeIds.add(previewNodeId);
-    for (const edge of visibleCommunityEdges) {
-      if (edge.source === previewNodeId || edge.target === previewNodeId) {
-        connectedNodeIds.add(edge.source);
-        connectedNodeIds.add(edge.target);
+  const useFocusNeighborhood = viewMode === "focus" && selectedNodeId && focusNeighborhood?.present;
+  const layoutNodes = useFocusNeighborhood ? (focusNeighborhood.nodes || []) : visibleNodes;
+  const layoutEdges = useFocusNeighborhood ? (focusNeighborhood.edges || []) : visibleCommunityEdges;
+  const interactionFocusId = hoveredNodeId || selectedNodeId || "";
+  const previewUsesNavRelationsOnly = Boolean(hoveredNodeId && !selectedNodeId);
+  const connectedNodeIds = (() => {
+    if (!interactionFocusId) return new Set();
+    const ids = new Set([interactionFocusId]);
+    for (const edge of layoutEdges) {
+      if (edge.source === interactionFocusId || edge.target === interactionFocusId) {
+        ids.add(edge.source);
+        ids.add(edge.target);
       }
     }
-  }
+    return ids;
+  })();
+  const graphHighlightFocus = Boolean(
+    previewNodeId
+    && interactionFocusId
+    && layoutEdges.some(edge => edge.source === interactionFocusId || edge.target === interactionFocusId),
+  );
+  const highlightPreviewNodeId = graphHighlightFocus ? previewNodeId : "";
+  const nodesWithLayoutEdges = React.useMemo(() => {
+    const ids = new Set();
+    for (const edge of layoutEdges) {
+      ids.add(edge.source);
+      ids.add(edge.target);
+    }
+    return ids;
+  }, [layoutEdges]);
   const graphWidth = 1040;
   const graphHeight = 760;
-  const layout = React.useMemo(
-    () => _layoutGraph(visibleNodes, visibleCommunityEdges, graphWidth, graphHeight),
-    [visibleNodes, visibleCommunityEdges]
-  );
-  const selectedNode = visibleNodes.find(node => node.id === selectedNodeId) || null;
-  const selectedEdges = selectedNode
-    ? visibleCommunityEdges.filter(edge => edge.source === selectedNode.id || edge.target === selectedNode.id)
-    : [];
-  const topNodes = topHubNodes.slice(0, 6);
-  const communityQuickPickPool = clusterCommunities
-    .filter(cluster => _isMeaningfulCommunity(cluster))
-    .sort((a, b) =>
-      _communityInspectabilityScore(b) - _communityInspectabilityScore(a)
-      || (Number(b.boundary_node_count) || 0) - (Number(a.boundary_node_count) || 0)
-      || (Number(b.node_count) || 0) - (Number(a.node_count) || 0)
-      || String(a.label || a.community_id || "").localeCompare(String(b.label || b.community_id || ""))
-    );
-  const topCommunities = (communityQuickPickPool.length ? communityQuickPickPool : meaningfulCommunities.slice())
-    .sort((a, b) =>
-      _communityInspectabilityScore(b) - _communityInspectabilityScore(a)
-      || (Number(b.boundary_node_count) || 0) - (Number(a.boundary_node_count) || 0)
-      || (Number(b.node_count) || 0) - (Number(a.node_count) || 0)
-      || String(a.community_id || "").localeCompare(String(b.community_id || ""))
-    )
-    .slice(0, GRAPH_COMMUNITY_QUICK_PICK_LIMIT);
-  const truncated = filteredNodes.length > visibleNodes.length;
-  const overviewLabel = hasCommunityOverview
-    ? `${visibleNodes.length} communities`
-    : `${visibleNodes.length} visible nodes`;
-  const edgeLabel = hasCommunityOverview
-    ? `${visibleCommunityEdges.length} community links`
-    : `${visibleEdges.length} visible edges`;
-  const selectedMode = selectedNodeId ? "focus" : selectedClusterId ? "overview" : viewMode;
   const graphEdgeArrowInset = 1.5;
+  const graphLayoutMode = _graphResolveLayoutMode({
+    viewMode,
+    selectedNodeId,
+    hasCommunityOverview,
+    selectedClusterId,
+    nodeCount: layoutNodes.length,
+  });
+  const graphLayoutFocusId = treeNavFocusNodeId || selectedNodeId || "";
+  const layoutInputKey = _graphLayoutInputKey(
+    layoutNodes,
+    layoutEdges,
+    graphLayoutMode,
+    graphLayoutFocusId,
+    graphWidth,
+    graphHeight,
+  );
+  const layoutNodesRef = React.useRef(layoutNodes);
+  const layoutEdgesRef = React.useRef(layoutEdges);
+  layoutNodesRef.current = layoutNodes;
+  layoutEdgesRef.current = layoutEdges;
+  const [layout, setLayout] = React.useState(() => new Map());
+  const [layoutPending, setLayoutPending] = React.useState(false);
+  const layoutRunRef = React.useRef(0);
+  const graphViewBox = React.useMemo(
+    () => _graphViewBoxFromLayout(layout, graphWidth, graphHeight),
+    [layout, graphWidth, graphHeight],
+  );
+  React.useEffect(() => {
+    const runId = layoutRunRef.current + 1;
+    layoutRunRef.current = runId;
+    let cancelled = false;
+    const nodes = layoutNodesRef.current;
+    const edges = layoutEdgesRef.current;
+    async function computeLayout() {
+      if (!nodes.length) {
+        if (!cancelled && layoutRunRef.current === runId) {
+          setLayout(new Map());
+          setLayoutPending(false);
+        }
+        return;
+      }
+      setLayoutPending(true);
+      try {
+        const positions = await _layoutGraphAsync(
+          nodes,
+          edges,
+          graphWidth,
+          graphHeight,
+          { mode: graphLayoutMode, focusId: graphLayoutFocusId },
+        );
+        if (!cancelled && layoutRunRef.current === runId) setLayout(positions);
+      } catch {
+        if (!cancelled && layoutRunRef.current === runId) {
+          setLayout(_layoutGraph(nodes, edges, graphWidth, graphHeight));
+        }
+      } finally {
+        if (layoutRunRef.current === runId) setLayoutPending(false);
+      }
+    }
+    computeLayout();
+    return () => { cancelled = true; };
+  }, [layoutInputKey, graphLayoutMode, graphLayoutFocusId, graphWidth, graphHeight]);
+  const graphNodeColorContext = { hasCommunityOverview, selectedClusterId, viewMode };
+  const selectedNode = layoutNodes.find(node => node.id === selectedNodeId)
+    || visibleNodes.find(node => node.id === selectedNodeId)
+    || null;
+  const treeNavFocusNode = selectedNode
+    || (treeNavFocusNodeId ? filteredNodes.find(node => node.id === treeNavFocusNodeId) || null : null);
+  const selectedMode = selectedNodeId ? "focus" : selectedClusterId ? "overview" : viewMode;
   const _applyNavState = (crumb) => {
     setViewMode(crumb.viewMode);
     setSelectedNodeId(crumb.selectedNodeId);
@@ -1641,42 +3565,6 @@ function GraphPanel({ snapshot }) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []); // stable — all access via refs
-  const selectionCard = selectedNode
-    ? h("div", { className: "graph-selection" },
-        h("div", { className: "graph-selection-title" }, _graphLabel(selectedNode)),
-        h("div", { className: "graph-selection-meta muted" }, `${selectedNode.kind} · ${selectedNode.source_file || selectedNode.id}`),
-        (selectedNode.is_chokepoint || selectedNode.is_entry_point || selectedNode.dead_code_risk)
-          ? h("div", { className: "graph-node-badges" },
-              selectedNode.is_chokepoint ? h("span", { className: "graph-node-badge graph-node-badge--chokepoint" }, "Chokepoint") : null,
-              selectedNode.is_entry_point ? h("span", { className: "graph-node-badge graph-node-badge--entry" }, "Entry point") : null,
-              selectedNode.dead_code_risk ? h("span", { className: "graph-node-badge graph-node-badge--dead" }, "Dead code risk") : null,
-            )
-          : null,
-        selectedEdges.length
-          ? h("ul", { className: "graph-selection-edges" },
-              selectedEdges.slice(0, 8).map((edge, i) =>
-                h("li", { key: `${edge.source}-${edge.target}-${i}` },
-                  h("span", { className: "graph-selection-rel" }, edge.relation.replace(/_/g, " ")),
-                  " ",
-                  h("span", { className: "graph-selection-target" },
-                    edge.source === selectedNode.id ? edge.target : edge.source,
-                  ),
-                )
-              ),
-            )
-          : null,
-      )
-    : selectedCluster
-      ? h("div", { className: "graph-selection" },
-          h("div", { className: "graph-selection-title" }, selectedCluster.label || selectedCluster.community_id),
-          h("div", { className: "graph-selection-meta muted" }, `${selectedCluster.node_count || 0} nodes · ${selectedCluster.boundary_node_count || 0} boundary nodes`),
-        )
-      : selectedFile
-        ? h("div", { className: "graph-selection" },
-            h("div", { className: "graph-selection-title" }, "File neighborhood"),
-            h("div", { className: "graph-selection-meta muted" }, selectedFile),
-          )
-        : null;
 
   const toggleSelectionSet = (setter, value) => {
     setter(prev => {
@@ -1689,7 +3577,6 @@ function GraphPanel({ snapshot }) {
 
   const clearGraphFilters = () => {
     setSelectedKinds(new Set());
-    setSelectedRelations(new Set(DEFAULT_GRAPH_RELATIONS));
     backToOverview();
   };
 
@@ -1737,12 +3624,9 @@ function GraphPanel({ snapshot }) {
     setViewMode("overview");
   };
 
-  const selectFile = (filePath) => {
-    const shortLabel = filePath.split("/").slice(-2).join("/");
-    _pushCrumb({ label: shortLabel, viewMode: "files", selectedNodeId: "", selectedClusterId: "", selectedFile: filePath });
-    setSelectedFile(filePath);
-    setSelectedNodeId("");
-    setViewMode("files");
+  const focusFirstSearchMatch = () => {
+    const match = filteredNodes[0];
+    if (match?.id) selectNode(String(match.id));
   };
 
   return h("article", { className: "graph-card" },
@@ -1753,28 +3637,6 @@ function GraphPanel({ snapshot }) {
           graph?.present ? `${graphCounts.nodes || nodes.length} nodes · ${graphCounts.edges || edges.length} edges` : "Graph index has not been built yet."
         ),
       ),
-      h("div", { className: "graph-layer-switch", role: "tablist", "aria-label": "Graph layer" },
-        h("button", {
-          type: "button",
-          className: "graph-layer-pill graph-layer-pill--active",
-          role: "tab",
-          "aria-selected": true,
-        }, "project"),
-      ),
-    ),
-    h("div", { className: "graph-mode-switch" },
-      ["overview", "focus", "files"].map(option =>
-        h("button", {
-          key: option,
-          type: "button",
-          className: `graph-layer-pill ${selectedMode === option ? "graph-layer-pill--active" : ""}`,
-          onClick: () => {
-            setViewMode(option);
-            if (option !== "focus") setSelectedNodeId("");
-          },
-        }, option === "overview" ? "Overview" : option === "focus" ? "Focus" : "Files")
-      ),
-      h("button", { type: "button", className: "graph-layer-pill", onClick: clearGraphFilters }, "Clear"),
     ),
       h("div", { className: "graph-toolbar" },
         h("label", { className: "graph-search" },
@@ -1783,7 +3645,13 @@ function GraphPanel({ snapshot }) {
             type: "search",
           value: query,
           onChange: (e) => setQuery(e.target.value),
-          placeholder: "file, symbol, or path",
+          onKeyDown: (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              focusFirstSearchMatch();
+            }
+          },
+          placeholder: "file, symbol, or path — Enter to focus",
           }),
         ),
         h("div", { className: "graph-filter-group" },
@@ -1817,63 +3685,6 @@ function GraphPanel({ snapshot }) {
         h("span", { className: "graph-node-badge graph-node-badge--dead" }, "Dead code risk — no external callers"),
       ),
     ),
-    h("details", { className: "graph-filter-details" },
-      h("summary", null, "Relations"),
-      h("div", { className: "graph-filter-group graph-filter-group--relation" },
-        (relationKinds.length ? relationKinds : ["defines", "imports", "calls", "doc_references_code"]).map(rel =>
-          h("button", {
-            key: rel,
-            type: "button",
-            className: `graph-filter-pill ${selectedRelations.has(rel) ? "graph-filter-pill--active" : ""}`,
-            onClick: () => toggleSelectionSet(setSelectedRelations, rel),
-          }, rel.replace(/_/g, " "))
-        ),
-      ),
-    ),
-      h("div", { className: "graph-quick-picks" },
-        h("div", { className: "graph-quick-picks-group" },
-          h("span", { className: "graph-filter-label" }, "Top hubs"),
-        topNodes.length
-          ? topNodes.map(node =>
-              h("button", {
-                key: node.id,
-                type: "button",
-                className: `graph-filter-pill ${selectedNodeId === node.id ? "graph-filter-pill--active" : ""}`,
-                "aria-pressed": selectedNodeId === node.id,
-                onClick: () => selectNode(node.id),
-              }, _graphLabel(node))
-            )
-          : h("span", { className: "graph-quick-picks-empty muted" }, "No nodes yet."),
-      ),
-      h("div", { className: "graph-quick-picks-group" },
-        h("span", { className: "graph-filter-label" }, "Communities"),
-        topCommunities.length
-          ? topCommunities.map(cluster =>
-              h("button", {
-                key: cluster.community_id,
-                type: "button",
-                className: `graph-filter-pill ${selectedClusterId === cluster.community_id ? "graph-filter-pill--active" : ""}`,
-                "aria-pressed": selectedClusterId === cluster.community_id,
-                onClick: () => selectCluster(cluster.community_id),
-                title: `${cluster.node_count || 0} nodes · ${cluster.boundary_node_count || 0} boundary nodes`,
-              }, `${cluster.label || cluster.community_id} · ${cluster.node_count || 0}`)
-            )
-          : h("span", { className: "graph-quick-picks-empty muted" }, "No communities yet."),
-      ),
-      h("div", { className: "graph-quick-picks-group" },
-        h("span", { className: "graph-filter-label" }, "File neighborhoods"),
-        fileOptions.length
-          ? fileOptions.slice(0, 6).map(file =>
-              h("button", {
-                key: file.path,
-                type: "button",
-                className: `graph-filter-pill ${selectedFile === file.path ? "graph-filter-pill--active" : ""}`,
-                onClick: () => selectFile(file.path),
-              }, file.path.split("/").slice(-2).join("/"))
-            )
-          : h("span", { className: "graph-quick-picks-empty muted" }, "No file groups yet."),
-      ),
-    ),
     loading ? h("div", { className: "graph-state muted" }, "Loading graph…") : null,
     error ? h("div", { className: "graph-state graph-state--error" }, error) : null,
     h("nav", { className: "graph-breadcrumb", "aria-label": "Graph navigation" },
@@ -1901,27 +3712,35 @@ function GraphPanel({ snapshot }) {
         });
       })(),
     ),
-    graph?.present ? h("div", { className: "graph-shell" },
-      h("svg", { className: "graph-svg", viewBox: `0 0 ${graphWidth} ${graphHeight}`, role: "img", "aria-label": "Graph visualization" },
-        h("defs", null,
-          h("marker", {
-            id: "graph-arrow",
-            markerWidth: 6,
-            markerHeight: 6,
-            refX: 5.5,
-            refY: 3,
-            orient: "auto",
-            markerUnits: "userSpaceOnUse",
-          }, h("path", { d: "M0,0 L0,6 L9,3 z", fill: "currentColor", opacity: 0.58 })),
-        ),
-        visibleCommunityEdges.map((edge, index) => {
+    graph?.present ? h("div", { className: "graph-shell graph-shell--with-tree" },
+      h(GraphTreeNav, {
+        focusNodeId: treeNavFocusNodeId,
+        focusNode: treeNavFocusNode,
+        layer,
+        onSelectNode: selectNode,
+      }),
+      h("div", { className: "graph-canvas-column" },
+      h("div", { className: "graph-svg-wrap" },
+      focusNeighborsLoading && viewMode === "focus" && selectedNodeId
+        ? h("p", { className: "graph-svg-banner muted" }, "Loading focus neighborhood…")
+        : null,
+      viewMode === "focus" && selectedNodeId && focusNeighborhood && !focusNeighborhood.present && !focusNeighborsLoading
+        ? h("p", { className: "graph-svg-banner graph-state--error" }, focusNeighborhood.diagnostic || "Focus neighborhood unavailable.")
+        : null,
+      layoutPending && layoutNodes.length
+        ? h("p", { className: "graph-svg-banner muted" }, "Computing layout…")
+        : null,
+      layoutNodes.length && !layoutPending && layout.size
+        ? h("svg", { className: "graph-svg", viewBox: `0 0 ${graphViewBox.width} ${graphViewBox.height}`, role: "img", "aria-label": "Graph visualization" },
+        h("defs", null, _graphEdgeArrowMarkers()),
+        layoutEdges.map((edge, index) => {
           const source = layout.get(edge.source);
           const target = layout.get(edge.target);
           if (!source || !target) return null;
           const relation = String(edge.relation || "");
           const color = GRAPH_RELATION_COLORS[relation] || "var(--panel-border)";
-          const sourceNode = visibleNodes.find(node => node.id === edge.source) || null;
-          const targetNode = visibleNodes.find(node => node.id === edge.target) || null;
+          const sourceNode = layoutNodes.find(node => node.id === edge.source) || null;
+          const targetNode = layoutNodes.find(node => node.id === edge.target) || null;
           const sourceRadius = sourceNode ? _graphNodeRadius(sourceNode, degreeMap.get(edge.source) || 0) : 10;
           const targetRadius = targetNode ? _graphNodeRadius(targetNode, degreeMap.get(edge.target) || 0) : 10;
           const dx = target.x - source.x;
@@ -1933,45 +3752,75 @@ function GraphPanel({ snapshot }) {
           const y1 = source.y + uy * (sourceRadius + graphEdgeArrowInset);
           const x2 = target.x - ux * (targetRadius + graphEdgeArrowInset + 0.75);
           const y2 = target.y - uy * (targetRadius + graphEdgeArrowInset + 0.75);
-          const edgeFocusNodeId = hoveredNodeId && !selectedNodeId ? hoveredNodeId : selectedNodeId;
-          const edgeFocused = !edgeFocusNodeId || edge.source === edgeFocusNodeId || edge.target === edgeFocusNodeId;
-          const edgeSelected = selectedNodeId && edgeFocused;
-          const edgePreview = hoveredNodeId && !selectedNodeId && edgeFocused;
+          const edgeFocusNodeId = interactionFocusId || treeNavFocusNodeId;
+          const edgeTouchesFocus = edgeFocusNodeId
+            && (edge.source === edgeFocusNodeId || edge.target === edgeFocusNodeId);
+          const edgeInConnectedSubgraph = !interactionFocusId
+            || (connectedNodeIds.has(edge.source) && connectedNodeIds.has(edge.target));
+          const edgeAdjacent = Boolean(edgeTouchesFocus);
+          const edgeHighlightRelationOk = !previewUsesNavRelationsOnly
+            || GRAPH_HOVER_HIGHLIGHT_RELATIONS.has(relation);
+          const edgeFocused = edgeAdjacent && edgeHighlightRelationOk && edgeInConnectedSubgraph;
+          const edgeConnectedToHover = Boolean(previewUsesNavRelationsOnly && edgeAdjacent);
+          const edgeSelected = Boolean(treeNavFocusNodeId && !hoveredNodeId && edgeFocused);
+          const edgePreview = Boolean(hoveredNodeId && edgeFocused);
           const edgeWeight = Math.max(1, Number(edge.weight || edge.count || 1));
+          const edgeVisual = {
+            edgePreview,
+            edgeSelected,
+            edgeFocused,
+            edgeConnectedToHover,
+            previewNodeId: highlightPreviewNodeId,
+          };
+          const lineOpacity = _graphEdgeLineOpacity(edgeVisual);
           return h("line", {
             key: `${edge.source}-${edge.target}-${edge.relation}-${index}`,
             x1,
             y1,
             x2,
             y2,
-            className: `graph-edge${previewNodeId && !edgeFocused ? " graph-edge--dimmed" : ""}${edgeSelected ? " graph-edge--highlighted" : ""}${edgePreview ? " graph-edge--preview" : ""}`,
+            className: `graph-edge${highlightPreviewNodeId && !edgeFocused && !edgeConnectedToHover ? " graph-edge--dimmed" : ""}${edgeSelected ? " graph-edge--highlighted" : ""}${edgePreview ? " graph-edge--preview" : ""}`,
             stroke: color,
             "marker-end": "url(#graph-arrow)",
             style: {
-              opacity: previewNodeId && !edgeFocused ? 0.08 : edgeSelected ? 0.58 : edgePreview ? 0.56 : 0.34,
-              strokeWidth: edgeSelected ? 2.0 : edgePreview ? 1.85 : Math.min(4.0, 1.15 + Math.log2(edgeWeight + 1) * 0.35),
+              color,
+              opacity: lineOpacity,
+              strokeWidth: _graphEdgeStrokeWidth(edgeVisual, edgeWeight),
             },
             onClick: () => selectNode(edge.source),
           });
         }),
-        visibleNodes.map((node, index) => {
+        layoutNodes.map((node, index) => {
           const pos = layout.get(node.id);
           if (!pos) return null;
           const degree = degreeMap.get(node.id) || 0;
           const radius = _graphNodeRadius(node, degree);
           const kind = _graphKindBucket(node.kind);
-          const isSelected = selectedNodeId === node.id;
+          const fillColor = _graphNodeFillColor(node, graphNodeColorContext);
+          const isSelected = treeNavFocusNodeId === node.id
+            || (kind === "community" && selectedCommunityBubbleId === node.id);
           const isHovered = hoveredNodeId === node.id;
-          const isConnected = !previewNodeId || connectedNodeIds.has(node.id);
+          const isConnected = !highlightPreviewNodeId || connectedNodeIds.has(node.id);
+          const hasLayoutEdges = nodesWithLayoutEdges.has(node.id);
+          const isSoloHover = isHovered && !isSelected && !hasLayoutEdges;
           const showLabel = true;
           return h("g", {
             key: node.id,
-            className: `graph-node graph-node--${kind}${isSelected ? " graph-node--selected" : ""}${previewNodeId && !isConnected ? " graph-node--dimmed" : ""}${isHovered && !isSelected ? " graph-node--preview" : ""}`,
-            transform: `translate(${pos.x}, ${pos.y})`,
+            className: `graph-node graph-node--${kind}${isSelected ? " graph-node--selected" : ""}${highlightPreviewNodeId && !isConnected ? " graph-node--dimmed" : ""}${isHovered && !isSelected ? " graph-node--preview" : ""}${isSoloHover ? " graph-node--hover-isolated" : ""}`,
+            transform: `translate(${pos.x}, ${pos.y})${isHovered && !isSelected ? (isSoloHover ? " scale(1.1)" : " scale(1.07)") : ""}`,
             onClick: () => hasCommunityOverview && node.kind === "community" ? selectCluster(node.community_id) : selectNode(node.id),
             onMouseEnter: () => setHoveredNodeId(node.id),
             onMouseLeave: () => setHoveredNodeId(current => current === node.id ? "" : current),
           },
+            isHovered && !isSelected
+              ? h("circle", {
+                className: isSoloHover ? "graph-node-hover-ring graph-node-hover-ring--isolated" : "graph-node-hover-ring",
+                r: isSoloHover ? radius + 6 : radius + 4,
+                fill: "none",
+                stroke: isSoloHover ? "rgba(25, 118, 210, 0.65)" : "rgba(25, 118, 210, 0.45)",
+                strokeWidth: isSoloHover ? 2.5 : 2,
+              })
+              : null,
             node.is_chokepoint
               ? h("circle", { r: radius + 5, fill: "none", stroke: "#e65100", strokeWidth: 2, strokeDasharray: "4 2.5", style: { opacity: 0.8 } })
               : null,
@@ -1982,32 +3831,28 @@ function GraphPanel({ snapshot }) {
               ? h("circle", { r: radius + 4, fill: "none", stroke: "#b00020", strokeWidth: 1.5, strokeDasharray: "3 3", style: { opacity: 0.7 } })
               : null,
             h("circle", {
+              className: "graph-node-core",
               r: radius,
-              fill: GRAPH_KIND_COLORS[kind],
-              stroke: isSelected ? "var(--ink)" : "rgba(255,255,255,0.75)",
-              strokeWidth: isSelected ? 3 : 1.5,
-              style: { opacity: previewNodeId && !isConnected ? 0.26 : isSelected ? 1 : isHovered ? 0.98 : 0.9 },
+              fill: fillColor,
+              stroke: isSelected
+                ? "var(--ink)"
+                : isHovered
+                  ? "rgba(25, 118, 210, 0.85)"
+                  : "rgba(255,255,255,0.75)",
+              strokeWidth: isSelected ? 3 : isHovered ? 2.25 : 1.5,
+              style: { opacity: highlightPreviewNodeId && !isConnected ? 0.26 : isSelected ? 1 : isHovered ? 1 : 0.9 },
             }),
             showLabel
-              ? h("text", { className: "graph-node-label", y: radius + 8, textAnchor: "middle" }, _graphLabel(node))
+              ? _graphRenderNodeLabel(node, radius)
               : null,
           );
         }),
+      )
+        : !layoutPending
+          ? h("p", { className: "graph-svg-empty muted" }, layoutNodes.length ? "Layout unavailable for the current graph." : "No nodes match the current filters.")
+          : null,
       ),
-        h("div", { className: "graph-summary" },
-        h("div", { className: "graph-summary-meta" },
-          h("span", { className: "graph-summary-pill" }, overviewLabel),
-          h("span", { className: "graph-summary-pill" }, edgeLabel),
-          viewMode === "overview" && !selectedClusterId && truncated
-            ? h("span", { className: "graph-summary-pill" }, communityOverview ? "Community overview" : `Showing top ${visibleNodes.length} by connectivity`)
-            : null,
-          selectedCluster
-            ? h("span", { className: "graph-summary-pill" }, `Community: ${selectedCluster.label || selectedCluster.community_id}`)
-            : null,
-          selectedFile ? h("span", { className: "graph-summary-pill" }, `File: ${selectedFile.split("/").slice(-2).join("/")}`) : null,
-        ),
-        selectionCard,
-      ),
+      )
     ) : h("div", { className: "empty-state" }, "Graph data is not available yet."),
   );
 }
@@ -2575,8 +4420,8 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
           }),
           h(ProgressCard, { snapshot, scopeChanges }),
           h(FrameworkFlow, { onSelectProcess: setSelectedFrameworkProcess }),
-          h(GraphPanel, { snapshot }),
           agents.length ? h(Agents, { agents, onSelectAgent: setSelectedAgent }) : null,
+          h(GraphPanel, { snapshot }),
         ),
       ),
 

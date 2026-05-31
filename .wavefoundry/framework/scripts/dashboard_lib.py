@@ -259,6 +259,41 @@ def read_graph_cluster_payload(root: Path, layer: str) -> dict[str, Any]:
     }
 
 
+def _enrich_graph_nodes_for_dashboard(data: dict[str, Any]) -> None:
+    """Attach server-computed degree and community_id for dashboard rendering (12yro)."""
+    nodes = data.get("nodes")
+    edges = data.get("edges")
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        return
+    degree: dict[str, int] = {}
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        src = str(edge.get("source") or "")
+        tgt = str(edge.get("target") or "")
+        if src:
+            degree[src] = degree.get(src, 0) + 1
+        if tgt:
+            degree[tgt] = degree.get(tgt, 0) + 1
+    community_by_node: dict[str, str] = {}
+    clusters = data.get("clusters") if isinstance(data.get("clusters"), dict) else {}
+    for cluster in clusters.get("communities") or []:
+        if not isinstance(cluster, dict):
+            continue
+        community_id = str(cluster.get("community_id") or "").strip()
+        if not community_id:
+            continue
+        for node_id in cluster.get("node_ids") or []:
+            community_by_node[str(node_id)] = community_id
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        node_id = str(node.get("id") or "")
+        node["degree"] = int(degree.get(node_id, 0))
+        if node.get("community_id") is None and node_id in community_by_node:
+            node["community_id"] = community_by_node[node_id]
+
+
 def read_graph_payload(root: Path, layer: str) -> dict[str, Any]:
     path = graph_path(root, layer)
     data = _read_json(path, {})
@@ -278,6 +313,7 @@ def read_graph_payload(root: Path, layer: str) -> dict[str, Any]:
         data["clusters"] = cluster_data
         data["present"] = True
         data["graph_path"] = str(path.relative_to(root)).replace("\\", "/")
+        _enrich_graph_nodes_for_dashboard(data)
         return data
     return {
         "layer": layer,

@@ -1615,10 +1615,6 @@ html[data-theme="dark"] .metric-diff-removed { color: #f87171; }
   display: none;
 }
 
-.graph-filter-group--relation {
-  margin-top: var(--space-2);
-}
-
 .graph-quick-picks {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -1627,14 +1623,24 @@ html[data-theme="dark"] .metric-diff-removed { color: #f87171; }
 }
 
 .graph-quick-picks-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-3);
+  align-items: stretch;
 }
 
 .graph-quick-picks-group .graph-filter-label {
+  grid-column: 1 / -1;
+}
+
+.graph-quick-picks-group .graph-filter-pill,
+.graph-quick-picks-group .graph-quick-picks-empty {
   width: 100%;
+  min-width: 0;
+}
+
+.graph-quick-picks-group .graph-filter-pill {
+  justify-content: flex-start;
 }
 
 .graph-quick-picks-empty {
@@ -1692,15 +1698,190 @@ html[data-theme="dark"] .graph-filter-pill--kind {
   gap: var(--space-3);
 }
 
-.graph-svg {
+.graph-shell--with-tree {
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  align-items: stretch;
+  --graph-band-height: min(85vh, 920px);
+  height: var(--graph-band-height);
+  min-height: 420px;
+}
+
+.graph-canvas-column {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.graph-svg-wrap {
   width: 100%;
-  min-height: 360px;
-  height: auto;
-  border-radius: 0;
-  border: none;
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
   background:
     radial-gradient(circle at 50% 50%, rgba(25, 118, 210, 0.05), rgba(255, 255, 255, 0.0) 48%),
     linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,255,255,0.72));
+}
+
+html[data-theme="dark"] .graph-svg-wrap {
+  background: transparent;
+}
+
+.graph-svg-wrap .graph-svg {
+  display: block;
+  width: 100%;
+  min-height: 420px;
+  height: auto;
+}
+
+.graph-svg-banner,
+.graph-svg-empty {
+  margin: var(--space-3);
+  font-size: 0.88rem;
+}
+
+.graph-webgl-viewport {
+  width: 100%;
+  min-width: 0;
+}
+
+.graph-tree-nav {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-3);
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--panel-bg);
+}
+
+.graph-tree-nav-header {
+  flex-shrink: 0;
+}
+
+.graph-tree-nav-title {
+  margin: 0 0 var(--space-2);
+  font-size: 0.9rem;
+}
+
+.graph-tree-nav-focus {
+  margin: 0 0 var(--space-2);
+  font-size: 0.75rem;
+  word-break: break-all;
+}
+
+.graph-tree-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.graph-tree-nav-focus-title {
+  margin: 0 0 var(--space-1);
+  font-size: 0.95rem;
+}
+
+.graph-tree-nav-focus-meta {
+  margin: 0 0 var(--space-2);
+  font-size: 0.75rem;
+  word-break: break-word;
+}
+
+.graph-tree-nav-badges {
+  margin: 0 0 var(--space-2);
+}
+
+.graph-tree-nav-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.35rem 0.25rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.graph-tree-nav-item:hover,
+.graph-tree-nav-item:focus-visible {
+  background: rgba(25, 118, 210, 0.08);
+}
+
+.graph-tree-nav-item--active {
+  background: rgba(25, 118, 210, 0.14);
+  font-weight: 600;
+}
+
+.graph-tree-nav-meta {
+  margin: var(--space-2) 0 0;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+@media (max-width: 960px) {
+  .graph-shell--with-tree {
+    grid-template-columns: 1fr;
+  }
+}
+
+.graph-webgl-wrap {
+  width: 100%;
+  max-width: 100%;
+  min-height: 420px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(circle at 50% 50%, rgba(25, 118, 210, 0.05), rgba(255, 255, 255, 0.0) 48%),
+    linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,255,255,0.72));
+  position: relative;
+  overflow: hidden;
+}
+
+.graph-webgl-canvas {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  inset: 0;
+}
+
+.graph-webgl-loading {
+  position: absolute;
+  top: var(--space-3);
+  left: var(--space-3);
+  z-index: 1;
+  margin: 0;
+}
+
+html[data-theme="dark"] .graph-webgl-wrap {
+  background: transparent;
+  border-color: var(--border);
+}
+
+.graph-overview-svg-wrap .graph-svg--overview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+}
+
+.graph-svg--overview .graph-node-label {
+  font-size: 12px;
+  fill: var(--ink);
+  pointer-events: none;
+}
+
+.graph-svg--overview .graph-edge--community {
+  fill: none;
 }
 
 html[data-theme="dark"] .graph-svg {
@@ -1714,47 +1895,64 @@ html[data-theme="dark"] .graph-search input {
 }
 
 .graph-edge {
-  stroke-opacity: 0.34;
   stroke-width: 1.15;
   fill: none;
   cursor: pointer;
 }
 
 .graph-edge:hover {
-  stroke-opacity: 0.42;
   stroke-width: 1.5;
 }
 
 .graph-edge--dimmed {
-  stroke-opacity: 0.05;
-}
-
-.graph-edge--highlighted {
-  stroke-opacity: 0.5;
-}
-
-.graph-edge--preview {
-  stroke-opacity: 0.56;
+  /* strokeOpacity set inline */
 }
 
 .graph-node {
   cursor: pointer;
+  transition: transform 0.15s ease;
 }
 
 .graph-node--dimmed {
   opacity: 0.18;
 }
 
-.graph-node--preview circle {
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.14));
+.graph-node-hover-ring {
+  pointer-events: none;
+  opacity: 0;
+  animation: graph-node-hover-ring-in 0.15s ease forwards;
+}
+
+.graph-node-hover-ring--isolated {
+  animation: graph-node-hover-ring-isolated-in 0.18s ease forwards;
+}
+
+@keyframes graph-node-hover-ring-in {
+  from { opacity: 0; stroke-width: 1; }
+  to { opacity: 1; stroke-width: 2; }
+}
+
+@keyframes graph-node-hover-ring-isolated-in {
+  from { opacity: 0; stroke-width: 1.5; }
+  to { opacity: 1; stroke-width: 2.5; }
+}
+
+.graph-node--preview circle.graph-node-core,
+.graph-node--hover-isolated circle.graph-node-core {
+  filter: drop-shadow(0 2px 6px rgba(25, 118, 210, 0.32));
+}
+
+.graph-node--hover-isolated circle.graph-node-core {
+  filter: drop-shadow(0 3px 8px rgba(25, 118, 210, 0.42));
+}
+
+.graph-node--preview .graph-node-label,
+.graph-node--hover-isolated .graph-node-label {
+  fill: var(--ink);
 }
 
 .graph-node circle {
-  transition: transform 0.15s, stroke 0.15s, stroke-width 0.15s, filter 0.15s;
-}
-
-.graph-node:hover circle {
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.15));
+  transition: transform 0.15s, stroke 0.15s, stroke-width 0.15s, filter 0.15s, opacity 0.15s;
 }
 
 .graph-node--selected circle {
@@ -1762,7 +1960,7 @@ html[data-theme="dark"] .graph-search input {
 }
 
 .graph-node-label {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   fill: var(--ink);
   paint-order: stroke;
@@ -1770,6 +1968,10 @@ html[data-theme="dark"] .graph-search input {
   stroke-width: 3px;
   pointer-events: none;
   user-select: none;
+}
+
+.graph-node-label tspan {
+  pointer-events: none;
 }
 
 html[data-theme="dark"] .graph-node-label {
@@ -1871,22 +2073,6 @@ html[data-theme="dark"] .graph-layer-pill--active {
 
 html[data-theme="dark"] .graph-filter-pill--kind {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
-}
-
-html[data-theme="dark"] .graph-edge {
-  stroke-opacity: 0.22;
-}
-
-html[data-theme="dark"] .graph-edge:hover {
-  stroke-opacity: 0.3;
-}
-
-html[data-theme="dark"] .graph-edge--highlighted {
-  stroke-opacity: 0.34;
-}
-
-html[data-theme="dark"] .graph-edge--preview {
-  stroke-opacity: 0.42;
 }
 
 /* ── Agent team section ──────────────────────────────────────────────────── */
@@ -2770,7 +2956,7 @@ html[data-theme="dark"] .diff-line--removed { color: #f87171; background: rgba(2
 html[data-theme="dark"] {
   --page-bg:      #111214;
   --panel-bg:     #151719;
-  --panel-border: #242830;
+  --panel-border: #3a4150;
   --ink:          #e4e2de;
   --muted:        #8a929e;
   --accent:       #40A3E9;

@@ -49,16 +49,36 @@ Before choosing a retrieval strategy, classify the question:
 
 ## Retrieval Loop
 
+### MCP Resources — prefer for ambient context attachment
+
+When attaching seed or architecture doc content as stable context (not retrieving it for a specific query), prefer **MCP resources** over tool calls:
+
+- `wavefoundry://seed/{slug}` — attach a named seed prompt as raw markdown context; use instead of `seed_get(name=…)` when you need the text as ambient reference without a structured envelope.
+- `wavefoundry://architecture/{slug}` — attach an architecture doc (e.g. `graph-index-system`, `search-architecture`) as raw markdown context; use instead of `docs_search` when the doc slug is already known.
+- `wavefoundry://graph/communities` — attach the catalog of code-graph communities (id, label, node count, top members by degree). Read at session start to learn which community ids exist before calling `code_graph_community(community_id=…)` or `wave_graph_report`. Cheap and ambient — no traversal cost.
+
+**Use-case split:**
+- **Resource** — ambient content attachment: you need the raw text as context and no error recovery envelope is required.
+- **Tool** (`seed_get`, `docs_search`, `code_ask`) — structured query: you need `diagnostics`, `next_tools`, or `usage` hints for error handling, fuzzy lookup, or uncertainty recovery.
+
 ### Tool Selection Quick Rules
 
 - Use `code_ask` to **orient** — find likely files, symbols, and citation paths. It is not the final answer.
 - After every `code_ask` for an explanatory or instructional question: treat `answer` as a navigation pointer only; run Pass 3 (`code_outline`, targeted `code_read`, `code_keyword` as needed) and synthesize from validated reads.
 - Use `code_search` when the question is conceptual and the owning file or symbol is not known yet.
 - Use `code_definition` when the symbol is known and the next question is "where is this declared?"
+- **Review-adjacent commentary follows the fix-now-not-later default** (wave `1304x` / `1305d`): when a code-question pass surfaces small issues (missing type hints, broad exceptions, dead code, obvious refactors under ~20 LOC), recommend the fix in-session rather than "file as follow-on." Reserve follow-on routing for findings that exceed ~20 LOC, change a contract, or require a new design decision — and write one line of justification when you do route to follow-on. Silent deferral accumulates technical debt.
 - Use `code_references` when the symbol is known and the next question is "where is this used?"
 - If the first `code_references` pass is noisy, rerun it with `exclude_tests=true`; keep the broad result set when you need complete evidence, then inspect the excluded counts before deciding something is unused.
 - If you need to distinguish declarations from imports and generic mentions, inspect the returned `detail_buckets` / `detail_counts` alongside the broad `buckets`.
+- Use `code_callhierarchy` when the question is "what calls X?" or "what does X call?" and you want exact call-site line numbers and snippets alongside caller/callee structure. Returns direct callers (incoming) and callees (outgoing) at depth 1 with graph-backed attribution. Prefer over `code_references` for structural caller/callee questions; use `code_references` when you need non-call-site hits (mentions, definitions, imports) or when the graph index is absent.
+- Use `code_callgraph` for call-structure traversal beyond one hop (depth > 1), or when raw graph edges with line numbers are more useful than the incoming/outgoing framing. Chain `code_callhierarchy` for targeted depth-1 lookups; use `code_callgraph` for broader trees. Test-path nodes are excluded by default; pass `include_tests=true` when test callers are part of the question (symmetric with `code_impact`).
+- Use `code_impact` when the question is "what would be affected if I change X?" — it returns all upstream callers transitively up to `max_hops`. Run it before modifying a shared symbol to size the blast radius before planning a refactor or API change. Test callers are excluded by default; pass `include_tests=true` to include them.
+- Use `code_graph_community(community_id=…)` to drill into a single community's members (sorted by degree). Get community ids from the `wavefoundry://graph/communities` resource or `wave_graph_report`. When a community id is absent, the response returns a `suggestions` list of close-match communities — use those to recover without a second tool call.
+- Use `code_graph_path(from_symbol=…, to_symbol=…)` to trace the shortest connecting path between two symbols. `direction="forward"` (default) walks outgoing calls/imports — answers "does A reach B?". `direction="backward"` walks incoming edges — answers "who reaches A?". `direction="either"` finds any connection regardless of direction; each `path_edges` entry then carries a `traversal_direction` field so the chain is unambiguous. Pick `either` when you don't know which way the call flows.
+- Use `wave_graph_report` for structural orientation across the whole graph: fan_in (most-called symbols), fan_out/chokepoints (high call-out nodes), orphan_docs (disconnected docs), and cross_layer edges. Run once at the start of a cross-cutting investigation or refactor to identify hotspots before targeting individual symbols.
 - Use `code_keyword` when the operator gives an exact token, import path, or string literal and expects deterministic coverage.
+- `code_keyword`, `code_search`, `code_definition`, and `code_references` return a `graph_neighbors` block by default — 1-hop structural relations for top hits, sourced from the graph index. Pass `graph=false` to suppress when you need a lean response (size-sensitive callers, snapshot tests).
 - Use `code_read` after discovery to validate the actual implementation at the cited lines.
 
 ### Pass 1 — Orientation (all question types)
@@ -90,6 +110,11 @@ Run for specific symbols or file paths identified in earlier passes:
 ```
 code_definition(symbol) # Python AST, tree-sitter-backed JS/TS/Java/C#/Go/Rust/C/C++/Kotlin/Bash/SQL, or structural fallback
 code_references(symbol) # Python plus tree-sitter-backed JS/TS/Java/C#/Go/Rust/C/C++/Kotlin/Bash/SQL, then broader fallback
+code_callhierarchy(symbol, direction="both") # direct callers (incoming) + callees (outgoing) with call-site line numbers and snippets; graph-backed
+code_callgraph(symbol, depth=N, direction="both", include_tests=False) # call tree up to N hops with line numbers; test-path nodes filtered by default
+code_impact(symbol, max_hops=3, include_tests=False) # all upstream callers transitively; test callers filtered by default
+code_graph_community(community_id="project:c98") # drill into a community's members sorted by degree; ids from wavefoundry://graph/communities
+wave_graph_report(sections=["fan_in","chokepoints"]) # structural whole-graph summary; use for orientation and hotspot identification
 code_keyword(query) # exact token match — always available; use queries=[...] for multi-symbol batch
 code_pattern(pattern) # regex match — use when pattern is non-literal (e.g. "def .*handler")
 code_outline(path) # structural symbol map of a file — functions, classes, methods, constants
@@ -391,20 +416,20 @@ Guru is the right first stop for any agent that needs to understand how the syst
 
 | Agent | When to use Guru | Recommended tools |
 |---|---|---|
-| **planner** | Before writing a change doc — understand existing module shape, ownership, and patterns so the plan is grounded | `code_ask`, `code_search(kind="code-summary")`, `code_dependencies(path)` |
-| **implementer** | Before writing code — confirm which file owns a behavior, which patterns are in use, and whether the symbol already exists | `code_definition(symbol)`, `code_references(symbol)`, `code_keyword` |
-| **wave-coordinator** | During scope assessment — answer "what does X currently do?" and "which files are affected?" without full file reads | `code_ask`, `code_search(kind="code-summary")`, `code_dependencies(path)` |
+| **planner** | Before writing a change doc — understand existing module shape, ownership, and patterns so the plan is grounded | `code_ask`, `code_search(kind="code-summary")`, `code_dependencies(path)`, `wave_graph_report(sections=["fan_in","chokepoints"])` |
+| **implementer** | Before writing code — confirm which file owns a behavior, which patterns are in use, and whether the symbol already exists; size the blast radius of the intended change | `code_definition(symbol)`, `code_references(symbol)`, `code_callhierarchy(symbol)`, `code_impact(symbol)`, `code_keyword` |
+| **wave-coordinator** | During scope assessment — answer "what does X currently do?" and "which files are affected?" without full file reads | `code_ask`, `code_search(kind="code-summary")`, `code_dependencies(path)`, `code_impact(symbol)` |
 | **persona agents** | When answering user questions — ground responses in indexed evidence rather than memory | `code_ask`, `code_search`, `docs_search` |
 
 ### Reviewer agents
 
 | Agent | Recommended tools | Purpose |
 |---|---|---|
-| **architect-reviewer** | `code_search(kind="code-summary")`, `code_dependencies(path)`, `code_ask` | Orient to module shape; trace dependency chains; check boundary violations |
-| **code-reviewer** | `code_definition(symbol)`, `code_references(symbol)`, `code_search`, `code_keyword` | Jump to definition; find all call sites; verify pattern compliance |
+| **architect-reviewer** | `code_search(kind="code-summary")`, `code_dependencies(path)`, `code_ask`, `code_impact(symbol)` | Orient to module shape; trace dependency chains; check boundary violations; size blast radius of proposed changes |
+| **code-reviewer** | `code_definition(symbol)`, `code_references(symbol)`, `code_callhierarchy(symbol)`, `code_search`, `code_keyword` | Jump to definition; find all call sites with line numbers; verify pattern compliance |
 | **qa-reviewer** | `code_search(kind="code-summary")`, `code_ask`, `code_keyword` | Confirm test coverage exists for each AC; verify test scope matches implementation scope |
-| **performance-reviewer** | `code_dependencies(path)`, `code_search`, `code_definition` | Build call graph from hot path; find all importers of a slow module |
-| **security-reviewer** | `code_dependencies(path)`, `code_references(symbol)`, `code_keyword` | Map attack surface; find every call site of auth/crypto/io functions |
+| **performance-reviewer** | `code_callgraph(symbol, depth=2)`, `code_impact(symbol)`, `code_dependencies(path)`, `code_search` | Build call tree from hot path; trace all upstream callers; find all importers of a slow module |
+| **security-reviewer** | `code_dependencies(path)`, `code_references(symbol)`, `code_callhierarchy(symbol, direction="incoming")`, `code_keyword` | Map attack surface; find every call site of auth/crypto/io functions with exact line numbers |
 
 **Implementation-time navigation vs. Guru Q&A:** Agents in implementation mode do not need to invoke a Guru Q&A session to use MCP code-navigation tools. `code_definition`, `code_references`, `code_search`, `code_keyword`, and `code_outline` are available directly and must be used at the plan-before-edit step per `seed-180` MCP-first code exploration. Guru Q&A (`code_ask` with full retrieval and synthesis loop) is for understanding questions that span modules or require synthesis; direct tool calls are for implementation-time navigation obligations. Both require the same validation discipline: validate with targeted reads before synthesizing or modifying code.
 

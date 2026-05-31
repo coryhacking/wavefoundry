@@ -254,8 +254,8 @@ class SetupIndexTests(unittest.TestCase):
                     )
 
         popen_mock.assert_called_once()
-        self.assertIn("Index update skipped: another project index build is already running", stderr.getvalue())
-        self.assertIn("rerun update-indexes if you still need a refresh", stderr.getvalue())
+        self.assertIn("Index update skipped:", stderr.getvalue())
+        self.assertIn("lock file busy", stderr.getvalue())
 
     def test_tool_venv_python_default_path(self):
         """Default venv path is ~/.wavefoundry/venv."""

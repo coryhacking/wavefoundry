@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-29
+Last verified: 2026-05-31
 
 Actor: wave-coordinator
 Schema version: 1.0
@@ -87,6 +87,10 @@ wave-id: `12xr1 graph-index-extraction-and-visualization`
 wave-id: `12xr2 graph-query-surface`
 
 wave-id: `12xr3 graph-augmentation-promotion`
+
+wave-id: `1304x graph-mcp-parity-and-dashboard-polish`
+
+wave-id: `1305t dashboard-graph-polish-and-dark-mode-fixes`
 
 wave-id: `12hs9 dashboard-pending-wave-id-wrap`
 

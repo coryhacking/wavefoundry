@@ -639,5 +639,40 @@ class FixedCommunitiesIntegrationTests(unittest.TestCase):
         self.assertNotIn("tests/test_indexer.py::test_build", prod_node_ids)
 
 
+class FixedCommunityClassifierTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load_graph_cluster()
+
+    def test_multi_language_test_detection(self):
+        cases = [
+            ("SolarisMonitor/Tests/HueAuthorizationTests.swift", True),
+            ("scripts/tests/test_chunker.py", True),
+            ("internal/api/handler_test.go", True),
+            ("src/test/java/com/example/UserServiceTest.java", True),
+            ("MyApp.Tests/Controllers/HomeControllerTests.cs", True),
+            ("tests/integration_test.rs", True),
+            ("src/components/Button.test.tsx", True),
+            ("src/__tests__/auth.spec.js", True),
+            ("src/indexer.py", False),
+            ("Tests/Foo.swift", True),
+            ("TEST/bar.py", True),
+            ("Spec/qux.rb", True),
+        ]
+        for path, expected in cases:
+            with self.subTest(path=path):
+                self.assertEqual(self.mod._is_test_source_file(path), expected)
+
+    def test_cross_classifier_title_case_dirs(self):
+        self.assertTrue(self.mod._is_bench_source_file("Benchmarks/embed_bench.swift"))
+        self.assertTrue(self.mod._is_bench_source_file("internal/foo_bench_test.go"))
+        self.assertTrue(self.mod._is_scripts_source_file("Scripts/seed.py"))
+        self.assertTrue(self.mod._is_scripts_source_file("Bin/update-indexes"))
+        self.assertTrue(self.mod._is_generated_source_file("Generated/models.swift"))
+        self.assertTrue(self.mod._is_config_source_file("Config/settings.swift"))
+        self.assertTrue(self.mod._is_cicd_source_file("CI/workflow.yml"))
+        self.assertTrue(self.mod._is_cicd_source_file("Dockerfile"))
+
+
 if __name__ == "__main__":
     unittest.main()

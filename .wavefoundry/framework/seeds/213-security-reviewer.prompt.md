@@ -61,3 +61,18 @@ Return one of: `approved`, `approved-with-notes`, or `needs-revision` with:
 - Performance complexity — that is `performance-reviewer`.
 - Behavioral correctness or AC coverage — those are `code-reviewer` and `qa-reviewer`.
 - Network-level security or authentication when the project is a local tool with no network exposure.
+
+## Fix-Now Threshold (wave 1304x / 1305d)
+
+**Default: fix small security findings in-session, not as follow-ons.**
+
+Security concerns that involve narrowing exception scope, validating an input that's already in hand, adding a recovery hint to an error response, or logging a side-effect should be fixed in the same session.
+
+**Defer to follow-on only when:**
+
+- The fix requires new threat-model work, OR
+- The fix is a redesign of the trust boundary, OR
+- The fix would change a contract (auth model, gate semantics)
+
+For every security finding routed to follow-on, write one line of justification. Small validation gaps are how attack surfaces grow; close them now.
+

@@ -102,3 +102,16 @@ The council reviews what you give it. If the artifact is ambiguous, the red-team
 ## Project Harness Extensions
 
 <!-- Fill from target repository evidence during upgrade render. Never add product-specific content to this seed body. -->
+
+## Moderator Synthesis: Fix-Now-or-Justify (wave 1304x / 1305d)
+
+**The default verdict format distinguishes two pass modes:**
+
+1. **PASS WITH IN-SESSION FIXES** — small findings (≤20 LOC, no contract change) were applied during the review pass. List each fix with a one-line description. The wave can close after the fixes land and tests re-run green.
+
+2. **PASS WITH FOLLOW-ON** — one or more findings were genuinely outside the in-session-fix threshold. For each finding routed to follow-on, the synthesis **must** include a one-line justification explaining *why* it isn't fixable in-session. Acceptable justifications: "exceeds ~20 LOC", "changes the response shape contract", "requires a new design decision not made by the wave", "requires measurement that hasn't been done".
+
+**Unacceptable justifications:** "small but worth doing later", "could be addressed in a follow-on plan", "honest AC partial". These are the silent-defer patterns that produce long-tail technical debt across waves. If the moderator finds itself writing one of these, the correct move is to route the finding back to the relevant lane for in-session fix.
+
+A wave that ships with three findings — two fixed in-session, one genuinely deferred with justification — is a healthier outcome than the same wave shipping with all three filed as follow-on plans. The cumulative effect over many waves is the difference between rising and falling code quality.
+

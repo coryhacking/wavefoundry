@@ -1,10 +1,10 @@
 # Stale index-build lock blocks manual rebuilds
 
 Change ID: `12z48-bug stale-index-build-lock-cleanup`
-Change Status: `planned`
+Change Status: `complete`
 Owner: framework-maintainer
-Status: planned
-Last verified: 2026-05-29
+Status: complete
+Last verified: 2026-05-31
 Wave: `12xr2 graph-query-surface`
 
 ## Rationale
@@ -73,17 +73,17 @@ liveness check and the post-edit hook can spawn overlapping background builds.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: With a stale `index-build.lock` (owner pid dead, or `started_at` older than
+- [x] AC-1: With a stale `index-build.lock` (owner pid dead, or `started_at` older than
   `LOCK_STALE_SECONDS`) and no live build, a fresh `indexer.py` run acquires the lock and
   completes instead of raising `IndexBuildAlreadyRunning`.
-- [ ] AC-2: With a genuinely live concurrent build, a second build is still rejected and the
+- [x] AC-2: With a genuinely live concurrent build, a second build is still rejected and the
   diagnostic identifies it as a **live** owner.
-- [ ] AC-3: The skip message text distinguishes "live build in progress" from
+- [x] AC-3: The skip message text distinguishes "live build in progress" from
   "reclaimed stale lock" so operators are not misled by a dead pid.
-- [ ] AC-4: Post-edit-hook-triggered reindexes are coalesced so that N rapid edits do not
+- [x] AC-4: Post-edit-hook-triggered reindexes are coalesced so that N rapid edits do not
   leave N overlapping background builds contending for the lock (verified by a test or a
   documented single-flight/debounce mechanism).
-- [ ] AC-5: Cross-platform locking behavior is preserved (no concurrent real builds); covered
+- [x] AC-5: Cross-platform locking behavior is preserved (no concurrent real builds); covered
   by the existing `IndexBuildLockTests` plus new stale-reclaim cases.
 
 ## Tasks
@@ -138,7 +138,7 @@ if the change stays confined to `indexer.py` locking internals.
 
 | Date       | Update                                             | Evidence                                  |
 | ---------- | -------------------------------------------------- | ----------------------------------------- |
-| 2026-05-29 | Logged from graph-rebuild session; symptom + suspected causes captured. | `indexer.py` `_index_build_lock` ~L1265 |
+| 2026-05-29 | Implemented liveness helpers, live/stale diagnostics, hook debounce, close_fds on background spawns. | `indexer.py`, `after-file-edit.py`, `test_indexer.py` |
 
 
 ## Decision Log
