@@ -237,6 +237,8 @@ Execution flow:
  - Rename `## Follow-up Signals` to `## Active Watchpoints` in all journal files where the old section name is present; preserve all content under the renamed header.
  - Run the docs gate after reconciliation (**MCP:** **`wave_garden`** then **`wave_validate`** when attached; otherwise **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`**).
 
+**Graph extractor regression signal (framework-maintainer QA):** When a pack upgrade changes the graph extractor for any language, compare `code_callhierarchy.external_outgoing_count` / `external_incoming_count` on a representative project-internal symbol before and after the upgrade. A large drop (e.g. Solaris's `47 → 3` after wave `130qf` shipped the Swift positional-callee fallback) is diagnostic of the extractor fix landing — calls that were resolving to `external::*` now resolve to project nodes. A large increase suggests a regression in cross-file resolution. This is a maintainer-side QA signal across pack versions, not an in-session agent decision input.
+
 Upgrade execution contract:
 
 - Treat **`seed-150`** (and, when applicable, **`seed-220`**) as the authoritative refresh instructions for each artifact class; **`160`** orchestrates sequencing and validation.

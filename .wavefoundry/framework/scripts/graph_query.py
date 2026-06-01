@@ -118,6 +118,162 @@ def load_union(root: Path) -> dict[str, Any]:
     }
 
 
+def collapse_generated_view(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a payload where each generated file is collapsed to one file-node (wave 130rj — 130su).
+
+    Aggregation rules:
+    - Each generated source file gets ONE representative node (id == source_file).
+      If a module-level node already exists for that file (id matching source_file),
+      it is repurposed; otherwise a synthetic file-node is created.
+    - All non-module nodes carrying ``generated: true`` are dropped.
+    - Edges where BOTH endpoints belong to the same generated file are dropped.
+    - Edges where ONE endpoint is inside a generated file have that endpoint
+      rewritten to the file-node id (the source_file path).
+    - Edges where both endpoints are in DIFFERENT generated files have both
+      rewritten. Duplicate rewritten edges (same src/tgt/relation/confidence)
+      are deduplicated.
+    - Edge metadata that referenced specific lines/snippets inside the
+      collapsed file (``line``/``snippet`` fields on outgoing edges) is dropped
+      because the internal symbol it pointed at is no longer present.
+
+    Non-generated nodes and edges between non-generated endpoints are passed
+    through unchanged.
+
+    The collapsed file-node carries:
+    - ``id``: source_file path (e.g. ``src/ELParser.java``)
+    - ``label``: file basename
+    - ``kind``: ``"module"``
+    - ``source_file``: source_file
+    - ``source_location``: ``"1:0"``
+    - ``generated``: ``True``
+    - ``collapsed_node_count``: count of non-module nodes that were rolled up
+    """
+    nodes_in = list(payload.get("nodes") or [])
+    edges_in = list(payload.get("edges") or [])
+
+    # Group generated symbol-nodes by source_file. Module-level generated nodes
+    # (id == source_file) are tracked separately so we can repurpose them as the
+    # file-node rather than creating a duplicate.
+    generated_symbol_ids_by_file: dict[str, set[str]] = {}
+    generated_module_node_by_file: dict[str, dict[str, Any]] = {}
+    for node in nodes_in:
+        if not isinstance(node, dict):
+            continue
+        if not node.get("generated"):
+            continue
+        src_file = str(node.get("source_file") or "")
+        nid = str(node.get("id") or "")
+        if not src_file or not nid:
+            continue
+        if nid == src_file:
+            # Module-level node for the generated file — keep as file-node base.
+            generated_module_node_by_file[src_file] = node
+        else:
+            generated_symbol_ids_by_file.setdefault(src_file, set()).add(nid)
+
+    # Collapsed-out node ids that should disappear from the result.
+    collapsed_node_ids: set[str] = set()
+    for sym_ids in generated_symbol_ids_by_file.values():
+        collapsed_node_ids |= sym_ids
+
+    # Build replacement file-nodes (id == source_file). If an existing module
+    # node was already there, repurpose it; otherwise synthesize a fresh one.
+    file_nodes: dict[str, dict[str, Any]] = {}
+    all_generated_files: set[str] = set(generated_symbol_ids_by_file.keys()) | set(generated_module_node_by_file.keys())
+    for src_file in all_generated_files:
+        symbol_count = len(generated_symbol_ids_by_file.get(src_file, set()))
+        existing = generated_module_node_by_file.get(src_file)
+        if existing is not None:
+            file_node = dict(existing)
+        else:
+            label = src_file.rsplit("/", 1)[-1]
+            file_node = {
+                "id": src_file,
+                "label": label,
+                "kind": "module",
+                "source_file": src_file,
+                "source_location": "1:0",
+            }
+            # Inherit layer if present on any of the collapsed nodes.
+            for node in nodes_in:
+                if (
+                    isinstance(node, dict)
+                    and node.get("source_file") == src_file
+                    and node.get("layer")
+                ):
+                    file_node["layer"] = node["layer"]
+                    break
+        file_node["generated"] = True
+        file_node["collapsed_node_count"] = symbol_count
+        file_nodes[src_file] = file_node
+
+    # Build the output node list: keep non-collapsed nodes; replace module
+    # generated nodes with the file-node; drop generated symbol nodes.
+    out_nodes: list[dict[str, Any]] = []
+    for node in nodes_in:
+        if not isinstance(node, dict):
+            continue
+        nid = str(node.get("id") or "")
+        if nid in collapsed_node_ids:
+            continue  # generated symbol node — dropped
+        if nid in generated_module_node_by_file:
+            continue  # will be re-added from file_nodes below
+        out_nodes.append(node)
+    for file_node in file_nodes.values():
+        out_nodes.append(file_node)
+
+    def _rewrite_endpoint(node_id: str) -> str:
+        """Map a node id to its post-collapse equivalent."""
+        if node_id in collapsed_node_ids:
+            # Symbol node inside a generated file → rewrite to file-node id (source_file).
+            # Find the source_file via the original nodes list.
+            for node in nodes_in:
+                if isinstance(node, dict) and node.get("id") == node_id:
+                    return str(node.get("source_file") or node_id)
+            return node_id
+        return node_id
+
+    # Edge processing:
+    # - Drop edges where both endpoints map to the same file-node (internal).
+    # - Rewrite endpoints; dedupe by (src, tgt, relation, confidence).
+    # - Drop line/snippet on edges where an endpoint was rewritten (the line
+    #   pointed at an internal symbol that no longer exists).
+    seen_edge_keys: set[tuple[str, str, str, str]] = set()
+    out_edges: list[dict[str, Any]] = []
+    for edge in edges_in:
+        if not isinstance(edge, dict):
+            continue
+        src = str(edge.get("source") or "")
+        tgt = str(edge.get("target") or "")
+        if not src or not tgt:
+            continue
+        new_src = _rewrite_endpoint(src)
+        new_tgt = _rewrite_endpoint(tgt)
+        # If both endpoints belong to the same collapsed file, drop the edge.
+        if new_src == new_tgt and new_src in file_nodes:
+            continue
+        rewritten = new_src != src or new_tgt != tgt
+        relation = str(edge.get("relation") or "")
+        confidence = str(edge.get("confidence") or "")
+        key = (new_src, new_tgt, relation, confidence)
+        if key in seen_edge_keys:
+            continue
+        seen_edge_keys.add(key)
+        new_edge = dict(edge)
+        new_edge["source"] = new_src
+        new_edge["target"] = new_tgt
+        if rewritten:
+            new_edge.pop("line", None)
+            new_edge.pop("snippet", None)
+        out_edges.append(new_edge)
+
+    # Build the output payload, preserving layer/present markers.
+    out_payload = dict(payload)
+    out_payload["nodes"] = out_nodes
+    out_payload["edges"] = out_edges
+    return out_payload
+
+
 class GraphQueryIndex:
     """In-memory adjacency index over a loaded graph payload."""
 
@@ -365,16 +521,43 @@ class GraphQueryIndex:
         if node_id is None:
             return {"symbol": symbol, "resolved": False, "affected": [], "edges": []}
         rels = tuple(relations) if relations is not None else _DEFAULT_IMPACT_RELATIONS
-        visited, traversed, has_cycles = self.traverse(
-            node_id,
-            relations=rels,
-            max_hops=max_hops,
-            direction="callers",
-        )
-        visited.discard(node_id)
+        # Per-node hop distance (wave 130rj — Aceiss field feedback §2.4):
+        # the existing traverse() doesn't expose per-node depth, so do our
+        # own BFS to record the minimum hop count to each visited node.
+        # Edges are deduplicated by (source, target, relation) for parity
+        # with traverse().
+        rel_set = set(rels)
+        node_depth: dict[str, int] = {node_id: 0}
+        traversed: list[dict[str, Any]] = []
+        seen_edges: set[tuple[str, str, str]] = set()
+        has_cycles = False
+        queue: deque[tuple[str, int]] = deque([(node_id, 0)])
+        while queue:
+            current, depth = queue.popleft()
+            if depth >= max_hops:
+                continue
+            for edge in self._in.get(current, []):
+                rel = edge.get("relation")
+                if rel not in rel_set:
+                    continue
+                src = edge.get("source")
+                if not isinstance(src, str):
+                    continue
+                edge_key = (str(edge.get("source", "")), str(edge.get("target", "")), str(rel))
+                if edge_key in seen_edges:
+                    continue
+                seen_edges.add(edge_key)
+                if src in node_depth:
+                    has_cycles = True
+                else:
+                    node_depth[src] = depth + 1
+                    queue.append((src, depth + 1))
+                traversed.append(edge)
         affected: list[dict[str, Any]] = []
         seen_files: set[str] = set()
-        for nid in sorted(visited):
+        for nid in sorted(node_depth):
+            if nid == node_id:
+                continue
             node = self._node_by_id.get(nid, {})
             source_file = node.get("source_file") or (nid.split("::")[0] if "::" in nid else nid)
             entry = {
@@ -382,6 +565,7 @@ class GraphQueryIndex:
                 "label": node.get("label", nid),
                 "kind": node.get("kind"),
                 "source_file": source_file,
+                "hop": node_depth[nid],
             }
             affected.append(entry)
             if isinstance(source_file, str):

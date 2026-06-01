@@ -10239,6 +10239,1757 @@ class TestCodeGraphCommunity(unittest.TestCase):
         # First suggestion should be the largest (only valid) community
         self.assertEqual(suggestions[0]["community_id"], "project:c1")
 
+    # ---- Wave 130rj AC-4: pagination (limit/offset, total_node_count, has_more) ----
+
+    def _seed_paginated_community(self, member_count=120):
+        """Rebuild graph + cluster with N synthetic members so pagination is observable."""
+        import json
+        nodes = [
+            {"id": f"src/m.py::node_{i}", "label": f"node_{i}", "kind": "function", "source_file": "src/m.py"}
+            for i in range(member_count)
+        ]
+        graph = {
+            "schema_version": "1", "builder_version": "1", "layer": "project",
+            "nodes": nodes, "edges": [],
+            "counts": {"files": 1, "nodes": member_count, "edges": 0},
+        }
+        cluster = {
+            "cluster_algorithm": "leiden",
+            "cluster_builder_version": "1",
+            "cluster_schema_version": "1",
+            "communities": [
+                {
+                    "community_id": "project:big",
+                    "label": "Bigly",
+                    "node_count": member_count,
+                    "node_ids": [n["id"] for n in nodes],
+                }
+            ],
+            "community_count": 1,
+        }
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        (graph_dir / "project-graph-clusters.json").write_text(json.dumps(cluster), encoding="utf-8")
+
+    def test_pagination_default_limit_returns_first_50(self):
+        self._seed_paginated_community(120)
+        result = self.srv.code_graph_community_response(self.root, "project:big")
+        self.assertEqual(result["status"], "ok")
+        data = result["data"]
+        self.assertEqual(data["total_node_count"], 120)
+        self.assertEqual(data["returned_count"], 50)
+        self.assertEqual(data["offset"], 0)
+        self.assertTrue(data["has_more"])
+        self.assertEqual(len(data["nodes"]), 50)
+        # Back-compat alias: node_count equals returned_count.
+        self.assertEqual(data["node_count"], 50)
+
+    def test_pagination_with_offset(self):
+        self._seed_paginated_community(120)
+        result = self.srv.code_graph_community_response(self.root, "project:big", limit=20, offset=100)
+        data = result["data"]
+        self.assertEqual(data["total_node_count"], 120)
+        self.assertEqual(data["returned_count"], 20)
+        self.assertEqual(data["offset"], 100)
+        self.assertFalse(data["has_more"])
+
+    def test_pagination_limit_clamps_to_max(self):
+        self._seed_paginated_community(120)
+        result = self.srv.code_graph_community_response(self.root, "project:big", limit=99999)
+        data = result["data"]
+        # Limit clamped to 500 by the helper; with 120 members we return all 120.
+        self.assertEqual(data["returned_count"], 120)
+        self.assertFalse(data["has_more"])
+
+    def test_pagination_negative_offset_clamps_to_zero(self):
+        self._seed_paginated_community(60)
+        result = self.srv.code_graph_community_response(self.root, "project:big", offset=-5)
+        data = result["data"]
+        self.assertEqual(data["offset"], 0)
+
+
+class TestGraphToolShapeConsistency(unittest.TestCase):
+    """130rj AC-1/AC-2/AC-3/AC-5/AC-6: community_id dual return + hop attribution + community overview."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        # Three-node call chain: caller_a → mid → leaf. Two communities (c1, c2).
+        (self.root / "src" / "lib.py").parent.mkdir(parents=True, exist_ok=True)
+        (self.root / "src" / "lib.py").write_text(
+            "def leaf(): pass\ndef mid(): leaf()\ndef caller_a(): mid()\n",
+            encoding="utf-8",
+        )
+        graph = {
+            "schema_version": "1", "builder_version": "1", "layer": "project",
+            "nodes": [
+                {"id": "src/lib.py::leaf", "label": "leaf", "kind": "function", "source_file": "src/lib.py", "source_location": "1:0"},
+                {"id": "src/lib.py::mid", "label": "mid", "kind": "function", "source_file": "src/lib.py", "source_location": "2:0"},
+                {"id": "src/lib.py::caller_a", "label": "caller_a", "kind": "function", "source_file": "src/lib.py", "source_location": "3:0"},
+            ],
+            "edges": [
+                {"source": "src/lib.py::mid", "target": "src/lib.py::leaf", "relation": "calls"},
+                {"source": "src/lib.py::caller_a", "target": "src/lib.py::mid", "relation": "calls"},
+            ],
+            "counts": {"files": 1, "nodes": 3, "edges": 2},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        cluster = {
+            "cluster_algorithm": "leiden",
+            "cluster_builder_version": "1",
+            "cluster_schema_version": "1",
+            "communities": [
+                {"community_id": "project:c1", "label": "LibCore", "node_count": 2, "node_ids": ["src/lib.py::leaf", "src/lib.py::mid"]},
+                {"community_id": "project:c2", "label": "Caller", "node_count": 1, "node_ids": ["src/lib.py::caller_a"]},
+            ],
+            "community_count": 2,
+        }
+        (graph_dir / "project-graph-clusters.json").write_text(json.dumps(cluster), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    # AC-2: code_callhierarchy outgoing + incoming carry community_id alongside community label.
+    def test_callhierarchy_outgoing_has_community_id(self):
+        result = self.srv.code_callhierarchy_response(self.root, "mid", None, "outgoing")
+        self.assertEqual(result["status"], "ok")
+        outgoing = result["data"]["outgoing"]
+        self.assertTrue(outgoing)
+        for entry in outgoing:
+            self.assertIn("community", entry)
+            self.assertIn("community_id", entry)
+        # leaf is in c1
+        leaf_entry = next(e for e in outgoing if e.get("name") == "leaf")
+        self.assertEqual(leaf_entry["community"], "LibCore")
+        self.assertEqual(leaf_entry["community_id"], "project:c1")
+
+    def test_callhierarchy_incoming_has_community_id(self):
+        result = self.srv.code_callhierarchy_response(self.root, "mid", None, "incoming")
+        incoming = result["data"]["incoming"]
+        self.assertTrue(incoming)
+        caller_a_entry = next(e for e in incoming if e.get("name") == "caller_a")
+        self.assertEqual(caller_a_entry["community_id"], "project:c2")
+
+    # AC-3 / AC-5: code_impact affected entries carry community_id AND hop attribution.
+    def test_impact_affected_has_community_id_and_hop(self):
+        result = self.srv.code_impact_response(self.root, "", symbol="leaf", max_hops=3)
+        self.assertEqual(result["status"], "ok")
+        affected = result["data"]["affected"]
+        self.assertTrue(affected)
+        for entry in affected:
+            self.assertIn("community", entry)
+            self.assertIn("community_id", entry)
+            self.assertIn("hop", entry)
+        # mid is a direct caller (hop 1); caller_a is hop 2.
+        mid_entry = next(e for e in affected if e.get("label") == "mid")
+        caller_entry = next(e for e in affected if e.get("label") == "caller_a")
+        self.assertEqual(mid_entry["hop"], 1)
+        self.assertEqual(caller_entry["hop"], 2)
+
+    # AC-6: wave_graph_report carries a communities section with community_id/label/node_count/hub_*.
+    def test_wave_graph_report_includes_communities_section(self):
+        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=10)
+        self.assertEqual(result["status"], "ok")
+        report = result["data"]
+        self.assertIn("communities", report)
+        communities = report["communities"]
+        self.assertTrue(communities)
+        # First community sorted by node_count desc — LibCore (2 nodes) before Caller (1 node).
+        first = communities[0]
+        self.assertIn("community_id", first)
+        self.assertIn("label", first)
+        self.assertIn("node_count", first)
+        self.assertIn("hub_node_id", first)
+        self.assertIn("hub_label", first)
+        self.assertEqual(first["community_id"], "project:c1")
+        self.assertEqual(first["label"], "LibCore")
+        self.assertEqual(first["node_count"], 2)
+
+
+class TestGeneratedCodeFilter(unittest.TestCase):
+    """130rj-enh generated-code-classifier-and-filters: server-tool filter + warning behavior."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        # Three handwritten nodes + three generated nodes (simulating ELParser-style).
+        nodes = [
+            {"id": "src/handwritten.py::foo", "label": "foo", "kind": "function", "source_file": "src/handwritten.py", "source_location": "1:0"},
+            {"id": "src/handwritten.py::bar", "label": "bar", "kind": "function", "source_file": "src/handwritten.py", "source_location": "5:0"},
+            {"id": "src/handwritten.py::baz", "label": "baz", "kind": "function", "source_file": "src/handwritten.py", "source_location": "10:0"},
+            {"id": "src/ELParser.java::Statement", "label": "Statement", "kind": "function", "source_file": "src/ELParser.java", "source_location": "100:0", "generated": True},
+            {"id": "src/ELParser.java::jj_scan_token", "label": "jj_scan_token", "kind": "function", "source_file": "src/ELParser.java", "source_location": "200:0", "generated": True},
+            {"id": "src/ELParser.java::jj_3R_96", "label": "jj_3R_96", "kind": "function", "source_file": "src/ELParser.java", "source_location": "300:0", "generated": True},
+        ]
+        graph = {
+            "schema_version": "1", "builder_version": "11", "layer": "project",
+            "nodes": nodes,
+            "edges": [
+                {"source": "src/handwritten.py::foo", "target": "src/ELParser.java::Statement", "relation": "calls"},
+                {"source": "src/handwritten.py::bar", "target": "src/ELParser.java::Statement", "relation": "calls"},
+                {"source": "src/ELParser.java::Statement", "target": "src/ELParser.java::jj_scan_token", "relation": "calls"},
+                {"source": "src/ELParser.java::Statement", "target": "src/ELParser.java::jj_3R_96", "relation": "calls"},
+                {"source": "src/ELParser.java::jj_3R_96", "target": "src/ELParser.java::jj_scan_token", "relation": "calls"},
+            ],
+            "counts": {"files": 2, "nodes": 6, "edges": 5},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        cluster = {
+            "cluster_algorithm": "leiden",
+            "cluster_builder_version": "1",
+            "cluster_schema_version": "1",
+            "communities": [
+                {
+                    "community_id": "project:c1",
+                    "label": "Handwritten",
+                    "node_count": 3,
+                    "node_ids": ["src/handwritten.py::foo", "src/handwritten.py::bar", "src/handwritten.py::baz"],
+                    "generated_node_fraction": 0.0,
+                },
+                {
+                    "community_id": "project:c2",
+                    "label": "ELParser",
+                    "node_count": 3,
+                    "node_ids": ["src/ELParser.java::Statement", "src/ELParser.java::jj_scan_token", "src/ELParser.java::jj_3R_96"],
+                    "generated_node_fraction": 1.0,
+                },
+            ],
+            "community_count": 2,
+        }
+        (graph_dir / "project-graph-clusters.json").write_text(json.dumps(cluster), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    # AC-6: generated_node_fraction surfaces from cluster artifact in code_graph_community.
+    def test_code_graph_community_exposes_generated_fraction(self):
+        result = self.srv.code_graph_community_response(self.root, "project:c2")
+        self.assertEqual(result["status"], "ok")
+        data = result["data"]
+        self.assertEqual(data["generated_node_fraction"], 1.0)
+        self.assertEqual(data["total_node_count"], 3)
+
+    # AC-7: exclude_generated filters generated members from code_graph_community.
+    def test_code_graph_community_exclude_generated_filters_members(self):
+        result = self.srv.code_graph_community_response(self.root, "project:c2", exclude_generated=True)
+        data = result["data"]
+        # All 3 members are generated → exclude filters them all out.
+        self.assertEqual(data["returned_count"], 0)
+        # total_node_count remains 3 (pre-filter total).
+        self.assertEqual(data["total_node_count"], 3)
+        self.assertTrue(data["exclude_generated"])
+
+    # AC-9: communities entries with generated_node_fraction > 0.4 carry community_type: "generated-dominated".
+    def test_wave_graph_report_communities_flag_generated_dominated(self):
+        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=10)
+        report = result["data"]
+        communities = report["communities"]
+        elp = next((c for c in communities if c["community_id"] == "project:c2"), None)
+        self.assertIsNotNone(elp)
+        self.assertEqual(elp["generated_node_fraction"], 1.0)
+        self.assertEqual(elp.get("community_type"), "generated-dominated")
+        # Handwritten community (fraction 0.0) should NOT carry the flag.
+        hw = next((c for c in communities if c["community_id"] == "project:c1"), None)
+        self.assertIsNotNone(hw)
+        self.assertEqual(hw["generated_node_fraction"], 0.0)
+        self.assertNotIn("community_type", hw)
+
+    # AC-8: exclude_generated removes generated nodes from fan_in/fan_out/chokepoints.
+    def test_wave_graph_report_exclude_generated_filters_fan_sections(self):
+        result_off = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        result_on = self.srv.wave_graph_report_response(self.root, layer="project", limit=20, exclude_generated=True)
+        fan_in_off = {r["node_id"] for r in result_off["data"].get("fan_in", [])}
+        fan_in_on = {r["node_id"] for r in result_on["data"].get("fan_in", [])}
+        # Off: includes generated nodes (jj_scan_token is the most-called target in our fixture).
+        self.assertIn("src/ELParser.java::jj_scan_token", fan_in_off)
+        # On: generated nodes filtered out of fan_in.
+        self.assertNotIn("src/ELParser.java::jj_scan_token", fan_in_on)
+        self.assertNotIn("src/ELParser.java::jj_3R_96", fan_in_on)
+        self.assertTrue(result_on["data"]["exclude_generated"])
+
+    # AC-8: exclude_generated also filters communities-section generated-dominated entries.
+    def test_wave_graph_report_exclude_generated_filters_communities(self):
+        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=10, exclude_generated=True)
+        communities = result["data"]["communities"]
+        # Handwritten survives; ELParser (generated-dominated) is filtered.
+        cids = {c["community_id"] for c in communities}
+        self.assertIn("project:c1", cids)
+        self.assertNotIn("project:c2", cids)
+
+
+class TestNameCollisionCount(unittest.TestCase):
+    """130tw-enh fan-in-name-collision-hint-and-seed-note: name_collision_count on report entries."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        # Three distinct nodes share the simple name "process"; one unique node "unique_helper".
+        # Multiple callers fan into "process" via the shared simple name to surface in fan_in.
+        nodes = [
+            {"id": "src/a.py::Alpha.process", "label": "Alpha.process", "kind": "function", "source_file": "src/a.py", "source_location": "1:0"},
+            {"id": "src/b.py::Beta.process", "label": "Beta.process", "kind": "function", "source_file": "src/b.py", "source_location": "1:0"},
+            {"id": "src/c.py::Gamma.process", "label": "Gamma.process", "kind": "function", "source_file": "src/c.py", "source_location": "1:0"},
+            {"id": "src/d.py::unique_helper", "label": "unique_helper", "kind": "function", "source_file": "src/d.py", "source_location": "1:0"},
+            {"id": "src/caller1.py::call_a", "label": "call_a", "kind": "function", "source_file": "src/caller1.py", "source_location": "1:0"},
+            {"id": "src/caller2.py::call_b", "label": "call_b", "kind": "function", "source_file": "src/caller2.py", "source_location": "1:0"},
+        ]
+        graph = {
+            "schema_version": "1", "builder_version": "12", "layer": "project",
+            "nodes": nodes,
+            "edges": [
+                {"source": "src/caller1.py::call_a", "target": "src/a.py::Alpha.process", "relation": "calls"},
+                {"source": "src/caller2.py::call_b", "target": "src/a.py::Alpha.process", "relation": "calls"},
+                {"source": "src/caller1.py::call_a", "target": "src/d.py::unique_helper", "relation": "calls"},
+            ],
+            "counts": {"files": 6, "nodes": 6, "edges": 3},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    # AC-2/AC-3: collision entry carries name_collision_count > 1 reflecting node count.
+    def test_fan_in_collision_entry_carries_count(self):
+        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        fan_in = result["data"]["fan_in"]
+        alpha_entry = next((r for r in fan_in if r["node_id"] == "src/a.py::Alpha.process"), None)
+        self.assertIsNotNone(alpha_entry)
+        # Three nodes share simple name "process".
+        self.assertEqual(alpha_entry["name_collision_count"], 3)
+
+    # AC-2/AC-3: unique-name entry carries name_collision_count == 1.
+    def test_fan_in_unique_entry_carries_count_one(self):
+        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        fan_in = result["data"]["fan_in"]
+        unique_entry = next((r for r in fan_in if r["node_id"] == "src/d.py::unique_helper"), None)
+        self.assertIsNotNone(unique_entry)
+        self.assertEqual(unique_entry["name_collision_count"], 1)
+
+    # AC-2: field present on fan_out entries too.
+    def test_fan_out_entries_carry_collision_count(self):
+        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        fan_out = result["data"].get("fan_out", [])
+        for row in fan_out:
+            self.assertIn("name_collision_count", row)
+            self.assertIsInstance(row["name_collision_count"], int)
+            self.assertGreaterEqual(row["name_collision_count"], 1)
+
+
+class TestExcludeExternalFilter(unittest.TestCase):
+    """130tw-enh exclude-external-from-graph-report: filter external::* from rankings."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        nodes = [
+            {"id": "src/worker.py::process", "label": "process", "kind": "function", "source_file": "src/worker.py", "source_location": "1:0"},
+            {"id": "src/helper.py::format", "label": "format", "kind": "function", "source_file": "src/helper.py", "source_location": "1:0"},
+            {"id": "src/caller.py::main", "label": "main", "kind": "function", "source_file": "src/caller.py", "source_location": "1:0"},
+            {"id": "external::stdlib_get", "label": "stdlib_get", "kind": "function", "source_file": "external"},
+            {"id": "external::stdlib_set", "label": "stdlib_set", "kind": "function", "source_file": "external"},
+        ]
+        edges = [
+            # Heavy external fan-in to push externals to the top of fan_in rankings.
+            {"source": "src/caller.py::main", "target": "external::stdlib_get", "relation": "calls"},
+            {"source": "src/worker.py::process", "target": "external::stdlib_get", "relation": "calls"},
+            {"source": "src/helper.py::format", "target": "external::stdlib_get", "relation": "calls"},
+            {"source": "src/caller.py::main", "target": "external::stdlib_set", "relation": "calls"},
+            {"source": "src/worker.py::process", "target": "external::stdlib_set", "relation": "calls"},
+            # One project-internal call.
+            {"source": "src/caller.py::main", "target": "src/worker.py::process", "relation": "calls"},
+            {"source": "src/worker.py::process", "target": "src/helper.py::format", "relation": "calls"},
+        ]
+        graph = {
+            "schema_version": "1", "builder_version": "12", "layer": "project",
+            "nodes": nodes, "edges": edges,
+            "counts": {"files": 3, "nodes": 5, "edges": 7},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    # AC-1: default preserves externals (backward compat).
+    def test_default_off_preserves_externals(self):
+        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        report = result["data"]
+        fan_in_ids = {r["node_id"] for r in report["fan_in"]}
+        self.assertIn("external::stdlib_get", fan_in_ids)
+        self.assertFalse(report["exclude_external"])
+
+    # AC-1: exclude_external=True removes external entries from fan_in.
+    def test_exclude_external_filters_fan_in(self):
+        result = self.srv.wave_graph_report_response(
+            self.root, layer="project", limit=20, exclude_external=True
+        )
+        report = result["data"]
+        fan_in_ids = {r["node_id"] for r in report["fan_in"]}
+        self.assertNotIn("external::stdlib_get", fan_in_ids)
+        self.assertNotIn("external::stdlib_set", fan_in_ids)
+        # Project-internal entries survive.
+        self.assertIn("src/worker.py::process", fan_in_ids)
+
+    # AC-3: response echoes the flag.
+    def test_exclude_external_flag_echoed(self):
+        result = self.srv.wave_graph_report_response(
+            self.root, layer="project", limit=20, exclude_external=True
+        )
+        self.assertTrue(result["data"]["exclude_external"])
+
+    # AC-4: combined with exclude_generated returns project-internal non-generated rankings.
+    def test_exclude_external_combined_with_exclude_generated(self):
+        result = self.srv.wave_graph_report_response(
+            self.root, layer="project", limit=20,
+            exclude_external=True, exclude_generated=True,
+        )
+        report = result["data"]
+        fan_in_ids = {r["node_id"] for r in report["fan_in"]}
+        for nid in fan_in_ids:
+            self.assertFalse(nid.startswith("external::"))
+
+
+class TestBetweennessComputedField(unittest.TestCase):
+    """130tw-enh betweenness-computed-field: distinguish empty from skipped betweenness."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_graph(self, nodes, edges):
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        graph = {
+            "schema_version": "1", "builder_version": "12", "layer": "project",
+            "nodes": nodes, "edges": edges,
+            "counts": {"files": len(nodes), "nodes": len(nodes), "edges": len(edges)},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+
+    # AC-2: small graph → betweenness_computed: true, list present.
+    def test_betweenness_computed_true_on_small_graph(self):
+        nodes = [
+            {"id": "src/a.py::foo", "label": "foo", "kind": "function", "source_file": "src/a.py", "source_location": "1:0"},
+            {"id": "src/b.py::bar", "label": "bar", "kind": "function", "source_file": "src/b.py", "source_location": "1:0"},
+            {"id": "src/c.py::baz", "label": "baz", "kind": "function", "source_file": "src/c.py", "source_location": "1:0"},
+        ]
+        edges = [
+            {"source": "src/a.py::foo", "target": "src/b.py::bar", "relation": "calls"},
+            {"source": "src/b.py::bar", "target": "src/c.py::baz", "relation": "calls"},
+        ]
+        self._write_graph(nodes, edges)
+        result = self.srv.wave_graph_report_response(
+            self.root, layer="project", limit=10, sections=["betweenness"]
+        )
+        report = result["data"]
+        self.assertEqual(report["betweenness_computed"], True)
+        self.assertIsInstance(report["betweenness"], list)
+        self.assertNotIn("betweenness_skipped_reason", report)
+
+    # AC-2/AC-3: large graph → betweenness_computed: false + reason enum.
+    def test_betweenness_computed_false_when_graph_too_large(self):
+        # Build a graph above _BETWEENNESS_NODE_LIMIT (10_000) to force the skip path.
+        nodes = [
+            {"id": f"src/f{i}.py::node{i}", "label": f"node{i}", "kind": "function",
+             "source_file": f"src/f{i}.py", "source_location": "1:0"}
+            for i in range(10_005)
+        ]
+        edges = []
+        self._write_graph(nodes, edges)
+        result = self.srv.wave_graph_report_response(
+            self.root, layer="project", limit=10, sections=["betweenness"]
+        )
+        report = result["data"]
+        self.assertEqual(report["betweenness_computed"], False)
+        self.assertEqual(report["betweenness_skipped_reason"], "graph_too_large_for_betweenness")
+        # AC-2: empty list when skipped (normalized shape).
+        self.assertEqual(report["betweenness"], [])
+
+
+class TestLargeCommunityPagination(unittest.TestCase):
+    """130tw-enh large-community-pagination: pagination_hint on code_graph_community."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_community(self, member_count):
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        nodes = [
+            {"id": f"src/f{i}.py::m{i}", "label": f"m{i}", "kind": "function",
+             "source_file": f"src/f{i}.py", "source_location": "1:0"}
+            for i in range(member_count)
+        ]
+        graph = {
+            "schema_version": "1", "builder_version": "12", "layer": "project",
+            "nodes": nodes, "edges": [],
+            "counts": {"files": member_count, "nodes": member_count, "edges": 0},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        cluster = {
+            "cluster_algorithm": "leiden",
+            "cluster_builder_version": "1",
+            "cluster_schema_version": "1",
+            "communities": [{
+                "community_id": "project:c1",
+                "label": "TestCommunity",
+                "node_count": member_count,
+                "node_ids": [n["id"] for n in nodes],
+                "generated_node_fraction": 0.0,
+            }],
+            "community_count": 1,
+        }
+        (graph_dir / "project-graph-clusters.json").write_text(json.dumps(cluster), encoding="utf-8")
+
+    # AC-4: small community → no pagination_hint, all members returned.
+    def test_small_community_returns_all_no_hint(self):
+        self._write_community(10)
+        result = self.srv.code_graph_community_response(self.root, "project:c1")
+        data = result["data"]
+        self.assertEqual(data["returned_count"], 10)
+        self.assertEqual(data["total_node_count"], 10)
+        self.assertFalse(data["has_more"])
+        self.assertNotIn("pagination_hint", data)
+
+    # AC-3: large community → first 50 returned + pagination_hint surfaces next page.
+    def test_large_community_returns_first_50_with_hint(self):
+        self._write_community(120)
+        result = self.srv.code_graph_community_response(self.root, "project:c1")
+        data = result["data"]
+        self.assertEqual(data["returned_count"], 50)
+        self.assertEqual(data["total_node_count"], 120)
+        self.assertTrue(data["has_more"])
+        self.assertIn("pagination_hint", data)
+        self.assertIn("limit=50", data["pagination_hint"])
+        self.assertIn("offset=50", data["pagination_hint"])
+        self.assertIn("1-50 of 120", data["pagination_hint"])
+
+    # AC-6: explicit limit value is respected.
+    def test_explicit_limit_respected(self):
+        self._write_community(100)
+        result = self.srv.code_graph_community_response(self.root, "project:c1", limit=10)
+        data = result["data"]
+        self.assertEqual(data["returned_count"], 10)
+        self.assertTrue(data["has_more"])
+        self.assertIn("limit=10", data["pagination_hint"])
+        self.assertIn("offset=10", data["pagination_hint"])
+
+    # AC-3: offset advances correctly.
+    def test_offset_advances_page_window(self):
+        self._write_community(120)
+        result = self.srv.code_graph_community_response(self.root, "project:c1", limit=50, offset=50)
+        data = result["data"]
+        self.assertEqual(data["returned_count"], 50)
+        self.assertEqual(data["offset"], 50)
+        self.assertTrue(data["has_more"])
+        self.assertIn("offset=100", data["pagination_hint"])
+        self.assertIn("51-100 of 120", data["pagination_hint"])
+
+    # AC-4: last page (no more members) → no pagination_hint.
+    def test_last_page_omits_hint(self):
+        self._write_community(60)
+        result = self.srv.code_graph_community_response(self.root, "project:c1", limit=50, offset=50)
+        data = result["data"]
+        self.assertEqual(data["returned_count"], 10)
+        self.assertFalse(data["has_more"])
+        self.assertNotIn("pagination_hint", data)
+
+
+class TestGeneratedCodeCollapse(unittest.TestCase):
+    """130su-enh generated-code-collapse-mode: file-as-black-box collapse for wave_graph_report."""
+
+    def setUp(self):
+        # Load graph_query directly for unit-testing the collapse helper.
+        import importlib.util
+        scripts_root = Path(__file__).resolve().parents[1]
+        spec = importlib.util.spec_from_file_location(
+            "graph_query_test_collapse", scripts_root / "graph_query.py"
+        )
+        self.gq = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.gq)
+
+    def _payload(self, nodes, edges):
+        return {"layer": "project", "present": True, "nodes": nodes, "edges": edges}
+
+    # AC-1: each generated file aggregates to one file-node with collapsed_node_count.
+    def test_collapse_aggregates_generated_file_to_single_node(self):
+        nodes = [
+            {"id": "src/handwritten.py::foo", "label": "foo", "kind": "function", "source_file": "src/handwritten.py"},
+            {"id": "src/ELParser.java", "label": "ELParser.java", "kind": "module", "source_file": "src/ELParser.java", "generated": True},
+            {"id": "src/ELParser.java::Statement", "label": "Statement", "kind": "function", "source_file": "src/ELParser.java", "generated": True},
+            {"id": "src/ELParser.java::jj_scan_token", "label": "jj_scan_token", "kind": "function", "source_file": "src/ELParser.java", "generated": True},
+            {"id": "src/ELParser.java::jj_3R_96", "label": "jj_3R_96", "kind": "function", "source_file": "src/ELParser.java", "generated": True},
+        ]
+        result = self.gq.collapse_generated_view(self._payload(nodes, []))
+        node_ids = {n["id"] for n in result["nodes"]}
+        # Handwritten survives, generated symbol nodes collapsed.
+        self.assertIn("src/handwritten.py::foo", node_ids)
+        self.assertNotIn("src/ELParser.java::Statement", node_ids)
+        self.assertNotIn("src/ELParser.java::jj_scan_token", node_ids)
+        self.assertNotIn("src/ELParser.java::jj_3R_96", node_ids)
+        # One file-node exists for the generated file (the original module is repurposed).
+        elp_nodes = [n for n in result["nodes"] if n["id"] == "src/ELParser.java"]
+        self.assertEqual(len(elp_nodes), 1)
+        self.assertEqual(elp_nodes[0].get("collapsed_node_count"), 3)
+        self.assertTrue(elp_nodes[0].get("generated"))
+
+    # AC-1: synthetic file-node when no module-level node existed.
+    def test_collapse_synthesizes_file_node_when_no_module_exists(self):
+        nodes = [
+            {"id": "src/GenA.java::M1", "label": "M1", "kind": "function", "source_file": "src/GenA.java", "generated": True},
+            {"id": "src/GenA.java::M2", "label": "M2", "kind": "function", "source_file": "src/GenA.java", "generated": True},
+        ]
+        result = self.gq.collapse_generated_view(self._payload(nodes, []))
+        file_node = next(n for n in result["nodes"] if n["id"] == "src/GenA.java")
+        self.assertEqual(file_node["kind"], "module")
+        self.assertEqual(file_node["collapsed_node_count"], 2)
+        self.assertTrue(file_node["generated"])
+        self.assertEqual(file_node["label"], "GenA.java")
+
+    # AC-2: edges with BOTH endpoints inside the same generated file are dropped.
+    def test_collapse_drops_internal_generated_edges(self):
+        nodes = [
+            {"id": "src/ELParser.java", "label": "ELParser.java", "kind": "module", "source_file": "src/ELParser.java", "generated": True},
+            {"id": "src/ELParser.java::Statement", "label": "Statement", "kind": "function", "source_file": "src/ELParser.java", "generated": True},
+            {"id": "src/ELParser.java::jj_scan_token", "label": "jj_scan_token", "kind": "function", "source_file": "src/ELParser.java", "generated": True},
+        ]
+        edges = [
+            {"source": "src/ELParser.java::Statement", "target": "src/ELParser.java::jj_scan_token", "relation": "calls"},
+        ]
+        result = self.gq.collapse_generated_view(self._payload(nodes, edges))
+        # Internal edge dropped; no surviving edges.
+        self.assertEqual(result["edges"], [])
+
+    # AC-3: edges where one endpoint is in a generated file have that endpoint rewritten.
+    def test_collapse_rewrites_handwritten_to_generated_edge(self):
+        nodes = [
+            {"id": "src/handwritten.py::foo", "label": "foo", "kind": "function", "source_file": "src/handwritten.py"},
+            {"id": "src/ELParser.java", "label": "ELParser.java", "kind": "module", "source_file": "src/ELParser.java", "generated": True},
+            {"id": "src/ELParser.java::Statement", "label": "Statement", "kind": "function", "source_file": "src/ELParser.java", "generated": True},
+        ]
+        edges = [
+            {"source": "src/handwritten.py::foo", "target": "src/ELParser.java::Statement", "relation": "calls", "line": 7, "snippet": "ELParser.Statement()"},
+        ]
+        result = self.gq.collapse_generated_view(self._payload(nodes, edges))
+        self.assertEqual(len(result["edges"]), 1)
+        e = result["edges"][0]
+        self.assertEqual(e["source"], "src/handwritten.py::foo")
+        # Target rewritten to file-node id (source_file).
+        self.assertEqual(e["target"], "src/ELParser.java")
+        self.assertEqual(e["relation"], "calls")
+        # Line/snippet dropped because they pointed at a hidden internal symbol.
+        self.assertNotIn("line", e)
+        self.assertNotIn("snippet", e)
+
+    # AC-3: edges from generated → handwritten have the generated endpoint rewritten.
+    def test_collapse_rewrites_generated_to_handwritten_edge(self):
+        nodes = [
+            {"id": "src/handwritten.py::Logger", "label": "Logger", "kind": "function", "source_file": "src/handwritten.py"},
+            {"id": "src/ELParser.java", "label": "ELParser.java", "kind": "module", "source_file": "src/ELParser.java", "generated": True},
+            {"id": "src/ELParser.java::error", "label": "error", "kind": "function", "source_file": "src/ELParser.java", "generated": True},
+        ]
+        edges = [
+            {"source": "src/ELParser.java::error", "target": "src/handwritten.py::Logger", "relation": "calls"},
+        ]
+        result = self.gq.collapse_generated_view(self._payload(nodes, edges))
+        self.assertEqual(len(result["edges"]), 1)
+        e = result["edges"][0]
+        self.assertEqual(e["source"], "src/ELParser.java")  # rewritten
+        self.assertEqual(e["target"], "src/handwritten.py::Logger")  # preserved
+
+    # AC-4: edges between two DIFFERENT generated files rewrite both endpoints.
+    def test_collapse_rewrites_cross_generated_file_edges(self):
+        nodes = [
+            {"id": "src/GenA.java", "label": "GenA.java", "kind": "module", "source_file": "src/GenA.java", "generated": True},
+            {"id": "src/GenA.java::a", "label": "a", "kind": "function", "source_file": "src/GenA.java", "generated": True},
+            {"id": "src/GenB.java", "label": "GenB.java", "kind": "module", "source_file": "src/GenB.java", "generated": True},
+            {"id": "src/GenB.java::b", "label": "b", "kind": "function", "source_file": "src/GenB.java", "generated": True},
+        ]
+        edges = [
+            {"source": "src/GenA.java::a", "target": "src/GenB.java::b", "relation": "calls"},
+        ]
+        result = self.gq.collapse_generated_view(self._payload(nodes, edges))
+        self.assertEqual(len(result["edges"]), 1)
+        e = result["edges"][0]
+        self.assertEqual(e["source"], "src/GenA.java")
+        self.assertEqual(e["target"], "src/GenB.java")
+
+    # Deduplication: multiple internal edges from one generated file to the same external
+    # endpoint collapse to one rewritten edge.
+    def test_collapse_dedupes_rewritten_edges(self):
+        nodes = [
+            {"id": "src/handwritten.py::Logger", "label": "Logger", "kind": "function", "source_file": "src/handwritten.py"},
+            {"id": "src/ELParser.java", "label": "ELParser.java", "kind": "module", "source_file": "src/ELParser.java", "generated": True},
+            {"id": "src/ELParser.java::a", "label": "a", "kind": "function", "source_file": "src/ELParser.java", "generated": True},
+            {"id": "src/ELParser.java::b", "label": "b", "kind": "function", "source_file": "src/ELParser.java", "generated": True},
+        ]
+        edges = [
+            {"source": "src/ELParser.java::a", "target": "src/handwritten.py::Logger", "relation": "calls"},
+            {"source": "src/ELParser.java::b", "target": "src/handwritten.py::Logger", "relation": "calls"},
+        ]
+        result = self.gq.collapse_generated_view(self._payload(nodes, edges))
+        # Both edges rewrite to (src/ELParser.java → src/handwritten.py::Logger, calls)
+        # — deduplicated to ONE edge.
+        self.assertEqual(len(result["edges"]), 1)
+
+    # Non-generated graphs pass through unchanged.
+    def test_collapse_no_op_when_no_generated_nodes(self):
+        nodes = [
+            {"id": "src/a.py::foo", "label": "foo", "kind": "function", "source_file": "src/a.py"},
+            {"id": "src/b.py::bar", "label": "bar", "kind": "function", "source_file": "src/b.py"},
+        ]
+        edges = [
+            {"source": "src/b.py::bar", "target": "src/a.py::foo", "relation": "calls"},
+        ]
+        result = self.gq.collapse_generated_view(self._payload(nodes, edges))
+        self.assertEqual(len(result["nodes"]), 2)
+        self.assertEqual(len(result["edges"]), 1)
+
+
+class TestWaveGraphReportCollapseIntegration(unittest.TestCase):
+    """130su: collapse_generated_files end-to-end through wave_graph_report_response."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        # Two handwritten functions + one generated file with three symbol nodes
+        # + a handwritten→generated edge + internal generated edges.
+        nodes = [
+            {"id": "src/handwritten.py::foo", "label": "foo", "kind": "function", "source_file": "src/handwritten.py", "source_location": "1:0"},
+            {"id": "src/handwritten.py::bar", "label": "bar", "kind": "function", "source_file": "src/handwritten.py", "source_location": "5:0"},
+            {"id": "src/ELParser.java", "label": "ELParser.java", "kind": "module", "source_file": "src/ELParser.java", "source_location": "1:0", "generated": True},
+            {"id": "src/ELParser.java::Statement", "label": "Statement", "kind": "function", "source_file": "src/ELParser.java", "source_location": "100:0", "generated": True},
+            {"id": "src/ELParser.java::jj_scan_token", "label": "jj_scan_token", "kind": "function", "source_file": "src/ELParser.java", "source_location": "200:0", "generated": True},
+            {"id": "src/ELParser.java::jj_3R_96", "label": "jj_3R_96", "kind": "function", "source_file": "src/ELParser.java", "source_location": "300:0", "generated": True},
+        ]
+        graph = {
+            "schema_version": "1", "builder_version": "11", "layer": "project",
+            "nodes": nodes,
+            "edges": [
+                {"source": "src/handwritten.py::foo", "target": "src/ELParser.java::Statement", "relation": "calls"},
+                {"source": "src/handwritten.py::bar", "target": "src/ELParser.java::Statement", "relation": "calls"},
+                {"source": "src/ELParser.java::Statement", "target": "src/ELParser.java::jj_scan_token", "relation": "calls"},
+                {"source": "src/ELParser.java::Statement", "target": "src/ELParser.java::jj_3R_96", "relation": "calls"},
+                {"source": "src/ELParser.java::jj_3R_96", "target": "src/ELParser.java::jj_scan_token", "relation": "calls"},
+            ],
+            "counts": {"files": 2, "nodes": 6, "edges": 5},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        # Minimal cluster artifact (not exercised in collapse tests, but report fetches it).
+        cluster = {
+            "cluster_algorithm": "leiden",
+            "cluster_builder_version": "1",
+            "cluster_schema_version": "1",
+            "communities": [],
+            "community_count": 0,
+        }
+        (graph_dir / "project-graph-clusters.json").write_text(json.dumps(cluster), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    # AC-5/AC-6: collapse_generated_files=True runs wave_graph_report over the collapsed view.
+    def test_collapse_runs_report_over_collapsed_view(self):
+        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20, collapse_generated_files=True)
+        self.assertEqual(result["status"], "ok")
+        report = result["data"]
+        self.assertTrue(report["collapse_generated_files"])
+        # fan_in should not contain the collapsed internal symbols.
+        fan_in = {r["node_id"] for r in report.get("fan_in", [])}
+        self.assertNotIn("src/ELParser.java::jj_scan_token", fan_in)
+        self.assertNotIn("src/ELParser.java::Statement", fan_in)
+        self.assertNotIn("src/ELParser.java::jj_3R_96", fan_in)
+        # fan_in should contain the collapsed file-node (it's the target of handwritten calls).
+        self.assertIn("src/ELParser.java", fan_in)
+
+    # AC-7: default behavior (collapse_generated_files=False) unchanged.
+    def test_collapse_default_off_preserves_full_graph(self):
+        result = self.srv.wave_graph_report_response(self.root, layer="project", limit=20)
+        report = result["data"]
+        self.assertFalse(report["collapse_generated_files"])
+        fan_in = {r["node_id"] for r in report.get("fan_in", [])}
+        # Without collapse, internal generated symbols appear in fan_in.
+        self.assertIn("src/ELParser.java::jj_scan_token", fan_in)
+
+
+class TestJavaMethodReferenceCallSites(unittest.TestCase):
+    """130r7-bug: Java `method_reference` AST nodes classify as call_sites so
+    code_callhierarchy.incoming attaches line+snippet to entries that only
+    reference the target via method references (Foo::bar, this::bar)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available in test env")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _add(self, rel: str, content: str) -> Path:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def _write_graph(self, nodes: list, edges: list) -> None:
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        (graph_dir / "project-graph.json").write_text(
+            json.dumps({"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges}),
+            encoding="utf-8",
+        )
+
+    def test_method_reference_callsite_attaches_line_and_snippet(self):
+        """A caller that references the target via `Helper::process` (method reference syntax)
+        must produce a non-null line/snippet on the incoming entry. Pre-130r7 the line/snippet
+        was null because `method_reference` wasn't in `_TS_CALL_PARENT_TYPES['java']`."""
+        self._add("src/Helper.java", "class Helper {\n    int process(int n) { return n + 1; }\n}\n")
+        self._add(
+            "src/Stream.java",
+            "import java.util.stream.*;\n"
+            "class StreamCaller {\n"
+            "    int run() {\n"
+            "        return java.util.stream.IntStream.of(1, 2, 3).map(Helper::process).sum();\n"
+            "    }\n"
+            "}\n",
+        )
+        self._write_graph(
+            nodes=[
+                {"id": "src/Helper.java::Helper.process", "label": "process", "kind": "function", "source_file": "src/Helper.java", "source_location": "2:4"},
+                {"id": "src/Stream.java::StreamCaller.run", "label": "run", "kind": "function", "source_file": "src/Stream.java", "source_location": "3:4"},
+            ],
+            edges=[
+                {"source": "src/Stream.java::StreamCaller.run", "target": "src/Helper.java::Helper.process", "relation": "calls"},
+            ],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "process", None, "incoming")
+        self.assertEqual(result["status"], "ok")
+        incoming = result["data"]["incoming"]
+        self.assertEqual(len(incoming), 1)
+        entry = incoming[0]
+        self.assertEqual(entry.get("name"), "run")
+        # The line attribution must succeed because the method-reference identifier
+        # `process` (parent: method_reference) is now classified as call_sites.
+        self.assertIsNotNone(entry.get("line"), f"line still null for method-reference caller: {entry}")
+        self.assertIsNotNone(entry.get("snippet"))
+        # Snippet should be the line containing `Helper::process`.
+        self.assertIn("Helper::process", entry["snippet"])
+
+    def test_traditional_method_invocation_still_works(self):
+        """Sanity: adding `method_reference` to the call-parent set does not break
+        traditional method-invocation classification."""
+        self._add("src/Helper.java", "class Helper {\n    int process(int n) { return n + 1; }\n}\n")
+        self._add(
+            "src/Plain.java",
+            "class PlainCaller {\n"
+            "    int run() {\n"
+            "        Helper h = new Helper();\n"
+            "        return h.process(5);\n"
+            "    }\n"
+            "}\n",
+        )
+        self._write_graph(
+            nodes=[
+                {"id": "src/Helper.java::Helper.process", "label": "process", "kind": "function", "source_file": "src/Helper.java", "source_location": "2:4"},
+                {"id": "src/Plain.java::PlainCaller.run", "label": "run", "kind": "function", "source_file": "src/Plain.java", "source_location": "2:4"},
+            ],
+            edges=[
+                {"source": "src/Plain.java::PlainCaller.run", "target": "src/Helper.java::Helper.process", "relation": "calls"},
+            ],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "process", None, "incoming")
+        incoming = result["data"]["incoming"]
+        self.assertEqual(len(incoming), 1)
+        entry = incoming[0]
+        self.assertIsNotNone(entry.get("line"))
+        self.assertIn("h.process(5)", entry["snippet"])
+
+
+class TestJavaReceiverTypeResolution(unittest.TestCase):
+    """130tw-enh java-receiver-type-resolution: filter phantom cross-class
+    callers from code_callhierarchy when the receiver type doesn't match
+    the queried symbol's owning class.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available in test env")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _add(self, rel: str, content: str) -> Path:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def _write_graph(self, nodes: list, edges: list) -> None:
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        (graph_dir / "project-graph.json").write_text(
+            json.dumps({"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges}),
+            encoding="utf-8",
+        )
+
+    # AC-6: the Aceiss reproducer — JSON.writeObject vs oos.writeObject (ObjectOutputStream).
+    def test_phantom_oos_writeobject_caller_is_excluded(self):
+        self._add(
+            "src/JSON.java",
+            "class JSON {\n"
+            "    public void writeObject(Object o) {}\n"
+            "    public void serializeBoth(Object a, Object b) {\n"
+            "        writeObject(a);\n"
+            "        writeObject(b);\n"
+            "    }\n"
+            "}\n",
+        )
+        self._add(
+            "src/JdbcConnectionRegistry.java",
+            "import java.io.ObjectOutputStream;\n"
+            "import java.io.FileOutputStream;\n"
+            "class JdbcConnectionRegistry {\n"
+            "    public void cloneConnectionMap(Object object) throws Exception {\n"
+            "        ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(\"x\"));\n"
+            "        oos.writeObject(object);\n"
+            "    }\n"
+            "}\n",
+        )
+        self._write_graph(
+            nodes=[
+                {"id": "src/JSON.java::JSON.writeObject", "label": "writeObject", "kind": "function", "source_file": "src/JSON.java", "source_location": "2:4"},
+                {"id": "src/JSON.java::JSON.serializeBoth", "label": "serializeBoth", "kind": "function", "source_file": "src/JSON.java", "source_location": "3:4"},
+                {"id": "src/JdbcConnectionRegistry.java::JdbcConnectionRegistry.cloneConnectionMap", "label": "cloneConnectionMap", "kind": "function", "source_file": "src/JdbcConnectionRegistry.java", "source_location": "4:4"},
+            ],
+            edges=[
+                # Legitimate caller within JSON class.
+                {"source": "src/JSON.java::JSON.serializeBoth", "target": "src/JSON.java::JSON.writeObject", "relation": "calls"},
+                # Phantom caller — graph builder attributed by simple-name; oos is ObjectOutputStream.
+                {"source": "src/JdbcConnectionRegistry.java::JdbcConnectionRegistry.cloneConnectionMap", "target": "src/JSON.java::JSON.writeObject", "relation": "calls"},
+            ],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "JSON.writeObject", None, "incoming")
+        self.assertEqual(result["status"], "ok")
+        incoming = result["data"]["incoming"]
+        names = [e.get("name") for e in incoming]
+        # The legitimate JSON-class caller is preserved.
+        self.assertIn("serializeBoth", names)
+        # The phantom JdbcRegistry caller is excluded.
+        self.assertNotIn("cloneConnectionMap", names)
+
+    # AC-7: this.method() resolves to enclosing class → preserved when class matches.
+    def test_this_call_preserves_caller_in_same_class(self):
+        self._add(
+            "src/JSON.java",
+            "class JSON {\n"
+            "    public void writeObject(Object o) {}\n"
+            "    public void wrapper(Object x) {\n"
+            "        this.writeObject(x);\n"
+            "    }\n"
+            "}\n",
+        )
+        self._write_graph(
+            nodes=[
+                {"id": "src/JSON.java::JSON.writeObject", "label": "writeObject", "kind": "function", "source_file": "src/JSON.java", "source_location": "2:4"},
+                {"id": "src/JSON.java::JSON.wrapper", "label": "wrapper", "kind": "function", "source_file": "src/JSON.java", "source_location": "3:4"},
+            ],
+            edges=[
+                {"source": "src/JSON.java::JSON.wrapper", "target": "src/JSON.java::JSON.writeObject", "relation": "calls"},
+            ],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "JSON.writeObject", None, "incoming")
+        incoming = result["data"]["incoming"]
+        names = [e.get("name") for e in incoming]
+        self.assertIn("wrapper", names)
+
+    # AC-7: bare method() call resolves to enclosing class → preserved.
+    def test_bare_call_preserves_caller_in_same_class(self):
+        self._add(
+            "src/JSON.java",
+            "class JSON {\n"
+            "    public void writeObject(Object o) {}\n"
+            "    public void wrapper(Object x) {\n"
+            "        writeObject(x);\n"
+            "    }\n"
+            "}\n",
+        )
+        self._write_graph(
+            nodes=[
+                {"id": "src/JSON.java::JSON.writeObject", "label": "writeObject", "kind": "function", "source_file": "src/JSON.java", "source_location": "2:4"},
+                {"id": "src/JSON.java::JSON.wrapper", "label": "wrapper", "kind": "function", "source_file": "src/JSON.java", "source_location": "3:4"},
+            ],
+            edges=[
+                {"source": "src/JSON.java::JSON.wrapper", "target": "src/JSON.java::JSON.writeObject", "relation": "calls"},
+            ],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "JSON.writeObject", None, "incoming")
+        incoming = result["data"]["incoming"]
+        names = [e.get("name") for e in incoming]
+        self.assertIn("wrapper", names)
+
+    # AC-7: ClassName.staticMethod() style — resolves to that class.
+    def test_static_class_call_resolves_to_class_name(self):
+        self._add(
+            "src/JSON.java",
+            "class JSON {\n"
+            "    public static void writeObject(Object o) {}\n"
+            "}\n",
+        )
+        self._add(
+            "src/Caller.java",
+            "class Caller {\n"
+            "    void run(Object o) {\n"
+            "        JSON.writeObject(o);\n"
+            "    }\n"
+            "}\n",
+        )
+        self._write_graph(
+            nodes=[
+                {"id": "src/JSON.java::JSON.writeObject", "label": "writeObject", "kind": "function", "source_file": "src/JSON.java", "source_location": "2:4"},
+                {"id": "src/Caller.java::Caller.run", "label": "run", "kind": "function", "source_file": "src/Caller.java", "source_location": "2:4"},
+            ],
+            edges=[
+                {"source": "src/Caller.java::Caller.run", "target": "src/JSON.java::JSON.writeObject", "relation": "calls"},
+            ],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "JSON.writeObject", None, "incoming")
+        incoming = result["data"]["incoming"]
+        names = [e.get("name") for e in incoming]
+        self.assertIn("run", names)
+
+    # AC-4: bare-name query (no class context) → no filtering applied.
+    def test_bare_name_query_skips_receiver_filter(self):
+        # Query as bare "writeObject" — node_id has no class qualification, so filter doesn't run.
+        self._add(
+            "src/Foo.java",
+            "class Foo {\n"
+            "    public void writeObject(Object o) {}\n"
+            "}\n",
+        )
+        self._add(
+            "src/Bar.java",
+            "import java.io.ObjectOutputStream;\n"
+            "import java.io.FileOutputStream;\n"
+            "class Bar {\n"
+            "    public void run(Object object) throws Exception {\n"
+            "        ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(\"x\"));\n"
+            "        oos.writeObject(object);\n"
+            "    }\n"
+            "}\n",
+        )
+        self._write_graph(
+            nodes=[
+                # Note: queried node has no class qualification — node_id is "src/Foo.java::writeObject"
+                # (bare symbol part) — extractor returns owner_class=None, filter doesn't run.
+                {"id": "src/Foo.java::writeObject", "label": "writeObject", "kind": "function", "source_file": "src/Foo.java", "source_location": "2:4"},
+                {"id": "src/Bar.java::Bar.run", "label": "run", "kind": "function", "source_file": "src/Bar.java", "source_location": "4:4"},
+            ],
+            edges=[
+                {"source": "src/Bar.java::Bar.run", "target": "src/Foo.java::writeObject", "relation": "calls"},
+            ],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "writeObject", None, "incoming")
+        incoming = result["data"]["incoming"]
+        names = [e.get("name") for e in incoming]
+        # Without class context, the phantom caller is preserved (backward compat).
+        self.assertIn("run", names)
+
+
+class TestExtractJavaOwnerClassFromNodeId(unittest.TestCase):
+    """130tw-enh java-receiver-type-resolution: node_id parser helper."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def test_simple_class_method_returns_class(self):
+        self.assertEqual(
+            self.srv._extract_java_owner_class_from_node_id("src/Foo.java::Foo.bar"),
+            "Foo",
+        )
+
+    def test_nested_class_returns_innermost_class(self):
+        self.assertEqual(
+            self.srv._extract_java_owner_class_from_node_id("src/Outer.java::Outer.Inner.method"),
+            "Inner",
+        )
+
+    def test_bare_method_returns_none(self):
+        self.assertIsNone(
+            self.srv._extract_java_owner_class_from_node_id("src/Foo.java::bareMethod")
+        )
+
+    def test_missing_separator_returns_none(self):
+        self.assertIsNone(self.srv._extract_java_owner_class_from_node_id("noSeparator"))
+        self.assertIsNone(self.srv._extract_java_owner_class_from_node_id(""))
+
+
+class TestAopAdviceEmptyIncomingDetection(unittest.TestCase):
+    """130rj-enh aop-advice-empty-incoming-detection: caller_pattern field on
+    code_callhierarchy when an annotated advice method has no Java callers."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _add(self, rel: str, content: str) -> Path:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def _write_graph(self, nodes: list, edges: list) -> None:
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        (graph_dir / "project-graph.json").write_text(
+            json.dumps({"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges}),
+            encoding="utf-8",
+        )
+
+    # AC-3: empty incoming + advice annotation → caller_pattern: "advice".
+    def test_advice_method_with_no_callers_emits_caller_pattern(self):
+        self._add("src/Probe.java", "class Probe {}\n")  # placeholder file
+        self._write_graph(
+            nodes=[
+                {
+                    "id": "src/Probe.java::Probe.onEnter",
+                    "label": "onEnter",
+                    "kind": "function",
+                    "source_file": "src/Probe.java",
+                    "source_location": "1:0",
+                    "annotations": ["Advice.OnMethodEnter"],
+                },
+            ],
+            edges=[],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "onEnter", None, "incoming")
+        data = result["data"]
+        self.assertEqual(data["incoming"], [])
+        self.assertEqual(data.get("caller_pattern"), "advice")
+        self.assertIn("Advice.OnMethodEnter", data.get("advice_annotations", []))
+        # AC-3: recovery hint surfaces via a structured diagnostic entry.
+        diagnostics = result.get("diagnostics") or []
+        codes = [d.get("code") for d in diagnostics]
+        self.assertIn("advice_pattern_detected", codes)
+        advice_diag = next(d for d in diagnostics if d.get("code") == "advice_pattern_detected")
+        self.assertIn("ByteBuddy", advice_diag.get("message", ""))
+        self.assertIn("code_keyword", advice_diag.get("recovery_tools", []))
+
+    # AC-3 (broader annotation set): @Around / @Before / @After all fire the pattern.
+    def test_around_annotation_fires_advice_pattern(self):
+        self._add("src/Aspect.java", "class Aspect {}\n")
+        self._write_graph(
+            nodes=[
+                {
+                    "id": "src/Aspect.java::Aspect.around",
+                    "label": "around",
+                    "kind": "function",
+                    "source_file": "src/Aspect.java",
+                    "source_location": "1:0",
+                    "annotations": ["Around"],
+                },
+            ],
+            edges=[],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "around", None, "incoming")
+        data = result["data"]
+        self.assertEqual(data.get("caller_pattern"), "advice")
+        self.assertIn("Around", data.get("advice_annotations", []))
+
+    # AC-3 (qualified annotation): `org.aspectj.lang.annotation.Around` matches by tail.
+    def test_qualified_around_annotation_fires_advice_pattern(self):
+        self._add("src/Asp.java", "class Asp {}\n")
+        self._write_graph(
+            nodes=[
+                {
+                    "id": "src/Asp.java::Asp.foo",
+                    "label": "foo",
+                    "kind": "function",
+                    "source_file": "src/Asp.java",
+                    "source_location": "1:0",
+                    "annotations": ["org.aspectj.lang.annotation.Around"],
+                },
+            ],
+            edges=[],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "foo", None, "incoming")
+        data = result["data"]
+        self.assertEqual(data.get("caller_pattern"), "advice")
+        # Tail extracted as "Around".
+        self.assertIn("Around", data.get("advice_annotations", []))
+
+    # AC-4: advice method WITH a Java caller — no caller_pattern emitted.
+    def test_advice_method_with_incoming_does_not_emit_pattern(self):
+        self._add("src/Probe.java", "class Probe {}\n")
+        self._add("src/Caller.java", "class Caller { void invoke() { Probe.onEnter(); } }\n")
+        self._write_graph(
+            nodes=[
+                {
+                    "id": "src/Probe.java::Probe.onEnter",
+                    "label": "onEnter",
+                    "kind": "function",
+                    "source_file": "src/Probe.java",
+                    "source_location": "1:0",
+                    "annotations": ["Advice.OnMethodEnter"],
+                },
+                {
+                    "id": "src/Caller.java::Caller.invoke",
+                    "label": "invoke",
+                    "kind": "function",
+                    "source_file": "src/Caller.java",
+                    "source_location": "1:0",
+                },
+            ],
+            edges=[
+                {"source": "src/Caller.java::Caller.invoke", "target": "src/Probe.java::Probe.onEnter", "relation": "calls"},
+            ],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "onEnter", None, "incoming")
+        data = result["data"]
+        # Incoming is non-empty (one Java caller), so no advice pattern flag.
+        self.assertEqual(len(data["incoming"]), 1)
+        self.assertNotIn("caller_pattern", data)
+
+    # AC-5: non-advice method with empty incoming gets no caller_pattern.
+    def test_non_advice_method_with_no_callers_does_not_emit_pattern(self):
+        self._add("src/Lib.java", "class Lib {}\n")
+        self._write_graph(
+            nodes=[
+                {
+                    "id": "src/Lib.java::Lib.utility",
+                    "label": "utility",
+                    "kind": "function",
+                    "source_file": "src/Lib.java",
+                    "source_location": "1:0",
+                    # No annotations.
+                },
+            ],
+            edges=[],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "utility", None, "incoming")
+        data = result["data"]
+        self.assertEqual(data["incoming"], [])
+        self.assertNotIn("caller_pattern", data)
+
+    # AC-5: method with a non-advice annotation (e.g. @Override) does not emit the pattern.
+    def test_non_advice_annotation_does_not_fire_pattern(self):
+        self._add("src/Override.java", "class Override {}\n")
+        self._write_graph(
+            nodes=[
+                {
+                    "id": "src/Override.java::OverrideClass.run",
+                    "label": "run",
+                    "kind": "function",
+                    "source_file": "src/Override.java",
+                    "source_location": "1:0",
+                    "annotations": ["Override", "Deprecated"],
+                },
+            ],
+            edges=[],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "run", None, "incoming")
+        data = result["data"]
+        self.assertNotIn("caller_pattern", data)
+
+
+class TestJavaAnnotationExtraction(unittest.TestCase):
+    """130rj-enh aop-advice-empty-incoming-detection: graph_indexer captures
+    Java annotation tails on method_declaration nodes so the server-tool layer
+    can detect AOP/advice patterns."""
+
+    def setUp(self):
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available in test env")
+        import importlib.util, sys as _sys
+        scripts_root = Path(__file__).resolve().parents[1]
+        spec = importlib.util.spec_from_file_location(
+            "graph_indexer_test_ann", scripts_root / "graph_indexer.py"
+        )
+        self.gi = importlib.util.module_from_spec(spec)
+        # Register in sys.modules so dataclass/typing introspection inside the
+        # module can find its own definitions (e.g. cls.__module__ lookups).
+        _sys.modules["graph_indexer_test_ann"] = self.gi
+        spec.loader.exec_module(self.gi)
+
+    def _build(self, java_source: str):
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "docs").mkdir(parents=True, exist_ok=True)
+        (root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+        src = root / "src" / "Probe.java"
+        src.parent.mkdir(parents=True, exist_ok=True)
+        src.write_text(java_source, encoding="utf-8")
+        payload = self.gi.update_graph_index(
+            root=root,
+            index_dir=root / ".wavefoundry" / "index",
+            layer="project",
+            files=[src],
+            current_file_meta={"src/Probe.java": {"hash": "h"}},
+            changed={"src/Probe.java"},
+            removed=set(),
+            walker_version="1",
+            chunker_version="1",
+            verbose=False,
+        )
+        return {n["id"]: n for n in payload["nodes"]}
+
+    def test_marker_annotation_captured(self):
+        nodes = self._build(
+            "class Probe {\n"
+            "    @Advice.OnMethodEnter\n"
+            "    public static void onEnter() {}\n"
+            "}\n"
+        )
+        on_enter = next((n for nid, n in nodes.items() if nid.endswith("::Probe.onEnter")), None)
+        self.assertIsNotNone(on_enter)
+        self.assertIn("Advice.OnMethodEnter", on_enter.get("annotations", []))
+
+    def test_argument_annotation_captured(self):
+        nodes = self._build(
+            "class Asp {\n"
+            "    @Around(\"execution(* foo(..))\")\n"
+            "    public Object around() { return null; }\n"
+            "}\n"
+        )
+        around = next((n for nid, n in nodes.items() if nid.endswith("::Asp.around")), None)
+        self.assertIsNotNone(around)
+        self.assertIn("Around", around.get("annotations", []))
+
+    def test_method_without_annotations_omits_field(self):
+        nodes = self._build(
+            "class Lib {\n"
+            "    int utility() { return 1; }\n"
+            "}\n"
+        )
+        util = next((n for nid, n in nodes.items() if nid.endswith("::Lib.utility")), None)
+        self.assertIsNotNone(util)
+        # No `annotations` key (or empty) when the method has none.
+        self.assertFalse(util.get("annotations"))
+
+
+class TestCsharpAttributeExtraction(unittest.TestCase):
+    """130tc: graph_indexer captures C# attribute names on method_declaration /
+    class_declaration nodes so the server-tool AOP/advice detection layer can
+    fire `caller_pattern: "advice"` for C# methods decorated with PostSharp /
+    Castle DynamicProxy / MethodBoundaryAspect-style attributes."""
+
+    def setUp(self):
+        try:
+            import tree_sitter_c_sharp  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_c_sharp not available in test env")
+        import importlib.util, sys as _sys
+        scripts_root = Path(__file__).resolve().parents[1]
+        spec = importlib.util.spec_from_file_location(
+            "graph_indexer_test_csharp_ann", scripts_root / "graph_indexer.py"
+        )
+        self.gi = importlib.util.module_from_spec(spec)
+        _sys.modules["graph_indexer_test_csharp_ann"] = self.gi
+        spec.loader.exec_module(self.gi)
+
+    def _build(self, csharp_source: str):
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "docs").mkdir(parents=True, exist_ok=True)
+        (root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+        src = root / "src" / "Probe.cs"
+        src.parent.mkdir(parents=True, exist_ok=True)
+        src.write_text(csharp_source, encoding="utf-8")
+        payload = self.gi.update_graph_index(
+            root=root,
+            index_dir=root / ".wavefoundry" / "index",
+            layer="project",
+            files=[src],
+            current_file_meta={"src/Probe.cs": {"hash": "h"}},
+            changed={"src/Probe.cs"},
+            removed=set(),
+            walker_version="1",
+            chunker_version="1",
+            verbose=False,
+        )
+        return {n["id"]: n for n in payload["nodes"]}
+
+    def test_method_boundary_attribute_captured(self):
+        nodes = self._build(
+            "public class Probe {\n"
+            "    [OnMethodBoundaryAspect]\n"
+            "    public void Boundary() {}\n"
+            "}\n"
+        )
+        boundary = next((n for nid, n in nodes.items() if nid.endswith("::Probe.Boundary")), None)
+        self.assertIsNotNone(boundary)
+        self.assertIn("OnMethodBoundaryAspect", boundary.get("annotations", []))
+
+    def test_attribute_with_arguments_captured(self):
+        nodes = self._build(
+            "public class Aspect {\n"
+            "    [Around(\"execution(* foo(..))\")]\n"
+            "    public object Around() { return null; }\n"
+            "}\n"
+        )
+        around = next((n for nid, n in nodes.items() if nid.endswith("::Aspect.Around")), None)
+        self.assertIsNotNone(around)
+        self.assertIn("Around", around.get("annotations", []))
+
+    def test_multiple_attributes_captured(self):
+        nodes = self._build(
+            "public class Multi {\n"
+            "    [OnEntry]\n"
+            "    [OnExit]\n"
+            "    public void Both() {}\n"
+            "}\n"
+        )
+        both = next((n for nid, n in nodes.items() if nid.endswith("::Multi.Both")), None)
+        self.assertIsNotNone(both)
+        attrs = both.get("annotations", [])
+        self.assertIn("OnEntry", attrs)
+        self.assertIn("OnExit", attrs)
+
+    def test_method_without_attributes_omits_field(self):
+        nodes = self._build(
+            "public class Lib {\n"
+            "    public int Utility() { return 1; }\n"
+            "}\n"
+        )
+        util = next((n for nid, n in nodes.items() if nid.endswith("::Lib.Utility")), None)
+        self.assertIsNotNone(util)
+        self.assertFalse(util.get("annotations"))
+
+
+class TestCsharpAdviceEmptyIncomingDetection(unittest.TestCase):
+    """130tc: code_callhierarchy detects C# AOP attributes and emits
+    `caller_pattern: "advice"` with a C#-tailored recovery hint."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _add(self, rel: str, content: str) -> Path:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def _write_graph(self, nodes: list, edges: list) -> None:
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        (graph_dir / "project-graph.json").write_text(
+            json.dumps({"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges}),
+            encoding="utf-8",
+        )
+
+    def test_csharp_method_boundary_attribute_fires_advice_pattern(self):
+        self._add("src/Probe.cs", "public class Probe {}\n")
+        self._write_graph(
+            nodes=[
+                {
+                    "id": "src/Probe.cs::Probe.Boundary",
+                    "label": "Boundary",
+                    "kind": "function",
+                    "source_file": "src/Probe.cs",
+                    "source_location": "1:0",
+                    "annotations": ["OnMethodBoundaryAspect"],
+                },
+            ],
+            edges=[],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "Boundary", None, "incoming")
+        data = result["data"]
+        self.assertEqual(data["incoming"], [])
+        self.assertEqual(data.get("caller_pattern"), "advice")
+        self.assertIn("OnMethodBoundaryAspect", data.get("advice_annotations", []))
+        # Recovery hint surfaces as a diagnostic mentioning C#-style framework refs.
+        diagnostics = result.get("diagnostics") or []
+        advice = next((d for d in diagnostics if d.get("code") == "advice_pattern_detected"), None)
+        self.assertIsNotNone(advice)
+        self.assertIn("PostSharp", advice.get("message", ""))
+        # Recovery usage points at `*.cs` glob rather than Java's `*Instrumentation*.java`.
+        self.assertIn("*.cs", advice.get("recovery_usage", ""))
+
+
+class TestKotlinReferenceResolution(unittest.TestCase):
+    """130tc: Kotlin is now in `_TREE_SITTER_REFERENCE_LANGS` with
+    `callable_reference` classified as a call parent type — so a caller
+    referencing the target via `Helper::process` or `::handle` gets
+    proper line+snippet attribution on `code_callhierarchy.incoming`."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        try:
+            import tree_sitter_kotlin  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_kotlin not available in test env")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _add(self, rel: str, content: str) -> Path:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def _write_graph(self, nodes: list, edges: list) -> None:
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        import json
+        (graph_dir / "project-graph.json").write_text(
+            json.dumps({"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges}),
+            encoding="utf-8",
+        )
+
+    def test_kotlin_callable_reference_attributes_line_and_snippet(self):
+        self._add("src/Helper.kt", "class Helper {\n    fun process(n: Int): Int = n + 1\n}\n")
+        self._add(
+            "src/Stream.kt",
+            "class StreamCaller {\n"
+            "    fun run(): Int {\n"
+            "        return listOf(1, 2, 3).map(Helper::process).sum()\n"
+            "    }\n"
+            "}\n",
+        )
+        self._write_graph(
+            nodes=[
+                {"id": "src/Helper.kt::Helper.process", "label": "process", "kind": "function", "source_file": "src/Helper.kt", "source_location": "2:4"},
+                {"id": "src/Stream.kt::StreamCaller.run", "label": "run", "kind": "function", "source_file": "src/Stream.kt", "source_location": "2:4"},
+            ],
+            edges=[
+                {"source": "src/Stream.kt::StreamCaller.run", "target": "src/Helper.kt::Helper.process", "relation": "calls"},
+            ],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "process", None, "incoming")
+        self.assertEqual(result["status"], "ok")
+        incoming = result["data"]["incoming"]
+        self.assertEqual(len(incoming), 1)
+        entry = incoming[0]
+        self.assertIsNotNone(entry.get("line"), f"line still null for Kotlin callable-reference: {entry}")
+        self.assertIn("Helper::process", entry.get("snippet", ""))
+
+    def test_kotlin_traditional_call_still_works(self):
+        self._add("src/Helper.kt", "class Helper {\n    fun process(): Int = 1\n}\n")
+        self._add(
+            "src/Plain.kt",
+            "class PlainCaller {\n"
+            "    fun run(): Int {\n"
+            "        val h = Helper()\n"
+            "        return h.process()\n"
+            "    }\n"
+            "}\n",
+        )
+        self._write_graph(
+            nodes=[
+                {"id": "src/Helper.kt::Helper.process", "label": "process", "kind": "function", "source_file": "src/Helper.kt", "source_location": "2:4"},
+                {"id": "src/Plain.kt::PlainCaller.run", "label": "run", "kind": "function", "source_file": "src/Plain.kt", "source_location": "2:4"},
+            ],
+            edges=[
+                {"source": "src/Plain.kt::PlainCaller.run", "target": "src/Helper.kt::Helper.process", "relation": "calls"},
+            ],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "process", None, "incoming")
+        incoming = result["data"]["incoming"]
+        self.assertEqual(len(incoming), 1)
+        entry = incoming[0]
+        self.assertIsNotNone(entry.get("line"))
+        self.assertIn("h.process()", entry.get("snippet", ""))
+
+
+class TestMcpWrapperParameterExposure(unittest.TestCase):
+    """130rj retro note 1: ensure new tool parameters added during this wave
+    are exposed at the MCP-wrapper layer (not just on the underlying _response
+    functions). Catches the wave 130ol failure mode where new params silently
+    failed to thread through the wrapper.
+
+    Each new parameter must appear in the FastMCP tool's inputSchema; otherwise
+    agents can't pass it via the MCP protocol regardless of the underlying
+    function's signature.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        try:
+            self._build_thin_runner = load_thin_runner()
+        except ImportError:
+            self.skipTest("mcp package not installed")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _tool_input_schema(self, tool_name: str) -> dict:
+        """Return the FastMCP-exposed inputSchema for the named tool, or {}."""
+        mcp = self._build_thin_runner.build_server(self.root)
+        tm = getattr(mcp, "_tool_manager", None)
+        tools = getattr(tm, "_tools", None) if tm is not None else None
+        if tools is None:
+            tools = getattr(mcp, "_tools", None) or {}
+        tool = tools.get(tool_name)
+        if tool is None:
+            return {}
+        # FastMCP tool objects vary by version; check common attributes.
+        schema = getattr(tool, "inputSchema", None)
+        if schema is None:
+            schema = getattr(tool, "parameters", None)
+        if callable(schema):
+            try:
+                schema = schema()
+            except TypeError:
+                schema = None
+        return schema or {}
+
+    def _properties(self, tool_name: str) -> set:
+        schema = self._tool_input_schema(tool_name)
+        if not isinstance(schema, dict):
+            return set()
+        # JSON-Schema "properties" key carries the parameter map.
+        props = schema.get("properties", {})
+        return set(props.keys()) if isinstance(props, dict) else set()
+
+    def test_wave_graph_report_exposes_exclude_generated(self):
+        """130rj Change 5: exclude_generated must appear at MCP wrapper level."""
+        props = self._properties("wave_graph_report")
+        self.assertIn("exclude_generated", props,
+                      f"exclude_generated missing from wave_graph_report MCP schema; got {props}")
+
+    def test_wave_graph_report_exposes_collapse_generated_files(self):
+        """130rj Change 5b: collapse_generated_files must appear at MCP wrapper level."""
+        props = self._properties("wave_graph_report")
+        self.assertIn("collapse_generated_files", props,
+                      f"collapse_generated_files missing from wave_graph_report MCP schema; got {props}")
+
+    def test_wave_graph_report_exposes_exclude_external(self):
+        """130rj Change 130tw #2: exclude_external must appear at MCP wrapper level."""
+        props = self._properties("wave_graph_report")
+        self.assertIn("exclude_external", props,
+                      f"exclude_external missing from wave_graph_report MCP schema; got {props}")
+
+    def test_code_graph_community_exposes_pagination_and_filter(self):
+        """130rj Change 2 + Change 5: limit/offset/exclude_generated at MCP wrapper level."""
+        props = self._properties("code_graph_community")
+        for required in ("limit", "offset", "exclude_generated"):
+            self.assertIn(required, props,
+                          f"{required} missing from code_graph_community MCP schema; got {props}")
+
+    def test_code_callhierarchy_exposes_include_external(self):
+        """130ol/130rj: include_external on code_callhierarchy at MCP wrapper level
+        (regression coverage for the exact lesson from wave 130ol — new params silently
+        failed to thread through; the prepare-phase council flagged this gap)."""
+        props = self._properties("code_callhierarchy")
+        self.assertIn("include_external", props,
+                      f"include_external missing from code_callhierarchy MCP schema; got {props}")
+
+    def test_existing_required_tools_still_registered(self):
+        """Sanity: introspection doesn't accidentally break the existing tool set."""
+        mcp = self._build_thin_runner.build_server(self.root)
+        names = self.srv._registered_mcp_tool_names(mcp)
+        for tool in ("wave_graph_report", "code_graph_community", "code_callhierarchy", "code_impact", "code_callgraph"):
+            self.assertIn(tool, names, f"{tool} not registered with MCP")
+
 
 class TestSuggestNearSymbolsTokenization(unittest.TestCase):
     """Improvement: _suggest_near_symbols handles multi-token queries (whitespace/underscore)."""

@@ -7703,8 +7703,8 @@ _LANG_CATEGORIES: dict[str, frozenset] = {
     "script":   frozenset({"python", "ruby", "shell", "fish"}),
 }
 
-_TREE_SITTER_DEFINITION_LANGS = {"javascript", "typescript", "java", "csharp", "sql"}
-_TREE_SITTER_REFERENCE_LANGS = {"javascript", "typescript", "java", "csharp", "sql"}
+_TREE_SITTER_DEFINITION_LANGS = {"javascript", "typescript", "java", "csharp", "kotlin", "sql"}
+_TREE_SITTER_REFERENCE_LANGS = {"javascript", "typescript", "java", "csharp", "kotlin", "sql"}
 _CHUNKER_MOD = None
 
 _SUPPORTED_DEFINITION_LANGS = {
@@ -7719,8 +7719,16 @@ _TEST_REFERENCE_PATH_RE = re.compile(r"(^|/)(tests?|__tests__)(/|$)|(^|/)(test|s
 _TS_CALL_PARENT_TYPES: dict[str, set[str]] = {
     "javascript": {"call_expression", "new_expression"},
     "typescript": {"call_expression", "new_expression"},
-    "java": {"method_invocation", "object_creation_expression"},
+    # Java method references (`Foo::bar`, `this::bar`) classify as call sites
+    # so the call-site scanner in code_callhierarchy attaches line+snippet to
+    # incoming entries that only reference the target via method references
+    # (wave 130rj / 130r7 — Aceiss §1.2 reproduced 2026-05-31).
+    "java": {"method_invocation", "object_creation_expression", "method_reference"},
     "csharp": {"invocation_expression", "object_creation_expression"},
+    # Kotlin callable references (`String::length`, `::myFn`, `this::handle`)
+    # are the Kotlin analogue of Java method references — classify as call
+    # sites for the same reason (wave 130rj — 130tc Kotlin enablement).
+    "kotlin": {"call_expression", "callable_reference"},
     "sql": {"function_call", "call", "call_expression", "routine_invocation"},
 }
 
@@ -7729,6 +7737,8 @@ _TS_IMPORT_PARENT_TYPES: dict[str, set[str]] = {
     "typescript": {"import_statement", "import_clause", "import_specifier", "named_imports", "namespace_import"},
     "java": {"import_declaration"},
     "csharp": {"using_directive"},
+    # Kotlin import grammar: `import_header` wraps `identifier` (with optional alias) (wave 130tc).
+    "kotlin": {"import_header"},
     "sql": {"with_clause"},
 }
 
@@ -8111,6 +8121,9 @@ _TS_IDENTIFIER_NODE_TYPES: dict[str, set[str]] = {
     "typescript": {"identifier", "property_identifier", "type_identifier"},
     "java": {"identifier"},
     "csharp": {"identifier"},
+    # Kotlin uses bare `identifier` for symbol references; the grammar does not
+    # split into property_identifier / type_identifier the way TS does (wave 130tc).
+    "kotlin": {"identifier"},
     "sql": {"identifier", "bare_identifier", "quoted_identifier", "object_reference", "column_reference"},
 }
 
@@ -8132,6 +8145,15 @@ _TS_DEFINITION_PARENT_TYPES: dict[str, set[str]] = {
         "class_declaration", "interface_declaration", "struct_declaration",
         "enum_declaration", "record_declaration", "method_declaration",
         "constructor_declaration", "operator_declaration",
+    },
+    # Kotlin definition parents (wave 130tc). `property_declaration` is left
+    # OUT — local `val`/`var` shouldn't be classified as a definition for
+    # caller/callee navigation (matches the variable-binding pattern handled
+    # in wave 130qf for the graph extractor side).
+    "kotlin": {
+        "class_declaration", "object_declaration", "interface_declaration",
+        "enum_class_body", "function_declaration", "secondary_constructor",
+        "primary_constructor",
     },
 }
 
@@ -9162,7 +9184,7 @@ def code_callhierarchy_response(
         "parser_used": "graph",
     }
 
-    community_lookup = _load_cluster_lookup(root)
+    community_lookup = _load_cluster_lookup_with_ids(root)
 
     def _node_entry(nid: str) -> dict[str, Any]:
         n = index.get_node(nid) or {}
@@ -9173,8 +9195,13 @@ def code_callhierarchy_response(
             start_line = int(str(loc).split(":")[0])
         except (ValueError, IndexError):
             start_line = 0
-        return {"name": label, "file": src, "line": None, "snippet": None, "community": community_lookup.get(nid), "_start_line": start_line}
+        c_label, c_id = community_lookup.get(nid, (None, None))
+        return {"name": label, "file": src, "line": None, "snippet": None, "community": c_label, "community_id": c_id, "_start_line": start_line}
 
+    # Accumulator for advice-pattern diagnostics emitted on the incoming branch.
+    # Initialized before direction conditionals so the variable is always defined
+    # at the final _response call regardless of the requested direction.
+    advice_diagnostics: list[dict[str, Any]] = []
     if direction in {"both", "outgoing"}:
         _, out_edges, _ = index.traverse(node_id, relations=["calls"], max_hops=1, direction="callees")
         out_entries: list[tuple[str, dict[str, Any]]] = []
@@ -9227,22 +9254,70 @@ def code_callhierarchy_response(
             if f and not src_id.startswith("external::"):
                 by_file.setdefault(f, []).append((src_id, entry))
 
+        # Wave 130rj (130tw): for Java queries with class-qualified node_ids,
+        # filter caller-side call sites whose receiver type doesn't match the
+        # queried class. Suppresses phantom cross-class callers from
+        # simple-name attribution (e.g. ``oos.writeObject(...)`` falsely
+        # matching ``JSON.writeObject``).
+        _expected_owner_class = _extract_java_owner_class_from_node_id(node_id)
+        # Use the resolved node's bare label for call-site scanning; the user's
+        # `symbol` may be qualified ("JSON.writeObject") which would never match
+        # bare identifier text. Falls back to symbol when label is absent.
+        _scan_label = node.get("label") or symbol
+        _excluded_caller_ids: set[str] = set()
         for source_file, file_entries in by_file.items():
-            sites = _scan_call_sites_in_file(root, symbol, source_file)
+            sites = _scan_call_sites_in_file(root, _scan_label, source_file)
             if not sites:
                 continue
+            _apply_receiver_filter = bool(
+                _expected_owner_class and source_file.endswith(".java")
+            )
             # Sort callers by their definition start line to attribute call sites correctly
             sorted_entries = sorted(file_entries, key=lambda x: x[1].get("_start_line", 0))
             used_lines: set[int] = set()
-            for _src_id, entry in sorted_entries:
+            for i, (_src_id, entry) in enumerate(sorted_entries):
                 start_line = entry.get("_start_line", 0)
-                for ref in sites:
-                    line = ref.get("line") or 0
-                    if line >= start_line and line not in used_lines:
-                        entry["line"] = line
-                        entry["snippet"] = ref.get("snippet")
-                        used_lines.add(line)
-                        break
+                next_start = (
+                    sorted_entries[i + 1][1].get("_start_line", 0)
+                    if i + 1 < len(sorted_entries) else (10 ** 12)
+                )
+                # Call sites within this entry's method scope.
+                in_scope = [
+                    r for r in sites
+                    if (r.get("line") or 0) >= start_line
+                    and (r.get("line") or 0) < next_start
+                    and (r.get("line") or 0) not in used_lines
+                ]
+                if _apply_receiver_filter and in_scope:
+                    # Phantom-caller test: if EVERY in-scope call site has a
+                    # definitive receiver-type mismatch, this caller is a
+                    # simple-name attribution phantom — exclude it.
+                    has_match_or_uncertain = any(
+                        r.get("_receiver_type") is None
+                        or r.get("_receiver_type") == _expected_owner_class
+                        for r in in_scope
+                    )
+                    if not has_match_or_uncertain:
+                        _excluded_caller_ids.add(_src_id)
+                        continue
+                    # Keep only matching-or-uncertain refs for line attribution.
+                    in_scope = [
+                        r for r in in_scope
+                        if r.get("_receiver_type") is None
+                        or r.get("_receiver_type") == _expected_owner_class
+                    ]
+                if not in_scope:
+                    continue
+                ref = in_scope[0]
+                line = ref.get("line") or 0
+                entry["line"] = line
+                entry["snippet"] = ref.get("snippet")
+                used_lines.add(line)
+        if _excluded_caller_ids:
+            incoming_raw = [
+                (sid, entry) for sid, entry in incoming_raw
+                if sid not in _excluded_caller_ids
+            ]
 
         incoming = []
         external_incoming_count = 0
@@ -9256,6 +9331,90 @@ def code_callhierarchy_response(
             incoming.append(entry)
         data["incoming"] = incoming
         data["external_incoming_count"] = external_incoming_count
+
+        # Wave 130rj — Aceiss §2.3: AOP/advice empty-incoming detection.
+        # When the response would report zero project-internal callers AND the
+        # queried method carries an AOP advice annotation/attribute, surface
+        # `caller_pattern: "advice"` plus an `advice_pattern_detected`
+        # diagnostic so agents route to instrumentation/aspect declarations
+        # rather than falling back to code_references (which also returns
+        # nothing useful — callers are wired at weave time).
+        if not incoming:
+            queried_node = index.get_node(node_id) or {}
+            annotations = queried_node.get("annotations") or []
+            advice_tail_set = {
+                # Java / ByteBuddy / AspectJ
+                "Advice.OnMethodEnter", "Advice.OnMethodExit",
+                "Around", "Before", "After", "AfterReturning", "AfterThrowing",
+                # C# / PostSharp / Castle / MethodBoundary aspects (130tc)
+                "OnEntry", "OnExit", "OnSuccess", "OnException",
+                "OnMethodBoundaryAspect", "MethodBoundaryAspect",
+                "MethodInterceptionAspect", "OnMethodInvokeAspect",
+                "AroundAdvice", "BeforeAdvice", "AfterAdvice",
+            }
+            def _annotation_tail(name: str) -> str:
+                # `org.aspectj.lang.annotation.Around` → `Around`;
+                # `Advice.OnMethodEnter` stays as-is.
+                segs = name.split(".")
+                if len(segs) >= 2 and segs[-2] == "Advice":
+                    return f"Advice.{segs[-1]}"
+                return segs[-1]
+            matched_advice = [
+                _annotation_tail(str(a))
+                for a in annotations
+                if _annotation_tail(str(a)) in advice_tail_set
+            ]
+            if matched_advice:
+                # The "advice class name" is the enclosing class — strip the
+                # method-name leaf from the qualified node_id portion after `::`.
+                qualified = node_id.split("::", 1)[1] if "::" in node_id else ""
+                advice_class = qualified.rsplit(".", 1)[0] if "." in qualified else qualified
+                data["caller_pattern"] = "advice"
+                data["advice_annotations"] = matched_advice
+                # Language-aware recovery hint: choose glob + framework
+                # references based on whether annotations look Java-style or
+                # C#-style. Heuristic: any matched advice tail in the C# set
+                # suggests C#; otherwise default to Java.
+                csharp_tails = {
+                    "OnEntry", "OnExit", "OnSuccess", "OnException",
+                    "OnMethodBoundaryAspect", "MethodBoundaryAspect",
+                    "MethodInterceptionAspect", "OnMethodInvokeAspect",
+                    "AroundAdvice", "BeforeAdvice", "AfterAdvice",
+                }
+                is_csharp = any(tail in csharp_tails for tail in matched_advice)
+                if is_csharp:
+                    recovery_hint = (
+                        f"Method '{symbol}' is decorated with a C# AOP attribute "
+                        f"({', '.join(matched_advice)}). Callers are wired at runtime by "
+                        f"PostSharp / Castle DynamicProxy / a method-boundary aspect framework "
+                        f"and have no C# call sites. Search for the aspect registration via "
+                        f"code_keyword(queries=['{advice_class or symbol}'], glob='**/*.cs') "
+                        f"or look for the framework's interception configuration."
+                    )
+                else:
+                    recovery_hint = (
+                        f"Method '{symbol}' is annotated as AOP advice "
+                        f"({', '.join(matched_advice)}). Callers are wired at weave time by "
+                        f"ByteBuddy/AspectJ and have no Java call sites. "
+                        f"Search for the advice registration via "
+                        f"code_keyword(queries=['{advice_class or symbol}'], glob='**/*Instrumentation*.java') "
+                        f"or via @Aspect pointcut declarations."
+                    )
+                # Surface as a diagnostic (the AC-3 contract); thread through
+                # the final _response call below via a local advice_diagnostics
+                # list. Data-field surfacing is retained for back-compat with
+                # the test fixtures and downstream consumers.
+                advice_diagnostics.append(_diagnostic(
+                    "advice_pattern_detected",
+                    recovery_hint,
+                    recovery_tools=["code_keyword"],
+                    recovery_usage=(
+                        f"code_keyword(queries=['{advice_class or symbol}'], "
+                        f"glob='**/*Instrumentation*.java')"
+                        if not is_csharp else
+                        f"code_keyword(queries=['{advice_class or symbol}'], glob='**/*.cs')"
+                    ),
+                ))
 
     if context_depth > 0:
         # Gather all immediate caller/callee ids in one pass
@@ -9287,18 +9446,20 @@ def code_callhierarchy_response(
                 if not isinstance(other, str) or other in already_known or other in seen_context:
                     continue
                 n = index.get_node(other) or {}
+                c_label, c_id = community_lookup.get(other, (None, None))
                 context_entries.append({
                     "id": other,
                     "label": n.get("label", other),
                     "kind": n.get("kind"),
                     "source_file": n.get("source_file"),
-                    "community": community_lookup.get(other),
+                    "community": c_label,
+                    "community_id": c_id,
                     "relation": e.get("relation"),
                 })
                 seen_context.add(other)
         data["context"] = context_entries
 
-    return _response("ok", data, next_tools=["code_read", "code_callgraph"], usage=f"code_callgraph(symbol={symbol!r}, direction='both')")
+    return _response("ok", data, diagnostics=advice_diagnostics, next_tools=["code_read", "code_callgraph"], usage=f"code_callgraph(symbol={symbol!r}, direction='both')")
 
 
 # ---------------------------------------------------------------------------
@@ -9702,6 +9863,10 @@ def _load_cluster_lookup(root: Path, layer: str = "project") -> dict[str, str]:
     """Return node_id → community_label mapping from the cluster artifact.
 
     Returns an empty dict when the artifact is absent or cannot be loaded.
+
+    Preserved for backward compatibility with call sites that only need the
+    label. Use ``_load_cluster_lookup_with_ids`` (wave 130rj) when the
+    response shape includes both ``community`` and ``community_id``.
     """
     try:
         gc = _load_script("graph_cluster")
@@ -9713,6 +9878,32 @@ def _load_cluster_lookup(root: Path, layer: str = "project") -> dict[str, str]:
             label = str(community.get("label") or "")
             for nid in (community.get("node_ids") or []):
                 lookup[str(nid)] = label
+        return lookup
+    except Exception:
+        return {}
+
+
+def _load_cluster_lookup_with_ids(root: Path, layer: str = "project") -> dict[str, tuple[str, str]]:
+    """Return node_id → (community_label, community_id) mapping (wave 130rj).
+
+    Aceiss field feedback §1.1: every tool that surfaces a community label
+    should also expose the community_id needed to drill in via
+    ``code_graph_community``. Returning both eliminates the failed-call
+    recovery dance documented in the feedback report.
+
+    Returns an empty dict when the cluster artifact is absent.
+    """
+    try:
+        gc = _load_script("graph_cluster")
+        payload = gc.read_cluster_payload(root, layer)
+        if not payload.get("present"):
+            return {}
+        lookup: dict[str, tuple[str, str]] = {}
+        for community in (payload.get("communities") or []):
+            label = str(community.get("label") or "")
+            community_id = str(community.get("community_id") or "")
+            for nid in (community.get("node_ids") or []):
+                lookup[str(nid)] = (label, community_id)
         return lookup
     except Exception:
         return {}
@@ -9747,8 +9938,210 @@ def _graph_references_candidate_files(root: Path, symbol: str) -> frozenset[str]
         return None
 
 
+def _extract_java_owner_class_from_node_id(node_id: str) -> str | None:
+    """Parse owner class name from a Java graph node_id.
+
+    Node IDs have format ``<file>::<symbol>``. For Java the symbol part is
+    ``<Class>.<method>`` or ``<Outer>.<Inner>.<method>`` etc. Return the
+    simple class name (last `.`-segment before the method), or None when
+    the symbol is bare (no class context).
+    """
+    if not node_id or "::" not in node_id:
+        return None
+    symbol_part = node_id.rsplit("::", 1)[-1]
+    if "." not in symbol_part:
+        return None
+    # Drop the trailing method name; take the last segment of what remains.
+    class_path = symbol_part.rsplit(".", 1)[0]
+    return class_path.rsplit(".", 1)[-1] or None
+
+
+def _extract_simple_java_type_name(type_node, source_bytes: bytes) -> str | None:
+    """Extract the simple class name from a Java type AST node.
+
+    Handles ``type_identifier`` (bare ``Foo``), ``scoped_type_identifier``
+    (``java.io.Foo``), ``generic_type`` (``Foo<T>``), and ``array_type``
+    (``Foo[]``). Returns None for primitive types / unrecognized shapes.
+    """
+    n_type = getattr(type_node, "type", "")
+    if n_type == "type_identifier":
+        return source_bytes[type_node.start_byte:type_node.end_byte].decode("utf-8", errors="replace")
+    if n_type == "generic_type":
+        for child in (getattr(type_node, "children", []) or []):
+            if getattr(child, "type", "") in ("type_identifier", "scoped_type_identifier"):
+                return _extract_simple_java_type_name(child, source_bytes)
+        return None
+    if n_type == "scoped_type_identifier":
+        last_name = None
+        for child in (getattr(type_node, "children", []) or []):
+            if getattr(child, "type", "") == "type_identifier":
+                last_name = child
+        if last_name is not None:
+            return source_bytes[last_name.start_byte:last_name.end_byte].decode("utf-8", errors="replace")
+        return None
+    if n_type == "array_type":
+        elem = type_node.child_by_field_name("element")
+        if elem is not None:
+            return _extract_simple_java_type_name(elem, source_bytes)
+        return None
+    return None
+
+
+def _find_enclosing_java_class_name(node, source_bytes: bytes) -> str | None:
+    """Walk up the AST to the enclosing class_declaration's name."""
+    cur = getattr(node, "parent", None)
+    while cur is not None:
+        if getattr(cur, "type", "") == "class_declaration":
+            name_node = cur.child_by_field_name("name")
+            if name_node is not None:
+                return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
+            return None
+        cur = getattr(cur, "parent", None)
+    return None
+
+
+def _resolve_java_identifier_type(name: str, ref_node, source_bytes: bytes) -> str | None:
+    """Resolve a Java identifier to its declared simple type name.
+
+    Searches enclosing scopes (method body, then class body) for a
+    ``local_variable_declaration`` / ``formal_parameter`` /
+    ``field_declaration`` whose declarator name matches. Returns the
+    simple type name of the match.
+
+    If no declaration is found and the identifier starts with an
+    uppercase letter, assume it's a class name (static-call shape like
+    ``Foo.method()``) and return the identifier itself. Otherwise return
+    None (uncertain → preserve the candidate per false-positive bias).
+    """
+    cur = getattr(ref_node, "parent", None)
+    while cur is not None:
+        cur_type = getattr(cur, "type", "")
+        if cur_type in ("method_declaration", "constructor_declaration", "class_declaration"):
+            resolved = _search_java_declarations_in_scope(cur, name, source_bytes)
+            if resolved is not None:
+                return resolved
+            if cur_type == "class_declaration":
+                break
+        cur = getattr(cur, "parent", None)
+    if name and name[:1].isupper():
+        return name
+    return None
+
+
+def _search_java_declarations_in_scope(scope_node, name: str, source_bytes: bytes) -> str | None:
+    """Search descendants of scope_node for a matching variable/parameter/field declaration."""
+    stack = [scope_node]
+    while stack:
+        n = stack.pop()
+        n_type = getattr(n, "type", "")
+        if n_type in ("local_variable_declaration", "field_declaration"):
+            type_node = n.child_by_field_name("type")
+            for child in (getattr(n, "children", []) or []):
+                if getattr(child, "type", "") == "variable_declarator":
+                    name_node = child.child_by_field_name("name")
+                    if name_node is not None and type_node is not None:
+                        var_name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
+                        if var_name == name:
+                            return _extract_simple_java_type_name(type_node, source_bytes)
+        elif n_type == "formal_parameter":
+            type_node = n.child_by_field_name("type")
+            name_node = n.child_by_field_name("name")
+            if name_node is not None and type_node is not None:
+                param_name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
+                if param_name == name:
+                    return _extract_simple_java_type_name(type_node, source_bytes)
+        # Don't descend into nested method/class bodies — they're separate scopes.
+        if n_type in ("method_declaration", "constructor_declaration", "class_declaration") and n is not scope_node:
+            continue
+        stack.extend(reversed(getattr(n, "children", []) or []))
+    return None
+
+
+def _resolve_java_receiver_type(invocation_node, source_bytes: bytes) -> str | None:
+    """Resolve the simple type name of a Java ``method_invocation``'s receiver.
+
+    Returns the simple class name when resolvable, or None when uncertain
+    (preserve the candidate per false-positive bias). Wave 130rj (130tw):
+    filters phantom cross-class callers from ``code_callhierarchy`` when
+    the queried symbol's owning class is known.
+    """
+    if invocation_node is None or getattr(invocation_node, "type", "") != "method_invocation":
+        return None
+    obj = invocation_node.child_by_field_name("object")
+    if obj is None:
+        # Bare call (e.g. ``process()``) → resolves to enclosing class.
+        return _find_enclosing_java_class_name(invocation_node, source_bytes)
+    obj_type = getattr(obj, "type", "")
+    if obj_type == "this":
+        return _find_enclosing_java_class_name(invocation_node, source_bytes)
+    if obj_type == "super":
+        return None  # uncertain — defer inheritance walk
+    if obj_type == "identifier":
+        ident_text = source_bytes[obj.start_byte:obj.end_byte].decode("utf-8", errors="replace")
+        return _resolve_java_identifier_type(ident_text, invocation_node, source_bytes)
+    # field_access, cast_expression, method_invocation chains, lambdas, etc. → uncertain.
+    return None
+
+
+def _annotate_java_call_sites_with_receiver_type(
+    path: Path,
+    callee_label: str,
+    refs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Annotate Java call-site refs with ``_receiver_type`` field.
+
+    Each ref's ``_receiver_type`` is the resolved simple class name of the
+    method_invocation's receiver, or None when uncertain (preserve per
+    false-positive bias). Refs whose line has no matching method_invocation
+    candidate get ``_receiver_type: None``.
+    """
+    chunker = _get_chunker_module()
+    try:
+        source = path.read_text(encoding="utf-8", errors="replace")
+        tree = chunker._ts_parse("java", source)
+    except Exception:
+        return refs
+    if tree is None:
+        return refs
+    source_bytes = source.encode("utf-8", errors="replace")
+    line_to_invocations: dict[int, list] = {}
+    stack = [tree.root_node]
+    while stack:
+        n = stack.pop()
+        if getattr(n, "type", "") == "method_invocation":
+            name_node = n.child_by_field_name("name")
+            if name_node is not None:
+                name_text = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
+                if name_text == callee_label:
+                    line = n.start_point[0] + 1
+                    line_to_invocations.setdefault(line, []).append(n)
+        stack.extend(reversed(getattr(n, "children", []) or []))
+    for ref in refs:
+        line = ref.get("line") or 0
+        invocations = line_to_invocations.get(line, [])
+        if not invocations:
+            ref["_receiver_type"] = None
+            continue
+        # If multiple invocations on one line, take the first resolvable one.
+        resolved: str | None = None
+        for inv in invocations:
+            r = _resolve_java_receiver_type(inv, source_bytes)
+            if r is not None:
+                resolved = r
+                break
+        ref["_receiver_type"] = resolved
+    return refs
+
+
 def _scan_call_sites_in_file(root: Path, callee_label: str, source_file: str) -> list[dict[str, Any]]:
-    """Scan source_file for call sites of callee_label. Returns list sorted by line."""
+    """Scan source_file for call sites of callee_label. Returns list sorted by line.
+
+    For Java files, each ref carries a ``_receiver_type`` annotation
+    (simple class name of the method_invocation's receiver, or None when
+    uncertain). Callers use the annotation to filter phantom cross-class
+    callers when the queried symbol's owning class is known (wave 130rj —
+    130tw).
+    """
     p = root / source_file
     if not p.is_file():
         return []
@@ -9762,6 +10155,8 @@ def _scan_call_sites_in_file(root: Path, callee_label: str, source_file: str) ->
         if not refs:
             text_refs = _non_python_references(root, callee_label, restrict_files=restrict, _files=files)
             refs = [r for r in text_refs if r.get("reference_kind") == "call_sites"]
+        if source_file.endswith(".java") and refs:
+            refs = _annotate_java_call_sites_with_receiver_type(p, callee_label, refs)
     return sorted(refs, key=lambda r: r.get("line") or 0)
 
 
@@ -10065,14 +10460,16 @@ def _code_impact_graph_response(
             next_tools=["code_definition"],
             usage=f"code_definition(symbol_or_path_position={symbol!r})",
         )
-    community_lookup = _load_cluster_lookup(root, layer_value if layer_value != "union" else "project")
+    community_lookup = _load_cluster_lookup_with_ids(root, layer_value if layer_value != "union" else "project")
     affected_raw = impact.get("affected") or []
     if not include_tests:
         affected_raw = [a for a in affected_raw if not _is_test_path(str(a.get("source_file") or ""))]
-    # Attach community field to each affected node
-    affected_enriched = [
-        {**a, "community": community_lookup.get(a.get("node_id", ""))} for a in affected_raw
-    ]
+    # Attach community label + id to each affected node (wave 130rj — community label
+    # and id dual return per Aceiss field feedback §1.1).
+    def _with_community(a: dict) -> dict:
+        c_label, c_id = community_lookup.get(a.get("node_id", ""), (None, None))
+        return {**a, "community": c_label, "community_id": c_id}
+    affected_enriched = [_with_community(a) for a in affected_raw]
     truncated = len(affected_enriched) > max_results
     # Recompute affected_files after test filter
     affected_files = sorted({str(a.get("source_file") or "") for a in affected_enriched if a.get("source_file")})
@@ -10272,6 +10669,9 @@ def wave_graph_report_response(
     layer: str = "project",
     limit: int = 20,
     sections: Optional[list[str]] = None,
+    exclude_generated: bool = False,
+    exclude_external: bool = False,
+    collapse_generated_files: bool = False,
 ) -> dict[str, Any]:
     gq = _load_graph_query()
     try:
@@ -10301,7 +10701,168 @@ def wave_graph_report_response(
             next_tools=["wave_index_build"],
             usage="wave_index_build(content='graph', mode='create')",
         )
+    # Wave 130rj (130su): collapse_generated_files aggregates each generated
+    # file into a single file-node before running the report. Drops internal
+    # generated edges and rewrites boundary edges. The collapse runs on a
+    # snapshot payload; the original index is not mutated. Per-symbol tools
+    # (code_callhierarchy/code_impact/code_graph_path/code_callgraph) deliberately
+    # do NOT support this flag — they need the full per-symbol view.
+    if collapse_generated_files:
+        original_payload = {
+            "layer": index.layer,
+            "present": index.present,
+            "nodes": list(index.nodes),
+            "edges": list(index.edges),
+        }
+        collapsed_payload = gq.collapse_generated_view(original_payload)
+        index = gq.GraphQueryIndex(collapsed_payload)
     report = index.report(limit=max(1, min(limit, 100)), sections=sections)
+    # AC-from-wave-130rj (Aceiss field feedback §2.2): community overview section.
+    # Adds a single-call architectural-orientation surface listing top
+    # communities by node_count with the IDs needed to follow up via
+    # code_graph_community. Lazy-loaded so the section only fires when
+    # requested OR when the default section set is used.
+    wanted = set(sections) if sections is not None else {"fan_in", "fan_out", "orphan_docs", "chokepoints", "cross_layer", "communities"}
+    if "communities" in wanted:
+        try:
+            gc = _load_script("graph_cluster")
+            cluster_layer = layer_value if layer_value != "union" else "project"
+            payload = gc.read_cluster_payload(root, cluster_layer)
+            communities_section: list[dict[str, Any]] = []
+            if payload.get("present"):
+                # Build degree lookup for hub selection.
+                degree: dict[str, int] = {}
+                for nid, edges in index._in.items():
+                    degree[nid] = degree.get(nid, 0) + len(edges)
+                for nid, edges in index._out.items():
+                    degree[nid] = degree.get(nid, 0) + len(edges)
+                ranked = sorted(
+                    (payload.get("communities") or []),
+                    key=lambda c: -int(c.get("node_count") or 0),
+                )[:max(1, min(limit, 100))]
+                for c in ranked:
+                    cid = str(c.get("community_id") or "")
+                    label = str(c.get("label") or cid)
+                    members = c.get("node_ids") or []
+                    hub_id = max(members, key=lambda n: degree.get(n, 0), default="") if members else ""
+                    hub_label = (index.get_node(hub_id) or {}).get("label", hub_id) if hub_id else ""
+                    # Wave 130rj — Aceiss §6.5: per-community generated_node_fraction
+                    # comes from the cluster artifact; flag generated-dominated
+                    # communities (>40%) so agents can decide whether to trust the
+                    # community's structural metrics.
+                    gen_fraction = float(c.get("generated_node_fraction") or 0.0)
+                    entry = {
+                        "community_id": cid,
+                        "label": label,
+                        "node_count": int(c.get("node_count") or 0),
+                        "hub_node_id": hub_id,
+                        "hub_label": hub_label,
+                        "generated_node_fraction": gen_fraction,
+                    }
+                    if gen_fraction > 0.4:
+                        entry["community_type"] = "generated-dominated"
+                    communities_section.append(entry)
+            # Wave 130rj — exclude_generated suppresses generated-dominated communities.
+            if exclude_generated:
+                communities_section = [
+                    c for c in communities_section
+                    if c.get("community_type") != "generated-dominated"
+                ]
+            report["communities"] = communities_section
+        except Exception:
+            report.setdefault("communities", [])
+
+    # Wave 130rj — Aceiss §6.4 + §6.2: filter generated nodes out of
+    # fan_in/fan_out/chokepoints when exclude_generated=True; emit a
+    # `betweenness_dominated_by_generated` warning when >50% of top-N
+    # betweenness results are tagged generated.
+    def _node_is_generated(nid: str) -> bool:
+        n = index.get_node(nid) or {}
+        return bool(n.get("generated"))
+
+    if exclude_generated:
+        for section_name in ("fan_in", "fan_out", "chokepoints"):
+            rows = report.get(section_name)
+            if isinstance(rows, list):
+                report[section_name] = [
+                    row for row in rows
+                    if isinstance(row, dict) and not _node_is_generated(str(row.get("node_id") or ""))
+                ]
+        # Betweenness section uses the same node_id field.
+        bw = report.get("betweenness")
+        if isinstance(bw, list):
+            report["betweenness"] = [
+                row for row in bw
+                if isinstance(row, dict) and not _node_is_generated(str(row.get("node_id") or ""))
+            ]
+    # Wave 130rj (130tw): normalize betweenness shape and surface
+    # betweenness_computed / betweenness_skipped_reason so callers can
+    # distinguish "section empty because no node ranked" from "section
+    # skipped because graph above the size threshold".
+    if "betweenness" in report:
+        bw_value = report["betweenness"]
+        if isinstance(bw_value, list):
+            report["betweenness_computed"] = True
+        elif isinstance(bw_value, dict):
+            report["betweenness_computed"] = False
+            report["betweenness_skipped_reason"] = str(bw_value.get("diagnostic") or "skipped")
+            report["betweenness"] = []
+
+    # Compute the dominated warning over the (possibly post-filter) betweenness rows.
+    bw_rows = report.get("betweenness") if isinstance(report.get("betweenness"), list) else None
+    if bw_rows:
+        gen_count = sum(1 for row in bw_rows if isinstance(row, dict) and _node_is_generated(str(row.get("node_id") or "")))
+        if gen_count * 2 > len(bw_rows):  # >50%
+            report["betweenness_dominated_by_generated"] = True
+        else:
+            report["betweenness_dominated_by_generated"] = False
+    # Wave 130rj (130tw): name_collision_count on each ranking entry.
+    # Simple-name attribution can over-count fan_in for symbols whose simple
+    # name is shared across multiple distinct classes. Surface the collision
+    # count so operators can interpret a hot fan_in entry as "potentially
+    # inflated; verify with code_callhierarchy on the specific node_id".
+    simple_name_counts: dict[str, int] = {}
+    for _node in index.nodes:
+        nid = str(_node.get("id") or "")
+        if not nid or nid.startswith("external::"):
+            continue
+        symbol = nid.rsplit("::", 1)[-1] if "::" in nid else nid
+        simple = symbol.rsplit(".", 1)[-1]
+        if simple:
+            simple_name_counts[simple] = simple_name_counts.get(simple, 0) + 1
+
+    def _name_collision_count(nid: str) -> int:
+        if not nid or nid.startswith("external::"):
+            return 1
+        symbol = nid.rsplit("::", 1)[-1] if "::" in nid else nid
+        simple = symbol.rsplit(".", 1)[-1]
+        return simple_name_counts.get(simple, 1)
+
+    for _section_name in ("fan_in", "fan_out", "chokepoints", "betweenness"):
+        _rows = report.get(_section_name)
+        if isinstance(_rows, list):
+            for _row in _rows:
+                if isinstance(_row, dict):
+                    _row["name_collision_count"] = _name_collision_count(
+                        str(_row.get("node_id") or "")
+                    )
+
+    # Wave 130rj (130tw): exclude_external filters external::* nodes from
+    # the architectural-ranking sections. Independent of exclude_generated —
+    # operators typically combine both for "show me MY code" orientation.
+    if exclude_external:
+        for _section_name in ("fan_in", "fan_out", "chokepoints", "betweenness"):
+            _rows = report.get(_section_name)
+            if isinstance(_rows, list):
+                report[_section_name] = [
+                    _row for _row in _rows
+                    if isinstance(_row, dict)
+                    and not str(_row.get("node_id") or "").startswith("external::")
+                ]
+
+    report["exclude_generated"] = exclude_generated
+    report["exclude_external"] = exclude_external
+    report["collapse_generated_files"] = collapse_generated_files
     return _response(
         "ok",
         report,
@@ -10449,22 +11010,35 @@ def code_graph_community_response(
     community_id: str,
     *,
     layer: str = "project",
+    limit: int = 50,
+    offset: int = 0,
+    exclude_generated: bool = False,
 ) -> dict[str, Any]:
-    """Return all member nodes of a community from the cluster artifact.
+    """Return member nodes of a community from the cluster artifact.
 
     Prefer when: drilling into a specific community identified from wave_graph_report
     or the cluster dashboard. Returns members sorted by degree descending so the
     most-connected nodes appear first.
 
+    Pagination (wave 130rj — Aceiss field feedback §1.3): default ``limit=50``
+    so communities of 50+ members are usable inline. ``total_node_count`` and
+    ``has_more`` let the caller page through larger communities. Communities
+    under 50 nodes return all members in one call.
+
     Response fields:
     - community_id: the requested community identifier
     - label: human-readable community label
-    - node_count: total number of member nodes
-    - nodes: list of {id, label, kind, source_file, degree} sorted by degree descending
+    - total_node_count: total members of the community (independent of pagination)
+    - returned_count: number of members in this response page
+    - offset: the requested page offset
+    - has_more: true when more members exist past this page
+    - nodes: page of {id, label, kind, source_file, degree} sorted by degree descending
 
     Args:
         community_id: Community ID as returned in the cluster artifact.
         layer: Graph layer (default ``project``).
+        limit: Max members in this page (default 50, max 500).
+        offset: Member index to start from (default 0). Members are sorted by degree desc.
     """
     if not community_id or not community_id.strip():
         return _response(
@@ -10542,19 +11116,52 @@ def code_graph_community_response(
             "label": n.get("label", nid),
             "kind": n.get("kind"),
             "source_file": n.get("source_file"),
+            "generated": bool(n.get("generated")),
             "degree": in_deg + out_deg,
         })
     nodes.sort(key=lambda x: -x["degree"])
+    # total_node_count is the community's actual size (pre-filter). Wave 130rj —
+    # Aceiss §6.3: exclude_generated filter removes generated members from the
+    # response, but the total reflects the unfiltered community so operators can
+    # see how much was suppressed.
+    total_node_count = len(nodes)
+    if exclude_generated:
+        nodes = [n for n in nodes if not n.get("generated")]
+    # Apply pagination (wave 130rj). Clamp limit/offset to safe ranges.
+    safe_limit = max(1, min(int(limit) if limit is not None else 50, 500))
+    safe_offset = max(0, int(offset) if offset is not None else 0)
+    page = nodes[safe_offset:safe_offset + safe_limit]
+    has_more = (safe_offset + len(page)) < total_node_count
+    # Wave 130rj (130tw): pagination_hint surfaces the next-page call shape so
+    # operators see the truncation and the recovery path in one response.
+    response_payload: dict[str, Any] = {
+        "community_id": community_id,
+        "label": target.get("label", community_id),
+        "total_node_count": total_node_count,
+        "returned_count": len(page),
+        "offset": safe_offset,
+        "has_more": has_more,
+        # node_count kept for backward-compat callers; equals returned_count.
+        "node_count": len(page),
+        # Generated-node fraction surfaced from the cluster artifact (wave 130rj).
+        "generated_node_fraction": float(target.get("generated_node_fraction") or 0.0),
+        "exclude_generated": exclude_generated,
+        "nodes": page,
+    }
+    if has_more:
+        next_offset = safe_offset + len(page)
+        shown_lo = safe_offset + 1
+        shown_hi = safe_offset + len(page)
+        response_payload["pagination_hint"] = (
+            f"Use limit={safe_limit} offset={next_offset} to retrieve the next page "
+            f"({shown_lo}-{shown_hi} of {total_node_count} members shown)"
+        )
+    usage_target = page[0]['id'] if page else '...'
     return _response(
         "ok",
-        {
-            "community_id": community_id,
-            "label": target.get("label", community_id),
-            "node_count": len(nodes),
-            "nodes": nodes,
-        },
+        response_payload,
         next_tools=["code_callhierarchy", "code_impact"],
-        usage=f"code_callhierarchy(symbol='{nodes[0]['id'] if nodes else '...'}', direction='both')",
+        usage=f"code_callhierarchy(symbol='{usage_target}', direction='both')",
     )
 
 
@@ -11418,6 +12025,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         layer: str = "project",
         limit: int = 20,
         sections: list[str] | None = None,
+        exclude_generated: bool = False,
+        exclude_external: bool = False,
+        collapse_generated_files: bool = False,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Structural summary over the persisted code/doc graph.
@@ -11435,11 +12045,33 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - cross_layer: count + edge list of edges that cross the project/framework boundary (union layer only)
         - betweenness: ranked list of {node_id, label, kind, score} — nodes with high betweenness centrality
           (bridge nodes on shortest paths); requires igraph; skipped with diagnostic when graph > 10,000 nodes
+        - communities: top communities by node_count with `community_id`, `label`, `hub_node_id`, `hub_label`,
+          `generated_node_fraction`; entries with `generated_node_fraction > 0.4` carry `community_type: "generated-dominated"`
+        - betweenness_dominated_by_generated: true when >50% of top-N betweenness results are tagged generated
+        - exclude_generated: echoes the requested filter flag
 
         Args:
             layer: Graph layer (default ``project``). Use ``union`` for cross-layer summaries.
             limit: Max rows per ranking section (default 20).
-            sections: Optional subset: fan_in, fan_out, orphan_docs, chokepoints, cross_layer, betweenness.
+            sections: Optional subset: fan_in, fan_out, orphan_docs, chokepoints, cross_layer, betweenness, communities.
+            exclude_generated: When True (wave 130rj), filters nodes tagged ``generated: true`` out of
+                fan_in/fan_out/chokepoints/betweenness/communities. The classifier covers Java and C#
+                generated-code conventions (multi-language follow-up tracked separately).
+            exclude_external: When True (wave 130rj — 130tw), filters ``external::*`` nodes (stdlib /
+                third-party library symbols) out of fan_in/fan_out/chokepoints/betweenness. Use for
+                "show me MY code" architectural orientation. Independent of ``exclude_generated`` —
+                both can be set together to remove stdlib + machine-generated noise simultaneously.
+                Default False for backward compat (existing callers using fan_in as a dependency-density
+                signal still see external entries). The ``communities`` section is unaffected (external
+                nodes are not community members).
+            collapse_generated_files: When True (wave 130rj — 130su), aggregates each generated
+                source file into a single file-node before computing report sections. Internal edges
+                within a generated file are dropped; cross-boundary edges have generated endpoints
+                rewritten to the file-node id. Preserves "handwritten code calls into ELParser"
+                topology while shrinking the apparent complexity of generated parsers (e.g. ELParser's
+                330 internal nodes collapse to 1). Per-symbol tools (code_callhierarchy, code_impact,
+                code_graph_path, code_callgraph) deliberately do NOT support this flag — they need
+                the full per-symbol view.
         """
         bad = _ensure_no_extra_args("wave_graph_report", kwargs)
         if bad is not None:
@@ -11450,6 +12082,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             layer=layer,
             limit=limit,
             sections=sections,
+            exclude_generated=exclude_generated,
+            exclude_external=exclude_external,
+            collapse_generated_files=collapse_generated_files,
         ), t_start, "wave_graph_report")
 
     @mcp.tool(annotations=_READONLY_TOOL)
@@ -12607,9 +13242,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def code_graph_community(
         community_id: str,
         layer: str = "project",
+        limit: int = 50,
+        offset: int = 0,
+        exclude_generated: bool = False,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Return all member nodes of a graph community from the cluster artifact.
+        """Return member nodes of a graph community from the cluster artifact.
 
         Prefer when: drilling into a specific community identified from wave_graph_report or
         the cluster dashboard to understand what code belongs to it. Returns members sorted
@@ -12618,11 +13256,18 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Read ``wavefoundry://graph/communities`` first to discover available community ids
         without a tool call.
 
+        Pagination (wave 130rj — Aceiss field feedback §1.3): default ``limit=50`` so
+        communities of 50+ members stay within agent context limits. Use ``offset`` to
+        page; ``has_more`` in the response indicates whether further pages exist.
+
         Response fields (success):
         - community_id: the requested community identifier
         - label: human-readable community label
-        - node_count: total number of member nodes
-        - nodes: list of {id, label, kind, source_file, degree} sorted by degree descending
+        - total_node_count: total members of the community (independent of pagination)
+        - returned_count: number of members in this response page
+        - offset: the requested page offset
+        - has_more: true when more members exist past this page
+        - nodes: page of {id, label, kind, source_file, degree} sorted by degree descending
 
         Response fields (not-found error):
         - community_id: the requested community identifier
@@ -12633,6 +13278,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Args:
             community_id: Community ID as returned in the cluster artifact or wave_graph_report.
             layer: Graph layer (default ``project``).
+            limit: Max members in this page (default 50, max 500).
+            offset: Member index to start from (default 0). Members sorted by degree desc.
         """
         bad = _ensure_no_extra_args("code_graph_community", kwargs)
         if bad is not None:
@@ -12642,6 +13289,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             get_handler().root,
             community_id,
             layer=layer,
+            limit=limit,
+            offset=offset,
+            exclude_generated=exclude_generated,
         ), t_start, "code_graph_community")
 
     # --- Read-only MCP Resources ---

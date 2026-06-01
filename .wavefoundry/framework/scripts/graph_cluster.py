@@ -796,6 +796,20 @@ def update_graph_clusters(
     remapped = _merge_same_stem_communities(remapped, nodes_by_id, adjacency)
     remapped = _merge_small_communities(remapped, nodes_by_id, adjacency)
     _disambiguate_labels(remapped, nodes_by_id)
+    # Wave 130rj — Aceiss field feedback §6.5: per-community generated_node_fraction.
+    # Lets `wave_graph_report` flag communities dominated by generated code without
+    # callers re-walking nodes_by_id. Computed as count(generated nodes) / total
+    # node_count; zero when no nodes are tagged generated.
+    for c in remapped:
+        member_ids = c.get("node_ids") or []
+        if member_ids:
+            generated_count = sum(
+                1 for nid in member_ids
+                if bool((nodes_by_id.get(str(nid)) or {}).get("generated"))
+            )
+            c["generated_node_fraction"] = round(generated_count / len(member_ids), 4)
+        else:
+            c["generated_node_fraction"] = 0.0
     for c in remapped:
         if c.pop("_fixed", None):
             c["kind"] = "fixed"

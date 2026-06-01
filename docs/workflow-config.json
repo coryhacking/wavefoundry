@@ -18,6 +18,19 @@
     "auto_prepare_when_missing": false,
     "lifecycle_mode": "standard"
   },
+  "code_navigation_hints": {
+    "notes": "Project-tunable token lists referenced by seed-180/seed-211 edge-case pattern. Per wave 130rj-enh seeds-pattern-library-and-recipes: project conventions for guard / early-exit patterns vary even within a single language (Swift may use `guard`/`throw`/`assertionFailure`/`preconditionFailure`/`fatalError` plus project-internal helpers like `throwIfInvalid()`); hardcoding tokens in seeds would be wrong for many projects on day one. Each list is opt-in: leave empty to let the seed pattern describe the shape without concrete tokens.",
+    "guard_tokens": [
+      "raise ",
+      "return None",
+      "assert "
+    ],
+    "early_exit_tokens": [
+      "return ",
+      "break",
+      "continue"
+    ]
+  },
   "agent_memory": {
     "journal_root": "docs/agents/journals/",
     "promotion_behavior": "promote_repeated_validated_lessons_to_canonical_docs",

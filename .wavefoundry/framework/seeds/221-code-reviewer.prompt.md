@@ -87,3 +87,11 @@ When this lane finds an issue that can be fixed in fewer than ~20 lines of code 
 
 For every finding routed to follow-on, write one line of justification explaining *why* it's not fixable in-session. Silent deferral accumulates technical debt across waves — the principle is to absorb the cost now, when context is hot, rather than defer to a colder future session.
 
+### Reviewer-side graph queries before deciding fix-now vs follow-on
+
+When MCP is attached, use these graph signals to sharpen the fix-now-vs-follow-on call:
+
+- **Count incoming callers.** For a finding in function X, run `code_callhierarchy(symbol=X, direction="incoming")` to see how many callers depend on the current behavior. **Small caller count (≤5) AND all callers in one `community:`** → the change is module-local; fix-now threshold is easier to meet because the blast radius is contained. **Large caller count OR callers spanning multiple communities** → the contract is load-bearing; either keep the fix strictly in-contract or escalate per architecture-reviewer guidance.
+- **Read the `community:` field on each incoming entry.** Cross-community callers signal a cross-cutting concern that should not be silently fixed. If the change crosses architectural boundaries, surface the finding to council per seed 214 rather than absorbing it in-session.
+- **Skip this graph step when the language's cross-file extraction is unreliable.** For Swift/Java/Kotlin/C/C++/C#/etc., empty `code_callhierarchy` may reflect extractor limits rather than zero callers; treat absent evidence as inconclusive and prefer the LOC/contract heuristics in the original fix-now threshold.
+

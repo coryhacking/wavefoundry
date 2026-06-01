@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-31
+Last verified: 2026-06-01
 
 Actor: wave-coordinator
 Schema version: 1.0
@@ -31,6 +31,10 @@ Last distilled: 2026-04-30
 - **Python late-binding eliminates the need for monkey-patching own-module functions** (wave `12rbc`): A function defined early in a module can reference symbols (`_runner_version`, `version_payload`) defined later, because global-name lookup happens at call time. Prefer a single merged definition over `_orig_func = func; def func(): ... _orig_func() ...` patterns, which are subtle on `importlib.reload` and obscure intent.
 
 ## Active Signals
+
+wave-id: `13129 graph-tools-field-feedback-round-2`
+
+- Planned 2026-06-01: six changes addressing Solaris (Swift) + Aceiss (Java) field feedback on `1.2.0+312f`. Diagnostic decompositions (1312b, 1312j), section/view splits (1312d, 1312f, 1312h), and the source-of-truth fix promoting wave 130rj's receiver-type filter to the graph builder (1312l, `GRAPH_BUILDER_VERSION` bump). Pre-implementation council review pending.
 
 wave-id: `12rnv agent-prompt-harness`
 
@@ -150,6 +154,8 @@ wave-id: `12nbr code-intelligence-expansion`
 ## Active Waves
 
 wave-id: `12xfr id-generation-and-planning-improvements`
+
+wave-id: `130rj graph-tools-field-feedback-tier-1-and-2`
 
 ## Active Watchpoints
 

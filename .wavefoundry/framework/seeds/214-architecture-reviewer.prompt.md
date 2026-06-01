@@ -113,3 +113,11 @@ When this lane finds an issue that can be fixed in fewer than ~20 lines without 
 
 For every architecture finding routed to follow-on, write one line of justification explaining *why* it's not fixable in-session. The cumulative cost of deferred architectural cleanups is the largest single source of long-tail technical debt in self-hosting frameworks.
 
+### Reviewer-side graph queries — cross-community escalation signal
+
+When MCP is attached, use these graph signals to decide whether an architectural finding crosses module boundaries (council-worthy) or stays local (fix-now):
+
+- **Run `code_impact(symbol=X, max_hops=3)` on the affected symbol** and read the `community:` field across the returned `affected` list. Findings whose affected set spans **multiple communities** are cross-cutting concerns by definition — they should not be silently fixed in-session. Surface them to council per the Wave Council readiness gate, with the cross-community evidence in the review write-up. Findings contained in a single community are candidates for in-session fix-now.
+- **`code_graph_path(direction="either")`** is the right tool for "is module A coupled to module B?" — but read each `path_edges[i].relation` before drawing a conclusion. `defines` and `imports` edges count toward path existence but are not call coupling. Genuine call coupling requires every edge to be `calls`. Reactive/AOP/event-driven flows often surface through `direction="either"` only because data flows backward through shared mutable state.
+- **`wave_graph_report(sections=["cross_layer", "chokepoints"], layer="union")`** at the start of a cross-cutting review session frames the architectural geometry before per-symbol analysis. Chokepoints with high fan_out AND genuine project-internal `code_callhierarchy(direction="incoming")` are real hotspots; those without project callers are usually AOP/SPI/runtime-weave wiring that the static graph cannot trace.
+

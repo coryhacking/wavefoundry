@@ -76,3 +76,12 @@ Security concerns that involve narrowing exception scope, validating an input th
 
 For every security finding routed to follow-on, write one line of justification. Small validation gaps are how attack surfaces grow; close them now.
 
+### Reviewer-side graph queries — production attack-surface sizing
+
+When MCP is attached, use these graph signals to scope a security finding before deciding fix-now vs follow-on:
+
+- **Run `code_impact(symbol=X, include_tests=false, max_hops=3)`** on the sensitive helper or trust-boundary function. The `include_tests=false` filter is essential — test callers inflate the apparent attack surface with paths that aren't reachable from untrusted input. The remaining production set is the actual blast radius.
+- **For each affected node, run `code_callhierarchy(symbol=node, direction="incoming")`** to identify trust-boundary crossings: any caller from a different `community:` that handles untrusted input (HTTP handlers, deserialization, IPC entry points) is a direct attack path.
+- **Skip when the language's cross-file extraction is unreliable** (Swift/Java/Kotlin/C/C++/etc. without good graph coverage) — absent graph evidence is inconclusive, not exculpatory. For those cases, fall back to `code_keyword` scoped to known entry-point files, and weight the LOC/contract heuristics in the fix-now threshold accordingly.
+- **For Java AOP/advice methods** (`@Advice.OnMethodEnter`/`@Around`/`@Before`/`@After`): empty `code_callhierarchy` incoming is expected. The attack-surface entry points are the `TypeInstrumentation.transform()` declarations that register the advice — find them via `code_keyword(queries=[<advice_class_name>], glob="**/*Instrumentation*.java")` and treat each `transform()` join point as a separate trust-boundary crossing.
+
