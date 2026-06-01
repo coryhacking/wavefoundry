@@ -2053,11 +2053,13 @@ If hot-reload is needed during development, call ``_script_cache.clear()``.
 def _load_script(name: str) -> Any:
     """Load a sibling script as a module, executing it at most once per process.
 
-    Uses a private ``_script_cache`` dict keyed by a namespaced name so that
-    the loaded module does not pollute public ``sys.modules`` and is not
-    re-executed on repeated calls.
+    Uses a private ``_script_cache`` dict keyed by a namespaced name. The
+    module is registered in ``sys.modules`` under the SAME namespaced key
+    (not the public ``<name>``) so dataclass type resolution + relative
+    imports work without polluting the public module namespace.
     """
     import importlib.util
+    import sys as _sys
 
     cache_key = f"_wavefoundry_{name}"
     if cache_key in _script_cache:
@@ -2066,7 +2068,14 @@ def _load_script(name: str) -> Any:
         cache_key, Path(__file__).resolve().parent / f"{name}.py"
     )
     mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    # Register before exec so dataclass / typing machinery can resolve types
+    # against the module's own namespace mid-construction.
+    _sys.modules[cache_key] = mod
+    try:
+        spec.loader.exec_module(mod)
+    except Exception:
+        _sys.modules.pop(cache_key, None)
+        raise
     _script_cache[cache_key] = mod
     return mod
 
@@ -2245,6 +2254,59 @@ def _index_build_stats_path(root: Path, layer: str) -> Path:
     if layer == "framework":
         return root / ".wavefoundry" / "framework" / "index" / "index-build-stats.json"
     return root / ".wavefoundry" / "index" / "index-build-stats.json"
+
+
+def _graph_health_summary(root: Path) -> dict[str, Any]:
+    """Wave 13129 (1316n): summary of graph artifact presence + last-built per layer.
+
+    Operators reading wave_index_health get this alongside semantic-layer
+    readiness so the "did my rebuild touch graph?" question is answerable
+    inline without inspecting timestamps manually.
+
+    Returns dict with shape:
+        {
+            "project": {"present": bool, "last_built_at": str | None,
+                        "node_count": int | None, "edge_count": int | None},
+            "framework": {...same shape...},
+        }
+    """
+    import datetime as _dt
+    summary: dict[str, Any] = {}
+    for layer, fname in (("project", "project-graph.json"),
+                         ("framework", "framework-graph.json")):
+        graph_path = root / ".wavefoundry" / "index" / "graph" / fname
+        # framework graphs may live under the framework/ subtree on the operator
+        # repo; fall back to that path when the top-level one is absent.
+        if not graph_path.exists() and layer == "framework":
+            alt = root / ".wavefoundry" / "framework" / "index" / "graph" / fname
+            if alt.exists():
+                graph_path = alt
+        if not graph_path.exists():
+            summary[layer] = {
+                "present": False, "last_built_at": None,
+                "node_count": None, "edge_count": None,
+            }
+            continue
+        try:
+            mtime = graph_path.stat().st_mtime
+            last_built = _dt.datetime.fromtimestamp(mtime, tz=_dt.timezone.utc).isoformat()
+        except OSError:
+            last_built = None
+        node_count = edge_count = None
+        try:
+            import json
+            payload = json.loads(graph_path.read_text(encoding="utf-8"))
+            nodes = payload.get("nodes") or []
+            edges = payload.get("edges") or []
+            node_count = len(nodes) if isinstance(nodes, list) else None
+            edge_count = len(edges) if isinstance(edges, list) else None
+        except Exception:
+            pass
+        summary[layer] = {
+            "present": True, "last_built_at": last_built,
+            "node_count": node_count, "edge_count": edge_count,
+        }
+    return summary
 
 
 def _read_index_build_stats_file(root: Path, layer: str) -> Optional[dict[str, Any]]:
@@ -4522,6 +4584,12 @@ def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
     if project_stats is not None:
         health["previous_build_stats"] = project_stats
 
+    # Wave 13129 (1316n): graph readiness reported separately from semantic
+    # readiness. Aceiss caught the silent "rebuild didn't touch graph" misread
+    # because there was no breakout. Operators now see graph_present /
+    # graph_last_built_at per layer alongside the existing fields.
+    health["graph"] = _graph_health_summary(index.root)
+
     semantic_ready = health.get("semantic_ready")
     return _response(
         "ok",
@@ -4835,6 +4903,28 @@ def wave_index_build_response(
             recovery_tools=["wave_index_health"],
             recovery_usage="wave_index_health()",
         ))
+    # Wave 13129 (1316n): surface graph state regardless of content. Operators
+    # running content='code'|'docs'|'all' need to see the graph wasn't touched
+    # (Aceiss's misread on 1.2.1+315o). When content is not 'graph', append a
+    # clarifying note pointing at content='graph' for graph refresh.
+    graph_health = _graph_health_summary(root)
+    target_layer = layer_s if layer_s in ("project", "framework") else "project"
+    layer_graph = graph_health.get(target_layer, {})
+    if layer_graph.get("present"):
+        result["graph_node_count"] = layer_graph.get("node_count")
+        result["graph_edge_count"] = layer_graph.get("edge_count")
+        result["graph_last_built_at"] = layer_graph.get("last_built_at")
+    if content_s != "graph":
+        result["graph_rebuilt"] = False
+        existing_notice = str(result.get("notice") or "")
+        graph_callout = (
+            " | NOTE: The graph layer was NOT rebuilt by this call. "
+            "Run wave_index_build(content='graph') if graph-layer refresh is required."
+        )
+        if graph_callout not in existing_notice:
+            result["notice"] = (existing_notice + graph_callout).strip(" |")
+    else:
+        result["graph_rebuilt"] = True
     return _response(
         "ok",
         result,
@@ -9259,7 +9349,19 @@ def code_callhierarchy_response(
         # queried class. Suppresses phantom cross-class callers from
         # simple-name attribution (e.g. ``oos.writeObject(...)`` falsely
         # matching ``JSON.writeObject``).
+        #
+        # Wave 13129 (1312l delivery review): the filter is provably redundant
+        # on graphs built by the v13+ indexer (1312l moved receiver-type
+        # resolution to graph-build time, eliminating phantoms at the source).
+        # Short-circuit on v13+ to avoid per-query AST walks; the defense-in-
+        # depth path stays active for cached pre-bump graphs (builder_version
+        # < 13 or absent) that operators haven't rebuilt yet.
         _expected_owner_class = _extract_java_owner_class_from_node_id(node_id)
+        try:
+            _graph_builder_version_int = int(index.builder_version) if index.builder_version else 0
+        except (TypeError, ValueError):
+            _graph_builder_version_int = 0
+        _receiver_filter_redundant = _graph_builder_version_int >= 13
         # Use the resolved node's bare label for call-site scanning; the user's
         # `symbol` may be qualified ("JSON.writeObject") which would never match
         # bare identifier text. Falls back to symbol when label is absent.
@@ -9270,7 +9372,9 @@ def code_callhierarchy_response(
             if not sites:
                 continue
             _apply_receiver_filter = bool(
-                _expected_owner_class and source_file.endswith(".java")
+                _expected_owner_class
+                and source_file.endswith(".java")
+                and not _receiver_filter_redundant
             )
             # Sort callers by their definition start line to attribute call sites correctly
             sorted_entries = sorted(file_entries, key=lambda x: x[1].get("_start_line", 0))
@@ -9956,131 +10060,33 @@ def _extract_java_owner_class_from_node_id(node_id: str) -> str | None:
     return class_path.rsplit(".", 1)[-1] or None
 
 
-def _extract_simple_java_type_name(type_node, source_bytes: bytes) -> str | None:
-    """Extract the simple class name from a Java type AST node.
+# Wave 13129 (1312l + delivery cleanup): Java receiver-type resolution helpers
+# live in graph_indexer.py as the source of truth — the graph builder consumes
+# them at index time AND server_impl.py's code_callhierarchy defense-in-depth
+# filter consumes them at query time. Single implementation; no drift risk.
+# Module-level wrapper names preserved so wave-130rj unit tests
+# (TestJavaReceiverTypeResolution + TestExtractJavaOwnerClassFromNodeId) keep
+# working via `srv._resolve_java_receiver_type(...)` attribute access without
+# modification.
 
-    Handles ``type_identifier`` (bare ``Foo``), ``scoped_type_identifier``
-    (``java.io.Foo``), ``generic_type`` (``Foo<T>``), and ``array_type``
-    (``Foo[]``). Returns None for primitive types / unrecognized shapes.
-    """
-    n_type = getattr(type_node, "type", "")
-    if n_type == "type_identifier":
-        return source_bytes[type_node.start_byte:type_node.end_byte].decode("utf-8", errors="replace")
-    if n_type == "generic_type":
-        for child in (getattr(type_node, "children", []) or []):
-            if getattr(child, "type", "") in ("type_identifier", "scoped_type_identifier"):
-                return _extract_simple_java_type_name(child, source_bytes)
-        return None
-    if n_type == "scoped_type_identifier":
-        last_name = None
-        for child in (getattr(type_node, "children", []) or []):
-            if getattr(child, "type", "") == "type_identifier":
-                last_name = child
-        if last_name is not None:
-            return source_bytes[last_name.start_byte:last_name.end_byte].decode("utf-8", errors="replace")
-        return None
-    if n_type == "array_type":
-        elem = type_node.child_by_field_name("element")
-        if elem is not None:
-            return _extract_simple_java_type_name(elem, source_bytes)
-        return None
-    return None
+def _extract_simple_java_type_name(type_node, source_bytes: bytes) -> str | None:
+    return _load_script("graph_indexer")._extract_simple_java_type_name(type_node, source_bytes)
 
 
 def _find_enclosing_java_class_name(node, source_bytes: bytes) -> str | None:
-    """Walk up the AST to the enclosing class_declaration's name."""
-    cur = getattr(node, "parent", None)
-    while cur is not None:
-        if getattr(cur, "type", "") == "class_declaration":
-            name_node = cur.child_by_field_name("name")
-            if name_node is not None:
-                return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
-            return None
-        cur = getattr(cur, "parent", None)
-    return None
+    return _load_script("graph_indexer")._find_enclosing_java_class_name(node, source_bytes)
 
 
 def _resolve_java_identifier_type(name: str, ref_node, source_bytes: bytes) -> str | None:
-    """Resolve a Java identifier to its declared simple type name.
-
-    Searches enclosing scopes (method body, then class body) for a
-    ``local_variable_declaration`` / ``formal_parameter`` /
-    ``field_declaration`` whose declarator name matches. Returns the
-    simple type name of the match.
-
-    If no declaration is found and the identifier starts with an
-    uppercase letter, assume it's a class name (static-call shape like
-    ``Foo.method()``) and return the identifier itself. Otherwise return
-    None (uncertain → preserve the candidate per false-positive bias).
-    """
-    cur = getattr(ref_node, "parent", None)
-    while cur is not None:
-        cur_type = getattr(cur, "type", "")
-        if cur_type in ("method_declaration", "constructor_declaration", "class_declaration"):
-            resolved = _search_java_declarations_in_scope(cur, name, source_bytes)
-            if resolved is not None:
-                return resolved
-            if cur_type == "class_declaration":
-                break
-        cur = getattr(cur, "parent", None)
-    if name and name[:1].isupper():
-        return name
-    return None
+    return _load_script("graph_indexer")._resolve_java_identifier_type(name, ref_node, source_bytes)
 
 
 def _search_java_declarations_in_scope(scope_node, name: str, source_bytes: bytes) -> str | None:
-    """Search descendants of scope_node for a matching variable/parameter/field declaration."""
-    stack = [scope_node]
-    while stack:
-        n = stack.pop()
-        n_type = getattr(n, "type", "")
-        if n_type in ("local_variable_declaration", "field_declaration"):
-            type_node = n.child_by_field_name("type")
-            for child in (getattr(n, "children", []) or []):
-                if getattr(child, "type", "") == "variable_declarator":
-                    name_node = child.child_by_field_name("name")
-                    if name_node is not None and type_node is not None:
-                        var_name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
-                        if var_name == name:
-                            return _extract_simple_java_type_name(type_node, source_bytes)
-        elif n_type == "formal_parameter":
-            type_node = n.child_by_field_name("type")
-            name_node = n.child_by_field_name("name")
-            if name_node is not None and type_node is not None:
-                param_name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
-                if param_name == name:
-                    return _extract_simple_java_type_name(type_node, source_bytes)
-        # Don't descend into nested method/class bodies — they're separate scopes.
-        if n_type in ("method_declaration", "constructor_declaration", "class_declaration") and n is not scope_node:
-            continue
-        stack.extend(reversed(getattr(n, "children", []) or []))
-    return None
+    return _load_script("graph_indexer")._search_java_declarations_in_scope(scope_node, name, source_bytes)
 
 
 def _resolve_java_receiver_type(invocation_node, source_bytes: bytes) -> str | None:
-    """Resolve the simple type name of a Java ``method_invocation``'s receiver.
-
-    Returns the simple class name when resolvable, or None when uncertain
-    (preserve the candidate per false-positive bias). Wave 130rj (130tw):
-    filters phantom cross-class callers from ``code_callhierarchy`` when
-    the queried symbol's owning class is known.
-    """
-    if invocation_node is None or getattr(invocation_node, "type", "") != "method_invocation":
-        return None
-    obj = invocation_node.child_by_field_name("object")
-    if obj is None:
-        # Bare call (e.g. ``process()``) → resolves to enclosing class.
-        return _find_enclosing_java_class_name(invocation_node, source_bytes)
-    obj_type = getattr(obj, "type", "")
-    if obj_type == "this":
-        return _find_enclosing_java_class_name(invocation_node, source_bytes)
-    if obj_type == "super":
-        return None  # uncertain — defer inheritance walk
-    if obj_type == "identifier":
-        ident_text = source_bytes[obj.start_byte:obj.end_byte].decode("utf-8", errors="replace")
-        return _resolve_java_identifier_type(ident_text, invocation_node, source_bytes)
-    # field_access, cast_expression, method_invocation chains, lambdas, etc. → uncertain.
-    return None
+    return _load_script("graph_indexer")._resolve_java_receiver_type(invocation_node, source_bytes)
 
 
 def _annotate_java_call_sites_with_receiver_type(
@@ -10672,6 +10678,7 @@ def wave_graph_report_response(
     exclude_generated: bool = False,
     exclude_external: bool = False,
     collapse_generated_files: bool = False,
+    collapse_class_module_pairs: bool = False,
 ) -> dict[str, Any]:
     gq = _load_graph_query()
     try:
@@ -10716,13 +10723,26 @@ def wave_graph_report_response(
         }
         collapsed_payload = gq.collapse_generated_view(original_payload)
         index = gq.GraphQueryIndex(collapsed_payload)
+    # Wave 13129 (1312h): collapse_class_module_pairs merges Swift file+class
+    # pairs into one node for report consumption. Independent of generated-file
+    # collapse — both can be applied together. Swift-first; other languages
+    # extend via _CLASS_MODULE_COLLAPSE_LANGUAGES table in graph_query.py.
+    if collapse_class_module_pairs:
+        original_payload = {
+            "layer": index.layer,
+            "present": index.present,
+            "nodes": list(index.nodes),
+            "edges": list(index.edges),
+        }
+        merged_payload = gq.collapse_class_module_view(original_payload)
+        index = gq.GraphQueryIndex(merged_payload)
     report = index.report(limit=max(1, min(limit, 100)), sections=sections)
     # AC-from-wave-130rj (Aceiss field feedback §2.2): community overview section.
     # Adds a single-call architectural-orientation surface listing top
     # communities by node_count with the IDs needed to follow up via
     # code_graph_community. Lazy-loaded so the section only fires when
     # requested OR when the default section set is used.
-    wanted = set(sections) if sections is not None else {"fan_in", "fan_out", "orphan_docs", "chokepoints", "cross_layer", "communities"}
+    wanted = set(sections) if sections is not None else {"fan_in", "fan_out", "orphan_docs", "chokepoints", "file_hubs", "cross_layer", "communities"}
     if "communities" in wanted:
         try:
             gc = _load_script("graph_cluster")
@@ -10816,42 +10836,338 @@ def wave_graph_report_response(
             report["betweenness_dominated_by_generated"] = True
         else:
             report["betweenness_dominated_by_generated"] = False
+    # Wave 13129 (1316p): curated allowlist of common Java stdlib + framework
+    # method simple names. The pre-1316p graph-state-based count no longer
+    # fires for the common Java case because 1312l's receiver-type resolution
+    # at index time eliminates the spurious `external::*` nodes the count
+    # depended on. The allowlist answers the operator's actual question.
+    # Wave 13129 (13192): extended to multi-language dispatch by source-file
+    # extension. Each language has different stdlib patterns; one global
+    # allowlist would either over-flag or be ambiguous.
+    _STDLIB_COMMON_NAMES_BY_LANG: dict[str, frozenset[str]] = {
+        ".java": frozenset({
+            # java.lang.Object
+            "equals", "hashCode", "toString", "getClass", "notify", "notifyAll", "wait",
+            # java.lang.Runnable / Thread
+            "run",
+            # java.lang.AutoCloseable / Closeable
+            "close",
+            # java.util.function (Functional interfaces)
+            "accept", "apply", "test", "get",
+            # java.util.Comparator / Comparable
+            "compare", "compareTo",
+            # java.util.Iterator / Iterable
+            "iterator", "next", "hasNext",
+            # java.lang.reflect (commonly mistaken)
+            "getMethod", "getDeclaredMethod", "getField", "getDeclaredField",
+            # java.io
+            "read", "write", "flush", "writeObject", "readObject",
+            # java.util.Map.Entry / collections
+            "getKey", "getValue",
+            # Spring patterns
+            "execute", "process", "handle",
+        }),
+        ".cs": frozenset({
+            # System.Object
+            "Equals", "GetHashCode", "ToString", "GetType",
+            # System.IDisposable
+            "Dispose",
+            # System.Collections.IEnumerator / IEnumerable
+            "MoveNext", "Current", "GetEnumerator",
+            # System.IComparable / IComparer
+            "Compare", "CompareTo",
+            # System.ICloneable
+            "Clone",
+            # System.IO (stream patterns)
+            "Read", "Write", "Close", "Flush",
+            # Common method names on services
+            "Start", "Stop", "Reset", "Cancel", "Invoke",
+            # System.Collections.Generic.List / IDictionary
+            "Add", "Remove", "Contains", "Clear", "ToArray", "ToList",
+            # Parsing / formatting
+            "Format", "Parse", "TryParse",
+            # Visitor patterns / .NET internals
+            "Visit", "Execute", "Process", "Handle",
+        }),
+        ".kt": frozenset({
+            # Kotlin runs on JVM — inherits Java common method names
+            "equals", "hashCode", "toString", "compareTo",
+            "iterator", "next", "hasNext", "close", "run",
+            "accept", "apply", "test", "get",
+            # Kotlin stdlib extension functions commonly used as method names
+            "let", "also", "with", "invoke", "getValue", "setValue",
+            # Operator overloads
+            "plus", "minus", "times", "div", "rangeTo",
+        }),
+        ".swift": frozenset({
+            # Initializers / deinitializers
+            "init", "deinit",
+            # CustomStringConvertible
+            "description", "debugDescription",
+            # Hashable / Equatable
+            "hash",
+            # Codable
+            "encode", "decode",
+            # Comparable
+            "compare",
+            # Collection
+            "count", "append", "remove", "insert", "contains", "forEach",
+            # Sequence
+            "map", "filter", "reduce", "compactMap", "flatMap",
+            "sorted", "prefix", "suffix", "first", "last", "min", "max",
+            "allSatisfy",
+            # Indexing
+            "index",
+        }),
+        ".py": frozenset({
+            # Dunder methods
+            "__init__", "__str__", "__repr__", "__eq__", "__hash__",
+            "__len__", "__iter__", "__next__",
+            "__enter__", "__exit__", "__call__",
+            "__getitem__", "__setitem__", "__delitem__",
+            "__contains__", "__bool__",
+            "__add__", "__sub__", "__mul__", "__lt__",
+            # threading / file IO
+            "close", "read", "write", "flush", "run", "start", "join",
+        }),
+    }
+    # Wave 13129 (13198): extended allowlist coverage to JS/TS/Go/Rust/Scala/PHP/Ruby.
+    _JS_COMMON = frozenset({
+        # Object.prototype
+        "toString", "valueOf", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable",
+        # Promise
+        "then", "catch", "finally",
+        # Array.prototype
+        "forEach", "map", "filter", "reduce", "find", "findIndex",
+        "some", "every", "includes", "push", "pop", "shift", "unshift",
+        "slice", "splice", "indexOf", "lastIndexOf", "join", "split", "concat",
+        # String.prototype
+        "charAt", "charCodeAt", "substring", "substr", "toLowerCase", "toUpperCase", "trim",
+        # generic
+        "length",
+    })
+    _STDLIB_COMMON_NAMES_BY_LANG[".js"]  = _JS_COMMON
+    _STDLIB_COMMON_NAMES_BY_LANG[".jsx"] = _JS_COMMON
+    _STDLIB_COMMON_NAMES_BY_LANG[".mjs"] = _JS_COMMON
+    _STDLIB_COMMON_NAMES_BY_LANG[".cjs"] = _JS_COMMON
+
+    _TS_COMMON = _JS_COMMON | frozenset({
+        # TS framework lifecycle / serialization
+        "toJSON", "render",
+        # React class component lifecycle
+        "componentDidMount", "componentWillUnmount", "componentDidUpdate",
+        "shouldComponentUpdate", "getSnapshotBeforeUpdate",
+        # Hooks (used as method names occasionally)
+        "useState", "useEffect", "useMemo", "useCallback",
+    })
+    _STDLIB_COMMON_NAMES_BY_LANG[".ts"]  = _TS_COMMON
+    _STDLIB_COMMON_NAMES_BY_LANG[".tsx"] = _TS_COMMON
+
+    _STDLIB_COMMON_NAMES_BY_LANG[".go"] = frozenset({
+        # io.Reader / io.Writer / io.Closer
+        "Read", "Write", "Close",
+        # fmt.Stringer / error
+        "String", "Error",
+        # encoding/json, encoding/xml, encoding/gob, encoding/binary
+        "Marshal", "Unmarshal", "Encode", "Decode",
+        # sync
+        "Wait", "Done", "Lock", "Unlock", "RLock", "RUnlock",
+        # http.Handler
+        "ServeHTTP",
+        # standard runnable patterns
+        "Run", "Start", "Stop",
+        # Stringer / formatter
+        "Format", "Scan", "Reset",
+    })
+
+    _STDLIB_COMMON_NAMES_BY_LANG[".rs"] = frozenset({
+        # Default / construction
+        "new", "default",
+        # Clone / Drop / fmt::Debug / Display
+        "clone", "drop", "fmt",
+        # PartialEq / Ord / PartialOrd
+        "eq", "ne", "cmp", "partial_cmp",
+        # Hash
+        "hash",
+        # serde
+        "serialize", "deserialize",
+        # From / Into / AsRef / AsMut
+        "from", "into", "as_ref", "as_mut",
+        # Option / Result idioms
+        "unwrap", "expect", "ok", "err",
+        # Iterator
+        "iter", "iter_mut", "into_iter", "next", "collect",
+        "map", "filter", "fold", "len",
+    })
+
+    _STDLIB_COMMON_NAMES_BY_LANG[".scala"] = frozenset({
+        # Scala on JVM — inherits Java common names
+        "equals", "hashCode", "toString", "compareTo",
+        # Scala-specific apply/unapply/copy
+        "apply", "unapply", "copy",
+        # Case-class product methods
+        "productElement", "productArity", "canEqual",
+        # Collection
+        "foreach", "map", "flatMap", "filter", "fold", "reduce",
+        "collect", "groupBy", "head", "tail", "isEmpty", "nonEmpty",
+        # Common
+        "run", "execute", "close",
+    })
+
+    _STDLIB_COMMON_NAMES_BY_LANG[".php"] = frozenset({
+        # PHP magic methods
+        "__construct", "__destruct", "__toString",
+        "__get", "__set", "__isset", "__unset",
+        "__call", "__callStatic", "__invoke",
+        "__clone", "__sleep", "__wakeup", "__serialize", "__unserialize",
+        # Iterator / Countable / ArrayAccess
+        "count", "getIterator",
+        "current", "next", "key", "valid", "rewind",
+        "offsetGet", "offsetSet", "offsetExists", "offsetUnset",
+        # JsonSerializable
+        "jsonSerialize",
+    })
+
+    _STDLIB_COMMON_NAMES_BY_LANG[".rb"] = frozenset({
+        # Object
+        "initialize", "to_s", "inspect",
+        # Conversions
+        "to_a", "to_h", "to_proc", "to_i", "to_f", "to_str",
+        # Enumerable
+        "each", "each_with_index", "each_with_object",
+        "map", "select", "reject", "reduce", "inject",
+        "find", "any?", "all?", "none?", "count",
+        # Comparable
+        "==", "<=>", "eql?",
+        # Object identity / cloning
+        "hash", "dup", "clone", "object_id",
+        # Reflection
+        "send", "public_send", "method_missing", "respond_to?",
+        "is_a?", "kind_of?", "instance_of?",
+        # Standard hooks
+        "call",
+    })
+
+    def _stdlib_collision_for_node(_node: dict[str, Any], _simple: str) -> int:
+        """Return 1 when the project node's simple name appears in the language-specific
+        stdlib allowlist (extension-derived from source_file); 0 otherwise. Wave 13192.
+        """
+        source_file = str(_node.get("source_file") or "")
+        # Extract extension; lowercase for case-insensitive match (.JAVA, .Cs etc).
+        ext_idx = source_file.rfind(".")
+        slash_idx = source_file.rfind("/")
+        if ext_idx <= slash_idx:
+            return 0
+        ext = source_file[ext_idx:].lower()
+        allowlist = _STDLIB_COMMON_NAMES_BY_LANG.get(ext)
+        if allowlist is None:
+            return 0
+        return 1 if _simple in allowlist else 0
+
+    # Wave 13129 (1316j): single-source-of-truth simple-name extraction.
+    # For symbol nodes (`<file>::<qname>`), take the last `.`-segment of the
+    # qname (e.g. `JSON.writeObject` → `writeObject`).
+    # For module/file nodes (no `::`), take the basename without extension
+    # (e.g. `path/StatusBarManager.swift` → `StatusBarManager`).
+    # The pre-1316j behavior took the file extension for module nodes,
+    # producing the same constant for every module entry (Solaris reported
+    # `same_name_node_count: 72` on every Swift module — the total Swift
+    # module count, not a per-symbol value).
+    def _node_simple_name(nid: str) -> str:
+        if not nid:
+            return ""
+        if "::" in nid:
+            symbol = nid.rsplit("::", 1)[-1]
+            return symbol.rsplit(".", 1)[-1]
+        # Module/file node: take last path segment, drop extension.
+        basename = nid.rsplit("/", 1)[-1]
+        if "." in basename:
+            return basename.rsplit(".", 1)[0]
+        return basename
+
     # Wave 130rj (130tw): name_collision_count on each ranking entry.
-    # Simple-name attribution can over-count fan_in for symbols whose simple
-    # name is shared across multiple distinct classes. Surface the collision
-    # count so operators can interpret a hot fan_in entry as "potentially
-    # inflated; verify with code_callhierarchy on the specific node_id".
-    simple_name_counts: dict[str, int] = {}
+    # Wave 13129 (1312b): decomposed into same_name_node_count + cross_file_collision
+    # + external_name_collision_count. The original field is preserved as a
+    # deprecated alias for same_name_node_count for one release.
+    #
+    # Simple-name attribution can over-count fan_in two ways:
+    # - same-file aggregation (Swift StatusBarManager nested types) → reflected
+    #   in same_name_node_count without cross_file_collision (operator can
+    #   verify the file-tree shape is not the actual signal)
+    # - external collision (Java JSON.writeObject vs ObjectOutputStream.writeObject)
+    #   → reflected in external_name_collision_count > 0
+    #
+    # The simple-name match uses the last `.`-segment of the symbol part after
+    # `::`, identical for project and external nodes (1312b AC-3) — so a project
+    # `JSON.writeObject` matches both `external::writeObject` and
+    # `external::ObjectOutputStream.writeObject`.
+    # Wave 13129 (1316p): only the project-side precompute remains. The
+    # external-side precompute (`external_counts_by_simple_name`) is replaced
+    # by the curated `_JAVA_STDLIB_COMMON_NAMES` allowlist lookup.
+    project_files_by_simple_name: dict[str, set[str]] = {}
     for _node in index.nodes:
         nid = str(_node.get("id") or "")
-        if not nid or nid.startswith("external::"):
+        if not nid:
             continue
-        symbol = nid.rsplit("::", 1)[-1] if "::" in nid else nid
-        simple = symbol.rsplit(".", 1)[-1]
-        if simple:
-            simple_name_counts[simple] = simple_name_counts.get(simple, 0) + 1
+        if nid.startswith("external::"):
+            continue
+        simple = _node_simple_name(nid)
+        if not simple:
+            continue
+        source_file = str(_node.get("source_file") or "")
+        if not source_file:
+            # Fall back to file portion of node_id when source_file missing.
+            source_file = nid.split("::")[0] if "::" in nid else nid
+        project_files_by_simple_name.setdefault(simple, set()).add(source_file)
 
-    def _name_collision_count(nid: str) -> int:
+    project_node_count_by_simple_name: dict[str, int] = {}
+    for _node in index.nodes:
+        _nid = str(_node.get("id") or "")
+        if not _nid or _nid.startswith("external::"):
+            continue
+        _simple = _node_simple_name(_nid)
+        if _simple:
+            project_node_count_by_simple_name[_simple] = (
+                project_node_count_by_simple_name.get(_simple, 0) + 1
+            )
+
+    def _collision_fields(nid: str) -> dict[str, Any]:
         if not nid or nid.startswith("external::"):
-            return 1
-        symbol = nid.rsplit("::", 1)[-1] if "::" in nid else nid
-        simple = symbol.rsplit(".", 1)[-1]
-        return simple_name_counts.get(simple, 1)
+            return {
+                "same_name_node_count": 1,
+                "cross_file_collision": False,
+                "external_name_collision_count": 0,
+                "name_collision_count": 1,
+            }
+        simple = _node_simple_name(nid)
+        same_name = project_node_count_by_simple_name.get(simple, 1)
+        files = project_files_by_simple_name.get(simple, set())
+        cross_file = len(files) >= 2
+        # Wave 13192: per-language allowlist lookup (extension-derived from
+        # source_file). Java was 1316p; this dispatches across .java/.cs/.kt/
+        # .swift/.py with curated lists per language.
+        node = index.get_node(nid) or {}
+        external_count = _stdlib_collision_for_node(node, simple)
+        return {
+            "same_name_node_count": same_name,
+            "cross_file_collision": cross_file,
+            "external_name_collision_count": external_count,
+            # Deprecated alias preserved for one release (wave 13129 1312b AC-4).
+            "name_collision_count": same_name,
+        }
 
-    for _section_name in ("fan_in", "fan_out", "chokepoints", "betweenness"):
+    for _section_name in ("fan_in", "fan_out", "chokepoints", "file_hubs", "betweenness"):
         _rows = report.get(_section_name)
         if isinstance(_rows, list):
             for _row in _rows:
                 if isinstance(_row, dict):
-                    _row["name_collision_count"] = _name_collision_count(
-                        str(_row.get("node_id") or "")
-                    )
+                    _row.update(_collision_fields(str(_row.get("node_id") or "")))
 
     # Wave 130rj (130tw): exclude_external filters external::* nodes from
     # the architectural-ranking sections. Independent of exclude_generated —
     # operators typically combine both for "show me MY code" orientation.
     if exclude_external:
-        for _section_name in ("fan_in", "fan_out", "chokepoints", "betweenness"):
+        for _section_name in ("fan_in", "fan_out", "chokepoints", "file_hubs", "betweenness"):
             _rows = report.get(_section_name)
             if isinstance(_rows, list):
                 report[_section_name] = [
@@ -10863,6 +11179,7 @@ def wave_graph_report_response(
     report["exclude_generated"] = exclude_generated
     report["exclude_external"] = exclude_external
     report["collapse_generated_files"] = collapse_generated_files
+    report["collapse_class_module_pairs"] = collapse_class_module_pairs
     return _response(
         "ok",
         report,
@@ -11007,8 +11324,9 @@ def code_graph_path_response(
 
 def code_graph_community_response(
     root: Path,
-    community_id: str,
+    community_id: str = "",
     *,
+    hub_node_id: str = "",
     layer: str = "project",
     limit: int = 50,
     offset: int = 0,
@@ -11040,15 +11358,22 @@ def code_graph_community_response(
         limit: Max members in this page (default 50, max 500).
         offset: Member index to start from (default 0). Members are sorted by degree desc.
     """
-    if not community_id or not community_id.strip():
+    # Wave 13129 (1316r): community_id and hub_node_id are alternative inputs.
+    # community_id wins when both are provided; hub_node_id is the stable
+    # cross-rebuild anchor that resolves to whatever community contains the
+    # node (Leiden ids change between rebuilds; node ids don't).
+    community_id = (community_id or "").strip()
+    hub_node_id = (hub_node_id or "").strip()
+    hub_node_id_used = False
+    if not community_id and not hub_node_id:
         return _response(
             "error",
             {"community_id": community_id},
-            diagnostics=[_diagnostic("invalid_arguments", "community_id must be a non-empty string.")],
+            diagnostics=[_diagnostic("invalid_arguments",
+                                     "Provide either community_id or hub_node_id.")],
             next_tools=["wave_graph_report"],
             usage="wave_graph_report(layer='project')",
         )
-    community_id = community_id.strip()
     try:
         layer_value = _graph_layer_value(layer)
     except ValueError as exc:
@@ -11081,10 +11406,30 @@ def code_graph_community_response(
         )
     def _find_community(_payload):
         for c in (_payload.get("communities") or []):
-            if str(c.get("community_id") or "") == community_id:
+            if community_id and str(c.get("community_id") or "") == community_id:
                 return c
         return None
-    target: Optional[dict[str, Any]] = _find_community(payload)
+
+    def _find_community_by_hub_node(_payload):
+        # Wave 13129 (1316r): resolve hub_node_id to its current community.
+        # The hub is identified by membership — any community containing the
+        # node id resolves. Leiden produces hard-clustering so node_id matches
+        # exactly one community; if multiple match (defensive), first wins.
+        for c in (_payload.get("communities") or []):
+            members = c.get("node_ids") or []
+            if hub_node_id in members:
+                return c
+        return None
+
+    target: Optional[dict[str, Any]] = None
+    if community_id:
+        target = _find_community(payload)
+    if target is None and hub_node_id:
+        target = _find_community_by_hub_node(payload)
+        if target is not None:
+            hub_node_id_used = True
+            # Use the resolved community_id for the response.
+            community_id = str(target.get("community_id") or "")
     if target is None:
         # Wave 1304x / 1304r: refresh-then-recheck before emitting suggestions
         def _recheck_community():
@@ -11132,8 +11477,25 @@ def code_graph_community_response(
     safe_offset = max(0, int(offset) if offset is not None else 0)
     page = nodes[safe_offset:safe_offset + safe_limit]
     has_more = (safe_offset + len(page)) < total_node_count
+    # Wave 13129 (1312j): community_size_class lets callers branch on size without
+    # threshold knowledge. Thresholds: <50 small, 50-200 medium, 200+ large.
+    if total_node_count < 50:
+        community_size_class = "small"
+    elif total_node_count <= 200:
+        community_size_class = "medium"
+    else:
+        community_size_class = "large"
     # Wave 130rj (130tw): pagination_hint surfaces the next-page call shape so
     # operators see the truncation and the recovery path in one response.
+    # Wave 13129 (1316r): community_hub_node_id is the stable cross-rebuild
+    # anchor — the highest-degree member of the community. The pre-pagination
+    # `nodes` list is already sorted by degree desc, so nodes[0] is the hub.
+    # When the resolved community has zero members (defensive), use the
+    # hub_node_id parameter (if provided) or empty string.
+    community_hub_node_id = (
+        nodes[0]["id"] if nodes
+        else (hub_node_id if hub_node_id else "")
+    )
     response_payload: dict[str, Any] = {
         "community_id": community_id,
         "label": target.get("label", community_id),
@@ -11146,6 +11508,11 @@ def code_graph_community_response(
         # Generated-node fraction surfaced from the cluster artifact (wave 130rj).
         "generated_node_fraction": float(target.get("generated_node_fraction") or 0.0),
         "exclude_generated": exclude_generated,
+        # Wave 13129 (1312j): observability field for caller branching.
+        "community_size_class": community_size_class,
+        # Wave 13129 (1316r): stable cross-rebuild anchor.
+        "community_hub_node_id": community_hub_node_id,
+        "hub_node_id_used": hub_node_id_used,
         "nodes": page,
     }
     if has_more:
@@ -11156,10 +11523,58 @@ def code_graph_community_response(
             f"Use limit={safe_limit} offset={next_offset} to retrieve the next page "
             f"({shown_lo}-{shown_hi} of {total_node_count} members shown)"
         )
+    # Wave 13129 (1312j): large_community_advisory diagnostic — when the community
+    # exceeds 200 members, full traversal will burn token budgets at default
+    # pagination (60+ round-trips on a 3119-node community). The recovery hint
+    # points operators at code_callhierarchy on the hub (the community's most-
+    # connected member, looked up here from the in/out degree across page+remaining
+    # members) so they can identify the public API without enumerating the whole
+    # community. The advisory surfaces ALONGSIDE pagination_hint; both stay
+    # available.
+    advisory_diagnostics: list[dict[str, Any]] = []
+    if community_size_class == "large":
+        # Compute hub from the pre-pagination, pre-exclude_generated node list:
+        # use the highest-degree node as the hub. (Same algorithm wave 130rj's
+        # communities-section hub selection uses.)
+        full_nodes_with_degree = nodes  # already sorted by degree desc above (line 11122)
+        # When exclude_generated dropped members, `nodes` may be shorter; recover
+        # the unfiltered list by re-fetching for hub lookup.
+        if exclude_generated:
+            # Recompute the unfiltered, degree-sorted list for hub selection.
+            unfiltered: list[dict[str, Any]] = []
+            for nid in node_ids:
+                n = index.get_node(nid) or {}
+                in_deg = len(index._in.get(nid, []))
+                out_deg = len(index._out.get(nid, []))
+                unfiltered.append({
+                    "id": nid, "label": n.get("label", nid),
+                    "degree": in_deg + out_deg,
+                })
+            unfiltered.sort(key=lambda x: -x["degree"])
+            full_nodes_with_degree = unfiltered
+        hub_node = full_nodes_with_degree[0] if full_nodes_with_degree else None
+        hub_node_id = hub_node["id"] if hub_node else ""
+        recovery_usage = (
+            f"code_callhierarchy(symbol='{hub_node_id}', direction='both')"
+            if hub_node_id else ""
+        )
+        advisory_diagnostics.append(_diagnostic(
+            "large_community_advisory",
+            (
+                f"Community has {total_node_count} members; full traversal will exceed token "
+                "budgets at default pagination. Consider `code_callhierarchy` on the hub "
+                f"`{hub_node_id}` to identify the community's public API, then narrow with "
+                "`code_graph_path` between specific endpoints. Pagination remains available "
+                "via the `pagination_hint` if full enumeration is required."
+            ),
+            recovery_tools=["code_callhierarchy", "code_graph_path"],
+            recovery_usage=recovery_usage,
+        ))
     usage_target = page[0]['id'] if page else '...'
     return _response(
         "ok",
         response_payload,
+        diagnostics=advisory_diagnostics if advisory_diagnostics else None,
         next_tools=["code_callhierarchy", "code_impact"],
         usage=f"code_callhierarchy(symbol='{usage_target}', direction='both')",
     )
@@ -12028,6 +12443,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         exclude_generated: bool = False,
         exclude_external: bool = False,
         collapse_generated_files: bool = False,
+        collapse_class_module_pairs: bool = False,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Structural summary over the persisted code/doc graph.
@@ -12038,9 +12454,20 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         per-symbol follow-up.
 
         Response fields (one key per requested section):
-        - fan_in: ranked list of {node_id, label, kind, count} — most-called symbols (by ``calls`` edge in-degree)
-        - fan_out: ranked list of {node_id, label, kind, count} — symbols that call the most others
-        - chokepoints: nodes with fan_out >= threshold (default 20) — potential bottlenecks
+        - fan_in: ranked list of {node_id, label, kind, count} — most-called symbols by incoming ``calls`` edge
+          count. ``count`` is the number of distinct ``calls``-relation edges targeting the node. For
+          ``kind: "function"`` / ``"method"`` / ``"class"`` entries this is the direct caller count. For
+          ``kind: "module"`` entries (files), ``count`` is the number of ``calls`` edges whose target is the file
+          node itself — typically attributed when the indexer couldn't bind the call to a specific symbol inside
+          the file (1312f locks this contract via `TestModuleFanOutCountSemantics`). Use the entry's ``kind``
+          field to interpret the number; ``imports`` and ``defines`` edges are NOT included.
+        - fan_out: ranked list of {node_id, label, kind, count} — symbols that issue the most outgoing ``calls``
+          edges. Same kind-aware shape as fan_in. Note: file-level (``kind: "module"``) entries with high fan_out
+          appear in the dedicated ``file_hubs`` section (wave 13129); operators seeking architectural orientation
+          should read both ``chokepoints`` and ``file_hubs`` together.
+        - chokepoints: nodes with ``kind: "function"`` / ``"method"`` / ``"class"`` fan_out >= threshold (default 20)
+          — potential bottlenecks in the call graph. Module/file entries are NOT in this section (wave 13129);
+          see ``file_hubs`` for the parallel file-level view.
         - orphan_docs: doc/seed nodes with no ``doc_references_code`` edges — disconnected documentation
         - cross_layer: count + edge list of edges that cross the project/framework boundary (union layer only)
         - betweenness: ranked list of {node_id, label, kind, score} — nodes with high betweenness centrality
@@ -12050,10 +12477,23 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - betweenness_dominated_by_generated: true when >50% of top-N betweenness results are tagged generated
         - exclude_generated: echoes the requested filter flag
 
+        Each ranking entry (fan_in, fan_out, chokepoints, file_hubs, betweenness) also carries collision
+        diagnostic fields (wave 13129):
+        - ``same_name_node_count`` (int): count of project nodes sharing the entry's simple name.
+        - ``cross_file_collision`` (bool): True when 2+ project files own a same-simple-name node.
+        - ``external_name_collision_count`` (int, wave 1316p): 1 when the simple name appears in the
+          curated Java stdlib/framework allowlist (``run``, ``close``, ``equals``, ``hashCode``,
+          ``toString``, ``compareTo``, ``iterator``, ``accept``, ``apply``, ``getMethod``,
+          ``execute``, ``process``, etc.), 0 otherwise. Replaces the pre-1316p graph-state-based
+          count, which stopped firing for the common Java case after 1312l's receiver-type
+          resolution at index time eliminated the residue external nodes the count depended on.
+          Allowlist is Java-focused in this release; non-Java symbols receive 0.
+        - ``name_collision_count`` (deprecated alias for ``same_name_node_count``, removed after one release).
+
         Args:
             layer: Graph layer (default ``project``). Use ``union`` for cross-layer summaries.
             limit: Max rows per ranking section (default 20).
-            sections: Optional subset: fan_in, fan_out, orphan_docs, chokepoints, cross_layer, betweenness, communities.
+            sections: Optional subset: fan_in, fan_out, orphan_docs, chokepoints, file_hubs, cross_layer, betweenness, communities.
             exclude_generated: When True (wave 130rj), filters nodes tagged ``generated: true`` out of
                 fan_in/fan_out/chokepoints/betweenness/communities. The classifier covers Java and C#
                 generated-code conventions (multi-language follow-up tracked separately).
@@ -12072,6 +12512,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 330 internal nodes collapse to 1). Per-symbol tools (code_callhierarchy, code_impact,
                 code_graph_path, code_callgraph) deliberately do NOT support this flag — they need
                 the full per-symbol view.
+            collapse_class_module_pairs: When True (wave 13129 — 1312h), merges Swift file-and-class
+                pairs into one node for report consumption. For ``Foo.swift`` containing top-level
+                ``class Foo`` (or ``struct``/``actor``/``enum``/``protocol`` Foo), the file node and
+                the class node aggregate into a single node with the class label and a
+                ``collapsed_pair: true`` marker. Files without a basename-matching top-level type are
+                unaffected. Swift-first; Java/Kotlin/C# enablement is operator-validation-driven via
+                the ``_CLASS_MODULE_COLLAPSE_LANGUAGES`` dispatch in graph_query.py. Per-symbol tools
+                deliberately do NOT support this flag.
         """
         bad = _ensure_no_extra_args("wave_graph_report", kwargs)
         if bad is not None:
@@ -12085,6 +12533,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             exclude_generated=exclude_generated,
             exclude_external=exclude_external,
             collapse_generated_files=collapse_generated_files,
+            collapse_class_module_pairs=collapse_class_module_pairs,
         ), t_start, "wave_graph_report")
 
     @mcp.tool(annotations=_READONLY_TOOL)
@@ -13240,7 +13689,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_graph_community(
-        community_id: str,
+        community_id: str = "",
+        hub_node_id: str = "",
         layer: str = "project",
         limit: int = 50,
         offset: int = 0,
@@ -13277,6 +13727,13 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Args:
             community_id: Community ID as returned in the cluster artifact or wave_graph_report.
+                Stable within a single graph build; Leiden re-clustering across rebuilds
+                renumbers these. Use ``hub_node_id`` for cross-rebuild stability.
+            hub_node_id: Stable community anchor (wave 1316r). The id of the community's
+                highest-degree member, which is persistent across graph rebuilds (node ids
+                don't churn even when Leiden ids do). When provided, the tool resolves to
+                the current community containing this node. ``community_id`` wins when
+                both are provided.
             layer: Graph layer (default ``project``).
             limit: Max members in this page (default 50, max 500).
             offset: Member index to start from (default 0). Members sorted by degree desc.
@@ -13288,6 +13745,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return _inject_timing(code_graph_community_response(
             get_handler().root,
             community_id,
+            hub_node_id=hub_node_id,
             layer=layer,
             limit=limit,
             offset=offset,

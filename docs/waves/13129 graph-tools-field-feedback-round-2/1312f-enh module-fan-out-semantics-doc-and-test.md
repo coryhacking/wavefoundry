@@ -1,7 +1,7 @@
 # Document and Test `kind:"module"` Fan-Out Semantics
 
 Change ID: `1312f-enh module-fan-out-semantics-doc-and-test`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
 Status: planned
 Last verified: 2026-06-01
@@ -34,19 +34,19 @@ This change is the cheapest, highest-clarity win: docstring fix on `wave_graph_r
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `wave_graph_report` docstring for `fan_out` calls out the module vs function decomposition explicitly.
-- [ ] AC-2: `file_hubs` section docstring carries the same explanation.
-- [ ] AC-3: One unit test asserts the exact `count` value for a known small synthetic module fixture, locking in the contract.
-- [ ] AC-4: All existing tests continue to pass.
+- [x] AC-1: `wave_graph_report` docstring for `fan_out` calls out the module vs function decomposition explicitly.
+- [x] AC-2: `file_hubs` section docstring carries the same explanation.
+- [x] AC-3: One unit test asserts the exact `count` value for a known small synthetic module fixture, locking in the contract.
+- [x] AC-4: All existing tests continue to pass.
 
 ## Tasks
 
-- [ ] Open `framework_edit_allowed` gate
-- [ ] Update wave_graph_report docstring
-- [ ] Add the synthetic-fixture unit test
-- [ ] Run framework tests
-- [ ] Close gate
-- [ ] Mark change `implemented`
+- [x] Open `framework_edit_allowed` gate
+- [x] Update wave_graph_report docstring
+- [x] Add the synthetic-fixture unit test
+- [x] Run framework tests
+- [x] Close gate
+- [x] Mark change `implemented`
 
 ## AC Priority
 

@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "12"  # bumped for wave 130rj: generated-code classifier + Java AOP annotation tracking
+GRAPH_BUILDER_VERSION = "14"  # bumped for wave 13129 (1316l): Swift class/module pair merge at index time
 GRAPH_DIRNAME = "graph"
 GRAPH_FILENAMES = {
     "project": "project-graph.json",
@@ -1278,6 +1278,11 @@ def _ts_is_definition_node(node_type: str, mode: str) -> bool:
     def_context = any(token in lower for token in ("declaration", "definition", "specifier", "statement", "item", "declarator", "signature", "impl"))
     if lower.endswith("_declaration") or lower.endswith("_definition") or lower.endswith("_item"):
         return True
+    # Wave 1319k: Ruby grammar uses bare `class`, `module`, `method`,
+    # `singleton_method` node types (no `_declaration`/`_definition`/`_item`
+    # suffix). Recognize these explicitly.
+    if lower in ("class", "module", "method", "singleton_method"):
+        return True
     return def_context and any(token in lower for token in (
         "class", "interface", "struct", "enum", "trait", "record", "module", "namespace", "package",
         "function", "method", "constructor", "procedure", "macro", "rule", "resource", "object",
@@ -1443,6 +1448,1158 @@ def _ts_extract_callee_recursive(node, source_bytes: bytes) -> str | None:
         if result:
             return result
     return None
+
+
+# =============================================================================
+# Java receiver-type resolution (wave 13129 — 1312l).
+#
+# Source of truth — graph_indexer.py owns these helpers; server_impl.py's
+# code_callhierarchy defense-in-depth filter (for cached pre-bump graphs)
+# imports them via `_load_script("graph_indexer")` rather than duplicating.
+# Single implementation; no drift risk.
+#
+# The resolver must short-circuit on first uncertain branch (wave 13129 council
+# action item: performance-reviewer). It returns None as soon as the receiver
+# expression can't be classified into one of the three handled cases (this/bare,
+# simple identifier, ClassName static).
+# =============================================================================
+
+
+def _extract_simple_java_type_name(type_node, source_bytes: bytes) -> str | None:
+    """Extract the simple class name from a Java type AST node."""
+    n_type = getattr(type_node, "type", "")
+    if n_type == "type_identifier":
+        return source_bytes[type_node.start_byte:type_node.end_byte].decode("utf-8", errors="replace")
+    if n_type == "generic_type":
+        for child in (getattr(type_node, "children", []) or []):
+            if getattr(child, "type", "") in ("type_identifier", "scoped_type_identifier"):
+                return _extract_simple_java_type_name(child, source_bytes)
+        return None
+    if n_type == "scoped_type_identifier":
+        last_name = None
+        for child in (getattr(type_node, "children", []) or []):
+            if getattr(child, "type", "") == "type_identifier":
+                last_name = child
+        if last_name is not None:
+            return source_bytes[last_name.start_byte:last_name.end_byte].decode("utf-8", errors="replace")
+        return None
+    if n_type == "array_type":
+        elem = type_node.child_by_field_name("element")
+        if elem is not None:
+            return _extract_simple_java_type_name(elem, source_bytes)
+        return None
+    return None
+
+
+def _find_enclosing_java_class_name(node, source_bytes: bytes) -> str | None:
+    """Walk up the AST to the enclosing class_declaration's name."""
+    cur = getattr(node, "parent", None)
+    while cur is not None:
+        if getattr(cur, "type", "") == "class_declaration":
+            name_node = cur.child_by_field_name("name")
+            if name_node is not None:
+                return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
+            return None
+        cur = getattr(cur, "parent", None)
+    return None
+
+
+def _search_java_declarations_in_scope(scope_node, name: str, source_bytes: bytes) -> str | None:
+    """Search descendants of scope_node for a matching variable/parameter/field declaration."""
+    stack = [scope_node]
+    while stack:
+        n = stack.pop()
+        n_type = getattr(n, "type", "")
+        if n_type in ("local_variable_declaration", "field_declaration"):
+            type_node = n.child_by_field_name("type")
+            for child in (getattr(n, "children", []) or []):
+                if getattr(child, "type", "") == "variable_declarator":
+                    name_node = child.child_by_field_name("name")
+                    if name_node is not None and type_node is not None:
+                        var_name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
+                        if var_name == name:
+                            return _extract_simple_java_type_name(type_node, source_bytes)
+        elif n_type == "formal_parameter":
+            type_node = n.child_by_field_name("type")
+            name_node = n.child_by_field_name("name")
+            if name_node is not None and type_node is not None:
+                param_name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
+                if param_name == name:
+                    return _extract_simple_java_type_name(type_node, source_bytes)
+        # Don't descend into nested method/class bodies — they're separate scopes.
+        if n_type in ("method_declaration", "constructor_declaration", "class_declaration") and n is not scope_node:
+            continue
+        stack.extend(reversed(getattr(n, "children", []) or []))
+    return None
+
+
+def _resolve_java_identifier_type(name: str, ref_node, source_bytes: bytes) -> str | None:
+    """Resolve a Java identifier to its declared simple type name.
+
+    Short-circuits on first uncertain branch per wave 13129 performance-reviewer
+    action item.
+    """
+    cur = getattr(ref_node, "parent", None)
+    while cur is not None:
+        cur_type = getattr(cur, "type", "")
+        if cur_type in ("method_declaration", "constructor_declaration", "class_declaration"):
+            resolved = _search_java_declarations_in_scope(cur, name, source_bytes)
+            if resolved is not None:
+                return resolved
+            if cur_type == "class_declaration":
+                break
+        cur = getattr(cur, "parent", None)
+    if name and name[:1].isupper():
+        return name
+    return None
+
+
+def _resolve_java_receiver_type(invocation_node, source_bytes: bytes) -> str | None:
+    """Resolve the simple type name of a Java method_invocation's receiver.
+
+    Returns the simple class name when resolvable, or None when uncertain
+    (preserve the candidate per false-positive bias). Per wave 13129 council
+    action item (performance-reviewer), short-circuits as soon as the receiver
+    expression can't be classified — no exhaustive scope walks past the first
+    identifiable ambiguity.
+    """
+    if invocation_node is None or getattr(invocation_node, "type", "") != "method_invocation":
+        return None
+    obj = invocation_node.child_by_field_name("object")
+    if obj is None:
+        return _find_enclosing_java_class_name(invocation_node, source_bytes)
+    obj_type = getattr(obj, "type", "")
+    if obj_type == "this":
+        return _find_enclosing_java_class_name(invocation_node, source_bytes)
+    if obj_type == "super":
+        return None  # uncertain — defer inheritance walk
+    if obj_type == "identifier":
+        ident_text = source_bytes[obj.start_byte:obj.end_byte].decode("utf-8", errors="replace")
+        return _resolve_java_identifier_type(ident_text, invocation_node, source_bytes)
+    # field_access, cast_expression, method_invocation chains, lambdas → uncertain.
+    return None
+
+
+# =============================================================================
+# Kotlin receiver-type resolution (wave 13194).
+#
+# Mirrors the Java helpers. Conservative coverage: this/super/bare,
+# explicit type annotations (`val foo: Foo = ...`), simple identifiers, and
+# `ClassName.method()` static-style. Deferred: var-typed locals with type
+# inference, nullable receivers (`foo?.bar()`), extension functions, lambdas.
+# Uncertain cases return None (false-positive bias preserved).
+# =============================================================================
+
+
+def _extract_simple_kotlin_type_name(type_node, source_bytes: bytes) -> str | None:
+    """Extract simple class name from a Kotlin type AST node.
+
+    Verified Kotlin grammar (2026-06-01):
+    - ``user_type`` wraps a child of type ``identifier`` (not ``type_identifier``).
+    - ``nullable_type`` wraps a ``user_type``.
+    """
+    n_type = getattr(type_node, "type", "")
+    if n_type == "user_type":
+        # Kotlin user_type wraps an `identifier` child carrying the type name.
+        for child in (getattr(type_node, "children", []) or []):
+            if getattr(child, "type", "") in ("identifier", "type_identifier"):
+                return source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
+        return None
+    if n_type == "type_identifier":
+        return source_bytes[type_node.start_byte:type_node.end_byte].decode("utf-8", errors="replace")
+    if n_type == "nullable_type":
+        for child in (getattr(type_node, "children", []) or []):
+            if getattr(child, "type", "") in ("user_type", "type_identifier"):
+                return _extract_simple_kotlin_type_name(child, source_bytes)
+        return None
+    return None
+
+
+def _find_enclosing_kotlin_class_name(node, source_bytes: bytes) -> str | None:
+    """Walk up to the enclosing Kotlin class_declaration / object_declaration."""
+    cur = getattr(node, "parent", None)
+    while cur is not None:
+        if getattr(cur, "type", "") in ("class_declaration", "object_declaration", "interface_declaration"):
+            # Kotlin class declaration: first child is `class` / `object`,
+            # then `type_identifier` (the name).
+            for child in (getattr(cur, "children", []) or []):
+                if getattr(child, "type", "") == "type_identifier":
+                    return source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
+            return None
+        cur = getattr(cur, "parent", None)
+    return None
+
+
+def _search_kotlin_declarations_in_scope(scope_node, name: str, source_bytes: bytes) -> str | None:
+    """Search Kotlin scope for `val name: Type = ...` or function parameter.
+
+    Kotlin tree-sitter grammar uses plain `identifier` for binding names and
+    type names — NOT `simple_identifier` (which is reserved for other contexts).
+    Verified by AST inspection 2026-06-01.
+    """
+    stack = [scope_node]
+    while stack:
+        n = stack.pop()
+        n_type = getattr(n, "type", "")
+        if n_type == "property_declaration":
+            # Kotlin: `val name: Type = value` — variable_declaration child holds
+            # `identifier <name>` + `:` + `user_type <Type>`.
+            for child in (getattr(n, "children", []) or []):
+                if getattr(child, "type", "") == "variable_declaration":
+                    name_child = None
+                    type_child = None
+                    for gc in (getattr(child, "children", []) or []):
+                        gc_type = getattr(gc, "type", "")
+                        if gc_type == "identifier" and name_child is None:
+                            name_child = gc
+                        elif gc_type in ("user_type", "type_identifier", "nullable_type"):
+                            type_child = gc
+                    if name_child is not None and type_child is not None:
+                        var_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
+                        if var_name == name:
+                            return _extract_simple_kotlin_type_name(type_child, source_bytes)
+        elif n_type == "parameter":
+            # Kotlin: `fun foo(name: Type)` — parameter has identifier + user_type.
+            name_child = None
+            type_child = None
+            for child in (getattr(n, "children", []) or []):
+                ct = getattr(child, "type", "")
+                if ct == "identifier" and name_child is None:
+                    name_child = child
+                elif ct in ("user_type", "type_identifier", "nullable_type"):
+                    type_child = child
+            if name_child is not None and type_child is not None:
+                param_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
+                if param_name == name:
+                    return _extract_simple_kotlin_type_name(type_child, source_bytes)
+        # Don't recurse into nested function / class bodies.
+        if n_type in ("function_declaration", "class_declaration", "object_declaration", "interface_declaration") and n is not scope_node:
+            continue
+        stack.extend(reversed(getattr(n, "children", []) or []))
+    return None
+
+
+def _resolve_kotlin_identifier_type(name: str, ref_node, source_bytes: bytes) -> str | None:
+    """Resolve a Kotlin identifier to its declared simple type name."""
+    cur = getattr(ref_node, "parent", None)
+    while cur is not None:
+        cur_type = getattr(cur, "type", "")
+        if cur_type in ("function_declaration", "class_declaration", "object_declaration", "interface_declaration"):
+            resolved = _search_kotlin_declarations_in_scope(cur, name, source_bytes)
+            if resolved is not None:
+                return resolved
+            if cur_type in ("class_declaration", "object_declaration", "interface_declaration"):
+                break
+        cur = getattr(cur, "parent", None)
+    if name and name[:1].isupper():
+        return name
+    return None
+
+
+def _resolve_kotlin_receiver_type(call_node, source_bytes: bytes) -> str | None:
+    """Resolve the simple type name of a Kotlin call_expression's receiver.
+
+    Kotlin tree-sitter grammar shape (verified 2026-06-01):
+    - Bare call `bar()`: call_expression has child `identifier "bar"` + `value_arguments`.
+    - Member call `foo.bar()`: call_expression has child `navigation_expression`
+      (children: `identifier "foo"` + `.` + `identifier "bar"`) + `value_arguments`.
+    """
+    if call_node is None or getattr(call_node, "type", "") != "call_expression":
+        return None
+    children = list(getattr(call_node, "children", []) or [])
+    if not children:
+        return None
+    callee = children[0]
+    callee_type = getattr(callee, "type", "")
+    if callee_type == "identifier":
+        # Bare call `bar()` → resolves to enclosing class.
+        return _find_enclosing_kotlin_class_name(call_node, source_bytes)
+    if callee_type == "navigation_expression":
+        # Children: identifier (receiver), '.', identifier (method). Take the
+        # first identifier as the receiver.
+        nav_children = list(getattr(callee, "children", []) or [])
+        receiver = next(
+            (c for c in nav_children if getattr(c, "type", "") == "identifier"),
+            None,
+        )
+        if receiver is None:
+            return None
+        text = source_bytes[receiver.start_byte:receiver.end_byte].decode("utf-8", errors="replace")
+        if text == "this":
+            return _find_enclosing_kotlin_class_name(call_node, source_bytes)
+        if text == "super":
+            return None
+        return _resolve_kotlin_identifier_type(text, call_node, source_bytes)
+    return None
+
+
+def _resolve_kotlin_call_target(
+    call_node, source_bytes: bytes, symbol_lookup: dict[str, str]
+) -> str | None:
+    """Resolve a Kotlin call_expression to a graph node id (project or external-qualified)."""
+    if call_node is None or getattr(call_node, "type", "") != "call_expression":
+        return None
+    method_name: str | None = None
+    children = list(getattr(call_node, "children", []) or [])
+    if not children:
+        return None
+    callee = children[0]
+    callee_type = getattr(callee, "type", "")
+    if callee_type == "identifier":
+        method_name = source_bytes[callee.start_byte:callee.end_byte].decode("utf-8", errors="replace")
+    elif callee_type == "navigation_expression":
+        # For `foo.bar()`, the method name is the LAST identifier in the
+        # navigation_expression (after the `.`).
+        nav_children = list(getattr(callee, "children", []) or [])
+        identifiers = [c for c in nav_children if getattr(c, "type", "") == "identifier"]
+        if len(identifiers) >= 2:
+            method_node = identifiers[-1]
+            method_name = source_bytes[method_node.start_byte:method_node.end_byte].decode("utf-8", errors="replace")
+    if not method_name:
+        return None
+    receiver_type = _resolve_kotlin_receiver_type(call_node, source_bytes)
+    if receiver_type is None:
+        return None
+    qualified = f"{receiver_type}.{method_name}"
+    if qualified in symbol_lookup:
+        return symbol_lookup[qualified]
+    return f"external::{receiver_type}.{method_name}"
+
+
+# =============================================================================
+# C# receiver-type resolution (wave 13194).
+# Mirrors Java; AST node names differ (`invocation_expression`,
+# `member_access_expression`, etc.).
+# =============================================================================
+
+
+def _extract_simple_csharp_type_name(type_node, source_bytes: bytes) -> str | None:
+    n_type = getattr(type_node, "type", "")
+    if n_type == "identifier":
+        return source_bytes[type_node.start_byte:type_node.end_byte].decode("utf-8", errors="replace")
+    if n_type == "predefined_type":
+        return source_bytes[type_node.start_byte:type_node.end_byte].decode("utf-8", errors="replace")
+    if n_type == "qualified_name":
+        # `System.IO.Stream` → take the last identifier (`Stream`).
+        last_ident = None
+        for child in (getattr(type_node, "children", []) or []):
+            if getattr(child, "type", "") == "identifier":
+                last_ident = child
+        if last_ident is not None:
+            return source_bytes[last_ident.start_byte:last_ident.end_byte].decode("utf-8", errors="replace")
+        return None
+    if n_type == "generic_name":
+        for child in (getattr(type_node, "children", []) or []):
+            if getattr(child, "type", "") == "identifier":
+                return source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
+        return None
+    if n_type == "nullable_type":
+        for child in (getattr(type_node, "children", []) or []):
+            t = getattr(child, "type", "")
+            if t in ("identifier", "predefined_type", "qualified_name", "generic_name"):
+                return _extract_simple_csharp_type_name(child, source_bytes)
+        return None
+    if n_type == "array_type":
+        for child in (getattr(type_node, "children", []) or []):
+            t = getattr(child, "type", "")
+            if t in ("identifier", "predefined_type", "qualified_name", "generic_name"):
+                return _extract_simple_csharp_type_name(child, source_bytes)
+        return None
+    return None
+
+
+def _find_enclosing_csharp_class_name(node, source_bytes: bytes) -> str | None:
+    cur = getattr(node, "parent", None)
+    while cur is not None:
+        if getattr(cur, "type", "") in ("class_declaration", "struct_declaration", "interface_declaration", "record_declaration"):
+            for child in (getattr(cur, "children", []) or []):
+                if getattr(child, "type", "") == "identifier":
+                    return source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
+            return None
+        cur = getattr(cur, "parent", None)
+    return None
+
+
+def _search_csharp_declarations_in_scope(scope_node, name: str, source_bytes: bytes) -> str | None:
+    stack = [scope_node]
+    while stack:
+        n = stack.pop()
+        n_type = getattr(n, "type", "")
+        # Field declaration: `Type field;` or `Type field = value;`
+        if n_type in ("field_declaration", "local_declaration_statement"):
+            for child in (getattr(n, "children", []) or []):
+                if getattr(child, "type", "") == "variable_declaration":
+                    # variable_declaration has type child + variable_declarator children.
+                    type_child = None
+                    declarator = None
+                    for gc in (getattr(child, "children", []) or []):
+                        gc_type = getattr(gc, "type", "")
+                        if gc_type in ("identifier", "predefined_type", "qualified_name", "generic_name", "nullable_type", "array_type") and type_child is None:
+                            type_child = gc
+                        elif gc_type == "variable_declarator":
+                            declarator = gc
+                    if type_child is not None and declarator is not None:
+                        for dc in (getattr(declarator, "children", []) or []):
+                            if getattr(dc, "type", "") == "identifier":
+                                var_name = source_bytes[dc.start_byte:dc.end_byte].decode("utf-8", errors="replace")
+                                if var_name == name:
+                                    return _extract_simple_csharp_type_name(type_child, source_bytes)
+        elif n_type == "parameter":
+            # C# parameter: `Type name` — type child + identifier.
+            type_child = None
+            name_child = None
+            for child in (getattr(n, "children", []) or []):
+                ct = getattr(child, "type", "")
+                if ct in ("identifier", "predefined_type", "qualified_name", "generic_name", "nullable_type", "array_type") and type_child is None:
+                    type_child = child
+                elif ct == "identifier" and type_child is not None:
+                    name_child = child
+            if type_child is not None and name_child is not None:
+                param_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
+                if param_name == name:
+                    return _extract_simple_csharp_type_name(type_child, source_bytes)
+        # Don't recurse into nested method / class bodies.
+        if n_type in ("method_declaration", "constructor_declaration", "class_declaration",
+                      "struct_declaration", "interface_declaration", "record_declaration") and n is not scope_node:
+            continue
+        stack.extend(reversed(getattr(n, "children", []) or []))
+    return None
+
+
+def _resolve_csharp_identifier_type(name: str, ref_node, source_bytes: bytes) -> str | None:
+    cur = getattr(ref_node, "parent", None)
+    while cur is not None:
+        cur_type = getattr(cur, "type", "")
+        if cur_type in ("method_declaration", "constructor_declaration", "class_declaration",
+                        "struct_declaration", "interface_declaration", "record_declaration"):
+            resolved = _search_csharp_declarations_in_scope(cur, name, source_bytes)
+            if resolved is not None:
+                return resolved
+            if cur_type in ("class_declaration", "struct_declaration", "interface_declaration", "record_declaration"):
+                break
+        cur = getattr(cur, "parent", None)
+    if name and name[:1].isupper():
+        return name
+    return None
+
+
+def _resolve_csharp_receiver_type(invocation_node, source_bytes: bytes) -> str | None:
+    """Resolve the simple type name of a C# invocation_expression's receiver.
+
+    C# AST shape: `invocation_expression` with first child being the callee
+    (`member_access_expression` for `receiver.Method()` or `identifier` for
+    bare `Method()`).
+    """
+    if invocation_node is None or getattr(invocation_node, "type", "") != "invocation_expression":
+        return None
+    children = list(getattr(invocation_node, "children", []) or [])
+    if not children:
+        return None
+    callee = children[0]
+    callee_type = getattr(callee, "type", "")
+    if callee_type == "identifier":
+        # Bare call → enclosing class.
+        return _find_enclosing_csharp_class_name(invocation_node, source_bytes)
+    if callee_type == "member_access_expression":
+        # member_access_expression has receiver + identifier (method name).
+        ma_children = list(getattr(callee, "children", []) or [])
+        if not ma_children:
+            return None
+        receiver = ma_children[0]
+        receiver_type = getattr(receiver, "type", "")
+        if receiver_type == "identifier":
+            text = source_bytes[receiver.start_byte:receiver.end_byte].decode("utf-8", errors="replace")
+            if text == "this":
+                return _find_enclosing_csharp_class_name(invocation_node, source_bytes)
+            if text == "base":
+                return None  # defer inheritance walk
+            return _resolve_csharp_identifier_type(text, invocation_node, source_bytes)
+    return None
+
+
+def _resolve_csharp_call_target(
+    invocation_node, source_bytes: bytes, symbol_lookup: dict[str, str]
+) -> str | None:
+    if invocation_node is None or getattr(invocation_node, "type", "") != "invocation_expression":
+        return None
+    method_name: str | None = None
+    children = list(getattr(invocation_node, "children", []) or [])
+    if not children:
+        return None
+    callee = children[0]
+    callee_type = getattr(callee, "type", "")
+    if callee_type == "identifier":
+        method_name = source_bytes[callee.start_byte:callee.end_byte].decode("utf-8", errors="replace")
+    elif callee_type == "member_access_expression":
+        ma_children = list(getattr(callee, "children", []) or [])
+        # Last identifier in member_access_expression is the method name.
+        for child in reversed(ma_children):
+            if getattr(child, "type", "") == "identifier":
+                method_name = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
+                break
+    if not method_name:
+        return None
+    receiver_type = _resolve_csharp_receiver_type(invocation_node, source_bytes)
+    if receiver_type is None:
+        return None
+    qualified = f"{receiver_type}.{method_name}"
+    if qualified in symbol_lookup:
+        return symbol_lookup[qualified]
+    return f"external::{receiver_type}.{method_name}"
+
+
+# =============================================================================
+# Go receiver-type resolution (wave 1319a).
+# =============================================================================
+
+
+def _find_enclosing_go_method_receiver_type(node, source_bytes: bytes) -> str | None:
+    """Walk up to enclosing method_declaration; return the receiver's type.
+
+    Go method shape: `func (h Helper) Method() {...}` — the first parameter_list
+    after `func` is the receiver. We extract its type_identifier.
+    """
+    cur = getattr(node, "parent", None)
+    while cur is not None:
+        if getattr(cur, "type", "") == "method_declaration":
+            children = list(getattr(cur, "children", []) or [])
+            # First parameter_list is the receiver (between func and name).
+            for child in children:
+                if getattr(child, "type", "") == "parameter_list":
+                    pl_children = list(getattr(child, "children", []) or [])
+                    for pl_child in pl_children:
+                        if getattr(pl_child, "type", "") == "parameter_declaration":
+                            for pd_child in (getattr(pl_child, "children", []) or []):
+                                if getattr(pd_child, "type", "") in ("type_identifier", "pointer_type"):
+                                    # Handle pointer types: `*Helper` wraps type_identifier.
+                                    if getattr(pd_child, "type", "") == "pointer_type":
+                                        for pc in (getattr(pd_child, "children", []) or []):
+                                            if getattr(pc, "type", "") == "type_identifier":
+                                                return source_bytes[pc.start_byte:pc.end_byte].decode("utf-8", errors="replace")
+                                    else:
+                                        return source_bytes[pd_child.start_byte:pd_child.end_byte].decode("utf-8", errors="replace")
+                    return None  # parameter_list found but no type
+            return None
+        cur = getattr(cur, "parent", None)
+    return None
+
+
+def _search_go_declarations_in_scope(scope_node, name: str, source_bytes: bytes) -> str | None:
+    """Search Go scope for `var name Type` declarations or function parameters."""
+    stack = [scope_node]
+    while stack:
+        n = stack.pop()
+        n_type = getattr(n, "type", "")
+        if n_type == "var_spec":
+            # var_spec: identifier <name> + type_identifier <Type>
+            name_child = None
+            type_child = None
+            for child in (getattr(n, "children", []) or []):
+                ct = getattr(child, "type", "")
+                if ct == "identifier" and name_child is None:
+                    name_child = child
+                elif ct in ("type_identifier", "pointer_type"):
+                    type_child = child
+            if name_child is not None and type_child is not None:
+                var_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
+                if var_name == name:
+                    t_type = getattr(type_child, "type", "")
+                    if t_type == "pointer_type":
+                        for c in (getattr(type_child, "children", []) or []):
+                            if getattr(c, "type", "") == "type_identifier":
+                                return source_bytes[c.start_byte:c.end_byte].decode("utf-8", errors="replace")
+                    else:
+                        return source_bytes[type_child.start_byte:type_child.end_byte].decode("utf-8", errors="replace")
+        elif n_type == "parameter_declaration":
+            # parameter_declaration: identifier <name> + type_identifier <Type>
+            name_child = None
+            type_child = None
+            for child in (getattr(n, "children", []) or []):
+                ct = getattr(child, "type", "")
+                if ct == "identifier" and name_child is None:
+                    name_child = child
+                elif ct in ("type_identifier", "pointer_type"):
+                    type_child = child
+            if name_child is not None and type_child is not None:
+                param_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
+                if param_name == name:
+                    t_type = getattr(type_child, "type", "")
+                    if t_type == "pointer_type":
+                        for c in (getattr(type_child, "children", []) or []):
+                            if getattr(c, "type", "") == "type_identifier":
+                                return source_bytes[c.start_byte:c.end_byte].decode("utf-8", errors="replace")
+                    else:
+                        return source_bytes[type_child.start_byte:type_child.end_byte].decode("utf-8", errors="replace")
+        # Don't descend into nested function bodies.
+        if n_type in ("method_declaration", "function_declaration") and n is not scope_node:
+            continue
+        stack.extend(reversed(getattr(n, "children", []) or []))
+    return None
+
+
+def _resolve_go_identifier_type(name: str, ref_node, source_bytes: bytes) -> str | None:
+    """Resolve a Go identifier to its declared simple type name."""
+    cur = getattr(ref_node, "parent", None)
+    while cur is not None:
+        cur_type = getattr(cur, "type", "")
+        if cur_type in ("method_declaration", "function_declaration"):
+            resolved = _search_go_declarations_in_scope(cur, name, source_bytes)
+            if resolved is not None:
+                return resolved
+            break
+        cur = getattr(cur, "parent", None)
+    if name and name[:1].isupper():
+        # Likely a static-style call to a type (TypeName.Method()).
+        return name
+    return None
+
+
+def _resolve_go_receiver_type(call_node, source_bytes: bytes) -> str | None:
+    """Resolve Go call_expression receiver type.
+
+    Shape: call_expression → selector_expression (`h.Method`) or identifier (bare).
+    """
+    if call_node is None or getattr(call_node, "type", "") != "call_expression":
+        return None
+    children = list(getattr(call_node, "children", []) or [])
+    if not children:
+        return None
+    callee = children[0]
+    callee_type = getattr(callee, "type", "")
+    if callee_type == "identifier":
+        # Bare call → enclosing method's receiver type (Go has no explicit "this").
+        return _find_enclosing_go_method_receiver_type(call_node, source_bytes)
+    if callee_type == "selector_expression":
+        # First child is the receiver identifier.
+        nav_children = list(getattr(callee, "children", []) or [])
+        if not nav_children:
+            return None
+        receiver = nav_children[0]
+        receiver_type = getattr(receiver, "type", "")
+        if receiver_type == "identifier":
+            text = source_bytes[receiver.start_byte:receiver.end_byte].decode("utf-8", errors="replace")
+            return _resolve_go_identifier_type(text, call_node, source_bytes)
+    return None
+
+
+def _resolve_go_call_target(call_node, source_bytes: bytes, symbol_lookup: dict[str, str]) -> str | None:
+    if call_node is None or getattr(call_node, "type", "") != "call_expression":
+        return None
+    children = list(getattr(call_node, "children", []) or [])
+    if not children:
+        return None
+    callee = children[0]
+    callee_type = getattr(callee, "type", "")
+    method_name: str | None = None
+    if callee_type == "identifier":
+        method_name = source_bytes[callee.start_byte:callee.end_byte].decode("utf-8", errors="replace")
+    elif callee_type == "selector_expression":
+        # The method name is the field_identifier child.
+        for child in (getattr(callee, "children", []) or []):
+            if getattr(child, "type", "") == "field_identifier":
+                method_name = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
+                break
+    if not method_name:
+        return None
+    receiver_type = _resolve_go_receiver_type(call_node, source_bytes)
+    if receiver_type is None:
+        return None
+    qualified = f"{receiver_type}.{method_name}"
+    if qualified in symbol_lookup:
+        return symbol_lookup[qualified]
+    return f"external::{receiver_type}.{method_name}"
+
+
+# =============================================================================
+# Rust receiver-type resolution (wave 1319a).
+# =============================================================================
+
+
+def _find_enclosing_rust_impl_type(node, source_bytes: bytes) -> str | None:
+    """Walk up to enclosing impl_item; return its target type."""
+    cur = getattr(node, "parent", None)
+    while cur is not None:
+        if getattr(cur, "type", "") == "impl_item":
+            for child in (getattr(cur, "children", []) or []):
+                if getattr(child, "type", "") == "type_identifier":
+                    return source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
+            return None
+        cur = getattr(cur, "parent", None)
+    return None
+
+
+def _search_rust_declarations_in_scope(scope_node, name: str, source_bytes: bytes) -> str | None:
+    """Search Rust scope for `let name: Type = ...` or function parameter."""
+    stack = [scope_node]
+    while stack:
+        n = stack.pop()
+        n_type = getattr(n, "type", "")
+        if n_type == "let_declaration":
+            # let_declaration: let identifier <name> : type_identifier <Type> = ...
+            name_child = None
+            type_child = None
+            for child in (getattr(n, "children", []) or []):
+                ct = getattr(child, "type", "")
+                if ct == "identifier" and name_child is None:
+                    name_child = child
+                elif ct == "type_identifier":
+                    type_child = child
+            if name_child is not None and type_child is not None:
+                var_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
+                if var_name == name:
+                    return source_bytes[type_child.start_byte:type_child.end_byte].decode("utf-8", errors="replace")
+        elif n_type == "parameter":
+            # parameter: identifier <name> : type_identifier <Type>
+            name_child = None
+            type_child = None
+            for child in (getattr(n, "children", []) or []):
+                ct = getattr(child, "type", "")
+                if ct == "identifier" and name_child is None:
+                    name_child = child
+                elif ct == "type_identifier":
+                    type_child = child
+            if name_child is not None and type_child is not None:
+                param_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
+                if param_name == name:
+                    return source_bytes[type_child.start_byte:type_child.end_byte].decode("utf-8", errors="replace")
+        # Don't descend into nested function bodies.
+        if n_type == "function_item" and n is not scope_node:
+            continue
+        stack.extend(reversed(getattr(n, "children", []) or []))
+    return None
+
+
+def _resolve_rust_identifier_type(name: str, ref_node, source_bytes: bytes) -> str | None:
+    cur = getattr(ref_node, "parent", None)
+    while cur is not None:
+        cur_type = getattr(cur, "type", "")
+        if cur_type == "function_item":
+            resolved = _search_rust_declarations_in_scope(cur, name, source_bytes)
+            if resolved is not None:
+                return resolved
+            break
+        cur = getattr(cur, "parent", None)
+    if name and name[:1].isupper():
+        return name
+    return None
+
+
+def _resolve_rust_receiver_type(call_node, source_bytes: bytes) -> str | None:
+    """Resolve Rust call_expression receiver type.
+
+    Shape: call_expression → field_expression (`h.method`) or identifier (bare).
+    """
+    if call_node is None or getattr(call_node, "type", "") != "call_expression":
+        return None
+    children = list(getattr(call_node, "children", []) or [])
+    if not children:
+        return None
+    callee = children[0]
+    callee_type = getattr(callee, "type", "")
+    if callee_type == "identifier":
+        return _find_enclosing_rust_impl_type(call_node, source_bytes)
+    if callee_type == "field_expression":
+        nav_children = list(getattr(callee, "children", []) or [])
+        if not nav_children:
+            return None
+        receiver = nav_children[0]
+        receiver_type = getattr(receiver, "type", "")
+        if receiver_type == "self":
+            return _find_enclosing_rust_impl_type(call_node, source_bytes)
+        if receiver_type == "identifier":
+            text = source_bytes[receiver.start_byte:receiver.end_byte].decode("utf-8", errors="replace")
+            if text == "self":
+                return _find_enclosing_rust_impl_type(call_node, source_bytes)
+            return _resolve_rust_identifier_type(text, call_node, source_bytes)
+    return None
+
+
+def _resolve_rust_call_target(call_node, source_bytes: bytes, symbol_lookup: dict[str, str]) -> str | None:
+    if call_node is None or getattr(call_node, "type", "") != "call_expression":
+        return None
+    children = list(getattr(call_node, "children", []) or [])
+    if not children:
+        return None
+    callee = children[0]
+    callee_type = getattr(callee, "type", "")
+    method_name: str | None = None
+    if callee_type == "identifier":
+        method_name = source_bytes[callee.start_byte:callee.end_byte].decode("utf-8", errors="replace")
+    elif callee_type == "field_expression":
+        for child in (getattr(callee, "children", []) or []):
+            if getattr(child, "type", "") == "field_identifier":
+                method_name = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
+                break
+    if not method_name:
+        return None
+    receiver_type = _resolve_rust_receiver_type(call_node, source_bytes)
+    if receiver_type is None:
+        return None
+    qualified = f"{receiver_type}.{method_name}"
+    if qualified in symbol_lookup:
+        return symbol_lookup[qualified]
+    return f"external::{receiver_type}.{method_name}"
+
+
+# =============================================================================
+# Scala receiver-type resolution (wave 1319a).
+# =============================================================================
+
+
+def _find_enclosing_scala_class_name(node, source_bytes: bytes) -> str | None:
+    cur = getattr(node, "parent", None)
+    while cur is not None:
+        if getattr(cur, "type", "") in ("class_definition", "object_definition", "trait_definition"):
+            for child in (getattr(cur, "children", []) or []):
+                if getattr(child, "type", "") == "identifier":
+                    return source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
+            return None
+        cur = getattr(cur, "parent", None)
+    return None
+
+
+def _search_scala_declarations_in_scope(scope_node, name: str, source_bytes: bytes) -> str | None:
+    """Search Scala scope for `val name: Type = ...` or function parameter."""
+    stack = [scope_node]
+    while stack:
+        n = stack.pop()
+        n_type = getattr(n, "type", "")
+        if n_type in ("val_definition", "var_definition"):
+            name_child = None
+            type_child = None
+            for child in (getattr(n, "children", []) or []):
+                ct = getattr(child, "type", "")
+                if ct == "identifier" and name_child is None:
+                    name_child = child
+                elif ct == "type_identifier":
+                    type_child = child
+            if name_child is not None and type_child is not None:
+                var_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
+                if var_name == name:
+                    return source_bytes[type_child.start_byte:type_child.end_byte].decode("utf-8", errors="replace")
+        elif n_type == "parameter":
+            name_child = None
+            type_child = None
+            for child in (getattr(n, "children", []) or []):
+                ct = getattr(child, "type", "")
+                if ct == "identifier" and name_child is None:
+                    name_child = child
+                elif ct == "type_identifier":
+                    type_child = child
+            if name_child is not None and type_child is not None:
+                param_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
+                if param_name == name:
+                    return source_bytes[type_child.start_byte:type_child.end_byte].decode("utf-8", errors="replace")
+        # Don't descend into nested function/class bodies.
+        if n_type in ("function_definition", "class_definition", "object_definition", "trait_definition") and n is not scope_node:
+            continue
+        stack.extend(reversed(getattr(n, "children", []) or []))
+    return None
+
+
+def _resolve_scala_identifier_type(name: str, ref_node, source_bytes: bytes) -> str | None:
+    cur = getattr(ref_node, "parent", None)
+    while cur is not None:
+        cur_type = getattr(cur, "type", "")
+        if cur_type in ("function_definition", "class_definition", "object_definition", "trait_definition"):
+            resolved = _search_scala_declarations_in_scope(cur, name, source_bytes)
+            if resolved is not None:
+                return resolved
+            if cur_type in ("class_definition", "object_definition", "trait_definition"):
+                break
+        cur = getattr(cur, "parent", None)
+    if name and name[:1].isupper():
+        return name
+    return None
+
+
+def _resolve_scala_receiver_type(call_node, source_bytes: bytes) -> str | None:
+    """Resolve Scala call_expression receiver type.
+
+    Shape: call_expression → field_expression (`h.process`) or identifier (bare).
+    """
+    if call_node is None or getattr(call_node, "type", "") != "call_expression":
+        return None
+    children = list(getattr(call_node, "children", []) or [])
+    if not children:
+        return None
+    callee = children[0]
+    callee_type = getattr(callee, "type", "")
+    if callee_type == "identifier":
+        return _find_enclosing_scala_class_name(call_node, source_bytes)
+    if callee_type == "field_expression":
+        nav_children = list(getattr(callee, "children", []) or [])
+        if not nav_children:
+            return None
+        receiver = nav_children[0]
+        receiver_type = getattr(receiver, "type", "")
+        if receiver_type == "identifier":
+            text = source_bytes[receiver.start_byte:receiver.end_byte].decode("utf-8", errors="replace")
+            if text == "this":
+                return _find_enclosing_scala_class_name(call_node, source_bytes)
+            if text == "super":
+                return None
+            return _resolve_scala_identifier_type(text, call_node, source_bytes)
+    return None
+
+
+def _resolve_scala_call_target(call_node, source_bytes: bytes, symbol_lookup: dict[str, str]) -> str | None:
+    if call_node is None or getattr(call_node, "type", "") != "call_expression":
+        return None
+    children = list(getattr(call_node, "children", []) or [])
+    if not children:
+        return None
+    callee = children[0]
+    callee_type = getattr(callee, "type", "")
+    method_name: str | None = None
+    if callee_type == "identifier":
+        method_name = source_bytes[callee.start_byte:callee.end_byte].decode("utf-8", errors="replace")
+    elif callee_type == "field_expression":
+        # Method name is the LAST identifier child (after the `.`).
+        identifiers = [c for c in (getattr(callee, "children", []) or []) if getattr(c, "type", "") == "identifier"]
+        if len(identifiers) >= 2:
+            method_name = source_bytes[identifiers[-1].start_byte:identifiers[-1].end_byte].decode("utf-8", errors="replace")
+    if not method_name:
+        return None
+    receiver_type = _resolve_scala_receiver_type(call_node, source_bytes)
+    if receiver_type is None:
+        return None
+    qualified = f"{receiver_type}.{method_name}"
+    if qualified in symbol_lookup:
+        return symbol_lookup[qualified]
+    return f"external::{receiver_type}.{method_name}"
+
+
+# =============================================================================
+# Swift receiver-type resolution (wave 1319g).
+# =============================================================================
+
+
+def _extract_simple_swift_type_name(type_node, source_bytes: bytes) -> str | None:
+    """Extract simple type name from a Swift type AST node.
+
+    Swift grammar shapes (verified 2026-06-01):
+    - `user_type` wraps `type_identifier`.
+    - `type_annotation` (`: Foo`) wraps `user_type` after the `:` token.
+    - `optional_type` wraps `user_type` for `Foo?`.
+    """
+    n_type = getattr(type_node, "type", "")
+    if n_type == "type_annotation":
+        for child in (getattr(type_node, "children", []) or []):
+            if getattr(child, "type", "") in ("user_type", "type_identifier", "optional_type"):
+                return _extract_simple_swift_type_name(child, source_bytes)
+        return None
+    if n_type == "user_type":
+        for child in (getattr(type_node, "children", []) or []):
+            if getattr(child, "type", "") == "type_identifier":
+                return source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
+        return None
+    if n_type == "type_identifier":
+        return source_bytes[type_node.start_byte:type_node.end_byte].decode("utf-8", errors="replace")
+    if n_type == "optional_type":
+        for child in (getattr(type_node, "children", []) or []):
+            if getattr(child, "type", "") in ("user_type", "type_identifier"):
+                return _extract_simple_swift_type_name(child, source_bytes)
+        return None
+    return None
+
+
+def _find_enclosing_swift_class_name(node, source_bytes: bytes) -> str | None:
+    """Walk up to Swift class/struct/actor/enum/protocol declaration's type_identifier."""
+    cur = getattr(node, "parent", None)
+    while cur is not None:
+        if getattr(cur, "type", "") in (
+            "class_declaration", "struct_declaration", "actor_declaration",
+            "enum_declaration", "protocol_declaration",
+        ):
+            for child in (getattr(cur, "children", []) or []):
+                if getattr(child, "type", "") == "type_identifier":
+                    return source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
+            return None
+        cur = getattr(cur, "parent", None)
+    return None
+
+
+def _search_swift_declarations_in_scope(scope_node, name: str, source_bytes: bytes) -> str | None:
+    """Search Swift scope for `let foo: Foo = ...` / `var foo: Foo` / `func bar(foo: Foo)`."""
+    stack = [scope_node]
+    while stack:
+        n = stack.pop()
+        n_type = getattr(n, "type", "")
+        if n_type == "property_declaration":
+            # Swift: `let oos: ObjectOutputStream = ...`
+            # children: value_binding_pattern + pattern (simple_identifier) + type_annotation + ...
+            name_child = None
+            type_child = None
+            for child in (getattr(n, "children", []) or []):
+                ct = getattr(child, "type", "")
+                if ct == "pattern":
+                    for gc in (getattr(child, "children", []) or []):
+                        if getattr(gc, "type", "") == "simple_identifier":
+                            name_child = gc
+                            break
+                elif ct == "type_annotation" and type_child is None:
+                    type_child = child
+            if name_child is not None and type_child is not None:
+                var_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
+                if var_name == name:
+                    return _extract_simple_swift_type_name(type_child, source_bytes)
+        elif n_type == "parameter":
+            # Swift: `func bar(oos: ObjectOutputStream)` — simple_identifier + : + user_type
+            name_child = None
+            type_child = None
+            for child in (getattr(n, "children", []) or []):
+                ct = getattr(child, "type", "")
+                if ct == "simple_identifier" and name_child is None:
+                    name_child = child
+                elif ct in ("user_type", "type_identifier", "optional_type"):
+                    type_child = child
+            if name_child is not None and type_child is not None:
+                param_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
+                if param_name == name:
+                    return _extract_simple_swift_type_name(type_child, source_bytes)
+        # Don't descend into nested function/class bodies.
+        if n_type in (
+            "function_declaration", "class_declaration", "struct_declaration",
+            "actor_declaration", "enum_declaration", "protocol_declaration",
+        ) and n is not scope_node:
+            continue
+        stack.extend(reversed(getattr(n, "children", []) or []))
+    return None
+
+
+def _resolve_swift_identifier_type(name: str, ref_node, source_bytes: bytes) -> str | None:
+    cur = getattr(ref_node, "parent", None)
+    while cur is not None:
+        cur_type = getattr(cur, "type", "")
+        if cur_type in (
+            "function_declaration", "class_declaration", "struct_declaration",
+            "actor_declaration", "enum_declaration", "protocol_declaration",
+        ):
+            resolved = _search_swift_declarations_in_scope(cur, name, source_bytes)
+            if resolved is not None:
+                return resolved
+            if cur_type in (
+                "class_declaration", "struct_declaration", "actor_declaration",
+                "enum_declaration", "protocol_declaration",
+            ):
+                break
+        cur = getattr(cur, "parent", None)
+    if name and name[:1].isupper():
+        return name
+    return None
+
+
+def _resolve_swift_receiver_type(call_node, source_bytes: bytes) -> str | None:
+    """Resolve Swift call_expression receiver type.
+
+    Swift grammar shapes:
+    - Bare method call `bar()`: call_expression has simple_identifier + call_suffix.
+    - Constructor call `Foo()`: same AST shape as bare call (Swift has no `new`
+      keyword). Discriminated by case — PascalCase identifier → constructor,
+      lowerCamelCase → method. Constructor calls return None so the standard
+      attribution handles them (target the type's init).
+    - Member call `foo.bar()`: call_expression has navigation_expression
+      (children: simple_identifier "foo" + navigation_suffix (.bar)) + call_suffix.
+    """
+    if call_node is None or getattr(call_node, "type", "") != "call_expression":
+        return None
+    children = list(getattr(call_node, "children", []) or [])
+    if not children:
+        return None
+    callee = children[0]
+    callee_type = getattr(callee, "type", "")
+    if callee_type == "simple_identifier":
+        text = source_bytes[callee.start_byte:callee.end_byte].decode("utf-8", errors="replace")
+        if text and text[:1].isupper():
+            # Constructor call (`Foo()`) — defer to standard attribution.
+            return None
+        return _find_enclosing_swift_class_name(call_node, source_bytes)
+    if callee_type == "navigation_expression":
+        nav_children = list(getattr(callee, "children", []) or [])
+        if not nav_children:
+            return None
+        receiver = nav_children[0]
+        receiver_type = getattr(receiver, "type", "")
+        if receiver_type == "simple_identifier":
+            text = source_bytes[receiver.start_byte:receiver.end_byte].decode("utf-8", errors="replace")
+            if text == "self":
+                return _find_enclosing_swift_class_name(call_node, source_bytes)
+            if text == "super":
+                return None
+            return _resolve_swift_identifier_type(text, call_node, source_bytes)
+    return None
+
+
+def _resolve_swift_call_target(call_node, source_bytes: bytes, symbol_lookup: dict[str, str]) -> str | None:
+    if call_node is None or getattr(call_node, "type", "") != "call_expression":
+        return None
+    children = list(getattr(call_node, "children", []) or [])
+    if not children:
+        return None
+    callee = children[0]
+    callee_type = getattr(callee, "type", "")
+    method_name: str | None = None
+    if callee_type == "simple_identifier":
+        method_name = source_bytes[callee.start_byte:callee.end_byte].decode("utf-8", errors="replace")
+    elif callee_type == "navigation_expression":
+        # Method name is in the navigation_suffix's simple_identifier child.
+        nav_children = list(getattr(callee, "children", []) or [])
+        for nc in nav_children:
+            if getattr(nc, "type", "") == "navigation_suffix":
+                for sc in (getattr(nc, "children", []) or []):
+                    if getattr(sc, "type", "") == "simple_identifier":
+                        method_name = source_bytes[sc.start_byte:sc.end_byte].decode("utf-8", errors="replace")
+                        break
+                break
+    if not method_name:
+        return None
+    receiver_type = _resolve_swift_receiver_type(call_node, source_bytes)
+    if receiver_type is None:
+        return None
+    qualified = f"{receiver_type}.{method_name}"
+    if qualified in symbol_lookup:
+        return symbol_lookup[qualified]
+    return f"external::{receiver_type}.{method_name}"
+
+
+def _resolve_java_call_target(
+    invocation_node, source_bytes: bytes, symbol_lookup: dict[str, str]
+) -> str | None:
+    """Resolve a Java method_invocation to a graph node id.
+
+    Deterministic per-call-site dispatch (wave 13129 council action item:
+    red-team — no double-emission):
+
+    - Receiver type resolves to a project class (qname found in symbol_lookup)
+      → return the project node id.
+    - Receiver type resolves to a non-project type → return the qualified
+      external node id (``external::<ResolvedType>.<method>``).
+    - Receiver type is uncertain (None) → return None; caller falls through
+      to existing simple-name attribution.
+
+    Args:
+        invocation_node: Java AST ``method_invocation`` node.
+        source_bytes: Source file bytes for text extraction.
+        symbol_lookup: Mapping of qname → node_id for project symbols.
+    """
+    if invocation_node is None or getattr(invocation_node, "type", "") != "method_invocation":
+        return None
+    method_name_node = invocation_node.child_by_field_name("name")
+    if method_name_node is None:
+        return None
+    method_name = source_bytes[method_name_node.start_byte:method_name_node.end_byte].decode("utf-8", errors="replace")
+    if not method_name:
+        return None
+    receiver_type = _resolve_java_receiver_type(invocation_node, source_bytes)
+    if receiver_type is None:
+        return None  # Uncertain — fall through to existing attribution.
+    # Project lookup: try the qualified name.
+    qualified = f"{receiver_type}.{method_name}"
+    if qualified in symbol_lookup:
+        return symbol_lookup[qualified]
+    # External attribution: qualified external node id.
+    return f"external::{receiver_type}.{method_name}"
 
 
 def _ts_extract_java_annotations(node, source_bytes: bytes) -> list[str]:
@@ -2173,7 +3330,101 @@ class GraphIndexSession:
                 return
             edge_map[key] = _edge(source, target, relation, confidence=confidence, evidence=evidence)
 
+        # Wave 13129 (1316l + 13190): class/module merge — when a file
+        # `Foo.<ext>` contains a top-level type declaration named `Foo`
+        # (basename match), the file node and the class node merge into
+        # a single node at the file id. The class id (`<file>::<basename>`)
+        # is NOT registered; edges that would target it route to the file id
+        # instead. Operators querying by either form get the unified node.
+        #
+        # Per-language merge-eligible kinds (13190/13196/1319i/1319k multi-language extension):
+        _CLASS_MODULE_MERGE_KINDS_BY_LANG: dict[str, frozenset[str]] = {
+            "swift":      frozenset({"class", "struct", "actor", "enum", "protocol"}),
+            "java":       frozenset({"class", "interface", "enum", "record", "annotation_type"}),
+            "kotlin":     frozenset({"class", "interface", "object", "enum_class"}),
+            "csharp":     frozenset({"class", "interface", "struct", "record", "enum"}),
+            # Wave 13196: JS/TS/Scala/PHP
+            "javascript": frozenset({"class"}),
+            "typescript": frozenset({"class", "interface", "type", "enum"}),
+            "scala":      frozenset({"class", "object", "trait", "enum"}),
+            "php":        frozenset({"class", "interface", "trait"}),
+            # Wave 1319i/1319k: Rust/Ruby — snake_case file convention.
+            # Note: indexer's _ts_kind_for_definition normalizes Rust's
+            # `struct_item`/`enum_item`/`trait_item` ALL to `"class"` kind;
+            # similarly Ruby's `class` registers as `"class"` and `module`
+            # registers as `"module"`. Merge gate matches against the
+            # normalized kind values.
+            "rust":       frozenset({"class"}),
+            "ruby":       frozenset({"class", "module"}),
+        }
+        # Multi-extension languages (JS has 4, TS has 2).
+        _CLASS_MODULE_MERGE_EXTS_BY_LANG: dict[str, tuple[str, ...]] = {
+            "swift":      (".swift",),
+            "java":       (".java",),
+            "kotlin":     (".kt",),
+            "csharp":     (".cs",),
+            "javascript": (".js", ".jsx", ".mjs", ".cjs"),
+            "typescript": (".ts", ".tsx"),
+            "scala":      (".scala",),
+            "php":        (".php",),
+            "rust":       (".rs",),
+            "ruby":       (".rb",),
+        }
+        # Wave 1319i/1319k: languages with snake_case file convention need
+        # snake-to-PascalCase basename conversion. `foo_bar.rs` looks for
+        # `struct FooBar`. Detection tries BOTH the snake-derived name AND
+        # the literal basename (some Rust crates use `Foo.rs` directly).
+        _SNAKE_TO_PASCAL_LANGS = frozenset({"rust", "ruby"})
+
+        def _snake_to_pascal(name: str) -> str:
+            if not name:
+                return ""
+            parts = name.split("_")
+            return "".join(p[:1].upper() + p[1:] for p in parts if p)
+
+        _merge_kinds = _CLASS_MODULE_MERGE_KINDS_BY_LANG.get(lang_key, frozenset())
+        _merge_exts = _CLASS_MODULE_MERGE_EXTS_BY_LANG.get(lang_key, ())
+        _basename_raw = ""
+        for _ext in _merge_exts:
+            if rel_path.endswith(_ext):
+                _basename_raw = rel_path.rsplit("/", 1)[-1].rsplit(_ext, 1)[0]
+                break
+        # Build the set of basename candidates the merge gate matches against.
+        # For exact-match languages (Swift/Java/Kotlin/C#/JS/TS/Scala/PHP),
+        # only the literal basename matches. For snake-to-Pascal languages,
+        # both the literal basename and its PascalCase conversion match.
+        _file_basename_candidates: frozenset[str] = (
+            frozenset({_basename_raw, _snake_to_pascal(_basename_raw)})
+            if lang_key in _SNAKE_TO_PASCAL_LANGS
+            else frozenset({_basename_raw}) if _basename_raw
+            else frozenset()
+        )
+
         def register_symbol(qname: str, kind: str, node, parent_symbol: str | None) -> str:
+            # Wave 13129 (1316l/13190/1319i/1319k): merge top-level type whose
+            # name matches one of the file basename candidates into the module
+            # node. Candidates are the literal basename plus (for languages
+            # with snake_case file convention like Rust/Ruby) the PascalCase
+            # conversion of the basename.
+            if (
+                _file_basename_candidates
+                and kind in _merge_kinds
+                and qname in _file_basename_candidates
+            ):
+                # Update module node identity to take on the class.
+                module_node = node_map.get(module_id)
+                if module_node is not None:
+                    module_node["label"] = qname
+                    module_node["kind"] = kind
+                    module_node["collapsed_pair"] = True
+                # Register the basename under simple_names so cross-file
+                # resolution can rebind `external::Foo` to this module_id.
+                simple_names.setdefault(qname, []).append(module_id)
+                # Track as defined for symbol_lookup population (uses the
+                # qname → module_id mapping).
+                if module_id not in defined_symbols:
+                    defined_symbols.append(module_id)
+                return module_id
             node_id = f"{rel_path}::{qname}"
             label = qname.rsplit(".", 1)[-1]
             add_node(node_id, label, kind, self._source_location(source_text, node.start_point[0] + 1))
@@ -2276,9 +3527,56 @@ class GraphIndexSession:
                 return
             if _ts_is_call_node(node_type, mode, profile):
                 source_symbol = scope_symbols[-1] if scope_symbols else module_id
-                for target in _ts_relation_candidates(node, source_bytes, "call", mode, profile):
-                    resolved = _ts_resolve_target(target, symbol_lookup, import_aliases)
-                    add_edge(source_symbol, resolved, "calls", confidence="EXTRACTED")
+                # Wave 13129 (1312l + 13194): per-language receiver-type
+                # resolution at edge construction time. For supported language
+                # invocation nodes, try the receiver-type resolver first; on a
+                # hit, it provides the deterministic per-call-site target
+                # (project-qualified or external-qualified). On uncertain
+                # receivers, fall through to the existing simple-name
+                # attribution.
+                java_resolved_target: str | None = None
+                if lang_key == "java" and node_type == "method_invocation":
+                    java_resolved_target = _resolve_java_call_target(
+                        node, source_bytes, symbol_lookup
+                    )
+                elif lang_key == "kotlin" and node_type == "call_expression":
+                    java_resolved_target = _resolve_kotlin_call_target(
+                        node, source_bytes, symbol_lookup
+                    )
+                elif lang_key == "csharp" and node_type == "invocation_expression":
+                    java_resolved_target = _resolve_csharp_call_target(
+                        node, source_bytes, symbol_lookup
+                    )
+                # Wave 1319a: Go/Rust/Scala extensions.
+                elif lang_key == "go" and node_type == "call_expression":
+                    java_resolved_target = _resolve_go_call_target(
+                        node, source_bytes, symbol_lookup
+                    )
+                elif lang_key == "rust" and node_type == "call_expression":
+                    java_resolved_target = _resolve_rust_call_target(
+                        node, source_bytes, symbol_lookup
+                    )
+                elif lang_key == "scala" and node_type == "call_expression":
+                    java_resolved_target = _resolve_scala_call_target(
+                        node, source_bytes, symbol_lookup
+                    )
+                # Wave 1319g: Swift extension.
+                elif lang_key == "swift" and node_type == "call_expression":
+                    java_resolved_target = _resolve_swift_call_target(
+                        node, source_bytes, symbol_lookup
+                    )
+                if java_resolved_target is not None:
+                    # Confidence "RECEIVER_RESOLVED" tells the cross-file
+                    # resolution pass to leave this edge alone — the
+                    # receiver-type resolution has already determined the
+                    # correct target (project or external-qualified) and
+                    # the simple-name fallback would mis-rewrite an
+                    # external-qualified edge back to a project node.
+                    add_edge(source_symbol, java_resolved_target, "calls", confidence="RECEIVER_RESOLVED")
+                else:
+                    for target in _ts_relation_candidates(node, source_bytes, "call", mode, profile):
+                        resolved = _ts_resolve_target(target, symbol_lookup, import_aliases)
+                        add_edge(source_symbol, resolved, "calls", confidence="EXTRACTED")
             for child in getattr(node, "named_children", []):
                 walk_calls(child, scope_names, scope_kinds, scope_symbols)
 
@@ -2724,11 +4022,23 @@ class GraphIndexSession:
         qualified_index: dict[str, list[str]] = {}
         per_file_simple: dict[tuple[str, str], str] = {}
         for node_id, node in node_map.items():
-            if "::" not in node_id:
-                continue  # module-level node (id == file path)
             if node_id.startswith("external::"):
                 continue  # external endpoint nodes are not project candidates
-            file_part, qualified = node_id.split("::", 1)
+            # Wave 13129 (1316l): merged Swift class/module nodes (collapsed_pair=True)
+            # live at the file id and carry the class label. Include them in the
+            # simple_name_index so cross-file external::Foo rewrites resolve to the
+            # merged file node. Other module-level nodes (no class merge) are
+            # excluded — they don't represent a queryable symbol.
+            is_collapsed_pair = bool(node.get("collapsed_pair"))
+            if "::" not in node_id and not is_collapsed_pair:
+                continue
+            if is_collapsed_pair:
+                # Module-level merged node: file_part is the node_id itself,
+                # qualified is the class label.
+                file_part = node_id
+                qualified = str(node.get("label") or "")
+            else:
+                file_part, qualified = node_id.split("::", 1)
             label = str(node.get("label") or "")
             simple = label or qualified.rsplit(".", 1)[-1]
             if not simple:
@@ -2739,9 +4049,13 @@ class GraphIndexSession:
                 per_file_simple[key] = node_id
         for (file_part, simple), node_id in per_file_simple.items():
             simple_name_index.setdefault(simple, []).append(node_id)
-            _, qualified = node_id.split("::", 1)
-            if qualified and qualified != simple:
-                qualified_index.setdefault(qualified, []).append(node_id)
+            # Wave 13129 (1316l): merged Swift class/module nodes have no "::";
+            # their qualified is the class label (== simple), so skip the
+            # qualified_index addition (which dedupes against simple anyway).
+            if "::" in node_id:
+                _, qualified = node_id.split("::", 1)
+                if qualified and qualified != simple:
+                    qualified_index.setdefault(qualified, []).append(node_id)
             # Also index a module-path-derived dotted form so per-file extractors
             # that emit dotted external targets (e.g. Python `from src.a import
             # foo` produces `external::src.a.foo`) can resolve to project nodes.
@@ -2764,6 +4078,18 @@ class GraphIndexSession:
                     if "." in suffix:
                         qualified_index.setdefault(suffix, []).append(node_id)
 
+        # Wave 13129 (1312l): dedupe qualified_index entries — the suffix-indexing
+        # path can re-add the same node_id under its dotted suffix when that
+        # suffix equals the direct qualified key (e.g., file "A.java" with class
+        # `Helper.process` produces dotted_full "A.Helper.process" whose suffix
+        # "Helper.process" matches the direct qualified, double-adding the node).
+        # Without dedupe, `len(candidates) == 1` rewrite check fails for legit
+        # single-candidate matches once the qualified-form external edges 1312l
+        # emits hit the lookup path. Preserve order via dict.fromkeys (stable).
+        for _k in list(qualified_index.keys()):
+            qualified_index[_k] = list(dict.fromkeys(qualified_index[_k]))
+        for _k in list(simple_name_index.keys()):
+            simple_name_index[_k] = list(dict.fromkeys(simple_name_index[_k]))
         if simple_name_index or qualified_index:
             new_edge_map: dict[tuple[str, str, str, str], dict[str, Any]] = {}
             rewrite_count = 0
@@ -2776,6 +4102,16 @@ class GraphIndexSession:
                 if not bare or bare in _TS_GLOBAL_DENYLIST:
                     new_edge_map[key] = edge
                     continue
+                # Wave 13129 (1312l): for edges emitted by Java receiver-type
+                # resolution (confidence=RECEIVER_RESOLVED), trust the qualified
+                # match (rebind to project node if the qualified name matches a
+                # project symbol) but BLOCK the simple-name fallback. The
+                # receiver-type resolver determined the call's target class
+                # explicitly; falling back to simple-name match would re-introduce
+                # the phantom (e.g. external::ObjectOutputStream.writeObject
+                # would mis-rewrite to project JSON.writeObject via the unique
+                # simple-name "writeObject").
+                _receiver_resolved = conf == "RECEIVER_RESOLVED"
                 resolved: str | None = None
                 if "." in bare:
                     # AC-2: qualified target — require an exact qualified-name
@@ -2790,12 +4126,15 @@ class GraphIndexSession:
                     candidates = qualified_index.get(bare, [])
                     if len(candidates) == 1:
                         resolved = candidates[0]
-                    elif not candidates:
+                    elif not candidates and not _receiver_resolved:
                         # Fallback: try the last segment in simple_name_index
                         # (with ambiguity safety + denylist already checked).
                         # Covers cases like C# `h.Process()` where `h` is a
                         # local variable of unknown type and the call should
                         # resolve to the unique project `Process` method.
+                        # Skipped for RECEIVER_RESOLVED edges: the resolver
+                        # already determined the target class — simple-name
+                        # fallback would mis-rewrite to a phantom project node.
                         simple_candidates = simple_name_index.get(final_seg, [])
                         if len(simple_candidates) == 1:
                             resolved = simple_candidates[0]

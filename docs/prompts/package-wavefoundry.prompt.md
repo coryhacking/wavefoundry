@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-26
+Last verified: 2026-06-01
 
 Shortcut: **`Package Wavefoundry`** | Legacy: **`Package wave framework`** / **`Package wave context`**
 
@@ -36,10 +36,15 @@ python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH
 python3 -B .wavefoundry/framework/scripts/run_tests.py
 ```
 
-4. Ensure `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches the packaged revision unless you intentionally use `--skip-manifest-check`.
-5. Run the packaging command once. It stamps `.wavefoundry/framework/VERSION`, updates `.wavefoundry/framework/index/` by default, compacts the LanceDB tables, and creates the zip.
-6. Review the produced zip name and stamped `VERSION` for consistency.
-7. Hand off diff + suggested commit message unless the operator explicitly asks to finalize the commit in this request.
+4. **Update `.wavefoundry/framework/RELEASE_NOTES.md`** — operator-visible release surface that ships in the zip and lands in the consumer's framework directory on `wave_upgrade`. **Notes are aggregated by semver version (`MAJOR.MINOR.PATCH`), not by build.** Multiple builds of the same semver share one entry. Two cases:
+   - **Semver bumps** (e.g., `1.2.0` → `1.2.1`): prepend a new section. Header `## MAJOR.MINOR.PATCH — YYYY-MM-DD`. Cover headline change, upgrade action required (`GRAPH_BUILDER_VERSION` bumps, MCP server restart needs), per-change summaries, breaking changes or deprecations with migration guidance, and the wave id reference. Mirror the prior entry's shape.
+   - **Semver unchanged, only build changes** (e.g., re-packaging `1.2.1` with a fresh build): edit the existing entry in place — do NOT add a new section.
+
+   **Do not skip this step** — RELEASE_NOTES.md is the only release surface that travels with the package.
+5. Ensure `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches the packaged revision unless you intentionally use `--skip-manifest-check`.
+6. Run the packaging command once. It stamps `.wavefoundry/framework/VERSION`, updates `.wavefoundry/framework/index/` by default, compacts the LanceDB tables, and creates the zip.
+7. Review the produced zip name and stamped `VERSION` for consistency. Spot-check that `RELEASE_NOTES.md` is in the zip (`unzip -l <zip> | grep RELEASE`) and that the latest entry matches the version just stamped.
+8. Hand off diff + suggested commit message unless the operator explicitly asks to finalize the commit in this request.
 
 ## Output
 

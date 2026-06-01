@@ -44,10 +44,15 @@ Before the final zip build:
 python3 -B .wavefoundry/framework/scripts/run_tests.py
 ```
 
-4. Ensure `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches the packaged revision unless you intentionally use `--skip-manifest-check`.
-5. Run `python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH` once to stamp `.wavefoundry/framework/VERSION`, update `.wavefoundry/framework/index/`, compact the LanceDB tables, and create the zip.
-6. Review the produced zip name and stamped `VERSION` for consistency.
-7. After packaging and verification, hand off the diff plus a suggested commit message unless the operator explicitly instructs you to finalize the commit in the current request after reviewing that scope.
+4. **Update `.wavefoundry/framework/RELEASE_NOTES.md`** — the operator-visible release surface that ships with the zip and lands in the consumer's framework directory on `wave_upgrade`. **Notes are aggregated by semver version (`MAJOR.MINOR.PATCH`), not by build.** Build numbers (the `+XXXX` lifecycle suffix) are traceability stamps; multiple builds of the same semver version share one entry. Decide which case applies:
+   - **Semver bumps from the prior release** (e.g., `1.2.0` → `1.2.1`, `1.2.1` → `1.3.0`): **prepend a new entry** at the top. Header format `## MAJOR.MINOR.PATCH — YYYY-MM-DD`. Cover the headline change (one paragraph), any action required on upgrade (`GRAPH_BUILDER_VERSION` bumps, MCP server restart needs), per-change summaries with operator-actionable detail, breaking changes or deprecations with migration guidance, and the wave id reference for full per-change docs in the project repository. Read the prior release's entry for shape; mirror it.
+   - **Semver unchanged, only the build number changes** (e.g., re-packaging `1.2.1+3134` as `1.2.1+3137` because you added the release notes file mid-release): **edit the existing entry in place** — do NOT add a new section. The existing entry's content should describe what's in the *latest* build of that semver; if a fix landed across builds of the same version, fold it into the existing entry.
+
+   **Do not skip this step** — RELEASE_NOTES.md is the only release surface that travels with the package.
+5. Ensure `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches the packaged revision unless you intentionally use `--skip-manifest-check`.
+6. Run `python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH` once to stamp `.wavefoundry/framework/VERSION`, update `.wavefoundry/framework/index/`, compact the LanceDB tables, and create the zip.
+7. Review the produced zip name and stamped `VERSION` for consistency. Spot-check that `RELEASE_NOTES.md` is in the zip (`unzip -l <zip> | grep RELEASE`) and that the latest entry matches the version just stamped.
+8. After packaging and verification, hand off the diff plus a suggested commit message unless the operator explicitly instructs you to finalize the commit in the current request after reviewing that scope.
 
 ## What It Produces
 

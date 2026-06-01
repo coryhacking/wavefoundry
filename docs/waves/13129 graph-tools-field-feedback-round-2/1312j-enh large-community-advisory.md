@@ -1,7 +1,7 @@
 # `large_community_advisory` Diagnostic on `code_graph_community` >200 Nodes
 
 Change ID: `1312j-enh large-community-advisory`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
 Status: planned
 Last verified: 2026-06-01
@@ -40,28 +40,28 @@ Plus: add a `community_size_class: "small" | "medium" | "large"` field on the re
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `code_graph_community` response always carries `community_size_class: "small" | "medium" | "large"`.
-- [ ] AC-2: `community_size_class` is computed from `total_node_count` per the thresholds: <50 / 50–200 / 200+.
-- [ ] AC-3: When `total_node_count > 200`, the response's `diagnostics` list contains an entry with `code: "large_community_advisory"`.
-- [ ] AC-4: The diagnostic's `recovery_usage` references the community's hub_node_id (looked up from the cluster artifact).
-- [ ] AC-5: The advisory does NOT suppress the existing `pagination_hint` — both fields coexist on large-community responses.
-- [ ] AC-6: Seed-211 carries a one-line interpretation note.
-- [ ] AC-7: 5 regression tests cover the trigger matrix; all existing tests pass.
-- [ ] AC-8: docs-lint passes.
+- [x] AC-1: `code_graph_community` response always carries `community_size_class: "small" | "medium" | "large"`.
+- [x] AC-2: `community_size_class` is computed from `total_node_count` per the thresholds: <50 / 50–200 / 200+.
+- [x] AC-3: When `total_node_count > 200`, the response's `diagnostics` list contains an entry with `code: "large_community_advisory"`.
+- [x] AC-4: The diagnostic's `recovery_usage` references the community's hub_node_id (looked up from the cluster artifact).
+- [x] AC-5: The advisory does NOT suppress the existing `pagination_hint` — both fields coexist on large-community responses.
+- [x] AC-6: Seed-211 carries a one-line interpretation note.
+- [x] AC-7: 5 regression tests cover the trigger matrix; all existing tests pass.
+- [x] AC-8: docs-lint passes.
 
 ## Tasks
 
-- [ ] Open `framework_edit_allowed` gate
-- [ ] Add `community_size_class` field + threshold computation
-- [ ] Add `large_community_advisory` diagnostic emission with hub_node_id lookup
-- [ ] Open `seed_edit_allowed` gate
-- [ ] Update seed-211 with the interpretation line
-- [ ] Run docs-lint
-- [ ] Close `seed_edit_allowed` gate
-- [ ] Add 5 regression tests
-- [ ] Run framework tests
-- [ ] Close `framework_edit_allowed` gate
-- [ ] Mark change `implemented`
+- [x] Open `framework_edit_allowed` gate
+- [x] Add `community_size_class` field + threshold computation
+- [x] Add `large_community_advisory` diagnostic emission with hub_node_id lookup
+- [x] Open `seed_edit_allowed` gate
+- [x] Update seed-211 with the interpretation line
+- [x] Run docs-lint
+- [x] Close `seed_edit_allowed` gate
+- [x] Add 5 regression tests
+- [x] Run framework tests
+- [x] Close `framework_edit_allowed` gate
+- [x] Mark change `implemented`
 
 ## AC Priority
 

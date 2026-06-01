@@ -11,7 +11,7 @@ from typing import Any, Iterable, Literal
 
 Layer = Literal["project", "framework", "union"]
 Direction = Literal["callers", "callees", "both"]
-ReportSection = Literal["fan_in", "fan_out", "orphan_docs", "chokepoints", "cross_layer", "betweenness"]
+ReportSection = Literal["fan_in", "fan_out", "orphan_docs", "chokepoints", "file_hubs", "cross_layer", "betweenness"]
 
 _BETWEENNESS_NODE_LIMIT = 10_000
 
@@ -274,14 +274,155 @@ def collapse_generated_view(payload: dict[str, Any]) -> dict[str, Any]:
     return out_payload
 
 
+# Swift-first language enablement for collapse_class_module_view (wave 13129 — 1312h).
+# Extension to other languages is operator-validation-driven; do not pre-emptively
+# enable Java/Kotlin/C# without operator reports — those languages have edge cases
+# (Java inner classes, Kotlin companion objects, C# multi-class-per-file convention)
+# that warrant their own validation cycles.
+_CLASS_MODULE_COLLAPSE_LANGUAGES: dict[str, set[str]] = {
+    # Map extension → {kinds that count as the top-level "class" for collapse}.
+    # Swift: class / struct / actor / enum / protocol all qualify as the single
+    # top-level type when the file basename matches.
+    ".swift": {"class", "struct", "actor", "enum", "protocol"},
+}
+
+
+def collapse_class_module_view(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a payload where each file+top-level-class pair is collapsed (wave 13129 — 1312h).
+
+    For Swift (initial scope): when a file like ``Foo.swift`` contains a top-level
+    type ``class Foo`` / ``struct Foo`` / ``actor Foo`` / etc. (basename match),
+    the file node and the class node aggregate into a single node:
+
+    - Id remains the file path (file node's id wins; class node id is rewritten).
+    - Label takes the class name.
+    - ``kind`` stays ``"module"`` for backward compat (queries against file paths
+      still work).
+    - ``collapsed_pair: True`` discriminator.
+    - Incoming/outgoing edges from both nodes merge with dedup on
+      ``(src, tgt, relation, confidence)``.
+
+    Files without a matching top-level class are unaffected. Classes without a
+    matching file (e.g., multi-class files where no class name matches the
+    basename) are unaffected. Non-Swift files are unaffected (other languages
+    extend the dispatch table when operator-validated).
+
+    Per-symbol navigation tools (code_callhierarchy, code_impact, code_callgraph,
+    code_graph_path) deliberately do NOT consume this view — they need the
+    unmodified per-symbol graph.
+    """
+    nodes_in = list(payload.get("nodes") or [])
+    edges_in = list(payload.get("edges") or [])
+
+    # Index nodes by id for quick lookup.
+    nodes_by_id: dict[str, dict[str, Any]] = {}
+    for node in nodes_in:
+        if isinstance(node, dict):
+            nid = str(node.get("id") or "")
+            if nid:
+                nodes_by_id[nid] = node
+
+    # Identify class/module pairs: for each file node (kind=module, id matches a
+    # source_file path), check if a matching top-level type node exists at
+    # ``<file>::<basename>`` with a kind in the language's set.
+    collapse_pairs: dict[str, str] = {}  # class_node_id → file_node_id
+    pair_label_by_file: dict[str, str] = {}
+    for node in nodes_in:
+        if not isinstance(node, dict):
+            continue
+        if node.get("kind") != "module":
+            continue
+        file_id = str(node.get("id") or "")
+        if not file_id:
+            continue
+        # Extract extension.
+        ext_idx = file_id.rfind(".")
+        slash_idx = file_id.rfind("/")
+        if ext_idx <= slash_idx:
+            continue
+        ext = file_id[ext_idx:]
+        if ext not in _CLASS_MODULE_COLLAPSE_LANGUAGES:
+            continue
+        allowed_kinds = _CLASS_MODULE_COLLAPSE_LANGUAGES[ext]
+        basename = file_id[slash_idx + 1:ext_idx]
+        if not basename:
+            continue
+        candidate_id = f"{file_id}::{basename}"
+        candidate = nodes_by_id.get(candidate_id)
+        if candidate is None:
+            continue
+        if candidate.get("kind") not in allowed_kinds:
+            continue
+        collapse_pairs[candidate_id] = file_id
+        pair_label_by_file[file_id] = basename
+
+    if not collapse_pairs:
+        # No pairs → return unchanged payload (cheap no-op).
+        return dict(payload)
+
+    # Build the output node list: drop the class nodes, repurpose file nodes.
+    out_nodes: list[dict[str, Any]] = []
+    for node in nodes_in:
+        if not isinstance(node, dict):
+            continue
+        nid = str(node.get("id") or "")
+        if nid in collapse_pairs:
+            # Class node — drop; the file node carries the merged identity.
+            continue
+        if nid in pair_label_by_file:
+            # File node — repurpose with class label + collapsed_pair marker.
+            merged = dict(node)
+            merged["label"] = pair_label_by_file[nid]
+            merged["collapsed_pair"] = True
+            out_nodes.append(merged)
+        else:
+            out_nodes.append(node)
+
+    # Edge rewriting: any edge endpoint that was the class node id becomes the file id.
+    seen_edge_keys: set[tuple[str, str, str, str]] = set()
+    out_edges: list[dict[str, Any]] = []
+    for edge in edges_in:
+        if not isinstance(edge, dict):
+            continue
+        src = str(edge.get("source") or "")
+        tgt = str(edge.get("target") or "")
+        if not src or not tgt:
+            continue
+        new_src = collapse_pairs.get(src, src)
+        new_tgt = collapse_pairs.get(tgt, tgt)
+        # Drop edges that collapse to self-loops on the merged node.
+        if new_src == new_tgt and new_src in pair_label_by_file:
+            continue
+        relation = str(edge.get("relation") or "")
+        confidence = str(edge.get("confidence") or "")
+        key = (new_src, new_tgt, relation, confidence)
+        if key in seen_edge_keys:
+            continue
+        seen_edge_keys.add(key)
+        new_edge = dict(edge)
+        new_edge["source"] = new_src
+        new_edge["target"] = new_tgt
+        out_edges.append(new_edge)
+
+    out_payload = dict(payload)
+    out_payload["nodes"] = out_nodes
+    out_payload["edges"] = out_edges
+    return out_payload
+
+
 class GraphQueryIndex:
     """In-memory adjacency index over a loaded graph payload."""
 
-    __slots__ = ("layer", "present", "nodes", "edges", "_out", "_in", "_node_by_id")
+    __slots__ = ("layer", "present", "builder_version", "nodes", "edges", "_out", "_in", "_node_by_id")
 
     def __init__(self, payload: dict[str, Any]):
         self.layer = str(payload.get("layer") or "project")
         self.present = bool(payload.get("present"))
+        # Wave 13129 (1312l delivery review): expose builder_version so
+        # query-time consumers can short-circuit redundant work on graphs
+        # the indexer already cleaned up (e.g., the code_callhierarchy
+        # receiver-type filter is no-op on v13+ graphs).
+        self.builder_version = str(payload.get("builder_version") or "")
         self.nodes: list[dict[str, Any]] = list(payload.get("nodes") or [])
         self.edges: list[dict[str, Any]] = list(payload.get("edges") or [])
         self._node_by_id: dict[str, dict[str, Any]] = {}
@@ -618,7 +759,7 @@ class GraphQueryIndex:
         chokepoint_threshold: int = _CHOKEPOINT_FAN_OUT,
     ) -> dict[str, Any]:
         wanted = set(sections) if sections is not None else {
-            "fan_in", "fan_out", "orphan_docs", "chokepoints", "cross_layer",
+            "fan_in", "fan_out", "orphan_docs", "chokepoints", "file_hubs", "cross_layer",
         }
         fan_in_counts: dict[str, int] = {}
         fan_out_counts: dict[str, int] = {}
@@ -650,11 +791,15 @@ class GraphQueryIndex:
         if "fan_out" in wanted:
             result["fan_out"] = _ranked(fan_out_counts)
         if "orphan_docs" in wanted:
+            # Wave 13129 (1316t): track candidate total so an empty list can be
+            # distinguished from "no doc nodes existed at all".
+            doc_node_count = 0
             orphans: list[dict[str, Any]] = []
             for node in self.nodes:
                 kind = node.get("kind")
                 if kind not in _DOC_KINDS:
                     continue
+                doc_node_count += 1
                 nid = node.get("id")
                 if not isinstance(nid, str):
                     continue
@@ -672,7 +817,18 @@ class GraphQueryIndex:
                         "missing_doc_references_code": not has_doc_code,
                     })
             result["orphan_docs"] = orphans[:limit]
+            result["orphan_docs_candidates_total"] = doc_node_count
         if "chokepoints" in wanted:
+            # Wave 13129 (1312d): chokepoints excludes kind:"module" entries.
+            # File-level hubs go to the new `file_hubs` section instead.
+            # Wave 13129 (1316t): candidates_total counts function/method/class
+            # nodes with any fan_out > 0 (before threshold). Lets operators
+            # distinguish "no candidates" from "candidates below threshold".
+            chokepoint_candidates_total = sum(
+                1 for nid, count in fan_out_counts.items()
+                if count > 0
+                and (self._node_by_id.get(nid) or {}).get("kind") != "module"
+            )
             chokepoints = [
                 {
                     "node_id": nid,
@@ -681,8 +837,38 @@ class GraphQueryIndex:
                 }
                 for nid, count in sorted(fan_out_counts.items(), key=lambda item: (-item[1], item[0]))
                 if count >= chokepoint_threshold
+                and (self._node_by_id.get(nid) or {}).get("kind") != "module"
             ][:limit]
             result["chokepoints"] = chokepoints
+            result["chokepoints_candidates_total"] = chokepoint_candidates_total
+            result["chokepoints_threshold"] = chokepoint_threshold
+        if "file_hubs" in wanted:
+            # Wave 13129 (1312d): file-level fan_out hubs — kind:"module" entries
+            # that previously appeared in chokepoints alongside function-level
+            # hotspots. Split into its own section so operators reading
+            # chokepoints get a pure function/method/class ranking and operators
+            # reading file_hubs get the file-level orientation independently.
+            # Wave 13129 (1316t): candidates_total + threshold to distinguish
+            # "no candidates" from "candidates below threshold".
+            file_hubs_candidates_total = sum(
+                1 for nid, count in fan_out_counts.items()
+                if count > 0
+                and (self._node_by_id.get(nid) or {}).get("kind") == "module"
+            )
+            file_hubs = [
+                {
+                    "node_id": nid,
+                    "fan_out": count,
+                    "label": (self._node_by_id.get(nid) or {}).get("label", nid),
+                    "kind": "module",
+                }
+                for nid, count in sorted(fan_out_counts.items(), key=lambda item: (-item[1], item[0]))
+                if count >= chokepoint_threshold
+                and (self._node_by_id.get(nid) or {}).get("kind") == "module"
+            ][:limit]
+            result["file_hubs"] = file_hubs
+            result["file_hubs_candidates_total"] = file_hubs_candidates_total
+            result["file_hubs_threshold"] = chokepoint_threshold
         if "betweenness" in wanted:
             node_count = len(self.nodes)
             if node_count > _BETWEENNESS_NODE_LIMIT:
@@ -733,6 +919,10 @@ class GraphQueryIndex:
                 "count": len(cross),
                 "edges": cross[:limit],
             }
+            # Wave 13129 (1316t): candidates_total = total cross-layer edges
+            # found (same as the existing `count` field, surfaced as the
+            # explicit diagnostic field for parity with other sections).
+            result["cross_layer_candidates_total"] = len(cross)
         return result
 
 

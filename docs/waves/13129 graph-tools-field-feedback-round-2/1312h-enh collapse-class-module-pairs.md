@@ -1,7 +1,7 @@
 # `collapse_class_module_pairs: bool` — Aggregate Top-Level Class with Its Containing File
 
 Change ID: `1312h-enh collapse-class-module-pairs`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
 Status: planned
 Last verified: 2026-06-01
@@ -64,28 +64,28 @@ Swift-first scope per Solaris's report. Java/Kotlin/C# collapse runs the same al
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `wave_graph_report` accepts `collapse_class_module_pairs: bool = False`. Echo in response.
-- [ ] AC-2: When True for a Swift fixture, `Foo.swift` + `Foo.swift::Foo` aggregate to one node with merged incoming/outgoing edges.
-- [ ] AC-3: Aggregated node carries `collapsed_pair: true` and the class name as label.
-- [ ] AC-4: Per-symbol tools (`code_callhierarchy`, `code_impact`, `code_callgraph`, `code_graph_path`) deliberately do NOT accept the parameter.
-- [ ] AC-5: Files without a matching top-level class are unaffected (file node preserved as-is).
-- [ ] AC-6: MCP wrapper exposes `collapse_class_module_pairs` — regression test in `TestMcpWrapperParameterExposure`.
-- [ ] AC-7: Dashboard graph-render endpoints accept the same parameter for visualization parity.
-- [ ] AC-8: 6 regression tests cover the matrix.
-- [ ] AC-9: All existing tests continue to pass.
+- [x] AC-1: `wave_graph_report` accepts `collapse_class_module_pairs: bool = False`. Echo in response.
+- [x] AC-2: When True for a Swift fixture, `Foo.swift` + `Foo.swift::Foo` aggregate to one node with merged incoming/outgoing edges.
+- [x] AC-3: Aggregated node carries `collapsed_pair: true` and the class name as label.
+- [x] AC-4: Per-symbol tools (`code_callhierarchy`, `code_impact`, `code_callgraph`, `code_graph_path`) deliberately do NOT accept the parameter.
+- [x] AC-5: Files without a matching top-level class are unaffected (file node preserved as-is).
+- [x] AC-6: MCP wrapper exposes `collapse_class_module_pairs` — regression test in `TestMcpWrapperParameterExposure`.
+- [x] AC-7: Dashboard graph-render endpoints accept the same parameter for visualization parity.
+- [x] AC-8: 6 regression tests cover the matrix.
+- [x] AC-9: All existing tests continue to pass.
 
 ## Tasks
 
-- [ ] Open `framework_edit_allowed` gate
-- [ ] Implement `collapse_class_module_view` helper in graph_query.py
-- [ ] Wire into `wave_graph_report_response`
-- [ ] Update MCP wrapper signature + docstring
-- [ ] Wire into dashboard graph-render endpoints
-- [ ] Add 6 regression tests
-- [ ] Update `TestMcpWrapperParameterExposure`
-- [ ] Run framework tests
-- [ ] Close gate
-- [ ] Mark change `implemented`
+- [x] Open `framework_edit_allowed` gate
+- [x] Implement `collapse_class_module_view` helper in graph_query.py
+- [x] Wire into `wave_graph_report_response`
+- [x] Update MCP wrapper signature + docstring
+- [x] Wire into dashboard graph-render endpoints
+- [x] Add 6 regression tests
+- [x] Update `TestMcpWrapperParameterExposure`
+- [x] Run framework tests
+- [x] Close gate
+- [x] Mark change `implemented`
 
 ## AC Priority
 
@@ -126,6 +126,7 @@ Swift-first scope per Solaris's report. Java/Kotlin/C# collapse runs the same al
 - Structurally mirrors wave 130rj's `130su-enh generated-code-collapse-mode` — same view-not-modification pattern, different aggregation rule.
 - Companion to `01-decompose-name-collision-count` — collapsed nodes' `same_name_node_count` reflects the post-collapse uniqueness.
 - Companion to `02-file-hubs-section-split` — when collapse is on, the file_hubs section's entries change shape (file+class aggregate appears as one entry, not two).
+- **Superseded mid-wave by `1316l-enh graph-builder-swift-class-module-merge`** for v14+ graphs. `1316l` performs the same Swift class/module merge at index time so per-symbol tools (`code_callhierarchy`, `code_impact`, `code_callgraph`, `code_graph_path`) — which deliberately don't consume this query-time view — see the merge automatically. This change's `collapse_class_module_view` becomes a no-op on v14+ graphs and continues to function on cached pre-v14 graphs.
 
 ## Session Handoff
 

@@ -198,7 +198,16 @@ class GraphIndexerTests(unittest.TestCase):
         )
         node_ids = {node["id"] for node in payload["nodes"]}
         relations = {edge["relation"] for edge in payload["edges"]}
-        self.assertIn("src/Example.java::Example", node_ids)
+        # Wave 13190: Java class with basename match (Example.java + class Example)
+        # merges into the file node — `src/Example.java::Example` is no longer
+        # registered; the file node takes on the class identity.
+        self.assertIn("src/Example.java", node_ids)
+        self.assertNotIn("src/Example.java::Example", node_ids)
+        file_node = next(n for n in payload["nodes"] if n["id"] == "src/Example.java")
+        self.assertEqual(file_node["label"], "Example")
+        self.assertEqual(file_node["kind"], "class")
+        self.assertTrue(file_node.get("collapsed_pair"))
+        # Methods remain as separate nodes under the merged class.
         self.assertIn("src/Example.java::Example.run", node_ids)
         self.assertIn("src/Example.java::Example.helper", node_ids)
         node_kinds = {node["id"]: node["kind"] for node in payload["nodes"]}
@@ -961,6 +970,811 @@ class CrossFileResolutionTests(unittest.TestCase):
             and "A.swift::Helper.process" in str(e.get("target", ""))
         ]
         self.assertTrue(bar_edges, f"Expected Worker.bar → Helper.process; got {[(e.get('source'), e.get('target')) for e in calls]}")
+
+
+class SwiftClassModuleMergeTests(unittest.TestCase):
+    """1316l: Swift class/module merge at index time.
+
+    When a Swift file `Foo.swift` contains a top-level type declaration named
+    `Foo` (matching basename) with kind class/struct/actor/enum/protocol,
+    the indexer merges the file node and the type node into a single node
+    at the file id. The constructor call edge target now resolves correctly
+    for `code_callhierarchy`.
+    """
+
+    def setUp(self):
+        try:
+            import tree_sitter_swift  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_swift not available in test env")
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files):
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _nodes(self, payload):
+        return payload.get("nodes", [])
+
+    def _calls(self, payload):
+        return [e for e in payload.get("edges", []) if e.get("relation") == "calls"]
+
+    # AC-2: class Foo in Foo.swift → single merged node at file id.
+    def test_class_module_pair_merges_to_file_id(self):
+        files = {"Foo.swift": "class Foo {\n    func bar() {}\n}\n"}
+        payload = self._build(files)
+        nodes = self._nodes(payload)
+        node_ids = {n["id"] for n in nodes}
+        # Merged node lives at file id.
+        self.assertIn("Foo.swift", node_ids)
+        # Class id NOT registered.
+        self.assertNotIn("Foo.swift::Foo", node_ids)
+        merged = next(n for n in nodes if n["id"] == "Foo.swift")
+        self.assertEqual(merged["label"], "Foo")
+        self.assertEqual(merged["kind"], "class")
+        self.assertTrue(merged.get("collapsed_pair"))
+        # Children of the class are still registered under the file path.
+        self.assertIn("Foo.swift::Foo.bar", node_ids)
+
+    # AC-1: struct Foo in Foo.swift also merges (struct included).
+    def test_struct_module_pair_merges(self):
+        files = {"Foo.swift": "struct Foo {}\n"}
+        payload = self._build(files)
+        node_ids = {n["id"] for n in self._nodes(payload)}
+        self.assertIn("Foo.swift", node_ids)
+        self.assertNotIn("Foo.swift::Foo", node_ids)
+
+    # AC-3: basename mismatch → no merge.
+    def test_basename_mismatch_no_merge(self):
+        # Foo.swift containing `class FooHelper` (basename `Foo` ≠ class name `FooHelper`).
+        files = {"Foo.swift": "class FooHelper {}\n"}
+        payload = self._build(files)
+        node_ids = {n["id"] for n in self._nodes(payload)}
+        # Both nodes survive: file (kind=module) + class (kind=class).
+        self.assertIn("Foo.swift", node_ids)
+        self.assertIn("Foo.swift::FooHelper", node_ids)
+        # File node retains module kind.
+        file_node = next(n for n in self._nodes(payload) if n["id"] == "Foo.swift")
+        self.assertEqual(file_node["kind"], "module")
+        self.assertFalse(file_node.get("collapsed_pair", False))
+
+    # AC-3: utility file with no top-level type → no merge.
+    def test_function_only_file_no_merge(self):
+        files = {"Util.swift": "func helper() {}\n"}
+        payload = self._build(files)
+        node_ids = {n["id"] for n in self._nodes(payload)}
+        self.assertIn("Util.swift", node_ids)
+        # File node remains kind=module (no class to merge with).
+        file_node = next(n for n in self._nodes(payload) if n["id"] == "Util.swift")
+        self.assertEqual(file_node["kind"], "module")
+
+    # AC-5 (Solaris reproducer): constructor call resolves to the merged node.
+    def test_solaris_reproducer_constructor_call_resolves(self):
+        files = {
+            "Foo.swift": "class Foo {\n    init() {}\n}\n",
+            "Bar.swift": "class Bar {\n    func use() {\n        let f = Foo()\n    }\n}\n",
+        }
+        payload = self._build(files)
+        calls = self._calls(payload)
+        # Bar.use's outgoing call to Foo resolves to Foo.swift (merged), not external::Foo.
+        matches = [
+            e for e in calls
+            if "Bar.swift" in str(e.get("source", ""))
+            and str(e.get("target", "")) == "Foo.swift"
+        ]
+        self.assertTrue(
+            matches,
+            f"Constructor call did not resolve to merged Foo.swift node. "
+            f"Calls: {[(e.get('source'), e.get('target')) for e in calls]}",
+        )
+
+    # Wave 13190: Java file with basename-class pattern IS merged.
+    def test_java_basename_class_pattern_merges(self):
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available")
+        files = {"Foo.java": "class Foo { void bar() {} }\n"}
+        payload = self._build(files)
+        node_ids = {n["id"] for n in self._nodes(payload)}
+        # Merged node at file id; class id not registered.
+        self.assertIn("Foo.java", node_ids)
+        self.assertNotIn("Foo.java::Foo", node_ids)
+        file_node = next(n for n in self._nodes(payload) if n["id"] == "Foo.java")
+        self.assertEqual(file_node["label"], "Foo")
+        self.assertEqual(file_node["kind"], "class")
+        self.assertTrue(file_node.get("collapsed_pair"))
+        # Method body remains a separate node.
+        self.assertIn("Foo.java::Foo.bar", node_ids)
+
+    # Wave 13190: Kotlin file with basename-class pattern IS merged.
+    def test_kotlin_basename_class_pattern_merges(self):
+        try:
+            import tree_sitter_kotlin  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_kotlin not available")
+        files = {"Foo.kt": "class Foo { fun bar() {} }\n"}
+        payload = self._build(files)
+        node_ids = {n["id"] for n in self._nodes(payload)}
+        self.assertIn("Foo.kt", node_ids)
+        self.assertNotIn("Foo.kt::Foo", node_ids)
+        file_node = next(n for n in self._nodes(payload) if n["id"] == "Foo.kt")
+        self.assertEqual(file_node["label"], "Foo")
+        self.assertEqual(file_node["kind"], "class")
+        self.assertTrue(file_node.get("collapsed_pair"))
+
+    # Wave 13190: C# file with basename-class pattern IS merged.
+    def test_csharp_basename_class_pattern_merges(self):
+        try:
+            import tree_sitter_c_sharp  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_c_sharp not available")
+        files = {"Foo.cs": "class Foo { public void Bar() {} }\n"}
+        payload = self._build(files)
+        node_ids = {n["id"] for n in self._nodes(payload)}
+        self.assertIn("Foo.cs", node_ids)
+        self.assertNotIn("Foo.cs::Foo", node_ids)
+        file_node = next(n for n in self._nodes(payload) if n["id"] == "Foo.cs")
+        self.assertEqual(file_node["label"], "Foo")
+        self.assertEqual(file_node["kind"], "class")
+        self.assertTrue(file_node.get("collapsed_pair"))
+
+    # Wave 13196: TypeScript file with basename-class merges.
+    def test_typescript_basename_class_pattern_merges(self):
+        try:
+            import tree_sitter_typescript  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_typescript not available")
+        files = {"Foo.ts": "export class Foo { bar(): void {} }\n"}
+        payload = self._build(files)
+        node_ids = {n["id"] for n in self._nodes(payload)}
+        self.assertIn("Foo.ts", node_ids)
+        self.assertNotIn("Foo.ts::Foo", node_ids)
+        file_node = next(n for n in self._nodes(payload) if n["id"] == "Foo.ts")
+        self.assertEqual(file_node["label"], "Foo")
+        self.assertTrue(file_node.get("collapsed_pair"))
+
+    # Wave 13196: JavaScript file with basename-class merges.
+    def test_javascript_basename_class_pattern_merges(self):
+        try:
+            import tree_sitter_javascript  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_javascript not available")
+        files = {"Foo.js": "class Foo { bar() {} }\n"}
+        payload = self._build(files)
+        node_ids = {n["id"] for n in self._nodes(payload)}
+        self.assertIn("Foo.js", node_ids)
+        self.assertNotIn("Foo.js::Foo", node_ids)
+        file_node = next(n for n in self._nodes(payload) if n["id"] == "Foo.js")
+        self.assertTrue(file_node.get("collapsed_pair"))
+
+    # Wave 13196: Scala file with basename-class merges.
+    def test_scala_basename_class_pattern_merges(self):
+        try:
+            import tree_sitter_scala  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_scala not available")
+        files = {"Foo.scala": "class Foo { def bar(): Unit = {} }\n"}
+        payload = self._build(files)
+        node_ids = {n["id"] for n in self._nodes(payload)}
+        self.assertIn("Foo.scala", node_ids)
+        self.assertNotIn("Foo.scala::Foo", node_ids)
+        file_node = next(n for n in self._nodes(payload) if n["id"] == "Foo.scala")
+        self.assertTrue(file_node.get("collapsed_pair"))
+
+    # Wave 1319i: Rust file with snake_case basename matches PascalCase type.
+    def test_rust_snake_case_basename_merges_via_pascal_conversion(self):
+        try:
+            import tree_sitter_rust  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_rust not available")
+        # foo_bar.rs contains `struct FooBar` — snake_case file, PascalCase type.
+        files = {"foo_bar.rs": "pub struct FooBar { pub x: i32 }\n"}
+        payload = self._build(files)
+        node_ids = {n["id"] for n in self._nodes(payload)}
+        self.assertIn("foo_bar.rs", node_ids)
+        self.assertNotIn("foo_bar.rs::FooBar", node_ids)
+        file_node = next(n for n in self._nodes(payload) if n["id"] == "foo_bar.rs")
+        self.assertEqual(file_node["label"], "FooBar")
+        self.assertTrue(file_node.get("collapsed_pair"))
+
+    # Wave 1319i: Rust file with PascalCase basename (literal match) also merges.
+    def test_rust_pascal_case_basename_literal_match_merges(self):
+        try:
+            import tree_sitter_rust  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_rust not available")
+        files = {"Foo.rs": "pub struct Foo;\n"}
+        payload = self._build(files)
+        node_ids = {n["id"] for n in self._nodes(payload)}
+        self.assertIn("Foo.rs", node_ids)
+        self.assertNotIn("Foo.rs::Foo", node_ids)
+
+    # Wave 1319i: Rust file with mismatched type name does not merge.
+    def test_rust_basename_mismatch_no_merge(self):
+        try:
+            import tree_sitter_rust  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_rust not available")
+        files = {"foo.rs": "pub struct Bar;\n"}
+        payload = self._build(files)
+        node_ids = {n["id"] for n in self._nodes(payload)}
+        # Neither basename "foo" nor PascalCase "Foo" matches "Bar".
+        self.assertIn("foo.rs", node_ids)
+        self.assertIn("foo.rs::Bar", node_ids)
+        file_node = next(n for n in self._nodes(payload) if n["id"] == "foo.rs")
+        self.assertEqual(file_node["kind"], "module")
+
+    # Wave 1319k: Ruby snake_case basename matches PascalCase class.
+    def test_ruby_snake_case_basename_merges_via_pascal_conversion(self):
+        try:
+            import tree_sitter_ruby  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_ruby not available")
+        files = {"foo_bar.rb": "class FooBar\n  def hello\n  end\nend\n"}
+        payload = self._build(files)
+        node_ids = {n["id"] for n in self._nodes(payload)}
+        self.assertIn("foo_bar.rb", node_ids)
+        self.assertNotIn("foo_bar.rb::FooBar", node_ids)
+        file_node = next(n for n in self._nodes(payload) if n["id"] == "foo_bar.rb")
+        self.assertEqual(file_node["label"], "FooBar")
+        self.assertTrue(file_node.get("collapsed_pair"))
+
+    # Wave 1319k: Ruby file with mismatched class name does not merge.
+    def test_ruby_basename_mismatch_no_merge(self):
+        try:
+            import tree_sitter_ruby  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_ruby not available")
+        files = {"foo.rb": "class Bar\nend\n"}
+        payload = self._build(files)
+        node_ids = {n["id"] for n in self._nodes(payload)}
+        self.assertIn("foo.rb", node_ids)
+        self.assertIn("foo.rb::Bar", node_ids)
+
+    # Wave 13196: PHP file with basename-class merges.
+    def test_php_basename_class_pattern_merges(self):
+        try:
+            import tree_sitter_php  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_php not available")
+        files = {"Foo.php": "<?php\nclass Foo { public function bar() {} }\n"}
+        payload = self._build(files)
+        node_ids = {n["id"] for n in self._nodes(payload)}
+        self.assertIn("Foo.php", node_ids)
+        self.assertNotIn("Foo.php::Foo", node_ids)
+        file_node = next(n for n in self._nodes(payload) if n["id"] == "Foo.php")
+        self.assertTrue(file_node.get("collapsed_pair"))
+
+    # Wave 13190: Java file with multiple top-level types — only basename match merges.
+    def test_java_multi_top_level_types_partial_merge(self):
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available")
+        # Java allows multiple top-level types in one file (though only one
+        # may be public). Basename matches Foo; Bar remains separate.
+        files = {"Foo.java": "class Foo {} class Bar {}\n"}
+        payload = self._build(files)
+        node_ids = {n["id"] for n in self._nodes(payload)}
+        # Foo merged into file.
+        self.assertIn("Foo.java", node_ids)
+        self.assertNotIn("Foo.java::Foo", node_ids)
+        # Bar remains as a separate node.
+        self.assertIn("Foo.java::Bar", node_ids)
+
+
+class SwiftReceiverTypeTests(unittest.TestCase):
+    """1319g: Swift receiver-type resolution at graph-build time."""
+
+    def setUp(self):
+        try:
+            import tree_sitter_swift  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_swift not available")
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files):
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _calls(self, payload):
+        return [e for e in payload.get("edges", []) if e.get("relation") == "calls"]
+
+    def test_swift_typed_local_phantom_routes_to_external(self):
+        """`let oos: ObjectOutputStream = ...; oos.writeObject(obj)` routes to
+        external::ObjectOutputStream.writeObject, NOT to project JSON.writeObject."""
+        files = {
+            "JSON.swift": "class JSON { func writeObject(_ obj: Any) {} }\n",
+            "JdbcRegistry.swift": (
+                "class JdbcRegistry {\n"
+                "    func cloneConnectionMap(_ obj: Any) {\n"
+                "        let oos: ObjectOutputStream = ObjectOutputStream()\n"
+                "        oos.writeObject(obj)\n"
+                "    }\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = self._calls(payload)
+        phantom = [
+            e for e in calls
+            if "JdbcRegistry" in str(e.get("source", ""))
+            and "JSON.writeObject" in str(e.get("target", ""))
+            and not str(e.get("target", "")).startswith("external::")
+        ]
+        self.assertFalse(phantom,
+                         f"Phantom Swift edge survived: {[(e.get('source'), e.get('target')) for e in phantom]}")
+
+    def test_swift_self_call_preserves(self):
+        """self.method() from within the class preserves the project-internal edge."""
+        files = {
+            "JSON.swift": (
+                "class JSON {\n"
+                "    func writeObject(_ obj: Any) {}\n"
+                "    func serialize(_ x: Any) { self.writeObject(x) }\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = self._calls(payload)
+        # Wave 1316l/13190: Swift class JSON in JSON.swift merges to file id.
+        legit = [
+            e for e in calls
+            if "JSON.swift" in str(e.get("source", ""))
+            and "serialize" in str(e.get("source", ""))
+            and "writeObject" in str(e.get("target", ""))
+            and not str(e.get("target", "")).startswith("external::")
+        ]
+        self.assertTrue(legit,
+                        f"Swift self-call attribution lost: "
+                        f"{[(e.get('source'), e.get('target')) for e in calls]}")
+
+
+class GoRustScalaReceiverTypeTests(unittest.TestCase):
+    """1319a: Go, Rust, Scala receiver-type resolution at graph-build time."""
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files):
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _calls(self, payload):
+        return [e for e in payload.get("edges", []) if e.get("relation") == "calls"]
+
+    def test_go_phantom_method_routes_to_external(self):
+        try:
+            import tree_sitter_go  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_go not available")
+        files = {
+            "json.go": (
+                "package json\n"
+                "type JSON struct {}\n"
+                "func (j JSON) WriteObject(o interface{}) {}\n"
+            ),
+            "registry.go": (
+                "package main\n"
+                "import \"io\"\n"
+                "type Helper struct {}\n"
+                "func (h Helper) CloneConnectionMap() {\n"
+                "    var oos io.Writer\n"
+                "    oos.WriteObject(\"x\")\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = self._calls(payload)
+        # No phantom edge from Helper.CloneConnectionMap → JSON.WriteObject.
+        phantom = [
+            e for e in calls
+            if "Helper.CloneConnectionMap" in str(e.get("source", ""))
+            and "JSON.WriteObject" in str(e.get("target", ""))
+            and not str(e.get("target", "")).startswith("external::")
+        ]
+        self.assertFalse(phantom,
+                         f"Phantom Go edge survived: {[(e.get('source'), e.get('target')) for e in phantom]}")
+
+    def test_rust_phantom_method_routes_to_external(self):
+        try:
+            import tree_sitter_rust  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_rust not available")
+        files = {
+            "json.rs": (
+                "struct JSON;\n"
+                "impl JSON { fn write_object(&self, o: &str) {} }\n"
+            ),
+            "registry.rs": (
+                "struct OutputStream;\n"
+                "impl OutputStream { fn write_object(&self, o: &str) {} }\n"
+                "struct Helper;\n"
+                "impl Helper {\n"
+                "    fn clone_connection_map(&self) {\n"
+                "        let oos: OutputStream = OutputStream;\n"
+                "        oos.write_object(\"x\");\n"
+                "    }\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = self._calls(payload)
+        # Helper.clone_connection_map → JSON.write_object should NOT exist.
+        phantom = [
+            e for e in calls
+            if "Helper.clone_connection_map" in str(e.get("source", ""))
+            and "JSON.write_object" in str(e.get("target", ""))
+            and not str(e.get("target", "")).startswith("external::")
+        ]
+        self.assertFalse(phantom,
+                         f"Phantom Rust edge survived: {[(e.get('source'), e.get('target')) for e in phantom]}")
+
+    def test_scala_phantom_method_routes_to_external(self):
+        try:
+            import tree_sitter_scala  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_scala not available")
+        files = {
+            "JSON.scala": (
+                "class JSON { def writeObject(o: Any): Unit = {} }\n"
+            ),
+            "Registry.scala": (
+                "class OutputStream { def writeObject(o: Any): Unit = {} }\n"
+                "class Helper {\n"
+                "  def cloneConnectionMap(): Unit = {\n"
+                "    val oos: OutputStream = new OutputStream\n"
+                "    oos.writeObject(\"x\")\n"
+                "  }\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = self._calls(payload)
+        phantom = [
+            e for e in calls
+            if "Helper.cloneConnectionMap" in str(e.get("source", ""))
+            and "JSON.writeObject" in str(e.get("target", ""))
+            and not str(e.get("target", "")).startswith("external::")
+        ]
+        self.assertFalse(phantom,
+                         f"Phantom Scala edge survived: {[(e.get('source'), e.get('target')) for e in phantom]}")
+
+
+class KotlinAndCSharpReceiverTypeTests(unittest.TestCase):
+    """13194: Kotlin and C# receiver-type resolution at graph-build time.
+
+    Mirrors the Java reproducer (1312l): phantom cross-class callers from
+    simple-name attribution must be suppressed when the receiver type can
+    be resolved. Conservative coverage: explicit type annotations,
+    `this`/`base`, bare calls. Uncertain (var, nullable, extension) falls
+    through.
+    """
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files):
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _calls(self, payload):
+        return [e for e in payload.get("edges", []) if e.get("relation") == "calls"]
+
+    # AC-5: Kotlin reproducer — oos.writeObject(object) where oos: ObjectOutputStream
+    # routes to external::ObjectOutputStream.writeObject, not project JSON.writeObject.
+    def test_kotlin_oos_writeobject_routes_to_external(self):
+        try:
+            import tree_sitter_kotlin  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_kotlin not available")
+        files = {
+            "JSON.kt": "class JSON { fun writeObject(o: Any) {} }\n",
+            "JdbcRegistry.kt": (
+                "import java.io.ObjectOutputStream\n"
+                "class JdbcRegistry {\n"
+                "    fun cloneConnectionMap(obj: Any) {\n"
+                "        val oos: ObjectOutputStream = ObjectOutputStream()\n"
+                "        oos.writeObject(obj)\n"
+                "    }\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = self._calls(payload)
+        # NO phantom edge to JSON.writeObject.
+        phantom = [
+            e for e in calls
+            if "JdbcRegistry" in str(e.get("source", ""))
+            and "JSON.writeObject" in str(e.get("target", ""))
+            and not str(e.get("target", "")).startswith("external::")
+        ]
+        self.assertFalse(phantom,
+                         f"Phantom Kotlin edge survived: {[(e.get('source'), e.get('target')) for e in phantom]}")
+
+    # AC-5: Kotlin bare/this call from same class preserved.
+    def test_kotlin_this_call_preserves(self):
+        try:
+            import tree_sitter_kotlin  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_kotlin not available")
+        files = {
+            "JSON.kt": (
+                "class JSON {\n"
+                "    fun writeObject(o: Any) {}\n"
+                "    fun serialize(x: Any) { this.writeObject(x) }\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = self._calls(payload)
+        # 13190 merge: JSON.kt + class JSON merge to file id `JSON.kt`.
+        # Caller (`serialize`) → callee (`writeObject`) both inside JSON.
+        legit = [
+            e for e in calls
+            if "JSON.kt::JSON.serialize" in str(e.get("source", ""))
+            and "JSON.kt::JSON.writeObject" in str(e.get("target", ""))
+            and not str(e.get("target", "")).startswith("external::")
+        ]
+        self.assertTrue(legit,
+                        f"Kotlin this-call attribution lost: "
+                        f"{[(e.get('source'), e.get('target')) for e in calls]}")
+
+    # AC-6: C# reproducer — stream.WriteObject(obj) where stream: ObjectOutputStream
+    # routes to external::ObjectOutputStream.WriteObject.
+    def test_csharp_stream_writeobject_routes_to_external(self):
+        try:
+            import tree_sitter_c_sharp  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_c_sharp not available")
+        files = {
+            "JSON.cs": "class JSON { public void WriteObject(object o) {} }\n",
+            "JdbcRegistry.cs": (
+                "class JdbcRegistry {\n"
+                "    public void CloneConnectionMap(object obj) {\n"
+                "        ObjectOutputStream stream = new ObjectOutputStream();\n"
+                "        stream.WriteObject(obj);\n"
+                "    }\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = self._calls(payload)
+        phantom = [
+            e for e in calls
+            if "JdbcRegistry" in str(e.get("source", ""))
+            and "JSON.WriteObject" in str(e.get("target", ""))
+            and not str(e.get("target", "")).startswith("external::")
+        ]
+        self.assertFalse(phantom,
+                         f"Phantom C# edge survived: {[(e.get('source'), e.get('target')) for e in phantom]}")
+
+    # AC-6: C# bare/this call from same class preserved.
+    def test_csharp_this_call_preserves(self):
+        try:
+            import tree_sitter_c_sharp  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_c_sharp not available")
+        files = {
+            "JSON.cs": (
+                "class JSON {\n"
+                "    public void WriteObject(object o) {}\n"
+                "    public void Serialize(object x) { this.WriteObject(x); }\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = self._calls(payload)
+        legit = [
+            e for e in calls
+            if "JSON.cs::JSON.Serialize" in str(e.get("source", ""))
+            and "JSON.cs::JSON.WriteObject" in str(e.get("target", ""))
+            and not str(e.get("target", "")).startswith("external::")
+        ]
+        self.assertTrue(legit,
+                        f"C# this-call attribution lost: "
+                        f"{[(e.get('source'), e.get('target')) for e in calls]}")
+
+
+class JavaReceiverTypeAttributionTests(unittest.TestCase):
+    """1312l: Java receiver-type resolution at graph-build time eliminates
+    phantom cross-class edges from simple-name attribution.
+
+    The Aceiss reproducer: `oos.writeObject(...)` in `JdbcConnectionRegistry`
+    where `oos` is `ObjectOutputStream` must NOT attribute to project
+    `JSON.writeObject`. Receiver-type resolution emits
+    `external::ObjectOutputStream.writeObject` instead.
+    """
+
+    def setUp(self):
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available in test env")
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files):
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _calls(self, payload):
+        return [e for e in payload.get("edges", []) if e.get("relation") == "calls"]
+
+    # AC-2: Aceiss reproducer — oos.writeObject must NOT attribute to project JSON.writeObject.
+    def test_phantom_oos_writeobject_not_attributed_to_project(self):
+        files = {
+            "src/JSON.java": "class JSON { public void writeObject(Object o) {} }\n",
+            "src/JdbcRegistry.java": (
+                "import java.io.ObjectOutputStream;\n"
+                "import java.io.FileOutputStream;\n"
+                "class JdbcRegistry {\n"
+                "    public void cloneConnectionMap(Object object) throws Exception {\n"
+                "        ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(\"x\"));\n"
+                "        oos.writeObject(object);\n"
+                "    }\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = self._calls(payload)
+        # Phantom edge NOT present: JdbcRegistry.cloneConnectionMap → JSON.writeObject.
+        phantom = [
+            e for e in calls
+            if "JdbcRegistry.cloneConnectionMap" in str(e.get("source", ""))
+            and "JSON.writeObject" in str(e.get("target", ""))
+        ]
+        self.assertFalse(
+            phantom,
+            f"Phantom cross-class edge survived: {[(e.get('source'), e.get('target')) for e in phantom]}",
+        )
+        # Qualified-external edge IS present.
+        qualified_external = [
+            e for e in calls
+            if "JdbcRegistry.cloneConnectionMap" in str(e.get("source", ""))
+            and e.get("target") == "external::ObjectOutputStream.writeObject"
+        ]
+        self.assertTrue(
+            qualified_external,
+            f"Qualified-external edge missing: {[(e.get('source'), e.get('target')) for e in calls]}",
+        )
+
+    # AC-6: bare call `process()` from inside JSON class still attributes to JSON.process.
+    def test_bare_call_in_project_class_attributes_correctly(self):
+        files = {
+            "src/JSON.java": (
+                "class JSON {\n"
+                "    public void writeObject(Object o) {}\n"
+                "    public void serialize(Object x) { writeObject(x); }\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = self._calls(payload)
+        legit = [
+            e for e in calls
+            if "JSON.serialize" in str(e.get("source", ""))
+            and "JSON.writeObject" in str(e.get("target", ""))
+            and not str(e.get("target", "")).startswith("external::")
+        ]
+        self.assertTrue(legit, f"Bare-call attribution lost: {[(e.get('source'), e.get('target')) for e in calls]}")
+
+    # AC-6: this.method() call attributes to enclosing project class.
+    def test_this_call_attributes_to_enclosing_class(self):
+        files = {
+            "src/JSON.java": (
+                "class JSON {\n"
+                "    public void writeObject(Object o) {}\n"
+                "    public void serialize(Object x) { this.writeObject(x); }\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = self._calls(payload)
+        legit = [
+            e for e in calls
+            if "JSON.serialize" in str(e.get("source", ""))
+            and "JSON.writeObject" in str(e.get("target", ""))
+            and not str(e.get("target", "")).startswith("external::")
+        ]
+        self.assertTrue(legit, f"this-call attribution lost: {[(e.get('source'), e.get('target')) for e in calls]}")
+
+    # AC-3: GRAPH_BUILDER_VERSION reflects the latest wave-13129 bump.
+    # 1312l bumped 12→13 (Java receiver-type attribution).
+    # 1316l bumped 13→14 (Swift class/module merge).
+    def test_graph_builder_version_bumped_for_wave_13129(self):
+        self.assertEqual(self.mod.GRAPH_BUILDER_VERSION, "14",
+                         "GRAPH_BUILDER_VERSION must be bumped for wave 13129 1316l (Swift class/module merge)")
 
 
 class HeuristicImpactUnsupportedLanguageTests(unittest.TestCase):

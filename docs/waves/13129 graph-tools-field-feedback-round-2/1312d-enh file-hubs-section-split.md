@@ -1,7 +1,7 @@
 # Split `file_hubs` Section Out of `chokepoints` on `wave_graph_report`
 
 Change ID: `1312d-enh file-hubs-section-split`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
 Status: planned
 Last verified: 2026-06-01
@@ -37,30 +37,30 @@ Fix: split the file-level entries out of `chokepoints` into a dedicated `file_hu
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `wave_graph_report` response carries a `file_hubs` section as a list of `{node_id, fan_out, label, ...}` entries where every node has `kind: "module"`.
-- [ ] AC-2: `chokepoints` no longer contains entries where `kind == "module"`.
-- [ ] AC-3: `file_hubs` is in the default section set (returned without explicit `sections=[...]` request).
-- [ ] AC-4: Entry shape parity: each `file_hubs` entry has the same field set as a `chokepoints` entry, plus name-collision fields (`same_name_node_count`, `cross_file_collision`).
-- [ ] AC-5: Operator can request just `file_hubs` via `sections=["file_hubs"]`.
-- [ ] AC-6: Seed-211 line explains the split.
-- [ ] AC-7: 3 regression tests; all existing tests pass.
-- [ ] AC-8: docs-lint passes.
+- [x] AC-1: `wave_graph_report` response carries a `file_hubs` section as a list of `{node_id, fan_out, label, ...}` entries where every node has `kind: "module"`.
+- [x] AC-2: `chokepoints` no longer contains entries where `kind == "module"`.
+- [x] AC-3: `file_hubs` is in the default section set (returned without explicit `sections=[...]` request).
+- [x] AC-4: Entry shape parity: each `file_hubs` entry has the same field set as a `chokepoints` entry, plus name-collision fields (`same_name_node_count`, `cross_file_collision`).
+- [x] AC-5: Operator can request just `file_hubs` via `sections=["file_hubs"]`.
+- [x] AC-6: Seed-211 line explains the split AND carries an **explicit chokepoints migration note** — operators who previously read mixed module/function entries from `chokepoints` should know that module entries have moved to `file_hubs`. The note covers both default-section-set consumers (who get both sections automatically) and explicit `sections=["chokepoints"]` consumers (who must add `"file_hubs"` to keep visibility into file-level hubs). (Council action item: reality-checker.)
+- [x] AC-7: 3 regression tests; all existing tests pass.
+- [x] AC-8: docs-lint passes.
 
 ## Tasks
 
-- [ ] Open `framework_edit_allowed` gate
-- [ ] Build `file_hubs` section in `GraphQueryIndex.report()`
-- [ ] Filter modules from `chokepoints`
-- [ ] Wire `file_hubs` into default section set in `server_impl.py`
-- [ ] Apply name-collision precompute to file_hubs entries
-- [ ] Open `seed_edit_allowed` gate
-- [ ] Update seed-211 wave_graph_report description
-- [ ] Run docs-lint
-- [ ] Close `seed_edit_allowed` gate
-- [ ] Add 3 regression tests
-- [ ] Run framework tests
-- [ ] Close `framework_edit_allowed` gate
-- [ ] Mark change `implemented`
+- [x] Open `framework_edit_allowed` gate
+- [x] Build `file_hubs` section in `GraphQueryIndex.report()`
+- [x] Filter modules from `chokepoints`
+- [x] Wire `file_hubs` into default section set in `server_impl.py`
+- [x] Apply name-collision precompute to file_hubs entries
+- [x] Open `seed_edit_allowed` gate
+- [x] Update seed-211 wave_graph_report description
+- [x] Run docs-lint
+- [x] Close `seed_edit_allowed` gate
+- [x] Add 3 regression tests
+- [x] Run framework tests
+- [x] Close `framework_edit_allowed` gate
+- [x] Mark change `implemented`
 
 ## AC Priority
 

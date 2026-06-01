@@ -1,7 +1,7 @@
 # Decompose `name_collision_count` into `same_name_node_count` + `cross_file_collision` + `external_name_collision_count`
 
 Change ID: `1312b-enh decompose-name-collision-count`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
 Status: planned
 Last verified: 2026-06-01
@@ -54,29 +54,29 @@ An operator reading any one entry sees: how many project nodes carry this name, 
 
 ## Acceptance Criteria
 
-- [ ] AC-1: Each `fan_in` / `fan_out` / `chokepoints` / `betweenness` entry carries `same_name_node_count: int` (same value as current `name_collision_count`).
-- [ ] AC-2: Each entry carries `cross_file_collision: bool` — True when 2+ distinct source files own a same-simple-name project node, False otherwise.
-- [ ] AC-3: Each entry carries `external_name_collision_count: int` — count of `external::*` nodes sharing the symbol's simple name.
-- [ ] AC-4: `name_collision_count` field is still present and equal to `same_name_node_count` (deprecated alias).
-- [ ] AC-5: Single O(|nodes|) precompute per request — measured negligible on 10k-node graphs.
-- [ ] AC-6: Seed-211 interpretation line refers to both `cross_file_collision` and `external_name_collision_count` as combined verification triggers.
-- [ ] AC-7: 6 regression tests cover the field semantics; all existing tests pass.
-- [ ] AC-8: docs-lint passes after seed edit.
+- [x] AC-1: Each `fan_in` / `fan_out` / `chokepoints` / `betweenness` entry carries `same_name_node_count: int` (same value as current `name_collision_count`).
+- [x] AC-2: Each entry carries `cross_file_collision: bool` — True when 2+ distinct source files own a same-simple-name project node, False otherwise.
+- [x] AC-3: Each entry carries `external_name_collision_count: int` — count of `external::*` nodes sharing the symbol's simple name. The simple-name match uses the **last `.`-segment of the symbol part after `::`** (e.g. for `external::ObjectOutputStream.writeObject` the simple name is `writeObject`), identical to the project-side matching logic. This stays consistent with 1312l's qualified-external-node shape so both `external::writeObject` and `external::ObjectOutputStream.writeObject` count when comparing against a project `writeObject` entry. (Council action item: docs-contract-reviewer.)
+- [x] AC-4: `name_collision_count` field is still present and equal to `same_name_node_count` (deprecated alias).
+- [x] AC-5: Single O(|nodes|) precompute per request — measured negligible on 10k-node graphs.
+- [x] AC-6: Seed-211 interpretation line refers to both `cross_file_collision` and `external_name_collision_count` as combined verification triggers.
+- [x] AC-7: 6 regression tests cover the field semantics; all existing tests pass.
+- [x] AC-8: docs-lint passes after seed edit.
 
 ## Tasks
 
-- [ ] Open `framework_edit_allowed` gate
-- [ ] Replace simple-name → count map with simple-name → (project-file-set, external-count) map
-- [ ] Emit `same_name_node_count` + `cross_file_collision` + `external_name_collision_count` on the 4 ranking sections
-- [ ] Keep `name_collision_count` as deprecated alias
-- [ ] Open `seed_edit_allowed` gate
-- [ ] Update seed-211 interpretation line (combined trigger semantics)
-- [ ] Run docs-lint
-- [ ] Close `seed_edit_allowed` gate
-- [ ] Add 6 regression tests; update `TestNameCollisionCount` for the new fields
-- [ ] Run framework tests
-- [ ] Close `framework_edit_allowed` gate
-- [ ] Mark change `implemented`
+- [x] Open `framework_edit_allowed` gate
+- [x] Replace simple-name → count map with simple-name → (project-file-set, external-count) map
+- [x] Emit `same_name_node_count` + `cross_file_collision` + `external_name_collision_count` on the 4 ranking sections
+- [x] Keep `name_collision_count` as deprecated alias
+- [x] Open `seed_edit_allowed` gate
+- [x] Update seed-211 interpretation line (combined trigger semantics)
+- [x] Run docs-lint
+- [x] Close `seed_edit_allowed` gate
+- [x] Add 6 regression tests; update `TestNameCollisionCount` for the new fields
+- [x] Run framework tests
+- [x] Close `framework_edit_allowed` gate
+- [x] Mark change `implemented`
 
 ## AC Priority
 
@@ -115,6 +115,7 @@ An operator reading any one entry sees: how many project nodes carry this name, 
   - **Aceiss (Java)** — `JSON.writeObject` reported `name_collision_count: 1` despite real collision with `java.io.ObjectOutputStream.writeObject`. External symbols invisible without `external_name_collision_count`.
 - Supersedes (but preserves) the `name_collision_count` field shipped in wave 130rj as `130tw-enh fan-in-name-collision-hint-and-seed-note`.
 - Companion to the graph-builder receiver-type-attribution change in this wave — the fields are the *diagnostic* layer; receiver-type attribution at index time is the *fix* layer.
+- **Superseded mid-wave by `1316p-enh external-name-collision-stdlib-allowlist`** for the `external_name_collision_count` field semantics — after `1312l` shipped receiver-type resolution at the graph builder, the field's graph-state-based count rarely fires for the Java common cases (`run`, `close`, `equals`, etc.) it was designed to catch. `1316p` replaces the graph-state precompute with a curated Java stdlib allowlist. See `1316p` for current semantics. The `same_name_node_count` and `cross_file_collision` fields described here are unaffected.
 
 ## Session Handoff
 
