@@ -338,6 +338,43 @@ class BuildPackTests(unittest.TestCase):
         for name in self._zip_names(path):
             self.assertNotIn("scripts/tests/tmp", name, name)
 
+    def test_transient_artifact_extensions_excluded(self):
+        """Regression for 130o2: transient artifacts (.lock, .log, editor backups) must not ship."""
+        for ext in build_pack.TRANSIENT_ARTIFACT_EXTENSIONS:
+            self.assertTrue(
+                build_pack.should_exclude(f"some/path/file{ext}", f"file{ext}"),
+                f"should_exclude must reject *{ext} files",
+            )
+            self.assertTrue(
+                build_pack.should_exclude(f"file{ext}", f"file{ext}"),
+                f"should_exclude must reject root-level *{ext} files",
+            )
+
+    def test_lock_and_log_files_not_in_pack(self):
+        """End-to-end: a framework tree with lock/log files produces a pack without them."""
+        fw = self.tmp / "fw-with-transients"
+        fw.mkdir(parents=True)
+        (fw / "scripts").mkdir()
+        (fw / "scripts" / "tool.py").write_text("def t(): pass\n", encoding="utf-8")
+        (fw / "test-run.lock").write_text("pid\n", encoding="utf-8")
+        (fw / "index").mkdir()
+        (fw / "index" / "index-build.lock").write_text("pid\n", encoding="utf-8")
+        (fw / "index" / "index-build.log").write_text("log line\n", encoding="utf-8")
+        (fw / "stray.bak").write_text("editor backup\n", encoding="utf-8")
+        (fw / "stray.tmp").write_text("temp\n", encoding="utf-8")
+
+        path = build_pack.build_zip(
+            self.tmp, "1.0.0", "2tm5", framework_dir=fw, write_version=False, update_manifest=False
+        )
+        names = self._zip_names(path)
+        for name in names:
+            self.assertFalse(name.endswith(".lock"), f"lock file leaked: {name}")
+            self.assertFalse(name.endswith(".log"), f"log file leaked: {name}")
+            self.assertFalse(name.endswith(".bak"), f"backup file leaked: {name}")
+            self.assertFalse(name.endswith(".tmp"), f"tmp file leaked: {name}")
+        # Regular source files still pack
+        self.assertTrue(any(n.endswith("scripts/tool.py") for n in names))
+
     # ------------------------------------------------------------------
     # --output argument
     # ------------------------------------------------------------------

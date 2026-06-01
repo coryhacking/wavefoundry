@@ -198,6 +198,8 @@ class RenderBinLaunchersTests(unittest.TestCase):
             bin_update_indexes = root / ".wavefoundry" / "bin" / "update-indexes"
             bin_setup = root / ".wavefoundry" / "bin" / "setup-wavefoundry"
             bin_upgrade = root / ".wavefoundry" / "bin" / "upgrade-wavefoundry"
+            bin_mcp_server = root / ".wavefoundry" / "bin" / "mcp-server"
+            bin_wave_gate = root / ".wavefoundry" / "bin" / "wave-gate"
             self.assertTrue(bin_lint.exists())
             self.assertTrue(bin_gardener.exists())
             self.assertTrue(bin_dashboard.exists())
@@ -206,6 +208,8 @@ class RenderBinLaunchersTests(unittest.TestCase):
             self.assertFalse((root / ".wavefoundry" / "bin" / "register-codex-mcp").exists())
             self.assertTrue(bin_setup.exists())
             self.assertTrue(bin_upgrade.exists())
+            self.assertTrue(bin_mcp_server.exists(), ".wavefoundry/bin/mcp-server should be created (wave 130et)")
+            self.assertTrue(bin_wave_gate.exists(), ".wavefoundry/bin/wave-gate should be created (wave 130et / 130f9)")
             self.assertFalse((root / ".wavefoundry" / "bin" / "upgrade-wavefoundry.bat").exists())
             lint_src = bin_lint.read_text(encoding="utf-8")
             gardener_src = bin_gardener.read_text(encoding="utf-8")
@@ -213,6 +217,8 @@ class RenderBinLaunchersTests(unittest.TestCase):
             update_indexes_src = bin_update_indexes.read_text(encoding="utf-8")
             setup_src = bin_setup.read_text(encoding="utf-8")
             upgrade_src = bin_upgrade.read_text(encoding="utf-8")
+            mcp_server_src_text = bin_mcp_server.read_text(encoding="utf-8")
+            wave_gate_src_text = bin_wave_gate.read_text(encoding="utf-8")
         _venv_var = "WAVEFOUNDRY_VENV"
         self.assertIn("docs_lint.py", lint_src)
         self.assertIn(_venv_var, lint_src)
@@ -229,11 +235,18 @@ class RenderBinLaunchersTests(unittest.TestCase):
         self.assertIn(_venv_var, setup_src)
         self.assertIn("upgrade_wavefoundry.py", upgrade_src)
         self.assertIn(_venv_var, upgrade_src)
+        self.assertIn("server.py", mcp_server_src_text)
+        self.assertIn("--root .", mcp_server_src_text)
+        self.assertIn(_venv_var, mcp_server_src_text)
+        self.assertIn("wave_gate.py", wave_gate_src_text)
+        self.assertIn(_venv_var, wave_gate_src_text)
         self.assertIn("#!/usr/bin/env bash", lint_src)
         self.assertIn("#!/usr/bin/env bash", gardener_src)
         self.assertIn("#!/usr/bin/env bash", dashboard_src)
         self.assertIn("#!/usr/bin/env bash", setup_src)
         self.assertIn("#!/usr/bin/env bash", upgrade_src)
+        self.assertIn("#!/usr/bin/env bash", mcp_server_src_text)
+        self.assertIn("#!/usr/bin/env bash", wave_gate_src_text)
 
     def test_bin_launchers_are_executable(self):
         if os.name == "nt":
@@ -248,12 +261,16 @@ class RenderBinLaunchersTests(unittest.TestCase):
             bin_update_indexes = root / ".wavefoundry" / "bin" / "update-indexes"
             bin_setup = root / ".wavefoundry" / "bin" / "setup-wavefoundry"
             bin_upgrade = root / ".wavefoundry" / "bin" / "upgrade-wavefoundry"
+            bin_mcp_server = root / ".wavefoundry" / "bin" / "mcp-server"
+            bin_wave_gate = root / ".wavefoundry" / "bin" / "wave-gate"
             self.assertTrue(os.access(bin_lint, os.X_OK))
             self.assertTrue(os.access(bin_gardener, os.X_OK))
             self.assertTrue(os.access(bin_dashboard, os.X_OK))
             self.assertTrue(os.access(bin_update_indexes, os.X_OK))
             self.assertTrue(os.access(bin_setup, os.X_OK))
             self.assertTrue(os.access(bin_upgrade, os.X_OK))
+            self.assertTrue(os.access(bin_mcp_server, os.X_OK))
+            self.assertTrue(os.access(bin_wave_gate, os.X_OK))
 
     def test_render_bin_launchers_is_idempotent(self):
         rps = self._load_rps()

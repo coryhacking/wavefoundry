@@ -9439,6 +9439,71 @@ class TestCodeCallhierarchy(unittest.TestCase):
         self.assertIn("context", result["data"])
         self.assertIsInstance(result["data"]["context"], list)
 
+    # ----- Wave 130ol AC-10: external suppression default + include_external opt-in -----
+
+    def test_external_outgoing_suppressed_by_default(self):
+        """130ol AC-10: outgoing entries with file=external are suppressed by default
+        and counted in external_outgoing_count."""
+        self._add("src/worker.py", "def process():\n    helper()\n    third_party()\n\ndef helper(): pass\n")
+        self._write_graph(
+            nodes=[
+                {"id": "src/worker.py::process", "label": "process", "kind": "function", "source_file": "src/worker.py"},
+                {"id": "src/worker.py::helper", "label": "helper", "kind": "function", "source_file": "src/worker.py"},
+            ],
+            edges=[
+                {"source": "src/worker.py::process", "target": "src/worker.py::helper", "relation": "calls"},
+                {"source": "src/worker.py::process", "target": "external::third_party", "relation": "calls"},
+            ],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "process", None, "outgoing")
+        self.assertEqual(result["status"], "ok")
+        data = result["data"]
+        out_files = [entry.get("file") for entry in data["outgoing"]]
+        self.assertNotIn("external", out_files,
+                         f"External entries must be suppressed by default; got {out_files}")
+        self.assertEqual(data.get("external_outgoing_count"), 1)
+
+    def test_include_external_surfaces_external_outgoing(self):
+        """130ol AC-10: include_external=True returns the suppressed entries inline."""
+        self._add("src/worker.py", "def process():\n    helper()\n    third_party()\n\ndef helper(): pass\n")
+        self._write_graph(
+            nodes=[
+                {"id": "src/worker.py::process", "label": "process", "kind": "function", "source_file": "src/worker.py"},
+                {"id": "src/worker.py::helper", "label": "helper", "kind": "function", "source_file": "src/worker.py"},
+            ],
+            edges=[
+                {"source": "src/worker.py::process", "target": "src/worker.py::helper", "relation": "calls"},
+                {"source": "src/worker.py::process", "target": "external::third_party", "relation": "calls"},
+            ],
+        )
+        result = self.srv.code_callhierarchy_response(
+            self.root, "process", None, "outgoing", include_external=True,
+        )
+        data = result["data"]
+        out_files = [entry.get("file") for entry in data["outgoing"]]
+        self.assertIn("external", out_files,
+                      f"include_external=True must surface external entries; got {out_files}")
+        self.assertEqual(data.get("external_outgoing_count"), 1)
+
+    def test_external_incoming_suppressed_by_default(self):
+        """130ol AC-10: incoming-side parity with the outgoing-side suppression."""
+        self._add("src/worker.py", "def helper(): pass\n")
+        self._write_graph(
+            nodes=[
+                {"id": "src/worker.py::helper", "label": "helper", "kind": "function", "source_file": "src/worker.py"},
+                {"id": "src/worker.py::caller", "label": "caller", "kind": "function", "source_file": "src/worker.py"},
+            ],
+            edges=[
+                {"source": "src/worker.py::caller", "target": "src/worker.py::helper", "relation": "calls"},
+                {"source": "external::external_caller", "target": "src/worker.py::helper", "relation": "calls"},
+            ],
+        )
+        result = self.srv.code_callhierarchy_response(self.root, "helper", None, "incoming")
+        data = result["data"]
+        in_files = [entry.get("file") for entry in data["incoming"]]
+        self.assertNotIn("external", in_files)
+        self.assertEqual(data.get("external_incoming_count"), 1)
+
 
 class TestCodeGraphPath(unittest.TestCase):
     """12zxl AC-5: code_graph_path_response — consistent shape guarantee."""

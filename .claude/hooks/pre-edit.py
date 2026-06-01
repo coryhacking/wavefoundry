@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -168,6 +169,17 @@ def _venv_python_path() -> str:
     return str(Path(venv_base) / "bin" / "python")
 
 
+def _load_indexer_hook_helpers():
+    import importlib.util
+    indexer = REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
+    spec = importlib.util.spec_from_file_location("wavefoundry_indexer_hook", indexer)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("indexer hook helpers unavailable")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def maybe_trigger_reindex(file_path: str) -> None:
     if not should_reindex(file_path):
         return
@@ -177,12 +189,23 @@ def maybe_trigger_reindex(file_path: str) -> None:
     python_exec = _venv_python_path()
     if not Path(python_exec).exists():
         python_exec = sys.executable
+    index_dir = REPO_ROOT / ".wavefoundry" / "index"
+    try:
+        hook_helpers = _load_indexer_hook_helpers()
+        if hook_helpers.should_coalesce_hook_reindex(index_dir):
+            return
+        hook_helpers.record_hook_reindex_spawn(index_dir)
+    except Exception:
+        pass
+    # indexer.py reads docs/workflow-config.json itself for project
+    # include-prefixes — launchers run bare, no prefix forwarding.
     subprocess.Popen(
         [python_exec, str(indexer), "--root", str(REPO_ROOT)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         cwd=str(REPO_ROOT),
         start_new_session=True,
+        close_fds=os.name != "nt",
     )
     if should_reindex_framework(file_path):
         framework_index = REPO_ROOT / ".wavefoundry" / "framework" / "index"
@@ -204,6 +227,7 @@ def maybe_trigger_reindex(file_path: str) -> None:
             stderr=subprocess.DEVNULL,
             cwd=str(REPO_ROOT),
             start_new_session=True,
+            close_fds=os.name != "nt",
         )
 
 def main() -> int:

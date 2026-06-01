@@ -3551,6 +3551,16 @@ html[data-theme="dark"] .index-build-badge--current {
   font-weight: 600;
 }
 
+/* Override the inherited .agent-dialog-body td:first-child nowrap rule:
+   doc-dialog tables wrap by default (long sentences in Risks/Mitigation
+   columns must reflow to fit the dialog width). Tables that genuinely
+   want nowrap on the first column opt in via the table--nowrap-first
+   class (added by dashboard.js for AC Priority / Progress Log / Decision
+   Log sections). */
+.doc-dialog-body td:first-child {
+  white-space: normal;
+}
+
 .doc-dialog-body table.table--nowrap-first td:first-child {
   white-space: nowrap;
 }

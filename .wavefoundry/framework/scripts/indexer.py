@@ -268,6 +268,10 @@ FRAMEWORK_TEST_PREFIXES = (
 )
 FRAMEWORK_PACK_ARTIFACT_NAMES = {"MANIFEST", "VERSION"}
 FRAMEWORK_PACK_ARTIFACT_PREFIXES = ("MANIFEST.pre-",)
+# Transient/runtime artifact extensions excluded from the framework layer's
+# walk so they never appear in framework meta.json (and never get shipped via
+# build_pack — which applies an equivalent filter in build_pack.py).
+FRAMEWORK_TRANSIENT_ARTIFACT_EXTENSIONS = (".lock", ".log", ".bak", ".swp", ".tmp", ".orig", ".rej")
 # Dev-only framework paths not shipped in the distribution zip.
 # These are excluded from framework/index/ so wave_index_build and build_pack
 # always produce the same file set — eliminating the dev/pack index conflict.
@@ -669,6 +673,8 @@ def _filter_framework_pack_artifacts(files: list[Path], root: Path) -> list[Path
         if name in FRAMEWORK_PACK_ARTIFACT_NAMES:
             continue
         if any(name.startswith(prefix) for prefix in FRAMEWORK_PACK_ARTIFACT_PREFIXES):
+            continue
+        if name.endswith(FRAMEWORK_TRANSIENT_ARTIFACT_EXTENSIONS):
             continue
         if _is_framework_test_path(rel):
             continue
@@ -1814,12 +1820,24 @@ def _build_index_locked(
         files = _filter_by_prefixes(files, root, include_prefixes)
         if str(index_dir).replace("\\", "/").endswith("/.wavefoundry/framework/index"):
             files = _filter_framework_pack_artifacts(files, root)
-        # Capture the broad file set for meta tracking BEFORE project-include-prefix
-        # filtering.  The docs run and the code run use different include-prefix sets
-        # (code adds .wavefoundry/framework/scripts etc.), so they would otherwise
-        # write different file_meta dicts to the same meta.json — causing the
-        # 93-files-added / 93-files-removed alternating cycle on consecutive runs.
-        files_for_meta = files
+        # files_for_meta must be stable across docs-run and code-run on the same layer
+        # (otherwise consecutive runs alternately add/remove each other's files in
+        # meta.json — the original 93-files-added / 93-files-removed cycle this block
+        # was introduced to prevent).  For the project layer we still must keep
+        # framework-prefixed files out of the project layer's meta.json — those belong
+        # to the framework layer's meta — so we filter by the docs+code UNION from
+        # workflow-config.json, not by the per-run content type's include set.
+        graph_layer = _graph_layer_for_index_dir(index_dir)
+        if graph_layer == "project":
+            meta_project_includes = _merged_project_include_prefixes_for_graph(root, project_include_prefixes)
+            files_for_meta = _filter_project_index_excludes(
+                files,
+                root,
+                include_prefixes,
+                project_include_prefixes=meta_project_includes,
+            )
+        else:
+            files_for_meta = files
         content_for_filter = "all" if build_docs and build_code else ("docs" if build_docs else "code")
         resolved_project_includes = _effective_project_include_prefixes(
             root, index_dir, content_for_filter, project_include_prefixes
@@ -1830,7 +1848,6 @@ def _build_index_locked(
             include_prefixes,
             project_include_prefixes=resolved_project_includes,
         )
-        graph_layer = _graph_layer_for_index_dir(index_dir)
         if graph_layer == "project":
             graph_includes = _merged_project_include_prefixes_for_graph(root, project_include_prefixes)
             files_for_graph = _filter_project_index_excludes(
@@ -1860,8 +1877,19 @@ def _build_index_locked(
         files = sorted(normalized_files, key=lambda p: str(p.relative_to(root)).replace("\\", "/"))
         if str(index_dir).replace("\\", "/").endswith("/.wavefoundry/framework/index"):
             files = _filter_framework_pack_artifacts(files, root)
-        files_for_meta = files
         graph_layer = _graph_layer_for_index_dir(index_dir)
+        # Project-layer meta must not contain framework files even when files= is
+        # passed in explicitly.  See the walk-branch comment above for the rationale.
+        if graph_layer == "project":
+            meta_project_includes = _merged_project_include_prefixes_for_graph(root, project_include_prefixes)
+            files_for_meta = _filter_project_index_excludes(
+                files,
+                root,
+                include_prefixes,
+                project_include_prefixes=meta_project_includes,
+            )
+        else:
+            files_for_meta = files
         if graph_layer == "project":
             graph_includes = _merged_project_include_prefixes_for_graph(root, project_include_prefixes)
             files_for_graph = _filter_project_index_excludes(

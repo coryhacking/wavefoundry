@@ -9062,8 +9062,24 @@ def code_callhierarchy_response(
     file: Optional[str] = None,
     direction: str = "both",
     context_depth: int = 0,
+    include_external: bool = False,
 ) -> dict[str, Any]:
-    """Return the call hierarchy for a symbol using the persisted graph."""
+    """Return the call hierarchy for a symbol using the persisted graph.
+
+    By default (``include_external=False``, wave 130ol), entries whose target
+    is an external (non-project) symbol — surfaced as ``file: "external"`` with
+    no line/snippet — are excluded from the ``outgoing``/``incoming`` lists.
+    The response gains an ``external_outgoing_count`` / ``external_incoming_count``
+    field showing how many were suppressed. Pass ``include_external=True`` to
+    surface them inline for callers that want the full set.
+
+    The default suppression reflects two realities: (1) external entries lack
+    file/line/snippet so they can't be navigated, and (2) the pre-1.1.0 graph
+    extractor over-produced external entries because its call-resolution heuristic
+    bottomed out at ``external::<name>`` for every cross-file call (fixed in this
+    wave by the cross-file resolution pass in graph_indexer). Operators
+    inspecting call graphs benefit from a clean signal-only default.
+    """
     if direction not in {"both", "outgoing", "incoming"}:
         return _response(
             "error", {"symbol": symbol, "direction": direction},
@@ -9177,6 +9193,7 @@ def code_callhierarchy_response(
         else:
             all_out_sites = {}
         outgoing: list[dict[str, Any]] = []
+        external_outgoing_count = 0
         for tgt_id, entry in out_entries:
             if not tgt_id.startswith("external::") and definition_file:
                 sites = all_out_sites.get(entry["name"], [])
@@ -9185,8 +9202,14 @@ def code_callhierarchy_response(
                     entry["line"] = ref["line"]
                     entry["snippet"] = ref.get("snippet")
             entry.pop("_start_line", None)
+            is_external = tgt_id.startswith("external::") or entry.get("file") == "external"
+            if is_external:
+                external_outgoing_count += 1
+                if not include_external:
+                    continue
             outgoing.append(entry)
         data["outgoing"] = outgoing
+        data["external_outgoing_count"] = external_outgoing_count
 
     if direction in {"both", "incoming"}:
         _, in_edges, _ = index.traverse(node_id, relations=["calls"], max_hops=1, direction="callers")
@@ -9222,10 +9245,17 @@ def code_callhierarchy_response(
                         break
 
         incoming = []
+        external_incoming_count = 0
         for _src_id, entry in incoming_raw:
             entry.pop("_start_line", None)
+            is_external = _src_id.startswith("external::") or entry.get("file") == "external"
+            if is_external:
+                external_incoming_count += 1
+                if not include_external:
+                    continue
             incoming.append(entry)
         data["incoming"] = incoming
+        data["external_incoming_count"] = external_incoming_count
 
     if context_depth > 0:
         # Gather all immediate caller/callee ids in one pass
@@ -9462,7 +9492,15 @@ def _match_import_to_target(import_entry: dict[str, Any], target_rel: str, impor
 
 
 def _code_impact_heuristic_response(root: Path, path: str, max_results: int = 50) -> dict[str, Any]:
-    """Find all files that import a given file (reverse dependency analysis)."""
+    """Find all files that import a given file (reverse dependency analysis).
+
+    Heuristic import detection covers Python, JavaScript, TypeScript, Go, and
+    Rust (see ``_IMPORT_PARSERS``). Targets in other languages (Swift, Java,
+    Kotlin, C/C++/C#, etc.) return ``unsupported_language: true`` rather than
+    silently scanning every file and returning zero importers (wave 130ol).
+    For graph-backed impact analysis on supported tree-sitter languages, use
+    ``symbol=`` mode instead.
+    """
     resolved = _resolve_repo_path(root, path)
     if resolved is None:
         return _response(
@@ -9479,6 +9517,41 @@ def _code_impact_heuristic_response(root: Path, path: str, max_results: int = 50
 
     root_r = root.resolve()
     target_rel = str(resolved.relative_to(root_r)).replace("\\", "/")
+
+    # AC-12: explicit unsupported-language diagnostic. The heuristic only
+    # detects imports in Python/JS/TS/Go/Rust; for any other suffix, scanning
+    # every file in the repo to return zero importers is wasteful and
+    # misleading. Surface the limitation so operators know to use a different
+    # tool (or accept that heuristic impact analysis doesn't apply).
+    target_suffix = resolved.suffix.lower()
+    if target_suffix in _JS_TS_SUFFIXES:
+        target_lang = _EXT_TO_LANG.get(target_suffix, "javascript")
+    else:
+        target_lang = _EXT_TO_LANG.get(target_suffix, "")
+    if target_lang not in _IMPORT_PARSERS:
+        supported = sorted(_IMPORT_PARSERS.keys())
+        return _response(
+            "ok",
+            {
+                "path": target_rel,
+                "importers": [],
+                "truncated": False,
+                "total_found": 0,
+                "method": "heuristic",
+                "unsupported_language": True,
+                "target_language": target_lang or "unknown",
+                "supported_languages": supported,
+            },
+            diagnostics=[_diagnostic(
+                "unsupported_language",
+                f"Heuristic code_impact does not parse imports for language '{target_lang or 'unknown'}' "
+                f"(supported: {', '.join(supported)}). For graph-backed analysis, query a symbol defined in this file with code_impact(symbol=...).",
+                recovery_tools=["code_impact", "code_references"],
+                recovery_usage=f"code_impact(symbol='SomeSymbolFromThisFile')",
+            )],
+            next_tools=["code_impact", "code_references"],
+            usage=f"code_impact(symbol='SomeSymbolFromThisFile')  # graph mode",
+        )
 
     importers: list[dict[str, Any]] = []
     total = 0
@@ -12443,6 +12516,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         file: str = "",
         direction: str = "both",
         context_depth: int = 0,
+        include_external: bool = False,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Return the call hierarchy for a symbol: what it calls (outgoing) and what calls it (incoming).
@@ -12456,6 +12530,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - definition_file: path of the file where the symbol is defined (null if not found)
         - outgoing: list of {name, file, line, snippet, community} — symbols called by this symbol (when direction includes "outgoing")
         - incoming: list of {name, file, line, snippet, community} — symbols that call this symbol (when direction includes "incoming")
+        - external_outgoing_count, external_incoming_count: number of external (non-project) entries suppressed from the lists (wave 130ol). Set ``include_external=True`` to surface them inline.
         - context: (when context_depth > 0) one-hop expansion from all immediate callers/callees; each entry is {id, label, kind, source_file, community, relation}
         - suggestions: near-match candidates when the symbol is not found in the graph
         - parser_used: method used for definition lookup
@@ -12465,12 +12540,13 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             file: Optional repo-relative file path to disambiguate when the symbol appears in multiple files.
             direction: "both" (default), "outgoing" (callee direction only), or "incoming" (caller direction only).
             context_depth: When > 0, appends a ``context`` list with one additional BFS hop from all immediate callers/callees (single combined traversal). Default 0 (no expansion).
+            include_external: When True, includes entries whose target is an external (non-project) symbol — surfaced as ``file: "external"`` with no line/snippet. Default False (wave 130ol): external entries are suppressed and counted in ``external_outgoing_count`` / ``external_incoming_count``.
         """
         bad = _ensure_no_extra_args("code_callhierarchy", kwargs)
         if bad is not None:
             return bad
         t_start = time.monotonic()
-        return _inject_timing(code_callhierarchy_response(get_handler().root, symbol, file or None, direction, context_depth=context_depth), t_start, "code_callhierarchy")
+        return _inject_timing(code_callhierarchy_response(get_handler().root, symbol, file or None, direction, context_depth=context_depth, include_external=include_external), t_start, "code_callhierarchy")
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_graph_path(

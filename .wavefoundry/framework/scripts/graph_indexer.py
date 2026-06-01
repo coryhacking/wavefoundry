@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "7"
+GRAPH_BUILDER_VERSION = "10"  # bumped for wave 130ol: positional-callee fallback + variable-binding scope fix + per-file simple-name dedupe + dotted last-segment fallback
 GRAPH_DIRNAME = "graph"
 GRAPH_FILENAMES = {
     "project": "project-graph.json",
@@ -584,29 +584,256 @@ def _is_module_graph_node(node: dict[str, Any]) -> bool:
 @dataclass(frozen=True)
 class _TsLanguageProfile:
     mode: str
+    # Explicit per-language call-node grammar names (wave 130ol). When non-empty,
+    # _ts_is_call_node consults this set instead of the legacy substring-match
+    # heuristic on "expression" — which over-matched try_expression, await_expression,
+    # binary_expression, etc., producing edges to language keywords.
+    call_node_types: frozenset[str] = frozenset()
+    # Per-language reserved-word stop terms (wave 130ol). Augments the global
+    # _STOP_TERMS set. Identifiers in this set are never emitted as call candidates
+    # from the regex fallback path.
+    stop_terms: frozenset[str] = frozenset()
+    # Per-language builtin-and-common-value denylist (wave 130ol). The cross-file
+    # resolution pass refuses to rewrite `external::<name>` to a project-internal
+    # node when <name> is in this set — even if a project file happens to define
+    # a symbol with the same simple name. Prevents mis-resolving stdlib calls
+    # (Python `len`/`range`, JS `Object`/`Array`, Swift `String`, etc.) to
+    # same-named project definitions.
+    builtin_denylist: frozenset[str] = frozenset()
 
 
-_TS_CODE_PROFILE = _TsLanguageProfile(mode="code")
+# Tree-sitter call-node grammar names per language (AC-3). The legacy
+# substring-match on "expression" matched many non-call node types
+# (try_expression, await_expression, binary_expression, ...) and produced
+# `external::<keyword>` edges via the regex-fallback candidate extractor.
+_TS_CALL_NODES_DEFAULT = frozenset({"call_expression"})
+_TS_CALL_NODES_JS = frozenset({"call_expression", "new_expression"})
+_TS_CALL_NODES_GO = frozenset({"call_expression"})
+_TS_CALL_NODES_RUST = frozenset({"call_expression", "macro_invocation"})
+_TS_CALL_NODES_JAVA = frozenset({"method_invocation", "object_creation_expression"})
+_TS_CALL_NODES_KOTLIN = frozenset({"call_expression"})
+_TS_CALL_NODES_C = frozenset({"call_expression"})
+_TS_CALL_NODES_CPP = frozenset({"call_expression"})
+_TS_CALL_NODES_CSHARP = frozenset({"invocation_expression", "object_creation_expression"})
+_TS_CALL_NODES_SWIFT = frozenset({"call_expression"})
+_TS_CALL_NODES_OBJC = frozenset({"message_expression"})
+_TS_CALL_NODES_SCALA = frozenset({"call_expression"})
+_TS_CALL_NODES_RUBY = frozenset({"call", "method_call", "command"})
+_TS_CALL_NODES_PHP = frozenset({
+    "function_call_expression",
+    "member_call_expression",
+    "scoped_call_expression",
+})
+_TS_CALL_NODES_BASH = frozenset({"command"})
+
+# Per-language reserved-word stop terms (AC-5).
+_TS_STOP_PYTHON = frozenset({
+    "self", "cls", "True", "False", "None", "if", "elif", "else", "for", "while",
+    "return", "yield", "break", "continue", "pass", "raise", "try", "except",
+    "finally", "with", "as", "import", "from", "def", "class", "lambda", "global",
+    "nonlocal", "and", "or", "not", "in", "is",
+})
+_TS_STOP_JS = frozenset({
+    "var", "let", "const", "function", "class", "extends", "implements", "interface",
+    "type", "enum", "typeof", "instanceof", "void", "await", "async", "yield",
+    "return", "if", "else", "for", "while", "do", "switch", "case", "default",
+    "break", "continue", "throw", "try", "catch", "finally", "new", "delete",
+    "in", "of", "this", "super",
+})
+_TS_STOP_GO = frozenset({
+    "func", "var", "const", "type", "struct", "interface", "package", "import",
+    "return", "if", "else", "for", "range", "switch", "case", "default", "break",
+    "continue", "go", "defer", "select", "chan", "map", "fallthrough", "goto",
+})
+_TS_STOP_RUST = frozenset({
+    "fn", "let", "mut", "pub", "mod", "use", "struct", "enum", "impl", "trait",
+    "type", "const", "static", "if", "else", "match", "for", "while", "loop",
+    "break", "continue", "return", "as", "in", "where", "ref", "move", "async",
+    "await", "self", "Self", "super", "crate",
+})
+_TS_STOP_JAVA = frozenset({
+    "public", "private", "protected", "static", "final", "abstract", "synchronized",
+    "transient", "volatile", "class", "interface", "enum", "extends", "implements",
+    "import", "package", "return", "if", "else", "for", "while", "do", "switch",
+    "case", "default", "break", "continue", "throw", "throws", "try", "catch",
+    "finally", "new", "this", "super", "instanceof", "void",
+})
+_TS_STOP_KOTLIN = frozenset({
+    "fun", "val", "var", "class", "interface", "object", "enum", "data", "sealed",
+    "open", "override", "abstract", "final", "private", "protected", "internal",
+    "public", "import", "package", "return", "if", "else", "for", "while", "do",
+    "when", "is", "in", "as", "throw", "try", "catch", "finally", "this", "super",
+    "init", "constructor", "by", "lateinit", "vararg", "inline", "noinline",
+    "crossinline", "reified", "tailrec", "operator", "infix", "suspend",
+})
+_TS_STOP_C = frozenset({
+    "int", "char", "short", "long", "float", "double", "void", "signed", "unsigned",
+    "const", "volatile", "static", "extern", "auto", "register", "struct", "union",
+    "enum", "typedef", "sizeof", "return", "if", "else", "for", "while", "do",
+    "switch", "case", "default", "break", "continue", "goto",
+})
+_TS_STOP_CSHARP = frozenset({
+    "public", "private", "protected", "internal", "static", "abstract", "virtual",
+    "override", "sealed", "readonly", "const", "class", "interface", "struct",
+    "enum", "namespace", "using", "return", "if", "else", "for", "foreach", "in",
+    "while", "do", "switch", "case", "default", "break", "continue", "throw",
+    "try", "catch", "finally", "new", "this", "base", "is", "as", "typeof",
+    "void", "var", "async", "await",
+})
+_TS_STOP_SWIFT = frozenset({
+    "func", "let", "var", "class", "struct", "enum", "protocol", "extension",
+    "import", "public", "private", "internal", "fileprivate", "open", "static",
+    "final", "lazy", "weak", "unowned", "mutating", "nonmutating", "inout",
+    "throws", "rethrows", "if", "else", "for", "while", "repeat", "do", "catch",
+    "defer", "guard", "switch", "case", "default", "break", "continue", "return",
+    "where", "as", "is", "in", "init", "deinit", "self", "Self", "super",
+    "Type", "associatedtype", "typealias", "try", "await", "async",
+})
+_TS_STOP_OBJC = _TS_STOP_C | frozenset({"@interface", "@implementation", "@end", "@property", "@synthesize", "self", "super", "id", "nil", "YES", "NO", "BOOL", "nonatomic", "atomic", "strong", "weak", "copy", "assign", "readonly", "readwrite"})
+_TS_STOP_RUBY = frozenset({
+    "def", "end", "class", "module", "if", "elsif", "else", "unless", "case",
+    "when", "then", "for", "while", "until", "do", "break", "next", "redo", "retry",
+    "return", "yield", "begin", "rescue", "ensure", "raise", "require", "include",
+    "extend", "self", "super", "nil", "true", "false", "and", "or", "not", "in",
+})
+_TS_STOP_PHP = frozenset({
+    "function", "class", "interface", "trait", "extends", "implements", "namespace",
+    "use", "public", "private", "protected", "static", "final", "abstract", "const",
+    "var", "return", "if", "else", "elseif", "for", "foreach", "as", "while", "do",
+    "switch", "case", "default", "break", "continue", "throw", "try", "catch",
+    "finally", "new", "self", "parent", "this", "instanceof", "echo", "print",
+    "isset", "unset", "empty",
+})
+_TS_STOP_SCALA = frozenset({
+    "def", "val", "var", "lazy", "class", "object", "trait", "case", "match",
+    "extends", "with", "import", "package", "return", "if", "else", "for", "while",
+    "do", "yield", "throw", "try", "catch", "finally", "new", "this", "super",
+    "implicit", "private", "protected", "abstract", "override", "final", "sealed",
+    "type",
+})
+_TS_STOP_BASH = frozenset({
+    "if", "then", "elif", "else", "fi", "for", "while", "until", "do", "done",
+    "case", "esac", "function", "in", "select", "time", "return", "exit", "break",
+    "continue", "local", "export", "readonly", "declare", "typeset",
+})
+
+# Per-language builtin / common-value denylist (AC-1a). These names stay
+# `external::*` even when a project node defines a same-named symbol.
+_TS_DENY_PYTHON = frozenset({
+    "len", "range", "str", "int", "float", "bool", "list", "dict", "set", "tuple",
+    "bytes", "bytearray", "frozenset", "print", "input", "open", "iter", "next",
+    "enumerate", "zip", "map", "filter", "sorted", "reversed", "sum", "min", "max",
+    "abs", "round", "pow", "divmod", "hash", "id", "type", "isinstance", "issubclass",
+    "super", "object", "Exception", "ValueError", "TypeError", "KeyError",
+    "IndexError", "AttributeError", "RuntimeError", "StopIteration", "True",
+    "False", "None", "callable", "hasattr", "getattr", "setattr", "delattr",
+    "vars", "dir", "globals", "locals", "repr", "format",
+})
+_TS_DENY_JS = frozenset({
+    "Object", "Array", "String", "Number", "Boolean", "Promise", "Map", "Set",
+    "Date", "Math", "JSON", "RegExp", "Error", "TypeError", "RangeError", "Symbol",
+    "Proxy", "Reflect", "Function", "globalThis", "console", "undefined", "null",
+    "NaN", "Infinity", "parseInt", "parseFloat", "isNaN", "isFinite",
+    "encodeURIComponent", "decodeURIComponent",
+})
+_TS_DENY_GO = frozenset({
+    "len", "cap", "make", "new", "panic", "recover", "append", "copy", "delete",
+    "close", "print", "println", "error", "string", "int", "int8", "int16",
+    "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
+    "float32", "float64", "complex64", "complex128", "bool", "byte", "rune",
+    "true", "false", "nil",
+})
+_TS_DENY_RUST = frozenset({
+    "Some", "None", "Ok", "Err", "Box", "Vec", "String", "Option", "Result",
+    "panic", "println", "print", "eprintln", "eprint", "format", "vec", "assert",
+    "assert_eq", "assert_ne", "debug_assert", "unreachable", "todo", "unimplemented",
+    "matches", "write", "writeln", "dbg",
+})
+_TS_DENY_JAVA = frozenset({
+    "String", "Integer", "Boolean", "Double", "Float", "Long", "Short", "Byte",
+    "Character", "Object", "List", "Map", "Set", "Collection", "Iterable",
+    "Exception", "RuntimeException", "IllegalArgumentException",
+    "IllegalStateException", "NullPointerException", "IndexOutOfBoundsException",
+    "System", "Math", "Thread", "Class", "Number", "Optional", "Stream",
+    "Arrays", "Collections", "Objects",
+})
+_TS_DENY_KOTLIN = _TS_DENY_JAVA | frozenset({
+    "Any", "Unit", "Nothing", "Pair", "Triple", "Sequence", "Array", "IntArray",
+    "DoubleArray", "BooleanArray", "ByteArray", "CharArray", "FloatArray",
+    "LongArray", "ShortArray", "MutableList", "MutableMap", "MutableSet",
+    "listOf", "mapOf", "setOf", "mutableListOf", "mutableMapOf", "mutableSetOf",
+    "println", "print", "error", "TODO", "require", "check", "let", "run",
+    "with", "apply", "also",
+})
+_TS_DENY_CSHARP = frozenset({
+    "String", "Int32", "Int64", "Int16", "Boolean", "Double", "Single", "Decimal",
+    "Object", "List", "Dictionary", "HashSet", "IEnumerable", "Exception",
+    "ArgumentException", "InvalidOperationException", "NullReferenceException",
+    "ArgumentNullException", "Console", "Math", "DateTime", "TimeSpan", "Guid",
+    "Task", "ValueTask", "Action", "Func", "Tuple",
+})
+_TS_DENY_SWIFT = frozenset({
+    "String", "Int", "Int8", "Int16", "Int32", "Int64", "UInt", "UInt8", "UInt16",
+    "UInt32", "UInt64", "Double", "Float", "Bool", "Array", "Dictionary", "Set",
+    "Optional", "Result", "Date", "Data", "URL", "URLRequest", "URLSession",
+    "Error", "Never", "Void", "Any", "AnyObject", "AnyHashable", "Range",
+    "ClosedRange", "Character",
+})
+_TS_DENY_OBJC = frozenset({
+    "NSString", "NSNumber", "NSArray", "NSDictionary", "NSSet", "NSObject",
+    "NSError", "NSData", "NSDate", "NSURL", "NSMutableArray", "NSMutableDictionary",
+    "NSMutableString", "NSMutableSet", "NSException", "BOOL", "id", "Class",
+    "SEL", "IMP",
+})
+_TS_DENY_RUBY = frozenset({
+    "String", "Integer", "Float", "Array", "Hash", "Symbol", "Range", "Regexp",
+    "Object", "Class", "Module", "Proc", "Lambda", "NilClass", "TrueClass",
+    "FalseClass", "Exception", "StandardError", "RuntimeError", "ArgumentError",
+    "TypeError", "NameError", "NoMethodError", "puts", "print", "p", "raise",
+    "require", "require_relative", "attr_accessor", "attr_reader", "attr_writer",
+})
+_TS_DENY_PHP = frozenset({
+    "true", "false", "null", "array", "string", "int", "float", "bool", "object",
+    "callable", "iterable", "void", "Exception", "Error", "TypeError",
+    "ValueError", "RuntimeException", "InvalidArgumentException",
+    "LogicException", "OutOfRangeException", "Closure", "Generator",
+    "ArrayObject", "stdClass", "Iterator", "Traversable",
+})
+_TS_DENY_SCALA = frozenset({
+    "String", "Int", "Long", "Double", "Float", "Boolean", "Char", "Byte", "Short",
+    "Unit", "Nothing", "Any", "AnyRef", "AnyVal", "Null", "Option", "Some", "None",
+    "Either", "Left", "Right", "List", "Seq", "Set", "Map", "Vector", "Array",
+    "Tuple1", "Tuple2", "Tuple3", "Exception", "RuntimeException", "Throwable",
+    "Future", "println", "print",
+})
+_TS_DENY_BASH = frozenset({
+    "echo", "printf", "read", "cd", "pwd", "ls", "rm", "cp", "mv", "mkdir", "rmdir",
+    "touch", "cat", "head", "tail", "grep", "sed", "awk", "find", "test", "true",
+    "false", "exit", "source", "exec", "trap", "set", "unset", "shift", "let",
+    "eval", "alias", "history", "type", "which", "command",
+})
+
+_TS_CODE_PROFILE = _TsLanguageProfile(mode="code")  # generic fallback for code mode
 _TS_MARKUP_PROFILE = _TsLanguageProfile(mode="markup")
 _TS_SQL_PROFILE = _TsLanguageProfile(mode="sql")
 _TS_CONFIG_PROFILE = _TsLanguageProfile(mode="config")
 
 _TS_LANGUAGE_PROFILES: dict[str, _TsLanguageProfile] = {
-    "javascript": _TS_CODE_PROFILE,
-    "typescript": _TS_CODE_PROFILE,
-    "go": _TS_CODE_PROFILE,
-    "rust": _TS_CODE_PROFILE,
-    "java": _TS_CODE_PROFILE,
-    "c": _TS_CODE_PROFILE,
-    "cpp": _TS_CODE_PROFILE,
-    "csharp": _TS_CODE_PROFILE,
-    "bash": _TS_CODE_PROFILE,
-    "kotlin": _TS_CODE_PROFILE,
-    "swift": _TS_CODE_PROFILE,
-    "objc": _TS_CODE_PROFILE,
-    "scala": _TS_CODE_PROFILE,
-    "ruby": _TS_CODE_PROFILE,
-    "php": _TS_CODE_PROFILE,
+    "javascript": _TsLanguageProfile(mode="code", call_node_types=_TS_CALL_NODES_JS, stop_terms=_TS_STOP_JS, builtin_denylist=_TS_DENY_JS),
+    "typescript": _TsLanguageProfile(mode="code", call_node_types=_TS_CALL_NODES_JS, stop_terms=_TS_STOP_JS, builtin_denylist=_TS_DENY_JS),
+    "go": _TsLanguageProfile(mode="code", call_node_types=_TS_CALL_NODES_GO, stop_terms=_TS_STOP_GO, builtin_denylist=_TS_DENY_GO),
+    "rust": _TsLanguageProfile(mode="code", call_node_types=_TS_CALL_NODES_RUST, stop_terms=_TS_STOP_RUST, builtin_denylist=_TS_DENY_RUST),
+    "java": _TsLanguageProfile(mode="code", call_node_types=_TS_CALL_NODES_JAVA, stop_terms=_TS_STOP_JAVA, builtin_denylist=_TS_DENY_JAVA),
+    "c": _TsLanguageProfile(mode="code", call_node_types=_TS_CALL_NODES_C, stop_terms=_TS_STOP_C, builtin_denylist=frozenset()),
+    "cpp": _TsLanguageProfile(mode="code", call_node_types=_TS_CALL_NODES_CPP, stop_terms=_TS_STOP_C, builtin_denylist=frozenset()),
+    "csharp": _TsLanguageProfile(mode="code", call_node_types=_TS_CALL_NODES_CSHARP, stop_terms=_TS_STOP_CSHARP, builtin_denylist=_TS_DENY_CSHARP),
+    "bash": _TsLanguageProfile(mode="code", call_node_types=_TS_CALL_NODES_BASH, stop_terms=_TS_STOP_BASH, builtin_denylist=_TS_DENY_BASH),
+    "kotlin": _TsLanguageProfile(mode="code", call_node_types=_TS_CALL_NODES_KOTLIN, stop_terms=_TS_STOP_KOTLIN, builtin_denylist=_TS_DENY_KOTLIN),
+    "swift": _TsLanguageProfile(mode="code", call_node_types=_TS_CALL_NODES_SWIFT, stop_terms=_TS_STOP_SWIFT, builtin_denylist=_TS_DENY_SWIFT),
+    "objc": _TsLanguageProfile(mode="code", call_node_types=_TS_CALL_NODES_OBJC, stop_terms=_TS_STOP_OBJC, builtin_denylist=_TS_DENY_OBJC),
+    "scala": _TsLanguageProfile(mode="code", call_node_types=_TS_CALL_NODES_SCALA, stop_terms=_TS_STOP_SCALA, builtin_denylist=_TS_DENY_SCALA),
+    "ruby": _TsLanguageProfile(mode="code", call_node_types=_TS_CALL_NODES_RUBY, stop_terms=_TS_STOP_RUBY, builtin_denylist=_TS_DENY_RUBY),
+    "php": _TsLanguageProfile(mode="code", call_node_types=_TS_CALL_NODES_PHP, stop_terms=_TS_STOP_PHP, builtin_denylist=_TS_DENY_PHP),
     "html": _TS_MARKUP_PROFILE,
     "xml": _TS_MARKUP_PROFILE,
     "sql": _TS_SQL_PROFILE,
@@ -619,6 +846,14 @@ _TS_LANGUAGE_PROFILES: dict[str, _TsLanguageProfile] = {
     "hcl": _TS_CONFIG_PROFILE,
     "powershell": _TS_CONFIG_PROFILE,
 }
+
+# Aggregate denylist across all known languages — used by the cross-file
+# resolution pass when the target node's source language is unknown (e.g. edges
+# without a source-file context). Conservative: a name is denied if ANY language
+# considers it a builtin.
+_TS_GLOBAL_DENYLIST: frozenset[str] = frozenset().union(*(
+    profile.builtin_denylist for profile in _TS_LANGUAGE_PROFILES.values()
+))
 
 
 def _ts_language_key_for_path(rel_path: str) -> str | None:
@@ -833,6 +1068,13 @@ def _ts_kind_for_definition(node_type: str, current_scope_kind: str | None, mode
         if any(token in lower for token in ("selector", "block", "property", "attribute", "pair", "entry", "key")):
             return "class"
         return "module"
+    # Variable bindings (Swift/Kotlin `property_declaration`, TS/JS/C# `variable_declaration`,
+    # Java `local_variable_declaration`/`field_declaration`, Rust `let_declaration`, Go
+    # `var_declaration`/`const_declaration`/`short_var_declaration`) are NOT scope-pushing.
+    # The kind ``variable`` is excluded from ``_ts_is_scope_node`` so calls inside
+    # ``let result = foo()`` are correctly attributed to the enclosing function (wave 130ol).
+    if lower in _TS_VARIABLE_DEFINITION_TYPES:
+        return "variable"
     if any(token in lower for token in ("method", "constructor", "member")):
         return "function"
     if any(token in lower for token in ("class", "interface", "struct", "enum", "trait", "record")):
@@ -842,6 +1084,33 @@ def _ts_kind_for_definition(node_type: str, current_scope_kind: str | None, mode
     if any(token in lower for token in ("table", "view", "schema", "resource")):
         return "class"
     return "function"
+
+
+# Per-language variable-binding node types — never push scope (wave 130ol).
+# Without this, a call inside ``let result = foo()`` gets attributed to
+# ``…enclosingFunction.result`` instead of ``…enclosingFunction``, and when
+# ``result`` is short or has no external users the short-symbol pruning pass
+# silently drops the call edge with the local-variable node.
+_TS_VARIABLE_DEFINITION_TYPES = frozenset({
+    # Swift / Kotlin
+    "property_declaration",
+    # Java
+    "local_variable_declaration",
+    "field_declaration",
+    # C#
+    "variable_declaration",
+    # JS / TS
+    "lexical_declaration",
+    "variable_statement",
+    # Rust
+    "let_declaration",
+    # Go
+    "var_declaration",
+    "const_declaration",
+    "short_var_declaration",
+    # C / C++ — note: `declaration` is too generic (also covers function decls)
+    # so we don't catch those here. Calls in C/C++ initializers are rare in practice.
+})
 
 
 def _ts_is_definition_node(node_type: str, mode: str) -> bool:
@@ -876,7 +1145,15 @@ def _ts_is_import_node(node_type: str, mode: str) -> bool:
     return any(token in lower for token in _TS_IMPORT_KEYWORDS) or "import" in lower or "use" in lower or "include" in lower
 
 
-def _ts_is_call_node(node_type: str, mode: str) -> bool:
+def _ts_is_call_node(node_type: str, mode: str, profile: _TsLanguageProfile | None = None) -> bool:
+    """Detect tree-sitter call nodes (wave 130ol).
+
+    For code mode with a known per-language profile, consults the explicit
+    ``call_node_types`` set. The legacy substring-match heuristic on
+    ``"expression"`` matched every ``*_expression`` node type
+    (``try_expression``, ``await_expression``, ``binary_expression``, etc.)
+    and produced ``external::<keyword>`` edges via the regex-fallback path.
+    """
     lower = node_type.lower()
     if mode == "markup":
         return any(token in lower for token in ("script", "style", "form", "link", "anchor", "event", "handler"))
@@ -884,10 +1161,19 @@ def _ts_is_call_node(node_type: str, mode: str) -> bool:
         return any(token in lower for token in ("select", "where", "join", "from", "into", "call", "update", "delete", "insert"))
     if mode == "config":
         return any(token in lower for token in ("command", "action", "script", "target", "task", "job", "step", "run"))
+    if profile is not None and profile.call_node_types:
+        return node_type in profile.call_node_types
     return any(token in lower for token in _TS_CALL_KEYWORDS) or "call" in lower or "invoke" in lower or "access" in lower
 
 
 def _ts_is_scope_node(node_type: str, kind: str, mode: str) -> bool:
+    """Whether a definition node should push a new scope frame.
+
+    Variable bindings (kind ``variable``) are intentionally excluded so calls
+    inside ``let x = foo()`` attribute to the enclosing function rather than
+    creating a fragile ``…fn.x`` scope that the short-symbol pruning pass
+    can silently drop (wave 130ol).
+    """
     if mode == "markup":
         return kind in {"module", "class"}
     if mode == "sql":
@@ -917,7 +1203,121 @@ def _ts_relation_field_names(relation: str, mode: str) -> tuple[str, ...]:
     return _TS_NAME_FIELD_PRIORITY
 
 
-def _ts_relation_candidates(node, source_bytes: bytes, relation: str, mode: str) -> list[str]:
+def _ts_candidate_rejected(candidate: str) -> bool:
+    """Reject candidates that are language artifacts, not real callees (wave 130ol).
+
+    - ``_`` (Swift underscore wildcard) — produced degenerate paths in code_graph_path
+    - ``foo:`` (Swift named-argument label / general label suffix) — not a callable
+    - Empty / whitespace-only strings
+    """
+    if not candidate or not candidate.strip():
+        return True
+    if candidate == "_":
+        return True
+    if candidate.endswith(":"):
+        return True
+    return False
+
+
+# Node types that wrap a call's argument list — skip these when walking
+# named_children for the positional-callee fallback. The callee is the FIRST
+# non-argument child of the call expression.
+_TS_ARGS_NODE_TYPES = frozenset({
+    "call_suffix",            # Swift
+    "value_arguments",        # Kotlin
+    "argument_list",          # Java, C#, C, C++, Ruby
+    "arguments",              # Scala, JS/TS, Python (when via tree-sitter)
+    "parameter_list",         # rare grammars
+    "parenthesized_expression",  # some grammars wrap args this way
+    "trailing_closure",       # Swift trailing closure (not the callee)
+    "lambda_literal",         # Kotlin lambda arg
+})
+
+# Node types whose text is itself an identifier we can use as a call target.
+_TS_IDENTIFIER_TYPES = frozenset({
+    "identifier",
+    "simple_identifier",
+    "type_identifier",
+    "name",
+    "variable_name",
+    "field_identifier",
+    "scoped_identifier",
+    "shorthand_identifier",
+})
+
+# Node types that represent a member-access / navigation chain. For
+# ``f.bar()`` the call-expression's callee child is a navigation_expression
+# whose RIGHTMOST identifier child (``bar``) is the method name we want as
+# the call target.
+_TS_NAVIGATION_TYPES = frozenset({
+    "navigation_expression",          # Swift
+    "navigation_suffix",              # Kotlin (nested)
+    "member_access_expression",       # C#
+    "member_expression",              # JS/TS
+    "field_access",                   # Java
+    "field_expression",               # C/C++
+    "field_access_expression",        # generic
+    "scoped_call_expression",         # PHP
+    "qualified_identifier",           # C++ namespace::name
+    "selector_expression",            # Go: x.Method
+    "method_expression",              # rare
+    "binary_expression",              # some grammars treat `a.b` as binary
+})
+
+
+def _ts_extract_callee_recursive(node, source_bytes: bytes) -> str | None:
+    """Find the rightmost identifier in a callee expression (wave 130ol).
+
+    For ``f.bar()`` the callee child is a navigation/member-access expression
+    whose RIGHTMOST identifier (``bar``) is the method name. For chained
+    ``a.b.c()`` we pick ``c``. For a bare ``helper()`` the callee child is
+    already a simple identifier — return its text directly.
+    """
+    if node.type in _TS_IDENTIFIER_TYPES:
+        text = _ts_node_text(node, source_bytes)
+        return text if text and not _ts_candidate_rejected(text) else None
+    if node.type in _TS_NAVIGATION_TYPES:
+        # Prefer the rightmost identifier — that's the method/property name.
+        children = list(node.named_children)
+        for child in reversed(children):
+            result = _ts_extract_callee_recursive(child, source_bytes)
+            if result:
+                return result
+        return None
+    # Unknown structure — try named children in order and pick the first
+    # identifier-like result. Cheap best-effort.
+    for child in node.named_children:
+        result = _ts_extract_callee_recursive(child, source_bytes)
+        if result:
+            return result
+    return None
+
+
+def _ts_extract_callee_positional(node, source_bytes: bytes) -> str | None:
+    """Fallback for grammars whose call_expression has no callee field name.
+
+    Walks the call node's named_children, skips argument/suffix-like nodes,
+    and recursively extracts the rightmost identifier from the first
+    remaining child. Used by ``_ts_relation_candidates`` when the field-name
+    lookup returns empty (Swift, Kotlin) — safe because the caller has
+    already confirmed the node is a call (per ``profile.call_node_types``).
+    """
+    for child in node.named_children:
+        if child.type in _TS_ARGS_NODE_TYPES:
+            continue
+        candidate = _ts_extract_callee_recursive(child, source_bytes)
+        if candidate:
+            return candidate
+    return None
+
+
+def _ts_relation_candidates(
+    node,
+    source_bytes: bytes,
+    relation: str,
+    mode: str,
+    profile: _TsLanguageProfile | None = None,
+) -> list[str]:
     candidates = []
     for field_name in _ts_relation_field_names(relation, mode):
         try:
@@ -927,16 +1327,38 @@ def _ts_relation_candidates(node, source_bytes: bytes, relation: str, mode: str)
         if child is None:
             continue
         candidate = _ts_clean_name(_ts_node_text(child, source_bytes))
-        if candidate and candidate not in candidates:
+        if candidate and not _ts_candidate_rejected(candidate) and candidate not in candidates:
             candidates.append(candidate)
     if candidates:
         return candidates
+    # For "call" relation in code mode, field-name lookup may miss for
+    # grammars whose call_expression exposes the callee positionally rather
+    # than via a named field (Swift, Kotlin). Try the positional fallback
+    # (wave 130ol): walk named_children, skip argument-list nodes, and
+    # extract the rightmost identifier from the first non-suffix child.
+    # Safe because the caller (walk_calls) has already confirmed the node
+    # is a call via the explicit per-language ``profile.call_node_types``.
+    if relation == "call" and mode == "code":
+        positional = _ts_extract_callee_positional(node, source_bytes)
+        if positional and not _ts_candidate_rejected(positional):
+            profile_stop = profile.stop_terms if profile is not None else frozenset()
+            if positional not in _STOP_TERMS and positional not in profile_stop:
+                return [positional]
+        return []
     text = _ts_node_text(node, source_bytes)
     if not text:
         return []
     # Fall back to a light parse of the AST span, keeping the grammar boundary.
+    # Preserved for non-call relations (e.g. import) where the multi-token
+    # fallback is still useful and the noise risk is lower.
     raw_candidates = re.findall(r"[A-Za-z_][A-Za-z0-9_.$:#/\-]*", text)
-    return [candidate for candidate in raw_candidates if candidate not in _STOP_TERMS]
+    profile_stop = profile.stop_terms if profile is not None else frozenset()
+    return [
+        candidate for candidate in raw_candidates
+        if candidate not in _STOP_TERMS
+        and candidate not in profile_stop
+        and not _ts_candidate_rejected(candidate)
+    ]
 
 
 def _ts_pick_symbol_name(candidates: list[str], mode: str, node_type: str) -> str:
@@ -1590,9 +2012,9 @@ class GraphIndexSession:
                     return
             if mode == "markup" and (is_import or is_definition):
                 return
-            if _ts_is_call_node(node_type, mode):
+            if _ts_is_call_node(node_type, mode, profile):
                 source_symbol = scope_symbols[-1] if scope_symbols else module_id
-                for target in _ts_relation_candidates(node, source_bytes, "call", mode):
+                for target in _ts_relation_candidates(node, source_bytes, "call", mode, profile):
                     resolved = _ts_resolve_target(target, symbol_lookup, import_aliases)
                     add_edge(source_symbol, resolved, "calls", confidence="EXTRACTED")
             for child in getattr(node, "named_children", []):
@@ -2008,6 +2430,134 @@ class GraphIndexSession:
                 or _file_of(k[1]) in removed_paths
             ]:
                 edge_map.pop(key, None)
+
+        # Cross-file symbol resolution pass (wave 130ol — AC-1, AC-1a, AC-2).
+        #
+        # The per-file extractors build a local `symbol_lookup` from just THIS
+        # file's defined symbols, so any call to a function defined in another
+        # file resolves to `external::<name>` even when the target is a real
+        # project-internal symbol. Here, after per-file artifacts are merged
+        # into node_map/edge_map, we rewrite `external::<bare-name>` edge
+        # targets to project-internal node ids when:
+        #   (a) the simple name is unambiguous across all project nodes, AND
+        #   (b) the name is not in the per-language builtin denylist (so
+        #       `external::pathlib.Path`, `external::len`, `external::String`
+        #       etc. stay external even if a project file happens to define a
+        #       same-named symbol).
+        # Dotted targets (`external::a.b.c`) are handled via a qualified-suffix
+        # match against project node qualified names. The pass runs on the
+        # FULL merged edge set every build (incremental and full) — cached
+        # referrer artifacts may still carry `external::*` edges into newly-
+        # defined cross-file symbols and the rewrite must catch them.
+        #
+        # Performance: pre-built indexes give O(edges + nodes); each edge is
+        # an O(1) dict lookup. Negligible at typical graph scales (~100K edges).
+        # Build per-(file, simple_name) dedupe map FIRST so we don't double-count
+        # phantom inner-grammar duplicates (e.g. C++ function_declarator nested
+        # inside function_definition both registered as `helper_process` — they're
+        # the same logical symbol). Keep the entry with the shortest qualified
+        # name (the outer/real definition); ambiguity then reflects only the
+        # cross-file case the resolver actually cares about (wave 130ol).
+        simple_name_index: dict[str, list[str]] = {}
+        qualified_index: dict[str, list[str]] = {}
+        per_file_simple: dict[tuple[str, str], str] = {}
+        for node_id, node in node_map.items():
+            if "::" not in node_id:
+                continue  # module-level node (id == file path)
+            if node_id.startswith("external::"):
+                continue  # external endpoint nodes are not project candidates
+            file_part, qualified = node_id.split("::", 1)
+            label = str(node.get("label") or "")
+            simple = label or qualified.rsplit(".", 1)[-1]
+            if not simple:
+                continue
+            key = (file_part, simple)
+            existing = per_file_simple.get(key)
+            if existing is None or len(node_id) < len(existing):
+                per_file_simple[key] = node_id
+        for (file_part, simple), node_id in per_file_simple.items():
+            simple_name_index.setdefault(simple, []).append(node_id)
+            _, qualified = node_id.split("::", 1)
+            if qualified and qualified != simple:
+                qualified_index.setdefault(qualified, []).append(node_id)
+            # Also index a module-path-derived dotted form so per-file extractors
+            # that emit dotted external targets (e.g. Python `from src.a import
+            # foo` produces `external::src.a.foo`) can resolve to project nodes.
+            # Strip the file extension and convert path separators to dots.
+            dotted_module = re.sub(r"\.[A-Za-z0-9]+$", "", file_part).replace("/", ".")
+            # Strip a leading "." from hidden directories so
+            # ".wavefoundry/framework/scripts/..." becomes the actual Python
+            # module path (e.g. `wave_lint_lib...`).
+            dotted_module = dotted_module.lstrip(".")
+            if dotted_module:
+                dotted_full = f"{dotted_module}.{qualified}"
+                qualified_index.setdefault(dotted_full, []).append(node_id)
+                # Index every dotted-path suffix so cross-module imports that
+                # strip leading directory segments still resolve (e.g.
+                # `from wave_lint_lib.foo import bar` when the file is at
+                # `.wavefoundry/framework/scripts/wave_lint_lib/foo.py`).
+                parts = dotted_full.split(".")
+                for i in range(1, len(parts)):
+                    suffix = ".".join(parts[i:])
+                    if "." in suffix:
+                        qualified_index.setdefault(suffix, []).append(node_id)
+
+        if simple_name_index or qualified_index:
+            new_edge_map: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+            rewrite_count = 0
+            for key, edge in edge_map.items():
+                src, tgt, rel, conf = key
+                if rel != "calls" or not tgt.startswith("external::"):
+                    new_edge_map[key] = edge
+                    continue
+                bare = tgt[len("external::"):]
+                if not bare or bare in _TS_GLOBAL_DENYLIST:
+                    new_edge_map[key] = edge
+                    continue
+                resolved: str | None = None
+                if "." in bare:
+                    # AC-2: qualified target — require an exact qualified-name
+                    # match to a project node's post-`::` portion. The final
+                    # segment must also pass the denylist (so
+                    # `external::pathlib.Path` stays external even if some
+                    # project file defines `Path`).
+                    final_seg = bare.rsplit(".", 1)[-1]
+                    if final_seg in _TS_GLOBAL_DENYLIST:
+                        new_edge_map[key] = edge
+                        continue
+                    candidates = qualified_index.get(bare, [])
+                    if len(candidates) == 1:
+                        resolved = candidates[0]
+                    elif not candidates:
+                        # Fallback: try the last segment in simple_name_index
+                        # (with ambiguity safety + denylist already checked).
+                        # Covers cases like C# `h.Process()` where `h` is a
+                        # local variable of unknown type and the call should
+                        # resolve to the unique project `Process` method.
+                        simple_candidates = simple_name_index.get(final_seg, [])
+                        if len(simple_candidates) == 1:
+                            resolved = simple_candidates[0]
+                else:
+                    # AC-1: bare simple name match.
+                    candidates = simple_name_index.get(bare, [])
+                    if len(candidates) == 1:
+                        resolved = candidates[0]
+                if resolved and resolved != src:
+                    new_key = (src, resolved, rel, conf)
+                    new_edge = dict(edge)
+                    new_edge["target"] = resolved
+                    # setdefault: if a same-key edge already exists, the
+                    # rewrite collapses both into one — desired dedupe.
+                    new_edge_map.setdefault(new_key, new_edge)
+                    rewrite_count += 1
+                else:
+                    new_edge_map[key] = edge
+            edge_map = new_edge_map
+            if self.verbose and rewrite_count:
+                print(
+                    f"build_index: graph cross-file resolution rewrote {rewrite_count} external::* edges to project-internal nodes",
+                    flush=True,
+                )
 
         # Prune short internal symbols: drop code symbol nodes with labels ≤
         # _SHORT_SYMBOL_MAX_LEN chars unless some other file imports or calls them.

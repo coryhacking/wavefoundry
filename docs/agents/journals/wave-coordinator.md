@@ -92,6 +92,8 @@ wave-id: `1304x graph-mcp-parity-and-dashboard-polish`
 
 wave-id: `1305t dashboard-graph-polish-and-dark-mode-fixes`
 
+wave-id: `130et framework-bin-mcp-server-launcher`
+
 wave-id: `12hs9 dashboard-pending-wave-id-wrap`
 
 - Closed 2026-05-10: CSS fix — `.open-wave-id` nowrap scoped to `.pending-wave-left` to prevent wrap/misalignment in compact pending-wave rows.

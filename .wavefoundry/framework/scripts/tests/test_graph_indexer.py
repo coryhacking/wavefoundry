@@ -655,3 +655,361 @@ class GraphDependencyInjectionTests(unittest.TestCase):
         self.assertNotIn("binds", relations)
         self.assertNotIn("injects", relations)
 
+
+class CrossFileResolutionTests(unittest.TestCase):
+    """Regression tests for wave 130ol: cross-file symbol resolution +
+    keyword/builtin filtering + ambiguity safety in the graph extractor."""
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files: dict[str, str]) -> dict:
+        paths = []
+        meta = {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root,
+            index_dir=self.root / ".wavefoundry" / "index",
+            layer="project",
+            files=paths,
+            current_file_meta=meta,
+            changed=set(meta.keys()),
+            removed=set(),
+            walker_version="1",
+            chunker_version="1",
+            verbose=False,
+        )
+
+    def _calls_edges(self, payload: dict) -> list[dict]:
+        return [e for e in payload["edges"] if e.get("relation") == "calls"]
+
+    # AC-7: Python cross-file resolution. Two files: a.py defines foo(),
+    # b.py calls foo() — the merged graph must contain
+    # `src/b.py::caller → src/a.py::foo`, not `… → external::foo`.
+    def test_python_cross_file_call_resolves_to_project_node(self):
+        payload = self._build({
+            "src/a.py": "def foo():\n    return 42\n",
+            "src/b.py": "from src.a import foo\n\n\ndef caller():\n    return foo()\n",
+        })
+        calls = self._calls_edges(payload)
+        targets_to_foo = [
+            e["target"] for e in calls
+            if e.get("source", "").endswith("::caller")
+        ]
+        # The resolved target should be the project node, not external::foo.
+        self.assertIn("src/a.py::foo", targets_to_foo,
+                      f"Expected cross-file resolution to src/a.py::foo; got {targets_to_foo}")
+        for tgt in targets_to_foo:
+            self.assertFalse(
+                tgt == "external::foo",
+                f"Cross-file call should NOT remain external::foo: {targets_to_foo}",
+            )
+
+    # AC-9: Ambiguity safety net. Two files each defining `helper`, called
+    # from a third — the call must stay external::helper because the simple
+    # name is ambiguous across project nodes.
+    def test_ambiguous_simple_name_stays_external(self):
+        payload = self._build({
+            "src/a.py": "def helper():\n    return 1\n",
+            "src/b.py": "def helper():\n    return 2\n",
+            "src/c.py": "def use():\n    return helper()\n",
+        })
+        calls = self._calls_edges(payload)
+        targets = [
+            e["target"] for e in calls
+            if e.get("source", "").endswith("::use")
+        ]
+        # Conservative behavior: don't silently pick one of the two.
+        for tgt in targets:
+            self.assertNotEqual(tgt, "src/a.py::helper",
+                                "Ambiguous name must not silently resolve to a.py::helper")
+            self.assertNotEqual(tgt, "src/b.py::helper",
+                                "Ambiguous name must not silently resolve to b.py::helper")
+
+    # AC-1a: Builtin denylist. Even though we define a project class
+    # `len` (silly but possible), calls to `len()` from other files must
+    # stay external::len — the call is overwhelmingly to the Python builtin.
+    def test_builtin_denylist_blocks_resolution_for_python_len(self):
+        payload = self._build({
+            "src/weird.py": "class len:\n    pass\n",
+            "src/use.py": "def f():\n    return len([1, 2, 3])\n",
+        })
+        calls = self._calls_edges(payload)
+        for edge in calls:
+            if edge.get("source", "").endswith("::f"):
+                # Should remain external (denylist blocks the rewrite).
+                self.assertEqual(
+                    edge.get("target"), "external::len",
+                    f"Builtin len() should stay external; got {edge.get('target')}",
+                )
+
+    # AC-1: Conservative resolution skips dotted external targets even when
+    # bare simple-name matches exist. `pathlib.Path` stays external even if
+    # a project file defines a class `Path` (with dot resolution gated by
+    # the qualified-suffix check + denylist).
+    def test_dotted_external_target_stays_external(self):
+        payload = self._build({
+            "src/myclass.py": "class Path:\n    pass\n",
+            "src/use.py": "from pathlib import Path as _P\n\n\ndef f():\n    return _P('/tmp')\n",
+        })
+        # We expect either external::pathlib.Path (if the dotted form is
+        # captured) or external::Path/_P — but never src/myclass.py::Path.
+        calls = self._calls_edges(payload)
+        for edge in calls:
+            tgt = edge.get("target", "")
+            if edge.get("source", "").endswith("::f"):
+                self.assertNotEqual(
+                    tgt, "src/myclass.py::Path",
+                    "pathlib.Path() must not resolve to a project Path class",
+                )
+
+    # AC-8: Tree-sitter cross-file path. Go is the test target because
+    # tree_sitter_go ships with framework deps and has stable call_expression
+    # grammar.
+    def test_go_cross_file_call_resolves_to_project_node(self):
+        try:
+            import tree_sitter_go  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_go not available in test env")
+        payload = self._build({
+            "pkg/a.go": "package pkg\n\nfunc Foo() int {\n    return 1\n}\n",
+            "pkg/b.go": "package pkg\n\nfunc Bar() int {\n    return Foo()\n}\n",
+        })
+        calls = self._calls_edges(payload)
+        bar_targets = [
+            e["target"] for e in calls
+            if "::Bar" in str(e.get("source", ""))
+        ]
+        self.assertTrue(
+            any(t == "pkg/a.go::Foo" for t in bar_targets),
+            f"Expected Bar→pkg/a.go::Foo resolution; got {bar_targets}",
+        )
+        # Go keywords/builtins must not appear as external::* call targets.
+        all_targets = {str(e.get("target", "")) for e in calls}
+        forbidden_keywords = {
+            "external::if", "external::for", "external::range",
+            "external::var", "external::const", "external::func",
+            "external::package", "external::import", "external::return",
+        }
+        leaked = forbidden_keywords & all_targets
+        self.assertFalse(
+            leaked, f"Go keywords should not appear as call targets: {leaked}",
+        )
+
+    def test_go_builtins_stay_external_when_called(self):
+        try:
+            import tree_sitter_go  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_go not available in test env")
+        payload = self._build({
+            "pkg/a.go": "package pkg\n\nfunc Foo(xs []int) int {\n    return len(xs)\n}\n",
+        })
+        calls = self._calls_edges(payload)
+        target_names = {str(e.get("target", "")) for e in calls if "::Foo" in str(e.get("source", ""))}
+        # len() is a Go builtin and must NOT resolve to any project node
+        # (denylist guards against accidental mis-resolution).
+        for tgt in target_names:
+            self.assertFalse(
+                tgt.endswith("::len") and not tgt.startswith("external::"),
+                f"Go builtin len() must stay external; got {tgt}",
+            )
+
+    # ---- AC-8 extended: per-language cross-file resolution ----
+    # These tests pin that 130ol's per-language coverage actually delivers
+    # cross-file resolution for every tree-sitter language we support.
+    # The Swift/Kotlin tests are the load-bearing ones (positional callee
+    # fallback was the missing piece). The others guard against grammar drift.
+
+    def _assert_cross_file(self, lang_skip_mod, files, expected_source_contains, expected_target_contains):
+        """Helper: build a synthetic two-file project, assert the named cross-file edge."""
+        try:
+            __import__(lang_skip_mod)
+        except ImportError:
+            self.skipTest(f"{lang_skip_mod} not available in test env")
+        payload = self._build(files)
+        calls = self._calls_edges(payload)
+        matches = [
+            e for e in calls
+            if expected_source_contains in str(e.get("source", ""))
+            and expected_target_contains in str(e.get("target", ""))
+            and not str(e.get("target", "")).startswith("external::")
+        ]
+        self.assertTrue(
+            matches,
+            f"No cross-file resolved edge found. Got calls: "
+            f"{[(e.get('source'), e.get('target')) for e in calls]}",
+        )
+
+    def test_swift_cross_file_navigation_call(self):
+        """Swift: `let r = h.process()` should resolve `process` to the project node
+        despite (a) navigation_expression structure, (b) positional callee (no field),
+        and (c) being inside a let-binding inside a function."""
+        self._assert_cross_file(
+            "tree_sitter_swift",
+            {
+                "A.swift": "class Helper { func process() -> Int { return 1 } }\n",
+                "B.swift": "class Worker {\n    let h = Helper()\n    func bar() { let r = h.process() }\n}\n",
+            },
+            expected_source_contains="B.swift::Worker.bar",
+            expected_target_contains="A.swift::Helper.process",
+        )
+
+    def test_kotlin_cross_file_navigation_call(self):
+        """Kotlin: same shape as Swift — positional callee, navigation suffix."""
+        self._assert_cross_file(
+            "tree_sitter_kotlin",
+            {
+                "A.kt": "class Helper { fun process(): Int = 1 }\n",
+                "B.kt": "class Worker {\n    val h = Helper()\n    fun bar() { val r = h.process() }\n}\n",
+            },
+            expected_source_contains="B.kt::Worker.bar",
+            expected_target_contains="A.kt::Helper.process",
+        )
+
+    def test_java_cross_file_member_call(self):
+        self._assert_cross_file(
+            "tree_sitter_java",
+            {
+                "A.java": "class Helper { int process() { return 1; } }\n",
+                "B.java": "class Worker {\n    Helper h = new Helper();\n    int bar() { int r = h.process(); return r; }\n}\n",
+            },
+            expected_source_contains="B.java::Worker.bar",
+            expected_target_contains="A.java::Helper.process",
+        )
+
+    def test_csharp_cross_file_member_call(self):
+        """C#: tests the dotted-target → last-segment fallback (h.Process where
+        h is a local variable of unresolvable type)."""
+        self._assert_cross_file(
+            "tree_sitter_c_sharp",
+            {
+                "A.cs": "class Helper { public int Process() { return 1; } }\n",
+                "B.cs": "class Worker {\n    Helper h = new Helper();\n    int Bar() { var r = h.Process(); return r; }\n}\n",
+            },
+            expected_source_contains="B.cs::Worker.Bar",
+            expected_target_contains="A.cs::Helper.Process",
+        )
+
+    def test_cpp_cross_file_function_call(self):
+        """C++: tests per-file simple-name dedupe (function_declarator nested
+        inside function_definition both registered as the same simple name)."""
+        self._assert_cross_file(
+            "tree_sitter_cpp",
+            {
+                "A.cpp": "int helper_process() { return 1; }\n",
+                "B.cpp": "int worker_bar() { int r = helper_process(); return r; }\n",
+            },
+            expected_source_contains="B.cpp::worker_bar",
+            expected_target_contains="A.cpp::helper_process",
+        )
+
+    def test_rust_cross_file_function_call(self):
+        self._assert_cross_file(
+            "tree_sitter_rust",
+            {
+                "src/a.rs": "pub fn process() -> i32 { 1 }\n",
+                "src/b.rs": "pub fn bar() -> i32 { let r = process(); r }\n",
+            },
+            expected_source_contains="src/b.rs::bar",
+            expected_target_contains="src/a.rs::process",
+        )
+
+    def test_let_binding_does_not_consume_call(self):
+        """130ol regression: `let result = foo()` must NOT push a scope. The call
+        must be attributed to the enclosing function, not `enclosingFn.result`
+        (which the short-symbol pruning pass can silently drop)."""
+        try:
+            import tree_sitter_swift  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_swift not available in test env")
+        payload = self._build({
+            "A.swift": "class Helper { func process() -> Int { return 1 } }\n",
+            "B.swift": (
+                "class Worker {\n"
+                "    let h = Helper()\n"
+                "    func bar() {\n"
+                "        let result = h.process()\n"
+                "        let _ = h.process()\n"
+                "    }\n"
+                "}\n"
+            ),
+        })
+        calls = self._calls_edges(payload)
+        # Call must attribute to the enclosing function, not to ::result or ::_
+        for e in calls:
+            src = str(e.get("source", ""))
+            self.assertFalse(
+                src.endswith("::result") or src.endswith("::_"),
+                f"Call should attribute to enclosing function, not to local var: {src}",
+            )
+        # And the cross-file edge must still be there
+        bar_edges = [
+            e for e in calls
+            if "B.swift::Worker.bar" in str(e.get("source", ""))
+            and "A.swift::Helper.process" in str(e.get("target", ""))
+        ]
+        self.assertTrue(bar_edges, f"Expected Worker.bar → Helper.process; got {[(e.get('source'), e.get('target')) for e in calls]}")
+
+
+class HeuristicImpactUnsupportedLanguageTests(unittest.TestCase):
+    """AC-12: code_impact path= heuristic returns explicit unsupported_language
+    diagnostic for languages whose imports are not parsed (Swift, Java, etc.)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        # Load server_impl
+        scripts_root = Path(__file__).resolve().parents[1]
+        spec = importlib.util.spec_from_file_location(
+            "server_impl", scripts_root / "server_impl.py"
+        )
+        self.server_impl = importlib.util.module_from_spec(spec)
+        sys.modules["server_impl"] = self.server_impl
+        spec.loader.exec_module(self.server_impl)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_swift_path_returns_unsupported_language(self):
+        swift_file = self.root / "src" / "Foo.swift"
+        swift_file.parent.mkdir(parents=True, exist_ok=True)
+        swift_file.write_text("class Foo {}\n", encoding="utf-8")
+        result = self.server_impl._code_impact_heuristic_response(
+            self.root, "src/Foo.swift",
+        )
+        data = result.get("data") or result
+        self.assertTrue(
+            data.get("unsupported_language"),
+            f"Expected unsupported_language=True for .swift; got {data}",
+        )
+        self.assertEqual(data.get("importers"), [])
+        self.assertEqual(data.get("total_found"), 0)
+        diagnostics = result.get("diagnostics") or []
+        self.assertTrue(
+            any(d.get("code") == "unsupported_language" for d in diagnostics),
+            f"Expected unsupported_language diagnostic; got {diagnostics}",
+        )
+
+    def test_python_path_still_works(self):
+        py_file = self.root / "src" / "tool.py"
+        py_file.parent.mkdir(parents=True, exist_ok=True)
+        py_file.write_text("def t(): pass\n", encoding="utf-8")
+        result = self.server_impl._code_impact_heuristic_response(
+            self.root, "src/tool.py",
+        )
+        data = result.get("data") or result
+        # Python is supported — no unsupported_language flag.
+        self.assertFalse(data.get("unsupported_language", False))
+

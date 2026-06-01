@@ -454,6 +454,45 @@ class CodeFileFilterTests(unittest.TestCase):
         self.assertIn(".wavefoundry/framework/scripts/indexer.py", paths)
         self.assertNotIn(".wavefoundry/framework/scripts/tests/test_indexer.py", paths)
 
+    def test_framework_pack_artifacts_filter_strips_transient_extensions(self):
+        """Regression for 130o2: transient artifact extensions must be stripped from
+        the framework-layer walk so they never enter framework meta.json or the pack."""
+        _make_repo(self.root, {
+            ".wavefoundry/framework/scripts/tool.py": "def t(): pass\n",
+            ".wavefoundry/framework/test-run.lock": "pid\n",
+            ".wavefoundry/framework/index/index-build.lock": "pid\n",
+            ".wavefoundry/framework/index/index-build.log": "log line\n",
+            ".wavefoundry/framework/index/index-build-docs.log": "log line\n",
+            ".wavefoundry/framework/leftover.bak": "editor backup\n",
+            ".wavefoundry/framework/leftover.swp": "editor swap\n",
+            ".wavefoundry/framework/leftover.tmp": "temp\n",
+            ".wavefoundry/framework/conflict.orig": "merge artifact\n",
+            ".wavefoundry/framework/conflict.rej": "merge artifact\n",
+        })
+        files = self.bi.walk_repo(self.root, respect_ignore=False)
+        framework_files = [
+            p for p in files
+            if str(p.relative_to(self.root)).replace("\\", "/").startswith(".wavefoundry/framework/")
+        ]
+        filtered = self.bi._filter_framework_pack_artifacts(framework_files, self.root)
+        paths = {str(p.relative_to(self.root)).replace("\\", "/") for p in filtered}
+
+        # Source files survive
+        self.assertIn(".wavefoundry/framework/scripts/tool.py", paths)
+        # Every transient extension stripped
+        for forbidden in [
+            ".wavefoundry/framework/test-run.lock",
+            ".wavefoundry/framework/index/index-build.lock",
+            ".wavefoundry/framework/index/index-build.log",
+            ".wavefoundry/framework/index/index-build-docs.log",
+            ".wavefoundry/framework/leftover.bak",
+            ".wavefoundry/framework/leftover.swp",
+            ".wavefoundry/framework/leftover.tmp",
+            ".wavefoundry/framework/conflict.orig",
+            ".wavefoundry/framework/conflict.rej",
+        ]:
+            self.assertNotIn(forbidden, paths, f"transient artifact leaked: {forbidden}")
+
 
 class HashTests(unittest.TestCase):
     def setUp(self):
@@ -915,11 +954,13 @@ class IncrementalBuildTests(unittest.TestCase):
         meta = json.loads((index_dir / "meta.json").read_text())
         chunks = _read_index_chunks(index_dir, "docs")
         self.assertIn("docs/guide.md", meta["file_meta"])
-        # Framework files are hash-tracked in the broad file_meta so that a subsequent
-        # code run (which includes framework scripts) sees a consistent baseline and
-        # does not cycle between "93 added" / "93 removed" on alternating runs.
-        self.assertIn(".wavefoundry/framework/README.md", meta["file_meta"])
-        # But framework content must not appear in the semantic docs index.
+        # Project layer meta must NOT contain framework files (130nf). Framework files
+        # belong to the framework layer's meta.json; keeping them in the project meta
+        # caused wave_index_health to permanently report them as "removed" because the
+        # health check (which applies _filter_project_index_excludes) sees a narrow set
+        # while the meta persisted the broad set.
+        self.assertNotIn(".wavefoundry/framework/README.md", meta["file_meta"])
+        # Framework content must not appear in the semantic docs index either.
         self.assertFalse(any(c["path"].startswith(".wavefoundry/framework/") for c in chunks))
 
     def test_explicit_framework_index_can_include_framework_source(self):
@@ -995,6 +1036,54 @@ class IncrementalBuildTests(unittest.TestCase):
         self.assertIn(".wavefoundry/framework/scripts/server.py", meta["file_meta"])
         self.assertTrue(any(c["path"] == ".wavefoundry/framework/scripts/server.py" for c in code_chunks))
         self.assertIn("vendor/docs/custom.py", meta["file_meta"])
+
+    def test_project_meta_excludes_framework_and_is_stable_across_docs_and_code_runs(self):
+        """Regression for 130nf: project meta must not contain framework files (under any
+        run), and consecutive docs and code runs must write identical file_meta dicts
+        (preserves the original 'no alternating cycle' invariant from indexer.py:1822).
+        """
+        _make_repo(self.root, {
+            "docs/guide.md": "## Intro\n\nHello.\n",
+            "src/app.py": "def app(): pass\n",
+            ".wavefoundry/framework/README.md": "## Framework\n\nCanonical framework docs.\n",
+            ".wavefoundry/framework/MANIFEST": "README.md\nMANIFEST\n",
+            ".wavefoundry/framework/scripts/tools.py": "def helper():\n    return 1\n",
+        })
+        (self.root / "docs" / "workflow-config.json").write_text(
+            json.dumps({"indexing": {"project_include_prefixes": {"docs": [], "code": []}}}),
+            encoding="utf-8",
+        )
+
+        index_dir = self.root / ".wavefoundry" / "index"
+
+        # Run 1: docs only
+        with patch.object(self.bi, "_get_embedder", return_value=_make_embedder_mock(dim=4)):
+            self.bi.build_index(self.root, full=True, content="docs", verbose=False)
+        meta_after_docs = json.loads((index_dir / "meta.json").read_text())["file_meta"]
+
+        # Project meta must not contain ANY framework files
+        framework_in_meta = [p for p in meta_after_docs if p.startswith(".wavefoundry/framework/")]
+        self.assertEqual(framework_in_meta, [], f"project meta leaked framework files: {framework_in_meta}")
+        self.assertIn("docs/guide.md", meta_after_docs)
+        self.assertIn("src/app.py", meta_after_docs)
+
+        # Run 2: code only — incremental, on top of the docs meta
+        with patch.object(self.bi, "_get_embedder", side_effect=[_make_embedder_mock(dim=4), _make_embedder_mock(dim=4)]):
+            self.bi.build_index(self.root, full=False, content="code", verbose=False)
+        meta_after_code = json.loads((index_dir / "meta.json").read_text())["file_meta"]
+
+        # Still no framework files in project meta
+        framework_in_meta = [p for p in meta_after_code if p.startswith(".wavefoundry/framework/")]
+        self.assertEqual(framework_in_meta, [], f"project meta leaked framework files after code run: {framework_in_meta}")
+
+        # Stability invariant: docs run and code run must write IDENTICAL meta keys
+        # (the original line-1822 fix prevented the 93-added/93-removed alternating cycle;
+        # the new narrowing must preserve it).
+        self.assertEqual(
+            set(meta_after_docs.keys()),
+            set(meta_after_code.keys()),
+            "docs-run and code-run wrote different project meta — alternating cycle would resume",
+        )
 
     def test_docs_only_graph_includes_workflow_code_prefixes_without_cli_args(self):
         _make_repo(self.root, {

@@ -32,6 +32,11 @@ EXCLUDED_DIRS = {"__pycache__", ".pytest_cache", ".wavefoundry"}
 # Tests and the test runner are development-only artifacts; downstream repos that
 # vendor the pack have no use for them and seeds must not instruct them to run tests.
 EXCLUDED_REL_PATHS = {"scripts/tests/tmp", "scripts/tests", "scripts/run_tests.py", "scripts/benchmarks", "test-cache.json"}
+# Transient/runtime artifact extensions that must never ship in the pack.
+# .lock and .log are emitted at runtime by the test runner and the indexer; the
+# remaining suffixes are editor/merge-conflict artifacts that should never ship
+# even if someone accidentally leaves one behind in the source tree.
+TRANSIENT_ARTIFACT_EXTENSIONS = (".lock", ".log", ".bak", ".swp", ".tmp", ".orig", ".rej")
 
 FRAMEWORK_REL = ".wavefoundry/framework"
 ZIP_PREFIX = "wavefoundry-"
@@ -80,6 +85,8 @@ def should_exclude(rel_path: str, name: str) -> bool:
         if rel_path == excl_rel or rel_path.startswith(excl_rel + "/"):
             return True
     if name.endswith(".pyc"):
+        return True
+    if name.endswith(TRANSIENT_ARTIFACT_EXTENSIONS):
         return True
     return False
 

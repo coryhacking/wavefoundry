@@ -121,8 +121,8 @@ When MCP is attached, exploration before any code edit follows this order. Agent
 2. `code_search` — conceptual or module-level discovery
 3. `code_definition` — declarations and symbol ownership
 4. `code_references` — call sites and impact radius (all reference kinds: call sites, imports, mentions)
-5. `code_callhierarchy` — direct callers and callees with exact line numbers and snippets; prefer over `code_references` when the question is purely structural ("what calls X?" / "what does X call?")
-6. `code_impact` — transitive upstream callers up to N hops; run before modifying a shared symbol to size the full blast radius across the codebase before the first edit
+5. `code_callhierarchy` — direct callers and callees with exact line numbers and snippets; prefer over `code_references` when the question is purely structural ("what calls X?" / "what does X call?"). For languages whose cross-file resolution is less mature (Swift, Java, Kotlin, C/C++/C#, ObjC, Ruby, PHP, Scala), if a `code_callhierarchy` result is empty for a symbol you can independently verify exists, fall back to `code_references` — it uses text-based search and finds the call sites regardless of graph-extractor coverage. The `code_callhierarchy.external_outgoing_count` / `external_incoming_count` fields surface how many external (non-project) entries were suppressed; pass `include_external=true` to inline them.
+6. `code_impact` — transitive upstream callers up to N hops; run before modifying a shared symbol to size the full blast radius across the codebase before the first edit. The `path=` heuristic mode only parses imports in Python/JS/TS/Go/Rust; for other languages it returns `unsupported_language: true`. Use `symbol=` (graph mode) for impact analysis on Swift/Java/Kotlin/C/C++/C#/etc.
 7. `code_keyword` — exact token or string matches
 8. `code_outline` — before a broad `code_read` on a large file
 9. `code_callgraph` — call tree beyond 1 hop (depth > 1) when broader call structure is needed

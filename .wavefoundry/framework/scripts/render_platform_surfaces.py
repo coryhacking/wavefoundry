@@ -977,12 +977,34 @@ def render_bin_launchers(repo_root: Path) -> None:
         + 'cd "$REPO_ROOT"\n'
         'exec "$PYTHON" ".wavefoundry/framework/scripts/upgrade_wavefoundry.py" "$@"\n'
     )
+    mcp_server_src = (
+        "#!/usr/bin/env bash\n"
+        "# Canonical MCP server launcher — .wavefoundry/bin/mcp-server\n"
+        "# Resolves repo root from this script's location and starts the Wavefoundry MCP server.\n"
+        "set -euo pipefail\n"
+        'REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"\n'
+        + _venv_block
+        + 'cd "$REPO_ROOT"\n'
+        'exec "$PYTHON" ".wavefoundry/framework/scripts/server.py" --root . "$@"\n'
+    )
+    wave_gate_src = (
+        "#!/usr/bin/env bash\n"
+        "# Canonical wave-gate launcher — .wavefoundry/bin/wave-gate\n"
+        "# Resolves repo root from this script's location and delegates to wave_gate.py.\n"
+        "set -euo pipefail\n"
+        'REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"\n'
+        + _venv_block
+        + 'cd "$REPO_ROOT"\n'
+        'exec "$PYTHON" ".wavefoundry/framework/scripts/wave_gate.py" "$@"\n'
+    )
     write_text(bin_dir / "docs-lint", docs_lint_src, executable=True)
     write_text(bin_dir / "docs-gardener", docs_gardener_src, executable=True)
     write_text(bin_dir / "wave-dashboard", wave_dashboard_src, executable=True)
     write_text(bin_dir / "update-indexes", update_indexes_src, executable=True)
     write_text(bin_dir / "setup-wavefoundry", setup_wavefoundry_src, executable=True)
     write_text(bin_dir / "upgrade-wavefoundry", upgrade_wavefoundry_src, executable=True)
+    write_text(bin_dir / "mcp-server", mcp_server_src, executable=True)
+    write_text(bin_dir / "wave-gate", wave_gate_src, executable=True)
     for stale in ["upgrade-wavefoundry.bat", "wave_dashboard", "register-codex-mcp"]:
         stale_path = bin_dir / stale
         if stale_path.exists():
