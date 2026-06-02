@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "20"  # bumped for wave 1p2q3 (1p2tz post-ship 1.3.10): TS/JS direct-function-call resolution through aliased imports. 1.3.9 (v19) shipped barrel re-export following for METHOD calls but missed direct FUNCTION calls — the EXTRACTED-fallback path didn't consult import_targets, so every aliased free-function call (`httpRequest()` after `import { httpRequest } from '@scope/lib'`) landed as `external::httpRequest` regardless of barrel walking. v20 promotes those to RECEIVER_RESOLVED targeting the walked-through definition file. Also bundler-mode .js→.ts extension swap for barrel re-exports written as `export { x } from './foo.js'`. Community-label selector deprioritizes barrel files (index.{ts,tsx,js,jsx}) so Leiden labels stop regressing to "src/index N". Affects TS/JS only — other languages unchanged. Previous bump (1.3.9 v18→v19) covered method-call barrel walking + leading-@ specifier preservation
+GRAPH_BUILDER_VERSION = "21"  # bumped for wave 1p2q3 (1p2tz post-ship-2 1.3.11): TS/JS arrow-function-bound `const` registration. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (Teton-confirmed: ALL backend functions on their 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per Teton estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
 GRAPH_DIRNAME = "graph"
 GRAPH_FILENAMES = {
     "project": "project-graph.json",
@@ -4385,6 +4385,45 @@ def _ts_pick_symbol_name(candidates: list[str], mode: str, node_type: str) -> st
     return candidates[0]
 
 
+def _ts_extract_arrow_const_bindings(node, source_bytes: bytes) -> list[tuple[str, "Any"]]:
+    """Extract function names from `const X = (...) => {...}` / `const X = function() {...}` shapes.
+
+    Wave 1p2q3 (1p2tz post-ship per Teton field validation): modern TS code
+    extensively uses `export const myFunc = async (args) => { ... }` instead
+    of `export function myFunc(args) { ... }`. Tree-sitter parses these as
+    ``lexical_declaration → variable_declarator → arrow_function`` rather than
+    ``function_declaration``, so the standard name-from-descendants extractor
+    finds no identifier at the lexical_declaration level and the symbol never
+    registers. This helper walks the lexical_declaration's variable_declarator
+    children, returns one (name, declarator_node) per function-bound declarator.
+
+    Returns empty list when ``node`` isn't a lexical_declaration / variable_statement
+    or when no child binds a function-shaped expression.
+    """
+    if node is None:
+        return []
+    node_type = str(getattr(node, "type", "") or "")
+    if node_type not in ("lexical_declaration", "variable_statement", "variable_declaration"):
+        return []
+    bindings: list[tuple[str, "Any"]] = []
+    for child in (getattr(node, "named_children", []) or []):
+        if str(getattr(child, "type", "") or "") != "variable_declarator":
+            continue
+        # Identify the bound name and whether the value is function-shaped.
+        decl_children = list(getattr(child, "children", []) or [])
+        name = ""
+        is_fn_value = False
+        for dc in decl_children:
+            dctype = str(getattr(dc, "type", "") or "")
+            if dctype == "identifier" and not name:
+                name = source_bytes[dc.start_byte:dc.end_byte].decode("utf-8", errors="replace").strip()
+            elif dctype in ("arrow_function", "function_expression", "function"):
+                is_fn_value = True
+        if name and is_fn_value:
+            bindings.append((name, child))
+    return bindings
+
+
 def _ts_extract_imported_names(import_node, source_bytes: bytes) -> list[str]:
     """Return the locally-bound names introduced by a TS/JS import statement.
 
@@ -5376,6 +5415,31 @@ class GraphIndexSession:
                         for name in imported_names:
                             import_targets[name] = resolved
                 import_aliases.update(_ts_import_aliases(node, source_bytes, mode))
+            # Wave 1p2q3 (1p2tz post-ship per Teton field validation): TS/JS
+            # arrow-function / function-expression bound to a `const` is the
+            # dominant function shape in modern code (`export const foo = () =>
+            # { ... }`). Tree-sitter parses these as `lexical_declaration →
+            # variable_declarator → arrow_function` rather than
+            # `function_declaration`, so the default name-from-descendants
+            # extractor finds no name at the lexical_declaration level and the
+            # symbol never registers. Special-case: detect arrow-const bindings,
+            # register each as a function symbol, then recurse into the arrow
+            # function body with the const's name pushed onto the scope.
+            if lang_key in ("typescript", "javascript"):
+                arrow_bindings = _ts_extract_arrow_const_bindings(node, source_bytes)
+                if arrow_bindings:
+                    for binding_name, declarator_node in arrow_bindings:
+                        qname = ".".join([*scope_names, binding_name]) if scope_names else binding_name
+                        parent_symbol = scope_symbols[-1] if scope_symbols else module_id
+                        node_id = register_symbol(qname, "function", declarator_node, parent_symbol)
+                        next_scope_names = [*scope_names, binding_name]
+                        next_scope_kinds = [*scope_kinds, "function"]
+                        next_scope_symbols = [*scope_symbols, node_id]
+                        # Recurse into the declarator's children so nested
+                        # definitions inside the arrow body register too.
+                        for child in (getattr(declarator_node, "named_children", []) or []):
+                            walk_definitions(child, next_scope_names, next_scope_kinds, next_scope_symbols)
+                    return
             if is_definition:
                 candidates = _ts_name_candidates(node, source_bytes, mode)
                 name = _ts_pick_symbol_name(candidates, mode, node_type)
@@ -5487,6 +5551,20 @@ class GraphIndexSession:
                     else:
                         for name in imported_names:
                             import_targets[name] = resolved
+            # Wave 1p2q3 (1p2tz post-ship): same arrow-const scope tracking in
+            # walk_calls so calls inside arrow-function-bound consts get
+            # attributed to the const's name, not the file.
+            if lang_key in ("typescript", "javascript"):
+                arrow_bindings = _ts_extract_arrow_const_bindings(node, source_bytes)
+                if arrow_bindings:
+                    for binding_name, declarator_node in arrow_bindings:
+                        next_scope_names = [*scope_names, binding_name]
+                        next_scope_kinds = [*scope_kinds, "function"]
+                        next_scope_symbols = [*scope_symbols, f"{rel_path}::{'.'.join(next_scope_names)}"]
+                        next_scope_signatures = [*scope_signatures, ""]
+                        for child in (getattr(declarator_node, "named_children", []) or []):
+                            walk_calls(child, next_scope_names, next_scope_kinds, next_scope_symbols, next_scope_signatures)
+                    return
             if is_definition:
                 candidates = _ts_name_candidates(node, source_bytes, mode)
                 name = _ts_pick_symbol_name(candidates, mode, node_type)

@@ -6,6 +6,21 @@ This file is at the project-level path (`.wavefoundry/CHANGELOG.md`) rather than
 
 ---
 
+## 1.3.11 — 2026-06-02
+
+> **Operator-action note: graph builder version bumped 20 → 21.** First MCP query against the graph layer after upgrade will trigger a one-time synchronous rebuild (~10–30s on typical projects; ~70–90s on 12k-node monorepos). The 131e2 safety net handles this automatically.
+>
+> Affects **TypeScript and JavaScript only**, and the impact is large on modern codebases. Repos that define functions as `export const foo = async (args) => { ... }` (arrow-const, the dominant shape in TS Lambda / Nx / React layouts) should see `attribution_counts_by_language["typescript"]["receiver_resolved"]` rise materially — Teton's field validation estimates 6% → 30–60% on the canonical Nx + Lambda shape because arrow-const previously didn't register as a graph node at all. Repos using `function foo()` declarations exclusively should see no change. Repos in other stacks rebuild but their attribution numbers shouldn't shift.
+
+Same-day post-ship correction on 1.3.10. Teton confirmed v19 → v20 worked end-to-end — TS receiver-resolved share jumped 4.3% → 6.0% with +641 RECEIVER_RESOLVED edges as an exact migration. But three smoke-test symbols still returned `graph_symbol_not_found` with a sharp diagnostic: every backend function in their codebase is `export const X = async (...) => { ... }` (zero hits on `^function ` or `^export function `). The arrow-const shape parses as `lexical_declaration → variable_declarator → arrow_function` in tree-sitter, and our extractor never descended through `variable_declarator` to find the identifier — so the symbol never registered as a graph node.
+
+### Changes
+
+- Bump `GRAPH_BUILDER_VERSION` 20 → 21. See the operator-action note above
+- Register arrow-function-bound and function-expression-bound `const` declarations as function symbols. Detects `lexical_declaration` / `variable_statement` nodes whose child `variable_declarator` binds an `arrow_function` or `function_expression`, registers each as kind `function` (not `variable`), and walks scope through the arrow body so calls FROM inside arrow-const-bound functions attribute to the const name rather than the file. Covers both registration (`walk_definitions`) and edge-source attribution (`walk_calls`). This is the load-bearing change for the dominant function shape in modern TS — particularly Lambda + Nx layouts where free-function arrow-const is virtually the only pattern. End-to-end verified on the barrel + aliased-import + arrow-const stack: `caller → libs/utils/src/lib/http-request.ts::httpRequester` lands `RECEIVER_RESOLVED` regardless of whether either side uses `function` or arrow-const
+
+---
+
 ## 1.3.10 — 2026-06-02
 
 > **Operator-action note: graph builder version bumped 19 → 20.** First MCP query against the graph layer after upgrade will trigger a one-time synchronous rebuild (~10–30s on typical projects; ~70s on 12k-node monorepos). The 131e2 safety net handles this automatically.

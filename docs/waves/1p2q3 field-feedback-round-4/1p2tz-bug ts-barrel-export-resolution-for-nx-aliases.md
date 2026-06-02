@@ -234,3 +234,29 @@ Fix shipped together with two related corrections:
 `GRAPH_BUILDER_VERSION` bumped 19 → 20 with the language-coverage callout per the release-note convention. Affects TypeScript and JavaScript only; other languages unchanged.
 
 Test coverage: 6 new tests across `test_graph_indexer.py` and `test_graph_cluster.py`. Verified end-to-end on synthetic fixtures mirroring Teton's tsconfig.paths layout.
+
+## Post-ship correction 3 (1.3.11): arrow-const function registration
+
+Teton field validation on 1.3.10 confirmed the v19→v20 fix worked — TS receiver-resolved share rose 4.3% → 6.0% with +641 RECEIVER_RESOLVED edges as an exact migration from EXTRACTED. But three smoke-test symbols (`getRootApplicationForInstallation`, `setupCognitoUser`, `findOrCreateUserPool`) still returned `graph_symbol_not_found`. Diagnostic from Teton:
+
+> `code_keyword` for `^export function ` and `^function ` (anchored) across all `libs/backend/**/*.ts` returned zero hits. There are no function declarations in the backend code — it's 100% `export const X = () => {}` arrow-const.
+
+Tree-sitter parses arrow-const as `lexical_declaration → variable_declarator → arrow_function`, NOT as `function_declaration`. Our extractor's name-from-descendants extractor looked at direct children of `lexical_declaration` for an identifier, found none (the identifier is nested one level deeper inside `variable_declarator`), and the symbol never registered.
+
+This is the dominant function shape in modern TS — particularly in Lambda + Nx layouts where every backend function is `export const ... = async (...) => { ... }`. Teton's estimate: TS resolved-share should rise from 6% range into 30–60% with this fix. The barrel + direct-call + arrow-const stack now closes end-to-end:
+
+- Caller: `export const caller = async (): Promise<number> => { return await httpRequester('x'); }`
+- Import: `import { httpRequester } from '@aceiss/utils'` (alias + barrel walk shipped in v19/v20)
+- Target: `export const httpRequester = async (url: string): Promise<number> => { return 1; }`
+- Edge produced: `apps/.../caller → libs/utils/src/lib/http-request.ts::httpRequester` with `RECEIVER_RESOLVED` confidence
+
+Fix shipped in `_ts_extract_arrow_const_bindings` helper + walker integration:
+
+- Detects `lexical_declaration` / `variable_statement` / `variable_declaration` nodes whose child `variable_declarator` binds an `arrow_function` or `function_expression`
+- Registers each binding as a function symbol (kind `function`, not `variable`)
+- Walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file
+- Covers both `walk_definitions` (registration) and `walk_calls` (scope tracking for edge sources)
+
+`GRAPH_BUILDER_VERSION` bumped 20 → 21 with the language-coverage callout. Affects TypeScript and JavaScript only — the canonical form occurs in both languages.
+
+Test coverage: 3 new tests — arrow-const node registration, function-expression form, and call-attribution through the arrow body.

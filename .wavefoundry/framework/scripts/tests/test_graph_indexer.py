@@ -2550,11 +2550,13 @@ class JavaReceiverTypeAttributionTests(unittest.TestCase):
     # (method calls) + leading-@ specifier preservation.
     # 1p2q3 (1p2tz post-ship) bumped 19→20 to invalidate caches for the direct-function-call
     # import_targets promotion + bundler-mode .js→.ts extension swap.
+    # 1p2q3 (1p2tz post-ship-2) bumped 20→21 to invalidate caches for arrow-const node registration
+    # (`export const foo = () => {}` dominates modern TS; was never being emitted as a graph node).
     def test_graph_builder_version_is_at_or_above_latest_bump(self):
         runtime = int(self.mod.GRAPH_BUILDER_VERSION)
-        self.assertGreaterEqual(runtime, 20,
-                                "GRAPH_BUILDER_VERSION must be ≥ 20 (wave 1p2q3 extractor-shape changes — "
-                                "direct-function-call import_targets promotion + bundler-mode .js→.ts swap). "
+        self.assertGreaterEqual(runtime, 21,
+                                "GRAPH_BUILDER_VERSION must be ≥ 21 (wave 1p2q3 extractor-shape changes — "
+                                "arrow-const function registration). "
                                 "Bump in the same change as any future extractor-output shape modification.")
 
 
@@ -3428,6 +3430,73 @@ class TsBarrelReExportResolutionTests(unittest.TestCase):
         # Negative: NO edge should target the barrel directly for this call.
         for e in definition_edges:
             self.assertNotEqual(e.get("target"), "libs/utils/src/index.ts::HttpRequest.send")
+
+    def test_arrow_const_registers_as_function_node(self):
+        """Wave 1p2q3 (1p2tz post-ship-2 per Teton field validation): modern
+        TS code uses `export const foo = async (args) => { ... }` as the
+        dominant function shape. The Teton smoke test confirmed all three
+        target symbols (getRootApplicationForInstallation, setupCognitoUser,
+        findOrCreateUserPool) are arrow-const and zero were registered as
+        graph nodes on 1.3.10. This test guards the fix end-to-end.
+        """
+        files = {
+            "libs/backend/events.ts": (
+                "export const getRootApplicationForInstallation = async (i: any) => { return null; };\n"
+                "export const setupCognitoUser = async (i: any) => { return null; };\n"
+                "export const findOrCreateUserPool = async () => { return null; };\n"
+            ),
+        }
+        payload = self._build(files)
+        node_ids = {n.get("id") for n in payload.get("nodes", [])}
+        for name in (
+            "getRootApplicationForInstallation",
+            "setupCognitoUser",
+            "findOrCreateUserPool",
+        ):
+            expected = f"libs/backend/events.ts::{name}"
+            self.assertIn(
+                expected, node_ids,
+                f"arrow-const symbol {name!r} must register as a graph node",
+            )
+            # Verify it's registered as kind=function, not kind=variable.
+            for n in payload.get("nodes", []):
+                if n.get("id") == expected:
+                    self.assertEqual(n.get("kind"), "function")
+                    break
+
+    def test_arrow_const_function_expression_also_registers(self):
+        """Cover the second canonical form: `const X = function() { ... }`."""
+        files = {
+            "libs/utils/helpers.ts": (
+                "export const computeTotal = function(items: number[]): number {\n"
+                "  return items.reduce((a, b) => a + b, 0);\n"
+                "};\n"
+            ),
+        }
+        payload = self._build(files)
+        node_ids = {n.get("id") for n in payload.get("nodes", [])}
+        self.assertIn("libs/utils/helpers.ts::computeTotal", node_ids)
+
+    def test_arrow_const_call_inside_attributes_to_const_name(self):
+        """Calls FROM inside an arrow-const-bound function should attribute to
+        the const name (not the file), so the caller side of the edge is the
+        expected symbol when reviewers run code_callhierarchy."""
+        files = {
+            "libs/svc/index.ts": (
+                "export const helperFunc = (): number => { return 1; };\n"
+                "export const callerFunc = (): number => { return helperFunc(); };\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = [e for e in payload.get("edges", []) if e.get("relation") == "calls"]
+        caller_edges = [
+            e for e in calls
+            if e.get("source") == "libs/svc/index.ts::callerFunc"
+        ]
+        self.assertTrue(
+            caller_edges,
+            f"expected `calls` edge sourced at libs/svc/index.ts::callerFunc; got: {calls}",
+        )
 
     def test_direct_function_call_through_barrel_resolves_to_definition(self):
         """Wave 1p2q3 (1p2tz post-ship): direct function-call dispatch through
