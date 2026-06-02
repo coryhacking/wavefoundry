@@ -1021,14 +1021,27 @@ function FilesDialog({ title, files, emptyMessage, onClose }) {
   );
 }
 
+// Wave 1p2q3 (131es): palette designed so every node kind is unambiguously
+// distinct. Field feedback flagged two problems: (1) `variable` falling back
+// to "external" grey and reading as `doc` charcoal, and (2) `doc` and
+// `external` reading as "two greys" even at different lightness. Fixes:
+//   - `seed` collapses into the `doc` bucket (seeds are markdown prompts —
+//     semantically documents). Routed in `_graphKindBucket`, no separate entry.
+//   - `external` lifted to a cool light blue-grey, distinct hue family from
+//     `doc` charcoal so they no longer read as a grey pair.
+//   - New `variable` slot uses vivid red — far from every other hue.
+//   - `community`/`package`/`namespace` shifted off prior near-collision
+//     zones (teal vs cyan-teal, purple vs deep purple).
 const GRAPH_KIND_COLORS = {
-  module: "#1976d2",
-  class: "#6f42c1",
-  function: "#53ac04",
-  doc: "#495057",
-  seed: "#c25800",
-  community: "#0f766e",
-  external: "#7a7f87",
+  module: "#1976d2",     // blue
+  class: "#6f42c1",      // purple
+  function: "#53ac04",   // green
+  doc: "#495057",        // charcoal — also the bucket for `seed` (see _graphKindBucket)
+  community: "#16a085",  // emerald (shifted from teal so it parts from `package`)
+  external: "#90a4ae",   // light blue-grey (shifted from neutral grey so it parts from `doc`)
+  package: "#00acc1",    // bright cyan (shifted from teal so it parts from `community`)
+  namespace: "#c2185b",  // magenta (shifted from deep purple so it parts from `class`)
+  variable: "#d32f2f",   // vivid red — distinct from `doc` charcoal and every other hue
 };
 
 const GRAPH_COMMUNITY_PALETTE = [
@@ -1088,6 +1101,10 @@ function _hexToRgba(hex, alpha) {
 }
 
 function _graphKindBucket(kind) {
+  // Wave 1p2q3 (131es): `seed` is visually collapsed into the `doc` bucket —
+  // seeds are markdown prompt files, semantically documents. Operators don't
+  // need a separate hue to distinguish them.
+  if (kind === "seed") return "doc";
   return GRAPH_KIND_COLORS[kind] ? kind : "external";
 }
 
@@ -3179,11 +3196,29 @@ function GraphPanel({ snapshot }) {
   const _suppressPopstateRef = useRef(false);
   const graphVersion = snapshot?.health?.graph?.[layer]?.graph_version || snapshot?.health?.graph?.[layer]?.graph_mtime || 0;
 
+  // Wave 1p2q3 (131es AC-17/18): avoid the full-page flicker on graph refresh.
+  // The prior implementation flipped `loading=true` on every reload (showing the
+  // "Loading graph…" banner) and reset selectedNodeId. On dashboards polling at
+  // sub-second cadence that produced a perceptible flash even when the snapshot
+  // was unchanged. The refresh path now:
+  //   1) only shows the loading state on the initial load (graph still null);
+  //   2) computes a cheap signature of the incoming payload and skips `setGraph`
+  //      when identical (AC-18: no-op on empty delta);
+  //   3) preserves selectedNodeId across reloads when the node is still present.
+  const _initialLoadDoneRef = useRef(false);
+  const _graphSigRef = useRef("");
+  function _graphSignature(g) {
+    if (!g || !g.present) return "absent";
+    const nodes = g.nodes || [];
+    const edges = g.edges || [];
+    return `${nodes.length}:${edges.length}:${g.builder_version || ""}:${g.counts?.nodes || 0}:${g.counts?.edges || 0}`;
+  }
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
     async function loadGraph() {
-      setLoading(true);
+      const isInitial = !_initialLoadDoneRef.current;
+      if (isInitial) setLoading(true);
       setError("");
       try {
         const response = await fetch(`/api/graph?layer=${encodeURIComponent(layer)}`, { cache: "no-store", signal: controller.signal });
@@ -3191,17 +3226,30 @@ function GraphPanel({ snapshot }) {
           throw new Error(`Graph request failed with ${response.status}`);
         }
         const data = await response.json();
-        if (!cancelled) {
-          setGraph(data);
-          setSelectedNodeId("");
+        if (cancelled) return;
+        const newSig = _graphSignature(data);
+        const prevSig = _graphSigRef.current;
+        _initialLoadDoneRef.current = true;
+        if (newSig === prevSig) {
+          // AC-18: identical snapshot — skip the state update so React performs
+          // no reconciliation work and no DOM mutation occurs.
+          return;
+        }
+        _graphSigRef.current = newSig;
+        setGraph(data);
+        // Preserve selection across refresh when the previously-selected node
+        // still exists in the new payload.
+        if (selectedNodeId) {
+          const stillExists = (data?.nodes || []).some(n => n.id === selectedNodeId);
+          if (!stillExists) setSelectedNodeId("");
         }
       } catch (err) {
         if (!cancelled && err.name !== "AbortError") {
           setError(err.message || String(err));
-          setGraph(null);
+          if (!_initialLoadDoneRef.current) setGraph(null);
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && isInitial) setLoading(false);
       }
     }
     loadGraph();

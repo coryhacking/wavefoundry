@@ -6,6 +6,37 @@ This file is at the project-level path (`.wavefoundry/CHANGELOG.md`) rather than
 
 ---
 
+## 1.3.6 — 2026-06-02
+
+Continuation of wave 1p2q3 — completes the Nx TypeScript graph-extraction work, adds the per-language attribution diagnostic, redesigns the dashboard node-kind palette, and applies the dashboard flicker fix. Pairs with 1.3.5; field validation can run against either build.
+
+### Changes
+
+- Honor `tsconfig.json` / `tsconfig.base.json` `paths` aliases in TypeScript/JavaScript import resolution so Nx-style `@scope/lib` imports bind to the real project node id instead of dropping to `external::*`. Walks file directory upward to find the nearest tsconfig with `paths`; caches per-tsconfig; JSONC-aware parser preserves `//` inside string literals so URL strings and path patterns survive
+- Add `attribution_counts_by_language` field to `code_callhierarchy`, `code_impact`, `code_definition`, and `wave_graph_report` responses. Shape: `{language: {receiver_resolved, construction_resolved, extracted}}` computed from the edges surfaced in the response. Operators can spot per-language coverage gaps at a glance (e.g. `{typescript: {receiver_resolved: 0, extracted: 3892}}` flags a resolver that isn't engaging)
+- Rewrite the empty-graph-result fallback rule in `seed-211`, `code-reviewer.md`, `security-reviewer.md`, `architecture-reviewer.md` from a static less-mature-language list to a response-shape condition: if `code_callhierarchy` / `code_impact` returns empty AND `code_references` returns hits, treat the empty graph result as a coverage gap regardless of language
+- Redesign dashboard node-kind palette for pairwise-distinct hues across all 10 kinds: add `variable` (vivid red), collapse `seed` into the `doc` bucket (seeds are markdown prompts — semantically documents), shift `external` from neutral grey to light blue-grey so it no longer reads as a pair with `doc` charcoal, shift `community` to emerald and `package` to bright cyan so they part visually, shift `namespace` to magenta so it parts from `class`
+- Eliminate the dashboard graph-refresh flicker: gate the "Loading graph…" banner on initial load only, short-circuit `setGraph` when the incoming snapshot signature matches the prior, preserve operator selection across refreshes when the selected node still exists
+
+---
+
+## 1.3.5 — 2026-06-02
+
+Round-4 field-feedback patch covering Aceiss's spurious-path report on `code_graph_path`, Teton's TypeScript/Nx-monorepo coverage gaps, an MCP cache-invalidation gap on graph rebuilds, and consumer-project pollution from framework-scripts indexing.
+
+### Changes
+
+- Rewrite `code_graph_path` shortest-path search as a weighted Dijkstra: `calls`/`RECEIVER_RESOLVED`=1, `calls`/`EXTRACTED`=2, structural=100. Treat `external::*` nodes as non-transitive intermediates — they remain valid endpoints but cannot bridge two real symbols, eliminating the spurious 2-hop paths that masked direct call chains. Add `min_confidence` parameter and `path_is_structural` diagnostic
+- Mirror `code_callhierarchy`'s `suggestions` array in `code_definition`'s not-found response so operators get near-symbol candidates via the same shape across both tools
+- Extend generated-code classifier to recognize `*.gen.{ts,tsx,js,jsx}`, `*.generated.{ts,tsx,js,jsx}`, `__generated__/`, and `.generated/` JS/TS conventions (e.g., TanStack Router, GraphQL Code Generator)
+- Add `heuristic_import_no_matches` diagnostic on `code_impact(path=...)` for TS when path-mode resolves to no graph matches, distinguishing "no callers" from "import-resolver gap"
+- Rewrite seed-211 fallback rule from a static language list to a response-shape condition so new languages benefit without seed edits
+- Exclude the entire `.wavefoundry/` folder from graph indexing in downstream consumer projects so wavefoundry's own framework scripts no longer pollute consumer-project graphs (escape-hatched via `project_include_prefixes.code` for this self-hosting repo)
+- Dispatch `notifications/resources/updated` for `wavefoundry://graph/*` URIs after auto-rebuild and after explicit `wave_index_build(content='graph')` so spec-conformant MCP clients invalidate cached graph-resource reads without operator action
+- Add distinct dashboard node-kind colors for `package` and `namespace` so directory-aggregated package nodes are no longer indistinguishable from `external::*` greys
+
+---
+
 ## 1.3.4 — 2026-06-01
 
 Lifecycle-ID and build-suffix encoding rewrite. The prior scheme appended `BASE36[elapsed_minutes % 36]` as the 5th char of the lifecycle prefix and took the rightmost 4 chars as the build suffix — both wrapped every 36 minutes, causing lex order to disagree with wall-clock order. Three same-day 1.3.2 builds shipped within 27 minutes demonstrated the failure (`upgrade_wavefoundry` lex-selected the oldest one).

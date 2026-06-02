@@ -508,6 +508,9 @@ _GENERATED_DIR_SEGMENTS = (
     "generated",
     "Service References",
     "Connected Services",
+    # Wave 1p2q3 (1p2q9 Workstream C): JS/TS conventional generated-output directories.
+    "__generated__",
+    ".generated",
 )
 
 # Filename suffix matches (case-insensitive).
@@ -515,6 +518,19 @@ _GENERATED_FILENAME_SUFFIXES = (
     ".designer.cs",
     ".g.cs",
     ".g.i.cs",
+    # Wave 1p2q3 (1p2q9 Workstream C): JS/TS naming conventions for codegen output.
+    # Covers TanStack Router (routeTree.gen.ts), GraphQL codegen (*.graphql.ts when
+    # paired with .gen suffix), Apollo, OpenAPI generators, Prisma client output.
+    # Operators with hand-written files matching the suffix can opt out via the
+    # standard exclude_generated=false filter.
+    ".gen.ts",
+    ".gen.tsx",
+    ".gen.js",
+    ".gen.jsx",
+    ".generated.ts",
+    ".generated.tsx",
+    ".generated.js",
+    ".generated.jsx",
 )
 
 
@@ -665,6 +681,7 @@ def _edge(
     *,
     confidence: str,
     evidence: str | None = None,
+    self_edge_kind: str | None = None,
 ) -> dict[str, Any]:
     payload = {
         "source": source,
@@ -674,6 +691,10 @@ def _edge(
     }
     if evidence:
         payload["evidence"] = evidence
+    # Wave 1p2q3 (1p2td): tag self-edges on overloaded methods so consumers can
+    # distinguish recursion from overload-forwarding.
+    if self_edge_kind:
+        payload["self_edge_kind"] = self_edge_kind
     return payload
 
 
@@ -1023,6 +1044,224 @@ def _ts_language_key_for_path(rel_path: str) -> str | None:
         return "ruby"
     suffix = path.suffix.lower()
     return _TS_EXTENSION_TO_LANGUAGE.get(suffix)
+
+
+# Wave 1p2q3 (1p2q9 A): TypeScript `tsconfig.json` path-alias resolution.
+# Nx and other monorepos configure cross-package import aliases via the
+# `compilerOptions.paths` field. The graph indexer previously dropped those
+# imports to `external::*` because the resolver treated specifiers literally;
+# Aceiss / Teton field validation surfaced this as near-zero per-function
+# `calls` coverage on TypeScript monorepos. This block discovers the nearest
+# tsconfig with `paths`, applies the alias substitution, and probes the
+# resolved candidate against project files so the import edge binds to the
+# real project node id instead of `external::@scope/...`.
+
+_TS_PATH_RESOLVE_EXTS: tuple[str, ...] = (".ts", ".tsx", ".d.ts", ".js", ".jsx", ".mjs", ".cjs")
+_TS_PATH_RESOLVE_INDEX_FILES: tuple[str, ...] = ("index.ts", "index.tsx", "index.js", "index.jsx", "index.mjs", "index.cjs")
+
+# tsconfig path → (tsconfig_dir, paths_map, base_url_dir) or None when no `paths` configured.
+_TSCONFIG_PATHS_CACHE: dict[str, tuple[Path, dict[str, list[str]], Path] | None] = {}
+# (root_str, file_dir_str) → discovered tsconfig path string, or None when no tsconfig with paths exists above this dir.
+_TSCONFIG_DISCOVERY_CACHE: dict[tuple[str, str], str | None] = {}
+
+
+def _strip_jsonc_comments(text: str) -> str:
+    """Strip JSONC comments and trailing commas so json.loads can parse.
+
+    Handles /* */ block and // line comments. Both strips track string-literal
+    state so `/*` or `//` appearing inside `"..."` (e.g. tsconfig path patterns
+    like `"@aceiss/*"`, URLs like `"https://..."`) are preserved verbatim.
+    """
+    out: list[str] = []
+    in_str = False
+    escape = False
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if escape:
+            out.append(ch)
+            escape = False
+            i += 1
+            continue
+        if in_str:
+            if ch == "\\":
+                out.append(ch)
+                escape = True
+                i += 1
+                continue
+            if ch == '"':
+                in_str = False
+            out.append(ch)
+            i += 1
+            continue
+        if ch == '"':
+            in_str = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "/":
+            # Line comment — skip to newline (preserve the newline).
+            j = text.find("\n", i)
+            if j == -1:
+                break
+            i = j
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "*":
+            # Block comment — skip to closing */.
+            j = text.find("*/", i + 2)
+            if j == -1:
+                break
+            i = j + 2
+            continue
+        out.append(ch)
+        i += 1
+    result = "".join(out)
+    result = re.sub(r",(\s*[}\]])", r"\1", result)
+    return result
+
+
+def _load_tsconfig_paths(tsconfig_path: Path) -> tuple[Path, dict[str, list[str]], Path] | None:
+    """Read tsconfig.json, return (tsconfig_dir, paths_map, base_url_dir) or None."""
+    key = str(tsconfig_path)
+    if key in _TSCONFIG_PATHS_CACHE:
+        return _TSCONFIG_PATHS_CACHE[key]
+    try:
+        raw = tsconfig_path.read_text(encoding="utf-8")
+    except OSError:
+        _TSCONFIG_PATHS_CACHE[key] = None
+        return None
+    try:
+        data = json.loads(_strip_jsonc_comments(raw))
+    except (ValueError, TypeError):
+        _TSCONFIG_PATHS_CACHE[key] = None
+        return None
+    if not isinstance(data, dict):
+        _TSCONFIG_PATHS_CACHE[key] = None
+        return None
+    compiler = data.get("compilerOptions")
+    if not isinstance(compiler, dict):
+        _TSCONFIG_PATHS_CACHE[key] = None
+        return None
+    paths = compiler.get("paths")
+    if not isinstance(paths, dict) or not paths:
+        _TSCONFIG_PATHS_CACHE[key] = None
+        return None
+    paths_clean: dict[str, list[str]] = {}
+    for pattern, replacements in paths.items():
+        if not isinstance(pattern, str) or not isinstance(replacements, list):
+            continue
+        clean_repls = [r for r in replacements if isinstance(r, str) and r]
+        if clean_repls:
+            paths_clean[pattern] = clean_repls
+    if not paths_clean:
+        _TSCONFIG_PATHS_CACHE[key] = None
+        return None
+    tsconfig_dir = tsconfig_path.parent
+    base_url_raw = compiler.get("baseUrl") if isinstance(compiler.get("baseUrl"), str) else "."
+    base_url_dir = (tsconfig_dir / base_url_raw).resolve()
+    result = (tsconfig_dir, paths_clean, base_url_dir)
+    _TSCONFIG_PATHS_CACHE[key] = result
+    return result
+
+
+def _discover_tsconfig_for_file(file_path: Path, root: Path) -> str | None:
+    """Walk upward from file_path to root, return the path of the nearest
+    tsconfig (preferring `tsconfig.base.json` for Nx) that has `paths`
+    configured. Caches per (root, file_dir)."""
+    try:
+        file_dir = file_path.parent.resolve() if file_path.is_file() else file_path.resolve()
+        root_resolved = root.resolve()
+    except OSError:
+        return None
+    cache_key = (str(root_resolved), str(file_dir))
+    if cache_key in _TSCONFIG_DISCOVERY_CACHE:
+        return _TSCONFIG_DISCOVERY_CACHE[cache_key]
+    current = file_dir
+    while True:
+        for name in ("tsconfig.base.json", "tsconfig.json"):
+            candidate = current / name
+            if candidate.is_file() and _load_tsconfig_paths(candidate) is not None:
+                _TSCONFIG_DISCOVERY_CACHE[cache_key] = str(candidate)
+                return str(candidate)
+        if current == root_resolved:
+            break
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    _TSCONFIG_DISCOVERY_CACHE[cache_key] = None
+    return None
+
+
+def _ts_path_alias_match(specifier: str, pattern: str) -> str | None:
+    """Match an import specifier against a tsconfig paths pattern.
+
+    Returns the wildcard substitution portion (or "" for exact matches), or
+    None when the pattern doesn't match. Patterns may contain at most one `*`.
+    """
+    if "*" in pattern:
+        head, _, tail = pattern.partition("*")
+        if specifier.startswith(head) and (not tail or specifier.endswith(tail)):
+            return specifier[len(head): len(specifier) - len(tail) if tail else None]
+        return None
+    return "" if specifier == pattern else None
+
+
+def _probe_ts_alias_target(candidate: Path, root: Path) -> str | None:
+    """Probe a candidate path with TS resolution rules; return rel_path or None."""
+    try:
+        candidate_resolved = candidate.resolve()
+        root_resolved = root.resolve()
+    except OSError:
+        return None
+    paths_to_try: list[Path] = []
+    if candidate_resolved.suffix:
+        paths_to_try.append(candidate_resolved)
+    else:
+        for ext in _TS_PATH_RESOLVE_EXTS:
+            paths_to_try.append(candidate_resolved.with_suffix(ext))
+    if candidate_resolved.is_dir():
+        for idx in _TS_PATH_RESOLVE_INDEX_FILES:
+            paths_to_try.append(candidate_resolved / idx)
+    for probe in paths_to_try:
+        if not probe.is_file():
+            continue
+        try:
+            rel = probe.relative_to(root_resolved)
+        except ValueError:
+            continue
+        return rel.as_posix()
+    return None
+
+
+def _resolve_ts_import_via_tsconfig(specifier: str, rel_path: str, root: Path) -> str | None:
+    """Resolve `specifier` through nearest tsconfig `paths` aliases; return
+    the project rel_path or None when no alias matches or the candidate is
+    missing on disk."""
+    if not specifier:
+        return None
+    if specifier.startswith(".") or specifier.startswith("/"):
+        return None
+    file_path = root / rel_path
+    tsconfig_path_str = _discover_tsconfig_for_file(file_path, root)
+    if tsconfig_path_str is None:
+        return None
+    loaded = _load_tsconfig_paths(Path(tsconfig_path_str))
+    if loaded is None:
+        return None
+    _tsconfig_dir, paths_map, base_url_dir = loaded
+    for pattern, replacements in paths_map.items():
+        middle = _ts_path_alias_match(specifier, pattern)
+        if middle is None:
+            continue
+        for repl in replacements:
+            substituted = repl.replace("*", middle) if "*" in repl else repl
+            candidate = base_url_dir / substituted
+            resolved = _probe_ts_alias_target(candidate, root)
+            if resolved is not None:
+                return resolved
+    return None
 
 
 def _ts_get_language(lang_key: str):
@@ -3253,8 +3492,22 @@ def _resolve_ts_receiver_type(call_node, source_bytes: bytes) -> str | None:
     return None
 
 
-def _resolve_ts_call_target(call_node, source_bytes: bytes, symbol_lookup: dict[str, str]) -> str | None:
-    """Resolve a TS/JS call_expression to a graph node id when receiver type is known."""
+def _resolve_ts_call_target(
+    call_node,
+    source_bytes: bytes,
+    symbol_lookup: dict[str, str],
+    import_targets: dict[str, str] | None = None,
+) -> str | None:
+    """Resolve a TS/JS call_expression to a graph node id when receiver type is known.
+
+    Wave 1p2q3 (1p2tf): when the receiver type was imported (e.g.
+    `import { Foo } from '@aceiss/lib'` resolved to a project file via
+    tsconfig.paths), `import_targets[receiver_type]` carries the resolved
+    project node id. The resolver constructs the cross-file node id directly
+    instead of falling through to `external::*`, so receiver-resolved edges
+    land on aliased cross-package types without depending on the per-project
+    unambiguous-simple-name cross-file rewrite.
+    """
     if call_node is None or getattr(call_node, "type", "") != "call_expression":
         return None
     try:
@@ -3282,6 +3535,11 @@ def _resolve_ts_call_target(call_node, source_bytes: bytes, symbol_lookup: dict[
     qualified = f"{receiver_type}.{method_name}"
     if qualified in symbol_lookup:
         return symbol_lookup[qualified]
+    # Wave 1p2q3 (1p2tf): aliased-import receiver-type resolution.
+    if import_targets:
+        target = import_targets.get(receiver_type)
+        if target and not target.startswith("external::"):
+            return f"{target}::{receiver_type}.{method_name}"
     return f"external::{receiver_type}.{method_name}"
 
 
@@ -3449,6 +3707,239 @@ def _resolve_php_call_target(call_node, source_bytes: bytes, symbol_lookup: dict
             return symbol_lookup[qualified]
         return f"external::{scope_text}.{method_name}"
     return None
+
+
+# Wave 1p2q3 (1p2td): per-overload parameter-signature extraction so the per-file
+# qname-merge that collapses overloads into one node can still be unwound at the
+# edge layer. A self-edge on a merged node ambiguously denotes either recursion
+# or overload-forwarding; comparing the call-site signature against the enclosing
+# overload's signature and the merged node's overload-signature set distinguishes
+# them. Swift uses argument labels (native syntax); Java/Kotlin/C#/Scala/C++ use
+# arity plus optional named-arg labels.
+
+_OVERLOAD_LANGUAGES: frozenset[str] = frozenset({"swift", "java", "kotlin", "csharp", "scala", "cpp"})
+
+
+def _swift_param_signature(def_node, source_bytes: bytes) -> str | None:
+    """Return Swift parameter-label fingerprint like ``base:offset:customTime:``.
+
+    Tree-sitter Swift exposes parameters as repeated `parameter` siblings
+    directly under the `function_declaration` node (no wrapping node).
+    Each `parameter` has children: an optional external label identifier,
+    then the internal name identifier, then `:`, then the type.
+    """
+    if def_node is None:
+        return None
+    labels: list[str] = []
+    for child in (getattr(def_node, "children", []) or []):
+        if getattr(child, "type", "") == "parameter":
+            labels.append(_swift_extract_param_label(child, source_bytes))
+    if not labels:
+        return "()"
+    return "".join(f"{lbl}:" for lbl in labels)
+
+
+def _swift_extract_param_label(param_node, source_bytes: bytes) -> str:
+    """Extract a single Swift parameter's external label (or internal name)."""
+    # Tree-sitter Swift exposes parameter children in order:
+    #   external_label? (or simple_identifier) simple_identifier ':' type
+    # When the first identifier is present and the second is too, the first
+    # is the external label. When only one identifier, that IS the label.
+    idents: list[str] = []
+    for child in (getattr(param_node, "children", []) or []):
+        ctype = getattr(child, "type", "") or ""
+        if ctype in ("simple_identifier", "identifier", "external_label"):
+            text = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
+            idents.append(text)
+    if not idents:
+        return "_"
+    if len(idents) >= 2:
+        return idents[0] or "_"
+    return idents[0] or "_"
+
+
+def _arity_param_signature(def_node, source_bytes: bytes, lang_key: str) -> str | None:
+    """Return ``arity:N`` for Java/Kotlin/C#/Scala/C++ definitions.
+
+    Counts the parameter nodes inside the language-specific parameter list.
+    Languages with named arguments at call sites still use this as the
+    definition-side signature (named args at call sites are matched against
+    arity + label-set during call-signature derivation).
+    """
+    if def_node is None:
+        return None
+    param_list_types = {
+        "java": ("formal_parameters",),
+        "kotlin": ("function_value_parameters", "class_parameters"),
+        "csharp": ("parameter_list",),
+        "scala": ("parameters", "class_parameters"),
+        "cpp": ("parameter_list",),
+    }.get(lang_key, ())
+    param_child_types = {
+        "java": ("formal_parameter", "spread_parameter"),
+        "kotlin": ("parameter", "class_parameter"),
+        "csharp": ("parameter",),
+        "scala": ("parameter", "class_parameter"),
+        "cpp": ("parameter_declaration",),
+    }.get(lang_key, ())
+    for child in (getattr(def_node, "children", []) or []):
+        ctype = getattr(child, "type", "") or ""
+        if ctype in param_list_types:
+            count = 0
+            for grandchild in (getattr(child, "children", []) or []):
+                gtype = getattr(grandchild, "type", "") or ""
+                if gtype in param_child_types:
+                    count += 1
+            return f"arity:{count}"
+    return None
+
+
+def _extract_definition_signature(def_node, source_bytes: bytes, lang_key: str) -> str | None:
+    """Return a per-overload parameter signature for a definition.
+
+    Returns None for languages without overloading or when extraction fails.
+    """
+    if lang_key not in _OVERLOAD_LANGUAGES:
+        return None
+    if lang_key == "swift":
+        return _swift_param_signature(def_node, source_bytes)
+    return _arity_param_signature(def_node, source_bytes, lang_key)
+
+
+def _swift_call_signature(call_node, source_bytes: bytes) -> str | None:
+    """Return Swift call-site argument-label fingerprint.
+
+    Tree-sitter Swift wraps argument labels in a `value_argument_label` node:
+
+        value_argument
+          value_argument_label   ← present iff arg has a label
+            simple_identifier
+          :
+          <expression>
+
+    Unlabeled (positional) args have no `value_argument_label` child.
+    """
+    if call_node is None:
+        return None
+    value_args = None
+    for child in (getattr(call_node, "children", []) or []):
+        ctype = getattr(child, "type", "") or ""
+        if ctype == "call_suffix":
+            for sc in (getattr(child, "children", []) or []):
+                if getattr(sc, "type", "") == "value_arguments":
+                    value_args = sc
+                    break
+            if value_args is None:
+                value_args = child
+            break
+        if ctype == "value_arguments":
+            value_args = child
+            break
+    if value_args is None:
+        return "()"
+    labels: list[str] = []
+    any_arg = False
+    for child in (getattr(value_args, "children", []) or []):
+        ctype = getattr(child, "type", "") or ""
+        if ctype != "value_argument":
+            continue
+        any_arg = True
+        label = "_"
+        for ac in (getattr(child, "children", []) or []):
+            if getattr(ac, "type", "") == "value_argument_label":
+                for label_child in (getattr(ac, "children", []) or []):
+                    if getattr(label_child, "type", "") in ("simple_identifier", "identifier"):
+                        label = source_bytes[label_child.start_byte:label_child.end_byte].decode("utf-8", errors="replace") or "_"
+                        break
+                break
+        labels.append(label)
+    if not any_arg:
+        return "()"
+    return "".join(f"{lbl}:" for lbl in labels)
+
+
+def _arity_call_signature(call_node, source_bytes: bytes, lang_key: str) -> str | None:
+    """Return ``arity:N`` for Java/Kotlin/C#/Scala/C++ call sites."""
+    if call_node is None:
+        return None
+    arg_list_types = {
+        "java": ("argument_list",),
+        "kotlin": ("value_arguments", "call_suffix"),
+        "csharp": ("argument_list",),
+        "scala": ("arguments",),
+        "cpp": ("argument_list",),
+    }.get(lang_key, ())
+    arg_child_types = {
+        "java": ("expression", "method_invocation", "field_access", "identifier",
+                 "decimal_integer_literal", "string_literal", "binary_expression",
+                 "null_literal", "true", "false", "lambda_expression", "this",
+                 "object_creation_expression", "array_access", "cast_expression",
+                 "unary_expression", "ternary_expression", "parenthesized_expression"),
+        "kotlin": ("value_argument",),
+        "csharp": ("argument",),
+        "scala": ("identifier", "integer_literal", "string_literal", "boolean_literal",
+                  "call_expression", "field_expression", "infix_expression"),
+        "cpp": ("argument", "call_expression", "identifier", "number_literal",
+                "string_literal", "binary_expression", "parenthesized_expression",
+                "field_expression"),
+    }.get(lang_key, ())
+    for child in (getattr(call_node, "children", []) or []):
+        ctype = getattr(child, "type", "") or ""
+        if ctype in arg_list_types:
+            # Count the args. For Kotlin/C# we have a wrapper node (value_argument
+            # / argument); for Java/Scala/C++ we count any non-trivial child that
+            # isn't a comma or paren.
+            if lang_key in ("kotlin", "csharp"):
+                count = sum(
+                    1 for gc in (getattr(child, "children", []) or [])
+                    if getattr(gc, "type", "") in arg_child_types
+                )
+            else:
+                # Count all non-punctuation children as args.
+                count = sum(
+                    1 for gc in (getattr(child, "children", []) or [])
+                    if getattr(gc, "type", "") not in ("(", ")", ",", "{", "}")
+                    and getattr(gc, "is_named", True)
+                )
+            return f"arity:{count}"
+    return None
+
+
+def _extract_call_signature(call_node, source_bytes: bytes, lang_key: str) -> str | None:
+    """Return a call-site signature derivable from the AST."""
+    if lang_key not in _OVERLOAD_LANGUAGES:
+        return None
+    if lang_key == "swift":
+        return _swift_call_signature(call_node, source_bytes)
+    return _arity_call_signature(call_node, source_bytes, lang_key)
+
+
+def _classify_self_edge(
+    call_signature: str | None,
+    enclosing_signature: str | None,
+    overload_signatures: set[str],
+) -> str:
+    """Classify a self-edge as recursion / overload_forwarding / unknown.
+
+    - call_signature == enclosing_signature → recursion
+    - call_signature in (overload_signatures - {enclosing_signature}) → overload_forwarding
+    - otherwise → unknown
+    """
+    if not call_signature or not enclosing_signature:
+        return "unknown"
+    if call_signature == enclosing_signature:
+        return "recursion"
+    other_sigs = overload_signatures - {enclosing_signature}
+    if call_signature in other_sigs:
+        return "overload_forwarding"
+    # No overloads registered, or call_signature doesn't match any known overload
+    # (same-arity-different-types disambiguation needs type inference).
+    if not other_sigs and call_signature != enclosing_signature:
+        # Single overload only — anything that doesn't match it is unknown
+        # (could be a different-arity call that we mis-counted, or a same-arity
+        # different-types case we can't disambiguate without type-checking).
+        return "unknown"
+    return "unknown"
 
 
 def _resolve_swift_call_target(call_node, source_bytes: bytes, symbol_lookup: dict[str, str]) -> str | None:
@@ -3690,6 +4181,59 @@ def _ts_pick_symbol_name(candidates: list[str], mode: str, node_type: str) -> st
         if simple and simple not in _STOP_TERMS:
             return candidate
     return candidates[0]
+
+
+def _ts_extract_imported_names(import_node, source_bytes: bytes) -> list[str]:
+    """Return the locally-bound names introduced by a TS/JS import statement.
+
+    Wave 1p2q3 (1p2tf): supports the four shapes consumers care about for
+    receiver-type resolution:
+      - named:      `import { Foo, Bar } from '@aceiss/lib'` → ['Foo', 'Bar']
+      - named alias: `import { Foo as F } from '@aceiss/lib'` → ['F']
+      - default:    `import Default from '@aceiss/lib'` → ['Default']
+      - namespace:  `import * as Util from '@aceiss/lib'` → ['Util']
+      - type-only:  `import type { Foo } from '@aceiss/lib'` → ['Foo']
+                    (the `type` keyword sits between `import` and `import_clause`)
+    Returns an empty list when no imported names are surfaced (side-effect
+    imports like `import './polyfill';`).
+    """
+    if import_node is None:
+        return []
+    names: list[str] = []
+    for child in (getattr(import_node, "children", []) or []):
+        if getattr(child, "type", "") != "import_clause":
+            continue
+        for clause_child in (getattr(child, "children", []) or []):
+            ctype = getattr(clause_child, "type", "") or ""
+            if ctype == "identifier":
+                # Default import: import_clause contains a direct identifier.
+                names.append(
+                    source_bytes[clause_child.start_byte:clause_child.end_byte].decode("utf-8", errors="replace")
+                )
+            elif ctype == "named_imports":
+                for spec in (getattr(clause_child, "children", []) or []):
+                    if getattr(spec, "type", "") != "import_specifier":
+                        continue
+                    # When `as` alias is present, the SECOND identifier child is
+                    # the local name; otherwise the single identifier IS the
+                    # local name. Walk children left-to-right and grab the last
+                    # identifier before any non-identifier separator.
+                    spec_idents: list[str] = []
+                    for sc in (getattr(spec, "children", []) or []):
+                        if getattr(sc, "type", "") == "identifier":
+                            spec_idents.append(
+                                source_bytes[sc.start_byte:sc.end_byte].decode("utf-8", errors="replace")
+                            )
+                    if spec_idents:
+                        names.append(spec_idents[-1])
+            elif ctype == "namespace_import":
+                for sc in (getattr(clause_child, "children", []) or []):
+                    if getattr(sc, "type", "") == "identifier":
+                        names.append(
+                            source_bytes[sc.start_byte:sc.end_byte].decode("utf-8", errors="replace")
+                        )
+                        break
+    return [n for n in names if n]
 
 
 def _ts_import_aliases(node, source_bytes: bytes, mode: str) -> dict[str, str]:
@@ -4370,11 +4914,36 @@ class GraphIndexSession:
             if node_id not in node_map:
                 node_map[node_id] = _node(node_id, label, kind, rel_path, source_location, layer=self.layer)
 
-        def add_edge(source: str, target: str, relation: str, *, confidence: str, evidence: str | None = None) -> None:
+        def add_edge(
+            source: str,
+            target: str,
+            relation: str,
+            *,
+            confidence: str,
+            evidence: str | None = None,
+            self_edge_kind: str | None = None,
+        ) -> None:
             key = (source, target, relation, confidence)
             if key in edge_map:
                 return
-            edge_map[key] = _edge(source, target, relation, confidence=confidence, evidence=evidence)
+            edge_map[key] = _edge(
+                source,
+                target,
+                relation,
+                confidence=confidence,
+                evidence=evidence,
+                self_edge_kind=self_edge_kind,
+            )
+
+        # Wave 1p2q3 (1p2td): per-overload signature accumulator. Maps qualified
+        # node id to the set of parameter signatures observed across all
+        # overload definitions sharing that node id (after the per-file merge).
+        overload_signatures: dict[str, set[str]] = {}
+        # Wave 1p2q3 (1p2tf): per-file imported-name → resolved-target map.
+        # Populated during import-edge emission; consulted by the TS/JS
+        # receiver-type resolver so aliased cross-package types bind to the
+        # resolved project node.
+        import_targets: dict[str, str] = {}
 
         # Wave 13129 (1316l + 13190): class/module merge — when a file
         # `Foo.<ext>` contains a top-level type declaration named `Foo`
@@ -4573,9 +5142,29 @@ class GraphIndexSession:
             is_definition = bool(_ts_markup_name_candidates(node, source_bytes)) if mode == "markup" else _ts_is_definition_node(node_type, mode)
             if is_import:
                 source_symbol = scope_symbols[-1] if scope_symbols else module_id
+                # Wave 1p2q3 (1p2tf): extract imported names BEFORE resolving so
+                # we can register each name → resolved-target binding for the
+                # receiver-type resolver later.
+                imported_names: list[str] = []
+                if lang_key in ("typescript", "javascript"):
+                    imported_names = _ts_extract_imported_names(node, source_bytes)
                 for target in _ts_relation_candidates(node, source_bytes, "import", mode):
-                    resolved = _ts_resolve_target(target, {}, import_aliases)
+                    resolved: str | None = None
+                    if lang_key in ("typescript", "javascript"):
+                        # Wave 1p2q3 (1p2q9 A): honor tsconfig `paths` aliases
+                        # before falling through to external::*. Nx-style
+                        # `@scope/lib` imports bind to real project nodes when
+                        # an alias resolves on disk.
+                        resolved = _resolve_ts_import_via_tsconfig(target, rel_path, self.root)
+                    if resolved is None:
+                        resolved = _ts_resolve_target(target, {}, import_aliases)
                     add_edge(source_symbol, resolved, "imports", confidence="EXTRACTED")
+                    # Wave 1p2q3 (1p2tf): bind each imported name to the
+                    # resolved target so the receiver-type resolver can
+                    # promote `external::Foo.bar` to a project node when
+                    # `Foo` was imported from a tsconfig.paths-aliased lib.
+                    for name in imported_names:
+                        import_targets[name] = resolved
                 import_aliases.update(_ts_import_aliases(node, source_bytes, mode))
             if is_definition:
                 candidates = _ts_name_candidates(node, source_bytes, mode)
@@ -4585,6 +5174,12 @@ class GraphIndexSession:
                     qname = ".".join([*scope_names, name]) if scope_names else name
                     parent_symbol = scope_symbols[-1] if scope_symbols else module_id
                     node_id = register_symbol(qname, kind, node, parent_symbol)
+                    # Wave 1p2q3 (1p2td): capture this overload's signature for
+                    # the merged node. Languages without overloading return None
+                    # from the extractor and the entry is skipped.
+                    sig = _extract_definition_signature(node, source_bytes, lang_key)
+                    if sig:
+                        overload_signatures.setdefault(node_id, set()).add(sig)
                     should_push = _ts_is_scope_node(node_type, kind, mode)
                     if mode == "markup":
                         return
@@ -4642,16 +5237,39 @@ class GraphIndexSession:
             if kind_val:
                 symbol_lookup_kinds[name] = str(kind_val)
 
-        def walk_calls(node, scope_names: list[str], scope_kinds: list[str], scope_symbols: list[str]) -> None:
+        def walk_calls(
+            node,
+            scope_names: list[str],
+            scope_kinds: list[str],
+            scope_symbols: list[str],
+            scope_signatures: list[str] | None = None,
+        ) -> None:
+            # Wave 1p2q3 (1p2td): scope_signatures runs parallel to scope_symbols
+            # so a call edge knows which overload it originated from. Pushed at
+            # definition entry; consulted at self-edge classification.
+            if scope_signatures is None:
+                scope_signatures = []
             node_type = str(getattr(node, "type", "") or "")
             current_scope_kind = scope_kinds[-1] if scope_kinds else None
             is_import = _ts_markup_import_nodes(node, source_bytes) if mode == "markup" else _ts_is_import_node(node_type, mode)
             is_definition = bool(_ts_markup_name_candidates(node, source_bytes)) if mode == "markup" else _ts_is_definition_node(node_type, mode)
             if is_import:
                 source_symbol = scope_symbols[-1] if scope_symbols else module_id
+                imported_names: list[str] = []
+                if lang_key in ("typescript", "javascript"):
+                    imported_names = _ts_extract_imported_names(node, source_bytes)
                 for target in _ts_relation_candidates(node, source_bytes, "import", mode):
-                    resolved = _ts_resolve_target(target, symbol_lookup, import_aliases)
+                    resolved: str | None = None
+                    if lang_key in ("typescript", "javascript"):
+                        # Wave 1p2q3 (1p2q9 A): tsconfig path-alias resolution.
+                        resolved = _resolve_ts_import_via_tsconfig(target, rel_path, self.root)
+                    if resolved is None:
+                        resolved = _ts_resolve_target(target, symbol_lookup, import_aliases)
                     add_edge(source_symbol, resolved, "imports", confidence="EXTRACTED")
+                    # Wave 1p2q3 (1p2tf): register imported-name → target so the
+                    # receiver-type resolver can use it on calls below.
+                    for name in imported_names:
+                        import_targets[name] = resolved
             if is_definition:
                 candidates = _ts_name_candidates(node, source_bytes, mode)
                 name = _ts_pick_symbol_name(candidates, mode, node_type)
@@ -4664,12 +5282,16 @@ class GraphIndexSession:
                         next_scope_names = [*scope_names, name]
                         next_scope_kinds = [*scope_kinds, kind]
                         next_scope_symbols = [*scope_symbols, f"{rel_path}::{'.'.join([*scope_names, name])}"]
+                        # Wave 1p2q3 (1p2td): push this overload's signature.
+                        def_sig = _extract_definition_signature(node, source_bytes, lang_key) or ""
+                        next_scope_signatures = [*scope_signatures, def_sig]
                     else:
                         next_scope_names = scope_names
                         next_scope_kinds = scope_kinds
                         next_scope_symbols = scope_symbols
+                        next_scope_signatures = scope_signatures
                     for child in getattr(node, "named_children", []):
-                        walk_calls(child, next_scope_names, next_scope_kinds, next_scope_symbols)
+                        walk_calls(child, next_scope_names, next_scope_kinds, next_scope_symbols, next_scope_signatures)
                     return
             if mode == "markup" and (is_import or is_definition):
                 return
@@ -4691,7 +5313,7 @@ class GraphIndexSession:
                 if construction_target is not None:
                     add_edge(source_symbol, construction_target, "calls", confidence="CONSTRUCTION_RESOLVED")
                     for child in getattr(node, "named_children", []):
-                        walk_calls(child, scope_names, scope_kinds, scope_symbols)
+                        walk_calls(child, scope_names, scope_kinds, scope_symbols, scope_signatures)
                     return
 
                 # Wave 13129 (1312l + 13194): per-language receiver-type
@@ -4733,9 +5355,11 @@ class GraphIndexSession:
                         node, source_bytes, symbol_lookup
                     )
                 # Wave 131bt (1319q): TypeScript / JavaScript via type annotations.
+                # Wave 1p2q3 (1p2tf): pass import_targets so receiver types
+                # imported via tsconfig.paths bind to project nodes.
                 elif lang_key in ("typescript", "javascript") and node_type == "call_expression":
                     java_resolved_target = _resolve_ts_call_target(
-                        node, source_bytes, symbol_lookup
+                        node, source_bytes, symbol_lookup, import_targets
                     )
                 # Wave 131bt (1319q): PHP via native type hints + property types.
                 elif lang_key == "php" and node_type in ("member_call_expression", "scoped_call_expression"):
@@ -4749,15 +5373,57 @@ class GraphIndexSession:
                     # correct target (project or external-qualified) and
                     # the simple-name fallback would mis-rewrite an
                     # external-qualified edge back to a project node.
-                    add_edge(source_symbol, java_resolved_target, "calls", confidence="RECEIVER_RESOLVED")
+                    # Wave 1p2q3 (1p2td): classify self-edges on overloadable
+                    # languages so consumers can distinguish recursion from
+                    # overload-forwarding.
+                    self_kind: str | None = None
+                    if (
+                        lang_key in _OVERLOAD_LANGUAGES
+                        and source_symbol == java_resolved_target
+                    ):
+                        call_sig = _extract_call_signature(node, source_bytes, lang_key)
+                        enclosing_sig = scope_signatures[-1] if scope_signatures else None
+                        sigs_for_node = overload_signatures.get(source_symbol, set())
+                        self_kind = _classify_self_edge(call_sig, enclosing_sig, sigs_for_node)
+                    add_edge(
+                        source_symbol,
+                        java_resolved_target,
+                        "calls",
+                        confidence="RECEIVER_RESOLVED",
+                        self_edge_kind=self_kind,
+                    )
                 else:
                     for target in _ts_relation_candidates(node, source_bytes, "call", mode, profile):
                         resolved = _ts_resolve_target(target, symbol_lookup, import_aliases)
-                        add_edge(source_symbol, resolved, "calls", confidence="EXTRACTED")
+                        # Wave 1p2q3 (1p2td): same self-edge classification on
+                        # the EXTRACTED path for overloadable languages.
+                        self_kind = None
+                        if (
+                            lang_key in _OVERLOAD_LANGUAGES
+                            and source_symbol == resolved
+                        ):
+                            call_sig = _extract_call_signature(node, source_bytes, lang_key)
+                            enclosing_sig = scope_signatures[-1] if scope_signatures else None
+                            sigs_for_node = overload_signatures.get(source_symbol, set())
+                            self_kind = _classify_self_edge(call_sig, enclosing_sig, sigs_for_node)
+                        add_edge(
+                            source_symbol,
+                            resolved,
+                            "calls",
+                            confidence="EXTRACTED",
+                            self_edge_kind=self_kind,
+                        )
             for child in getattr(node, "named_children", []):
-                walk_calls(child, scope_names, scope_kinds, scope_symbols)
+                walk_calls(child, scope_names, scope_kinds, scope_symbols, scope_signatures)
 
-        walk_calls(tree.root_node, [], [], [])
+        walk_calls(tree.root_node, [], [], [], [])
+
+        # Wave 1p2q3 (1p2td): surface per-overload param_signatures on the
+        # merged node so consumers can inspect the full overload set directly
+        # without re-parsing the source.
+        for nid, sigs in overload_signatures.items():
+            if nid in node_map and len(sigs) > 0:
+                node_map[nid]["param_signatures"] = sorted(sigs)
 
         return {
             "kind": "code",
@@ -5555,6 +6221,14 @@ def update_graph_index(
             f"{counts.get('nodes', 0)} nodes, {counts.get('edges', 0)} edges",
             flush=True,
         )
+    # Wave 1p2q3 (1p2tf): Nx project-structure detection — diagnostic only this
+    # round. Presence at repo root surfaces in the payload so consumers can
+    # report a per-build hint when investigating low TS receiver-resolved rates.
+    try:
+        if (root / "nx.json").is_file():
+            payload["nx_project_detected"] = True
+    except OSError:
+        pass
     return payload
 
 

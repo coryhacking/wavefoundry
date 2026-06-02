@@ -1,10 +1,10 @@
 # [Change Title]
 
-Change ID: `<id-prefix>-<kind> <slug>` (create with the MCP `wave_new_*` tool for this kind; CLI fallback: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>`)
+Change ID: `<id-prefix>-<kind> <slug>` — **mint via the MCP `wave_new_*` tool** (e.g. `wave_new_bug`, `wave_new_enhancement`, `wave_new_change`). The MCP path borrows from future buckets when the natural prefix collides with existing IDs, so concurrent minting stays unique. Avoid the CLI for new IDs unless the MCP server is unavailable; if you must, use `.wavefoundry/bin/lifecycle-id --kind <kind> --slug <slug>` (venv-aware launcher) rather than invoking `python3` against `lifecycle_id.py` directly. The launcher is named `lifecycle-id` because the same prefix system is used for wave IDs and change IDs.
 Change Status: `planned`
 Owner: [role or person]
 Status: planned
-Last verified: 2026-05-23
+Last verified: 2026-06-02
 Wave: [wave-id or TBD]
 
 ## Rationale

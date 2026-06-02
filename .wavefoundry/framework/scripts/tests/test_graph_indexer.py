@@ -2851,6 +2851,376 @@ class TsConfigPathAliasResolutionTests(unittest.TestCase):
         self.assertEqual(len(self.mod._TSCONFIG_DISCOVERY_CACHE), 2)
 
 
+class OverloadSelfEdgeClassificationTests(unittest.TestCase):
+    """Wave 1p2q3 (1p2td): self-edge classification for overloaded methods.
+
+    A self-edge on a per-file qname-merged overload node is tagged as either
+    `recursion` (call signature matches enclosing overload), `overload_forwarding`
+    (call signature matches a different overload registered on the same node),
+    or `unknown` (signatures missing or ambiguous).
+    """
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files):
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _self_edges(self, payload):
+        return [
+            e for e in payload.get("edges", [])
+            if e.get("relation") == "calls" and e.get("source") == e.get("target")
+        ]
+
+    # AC-2/3: Swift label-fingerprint case (javaagent reproducer).
+    def test_swift_overload_forwarding_classified_as_overload_forwarding(self):
+        try:
+            import tree_sitter_swift  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_swift not available")
+        # 3-param convenience overload forwards to 4-param implementation.
+        files = {
+            "Controller.swift": (
+                "class Controller {\n"
+                "  func calc(base: Int, offset: Int, custom: Int) -> Int {\n"
+                "    return calc(base: base, offset: offset, custom: custom, roll: true)\n"
+                "  }\n"
+                "  func calc(base: Int, offset: Int, custom: Int, roll: Bool) -> Int {\n"
+                "    return base + offset + custom\n"
+                "  }\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        self_edges = self._self_edges(payload)
+        # The 3-param overload's forwarding call is a self-edge after merge.
+        forwarding = [e for e in self_edges if e.get("self_edge_kind") == "overload_forwarding"]
+        self.assertTrue(
+            forwarding,
+            f"expected an overload_forwarding self-edge; got self-edges: {self_edges}",
+        )
+
+    def test_swift_recursion_classified_as_recursion(self):
+        try:
+            import tree_sitter_swift  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_swift not available")
+        # Same-signature recursive call.
+        files = {
+            "Rec.swift": (
+                "class Rec {\n"
+                "  func loop(n: Int) -> Int {\n"
+                "    if n <= 0 { return 0 }\n"
+                "    return loop(n: n - 1) + 1\n"
+                "  }\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        self_edges = self._self_edges(payload)
+        recursion = [e for e in self_edges if e.get("self_edge_kind") == "recursion"]
+        self.assertTrue(
+            recursion,
+            f"expected a recursion self-edge; got self-edges: {self_edges}",
+        )
+
+    # AC-4/5: Java arity-fingerprint cases.
+    def test_java_overload_forwarding_classified_as_overload_forwarding(self):
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available")
+        files = {
+            "src/Calc.java": (
+                "class Calc {\n"
+                "    int calc(int a, int b) { return calc(a, b, 0); }\n"
+                "    int calc(int a, int b, int c) { return a + b + c; }\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        self_edges = self._self_edges(payload)
+        forwarding = [e for e in self_edges if e.get("self_edge_kind") == "overload_forwarding"]
+        self.assertTrue(
+            forwarding,
+            f"expected an overload_forwarding self-edge; got self-edges: {self_edges}",
+        )
+
+    def test_java_recursion_classified_as_recursion(self):
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available")
+        files = {
+            "src/Rec.java": (
+                "class Rec {\n"
+                "    int loop(int n) {\n"
+                "        if (n <= 0) return 0;\n"
+                "        return loop(n - 1) + 1;\n"
+                "    }\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        self_edges = self._self_edges(payload)
+        recursion = [e for e in self_edges if e.get("self_edge_kind") == "recursion"]
+        self.assertTrue(
+            recursion,
+            f"expected a recursion self-edge; got self-edges: {self_edges}",
+        )
+
+    # AC-7: non-overloading language → no field added.
+    def test_python_self_edge_carries_no_self_edge_kind(self):
+        # Python isn't in _OVERLOAD_LANGUAGES — self-edge stays bare.
+        files = {
+            "src/rec.py": (
+                "def loop(n):\n"
+                "    if n <= 0:\n"
+                "        return 0\n"
+                "    return loop(n - 1) + 1\n"
+            ),
+        }
+        payload = self._build(files)
+        self_edges = self._self_edges(payload)
+        for e in self_edges:
+            self.assertNotIn(
+                "self_edge_kind", e,
+                f"non-overloading languages must not gain self_edge_kind; got: {e}",
+            )
+
+    # AC-8: param_signatures on the merged node.
+    def test_param_signatures_attached_to_merged_overload_node(self):
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available")
+        files = {
+            "src/Calc.java": (
+                "class Calc {\n"
+                "    int calc(int a) { return 1; }\n"
+                "    int calc(int a, int b) { return 2; }\n"
+                "    int calc(int a, int b, int c) { return 3; }\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        calc_nodes = [n for n in payload.get("nodes", []) if n.get("id", "").endswith("::Calc.calc")]
+        self.assertTrue(calc_nodes, "expected Calc.calc node in payload")
+        sigs = calc_nodes[0].get("param_signatures") or []
+        # Three overloads with arity 1/2/3.
+        self.assertEqual(sorted(sigs), ["arity:1", "arity:2", "arity:3"])
+
+
+class TsImportedNameExtractionTests(unittest.TestCase):
+    """Wave 1p2q3 (1p2tf): _ts_extract_imported_names handles named, default,
+    namespace, type-only, and aliased import shapes."""
+
+    def setUp(self):
+        try:
+            import tree_sitter_typescript  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_typescript not available")
+        self.mod = load_graph_indexer()
+
+    def _parse_imports(self, source: str):
+        import tree_sitter_typescript
+        from tree_sitter import Language, Parser
+        lang = Language(tree_sitter_typescript.language_typescript())
+        parser = Parser(lang)
+        tree = parser.parse(source.encode("utf-8"))
+        nodes = []
+        def walk(n):
+            if n.type == "import_statement":
+                nodes.append(n)
+            for c in n.children:
+                walk(c)
+        walk(tree.root_node)
+        return nodes, source.encode("utf-8")
+
+    def test_named_import_extracts_each_name(self):
+        nodes, src = self._parse_imports("import { Foo, Bar } from '@a/b';")
+        self.assertEqual(self.mod._ts_extract_imported_names(nodes[0], src), ["Foo", "Bar"])
+
+    def test_default_import_extracts_default_name(self):
+        nodes, src = self._parse_imports("import Default from './x';")
+        self.assertEqual(self.mod._ts_extract_imported_names(nodes[0], src), ["Default"])
+
+    def test_namespace_import_extracts_namespace_name(self):
+        nodes, src = self._parse_imports("import * as Util from './u';")
+        self.assertEqual(self.mod._ts_extract_imported_names(nodes[0], src), ["Util"])
+
+    def test_type_only_named_import_extracts_name(self):
+        nodes, src = self._parse_imports("import type { Foo } from '@a/b';")
+        self.assertEqual(self.mod._ts_extract_imported_names(nodes[0], src), ["Foo"])
+
+    def test_aliased_named_import_uses_local_alias(self):
+        nodes, src = self._parse_imports("import { Foo as F } from '@a/b';")
+        self.assertEqual(self.mod._ts_extract_imported_names(nodes[0], src), ["F"])
+
+    def test_combined_default_plus_named_extracts_both(self):
+        nodes, src = self._parse_imports("import Def, { Foo, Bar } from '@a/b';")
+        names = self.mod._ts_extract_imported_names(nodes[0], src)
+        self.assertIn("Def", names)
+        self.assertIn("Foo", names)
+        self.assertIn("Bar", names)
+
+    def test_side_effect_import_returns_empty(self):
+        nodes, src = self._parse_imports("import './polyfill';")
+        self.assertEqual(self.mod._ts_extract_imported_names(nodes[0], src), [])
+
+
+class TsReceiverTypeViaImportsTests(unittest.TestCase):
+    """Wave 1p2q3 (1p2tf): receiver-type resolution via tsconfig.paths-resolved
+    imports. The Nx monorepo case — imported types on aliased specifiers must
+    bind cross-package calls to project nodes with RECEIVER_RESOLVED confidence."""
+
+    def setUp(self):
+        try:
+            import tree_sitter_typescript  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_typescript not available")
+        self.mod = load_graph_indexer()
+        self.mod._TSCONFIG_PATHS_CACHE.clear()
+        self.mod._TSCONFIG_DISCOVERY_CACHE.clear()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+        # Synthetic Nx-shaped layout with tsconfig.base.json.
+        (self.root / "tsconfig.base.json").write_text(
+            '{"compilerOptions": {"baseUrl": ".", "paths": {"@aceiss/*": ["libs/*/src/index.ts"]}}}',
+            encoding="utf-8",
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files):
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _calls(self, payload):
+        return [e for e in payload.get("edges", []) if e.get("relation") == "calls"]
+
+    def test_aliased_import_call_resolves_to_project_with_receiver_resolved(self):
+        files = {
+            "libs/lib/src/index.ts": (
+                "export class Foo {\n"
+                "  bar(): number { return 1; }\n"
+                "}\n"
+            ),
+            "apps/web/src/main.ts": (
+                "import { Foo } from '@aceiss/lib';\n"
+                "export function caller(foo: Foo): number {\n"
+                "  return foo.bar();\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = self._calls(payload)
+        # Expect a RECEIVER_RESOLVED edge from caller → libs/lib/src/index.ts::Foo.bar
+        receiver_edges = [
+            e for e in calls
+            if e.get("confidence") == "RECEIVER_RESOLVED"
+            and e.get("target") == "libs/lib/src/index.ts::Foo.bar"
+        ]
+        self.assertTrue(
+            receiver_edges,
+            f"expected RECEIVER_RESOLVED edge to project Foo.bar; got calls: {calls}",
+        )
+
+    def test_external_import_does_not_get_promoted(self):
+        # `react` doesn't have a paths alias and there's no `react` file on disk;
+        # the receiver type must stay external::*.
+        files = {
+            "apps/web/src/main.ts": (
+                "import React from 'react';\n"
+                "export function caller(r: React): string {\n"
+                "  return r.useState();\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = self._calls(payload)
+        # No edge should target a project node for React.useState.
+        for e in calls:
+            target = str(e.get("target") or "")
+            self.assertFalse(
+                target.endswith("React.useState") and not target.startswith("external::"),
+                f"react should stay external; got: {e}",
+            )
+
+    def test_nx_project_detected_when_nx_json_present(self):
+        (self.root / "nx.json").write_text('{"version": "1.0.0"}', encoding="utf-8")
+        files = {
+            "apps/web/src/main.ts": "export const x = 1;\n",
+        }
+        payload = self._build(files)
+        self.assertTrue(payload.get("nx_project_detected"))
+
+    def test_nx_project_not_detected_without_nx_json(self):
+        files = {
+            "apps/web/src/main.ts": "export const x = 1;\n",
+        }
+        payload = self._build(files)
+        self.assertFalse(payload.get("nx_project_detected", False))
+
+    def test_attribution_counts_receiver_resolved_gt_zero_on_nx_fixture(self):
+        files = {
+            "libs/lib/src/index.ts": (
+                "export class Foo {\n"
+                "  bar(): number { return 1; }\n"
+                "}\n"
+            ),
+            "apps/web/src/main.ts": (
+                "import { Foo } from '@aceiss/lib';\n"
+                "export function caller(foo: Foo): number { return foo.bar(); }\n"
+            ),
+        }
+        payload = self._build(files)
+        # Count receiver-resolved TS edges in the merged payload.
+        receiver_resolved = sum(
+            1 for e in payload.get("edges", [])
+            if e.get("relation") == "calls"
+            and e.get("confidence") == "RECEIVER_RESOLVED"
+            and str(e.get("source") or "").endswith(".ts::caller")
+        )
+        self.assertGreater(
+            receiver_resolved, 0,
+            f"expected at least one RECEIVER_RESOLVED TS edge; got 0",
+        )
+
+
 class GeneratedCodeIntegrationTests(unittest.TestCase):
     """End-to-end: generated tag propagates to node payload, cluster fraction, report filters."""
 

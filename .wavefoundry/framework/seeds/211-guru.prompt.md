@@ -71,7 +71,7 @@ When attaching seed or architecture doc content as stable context (not retrievin
 - Use `code_references` when the symbol is known and the next question is "where is this used?"
 - If the first `code_references` pass is noisy, rerun it with `exclude_tests=true`; keep the broad result set when you need complete evidence, then inspect the excluded counts before deciding something is unused.
 - If you need to distinguish declarations from imports and generic mentions, inspect the returned `detail_buckets` / `detail_counts` alongside the broad `buckets`.
-- Use `code_callhierarchy` when the question is "what calls X?" or "what does X call?" and you want exact call-site line numbers and snippets alongside caller/callee structure. Returns direct callers (incoming) and callees (outgoing) at depth 1 with graph-backed attribution. Prefer over `code_references` for structural caller/callee questions; use `code_references` when you need non-call-site hits (mentions, definitions, imports) or when the graph index is absent. External (non-project) entries are suppressed by default and counted in `external_outgoing_count` / `external_incoming_count`; pass `include_external=true` if you need the full list. **Fallback:** if a project-internal caller/callee question returns an empty list and the project is in a language whose cross-file resolution is less mature (Swift, Java, Kotlin, C/C++/C#, ObjC, Ruby, PHP, Scala — anything besides Python/JS/TS/Go/Rust), fall back to `code_references` for the same symbol — it uses text-based search and finds the call sites with line numbers regardless of graph-extractor coverage. **AOP/advice exception:** if the empty incoming is on a Java method in a class with `@Advice.OnMethodEnter`, `@Advice.OnMethodExit`, `@Around`, `@Before`, `@After`, `@AfterReturning`, or `@AfterThrowing` annotations, do NOT fall back to `code_references` — the callers are wired by the AOP framework (ByteBuddy, AspectJ) at runtime and have no Java call sites. Instead search for the advice registration: `code_keyword(queries=[<advice_class_name>], glob="**/*Instrumentation*.java")` finds the `TypeInstrumentation.transform()` / `@Aspect` pointcut declaration; that registration IS the caller.
+- Use `code_callhierarchy` when the question is "what calls X?" or "what does X call?" and you want exact call-site line numbers and snippets alongside caller/callee structure. Returns direct callers (incoming) and callees (outgoing) at depth 1 with graph-backed attribution. Prefer over `code_references` for structural caller/callee questions; use `code_references` when you need non-call-site hits (mentions, definitions, imports) or when the graph index is absent. External (non-project) entries are suppressed by default and counted in `external_outgoing_count` / `external_incoming_count`; pass `include_external=true` if you need the full list. **Fallback (wave 1p2q3, 1p2q9 — response-shape rule):** if a project-internal caller/callee question returns an empty list AND `code_references(symbol=X, graph=false)` returns hits on the same symbol, treat the empty graph result as a **coverage gap, not authoritative absence**. The graph extractor's per-language coverage varies by codebase shape (e.g. TypeScript monorepos with `tsconfig.paths` aliases, deeply-nested namespaces, dynamic dispatch patterns) — any language can hit a coverage gap on a specific repository, not just the historically less-mature set. Use `code_references` / `code_keyword` results as the ground truth in that case. **AOP/advice exception:** if the empty incoming is on a Java method in a class with `@Advice.OnMethodEnter`, `@Advice.OnMethodExit`, `@Around`, `@Before`, `@After`, `@AfterReturning`, or `@AfterThrowing` annotations, do NOT fall back to `code_references` — the callers are wired by the AOP framework (ByteBuddy, AspectJ) at runtime and have no Java call sites. Instead search for the advice registration: `code_keyword(queries=[<advice_class_name>], glob="**/*Instrumentation*.java")` finds the `TypeInstrumentation.transform()` / `@Aspect` pointcut declaration; that registration IS the caller.
 - Use `code_callgraph` for call-structure traversal beyond one hop (depth > 1), or when raw graph edges with line numbers are more useful than the incoming/outgoing framing. Chain `code_callhierarchy` for targeted depth-1 lookups; use `code_callgraph` for broader trees. Test-path nodes are excluded by default; pass `include_tests=true` when test callers are part of the question (symmetric with `code_impact`).
 - Use `code_impact` when the question is "what would be affected if I change X?" — it returns all upstream callers transitively up to `max_hops`. Run it before modifying a shared symbol to size the blast radius before planning a refactor or API change. Test callers are excluded by default; pass `include_tests=true` to include them. The `path=` heuristic mode only detects imports in Python, JavaScript, TypeScript, Go, and Rust — for any other language it returns `unsupported_language: true` immediately rather than silently scanning to zero. For impact analysis on other languages, use `symbol=` (graph mode) instead.
 - Use `code_graph_community(community_id=…)` to drill into a single community's members. See the **code_graph_community — interpreting community size signals** subsection below for full guidance on `community_size_class`, `large_community_advisory`, and when to follow the advisory vs page through members.
@@ -159,6 +159,18 @@ Drill into a single community's members (sorted by degree desc). Get community i
 - **`EXTRACTED`** — heuristic / text-based fallback attribution. May include phantom edges where simple-name matching attached the call to the wrong same-named target. Lower confidence — corroboration recommended for refactor-safety or security-review work.
 - **Future levels** may include additional values as new resolution paths land. Treat the tag as an extensible enum; default unknown values to "treat as heuristic until documented."
 
+**`self_edge_kind` on overload-merged self-edges (wave 1p2q3 / 1p2td):**
+
+When a method has multiple overloads sharing one qualified name, the graph merges them into a single node per file. A call from one overload to another then renders as a `calls` self-edge (`source == target`). Today every `calls` self-edge where `source == target` on an overloadable language (Swift / Java / Kotlin / C# / Scala / C++) carries a `self_edge_kind` field:
+
+- **`"recursion"`** — the call's signature matches the enclosing overload's signature. Real recursion. Use this for cycle / fixed-point analysis.
+- **`"overload_forwarding"`** — the call's signature matches a *different* overload registered on the same merged node. The convenience-wrapper pattern (`f(a, b)` whose body is `f(a, b, default)`). **Not** recursion; treat as a within-node forwarding hop.
+- **`"unknown"`** — signature data is missing, or same-arity-different-types overload disambiguation (`f(x: Int)` vs `f(x: String)`) couldn't resolve without type-checking. Honest uncertainty; treat as "could be either."
+
+The merged node payload also carries `param_signatures: [<sig>, …]` listing every overload's signature so operators can inspect the full overload set without re-parsing the source. Swift uses argument-label fingerprints (`base:offset:customTime:`); Java / Kotlin / C# / Scala / C++ use arity (`arity:3`).
+
+For reviewer recipes that interpret self-edges as recursion (e.g. cycle warnings in `code_impact`), check `self_edge_kind` before flagging — `"overload_forwarding"` is a normal language pattern, not a cycle.
+
 **Filtering recommendation for high-stakes questions:**
 
 For refactor-safety analysis ("if I change this method's signature, what breaks?") or security review ("who actually constructs this class?"), filter client-side to `RECEIVER_RESOLVED` or `CONSTRUCTION_RESOLVED` edges (both are type-resolved, peer-level confidence):
@@ -187,6 +199,34 @@ The single-tool descriptions above tell you *what* each tool returns. Most agent
 - **"Bug investigation: enumerate every change site for this defect"** — `code_callhierarchy(symbol=<symptom_fn>, direction="incoming")` for direct callers + line numbers → identify the conditional that selects the buggy branch → `code_impact(symbol=<symptom_fn>, max_hops=3)` for transitive entry points → `code_keyword(queries=[<bug_conditional>, <inverse_conditional>, <related_field>], glob="**/*.<lang>", graph=false)` for exhaustive catalog of sites flipping the conditional → judge per site whether the semantic matches the bug or is parallel-but-correct.
 - **"Code enhancement / refactor: who breaks and how cross-cutting is it?"** — `code_callhierarchy(direction="incoming")` for direct callers → `code_impact(max_hops=3)` for transitive callers → **read the `community:` field on each affected node**. All callers in one community → change is contained. Callers span multiple communities → cross-cutting; escalate to architecture-reviewer per seed 214 or run a Wave Council readiness pass.
 - **"New feature analogue: where does this plug in?"** — `wavefoundry://graph/communities` resource read for the analogue's community → `code_graph_community(community_id=...)` for top-degree members (the integration points) → `code_callhierarchy(direction="incoming")` on those API members to find where the analogue plugs in → `code_callhierarchy(direction="outgoing")` to find shared helpers the new feature will need → `wave_graph_report(sections=["fan_in", "chokepoints"])` for shared infrastructure.
+
+### `code_navigation_hints` — project-owner-tunable schema
+
+Several recipes reference `project.code_navigation_hints.guard_tokens` (e.g. the "What edge cases does X handle?" recipe scopes `code_keyword(queries=<guard_tokens>, glob="<file>")` to early-exit patterns). Project owners declare this block in `docs/workflow-config.json` to tune the token set to their local convention. When the block is absent, recipes that reference it fall back to language-default tokens (recipe-internal) — no error, no surprise.
+
+Schema:
+
+```json
+{
+  "code_navigation_hints": {
+    "guard_tokens": [
+      "return",
+      "throw",
+      "raise",
+      "guard",
+      "assert"
+    ]
+  }
+}
+```
+
+Schema fields:
+
+- `guard_tokens` (list[str], optional) — keywords / control-flow tokens that signal early-exit / guard / boundary conditions. Used by `code_keyword` queries scoping edge-case investigation to a specific file. Project owners override the default with project-local conventions: e.g. a Go project might add `panic`, `os.Exit`; a Python project might add `unreachable`, `NotImplementedError`; a TypeScript project might add `never`, `invariant`.
+
+Behavior when omitted: recipes referencing `code_navigation_hints` fall through to recipe-internal language defaults. Adding the block is purely additive — operators with no opinion can leave `docs/workflow-config.json` unchanged.
+
+The schema matches the existing `code_review_triggers` / `architecture_triggers` blocks — same `docs/workflow-config.json` parent, same convention. Extensions can be added at the same level (e.g. `code_navigation_hints.async_boundaries`, `code_navigation_hints.error_types`) when future recipes need finer-grained project-local tuning.
 
 ### Do not
 
@@ -498,6 +538,7 @@ Citation fields in `code_ask` response:
 - `.env` values (variable names indexed, values redacted)
 - Lock files, build outputs, compiled binaries
 - Files matching `.gitignore` / `.aiignore` patterns
+- The entire `.wavefoundry/` directory (wave 1p2q3 1p2qd) — framework infrastructure (`.wavefoundry/framework/`, `.wavefoundry/bin/`, `.wavefoundry/CHANGELOG.md`, `.wavefoundry/dist/`, etc.) does not appear in the consumer project's graph or semantic indexes by default. Operators querying framework code use `layer="framework"` on `code_search` / `docs_search` / graph tools — the framework layer indexes its own seeds and architecture docs. Self-hosting projects (e.g. the wavefoundry repository itself) opt specific framework subpaths back into the project layer via `indexing.project_include_prefixes.code` in `docs/workflow-config.json` (listing the subpaths they actually want, e.g. `.wavefoundry/framework/scripts`)
 
 **Staleness:** The index is rebuilt on `setup_wavefoundry.py` / `setup_index.py` runs and by MCP index-build flows. Check `index_freshness` in the `code_ask` response. When `"stale"`, the index may lag behind recent commits.
 

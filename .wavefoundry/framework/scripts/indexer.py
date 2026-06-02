@@ -304,9 +304,17 @@ HARDCODED_EXCLUDE_PATHS = frozenset({
     ".wavefoundry/dashboard-server.json",
     ".wavefoundry/guard-overrides.json",
 })
+# Wave 1p2q3 (1p2qd): consumer project indexes exclude `.wavefoundry/` blanket.
+# Framework infrastructure (framework/, bin/, dist/, logs/, CHANGELOG.md, etc.)
+# is not consumer product code and shouldn't appear in the consumer's project
+# graph or semantic index by default. The wavefoundry repository's own
+# self-hosting case is preserved via `project_include_prefixes.code` in
+# `docs/workflow-config.json`, which lists the framework subpaths that THIS
+# repo's project layer needs (e.g. `.wavefoundry/framework/scripts`,
+# `.wavefoundry/framework/dashboard`). Matching files bypass this blanket via
+# the existing escape-hatch path in `_filter_project_index_excludes`.
 PROJECT_INDEX_EXCLUDE_PREFIXES = (
-    ".wavefoundry/framework/",
-    ".wavefoundry/logs/",
+    ".wavefoundry/",
 )
 
 BINARY_EXTENSIONS = frozenset({

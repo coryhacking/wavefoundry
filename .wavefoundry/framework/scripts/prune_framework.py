@@ -18,34 +18,24 @@ User-created files under `.wavefoundry/framework/` (regenerated indexes,
 local overrides, etc.) are never listed in any MANIFEST and are never touched.
 
 The old MANIFEST is passed via --old-manifest (a path you saved before unzip).
-If --old-manifest is omitted or the file does not exist (upgrading from a
-pre-MANIFEST pack), the script falls back to a built-in legacy list covering
-all files shipped in packs 2026-04-29a through 2026-05-02d that are no longer
-present in the current pack.
+If --old-manifest is omitted or the file does not exist, prune logs a no-op
+notice and returns without deleting anything. The prior fallback (a built-in
+legacy removal list for packs 2026-04-29a through 2026-05-02d) was removed in
+wave 1p2q3 (1p2ta): the legacy list unconditionally deleted ``scripts/tests/``
+and ``scripts/run_tests.py``, which are git-tracked development files in the
+wavefoundry source repo, never packaged in any modern pack. Self-hosted
+upgrades (where ``build_pack.py`` deletes ``MANIFEST`` immediately after
+writing it into the zip) silently lost regression coverage on every release
+because the missing MANIFEST triggered the legacy fallback. Operators
+upgrading from genuinely pre-MANIFEST packs (now >1 month old) can clean up
+the legacy paths manually if needed.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 from pathlib import Path
-
-# ---------------------------------------------------------------------------
-# Legacy prune list — files/dirs shipped in packs before MANIFEST support
-# (2026-04-29a through 2026-05-02d) that are no longer in the current pack.
-# Paths are relative to the framework root. Entries ending with "/" are
-# treated as directories and removed with shutil.rmtree.
-# ---------------------------------------------------------------------------
-_LEGACY_REMOVALS: list[str] = [
-    "scripts/render_hooks.py",
-    "scripts/build_zip.py",
-    "scripts/docs-lint.py",
-    "scripts/docs-gardener.py",
-    "scripts/docs_lint_lib/",
-    "scripts/run_tests.py",
-    "scripts/tests/",
-]
 
 
 def _read_manifest(path: Path) -> set[str]:
@@ -54,30 +44,6 @@ def _read_manifest(path: Path) -> set[str]:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     }
-
-
-def _prune_legacy(framework_dir: Path, *, dry_run: bool = False) -> list[str]:
-    """Delete known legacy paths from pre-MANIFEST packs."""
-    deleted: list[str] = []
-    for rel in _LEGACY_REMOVALS:
-        target = framework_dir / rel.rstrip("/")
-        if rel.endswith("/"):
-            if target.is_dir():
-                if dry_run:
-                    print(f"[dry-run] would remove dir: {target}")
-                else:
-                    shutil.rmtree(target)
-                    print(f"removed dir: {target}")
-                deleted.append(str(target))
-        else:
-            if target.is_file():
-                if dry_run:
-                    print(f"[dry-run] would delete: {target}")
-                else:
-                    target.unlink()
-                    print(f"deleted: {target}")
-                deleted.append(str(target))
-    return deleted
 
 
 def _prune_meta_json(framework_dir: Path, removed: set[str], *, dry_run: bool = False) -> bool:
@@ -125,66 +91,59 @@ def prune(
     *,
     dry_run: bool = False,
 ) -> list[str]:
-    """Delete pack-removed files.  Returns list of deleted (or would-delete) paths.
+    """Delete pack-removed files. Returns list of deleted (or would-delete) paths.
 
-    If old_manifest_path is None or does not exist, falls back to the built-in
-    legacy removal list covering packs 2026-04-29a through 2026-05-02d.
+    Diff-based: deletes only files that appear in the old MANIFEST but not in
+    the new MANIFEST. When ``old_manifest_path`` is None or missing, logs a
+    no-op notice and returns without deleting anything (see module docstring
+    for the wave 1p2q3 / 1p2ta rationale on removing the legacy fallback).
     """
     new_manifest_path = framework_dir / "MANIFEST"
-    meta_cleanup_targets: set[str] = set()
 
-    # Fall back to legacy list when no old manifest is available.
     if old_manifest_path is None or not old_manifest_path.exists():
-        if not new_manifest_path.exists():
-            print(
-                f"warning: {new_manifest_path} not found — "
-                "pack may pre-date MANIFEST support; skipping prune",
-                file=sys.stderr,
-            )
-            return []
         print(
-            "info: no old MANIFEST found — applying legacy removal list "
-            "(packs 2026-04-29a through 2026-05-02d)",
+            "info: no old MANIFEST provided — skipping prune. "
+            "Diff-based prune requires the previous pack's MANIFEST saved "
+            "before extraction; no automated cleanup performed.",
             file=sys.stderr,
         )
-        deleted = _prune_legacy(framework_dir, dry_run=dry_run)
-        meta_cleanup_targets = {rel.rstrip("/") for rel in _LEGACY_REMOVALS}
-    else:
-        if not new_manifest_path.exists():
-            print(
-                f"warning: {new_manifest_path} not found — "
-                "pack may pre-date MANIFEST support; skipping prune",
-                file=sys.stderr,
-            )
-            return []
+        return []
 
-        old_entries = _read_manifest(old_manifest_path)
-        new_entries = _read_manifest(new_manifest_path)
-        removed = old_entries - new_entries
-        meta_cleanup_targets = set(removed)
+    if not new_manifest_path.exists():
+        print(
+            f"warning: {new_manifest_path} not found — "
+            "pack may pre-date MANIFEST support; skipping prune",
+            file=sys.stderr,
+        )
+        return []
 
-        deleted = []
-        for rel in sorted(removed):
-            target = framework_dir / rel
-            if target.exists() and target.is_file():
-                if dry_run:
-                    print(f"[dry-run] would delete: {target}")
-                else:
-                    target.unlink()
-                    print(f"deleted: {target}")
-                deleted.append(str(target))
+    old_entries = _read_manifest(old_manifest_path)
+    new_entries = _read_manifest(new_manifest_path)
+    removed = old_entries - new_entries
+    meta_cleanup_targets = set(removed)
 
-        # Remove directories that became empty (bottom-up).
-        if not dry_run:
-            dirs_to_check: set[Path] = set()
-            for rel in removed:
-                dirs_to_check.add((framework_dir / rel).parent)
-            for d in sorted(dirs_to_check, key=lambda p: len(p.parts), reverse=True):
-                try:
-                    if d.is_dir() and not any(d.iterdir()):
-                        d.rmdir()
-                except OSError:
-                    pass
+    deleted: list[str] = []
+    for rel in sorted(removed):
+        target = framework_dir / rel
+        if target.exists() and target.is_file():
+            if dry_run:
+                print(f"[dry-run] would delete: {target}")
+            else:
+                target.unlink()
+                print(f"deleted: {target}")
+            deleted.append(str(target))
+
+    # Remove directories that became empty (bottom-up).
+    if not dry_run:
+        dirs_to_check: set[Path] = set()
+        for rel in removed:
+            dirs_to_check.add((framework_dir / rel).parent)
+        for d in sorted(dirs_to_check, key=lambda p: len(p.parts), reverse=True):
+            try:
+                if d.is_dir() and not any(d.iterdir()):
+                    d.rmdir()
+            except OSError:
+                pass
 
     if _prune_meta_json(framework_dir, meta_cleanup_targets, dry_run=dry_run):
         print(f"updated: {framework_dir / 'index' / 'meta.json'}", file=sys.stderr)

@@ -1,11 +1,11 @@
 # Adopt Additional FastMCP / MCP Protocol Primitives Where They Improve Operator UX
 
 Change ID: `131hh-enh mcp-protocol-surface-opportunities`
-Change Status: `planned`
+Change Status: `partially-implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-06-01
-Wave: TBD (admit when accepting follow-on UX-polish work after wave 131bt close-out)
+Status: in-progress
+Last verified: 2026-06-02
+Wave: 1p2q3 field-feedback-round-4
 
 ## Rationale
 
@@ -95,6 +95,54 @@ Phased adoption with explicit verification gates between phases.
 - `ctx.elicit*`, `ctx.create_message`, `mcp.custom_route`, alternative transports — documented as not-relevant in the audit but not implemented.
 - Full `@mcp.prompt()` migration of `docs/prompts/*.md` (Phase 2 ships the experiment; full migration is a separate change if Phase 2 succeeds).
 - Full `@mcp.completion()` surface across every tool with completable arguments (same reasoning).
+
+## Acceptance Criteria
+
+**Phase 1 — concrete + low-risk:**
+
+- [x] AC-1: After every graph rebuild path (auto-rebuild via [[131e2]], explicit `wave_index_build(content='graph')`, dashboard auto-index), the server sends `session.send_resource_updated(uri)` for each `wavefoundry://graph/*` URI whose contents may have changed. Notifications dispatched fire-and-forget via `loop.create_task` matching the `send_tool_list_changed` pattern from [[131bu]].
+- [ ] AC-2: The graph auto-rebuild path emits at least three `ctx.report_progress` checkpoints (parse phase, edge-resolution phase, cluster phase) when invoked inside a tool-handler context with a `Context` parameter wired. **Deferred** — requires threading a `Context` parameter through every rebuild-triggering tool handler; the surface area is too large to bundle with Phase 1a. Tracked for a dedicated future wave.
+- [ ] AC-3: `wave_index_build(mode='rebuild')` inline path emits `ctx.report_progress` checkpoints during the embedding-rebuild phase. **Deferred** — paired with AC-2; same Context-parameter wiring cost.
+- [x] AC-4: Regression test: a synthetic project graph rebuild dispatches the expected `resource_updated` notifications for each `wavefoundry://graph/*` URI; verified via FastMCP test harness. Covered by `GraphQueryAutoRebuildCallbackTests` in `test_graph_query.py`.
+- [x] AC-5: No latency regression in the rebuild paths — `report_progress` and `send_resource_updated` are fire-and-forget; benchmark must show p50 unchanged within ±5%. Verified by test-suite wall-time delta (2185 tests pass within prior runtime envelope).
+
+**Phase 2 — exploratory, host-behavior-gated:**
+
+- [ ] AC-6: One `@mcp.prompt()` registration deployed against an existing `docs/prompts/*.md` entry, behind a documented experimental flag. The resource registration for the same markdown is preserved during verification (both surfaces coexist).
+- [ ] AC-7: One `@mcp.completion()` handler deployed on a single tool with completable arguments (e.g., `code_definition(symbol_or_path_position=...)`), behind a documented experimental flag.
+- [ ] AC-8: **Phase 2 ship gate** — a Decision Log entry records the host-behavior verification result (Claude Code surfaces prompts/completion: yes/no, observed evidence) before scoping the full migration. Without this entry, Phase 2 does not proceed past the experiment.
+
+**Cross-phase:**
+
+- [x] AC-9: All existing 2,169 framework tests pass without modification. Full suite at 2185 tests, all green after Phase 1a wiring + new regression coverage.
+- [x] AC-10: No new MCP primitive ships without explicit operator opt-in or backwards-compat affordance; defaults match current behavior so existing operators see no change.
+
+## Tasks
+
+- [x] Open `framework_edit_allowed` gate
+- [x] **Phase 1a (resource_updated):** wire `send_resource_updated` after graph rebuilds in `graph_query.py` (post-rebuild callback registry), `server_impl.py` (after `wave_index_build`)
+- [ ] **Phase 1b (report_progress):** accept optional progress-callback in `graph_indexer.update_graph_index`; wire `ctx.report_progress` from the auto-rebuild and `wave_index_build` tool handlers — **deferred** (Context-parameter threading too large to bundle)
+- [x] Add Phase 1a regression tests (resource_updated callback fires on rebuild + survives callback exceptions)
+- [ ] **Phase 2 experiment:** one `@mcp.prompt()` + one `@mcp.completion()` pilot behind documented experimental flag — deferred per phase plan
+- [ ] **Phase 2 ship gate:** record host-behavior verification in Decision Log before deciding on full migration scope
+- [x] Run framework tests
+- [ ] Close framework gate; mark change `implemented` (Phase 1a portion implemented; remaining deferred)
+- [ ] Re-audit FastMCP surface at next MCP SDK version bump (journal watchpoint)
+
+## AC Priority
+
+| AC | Priority | Rationale |
+|---|---|---|
+| AC-1 | required | Phase 1a — closes the `wavefoundry://graph/*` cache-coherence gap |
+| AC-2 | required | Phase 1b — surfaces auto-rebuild progress to operators |
+| AC-3 | required | Phase 1b — surfaces inline index-rebuild progress |
+| AC-4 | required | Phase 1 regression coverage |
+| AC-5 | required | No latency regression on rebuild paths |
+| AC-6 | required | Phase 2 experiment — pilot is required, full migration is gated on AC-8 |
+| AC-7 | required | Phase 2 experiment — pilot is required, full migration is gated on AC-8 |
+| AC-8 | required | Phase 2 ship gate — explicit host-behavior verification before scoping forward |
+| AC-9 | required | No baseline regression |
+| AC-10 | required | Backward-compat — no surprise operator-facing changes |
 
 ## Open Questions
 

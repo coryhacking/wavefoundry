@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import heapq
 import importlib.util
+import itertools
 import math
 import sys
 from collections import deque
@@ -43,6 +45,23 @@ def _get_graph_indexer():
 import threading as _threading
 _VERSION_CHECK_LOCK = _threading.Lock()
 _VERSION_CHECK_CACHE: dict[tuple[str, str], tuple[float, str]] = {}
+
+# Wave 1p2q3 (131hh): post-rebuild callback registry. server_impl wires this at
+# MCP startup to dispatch `notifications/resources/updated` for wavefoundry://
+# graph/* URIs whenever the auto-rebuild path completes. graph_query stays
+# independent of FastMCP — the callback is opt-in and best-effort.
+_POST_REBUILD_CALLBACK = None
+
+
+def set_post_rebuild_callback(fn) -> None:
+    """Register a callback invoked after a successful auto-rebuild.
+
+    The callback receives keyword arguments ``root: Path`` and ``layer: str``.
+    Exceptions raised by the callback are swallowed (notifications are
+    best-effort and must not break query results).
+    """
+    global _POST_REBUILD_CALLBACK
+    _POST_REBUILD_CALLBACK = fn
 
 
 def _graph_payload_path(root: Path, layer: str) -> Path:
@@ -159,6 +178,14 @@ def _ensure_graph_builder_current(root: Path, layer: str) -> dict[str, Any] | No
         new_mtime = payload_mtime
     with _VERSION_CHECK_LOCK:
         _VERSION_CHECK_CACHE[cache_key] = (new_mtime, runtime_version)
+    # Wave 1p2q3 (131hh): notify MCP clients that wavefoundry://graph/* resource
+    # contents may have changed. Best-effort — callback registry stays empty
+    # when graph_query is used outside the MCP server.
+    if _POST_REBUILD_CALLBACK is not None:
+        try:
+            _POST_REBUILD_CALLBACK(root=root, layer=layer)
+        except Exception:
+            pass
     return {
         "code": "graph_auto_rebuilt",
         "message": f"Graph rebuilt automatically: builder_version {state_version} → {runtime_version} ({duration_ms} ms).",
@@ -775,6 +802,40 @@ def collapse_class_module_view(payload: dict[str, Any]) -> dict[str, Any]:
     return out_payload
 
 
+# Wave 1p2q3 (1p2q4): weighted-cost path search constants.
+#
+# `shortest_path` is now a Dijkstra-equivalent lowest-cost search rather than a
+# shortest-hop BFS. Edge cost encodes semantic weight: deterministic-attribution
+# call edges cost 1, heuristic call edges cost 2, structural (imports/defines)
+# edges cost 100.
+#
+# Invariant: ``structural_cost > max_hops × calls/EXTRACTED_cost`` to preserve
+# calls preference within the search horizon. With ``max_hops=10`` (default) and
+# ``calls/EXTRACTED_cost=2``, the structural-cost floor is 20; 100 leaves
+# comfortable margin (any call chain up to ~50 EXTRACTED hops beats a single
+# structural hop). If ``max_hops`` ever defaults above ~50, revisit
+# ``_PATH_COST_STRUCTURAL``.
+_CONFIDENCE_RANK = {
+    "RECEIVER_RESOLVED": 0,
+    "CONSTRUCTION_RESOLVED": 0,
+    "EXTRACTED": 1,
+}
+_PATH_COST_CALLS_HIGH = 1
+_PATH_COST_CALLS_EXTRACTED = 2
+_PATH_COST_STRUCTURAL = 100
+
+
+def _path_edge_cost(edge: dict[str, Any]) -> int:
+    """Return the path-search cost of an edge based on relation + confidence."""
+    relation = str(edge.get("relation") or "")
+    confidence = str(edge.get("confidence") or "")
+    if relation == "calls":
+        if confidence in ("RECEIVER_RESOLVED", "CONSTRUCTION_RESOLVED"):
+            return _PATH_COST_CALLS_HIGH
+        return _PATH_COST_CALLS_EXTRACTED
+    return _PATH_COST_STRUCTURAL
+
+
 class GraphQueryIndex:
     """In-memory adjacency index over a loaded graph payload."""
 
@@ -957,24 +1018,47 @@ class GraphQueryIndex:
         relations: Iterable[str] | None = None,
         max_hops: int = 10,
         direction: str = "forward",
+        min_confidence: str = "EXTRACTED",
     ) -> dict[str, Any]:
-        """BFS shortest path between two symbols.
+        """Lowest-cost path between two symbols.
 
         Returns ``{found, path_nodes, path_edges, hop_count}`` always — empty lists
-        and ``hop_count: 0`` when no path is found. Uses BFS (unweighted edges).
+        and ``hop_count: 0`` when no path is found.
 
-        ``direction`` controls which edges BFS may walk:
+        Wave 1p2q3 (1p2q4): replaced shortest-hop BFS with weighted-cost Dijkstra-
+        equivalent search. Per-edge cost reflects semantic weight: deterministic-
+        attribution call edges cost 1, heuristic call edges cost 2, structural
+        (imports/defines) edges cost 100. The cost function ensures real call
+        chains beat shorter structural shortcuts (e.g. two functions sharing an
+        ``external::any`` import). The invariant ``structural_cost > max_hops ×
+        calls/EXTRACTED_cost`` must hold so calls preference holds across the
+        search horizon.
+
+        Also enforces ``external::*`` nodes as non-transitive: they are valid
+        path endpoints (``from_id``/``to_id``) but not intermediate bridges.
+
+        ``direction`` controls which edges the search may walk:
         - ``"forward"`` (default): outgoing edges only — answers "does from reach to?"
         - ``"backward"``: incoming edges only — answers "is from reached by to?"
         - ``"either"``: outgoing or incoming; each ``path_edges`` entry carries an
-          extra ``traversal_direction`` field (``"forward"`` or ``"backward"``) so
-          the chain is unambiguous. Answers "are from and to coupled at all?"
+          extra ``traversal_direction`` field (``"forward"`` or ``"backward"``).
+
+        ``min_confidence`` filters candidate edges below the named confidence
+        rank. Accepts ``"EXTRACTED"`` (default — no filter), ``"RECEIVER_RESOLVED"``,
+        or ``"CONSTRUCTION_RESOLVED"`` (peer to RECEIVER_RESOLVED). Orthogonal to
+        the weighted-cost selection.
         """
         direction_value = (direction or "forward").strip().lower()
         if direction_value not in ("forward", "backward", "either"):
             raise ValueError(
                 f"direction must be 'forward', 'backward', or 'either'; got {direction!r}"
             )
+        min_conf_value = (min_confidence or "EXTRACTED").strip().upper()
+        if min_conf_value not in _CONFIDENCE_RANK and min_conf_value != "EXTRACTED":
+            raise ValueError(
+                f"min_confidence must be one of EXTRACTED, RECEIVER_RESOLVED, CONSTRUCTION_RESOLVED; got {min_confidence!r}"
+            )
+        min_conf_rank = _CONFIDENCE_RANK.get(min_conf_value, 1)
 
         from_id = self.resolve_symbol(from_symbol)
         to_id = self.resolve_symbol(to_symbol)
@@ -994,20 +1078,47 @@ class GraphQueryIndex:
 
         rel_set = set(relations) if relations is not None else None
         annotate_direction = direction_value == "either"
-        # State: (current_id, path_node_ids, path_edges)
-        queue: deque[tuple[str, list[str], list[dict[str, Any]]]] = deque([(from_id, [from_id], [])])
-        visited: set[str] = {from_id}
 
-        while queue:
-            current, path_ids, path_edges = queue.popleft()
+        # Priority queue: (cumulative_cost, sequence_number, current_id, path_node_ids, path_edges)
+        # Sequence number breaks ties deterministically so heapq doesn't compare lists.
+        counter = itertools.count()
+        heap: list[tuple[int, int, str, list[str], list[dict[str, Any]]]] = [
+            (0, next(counter), from_id, [from_id], [])
+        ]
+        # Best-known cost to each node; pop-and-skip when a stale entry resurfaces.
+        best_cost: dict[str, int] = {from_id: 0}
+
+        while heap:
+            current_cost, _seq, current, path_ids, path_edges = heapq.heappop(heap)
+            if current_cost > best_cost.get(current, current_cost):
+                continue
+            if current == to_id:
+                path_nodes = []
+                for nid in path_ids:
+                    n = self._node_by_id.get(nid, {})
+                    path_nodes.append({"node_id": nid, "label": n.get("label", nid), "kind": n.get("kind"), "source_file": n.get("source_file")})
+                return {"found": True, "path_nodes": path_nodes, "path_edges": path_edges, "hop_count": len(path_edges)}
             if len(path_edges) >= max_hops:
                 continue
-            # Candidate edges to walk from current node, in deterministic order
-            candidates: list[tuple[dict[str, Any], str, str]] = []  # (edge, neighbor, traversal_dir)
+            # Wave 1p2q3 (1p2q4): external::* nodes are non-transitive — valid as
+            # endpoint but never as intermediate bridge. Routing through an
+            # unresolved identifier connects unrelated symbols (e.g. shared
+            # exception variable `external::e`).
+            if (
+                current.startswith("external::")
+                and current != from_id
+                and current != to_id
+            ):
+                continue
+            # Candidate edges to walk from current node
+            candidates: list[tuple[dict[str, Any], str, str]] = []
             if direction_value in ("forward", "either"):
                 for edge in self._out.get(current, []):
                     rel = edge.get("relation")
                     if rel_set is not None and rel not in rel_set:
+                        continue
+                    conf = str(edge.get("confidence") or "")
+                    if _CONFIDENCE_RANK.get(conf, 2) > min_conf_rank:
                         continue
                     neighbor = edge.get("target")
                     if isinstance(neighbor, str):
@@ -1017,36 +1128,24 @@ class GraphQueryIndex:
                     rel = edge.get("relation")
                     if rel_set is not None and rel not in rel_set:
                         continue
+                    conf = str(edge.get("confidence") or "")
+                    if _CONFIDENCE_RANK.get(conf, 2) > min_conf_rank:
+                        continue
                     neighbor = edge.get("source")
                     if isinstance(neighbor, str):
                         candidates.append((edge, neighbor, "backward"))
-            # Tie-break order: deterministic-attribution edges first
-            # (RECEIVER_RESOLVED / CONSTRUCTION_RESOLVED rank higher than
-            # EXTRACTED), then by neighbor-id length, then by neighbor id.
-            # Surfaces the direct construction edge before phantom import paths
-            # when both reach the destination in the same hop count.
-            _CONFIDENCE_RANK = {"RECEIVER_RESOLVED": 0, "CONSTRUCTION_RESOLVED": 0, "EXTRACTED": 1}
-            candidates.sort(key=lambda c: (
-                _CONFIDENCE_RANK.get(str(c[0].get("confidence") or ""), 2),
-                len(c[1]),
-                c[1],
-            ))
             for edge, neighbor, trav_dir in candidates:
-                if neighbor in visited:
+                edge_cost = _path_edge_cost(edge)
+                new_cost = current_cost + edge_cost
+                if new_cost >= best_cost.get(neighbor, new_cost + 1):
                     continue
+                best_cost[neighbor] = new_cost
                 new_edge = dict(edge)
                 if annotate_direction:
                     new_edge["traversal_direction"] = trav_dir
                 new_ids = path_ids + [neighbor]
                 new_edges = path_edges + [new_edge]
-                if neighbor == to_id:
-                    path_nodes = []
-                    for nid in new_ids:
-                        n = self._node_by_id.get(nid, {})
-                        path_nodes.append({"node_id": nid, "label": n.get("label", nid), "kind": n.get("kind"), "source_file": n.get("source_file")})
-                    return {"found": True, "path_nodes": path_nodes, "path_edges": new_edges, "hop_count": len(new_edges)}
-                visited.add(neighbor)
-                queue.append((neighbor, new_ids, new_edges))
+                heapq.heappush(heap, (new_cost, next(counter), neighbor, new_ids, new_edges))
 
         return empty
 

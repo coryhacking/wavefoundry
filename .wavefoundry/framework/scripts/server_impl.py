@@ -4983,6 +4983,11 @@ def wave_index_build_response(
             result["notice"] = (existing_notice + graph_callout).strip(" |")
     else:
         result["graph_rebuilt"] = True
+        # Wave 1p2q3 (131hh): explicit graph rebuild — notify MCP clients that
+        # cached wavefoundry://graph/* resources may be stale. Skip when the
+        # request was already-running or up-to-date (no rebuild fired).
+        if not result.get("already_running") and not result.get("up_to_date"):
+            _dispatch_graph_resources_updated(root=root, layer=target_layer)
     return _response(
         "ok",
         result,
@@ -8788,9 +8793,35 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
     # the graph is the source of truth — skip the structural full walk and the
     # keyword fallback. Return a fast not-found response with a clear recovery hint.
     if refresh_attempted and not candidate_files:
+        # Wave 1p2q3 (1p2qb): mirror code_callhierarchy's suggestions field on miss.
+        # Operators chaining the two tools expect parallel recovery affordances —
+        # a near-match suggestion helps recover from typos or stale names without
+        # falling back to keyword search blindly.
+        suggestions: list[dict[str, Any]] = []
+        attribution_counts: dict[str, dict[str, int]] = {}
+        try:
+            gq = _load_graph_query()
+            sugg_index = gq.GraphQueryIndex.from_root(root, layer="project")
+            if sugg_index.present:
+                suggestions = _suggest_near_symbols(sugg_index, symbol)
+                # Wave 1p2q3 (1p2q9 B): when the graph spoke (definitive-not-found),
+                # surface per-language attribution from the full graph so operators
+                # can tell whether the empty result reflects a real absence or a
+                # per-language coverage gap (e.g. typescript receiver-resolved=0).
+                attribution_counts = _compute_attribution_counts_by_language(list(sugg_index.edges), sugg_index)
+        except Exception:
+            suggestions = []
+            attribution_counts = {}
         return _response(
             "ok",
-            {"symbol": symbol, "definitions": [], "method": "graph_definitive_not_found", "lookup_method": "graph_definitive_not_found"},
+            {
+                "symbol": symbol,
+                "definitions": [],
+                "method": "graph_definitive_not_found",
+                "lookup_method": "graph_definitive_not_found",
+                "suggestions": suggestions,
+                "attribution_counts_by_language": attribution_counts,
+            },
             diagnostics=[_diagnostic(
                 "not_found",
                 f"No definition for '{symbol}' in the project graph (refreshed). If the symbol is in a file type the graph does not index, fall back to code_keyword.",
@@ -8842,10 +8873,15 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
         definition_methods = {d.get("method") for d in definitions}
         method = "multi_language"
         structural_diagnostics = [graph_missing_diagnostic] if graph_missing_diagnostic is not None else []
+        # Wave 1p2q3 (1p2q9 B): empty per-language counts on the found-definition
+        # path — `code_definition` doesn't surface graph edges in this response,
+        # so the diagnostic is consistently `{}` here. Operators wanting per-
+        # language attribution should call `wave_graph_report`.
+        _attr_empty: dict[str, dict[str, int]] = {}
         if definition_methods == {"ast"}:
             return _response(
                 "ok",
-                {"symbol": symbol, "language": "python", "definitions": definitions, "supported_languages": sorted(_SUPPORTED_DEFINITION_LANGS), "method": "ast", "lookup_method": lookup_method, **({"note": note} if note else {})},
+                {"symbol": symbol, "language": "python", "definitions": definitions, "supported_languages": sorted(_SUPPORTED_DEFINITION_LANGS), "method": "ast", "lookup_method": lookup_method, "attribution_counts_by_language": _attr_empty, **({"note": note} if note else {})},
                 diagnostics=structural_diagnostics,
                 next_tools=["code_read"],
                 usage=f"code_read(path={definitions[0]['path']!r}, start_line={definitions[0]['line']}, end_line={definitions[0]['line'] + 20})",
@@ -8863,6 +8899,7 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
                     "method": method,
                     "languages": languages,
                     "lookup_method": lookup_method,
+                    "attribution_counts_by_language": _attr_empty,
                     **({"note": note} if note else {}),
                 },
                 diagnostics=structural_diagnostics,
@@ -8883,14 +8920,14 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
         fallback_diagnostics.append(_diagnostic("not_found", f"No definition found for '{symbol}' in any language.", recovery_tools=["code_keyword"], recovery_usage=f"code_keyword(query={symbol!r})"))
         return _response(
             "ok",
-            {"symbol": symbol, "definitions": [], "method": "keyword_fallback", "lookup_method": fallback_lookup_method},
+            {"symbol": symbol, "definitions": [], "method": "keyword_fallback", "lookup_method": fallback_lookup_method, "attribution_counts_by_language": {}},
             diagnostics=fallback_diagnostics,
             next_tools=["code_keyword"],
             usage=f"code_keyword(query={symbol!r})",
         )
     return _response(
         "ok",
-        {"symbol": symbol, "definitions": fallback, "method": "keyword_fallback", "lookup_method": fallback_lookup_method, "note": note or (f"Retried lookup with schema-stripped SQL symbol '{retry_symbol}'." if retry_symbol else "No structural definition matcher found a result. Returning broad keyword matches across the repo.")},
+        {"symbol": symbol, "definitions": fallback, "method": "keyword_fallback", "lookup_method": fallback_lookup_method, "attribution_counts_by_language": {}, "note": note or (f"Retried lookup with schema-stripped SQL symbol '{retry_symbol}'." if retry_symbol else "No structural definition matcher found a result. Returning broad keyword matches across the repo.")},
         diagnostics=fallback_diagnostics,
         next_tools=["code_read"],
         usage=f"code_read(path={fallback[0]['path']!r}, start_line={fallback[0]['line']}, end_line={fallback[0]['line'] + 20})",
@@ -9350,8 +9387,12 @@ def code_callhierarchy_response(
     # Initialized before direction conditionals so the variable is always defined
     # at the final _response call regardless of the requested direction.
     advice_diagnostics: list[dict[str, Any]] = []
+    # Wave 1p2q3 (1p2q9 B): collect the edges actually surfaced so we can
+    # populate `attribution_counts_by_language` from them at the end.
+    _attr_edges: list[dict[str, Any]] = []
     if direction in {"both", "outgoing"}:
         _, out_edges, _ = index.traverse(node_id, relations=["calls"], max_hops=1, direction="callees")
+        _attr_edges.extend(out_edges or [])
         out_entries: list[tuple[str, dict[str, Any]]] = []
         for e in out_edges:
             tgt = e.get("target")
@@ -9388,6 +9429,7 @@ def code_callhierarchy_response(
 
     if direction in {"both", "incoming"}:
         _, in_edges, _ = index.traverse(node_id, relations=["calls"], max_hops=1, direction="callers")
+        _attr_edges.extend(in_edges or [])
         incoming_raw: list[tuple[str, dict[str, Any]]] = []
         for e in in_edges:
             src = e.get("source")
@@ -9620,6 +9662,9 @@ def code_callhierarchy_response(
                 })
                 seen_context.add(other)
         data["context"] = context_entries
+
+    # Wave 1p2q3 (1p2q9 B): per-language attribution-confidence counts.
+    data["attribution_counts_by_language"] = _compute_attribution_counts_by_language(_attr_edges, index)
 
     return _attach_auto_rebuild_diag(
         _response("ok", data, diagnostics=advice_diagnostics, next_tools=["code_read", "code_callgraph"], usage=f"code_callgraph(symbol={symbol!r}, direction='both')"),
@@ -9924,6 +9969,25 @@ def _code_impact_heuristic_response(root: Path, path: str, max_results: int = 50
         if total >= limit_hit:
             break
 
+    # Wave 1p2q3 (1p2q9 Workstream D): heuristic-no-matches diagnostic.
+    # When the heuristic import-walk found zero importers for a TS file, the
+    # silent empty result is the highest-confusion outcome — operators see
+    # `affected: []` and assume the file has no callers, but the more common
+    # cause is the heuristic can't resolve aliased imports (e.g. Nx monorepo
+    # `@scope/lib` aliases that don't match the file's literal repo path).
+    # Surface a diagnostic recommending `symbol=` graph mode or `code_references`.
+    diagnostics: list[dict[str, Any]] = []
+    if total == 0 and target_lang in ("typescript", "javascript", "tsx", "jsx"):
+        diagnostics.append(_diagnostic(
+            "heuristic_import_no_matches",
+            f"No importers found for '{target_rel}' via heuristic import-statement walk. "
+            f"Common cause on TS/JS monorepos: imports use path aliases (e.g. `@scope/lib`) "
+            f"that the heuristic doesn't resolve. For coverage on aliased imports, query a "
+            f"specific symbol defined in this file: code_impact(symbol='SomeSymbolFromThisFile'). "
+            f"To cross-check via the tree-sitter parser, use code_references(symbol='SomeSymbolFromThisFile').",
+            recovery_tools=["code_impact", "code_references"],
+            recovery_usage=f"code_impact(symbol='SomeSymbolFromThisFile')",
+        ))
     return _response(
         "ok",
         {
@@ -9933,6 +9997,7 @@ def _code_impact_heuristic_response(root: Path, path: str, max_results: int = 50
             "total_found": total,
             "method": "heuristic",
         },
+        diagnostics=diagnostics,
         next_tools=["code_read"],
         usage=f"code_read(path='{target_rel}')",
     )
@@ -9944,6 +10009,126 @@ def _code_impact_heuristic_response(root: Path, path: str, max_results: int = 50
 
 def _load_graph_query():
     return _load_script("graph_query")
+
+
+# Wave 1p2q3 (1p2q9 B): per-language attribution-confidence diagnostic.
+# `attribution_counts_by_language` surfaces how many edges in a response carry
+# each confidence tier, grouped by the source language. Operators can flag a
+# coverage gap at a glance (e.g. `{typescript: {receiver_resolved: 0,
+# extracted: 3892}}` means the TS receiver-type resolver isn't engaging).
+
+_ATTR_LANG_BY_EXTENSION: dict[str, str] = {
+    ".py": "python",
+    ".ts": "typescript", ".tsx": "typescript", ".mts": "typescript", ".cts": "typescript",
+    ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
+    ".java": "java", ".kt": "kotlin", ".kts": "kotlin",
+    ".cs": "csharp", ".swift": "swift", ".go": "go", ".rs": "rust",
+    ".rb": "ruby", ".php": "php",
+    ".c": "c", ".h": "c", ".cpp": "cpp", ".cc": "cpp", ".cxx": "cpp", ".hpp": "cpp", ".hxx": "cpp",
+    ".scala": "scala", ".m": "objc", ".mm": "objc",
+}
+
+_ATTR_CONFIDENCE_BUCKETS = ("receiver_resolved", "construction_resolved", "extracted")
+
+
+def _attribution_language_for_node(node_id: str | None, index: Any) -> str:
+    if not node_id or not isinstance(node_id, str):
+        return ""
+    if node_id.startswith("external::"):
+        return ""
+    source_file = ""
+    try:
+        node = index.get_node(node_id) if hasattr(index, "get_node") else None
+    except Exception:
+        node = None
+    if node:
+        source_file = str(node.get("source_file") or "")
+    if not source_file and "::" in node_id:
+        source_file = node_id.split("::", 1)[0]
+    elif not source_file:
+        source_file = node_id
+    if not source_file:
+        return ""
+    suffix = Path(source_file).suffix.lower()
+    return _ATTR_LANG_BY_EXTENSION.get(suffix, "")
+
+
+def _compute_attribution_counts_by_language(edges: Any, index: Any) -> dict[str, dict[str, int]]:
+    """Return `{language: {receiver_resolved, construction_resolved, extracted}}`
+    over the supplied edges. Edges without a known confidence tier or a
+    resolvable source-language are skipped silently — the diagnostic only
+    surfaces confident attribution data."""
+    counts: dict[str, dict[str, int]] = {}
+    if not edges:
+        return counts
+    for e in edges:
+        if not isinstance(e, dict):
+            continue
+        bucket_key = str(e.get("confidence") or "").strip().lower()
+        if bucket_key not in _ATTR_CONFIDENCE_BUCKETS:
+            continue
+        lang = ""
+        for nid in (e.get("source"), e.get("target")):
+            lang = _attribution_language_for_node(nid, index)
+            if lang:
+                break
+        if not lang:
+            continue
+        bucket = counts.setdefault(lang, {k: 0 for k in _ATTR_CONFIDENCE_BUCKETS})
+        bucket[bucket_key] += 1
+    return counts
+
+
+# Wave 1p2q3 (131hh): URIs whose contents may change when the graph rebuilds.
+# Notifications dispatched fire-and-forget — see _dispatch_graph_resources_updated.
+_GRAPH_RESOURCE_URIS = (
+    "wavefoundry://graph/status",
+    "wavefoundry://graph/communities",
+)
+
+# Module-global FastMCP instance, set by register_mcp_surface so the post-rebuild
+# callback registered on graph_query can resolve the active session without
+# circular imports. None when register_mcp_surface has not run (e.g., test
+# harness importing server_impl directly).
+_MCP_INSTANCE: Any = None
+
+
+def _dispatch_graph_resources_updated(*, root: Path | None = None, layer: str | None = None) -> None:
+    """Send `notifications/resources/updated` for each wavefoundry://graph/* URI.
+
+    Mirrors the `send_tool_list_changed` pattern from server.py: schedule the
+    coroutine on the running event loop when one exists, otherwise fall through
+    silently. Best-effort — exceptions are swallowed so query results are not
+    affected by notification delivery problems.
+    """
+    if _MCP_INSTANCE is None:
+        return
+    try:
+        ctx = _MCP_INSTANCE.get_context()
+        session = ctx.request_context.session
+    except Exception:
+        return
+    try:
+        import asyncio
+        from pydantic import AnyUrl
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        for uri_str in _GRAPH_RESOURCE_URIS:
+            try:
+                uri = AnyUrl(uri_str)
+            except Exception:
+                continue
+            try:
+                if loop is not None:
+                    loop.create_task(session.send_resource_updated(uri))
+                else:
+                    asyncio.run(session.send_resource_updated(uri))
+            except Exception:
+                continue
+    except Exception:
+        return
 
 
 def _suggest_near_symbols(index: Any, query: str, n: int = 3) -> list[dict[str, Any]]:
@@ -10540,6 +10725,7 @@ def _code_impact_graph_response(
     truncated = len(affected_enriched) > max_results
     # Recompute affected_files after test filter
     affected_files = sorted({str(a.get("source_file") or "") for a in affected_enriched if a.get("source_file")})
+    impact_edges = impact.get("edges") or []
     return _attach_auto_rebuild_diag(
         _response(
             "ok",
@@ -10553,9 +10739,11 @@ def _code_impact_graph_response(
                 "include_tests": include_tests,
                 "affected": affected_enriched[:max_results],
                 "affected_files": affected_files,
-                "edges": impact.get("edges") or [],
+                "edges": impact_edges,
                 "truncated": truncated,
                 "total_found": len(affected_enriched),
+                # Wave 1p2q3 (1p2q9 B): per-language attribution-confidence counts.
+                "attribution_counts_by_language": _compute_attribution_counts_by_language(impact_edges, index),
             },
             next_tools=["code_callgraph", "code_read"],
             usage=f"code_callgraph(symbol={symbol!r}, direction='both')",
@@ -11264,6 +11452,11 @@ def wave_graph_report_response(
     report["collapse_generated_files"] = collapse_generated_files
     report["collapse_class_module_pairs"] = collapse_class_module_pairs
     report["collapse_package_to_directory"] = collapse_package_to_directory
+    # Wave 1p2q3 (1p2q9 B): per-language attribution-confidence counts. wave_graph_report
+    # surfaces structural sections (fan_in/out, chokepoints, file_hubs, etc.) but doesn't
+    # carry edges directly — compute from the underlying graph edges so the diagnostic
+    # reflects the layer's attribution distribution at large.
+    report["attribution_counts_by_language"] = _compute_attribution_counts_by_language(list(index.edges), index)
     return _attach_auto_rebuild_diag(
         _response(
             "ok",
@@ -11288,6 +11481,7 @@ def code_graph_path_response(
     max_hops: int = 10,
     layer: str = "project",
     direction: str = "forward",
+    min_confidence: str = "EXTRACTED",
 ) -> dict[str, Any]:
     """Find the shortest connecting path between two symbols in the graph.
 
@@ -11386,7 +11580,37 @@ def code_graph_path_response(
             next_tools=["code_callhierarchy"],
             usage="code_callhierarchy(symbol='...')",
         )
-    result = index.shortest_path(from_id, to_id, relations=relations, max_hops=max_hops, direction=direction_value)
+    try:
+        result = index.shortest_path(
+            from_id, to_id,
+            relations=relations,
+            max_hops=max_hops,
+            direction=direction_value,
+            min_confidence=min_confidence,
+        )
+    except ValueError as exc:
+        return _response(
+            "error",
+            {"from_symbol": from_symbol, "to_symbol": to_symbol, "direction": direction_value, "found": False, "path_nodes": [], "path_edges": [], "hop_count": 0, "suggestions": []},
+            diagnostics=[_diagnostic("invalid_arguments", str(exc))],
+            next_tools=["wave_help"],
+            usage="code_graph_path(from_symbol='...', to_symbol='...', min_confidence='EXTRACTED')",
+        )
+    # Wave 1p2q3 (1p2q4): structural-path diagnostic. When the resolved path
+    # contains zero `calls` edges, the endpoints share structural reachability
+    # but no direct call chain — the headline `found: true` is honest, but
+    # operators reading the result should know the path is structural-only.
+    diagnostics: list[dict[str, Any]] = []
+    if result["found"] and result["path_edges"]:
+        calls_edges = [e for e in result["path_edges"] if e.get("relation") == "calls"]
+        if not calls_edges:
+            structural_count = len(result["path_edges"])
+            diagnostics.append(_diagnostic(
+                "path_is_structural",
+                f"Path connects via {structural_count} imports/defines edge(s), not via calls. "
+                "Endpoints share structural reachability but no direct call chain. "
+                "Pass `relations=[\"calls\"]` to restrict to call edges only.",
+            ))
     return _attach_auto_rebuild_diag(
         _response(
             "ok",
@@ -11401,6 +11625,7 @@ def code_graph_path_response(
                 "hop_count": result["hop_count"],
                 "suggestions": suggestions,
             },
+            diagnostics=diagnostics,
             next_tools=["code_callhierarchy", "code_impact"],
             usage=f"code_callhierarchy(symbol={from_symbol!r})",
         ),
@@ -12252,6 +12477,15 @@ def wave_server_info_response(root: Path, *, server_runner_version: str | None =
 
 def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     """Register tools and resources; resolve state via get_handler() for hot reload."""
+    # Wave 1p2q3 (131hh): stash the FastMCP instance and register the post-rebuild
+    # notification callback against graph_query so auto-rebuilds dispatch
+    # `notifications/resources/updated` for the wavefoundry://graph/* URIs.
+    global _MCP_INSTANCE
+    _MCP_INSTANCE = mcp
+    try:
+        _load_graph_query().set_post_rebuild_callback(_dispatch_graph_resources_updated)
+    except Exception:
+        pass
     # Tool annotation constants — passed to @mcp.tool(annotations={...}).
     # All handlers also accept **kwargs so FastMCP's auto-generated "kwargs"
     # schema parameter is captured and rejected via _ensure_no_extra_args rather
@@ -13822,9 +14056,21 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         max_hops: int = 10,
         layer: str = "project",
         direction: str = "forward",
+        min_confidence: str = "EXTRACTED",
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Find the shortest connecting path between two graph symbols using BFS.
+        """Find the lowest-cost connecting path between two graph symbols.
+
+        Wave 1p2q3 (1p2q4): path search is weighted-cost Dijkstra-equivalent
+        rather than shortest-hop BFS. Per-edge cost reflects semantic weight:
+        deterministic-attribution call edges cost 1 (RECEIVER_RESOLVED /
+        CONSTRUCTION_RESOLVED), heuristic call edges cost 2 (EXTRACTED),
+        structural edges cost 100 (imports / defines). Real call chains beat
+        shorter structural shortcuts even when the structural path has fewer
+        hops — a 3-hop RECEIVER_RESOLVED chain (cost 3) wins against a 1-hop
+        import bridge (cost 100). External::* nodes are non-transitive (valid
+        as endpoints but never as intermediate bridges) to eliminate the
+        "two functions share an `external::e` exception variable" failure mode.
 
         Prefer when:
         - ``direction="forward"`` (default): tracing dependency chains — "does A reach B
@@ -13846,14 +14092,25 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - direction: echoes the resolved direction value
         - suggestions: list of {id, label, kind} near-match candidates when either symbol is unresolvable
 
+        Structured diagnostic (wave 1p2q3): when the resolved path contains
+        zero ``calls`` edges, the response includes ``path_is_structural`` —
+        endpoints share structural reachability but no direct call chain.
+        Common case: caller passed ``relations=["imports"]`` explicitly OR the
+        graph has no calls chain between the endpoints.
+
         Args:
             from_symbol: Starting graph node id or resolvable symbol.
             to_symbol: Target graph node id or resolvable symbol.
-            relations: Optional edge relation filter (default: all relations).
+            relations: Optional edge relation filter (default: all relations — cost function
+                surfaces calls paths preferentially; pass ``["calls"]`` to restrict explicitly).
             max_hops: Maximum hops before giving up (default 10).
             layer: Graph layer (default ``project``).
             direction: ``forward`` (default — outgoing edges only), ``backward`` (incoming
                 edges only), or ``either`` (both, with per-edge ``traversal_direction``).
+            min_confidence: Edge confidence floor — ``EXTRACTED`` (default, all edges),
+                ``RECEIVER_RESOLVED``, or ``CONSTRUCTION_RESOLVED``. Higher floors restrict
+                the search to deterministic-attribution edges for refactor-safety / security-
+                review workflows. Orthogonal to the weighted-cost selection.
         """
         bad = _ensure_no_extra_args("code_graph_path", kwargs)
         if bad is not None:
@@ -13867,6 +14124,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             max_hops=max_hops,
             layer=layer,
             direction=direction,
+            min_confidence=min_confidence,
         ), t_start, "code_graph_path")
 
     @mcp.tool(annotations=_READONLY_TOOL)

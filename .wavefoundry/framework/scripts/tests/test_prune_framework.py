@@ -148,57 +148,63 @@ class PruneFrameworkTests(unittest.TestCase):
         self.assertIn("MANIFEST", buf.getvalue())
 
     # ------------------------------------------------------------------
-    # Legacy fallback (no old manifest)
+    # Wave 1p2q3 (1p2ta): no-manifest behavior — prune is a no-op.
+    # The prior legacy-fallback list was deleting git-tracked development
+    # files (scripts/tests/, scripts/run_tests.py) on every self-hosted
+    # upgrade because build_pack deletes MANIFEST after writing it into
+    # the zip, leaving upgrade-wavefoundry without an old manifest to diff
+    # against. The fallback is removed; prune now logs and returns when
+    # called without --old-manifest.
     # ------------------------------------------------------------------
 
-    def test_no_old_manifest_runs_legacy_list(self):
-        # Plant a known legacy file; prune with no old manifest should remove it.
+    def test_no_old_manifest_is_noop_does_not_delete_tests_dir(self):
+        """AC-4: prune called without --old-manifest must not touch tests/."""
+        tests_dir = self.fw / "scripts" / "tests"
+        tests_dir.mkdir(parents=True)
+        (tests_dir / "test_foo.py").write_text("x", encoding="utf-8")
         self._write("scripts/run_tests.py")
         self._new_manifest("scripts/build_pack.py")
         deleted = prune_framework.prune(self.fw, None)
-        self.assertFalse((self.fw / "scripts" / "run_tests.py").exists())
-        self.assertTrue(len(deleted) >= 1)
+        self.assertEqual(deleted, [])
+        self.assertTrue(tests_dir.exists(), "tests/ must not be deleted on no-manifest prune")
+        self.assertTrue((tests_dir / "test_foo.py").is_file())
+        self.assertTrue((self.fw / "scripts" / "run_tests.py").is_file())
 
-    def test_nonexistent_old_manifest_path_triggers_legacy_list(self):
+    def test_no_old_manifest_emits_skip_notice(self):
+        self._new_manifest("scripts/build_pack.py")
+        import io
+        from contextlib import redirect_stderr
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            prune_framework.prune(self.fw, None)
+        self.assertIn("no old MANIFEST", buf.getvalue())
+        self.assertIn("skipping prune", buf.getvalue())
+
+    def test_nonexistent_old_manifest_path_is_also_noop(self):
+        """An old-manifest path that doesn't exist on disk is treated as no
+        manifest; same no-op behavior."""
         self._write("scripts/render_hooks.py")
         self._new_manifest("scripts/build_pack.py")
         missing_path = self.tmp / "does-not-exist.txt"
         deleted = prune_framework.prune(self.fw, missing_path)
-        self.assertFalse((self.fw / "scripts" / "render_hooks.py").exists())
+        self.assertEqual(deleted, [])
+        self.assertTrue((self.fw / "scripts" / "render_hooks.py").exists())
 
-    def test_legacy_removes_tests_directory(self):
-        self._write_meta(
-            {
-                "built_at": "2026-01-01T00:00:00Z",
-                "content": ["docs"],
-                "file_meta": {
-                    "scripts/tests/test_foo.py": {"hash": "old"},
-                    "scripts/keep_me.py": {"hash": "keep"},
-                },
-            }
-        )
-        tests_dir = self.fw / "scripts" / "tests"
-        tests_dir.mkdir(parents=True)
-        (tests_dir / "test_foo.py").write_text("x", encoding="utf-8")
-        self._new_manifest("scripts/build_pack.py")
-        prune_framework.prune(self.fw, None)
-        self.assertFalse(tests_dir.exists())
-        meta = json.loads((self.fw / "index" / "meta.json").read_text(encoding="utf-8"))
-        self.assertNotIn("scripts/tests/test_foo.py", meta["file_meta"])
-        self.assertIn("scripts/keep_me.py", meta["file_meta"])
+    def test_legacy_constants_and_function_removed(self):
+        """Regression: _LEGACY_REMOVALS and _prune_legacy were deleted in
+        wave 1p2q3 (1p2ta). Their re-introduction would re-open the data-loss
+        vector this change fixed."""
+        self.assertFalse(hasattr(prune_framework, "_LEGACY_REMOVALS"))
+        self.assertFalse(hasattr(prune_framework, "_prune_legacy"))
 
-    def test_legacy_dry_run_does_not_delete(self):
-        self._write("scripts/run_tests.py")
+    def test_diff_path_still_deletes_when_old_manifest_supplied(self):
+        """AC-5: the diff-based deletion path is unaffected by removing the
+        legacy fallback."""
+        self._write("scripts/old_tool.py")
+        old = self._old_manifest("scripts/old_tool.py")
         self._new_manifest("scripts/build_pack.py")
-        prune_framework.prune(self.fw, None, dry_run=True)
-        self.assertTrue((self.fw / "scripts" / "run_tests.py").exists())
-
-    def test_legacy_does_not_touch_user_created_files(self):
-        # A file not in the legacy list must survive even with no old manifest.
-        self._write("index/local-index.json")
-        self._new_manifest("scripts/build_pack.py")
-        prune_framework.prune(self.fw, None)
-        self.assertTrue((self.fw / "index" / "local-index.json").exists())
+        prune_framework.prune(self.fw, old)
+        self.assertFalse((self.fw / "scripts" / "old_tool.py").exists())
 
     def test_returns_list_of_deleted_paths(self):
         self._write("scripts/old_a.py")

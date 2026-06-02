@@ -1,11 +1,11 @@
 # Dashboard Graph Rendering Fidelity Updates for Wave 131bt Graph Changes
 
 Change ID: `131es-enh dashboard-graph-rendering-fidelity-updates`
-Change Status: `planned`
+Change Status: `partially-implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-06-01
-Wave: TBD (round 4 of field feedback follow-on; admit alongside any other dashboard / surface-polish work)
+Status: in-progress
+Last verified: 2026-06-02
+Wave: 1p2q3 field-feedback-round-4
 
 ## Rationale
 
@@ -141,10 +141,11 @@ The banner dismisses itself after the next dashboard rebuild detects the version
 
 **Node kinds (1319m):**
 
-- [ ] AC-1: `GRAPH_KIND_COLORS` includes distinct entries for `package` and `namespace`.
-- [ ] AC-2: A node with `kind: "package"` rendered in the dashboard has the new color (not the "external" fallback).
-- [ ] AC-3: A node with `kind: "namespace"` rendered in the dashboard has the new color.
+- [x] AC-1: `GRAPH_KIND_COLORS` includes distinct entries for `package` and `namespace`.
+- [x] AC-2: A node with `kind: "package"` rendered in the dashboard has the new color (not the "external" fallback).
+- [x] AC-3: A node with `kind: "namespace"` rendered in the dashboard has the new color.
 - [ ] AC-4: Legend rendering shows the new kinds when at least one such node exists in the visible graph.
+- [x] AC-1b: Palette fully redesigned for pairwise-distinct hues across all 10 node kinds. Field feedback flagged `variable` falling back to "external" grey and being indistinguishable from `doc` charcoal. Added `variable: "#d32f2f"` (vivid red) and shifted `community` (teal→emerald), `package` (cyan-teal→bright cyan), `namespace` (deep purple→magenta) out of their prior near-collision zones. Distinctness enforced by `test_graph_kind_colors_are_all_distinct_including_variable` in `test_dashboard_server.py`.
 
 **Edge confidence (1319s + 1319q):**
 
@@ -168,6 +169,19 @@ The banner dismisses itself after the next dashboard rebuild detects the version
 - [ ] AC-13: Dashboard client renders a banner with the from/to versions, the operator-action hint, and a dismiss control.
 - [ ] AC-14: Banner disappears on the next snapshot when the versions match (e.g., after the operator runs `wave_index_build(content="graph")` or the auto-rebuild fires via an MCP query).
 
+**Flicker on graph reload (field-feedback round 4):**
+
+- [x] AC-17: Graph re-renders on auto-refresh AND on operator-triggered reload do not produce a full-page flash. Implemented by gating the loading banner on initial-load only, comparing incoming-payload signature against prior, and preserving the operator's selection across refreshes when the selected node still exists. React's keyed reconciliation handles the incremental DOM updates downstream.
+- [x] AC-18: When the delta is empty (snapshot identical to prior), the dashboard performs no DOM update at all — operator sees a stable view. Signature comparison (`_graphSigRef.current === newSig`) short-circuits `setGraph` so React skips reconciliation entirely.
+- [ ] AC-19: Regression test: synthetic snapshot transition (5-node graph → 6-node graph) — assertion that only the new node and its edges are added to the DOM, existing nodes are not removed-and-re-added. **Deferred** — DOM-level assertion requires a browser harness (jsdom/Playwright) not currently shipped in the framework test suite. Substrate test (signature-skip + initial-load guard markers) covered by `test_dashboard_js_includes_flicker_fix_signature_skip` in `test_dashboard_server.py`.
+
+**Information-architecture: secondary route for the graph view (field-feedback round 4):**
+
+- [ ] AC-20: Graph view moved off the main dashboard landing page; primary page focuses on wave / index / activity orientation (the high-frequency operator surface).
+- [ ] AC-21: Secondary route (e.g. `/graph` or a "Graph" tab in the dashboard nav) hosts the graph view in full fidelity — all existing functionality preserved, nothing removed.
+- [ ] AC-22: Discoverability: a clear navigation link or tab in the dashboard header surfaces the graph route. Operators occasionally visiting the dashboard can find it without prior knowledge of the URL.
+- [ ] AC-23: Backward-compat: bookmarked deep links to the existing graph-view URL fragment continue to resolve (HTTP 301 redirect to the new route if necessary).
+
 **Regression / hygiene:**
 
 - [ ] AC-15: All existing `test_dashboard_server.py` tests pass without modification.
@@ -187,6 +201,8 @@ The banner dismisses itself after the next dashboard rebuild detects the version
 - [ ] Add staleness banner to `dashboard.js`
 - [ ] Add CSS tokens for dashed/dotted strokes, badge, banner
 - [ ] Add fixture coverage for the new staleness flag
+- [ ] Wave 4 field-feedback expansion — implement graph-render delta + no-op-on-empty (AC-17, AC-18) and add regression coverage (AC-19)
+- [ ] Wave 4 field-feedback expansion — move graph view to secondary route + nav link (AC-20, AC-21, AC-22) with bookmarked-URL redirect (AC-23)
 - [ ] Run framework tests
 - [ ] Close gate; mark change `implemented`
 
@@ -201,6 +217,7 @@ The banner dismisses itself after the next dashboard rebuild detects the version
 | AC | Priority | Rationale |
 |---|---|---|
 | AC-1 | required | New node kinds without distinct colors fall back to "external", a wrong-signal default |
+| AC-1b | required | Variable nodes fell back to "external" grey and read as `doc` charcoal; pairwise-distinct palette is required for operator legibility |
 | AC-2 | required | Visible operator outcome |
 | AC-3 | required | Visible operator outcome |
 | AC-4 | important | Legend completeness |
@@ -216,6 +233,13 @@ The banner dismisses itself after the next dashboard rebuild detects the version
 | AC-14 | required | No-stale-after-rebuild UX correctness |
 | AC-15 | required | No baseline regression |
 | AC-16 | required | Fixture coverage |
+| AC-17 | required | Field-feedback round 4: flicker on reload is a visible operator-UX defect |
+| AC-18 | required | Empty-delta no-op — eliminates flicker on auto-refresh when nothing changed |
+| AC-19 | required | Regression coverage for the incremental-update path |
+| AC-20 | required | Field-feedback round 4: graph is low-frequency surface; main page should be high-frequency orientation |
+| AC-21 | required | Secondary route preserves full graph functionality |
+| AC-22 | required | Discoverability — operators occasionally visiting find it without prior URL knowledge |
+| AC-23 | required | Backward-compat for bookmarked URLs |
 
 ## Decision Log
 
