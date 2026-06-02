@@ -397,5 +397,145 @@ class GraphAugmentationExplicitOptOutTests(unittest.TestCase):
         self.assertNotIn("graph_neighbors", result.get("data") or {})
 
 
+class GraphQueryShortestPathWeightedCostTests(unittest.TestCase):
+    """Wave 1p2q3 (1p2q4): Aceiss reproducer for spurious 2-hop paths via shared
+    external::* bridges. Weighted-cost Dijkstra-equivalent BFS + non-transitive
+    external intermediates must surface the real call chain over the phantom."""
+
+    def setUp(self):
+        self.mod = load_graph_query()
+
+    def _build(self, edges, nodes=None):
+        if nodes is None:
+            ids = set()
+            for e in edges:
+                ids.add(e["source"]); ids.add(e["target"])
+            nodes = [{"id": nid, "label": nid.split("::")[-1],
+                      "kind": "external" if nid.startswith("external::") else "function"} for nid in ids]
+        return self.mod.GraphQueryIndex({"present": True, "nodes": nodes, "edges": edges})
+
+    def test_aceiss_reproducer_calls_chain_beats_external_bridge(self):
+        edges = [
+            {"source": "A", "target": "B", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+            {"source": "B", "target": "C", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+            {"source": "C", "target": "D", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+            {"source": "A", "target": "external::common", "relation": "calls", "confidence": "EXTRACTED"},
+            {"source": "external::common", "target": "D", "relation": "calls", "confidence": "EXTRACTED"},
+        ]
+        idx = self._build(edges)
+        result = idx.shortest_path("A", "D")
+        self.assertTrue(result["found"])
+        node_ids = [n["node_id"] for n in result["path_nodes"]]
+        self.assertEqual(node_ids, ["A", "B", "C", "D"])
+
+    def test_external_node_is_non_transitive_intermediate(self):
+        edges = [
+            {"source": "A", "target": "external::bridge", "relation": "calls", "confidence": "EXTRACTED"},
+            {"source": "external::bridge", "target": "D", "relation": "calls", "confidence": "EXTRACTED"},
+        ]
+        idx = self._build(edges)
+        result = idx.shortest_path("A", "D")
+        self.assertFalse(result["found"])
+
+    def test_external_node_as_endpoint_still_works(self):
+        edges = [
+            {"source": "A", "target": "external::lib.foo", "relation": "calls", "confidence": "EXTRACTED"},
+        ]
+        idx = self._build(edges)
+        result = idx.shortest_path("A", "external::lib.foo")
+        self.assertTrue(result["found"])
+        self.assertEqual(result["hop_count"], 1)
+
+    def test_min_confidence_filter_excludes_extracted_edges(self):
+        edges = [
+            {"source": "A", "target": "B", "relation": "calls", "confidence": "EXTRACTED"},
+            {"source": "B", "target": "D", "relation": "calls", "confidence": "EXTRACTED"},
+        ]
+        idx = self._build(edges)
+        self.assertTrue(idx.shortest_path("A", "D")["found"])
+        self.assertFalse(idx.shortest_path("A", "D", min_confidence="RECEIVER_RESOLVED")["found"])
+
+
+class GraphQueryAutoRebuildCallbackTests(unittest.TestCase):
+    """Wave 1p2q3 (131hh): post-rebuild callback registry + dispatch."""
+
+    def setUp(self):
+        self.mod = load_graph_query()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        try:
+            self.mod.set_post_rebuild_callback(None)
+        except Exception:
+            pass
+        self.tmp.cleanup()
+
+    def test_set_post_rebuild_callback_registers_and_clears(self):
+        self.assertIsNone(self.mod._POST_REBUILD_CALLBACK)
+        fn = lambda **kw: None  # noqa: E731
+        self.mod.set_post_rebuild_callback(fn)
+        self.assertIs(self.mod._POST_REBUILD_CALLBACK, fn)
+        self.mod.set_post_rebuild_callback(None)
+        self.assertIsNone(self.mod._POST_REBUILD_CALLBACK)
+
+    def _seed_stale_graph(self):
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        (graph_dir / "project-graph.json").write_text(
+            json.dumps({"present": True, "nodes": [], "edges": []}), encoding="utf-8")
+        (graph_dir / "project-graph-state.json").write_text(
+            json.dumps({"builder_version": "0"}), encoding="utf-8")
+
+    def _with_fake_rebuild(self):
+        from unittest.mock import patch
+        self.mod._get_graph_indexer()
+        real_spec = importlib.util.spec_from_file_location
+        real_module = importlib.util.module_from_spec
+
+        class _FakeLoader:
+            def exec_module(self, module):
+                module.build_index = lambda *a, **k: {"ok": True}
+
+        class _FakeSpec:
+            name = "indexer_for_graph_query_rebuild"
+            loader = _FakeLoader()
+
+        def _fake_spec(name, path):
+            if name == "indexer_for_graph_query_rebuild":
+                return _FakeSpec()
+            return real_spec(name, path)
+
+        def _fake_module(spec):
+            if getattr(spec, "name", "") == "indexer_for_graph_query_rebuild":
+                import types
+                return types.ModuleType("fake_indexer_for_rebuild")
+            return real_module(spec)
+
+        return patch("importlib.util.spec_from_file_location", _fake_spec), \
+               patch("importlib.util.module_from_spec", _fake_module)
+
+    def test_callback_fires_after_successful_auto_rebuild(self):
+        self._seed_stale_graph()
+        calls: list[dict] = []
+        self.mod.set_post_rebuild_callback(lambda **kw: calls.append(kw))
+        p1, p2 = self._with_fake_rebuild()
+        with p1, p2:
+            diag = self.mod._ensure_graph_builder_current(self.root, "project")
+        self.assertIsNotNone(diag)
+        self.assertEqual(diag["code"], "graph_auto_rebuilt")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["layer"], "project")
+        self.assertEqual(calls[0]["root"], self.root)
+
+    def test_callback_exception_does_not_break_rebuild(self):
+        self._seed_stale_graph()
+        self.mod.set_post_rebuild_callback(lambda **kw: (_ for _ in ()).throw(RuntimeError("boom")))
+        p1, p2 = self._with_fake_rebuild()
+        with p1, p2:
+            diag = self.mod._ensure_graph_builder_current(self.root, "project")
+        self.assertEqual(diag["code"], "graph_auto_rebuilt")
+
+
 if __name__ == "__main__":
     unittest.main()

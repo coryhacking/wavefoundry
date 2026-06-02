@@ -963,6 +963,25 @@ class IncrementalBuildTests(unittest.TestCase):
         # Framework content must not appear in the semantic docs index either.
         self.assertFalse(any(c["path"].startswith(".wavefoundry/framework/") for c in chunks))
 
+    def test_project_index_excludes_wavefoundry_blanket(self):
+        """Wave 1p2q3 (1p2qd): all of .wavefoundry/ excluded from project index."""
+        _make_repo(self.root, {
+            "docs/guide.md": "## Intro\n\nHello.\n",
+            ".wavefoundry/framework/scripts/server_impl.py": "def foo(): pass\n",
+            ".wavefoundry/framework/dashboard/dashboard.js": "// dashboard\n",
+            ".wavefoundry/framework/seeds/100.md": "## seed\n",
+            ".wavefoundry/logs/event.log": "log\n",
+            ".wavefoundry/state.json": "{}\n",
+        })
+        docs_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
+            self.bi.build_index(self.root, full=True, content="docs", verbose=False)
+        index_dir = self.root / ".wavefoundry" / "index"
+        meta = json.loads((index_dir / "meta.json").read_text())
+        for path in meta["file_meta"]:
+            self.assertFalse(path.startswith(".wavefoundry/"),
+                             f"unexpected .wavefoundry/ file in project meta: {path}")
+
     def test_explicit_framework_index_can_include_framework_source(self):
         _make_repo(self.root, {
             "docs/guide.md": "## Intro\n\nHello.\n",

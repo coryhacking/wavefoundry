@@ -1255,7 +1255,7 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         # out so the dialog closes first instead of navigating the graph behind it.
         self.assertIn('if (document.querySelector("dialog[open]")) return;', js)
         self.assertIn('hasCommunityOverview && node.kind === "community"', js)
-        self.assertIn('community: "#0f766e",', js)
+        self.assertIn('community: "#16a085",  // emerald', js)
 
         css = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.css").read_text(encoding="utf-8")
         self.assertIn('.graph-webgl-wrap {', css)
@@ -2969,6 +2969,42 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         store._on_index_build_done()
 
         self.assertEqual(call_order, ["rebuild", "notify"])
+
+    def test_dashboard_js_includes_flicker_fix_signature_skip(self):
+        """Wave 1p2q3 (131es AC-17/18): refresh skips loading banner on incremental
+        reloads and no-ops when signature is unchanged."""
+        js = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+        self.assertIn("_initialLoadDoneRef", js)
+        self.assertIn("_graphSigRef", js)
+        self.assertIn("function _graphSignature(g)", js)
+        self.assertIn("if (newSig === prevSig)", js)
+        self.assertIn("if (isInitial) setLoading(true)", js)
+        self.assertIn("const stillExists = (data?.nodes || []).some(n => n.id === selectedNodeId)", js)
+
+    def test_graph_kind_colors_are_all_distinct_including_variable(self):
+        """Wave 1p2q3 (131es): palette gives every node kind a unique color.
+        `seed` is intentionally collapsed into `doc` via `_graphKindBucket`."""
+        js = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+        import re as _re
+        start = js.index("const GRAPH_KIND_COLORS = {")
+        end = js.index("};", start)
+        block = js[start:end]
+        entries = _re.findall(r'(\w+):\s*"(#[0-9a-fA-F]{6})"', block)
+        kind_to_color = dict(entries)
+        for kind in ("module", "class", "function", "doc", "community",
+                     "external", "package", "namespace", "variable"):
+            self.assertIn(kind, kind_to_color, f"kind {kind!r} missing from palette")
+        self.assertNotIn("seed", kind_to_color,
+                         "seed should collapse to doc bucket via _graphKindBucket")
+        self.assertIn('if (kind === "seed") return "doc";', js)
+        seen: dict[str, str] = {}
+        for kind, color in kind_to_color.items():
+            if color in seen:
+                self.fail(f"palette collision: {kind!r} and {seen[color]!r} share {color}")
+            seen[color] = kind
+        self.assertNotEqual(kind_to_color["variable"], kind_to_color["doc"])
+        self.assertNotEqual(kind_to_color["variable"], kind_to_color["external"])
+        self.assertNotEqual(kind_to_color["doc"], kind_to_color["external"])
 
 
 import threading  # noqa: E402 (already imported above, but needed in test scope)

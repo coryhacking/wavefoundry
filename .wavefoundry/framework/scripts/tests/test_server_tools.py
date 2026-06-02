@@ -10319,6 +10319,53 @@ class TestCodeDefinitionGraphNarrowed(unittest.TestCase):
             ("graph_definitive_not_found", "graph_narrowed_after_refresh"),
         )
 
+    def test_definitive_not_found_mirrors_code_callhierarchy_suggestions(self):
+        """Wave 1p2q3 (1p2qb): code_definition's not-found path surfaces a
+        `suggestions` array of near-matches, mirroring code_callhierarchy."""
+        self._write_graph([
+            {"id": "src/target.py::my_definition", "label": "my_definition", "kind": "function", "source_file": "src/target.py"},
+            {"id": "src/other.py::my_definition_helper", "label": "my_definition_helper", "kind": "function", "source_file": "src/other.py"},
+        ])
+        result = self.srv.code_definition_response(self.root, "my_definitions")
+        self.assertEqual(result["status"], "ok")
+        lookup = result["data"]["lookup_method"]
+        if lookup in ("graph_definitive_not_found", "graph_narrowed_after_refresh"):
+            suggestions = result["data"].get("suggestions")
+            self.assertIsInstance(suggestions, list)
+            for s in suggestions:
+                self.assertTrue(isinstance(s, dict))
+                self.assertTrue(any(k in s for k in ("id", "label", "node_id", "symbol")))
+
+    def test_attribution_counts_by_language_present_on_definitive_not_found(self):
+        """Wave 1p2q3 (1p2q9 B AC-6/7/8): polyglot graph populates per-language counts."""
+        import json as _json
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema_version": "1", "builder_version": "1", "layer": "project",
+            "nodes": [
+                {"id": "src/py.py::a", "label": "a", "kind": "function", "source_file": "src/py.py"},
+                {"id": "src/py.py::b", "label": "b", "kind": "function", "source_file": "src/py.py"},
+                {"id": "libs/ts.ts::c", "label": "c", "kind": "function", "source_file": "libs/ts.ts"},
+                {"id": "libs/ts.ts::d", "label": "d", "kind": "function", "source_file": "libs/ts.ts"},
+            ],
+            "edges": [
+                {"source": "src/py.py::a", "target": "src/py.py::b", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+                {"source": "libs/ts.ts::c", "target": "libs/ts.ts::d", "relation": "calls", "confidence": "EXTRACTED"},
+            ],
+            "counts": {"files": 2, "nodes": 4, "edges": 2},
+        }
+        (graph_dir / "project-graph.json").write_text(_json.dumps(payload), encoding="utf-8")
+        result = self.srv.code_definition_response(self.root, "nonexistent_typo_symbol")
+        self.assertEqual(result["status"], "ok")
+        if result["data"].get("lookup_method") in ("graph_definitive_not_found", "graph_narrowed_after_refresh"):
+            counts = result["data"].get("attribution_counts_by_language")
+            self.assertIsInstance(counts, dict)
+            self.assertIn("python", counts)
+            self.assertIn("typescript", counts)
+            self.assertEqual(counts["python"]["receiver_resolved"], 1)
+            self.assertEqual(counts["typescript"]["extracted"], 1)
+
 
 class TestCodeImpactIncludeTests(unittest.TestCase):
     """12zxl AC-2: code_impact include_tests filter."""
