@@ -6,6 +6,23 @@ This file is at the project-level path (`.wavefoundry/CHANGELOG.md`) rather than
 
 ---
 
+## 1.3.14 — 2026-06-02
+
+Pure performance patch on 1.3.13. **No extractor-shape changes, no `GRAPH_BUILDER_VERSION` bump, no auto-rebuild needed on upgrade.**
+
+Graph extraction now parallelizes code-file processing across CPU cores when the build is large enough to amortize fork overhead. On a benchmark of 200 TS files (~160 lines each with classes, interfaces, arrow-const functions, type aliases) the parallel path runs at **2.35× the speed of serial** (19.8s → 8.4s on a 4-worker M-series Mac). Real-world repos at Teton-scale (1500+ files) should see similar or better speedup because per-file work scales superlinearly with file complexity. Identical nodes and edges to serial — verified end-to-end.
+
+Design choices:
+
+- **Threshold-gated** at 100 code files (configurable via `WAVEFOUNDRY_GRAPH_PARALLEL_THRESHOLD` env var). Small builds (tests, incremental updates) stay serial because the per-worker fork startup cost would exceed the parallelism gain
+- **Default 4 workers, capped at CPU count** (configurable via `WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS`). Operators with more cores can tune up; CI environments with constrained cores can tune down or disable by setting workers to 1
+- **`fork` start method** chosen because graph_indexer is loaded via `spec_from_file_location` in production (not the standard import system); fork workers inherit the parent's `sys.modules` so the worker function reference resolves cleanly without import gymnastics. macOS emits a `DeprecationWarning` about fork which we silence — our parent is single-threaded synchronous Python so the risk fork addresses (objc/threaded state) doesn't apply. Operators can opt back to `spawn` or `forkserver` via `WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD` env var
+- **Graceful fallback to serial** on any pool failure — the build always completes
+- **Doc/seed extraction stays serial** because it depends on cross-file `symbol_terms` built across all artifacts (not embarrassingly parallel like per-file code extraction)
+- **Pre-loads `.gitattributes`** in the parent so each worker doesn't re-read it. Cache (`_TS_BARREL_PARSE_CACHE`, lru caches on probe / relative-resolve) warms per-worker independently — there's no cross-worker cache sharing, which is the main remaining headroom for future optimization
+
+---
+
 ## 1.3.13 — 2026-06-02
 
 Pure performance patch on 1.3.12 — no extractor-shape changes, no `GRAPH_BUILDER_VERSION` bump, no auto-rebuild needed on upgrade.

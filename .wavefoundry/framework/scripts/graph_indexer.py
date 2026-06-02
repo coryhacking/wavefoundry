@@ -7,6 +7,7 @@ import functools
 import importlib
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -6581,6 +6582,71 @@ class GraphIndexSession:
         return graph_payload
 
 
+# Wave 1p2q3 (1p2tz post-ship-3 perf): parallel per-file code extraction.
+# Threshold-gated so small builds (tests, incremental updates) stay serial
+# and don't pay the ProcessPoolExecutor spawn overhead — on macOS each worker
+# spawn costs ~500ms–1s for fresh Python import + tree-sitter language load.
+# Doc/seed extraction stays serial because it depends on cross-file
+# `symbol_terms` built across artifacts; only code-file extraction parallelizes.
+_PARALLEL_EXTRACTION_THRESHOLD = int(os.environ.get("WAVEFOUNDRY_GRAPH_PARALLEL_THRESHOLD", "100"))
+_PARALLEL_EXTRACTION_WORKERS = int(
+    os.environ.get("WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS", str(min((os.cpu_count() or 1), 4)))
+)
+
+
+def _worker_init_graph_indexer(graph_indexer_path: str) -> None:
+    """ProcessPoolExecutor initializer for parallel extraction workers.
+
+    graph_indexer is loaded via `spec_from_file_location` in production (and
+    in tests) rather than the standard import system, which means workers
+    can't pickle-deserialize a function reference to this module without
+    setting up `sys.modules["graph_indexer"]` first. This initializer runs
+    once per worker process at startup and registers the module so worker
+    tasks unpickle cleanly.
+    """
+    import importlib.util as _il_util
+    spec = _il_util.spec_from_file_location("graph_indexer", graph_indexer_path)
+    if spec is None or spec.loader is None:
+        return
+    module = _il_util.module_from_spec(spec)
+    sys.modules["graph_indexer"] = module
+    spec.loader.exec_module(module)
+
+
+def _extract_artifact_for_worker(args: tuple) -> tuple[str, dict | None]:
+    """Worker entry point for parallel code-file extraction.
+
+    Constructs a minimal `GraphIndexSession`, runs `record_file` to extract a
+    single file's artifact, and returns `(rel_path, pending_code_entry)`.
+    The session is discarded after extraction — only the artifact dict
+    crosses the process boundary.
+
+    Module-level (required by `spawn` start method on macOS) and self-
+    contained so each worker can be a fresh Python process.
+    """
+    rel_path, source_text, root_str, layer, gitattrs_list, walker_version, chunker_version = args
+    # Workers spawned via `spawn` re-import this module fresh; use whichever
+    # GraphIndexSession is in the worker's sys.modules (registered by the
+    # initializer) to avoid double-loading.
+    gi = sys.modules.get("graph_indexer")
+    Session = getattr(gi, "GraphIndexSession", GraphIndexSession) if gi is not None else GraphIndexSession
+    root = Path(root_str)
+    session = Session(
+        root=root,
+        index_dir=root / ".wavefoundry" / "index",
+        layer=layer,
+        files=[],
+        current_file_meta={},
+        walker_version=walker_version,
+        chunker_version=chunker_version,
+        verbose=False,
+    )
+    # Skip the gitattrs disk read in the worker — pre-loaded in parent.
+    session._gitattrs_patterns = frozenset(gitattrs_list)
+    session.record_file(rel_path, source_text)
+    return rel_path, session.pending_code.get(rel_path)
+
+
 def update_graph_index(
     *,
     root: Path,
@@ -6638,6 +6704,11 @@ def update_graph_index(
             f"{len(changed_set)} changed, {len(removed_set)} removed",
             flush=True,
         )
+    # Wave 1p2q3 (1p2tz post-ship-3 perf): bucket files by kind so code-file
+    # extraction can parallelize; doc/seed stays serial (cross-file symbol
+    # dependency makes it sequential by nature).
+    code_work_items: list[tuple[str, str]] = []  # (rel_path, source_text)
+    doc_work_items: list[tuple[str, str]] = []   # (rel_path, source_text)
     for file_path in files:
         rel = _repo_rel(file_path.relative_to(root))
         if rel not in changed_set:
@@ -6646,7 +6717,92 @@ def update_graph_index(
             text = file_path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        if _is_minified_file(rel):
+            continue
+        kind = _kind_for_path(rel)
+        if kind == "code":
+            code_work_items.append((rel, text))
+        else:
+            doc_work_items.append((rel, text))
+
+    use_parallel = (
+        _PARALLEL_EXTRACTION_WORKERS > 1
+        and len(code_work_items) >= _PARALLEL_EXTRACTION_THRESHOLD
+    )
+    if use_parallel:
+        # Pre-load gitattrs once in the parent; pass to workers.
+        if session._gitattrs_patterns is None:
+            session._gitattrs_patterns = _load_gitattributes_generated_paths(root)
+        gitattrs_list = list(session._gitattrs_patterns)
+        if verbose:
+            print(
+                f"build_index: graph extraction parallel — "
+                f"{_PARALLEL_EXTRACTION_WORKERS} workers, "
+                f"{len(code_work_items)} code files (threshold "
+                f"{_PARALLEL_EXTRACTION_THRESHOLD})",
+                flush=True,
+            )
+        worker_args = [
+            (rel, text, str(root), layer, gitattrs_list, walker_version, chunker_version)
+            for rel, text in code_work_items
+        ]
+        # graph_indexer is loaded via `spec_from_file_location` in production
+        # rather than the standard import system, so workers spawned via the
+        # default `spawn` start method can't `import graph_indexer` during
+        # task pickle deserialization (it isn't on sys.path under the name
+        # "graph_indexer"). We use `fork` start method which inherits the
+        # parent's sys.modules — workers immediately have graph_indexer
+        # available with no import gymnastics. macOS emits a DeprecationWarning
+        # but fork works correctly for pure-Python workloads without active
+        # parent threads; our parent here is single-threaded synchronous
+        # Python so the risk is minimal. Operators can override via the
+        # WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD env var.
+        from concurrent.futures import ProcessPoolExecutor
+        import multiprocessing as _mp
+        import warnings as _warnings
+        chunksize = max(1, len(worker_args) // (_PARALLEL_EXTRACTION_WORKERS * 4))
+        start_method = os.environ.get("WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD", "fork")
+        try:
+            with _warnings.catch_warnings():
+                # Silence the macOS DeprecationWarning about fork at pool creation
+                # time. Operators who want to opt out can set the env var to "spawn".
+                _warnings.simplefilter("ignore", DeprecationWarning)
+                mp_ctx = _mp.get_context(start_method)
+        except (ValueError, RuntimeError):
+            mp_ctx = None
+        if mp_ctx is None:
+            for rel, text in code_work_items:
+                session.record_file(rel, text)
+        else:
+            try:
+                with _warnings.catch_warnings():
+                    _warnings.simplefilter("ignore", DeprecationWarning)
+                    with ProcessPoolExecutor(
+                        max_workers=_PARALLEL_EXTRACTION_WORKERS,
+                        mp_context=mp_ctx,
+                    ) as pool:
+                        for rel_path, entry in pool.map(
+                            _extract_artifact_for_worker, worker_args, chunksize=chunksize
+                        ):
+                            if entry is not None:
+                                session.pending_code[rel_path] = entry
+            except Exception as exc:
+                if verbose:
+                    print(
+                        f"build_index: parallel extraction failed "
+                        f"({type(exc).__name__}: {exc}); falling back to serial",
+                        flush=True,
+                    )
+                for rel, text in code_work_items:
+                    session.record_file(rel, text)
+    else:
+        for rel, text in code_work_items:
+            session.record_file(rel, text)
+
+    # Doc/seed files always sequential (need cross-file symbol_terms).
+    for rel, text in doc_work_items:
         session.record_file(rel, text)
+
     payload = session.finalize()
     if verbose:
         counts = payload.get("counts") or {}
