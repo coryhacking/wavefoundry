@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import functools
 import importlib
 import hashlib
 import json
@@ -1208,6 +1209,16 @@ def _ts_path_alias_match(specifier: str, pattern: str) -> str | None:
     return "" if specifier == pattern else None
 
 
+# Wave 1p2q3 (1p2tz post-ship-3 perf): LRU cache for probe/relative-import
+# resolution. Both are pure functions of `(args, filesystem state)`. Filesystem
+# state changes infrequently relative to call volume during a single graph
+# build, so caching pays for itself many times over on barrel-export-heavy
+# codebases where each unique import specifier is hit dozens of times across
+# different callers. Caches are NOT cleared per-build by design — LRU pressure
+# handles eviction and stale-result risk is low (deleted files don't appear in
+# the per-build file list so they're not extracted regardless of cached probe
+# results).
+@functools.lru_cache(maxsize=20000)
 def _probe_ts_alias_target(candidate: Path, root: Path) -> str | None:
     """Probe a candidate path with TS resolution rules; return rel_path or None.
 
@@ -1357,6 +1368,7 @@ def _parse_barrel(barrel_path: Path) -> tuple[dict[str, str], list[str]]:
     return (named_map, wildcards)
 
 
+@functools.lru_cache(maxsize=20000)
 def _resolve_relative_ts_import(specifier: str, from_file: Path, root: Path) -> str | None:
     """Resolve a relative TS import specifier (`./foo`, `../bar`) against the
     containing file. Returns the repo-relative project path or None when the
@@ -6582,6 +6594,17 @@ def update_graph_index(
     chunker_version: str,
     verbose: bool = False,
 ) -> dict[str, Any]:
+    # Wave 1p2q3 (1p2tz post-ship-3 perf): the lru caches on path resolvers
+    # (`_probe_ts_alias_target_cached`, `_resolve_relative_ts_import_cached`)
+    # and the per-file declared-names cache are NOT cleared per-build by
+    # design. Within a build they turn repeated lookups into O(1) hits; across
+    # builds the LRU eviction policy + mtime-keyed dict (for declared-names)
+    # handle staleness naturally. The cost of clearing per build dominated
+    # wall-time on small-build test workloads where each test made a tiny
+    # build call, with negligible benefit on real workloads where rebuilds
+    # are infrequent. Stale-result risk is low: deleted files don't appear
+    # in the per-build file list so they're not extracted regardless of
+    # cached probe results.
     session = GraphIndexSession(
         root=root,
         index_dir=index_dir,
