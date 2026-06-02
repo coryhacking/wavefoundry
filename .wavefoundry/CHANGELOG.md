@@ -6,6 +6,16 @@ This file is at the project-level path (`.wavefoundry/CHANGELOG.md`) rather than
 
 ---
 
+## 1.3.13 — 2026-06-02
+
+Pure performance patch on 1.3.12 — no extractor-shape changes, no `GRAPH_BUILDER_VERSION` bump, no auto-rebuild needed on upgrade.
+
+Path-resolution helpers (`_probe_ts_alias_target`, `_resolve_relative_ts_import`) are pure functions of `(args, filesystem state)`. On barrel-export-heavy codebases, each unique import specifier is hit dozens of times during a build (once per caller) — without caching, every hit re-runs the path probe and its associated `is_file()` syscalls. `functools.lru_cache(maxsize=20000)` turns repeated calls into O(1) lookups within a build. Caches survive across builds within a single MCP server process; LRU eviction handles size naturally, and stale-result risk is low because deleted files don't appear in the per-build file list.
+
+Builds on barrel-heavy TS/JS monorepos (Teton-shape) should see additional wall-time reduction beyond the 1.3.12 file-declared-names cache. Test suite wall-time unchanged because each test uses a unique tmp directory so caches rarely hit on tiny build calls — the gains are workload-dependent.
+
+---
+
 ## 1.3.12 — 2026-06-02
 
 > **Operator-action note: graph builder version bumped 21 → 22.** First MCP query against the graph layer after upgrade will trigger a one-time synchronous rebuild (~10–30s on typical projects; ~50–60s on 12k-node monorepos with this release's perf fix; previously ~80s).
