@@ -2544,9 +2544,14 @@ class JavaReceiverTypeAttributionTests(unittest.TestCase):
     # 1319s bumped 14→15 (cross-language construction-call edges to class node).
     # 1319v bumped 15→16 (ERROR-wrapped top-level class declaration recovery).
     # 1319v bumped 16→17 (broaden recovery predicate to accept simple_identifier/identifier children).
-    def test_graph_builder_version_bumped_for_wave_131bt(self):
-        self.assertEqual(self.mod.GRAPH_BUILDER_VERSION, "17",
-                         "GRAPH_BUILDER_VERSION must be bumped for wave 131bt 1319v 1.3.2 (broader ERROR-class recovery)")
+    # 1p2q3 (1p2q9 C / 1p2tf / 1p2td) bumped 17→18 to invalidate consumer caches for the
+    # .gen.ts classifier, cross-file receiver-type via imports, and self_edge_kind shape change.
+    def test_graph_builder_version_is_at_or_above_latest_bump(self):
+        runtime = int(self.mod.GRAPH_BUILDER_VERSION)
+        self.assertGreaterEqual(runtime, 18,
+                                "GRAPH_BUILDER_VERSION must be ≥ 18 (wave 1p2q3 extractor-shape changes — "
+                                ".gen.ts classifier, cross-file receiver-type via imports, self_edge_kind). "
+                                "Bump in the same change as any future extractor-output shape modification.")
 
 
 class HeuristicImpactUnsupportedLanguageTests(unittest.TestCase):

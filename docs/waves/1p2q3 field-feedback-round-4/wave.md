@@ -68,7 +68,7 @@ Change ID: `1p2tf-bug ts-receiver-type-resolution-uses-resolved-imports`
 Change Status: `implemented`
 
 Change ID: `1p2th-enh workflow-config-emits-code-navigation-hints-block`
-Change Status: `implemented`
+Change Status: `reconsidered-and-reverted`
 
 ## Wave Summary
 

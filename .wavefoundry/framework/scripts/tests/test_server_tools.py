@@ -9506,6 +9506,56 @@ class TestCodeCallhierarchy(unittest.TestCase):
             encoding="utf-8",
         )
 
+    # Wave 1p2q3 (1p2td post-ship): self_edge_kind propagates from edge to entries.
+    def test_self_edge_kind_propagates_to_outgoing_entry(self):
+        """Javaagent field report: self_edge_kind set on the underlying edge
+        must surface on the outgoing/incoming entry so consumers of
+        code_callhierarchy see the overload classification without re-querying
+        the raw edge layer."""
+        self._add("src/Calc.java", "class Calc { int calc(int a) { return calc(a, 0); } int calc(int a, int b) { return a + b; } }\n")
+        self._write_graph(
+            nodes=[
+                {"id": "src/Calc.java::Calc.calc", "label": "calc", "kind": "function", "source_file": "src/Calc.java"},
+            ],
+            edges=[
+                # Synthetic self-edge tagged overload_forwarding.
+                {
+                    "source": "src/Calc.java::Calc.calc",
+                    "target": "src/Calc.java::Calc.calc",
+                    "relation": "calls",
+                    "confidence": "RECEIVER_RESOLVED",
+                    "self_edge_kind": "overload_forwarding",
+                },
+            ],
+        )
+        result = self._call("calc", direction="outgoing")
+        self.assertEqual(result["status"], "ok")
+        out = result["data"].get("outgoing") or []
+        forwarding = [e for e in out if e.get("self_edge_kind") == "overload_forwarding"]
+        self.assertTrue(forwarding, f"expected self_edge_kind on outgoing entry; got: {out}")
+
+    def test_self_edge_kind_propagates_to_incoming_entry(self):
+        self._add("src/Calc.java", "class Calc { int loop(int n) { return loop(n - 1); } }\n")
+        self._write_graph(
+            nodes=[
+                {"id": "src/Calc.java::Calc.loop", "label": "loop", "kind": "function", "source_file": "src/Calc.java"},
+            ],
+            edges=[
+                {
+                    "source": "src/Calc.java::Calc.loop",
+                    "target": "src/Calc.java::Calc.loop",
+                    "relation": "calls",
+                    "confidence": "RECEIVER_RESOLVED",
+                    "self_edge_kind": "recursion",
+                },
+            ],
+        )
+        result = self._call("loop", direction="incoming")
+        self.assertEqual(result["status"], "ok")
+        inc = result["data"].get("incoming") or []
+        recursion = [e for e in inc if e.get("self_edge_kind") == "recursion"]
+        self.assertTrue(recursion, f"expected self_edge_kind on incoming entry; got: {inc}")
+
     # AC-2: direction=outgoing has outgoing, no incoming
     def test_direction_outgoing_only(self):
         """AC-2: direction='outgoing' returns 'outgoing' key but no 'incoming' key."""

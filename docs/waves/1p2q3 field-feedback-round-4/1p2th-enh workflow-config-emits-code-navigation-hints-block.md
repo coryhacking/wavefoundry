@@ -1,13 +1,25 @@
 # Workflow-Config Emits code_navigation_hints Block
 
 Change ID: `1p2th-enh workflow-config-emits-code-navigation-hints-block`
-Change Status: `implemented`
+Change Status: `reconsidered-and-reverted`
 Owner: Engineering
-Status: in-progress
+Status: reverted
 Last verified: 2026-06-02
 Wave: 1p2q3 field-feedback-round-4
 
-## Rationale
+## Reversal (2026-06-02 — same-day)
+
+On post-implementation review the operator flagged the pre-emitted block as duplicate-of-code-defaults noise: the resolver already falls back to `["return", "throw", "raise", "guard", "assert"]` when the key is absent, so the block had no functional effect. The case for emitting it (discoverability) didn't outweigh the costs:
+
+- Every greenfield install ships a no-op JSON block matching code defaults verbatim
+- Operators reading it have to wonder whether it represents a decision they made vs the default
+- If the framework default ever shifts, every pre-emitted block silently diverges from code
+
+The framework owns generic defaults that work across every language and project — those belong in framework code, not in per-project workflow-config. Project-specific values (e.g. `lifecycle_id_policy.epoch_utc`) still belong in the skeleton because the value actually matters per-repo. The `guard_tokens` defaults are universal.
+
+**Reversal applied:** the seed-010 install-time emission and the seed-160 upgrade-time backfill were both removed. The schema stays documented in seed-211 for operators who want to tune it. Existing repos that already received the block from 1.3.7 keep it (no-op); upgrades to 1.3.8+ stop emitting it on new installs.
+
+## Rationale (original — preserved for record)
 
 Teton field validation against 1.3.6+p2t6 confirms that seed-211 documents the `code_navigation_hints.guard_tokens` schema clearly, including the default-fallback behavior when absent. But no example exists in:
 

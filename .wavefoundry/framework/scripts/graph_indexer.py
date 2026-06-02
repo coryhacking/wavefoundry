@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "17"  # bumped for wave 131bt (1319v 1.3.2): broaden ERROR-wrapped class recovery to accept simple_identifier/identifier children (tree-sitter-swift's recovery state relabels the class name node) and require child-text name match as the second gate
+GRAPH_BUILDER_VERSION = "18"  # bumped for wave 1p2q3 (1p2q9 C / 1p2tf / 1p2td 1.3.8): extractor-output-shape changes — .gen.ts generated classifier, tsconfig.paths cross-file receiver-type resolution emits new RECEIVER_RESOLVED edges, self_edge_kind on overloadable-language self-edges + param_signatures on merged nodes. Bump forces auto-rebuild on consumer projects (state v17 → runtime v18) so the new edge/node shapes actually fire instead of reading cached pre-1.3.8 graphs
 GRAPH_DIRNAME = "graph"
 GRAPH_FILENAMES = {
     "project": "project-graph.json",

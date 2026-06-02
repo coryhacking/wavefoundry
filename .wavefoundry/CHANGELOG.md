@@ -6,6 +6,32 @@ This file is at the project-level path (`.wavefoundry/CHANGELOG.md`) rather than
 
 ---
 
+## 1.3.8 — 2026-06-02
+
+Same-day patch on 1.3.7 covering three corrections surfaced by post-ship field validation: the graph builder version was never bumped to invalidate consumer caches for 1.3.5/1.3.6/1.3.7's extractor-shape changes, the `self_edge_kind` field shipped in 1.3.7 was being dropped when constructing `code_callhierarchy` entries, and the workflow-config `code_navigation_hints` block emission was reconsidered as duplicate-of-code-defaults noise.
+
+### Changes
+
+- Bump `GRAPH_BUILDER_VERSION` from `17` to `18` so consumer projects' on-disk graph state mismatches the runtime version and triggers an auto-rebuild on the first MCP query after upgrade. Without the bump, the `.gen.ts` generated-file classifier (1.3.5), cross-file receiver-type resolution via tsconfig.paths-resolved imports (1.3.7), and `self_edge_kind` edge tagging (1.3.7) never re-extract against cached graphs — consumers reading existing graphs see byte-identical attribution numbers and assume the fixes didn't ship
+- Propagate edge `self_edge_kind` to the `outgoing` and `incoming` entries returned by `code_callhierarchy`. The entry constructor reads the target/source node and was discarding the edge's overload-classification metadata before the response was assembled — consumers reading the list saw plain entries with no field. Now the field passes through; recursion / overload_forwarding / unknown surfaces alongside the call entry
+- Drop the `code_navigation_hints` block emission from the install seed and the upgrade-time backfill rule. The block was pure duplication of code defaults — the resolver already falls back to `["return", "throw", "raise", "guard", "assert"]` when the key is absent — so emitting it added noise without functional effect. Operators tuning guard tokens still find the schema in seed-211; the workflow-config skeleton stays clean
+
+---
+
+## 1.3.7 — 2026-06-02
+
+Round-5 field-feedback patch covering Teton's TypeScript receiver-resolution gap, javaagent's overload self-edge ambiguity, the workflow-config navigation-hints discoverability gap, and a long-standing self-hosting prune-safety bug that was silently deleting framework test files on every release.
+
+### Changes
+
+- Bridge tsconfig.paths-resolved imports into TypeScript / JavaScript receiver-type resolution. The 1.3.6 import-aliasing fix made `imports` edges bind to project files but the receiver-type resolver never consulted that map, so calls on imported types still fell through to `external::*`. Per-file `import_targets` is now populated at import-edge emission and consulted by `_resolve_ts_call_target` after the local symbol-lookup miss — aliased cross-package types resolve to project nodes with `RECEIVER_RESOLVED` confidence. Closes Teton's 4.3% type-resolved rate on strict-TS Nx monorepos
+- Detect Nx project structure (`nx.json` at repo root) and surface as a diagnostic field on graph payloads. Wiring scaffolds future Nx-aware resolver passes; the detection alone enables operator-side reasoning about per-codebase resolution quality
+- Tag `calls` self-edges on overloadable languages (Swift / Java / Kotlin / C# / Scala / C++) with `self_edge_kind`: `recursion`, `overload_forwarding`, or `unknown`. The per-file qname merge that collapses overloads into one node previously made every overload-forwarding call indistinguishable from recursion. Per-language signature extractors (Swift label fingerprints; arity for the positional languages) plus walker scope tracking plus an explicit classifier let consumers tell the two apart. Merged nodes carry `param_signatures` listing every overload's signature
+- Emit a `code_navigation_hints` block with the language-default `guard_tokens` array in the workflow-config skeleton at install time, plus a backfill rule in the upgrade seed (never overwrites operator tuning). Operators tuning guard tokens see the schema in context instead of constructing the block from scratch after reading seed-211
+- Remove the legacy fallback from `prune_framework.py`. The list was unconditionally deleting `scripts/tests/` and `scripts/run_tests.py` on every self-hosted upgrade because `build_pack.py` deletes `MANIFEST` after writing it into the zip, leaving `upgrade-wavefoundry` without an old manifest to diff against. No-old-manifest now logs a skip notice and returns — diff-based prune remains the only deletion path
+
+---
+
 ## 1.3.6 — 2026-06-02
 
 Continuation of wave 1p2q3 — completes the Nx TypeScript graph-extraction work, adds the per-language attribution diagnostic, redesigns the dashboard node-kind palette, and applies the dashboard flicker fix. Pairs with 1.3.5; field validation can run against either build.

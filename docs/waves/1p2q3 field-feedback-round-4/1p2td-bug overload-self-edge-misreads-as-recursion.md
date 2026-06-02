@@ -89,7 +89,7 @@ The framework's existing receiver-type resolver could in principle resolve argum
 - [x] AC-6: For a same-arity-different-types overload pair (`f(x: Int)` vs `f(x: String)` in Kotlin/Scala/C#), the emitted self-edge carries `self_edge_kind: "unknown"` rather than guessing.
 - [x] AC-7: For a non-overloaded Python or JavaScript method, no `self_edge_kind` field is emitted on self-edges (current behavior unchanged).
 - [x] AC-8: Merged node payload carries `param_signatures: [<sig>, …]` listing every overload's signature, deduplicated and sorted.
-- [x] AC-9: `code_impact`, `code_callhierarchy`, `code_callgraph`, `code_graph_path` responses surface the new edge field unchanged.
+- [x] AC-9: `code_impact`, `code_callhierarchy`, `code_callgraph`, `code_graph_path` responses surface the new edge field unchanged. **Post-ship correction (2026-06-02 javaagent field validation on 1.3.7+p2th):** `code_callhierarchy`'s `outgoing` / `incoming` entries are constructed via `_node_entry(target_id)` which reads the *target node* — the edge's `self_edge_kind` metadata was lost in this construction, so consumers reading `outgoing`/`incoming` lists did not see the classification. Fixed by propagating `e["self_edge_kind"]` from the underlying edge into the entry dict on both branches; covered by `test_self_edge_kind_propagates_to_outgoing_entry` and `test_self_edge_kind_propagates_to_incoming_entry` in `test_server_tools.py`.
 - [x] AC-10: seed-211 documents the `self_edge_kind` semantics with a one-line note in the response-shape interpretation section.
 - [x] AC-11: All existing 2,200 framework tests pass without modification.
 

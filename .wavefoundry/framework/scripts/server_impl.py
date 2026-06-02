@@ -9398,7 +9398,15 @@ def code_callhierarchy_response(
             tgt = e.get("target")
             if not isinstance(tgt, str):
                 continue
-            out_entries.append((tgt, _node_entry(tgt)))
+            entry = _node_entry(tgt)
+            # Wave 1p2q3 (1p2td post-ship feedback): propagate edge.self_edge_kind
+            # from the underlying edge to the outgoing entry so consumers reading
+            # code_callhierarchy's outgoing list see the overload classification
+            # without re-querying the raw edge layer.
+            sek = e.get("self_edge_kind")
+            if sek:
+                entry["self_edge_kind"] = sek
+            out_entries.append((tgt, entry))
         # Batch: scan definition_file once for all non-external callees
         if definition_file:
             callee_names = [
@@ -9435,7 +9443,14 @@ def code_callhierarchy_response(
             src = e.get("source")
             if not isinstance(src, str):
                 continue
-            incoming_raw.append((src, _node_entry(src)))
+            entry = _node_entry(src)
+            # Wave 1p2q3 (1p2td post-ship feedback): propagate edge.self_edge_kind
+            # from the underlying edge to the incoming entry so consumers reading
+            # code_callhierarchy's incoming list see the overload classification.
+            sek = e.get("self_edge_kind")
+            if sek:
+                entry["self_edge_kind"] = sek
+            incoming_raw.append((src, entry))
 
         # Group by source file — scan each file once
         by_file: dict[str, list[tuple[str, dict[str, Any]]]] = {}
