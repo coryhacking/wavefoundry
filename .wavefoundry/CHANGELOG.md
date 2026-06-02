@@ -6,6 +6,25 @@ This file is at the project-level path (`.wavefoundry/CHANGELOG.md`) rather than
 
 ---
 
+## 1.3.12 — 2026-06-02
+
+> **Operator-action note: graph builder version bumped 21 → 22.** First MCP query against the graph layer after upgrade will trigger a one-time synchronous rebuild (~10–30s on typical projects; ~50–60s on 12k-node monorepos with this release's perf fix; previously ~80s).
+>
+> Affects **TypeScript and JavaScript only**, and the impact on attribution counts is substantial. Repos that use **relative imports for intra-package calls** to **arrow-const-bound functions** (the modern Lambda + Nx + Node.js pattern) should see `attribution_counts_by_language["typescript"]["receiver_resolved"]` rise materially after the rebuild. The 1.3.11 release added the function nodes for arrow-const declarations but couldn't attribute calls to them as RECEIVER_RESOLVED when the caller used a relative import (`import { x } from './events'`) because the relative-path prefix was lost in the resolver pipeline. This release closes that gap.
+>
+> Also: rebuild time on barrel-export-heavy codebases drops materially (Teton-shape projects: 79s → ~50s estimated) because barrel walking now caches per-file declaration sets instead of re-reading destination files on every name lookup.
+
+Same-day continuation of the v21 arrow-const work. Teton field validation on 1.3.11 confirmed all three smoke targets resolve and total TS edges grew 26% — but +9,379 of the new edges landed as `EXTRACTED` rather than `RECEIVER_RESOLVED` because intra-package callers using relative imports went through a code path that lost the relative-path prefix at `_ts_clean_name` time. The fix: extract the raw module specifier before cleaning, then branch on relative vs alias resolution. Plus the perf fix the barrel walker needed.
+
+### Changes
+
+- Bump `GRAPH_BUILDER_VERSION` 21 → 22. See the operator-action note above
+- Extract the raw module specifier from import statements with `./` / `../` / `/` / `@scope/` prefixes preserved. The existing `_ts_relation_candidates → _ts_clean_name` path stripped relative prefixes (`./events` → `events`), so the resolver couldn't tell relative imports apart from bare names. New `_ts_extract_import_module_specifier` helper reads the raw text from the import statement's `source` field
+- Resolve relative imports against the source file's directory before the tsconfig.paths fallback. `import { x } from './events'` now resolves to the actual project file via `_resolve_relative_ts_import`, runs through the same barrel walker, and populates `import_targets` with the walked-through definition file. Direct calls to those imports promote to `RECEIVER_RESOLVED`
+- Cache per-file top-level declaration sets keyed on `(path, mtime)`. `_file_declares_name` now reads through `_file_declared_names` which parses each destination file at most once per build. Eliminates the redundant file-read + regex-run loop in `_resolve_through_barrel` — for barrel-export-heavy codebases this is the dominant hot path
+
+---
+
 ## 1.3.11 — 2026-06-02
 
 > **Operator-action note: graph builder version bumped 20 → 21.** First MCP query against the graph layer after upgrade will trigger a one-time synchronous rebuild (~10–30s on typical projects; ~70–90s on 12k-node monorepos). The 131e2 safety net handles this automatically.

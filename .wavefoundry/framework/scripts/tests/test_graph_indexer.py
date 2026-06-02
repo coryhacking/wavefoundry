@@ -2552,11 +2552,14 @@ class JavaReceiverTypeAttributionTests(unittest.TestCase):
     # import_targets promotion + bundler-mode .js→.ts extension swap.
     # 1p2q3 (1p2tz post-ship-2) bumped 20→21 to invalidate caches for arrow-const node registration
     # (`export const foo = () => {}` dominates modern TS; was never being emitted as a graph node).
+    # 1p2q3 (1p2tz post-ship-3) bumped 21→22 to invalidate caches for relative-import path
+    # resolution into import_targets — intra-package direct calls to arrow-const targets now
+    # land as RECEIVER_RESOLVED instead of EXTRACTED.
     def test_graph_builder_version_is_at_or_above_latest_bump(self):
         runtime = int(self.mod.GRAPH_BUILDER_VERSION)
-        self.assertGreaterEqual(runtime, 21,
-                                "GRAPH_BUILDER_VERSION must be ≥ 21 (wave 1p2q3 extractor-shape changes — "
-                                "arrow-const function registration). "
+        self.assertGreaterEqual(runtime, 22,
+                                "GRAPH_BUILDER_VERSION must be ≥ 22 (wave 1p2q3 extractor-shape changes — "
+                                "relative-import path resolution into import_targets). "
                                 "Bump in the same change as any future extractor-output shape modification.")
 
 
@@ -3430,6 +3433,92 @@ class TsBarrelReExportResolutionTests(unittest.TestCase):
         # Negative: NO edge should target the barrel directly for this call.
         for e in definition_edges:
             self.assertNotEqual(e.get("target"), "libs/utils/src/index.ts::HttpRequest.send")
+
+    def test_intra_package_relative_import_arrow_const_resolves(self):
+        """Wave 1p2q3 (1p2tz post-ship-3 per Teton v22 prediction): intra-package
+        callers using relative imports (`./events`) to call arrow-const-bound
+        functions must land RECEIVER_RESOLVED at the definition file. Before
+        this fix, the relative-path prefix was lost in `_ts_clean_name`, the
+        resolver couldn't tell `./events` apart from `events`, so import_targets
+        ended up as `external::events`. The cross-file rewrite pass then
+        promoted the edge to the right project node but kept it at EXTRACTED.
+
+        This is the load-bearing case for the 9,379 EXTRACTED edges Teton
+        observed in 1.3.11 — intra-package direct calls to arrow-const targets.
+        """
+        files = {
+            "libs/backend/src/lib/events.ts": (
+                "export const getRootApp = async (): Promise<number> => { return 1; };\n"
+            ),
+            "libs/backend/src/lib/caller.ts": (
+                "import { getRootApp } from './events';\n"
+                "export const callerFn = async (): Promise<number> => { return await getRootApp(); };\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = [e for e in payload.get("edges", []) if e.get("relation") == "calls"]
+        receiver_edges = [
+            e for e in calls
+            if e.get("confidence") == "RECEIVER_RESOLVED"
+            and e.get("target") == "libs/backend/src/lib/events.ts::getRootApp"
+        ]
+        self.assertTrue(
+            receiver_edges,
+            f"expected RECEIVER_RESOLVED edge for intra-package relative-import call to "
+            f"arrow-const target; got: {calls}",
+        )
+
+    def test_parent_relative_import_arrow_const_resolves(self):
+        """Cover `../parent` relative imports too."""
+        files = {
+            "libs/backend/src/lib/utils/helper.ts": (
+                "export const helper = (): number => 1;\n"
+            ),
+            "libs/backend/src/lib/handlers/main.ts": (
+                "import { helper } from '../utils/helper';\n"
+                "export const handler = (): number => helper();\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = [e for e in payload.get("edges", []) if e.get("relation") == "calls"]
+        receiver_edges = [
+            e for e in calls
+            if e.get("confidence") == "RECEIVER_RESOLVED"
+            and e.get("target") == "libs/backend/src/lib/utils/helper.ts::helper"
+        ]
+        self.assertTrue(
+            receiver_edges,
+            f"expected RECEIVER_RESOLVED on parent-relative import; got: {calls}",
+        )
+
+    def test_extract_import_module_specifier_preserves_dot_prefix(self):
+        """The raw-spec helper must preserve `./` and `../` prefixes that
+        `_ts_clean_name` strips."""
+        try:
+            import tree_sitter_typescript  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_typescript not available")
+        from tree_sitter import Language, Parser
+        import tree_sitter_typescript
+        lang = Language(tree_sitter_typescript.language_typescript())
+        parser = Parser(lang)
+        cases = [
+            ("import { x } from './foo';", "./foo"),
+            ("import { x } from '../bar/baz';", "../bar/baz"),
+            ("import { x } from '@scope/pkg';", "@scope/pkg"),
+            ('import { x } from "double-quote";', "double-quote"),
+            ("import './side-effect';", "./side-effect"),
+        ]
+        for source, expected in cases:
+            tree = parser.parse(source.encode("utf-8"))
+            import_node = None
+            for child in tree.root_node.children:
+                if child.type == "import_statement":
+                    import_node = child
+                    break
+            self.assertIsNotNone(import_node, f"no import_statement found in {source!r}")
+            spec = self.mod._ts_extract_import_module_specifier(import_node, source.encode("utf-8"))
+            self.assertEqual(spec, expected, f"raw spec for {source!r}")
 
     def test_arrow_const_registers_as_function_node(self):
         """Wave 1p2q3 (1p2tz post-ship-2 per Teton field validation): modern

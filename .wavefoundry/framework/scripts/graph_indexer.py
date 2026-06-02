@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "21"  # bumped for wave 1p2q3 (1p2tz post-ship-2 1.3.11): TS/JS arrow-function-bound `const` registration. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (Teton-confirmed: ALL backend functions on their 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per Teton estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
+GRAPH_BUILDER_VERSION = "22"  # bumped for wave 1p2q3 (1p2tz post-ship-3 1.3.12): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges Teton observed in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (Teton-confirmed: ALL backend functions on their 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per Teton estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
 GRAPH_DIRNAME = "graph"
 GRAPH_FILENAMES = {
     "project": "project-graph.json",
@@ -1369,31 +1369,62 @@ def _resolve_relative_ts_import(specifier: str, from_file: Path, root: Path) -> 
     return _probe_ts_alias_target(candidate, root)
 
 
-def _file_declares_name(file_rel: str, name: str, root: Path) -> bool:
-    """Return True when the file declares `name` at the top level via class /
-    function / const / let / var / interface / type / enum syntax.
+# Wave 1p2q3 (1p2tz post-ship-3 perf): cache the set of top-level declared
+# names per file (keyed on path + mtime) so `_file_declares_name` becomes a
+# hash-set membership check after the first parse rather than re-reading the
+# file and re-running the regex for every name. On barrel-export-heavy codebases
+# (Teton: 14 aliases, each pointing at a barrel that re-exports 10–100 symbols,
+# each re-export potentially walking through 2–3 hops to reach a definition
+# file), the prior implementation triggered tens of thousands of redundant file
+# reads + regex runs during a single graph build.
+_TS_FILE_DECLARED_NAMES_CACHE: dict[tuple[str, float], frozenset[str]] = {}
 
-    Pure syntactic check (regex) — avoids re-parsing through tree-sitter for
-    the secondary lookup. The classifier overshoots on commented-out
-    declarations but those are rare in barrel re-export targets; the cost of
-    a false-positive here is shipping the receiver-resolved edge to a real
-    project file rather than an external (still a strict improvement)."""
-    if not name:
-        return False
+# Single combined regex matching any top-level declaration's binding name.
+# Captures the identifier as group(1).
+_TS_DECLARED_NAMES_RE = re.compile(
+    r"(?m)^\s*(?:export\s+)?(?:default\s+)?"
+    r"(?:abstract\s+|async\s+)?"
+    r"(?:class|function|const|let|var|interface|type|enum)\s+"
+    r"([A-Za-z_][A-Za-z0-9_]*)"
+)
+
+
+def _file_declared_names(file_rel: str, root: Path) -> frozenset[str]:
+    """Return the set of top-level binding names declared in a TS/JS file.
+
+    Cached per (file path, mtime). The cache is module-level — populated
+    lazily during graph extraction and naturally invalidated when source
+    files change mtime."""
+    if not file_rel:
+        return frozenset()
     path = root / file_rel
+    try:
+        stat = path.stat()
+    except OSError:
+        return frozenset()
+    key = (str(path), stat.st_mtime)
+    cached = _TS_FILE_DECLARED_NAMES_CACHE.get(key)
+    if cached is not None:
+        return cached
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
+        result: frozenset[str] = frozenset()
+        _TS_FILE_DECLARED_NAMES_CACHE[key] = result
+        return result
+    names = frozenset(m.group(1) for m in _TS_DECLARED_NAMES_RE.finditer(text))
+    _TS_FILE_DECLARED_NAMES_CACHE[key] = names
+    return names
+
+
+def _file_declares_name(file_rel: str, name: str, root: Path) -> bool:
+    """Return True when the file declares `name` at the top level via class /
+    function / const / let / var / interface / type / enum syntax. Reads
+    through `_file_declared_names`, so the file's declaration set is parsed
+    at most once per (path, mtime)."""
+    if not name:
         return False
-    # Bound the name with a non-identifier boundary so `Foo` doesn't match
-    # `FooBar`. Match common TS declaration prefixes.
-    pattern = (
-        r"(?m)^\s*(?:export\s+)?(?:default\s+)?"
-        r"(?:abstract\s+|async\s+)?"
-        r"(?:class|function|const|let|var|interface|type|enum)\s+"
-        + re.escape(name) + r"\b"
-    )
-    return bool(re.search(pattern, text))
+    return name in _file_declared_names(file_rel, root)
 
 
 def _resolve_through_barrel(
@@ -4424,6 +4455,46 @@ def _ts_extract_arrow_const_bindings(node, source_bytes: bytes) -> list[tuple[st
     return bindings
 
 
+def _ts_extract_import_module_specifier(import_node, source_bytes: bytes) -> str:
+    """Return the raw module-specifier text from a TS/JS import statement.
+
+    Wave 1p2q3 (1p2tz post-ship-3 per Teton field validation): the existing
+    `_ts_relation_candidates` path runs every candidate through `_ts_clean_name`
+    which strips leading `./` and `../` characters (the regex starts at the
+    first identifier character). That's correct for general identifier
+    handling but loses the relative-import shape — both `./events` and `events`
+    collapse to `"events"` at the call site of `_resolve_ts_import_via_tsconfig`,
+    so the resolver can't tell that `./events` should go through the
+    relative-path resolver instead of the tsconfig.paths resolver. This helper
+    returns the raw specifier (quotes stripped, but `./` preserved) so the
+    import handler can branch on the actual import shape.
+
+    Returns empty string when the import has no parseable source field
+    (e.g. side-effect-only imports without `from` clause).
+    """
+    if import_node is None:
+        return ""
+    # Try the `source` field first (tree-sitter TS exposes it directly on
+    # import_statement). Fall back to scanning children for a `string` node.
+    src_node = None
+    try:
+        src_node = import_node.child_by_field_name("source")
+    except Exception:
+        src_node = None
+    if src_node is None:
+        for child in (getattr(import_node, "children", []) or []):
+            if str(getattr(child, "type", "") or "") == "string":
+                src_node = child
+                break
+    if src_node is None:
+        return ""
+    text = source_bytes[src_node.start_byte:src_node.end_byte].decode("utf-8", errors="replace").strip()
+    # Strip surrounding quotes (single or double or backtick).
+    if len(text) >= 2 and text[0] in ("'", '"', "`") and text[0] == text[-1]:
+        text = text[1:-1]
+    return text
+
+
 def _ts_extract_imported_names(import_node, source_bytes: bytes) -> list[str]:
     """Return the locally-bound names introduced by a TS/JS import statement.
 
@@ -5387,16 +5458,33 @@ class GraphIndexSession:
                 # we can register each name → resolved-target binding for the
                 # receiver-type resolver later.
                 imported_names: list[str] = []
+                # Wave 1p2q3 (1p2tz post-ship-3): raw module specifier (with `./`
+                # and `@scope/` prefixes preserved) so the resolver can branch
+                # on import shape — `_ts_relation_candidates` clean-names away
+                # the relative-path prefix and the tsconfig.paths code can't
+                # tell `./events` apart from `events`.
+                raw_spec = ""
                 if lang_key in ("typescript", "javascript"):
                     imported_names = _ts_extract_imported_names(node, source_bytes)
+                    raw_spec = _ts_extract_import_module_specifier(node, source_bytes)
                 for target in _ts_relation_candidates(node, source_bytes, "import", mode):
                     resolved: str | None = None
                     if lang_key in ("typescript", "javascript"):
-                        # Wave 1p2q3 (1p2q9 A): honor tsconfig `paths` aliases
-                        # before falling through to external::*. Nx-style
-                        # `@scope/lib` imports bind to real project nodes when
-                        # an alias resolves on disk.
-                        resolved = _resolve_ts_import_via_tsconfig(target, rel_path, self.root)
+                        # Wave 1p2q3 (1p2tz post-ship-3): try relative-path
+                        # resolution first when the raw specifier starts with
+                        # `.` or `/`. Intra-package callers (libs/foo/src/a.ts
+                        # importing `./b`) need project-path resolution so
+                        # import_targets carries the walked-through definition
+                        # file rather than `external::*`. Without this, the
+                        # cross-file rewrite pass promotes the edge to the
+                        # right target node but keeps it at EXTRACTED.
+                        if raw_spec and (raw_spec.startswith(".") or raw_spec.startswith("/")):
+                            from_file = self.root / rel_path
+                            resolved = _resolve_relative_ts_import(raw_spec, from_file, self.root)
+                        else:
+                            # Wave 1p2q3 (1p2q9 A): honor tsconfig `paths`
+                            # aliases before falling through to external::*.
+                            resolved = _resolve_ts_import_via_tsconfig(raw_spec or target, rel_path, self.root)
                     if resolved is None:
                         resolved = _ts_resolve_target(target, {}, import_aliases)
                     add_edge(source_symbol, resolved, "imports", confidence="EXTRACTED")
@@ -5530,13 +5618,20 @@ class GraphIndexSession:
             if is_import:
                 source_symbol = scope_symbols[-1] if scope_symbols else module_id
                 imported_names: list[str] = []
+                raw_spec = ""
                 if lang_key in ("typescript", "javascript"):
                     imported_names = _ts_extract_imported_names(node, source_bytes)
+                    raw_spec = _ts_extract_import_module_specifier(node, source_bytes)
                 for target in _ts_relation_candidates(node, source_bytes, "import", mode):
                     resolved: str | None = None
                     if lang_key in ("typescript", "javascript"):
-                        # Wave 1p2q3 (1p2q9 A): tsconfig path-alias resolution.
-                        resolved = _resolve_ts_import_via_tsconfig(target, rel_path, self.root)
+                        # Wave 1p2q3 (1p2tz post-ship-3): relative-path branch first.
+                        if raw_spec and (raw_spec.startswith(".") or raw_spec.startswith("/")):
+                            from_file = self.root / rel_path
+                            resolved = _resolve_relative_ts_import(raw_spec, from_file, self.root)
+                        else:
+                            # Wave 1p2q3 (1p2q9 A): tsconfig path-alias resolution.
+                            resolved = _resolve_ts_import_via_tsconfig(raw_spec or target, rel_path, self.root)
                     if resolved is None:
                         resolved = _ts_resolve_target(target, symbol_lookup, import_aliases)
                     add_edge(source_symbol, resolved, "imports", confidence="EXTRACTED")
