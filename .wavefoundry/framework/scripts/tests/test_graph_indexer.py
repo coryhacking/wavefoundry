@@ -2546,11 +2546,15 @@ class JavaReceiverTypeAttributionTests(unittest.TestCase):
     # 1319v bumped 16→17 (broaden recovery predicate to accept simple_identifier/identifier children).
     # 1p2q3 (1p2q9 C / 1p2tf / 1p2td) bumped 17→18 to invalidate consumer caches for the
     # .gen.ts classifier, cross-file receiver-type via imports, and self_edge_kind shape change.
+    # 1p2q3 (1p2tz) bumped 18→19 to invalidate caches for the barrel re-export resolution
+    # (method calls) + leading-@ specifier preservation.
+    # 1p2q3 (1p2tz post-ship) bumped 19→20 to invalidate caches for the direct-function-call
+    # import_targets promotion + bundler-mode .js→.ts extension swap.
     def test_graph_builder_version_is_at_or_above_latest_bump(self):
         runtime = int(self.mod.GRAPH_BUILDER_VERSION)
-        self.assertGreaterEqual(runtime, 18,
-                                "GRAPH_BUILDER_VERSION must be ≥ 18 (wave 1p2q3 extractor-shape changes — "
-                                ".gen.ts classifier, cross-file receiver-type via imports, self_edge_kind). "
+        self.assertGreaterEqual(runtime, 20,
+                                "GRAPH_BUILDER_VERSION must be ≥ 20 (wave 1p2q3 extractor-shape changes — "
+                                "direct-function-call import_targets promotion + bundler-mode .js→.ts swap). "
                                 "Bump in the same change as any future extractor-output shape modification.")
 
 
@@ -3424,6 +3428,77 @@ class TsBarrelReExportResolutionTests(unittest.TestCase):
         # Negative: NO edge should target the barrel directly for this call.
         for e in definition_edges:
             self.assertNotEqual(e.get("target"), "libs/utils/src/index.ts::HttpRequest.send")
+
+    def test_direct_function_call_through_barrel_resolves_to_definition(self):
+        """Wave 1p2q3 (1p2tz post-ship): direct function-call dispatch through
+        an aliased barrel must produce a RECEIVER_RESOLVED edge at the
+        definition file. Per Teton field validation on 1.3.9: barrel method-
+        call resolution worked but free-function calls (the majority of
+        aliased imports on real codebases) still dropped to external::*.
+        """
+        (self.root / "tsconfig.base.json").write_text(
+            '{"compilerOptions": {"baseUrl": ".", "paths": {"@aceiss/utils": ["libs/utils/src/index.ts"]}}}',
+            encoding="utf-8",
+        )
+        files = {
+            "libs/utils/src/index.ts": (
+                "export { httpRequester } from './lib/http-request';\n"
+            ),
+            "libs/utils/src/lib/http-request.ts": (
+                "export function httpRequester(url: string): number { return 1; }\n"
+            ),
+            "apps/web/src/main.ts": (
+                "import { httpRequester } from '@aceiss/utils';\n"
+                "export function caller(): number { return httpRequester('https://x.com'); }\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = [e for e in payload.get("edges", []) if e.get("relation") == "calls"]
+        receiver_edges = [
+            e for e in calls
+            if e.get("confidence") == "RECEIVER_RESOLVED"
+            and e.get("target") == "libs/utils/src/lib/http-request.ts::httpRequester"
+        ]
+        self.assertTrue(
+            receiver_edges,
+            f"expected RECEIVER_RESOLVED edge for direct-function call through barrel; got calls: "
+            f"{[(e.get('source'), e.get('target'), e.get('confidence')) for e in calls]}",
+        )
+
+    def test_bundler_mode_dot_js_extension_resolves_to_dot_ts(self):
+        """Wave 1p2q3 (1p2tz post-ship): TS bundler-mode (TS 5.x) allows source
+        to write `./foo.js` and have it resolve to `./foo.ts` at compile time.
+        Barrel re-exports written this way must still walk through to the
+        definition file.
+        """
+        (self.root / "tsconfig.base.json").write_text(
+            '{"compilerOptions": {"baseUrl": ".", "paths": {"@scope/lib": ["libs/lib/src/index.ts"]}}}',
+            encoding="utf-8",
+        )
+        files = {
+            # Barrel uses .js extension; actual file is .ts (bundler-mode).
+            "libs/lib/src/index.ts": (
+                "export { Worker } from './lib/worker.js';\n"
+            ),
+            "libs/lib/src/lib/worker.ts": (
+                "export class Worker { run(): number { return 1; } }\n"
+            ),
+            "apps/web/src/main.ts": (
+                "import { Worker } from '@scope/lib';\n"
+                "export function caller(w: Worker): number { return w.run(); }\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = [e for e in payload.get("edges", []) if e.get("relation") == "calls"]
+        receiver_edges = [
+            e for e in calls
+            if e.get("confidence") == "RECEIVER_RESOLVED"
+            and e.get("target") == "libs/lib/src/lib/worker.ts::Worker.run"
+        ]
+        self.assertTrue(
+            receiver_edges,
+            f"expected bundler-mode .js→.ts resolution; got calls: {calls}",
+        )
 
     def test_alias_collision_both_resolve_to_same_definition(self):
         # Per Teton supplement: @aceiss/hooks and @teton/hooks both map to libs/hooks/src/index.ts.

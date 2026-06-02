@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "19"  # bumped for wave 1p2q3 (1p2tz 1.3.9): TS/JS barrel re-export resolution. tsconfig.paths aliases on Nx-shaped monorepos point at `src/index.ts` barrels that re-export from `./lib/<name>`; the resolver now follows the chain so import_targets points at the actual definition file. RECEIVER_RESOLVED edge targets shift from barrel files to definition files on consumer projects with barrel-export-heavy library layouts. Affects TypeScript and JavaScript only — other languages unchanged. Operator-visible: ~10–30s auto-rebuild on first MCP query post-upgrade. Previous bump (1.3.8 v17→v18) covered .gen.ts classifier + cross-file receiver-type via tsconfig.paths + self_edge_kind
+GRAPH_BUILDER_VERSION = "20"  # bumped for wave 1p2q3 (1p2tz post-ship 1.3.10): TS/JS direct-function-call resolution through aliased imports. 1.3.9 (v19) shipped barrel re-export following for METHOD calls but missed direct FUNCTION calls — the EXTRACTED-fallback path didn't consult import_targets, so every aliased free-function call (`httpRequest()` after `import { httpRequest } from '@scope/lib'`) landed as `external::httpRequest` regardless of barrel walking. v20 promotes those to RECEIVER_RESOLVED targeting the walked-through definition file. Also bundler-mode .js→.ts extension swap for barrel re-exports written as `export { x } from './foo.js'`. Community-label selector deprioritizes barrel files (index.{ts,tsx,js,jsx}) so Leiden labels stop regressing to "src/index N". Affects TS/JS only — other languages unchanged. Previous bump (1.3.9 v18→v19) covered method-call barrel walking + leading-@ specifier preservation
 GRAPH_DIRNAME = "graph"
 GRAPH_FILENAMES = {
     "project": "project-graph.json",
@@ -1209,7 +1209,16 @@ def _ts_path_alias_match(specifier: str, pattern: str) -> str | None:
 
 
 def _probe_ts_alias_target(candidate: Path, root: Path) -> str | None:
-    """Probe a candidate path with TS resolution rules; return rel_path or None."""
+    """Probe a candidate path with TS resolution rules; return rel_path or None.
+
+    TS bundler-mode resolution (TS 5.x `moduleResolution: "Bundler"`, used by
+    Vite / esbuild / Nx defaults) allows source code to write `./foo.js` and
+    have it resolve to `./foo.ts` at compile time. When the candidate's
+    explicit `.js`/`.jsx`/`.mjs`/`.cjs` extension doesn't exist on disk, also
+    try the matching `.ts`/`.tsx` form. Without this swap, every barrel
+    re-export of the shape `export { x } from './foo.js'` would silently
+    fail to resolve through.
+    """
     try:
         candidate_resolved = candidate.resolve()
         root_resolved = root.resolve()
@@ -1218,6 +1227,18 @@ def _probe_ts_alias_target(candidate: Path, root: Path) -> str | None:
     paths_to_try: list[Path] = []
     if candidate_resolved.suffix:
         paths_to_try.append(candidate_resolved)
+        # Bundler-mode fallback for js → ts swap.
+        suffix = candidate_resolved.suffix.lower()
+        if suffix == ".js":
+            paths_to_try.append(candidate_resolved.with_suffix(".ts"))
+        elif suffix == ".jsx":
+            paths_to_try.append(candidate_resolved.with_suffix(".tsx"))
+        elif suffix == ".mjs":
+            paths_to_try.append(candidate_resolved.with_suffix(".mts"))
+            paths_to_try.append(candidate_resolved.with_suffix(".ts"))
+        elif suffix == ".cjs":
+            paths_to_try.append(candidate_resolved.with_suffix(".cts"))
+            paths_to_try.append(candidate_resolved.with_suffix(".ts"))
     else:
         for ext in _TS_PATH_RESOLVE_EXTS:
             paths_to_try.append(candidate_resolved.with_suffix(ext))
@@ -5591,6 +5612,27 @@ class GraphIndexSession:
                 else:
                     for target in _ts_relation_candidates(node, source_bytes, "call", mode, profile):
                         resolved = _ts_resolve_target(target, symbol_lookup, import_aliases)
+                        # Wave 1p2q3 (1p2tz post-ship): for TS/JS direct function
+                        # calls (`httpRequest(...)` where `httpRequest` was named-
+                        # imported via a tsconfig.paths-aliased barrel), promote
+                        # the resolved target from `external::<name>` to the
+                        # walked-through definition file. The receiver-type
+                        # resolver path above only fires on method calls; without
+                        # this check, every aliased free-function call lands as
+                        # EXTRACTED to external::* even after barrel walking
+                        # populated import_targets correctly. That's the actual
+                        # majority of Nx-monorepo direct calls.
+                        confidence_for_edge = "EXTRACTED"
+                        if (
+                            lang_key in ("typescript", "javascript")
+                            and resolved.startswith("external::")
+                            and import_targets
+                        ):
+                            clean_name = _ts_clean_name(target)
+                            walked = import_targets.get(clean_name)
+                            if walked and not walked.startswith("external::"):
+                                resolved = f"{walked}::{clean_name}"
+                                confidence_for_edge = "RECEIVER_RESOLVED"
                         # Wave 1p2q3 (1p2td): same self-edge classification on
                         # the EXTRACTED path for overloadable languages.
                         self_kind = None
@@ -5606,7 +5648,7 @@ class GraphIndexSession:
                             source_symbol,
                             resolved,
                             "calls",
-                            confidence="EXTRACTED",
+                            confidence=confidence_for_edge,
                             self_edge_kind=self_kind,
                         )
             for child in getattr(node, "named_children", []):

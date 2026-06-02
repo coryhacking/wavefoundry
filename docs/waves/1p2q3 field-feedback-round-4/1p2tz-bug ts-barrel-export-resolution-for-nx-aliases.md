@@ -214,3 +214,23 @@ Fix: preserve a leading `@` through `_ts_clean_name` so scoped specifiers surviv
 This is shipped as part of 1p2tz because the discovery happened during 1p2tz implementation and the two fixes ship together — barrel-export resolution depends on the alias actually resolving in the first place. Tagged here for narrative honesty: 1p2tz's *headline* contribution is barrel-following, but the *largest measurable impact* from the same commit is probably the `@` preservation fix, which closes a latent gap that should have been caught when 1p2tf landed.
 
 Memory entry queued: future TS/JS specifier-related work must verify `_ts_clean_name` round-trips the input shape (scoped packages, URL-like paths, relative-import sentinels) before downstream consumers assume identifier-only forms.
+
+## Post-ship correction 2 (1.3.10): direct-function-call path + bundler-mode `.js` swap + barrel label deprioritization
+
+Teton field validation on 1.3.9+p2vc confirmed three things at once:
+
+1. **The community structure shifted** — barrels now hub communities, proving the leading-`@` fix + tsconfig.paths resolution finally work end-to-end. Imports DO resolve to barrels.
+2. **Attribution numbers stayed at 4.3%** — byte-for-byte identical to v18. The barrel walker for *method calls* shipped correctly, but Teton's primary use case (free-function calls like `httpRequester(url)` after `import { httpRequester } from '@aceiss/utils'`) was untouched.
+3. **Community labels regressed** — barrels became seeds because they outranked previous hubs by in-degree, so meaningful labels like `"SailpointIntegrationDetailsForm"` collapsed to generic `"src/index N"`.
+
+Root cause for (2): the receiver-type resolver path in `walk_calls` only fires on **method calls** (`obj.method()` via `_resolve_ts_call_target`). Direct function calls (`func()`) fall through to the EXTRACTED path which calls `_ts_resolve_target` — that helper consults `import_aliases` (which holds bare-name → bare-name mappings populated by `_ts_import_aliases`) but NOT `import_targets` (which holds the walked-through target paths populated by the barrel walker). Every aliased free-function call landed as `external::<name>` regardless of how well the import side resolved.
+
+Fix shipped together with two related corrections:
+
+- **Direct-function-call promotion.** In `walk_calls`'s EXTRACTED fallback path, when the resolved target starts with `external::` AND `import_targets` carries a project-internal path for that bare name, the resolved target is rewritten to `<walked_path>::<name>` and the edge's confidence is promoted from `EXTRACTED` to `RECEIVER_RESOLVED`. This is the load-bearing fix for Issue A on real codebases — most aliased imports on Nx monorepos are free functions, not class methods.
+- **Bundler-mode `.js` → `.ts` extension swap.** TS 5.x's `moduleResolution: "Bundler"` (used by Vite / esbuild / Nx defaults) allows source code to write `./foo.js` and have it resolve to `./foo.ts` at compile time. Barrel re-exports written `export { x } from './foo.js'` previously failed to walk through because `_probe_ts_alias_target` only tried the literal `.js` path. Added explicit `.js → .ts`, `.jsx → .tsx`, `.mjs → .mts/.ts`, `.cjs → .cts/.ts` fallbacks.
+- **Community-label barrel deprioritization.** `_community_seed` in `graph_cluster.py` now treats nodes whose path matches a barrel filename (`index.{ts,tsx,js,jsx,mjs,cjs,mts,cts}`) with a sort-key penalty: non-barrels are preferred for the seed slot even when a barrel has higher degree. Barrels can still be picked when they're the only option in a community (e.g. an isolated barrel reference). `hub_node_id` and the structural graph are unchanged — operators caching by hub_node_id per the wave 1316r stable-reference contract are unaffected; only the human-readable label changes.
+
+`GRAPH_BUILDER_VERSION` bumped 19 → 20 with the language-coverage callout per the release-note convention. Affects TypeScript and JavaScript only; other languages unchanged.
+
+Test coverage: 6 new tests across `test_graph_indexer.py` and `test_graph_cluster.py`. Verified end-to-end on synthetic fixtures mirroring Teton's tsconfig.paths layout.

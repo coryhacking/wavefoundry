@@ -6,6 +6,23 @@ This file is at the project-level path (`.wavefoundry/CHANGELOG.md`) rather than
 
 ---
 
+## 1.3.10 — 2026-06-02
+
+> **Operator-action note: graph builder version bumped 19 → 20.** First MCP query against the graph layer after upgrade will trigger a one-time synchronous rebuild (~10–30s on typical projects; ~70s on 12k-node monorepos). The 131e2 safety net handles this automatically.
+>
+> Affects **TypeScript and JavaScript only.** Repos on barrel-export-heavy library layouts where most imports are **free functions** (not methods on classes) should see `attribution_counts_by_language["typescript"]["receiver_resolved"]` rise materially after the rebuild — Teton-shape codebases were the motivating case. Repos in other stacks rebuild but their attribution numbers shouldn't shift.
+
+Same-day post-ship correction on 1.3.9, motivated by Teton field validation that confirmed three things at once: the v18 → v19 bump fired correctly and community structure shifted (proving the leading-`@` fix + tsconfig.paths now work end-to-end), but attribution numbers stayed byte-identical at 4.3% and community labels regressed to generic `"src/index N"`. Root cause for the unchanged attribution: 1.3.9's barrel walker only fired on method calls (`obj.method()`), not direct function calls (`func()`) — and most aliased imports on real Nx codebases are free functions, not class methods.
+
+### Changes
+
+- Bump `GRAPH_BUILDER_VERSION` 19 → 20. See the operator-action note above
+- Promote direct-function-call edges through `import_targets` to `RECEIVER_RESOLVED`. When the call resolves to `external::<name>` AND `import_targets` carries a walked-through definition file for that bare name, the edge target is rewritten to `<definition_file>::<name>` and confidence rises from `EXTRACTED` to `RECEIVER_RESOLVED`. This is the load-bearing fix for the persistent 4.3% TS-resolved rate on barrel-export-heavy monorepos: most aliased imports on those layouts are free functions
+- Bundler-mode `.js` / `.jsx` / `.mjs` / `.cjs` → `.ts` / `.tsx` / `.mts` / `.cts` extension swap in `_probe_ts_alias_target`. TS 5.x's `moduleResolution: "Bundler"` (Vite / esbuild / Nx defaults) allows source code to write `./foo.js` and resolve to `./foo.ts` at compile time. Barrel re-exports written this way now walk through correctly
+- Community-label seed selector deprioritizes barrel files (`index.{ts,tsx,js,jsx,mjs,cjs,mts,cts}`). Barrels accumulate high in-degree once aliased imports resolve to them; without deprioritization Leiden picks barrels as seeds and meaningful labels collapse to generic `"src/index N"`. Barrels still get the seed when they're the only candidate in a community. `hub_node_id` unchanged so operators caching by stable-reference contract are unaffected
+
+---
+
 ## 1.3.9 — 2026-06-02
 
 > **Operator-action note: graph builder version bumped 18 → 19.** First MCP query against the graph layer after upgrade will trigger a one-time synchronous rebuild (~10–30s on typical projects). The 131e2 safety net handles this automatically — no operator step required — but the rebuild pause is real.

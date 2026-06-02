@@ -674,5 +674,62 @@ class FixedCommunityClassifierTests(unittest.TestCase):
         self.assertTrue(self.mod._is_cicd_source_file("Dockerfile"))
 
 
+class BarrelDeprioritizedInCommunityLabelsTests(unittest.TestCase):
+    """Wave 1p2q3 (1p2tz post-ship per Teton labeling-regression feedback):
+    barrel files (`libs/<x>/src/index.ts` and similar) accumulate high
+    in-degree once tsconfig.paths aliases resolve to them, which makes them
+    the highest-degree node in their community. Without deprioritization,
+    Leiden picks the barrel as the seed and the community label becomes a
+    generic ``"src/index N"`` rather than the actual descriptive name of the
+    underlying logic. The fix: skip barrel-named files when selecting a seed,
+    falling through to the next-highest-degree node.
+    """
+
+    def setUp(self):
+        from test_graph_cluster import load_graph_cluster
+        self.mod = load_graph_cluster()
+
+    def test_is_barrel_file_matches_index_filenames(self):
+        self.assertTrue(self.mod._is_barrel_file("libs/utils/src/index.ts"))
+        self.assertTrue(self.mod._is_barrel_file("libs/hooks/src/index.tsx"))
+        self.assertTrue(self.mod._is_barrel_file("packages/x/src/index.js"))
+        self.assertTrue(self.mod._is_barrel_file("packages/x/src/index.jsx"))
+        self.assertTrue(self.mod._is_barrel_file("a/b/c/index.mjs"))
+        self.assertTrue(self.mod._is_barrel_file("a/b/c/index.cjs"))
+
+    def test_is_barrel_file_rejects_non_index(self):
+        self.assertFalse(self.mod._is_barrel_file("libs/utils/src/main.ts"))
+        self.assertFalse(self.mod._is_barrel_file("libs/utils/src/http-request.ts"))
+        self.assertFalse(self.mod._is_barrel_file("apps/web/src/app.tsx"))
+        self.assertFalse(self.mod._is_barrel_file(""))
+
+    def test_community_seed_prefers_non_barrel_over_higher_degree_barrel(self):
+        # Barrel has degree 10; impl has degree 5. Without deprioritization
+        # the barrel would win. With deprioritization, impl wins.
+        barrel_id = "libs/utils/src/index.ts"
+        impl_id = "libs/utils/src/lib/sailpoint-integration-details-form.ts"
+        nodes_by_id = {
+            barrel_id: {"id": barrel_id, "kind": "module", "source_file": barrel_id, "label": "index"},
+            impl_id: {"id": impl_id, "kind": "module", "source_file": impl_id, "label": "sailpoint-integration-details-form"},
+        }
+        adjacency = {
+            barrel_id: {f"caller-{i}": 1 for i in range(10)},
+            impl_id: {f"caller-{i}": 1 for i in range(5)},
+        }
+        seed = self.mod._community_seed({barrel_id, impl_id}, nodes_by_id, adjacency)
+        self.assertEqual(seed, impl_id,
+                         "non-barrel impl should beat the higher-degree barrel for seed selection")
+
+    def test_community_seed_falls_back_to_barrel_when_alone(self):
+        # If the community has ONLY a barrel, it must still get picked.
+        barrel_id = "libs/utils/src/index.ts"
+        nodes_by_id = {
+            barrel_id: {"id": barrel_id, "kind": "module", "source_file": barrel_id, "label": "index"},
+        }
+        adjacency = {barrel_id: {f"caller-{i}": 1 for i in range(3)}}
+        seed = self.mod._community_seed({barrel_id}, nodes_by_id, adjacency)
+        self.assertEqual(seed, barrel_id, "barrel-only community must still seed at the barrel")
+
+
 if __name__ == "__main__":
     unittest.main()

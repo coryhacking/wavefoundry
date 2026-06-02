@@ -106,13 +106,37 @@ def _node_label(node: dict[str, Any]) -> str:
     return Path(node_id).stem or node_id or "community"
 
 
+_BARREL_FILENAMES: frozenset[str] = frozenset({
+    "index.ts", "index.tsx", "index.js", "index.jsx", "index.mjs", "index.cjs",
+    "index.mts", "index.cts",
+})
+
+
+def _is_barrel_file(source_file: str) -> bool:
+    """Return True when ``source_file`` looks like a TS/JS barrel re-export file
+    (e.g. ``libs/utils/src/index.ts``). Used to deprioritize barrels when
+    selecting community seed nodes — barrels accumulate high in-degree because
+    every aliased import resolves to them, but their label (``"index"``,
+    transformed to ``"src/index"``) carries no semantic meaning. Wave 1p2q3
+    (1p2tz post-ship per Teton labeling-regression feedback).
+    """
+    if not source_file:
+        return False
+    return Path(source_file).name.casefold() in _BARREL_FILENAMES
+
+
 def _community_seed(node_ids: set[str], nodes_by_id: dict[str, dict[str, Any]], adjacency: dict[str, dict[str, int]]) -> str:
-    def sort_key(node_id: str) -> tuple[int, int, str, str]:
+    def sort_key(node_id: str) -> tuple[int, int, int, str, str]:
         degree = sum(adjacency.get(node_id, {}).values())
         node = nodes_by_id.get(node_id, {})
         label = _node_label(node)
         source_file = str(node.get("source_file") or "")
-        return (-degree, len(source_file), label.casefold(), node_id)
+        # Wave 1p2q3 (1p2tz post-ship): barrel penalty. Sort key prefers
+        # non-barrels first; barrels are still considered (so a 1-node
+        # community of just a barrel still gets a seed) but a non-barrel
+        # alternative with adequate degree will win the seed slot.
+        barrel_penalty = 1 if _is_barrel_file(source_file) else 0
+        return (barrel_penalty, -degree, len(source_file), label.casefold(), node_id)
 
     return min(node_ids, key=sort_key)
 
