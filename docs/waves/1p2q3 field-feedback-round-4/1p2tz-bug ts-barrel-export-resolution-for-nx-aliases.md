@@ -1,0 +1,216 @@
+# TypeScript Barrel Export Resolution for Nx Path Aliases
+
+Change ID: `1p2tz-bug ts-barrel-export-resolution-for-nx-aliases`
+Change Status: `implemented`
+Owner: Engineering
+Status: in-progress
+Last verified: 2026-06-02
+Wave: 1p2q3 field-feedback-round-4
+
+## Rationale
+
+Wave 1p2q3 (1p2tf) shipped tsconfig.paths-aware import resolution in 1.3.7. Teton field validation against 1.3.7+p2th and 1.3.8+p2to (with builder-version bump forcing a clean re-extract) confirmed:
+
+- The receiver-resolved share on the 12,301-node strict-TS Nx monorepo stayed at **4.3%** — byte-for-byte identical to 1.3.6's numbers
+- `code_callhierarchy(symbol='getRootApplicationForInstallation')` still returns `graph_symbol_not_found`
+- The fan-in distribution still shows `external::useState`, `external::select`, `external::trace`, `external::styled` dominating the top
+
+Teton's configuration supplement (`docs/reports/wavefoundry-graph-feedback-2026-06-02-supplement.md`) pinpoints the gap. Every `paths` alias in their `tsconfig.base.json` points to a **single-file barrel re-export**:
+
+```json
+"paths": {
+  "@aceiss/utils":  ["libs/utils/src/index.ts"],
+  "@aceiss/hooks":  ["libs/hooks/src/index.ts"],
+  "@teton/backend": ["libs/backend/src/index.ts"],
+  …
+}
+```
+
+Each `libs/<name>/src/index.ts` is a barrel:
+
+```typescript
+// libs/utils/src/index.ts
+export { httpRequest } from './lib/http-request';
+export { sanitize } from './lib/sanitize';
+export * from './lib/types';
+```
+
+The actual `httpRequest` definition lives in `libs/utils/src/lib/http-request.ts`, not in `libs/utils/src/index.ts`. Our 1p2tf resolver:
+
+1. Sees `import { httpRequest } from '@aceiss/utils'`
+2. Resolves `@aceiss/utils` → `libs/utils/src/index.ts` ✓
+3. Stores `import_targets["httpRequest"] = "libs/utils/src/index.ts"` ✓
+4. At call site `httpRequest()`, looks up `import_targets["httpRequest"]` → `libs/utils/src/index.ts`
+5. Constructs target node id `libs/utils/src/index.ts::httpRequest`
+6. **No node with that id exists** — the index.ts file has no `httpRequest` definition, just a re-export — so the receiver resolver returns `external::httpRequest` and the edge lands as `EXTRACTED` low-confidence
+
+Every aliased import in Teton's codebase hits the same wall. The fix landed the alias name lookup but stopped at the barrel boundary. To produce `RECEIVER_RESOLVED` edges on these call sites, the resolver must follow the barrel re-export to find the real definition file.
+
+This is the load-bearing change for type-resolved share on Nx-shaped repos with barrel-export libraries — the same pattern used by `@aceiss/*`, `@teton/*`, `@scope/*` style monorepos, plus any TS workspace where `src/index.ts` per-package is a barrel (which is the dominant convention).
+
+## Approach
+
+Walk barrel re-exports at import-resolution time so `import_targets[name]` points at the actual definition file rather than the barrel.
+
+**Mechanism:**
+
+1. When `_resolve_ts_import_via_tsconfig` returns a project file for an aliased import (or a relative import), check whether the resolved target is a barrel by parsing its top-level `export` statements.
+2. For each imported name, scan the barrel's re-exports:
+   - `export { Foo } from './path'` — named re-export. If `Foo` matches the imported name, resolve `'./path'` to a file and recurse.
+   - `export { Foo as Bar } from './path'` — renamed re-export. The locally-bound name is `Bar`; if the imported name (local side) matches `Bar`, recurse on the original name `Foo` against `'./path'`.
+   - `export { default as Foo } from './path'` — default re-export with rename. Recurse with the default-export semantics on `'./path'`.
+   - `export * from './path'` — wildcard re-export. The imported name *might* be defined there; recurse and probe.
+3. Cache the parsed barrel structure per file (mtime-keyed) so each file is parsed once per build.
+4. Bound the recursion depth to avoid cycles in pathological re-export chains.
+5. When a re-export chain bottoms out at a file that declares the symbol directly (a `class Foo`, `function Foo`, `const Foo`, or `interface Foo` definition), set `import_targets[imported_name]` to that file's path. When the chain doesn't find a declaration, fall back to the last barrel target — at least the edge lands on a more-specific file than the original alias index.
+6. Handle **alias collision** (two aliases pointing at the same physical file: `@aceiss/hooks` and `@teton/hooks` both → `libs/hooks/src/index.ts`) by recognizing that the *resolved target* is what matters; we don't need to de-dupe at the alias-name level since the import_targets map keys on the locally-bound name.
+
+**Scope of barrel parsing:**
+
+Pure-syntactic, no TS type-checker. Regex-based scan of the top-level export statements:
+- `^export\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]`
+- `^export\s*\*\s*from\s*['"]([^'"]+)['"]`
+- `^export\s*\{\s*default\s+as\s+(\w+)\s*\}\s*from\s*['"]([^'"]+)['"]`
+
+This is the canonical barrel shape — it handles the overwhelming majority of monorepo barrels without needing tree-sitter for the secondary parse. Trade-off: if a barrel uses a non-canonical shape (multi-line clause spanning newlines without `{` on the first line), the scan may miss it. Treated as `unknown` and falls back to the existing barrel target.
+
+**moduleResolution: "Bundler" awareness:**
+
+Teton's `tsconfig.base.json` declares `"moduleResolution": "Bundler"`. This mode (TS 5.x) prefers explicit `.ts` extensions when present and matches esbuild's resolution semantics. Our `_probe_ts_alias_target` already probes the canonical extensions; for bundler mode this is correct. No additional resolution-mode forking required for the barrel-following path — the extension probing logic is already extension-list-based.
+
+**Nested tsconfig discovery:**
+
+Teton's repo has 44 `tsconfig*.json` files (each project carries `tsconfig.json` + `tsconfig.lib.json` + `tsconfig.spec.json`). Our `_discover_tsconfig_for_file` walks up looking for the nearest tsconfig with `paths` — repos with project-local `paths` overrides are handled correctly by that walker. The barrel-resolution change is orthogonal: it operates after alias resolution, regardless of which tsconfig file the alias came from.
+
+## Requirements
+
+1. `_resolve_through_barrel(imported_name, barrel_path, root)` helper added — recursively follows `export { Name } from './path'`, `export { Name as Alias } from './path'`, `export { default as Name } from './path'`, and `export * from './path'` re-exports.
+2. Per-file barrel-parse cache keyed on (file path, mtime) so each barrel is parsed once per build.
+3. Recursion depth bound (≥ 5 hops; depth-N covers `index.ts → barrel-a.ts → barrel-b.ts → impl.ts` which is rare in practice but not pathological).
+4. At import-edge emission (`_extract_tree_sitter_artifact` import branch in both `walk_definitions` and `walk_calls`), after resolving the target via tsconfig.paths, invoke `_resolve_through_barrel` to walk through to the actual definition file. `import_targets[imported_name]` is updated to point at the definition file.
+5. When the chain doesn't bottom out at a declaration of the imported name (e.g. the symbol exists only through a wildcard re-export that we can't statically resolve), retain the last barrel target — never worse than today's behavior.
+6. Cycle detection: a `_seen` set per recursion prevents infinite loops on `barrel-a → barrel-b → barrel-a` shapes.
+7. Regression test (synthetic): two-hop barrel chain (`libs/utils/src/index.ts` re-exports from `libs/utils/src/lib/http-request.ts`); `code_callhierarchy(symbol='httpRequest', direction='incoming')` returns the cross-package caller with `confidence: "RECEIVER_RESOLVED"` and the target resolves to `libs/utils/src/lib/http-request.ts::httpRequest`, not `libs/utils/src/index.ts::httpRequest`.
+8. Regression test: wildcard re-export (`export * from './lib/types'`) — the resolver probes the wildcard target and either resolves through or falls back gracefully.
+9. Regression test: renamed re-export (`export { Foo as Bar } from './lib/Foo'`) — the locally-imported name `Bar` resolves to `libs/.../Foo.ts::Foo`.
+10. Regression test: alias collision (`@aceiss/hooks` and `@teton/hooks` both → `libs/hooks/src/index.ts`) — both produce a `RECEIVER_RESOLVED` edge to the resolved definition; no duplicate or shadowed edges.
+11. `attribution_counts_by_language["typescript"]["receiver_resolved"]` is measurably higher than the pre-change baseline on a synthetic Nx-shaped fixture with at least one barrel chain.
+12. `GRAPH_BUILDER_VERSION` bumped `18 → 19` with the language-coverage callout convention (release notes lead with operator-action note explicitly naming affected languages).
+13. No regression: all existing 2,220 framework tests pass.
+
+## Scope
+
+**Problem statement:** TypeScript receiver-type resolution lands the alias-name lookup but stops at the barrel boundary. On the dominant Nx convention (every package exports via `src/index.ts` barrel re-exporting from `./lib/<file>`), our resolver maps every import to the same 14 barrel nodes and never reaches the actual definition file. This drops type-resolved share to 4.3% on real codebases.
+
+**In scope:**
+
+- `.wavefoundry/framework/scripts/graph_indexer.py` — `_resolve_through_barrel` helper, per-file barrel-parse cache, integration into import-target population at both walker entry points, `GRAPH_BUILDER_VERSION` bump 18 → 19
+- `.wavefoundry/framework/scripts/tests/test_graph_indexer.py` — per-re-export-shape regression fixtures
+- `.wavefoundry/CHANGELOG.md` — 1.3.9 entry leading with the Operator-action note for the v18 → v19 bump
+
+**Out of scope:**
+
+- TS-compiler-driven type checking. The fix is purely syntactic. Same-arity-different-types overloads, complex generic instantiation, and re-exports inside dynamically-evaluated expressions remain unresolved and fall back to existing behavior.
+- Lambda Layer cross-runtime fan-in modeling. Teton's `aceissCorePackages/opt/packages/` is mounted at runtime to every Lambda; that fan-in is a deployment topology fact, not a source-code fact. Documented in the supplement as out-of-scope.
+- Following `import` (rather than `export`) re-export aliasing inside the barrel. Real barrels only use `export`-side re-exports; the `import { Foo } from './x'; export { Foo };` pattern is rare and can be added later if observed in the wild.
+
+## Acceptance Criteria
+
+- [x] AC-1: `_resolve_through_barrel(imported_name, barrel_path, root)` recursively walks the four re-export shapes (named, renamed, default-as, wildcard) until the symbol's actual definition file is found.
+- [x] AC-2: Per-file barrel-parse cache stores `(file_path → {imported_name: resolved_path})` keyed on file mtime; each barrel is parsed at most once per build.
+- [x] AC-3: Recursion depth is bounded at ≥ 5 hops with cycle-set detection on the resolved-paths chain.
+- [x] AC-4: When a re-export chain bottoms out at a file with a direct declaration of the imported name, `import_targets[name]` is updated to that file's repo-relative path.
+- [x] AC-5: When the chain doesn't terminate at a declaration (wildcard re-export to a module that doesn't expose the name), `import_targets[name]` falls back to the last resolved barrel — never worse than baseline.
+- [x] AC-6: Regression test: synthetic two-hop barrel chain produces a `RECEIVER_RESOLVED` edge targeting the definition file (not the barrel index.ts).
+- [x] AC-7: Regression test: renamed re-export (`export { Foo as Bar }`) correctly tracks the locally-bound name across the chain.
+- [x] AC-8: Regression test: wildcard re-export (`export * from './path'`) probes the wildcard target and resolves through or falls back gracefully.
+- [x] AC-9: Regression test: two aliases (`@aceiss/hooks` + `@teton/hooks`) pointing at the same barrel file resolve to the same definition file with no duplicate edges.
+- [x] AC-10: `attribution_counts_by_language["typescript"]["receiver_resolved"]` rises on the synthetic Nx-shaped fixture from pre-change baseline (proves the new path emits at least one cross-package RECEIVER_RESOLVED edge through a barrel).
+- [x] AC-11: `GRAPH_BUILDER_VERSION` bumped 18 → 19 with a comment naming `1p2tz` + the affected language scope (TS/JS).
+- [x] AC-12: CHANGELOG 1.3.9 entry leads with the Operator-action note convention (exact bump, rebuild trigger, affected languages, expected shift in attribution counts on barrel-export-heavy codebases).
+- [x] AC-13: All existing 2,220 framework tests pass.
+
+## Tasks
+
+- [x] Open `framework_edit_allowed` gate (verify still open)
+- [x] Implement `_resolve_through_barrel` helper + barrel-parse cache + integration at import-edge emission
+- [x] Bump `GRAPH_BUILDER_VERSION` 18 → 19 with language-coverage comment
+- [x] Add regression tests per AC-6 through AC-10
+- [x] Run framework tests
+- [x] Update CHANGELOG with 1.3.9 entry leading with Operator-action note
+- [x] Close framework gate; mark change `implemented`
+- [x] Build + package 1.3.9
+- [x] Field-verify against Teton's `getRootApplicationForInstallation` reproducer once they pick it up
+
+## Agent Execution Graph
+
+| Workstream | Owner | Depends On | Notes |
+| --- | --- | --- | --- |
+| barrel-resolver | Engineering | — | `_resolve_through_barrel` + cache |
+| import-targets-integration | Engineering | barrel-resolver | Update import_targets to point at definition files |
+| version-bump | Engineering | barrel-resolver | 18 → 19 in same commit; comment names 1p2tz |
+| tests | Engineering | import-targets-integration | Per-shape fixtures + counts assertion |
+| changelog | Engineering | version-bump | Operator-action note per the convention |
+
+## Serialization Points
+
+- `_extract_tree_sitter_artifact` is the integration point. The barrel-resolution helper is module-level; the cache lives at module scope keyed by file path + mtime. Both walker branches (`walk_definitions` and `walk_calls`) populate `import_targets` and need the barrel-resolved values.
+
+## Affected Architecture Docs
+
+N/A — extractor-internal change. Edge shape unchanged; what changes is the *target* of receiver-resolved edges (specific file vs barrel file).
+
+## AC Priority
+
+| AC | Priority | Rationale |
+| --- | --- | --- |
+| AC-1 | required | The helper is the load-bearing primitive |
+| AC-2 | required | Per-file cache prevents repeated barrel parsing on large monorepos |
+| AC-3 | required | Cycle detection — without it, malformed barrels can hang the build |
+| AC-4 | required | The end-to-end measurable outcome |
+| AC-5 | required | Graceful degradation when the chain can't terminate |
+| AC-6 | required | Empirical proof the change resolves the Teton pattern |
+| AC-7 | required | Renamed re-exports are common; coverage needed |
+| AC-8 | important | Wildcard re-exports are less common; graceful fallback acceptable |
+| AC-9 | required | Alias collision per Teton supplement |
+| AC-10 | required | Attribution-counts proof — the measurable diagnostic Teton confirmed works |
+| AC-11 | required | Version bump per [[graph-builder-version-bump-required]] memory rule |
+| AC-12 | required | Release-note convention per the same memory |
+| AC-13 | required | No baseline regression |
+
+## Related Work
+
+- Direct extension of [[1p2tf]] (cross-file receiver-type via imports) — that change landed the alias lookup; this change closes the barrel-traversal gap that prevented type-resolved share from improving on Nx-shaped repos.
+- Field-feedback supplement from Teton team (`docs/reports/wavefoundry-graph-feedback-2026-06-02-supplement.md`) — provides the concrete tsconfig.paths layout, barrel-re-export shape, alias collision, and `moduleResolution: "Bundler"` configuration that motivate the design.
+- Memory: [[framework-owns-generic-defaults]] (applies indirectly — the resolver fix is framework-generic; no per-project config needed).
+- Memory: [[graph-builder-version-bump-required]] — bump + release-note convention enforced per AC-11 and AC-12.
+
+## Risks
+
+| Risk | Mitigation |
+|---|---|
+| Regex-based barrel parsing misses non-canonical shapes (multi-line export clauses, comments between `export` and `{`) | Treat as `unknown`; fall back to barrel target. Per-shape regression tests cover the canonical cases; non-canonical shapes degrade gracefully to baseline |
+| Barrel chains span many hops on deeply-layered monorepos | Recursion bound at ≥ 5 hops; cycle-set detection on resolved paths. Real monorepos almost always bottom out at 2–3 hops |
+| Per-file cache grows unbounded on very large repos | Cache keys are (path, mtime); evicted naturally on file changes. For multi-GB monorepos, cache size is bounded by total TS file count (typically < 50k entries) |
+| Wildcard re-exports require probing every wildcard target | Stop at first wildcard hit; don't combinatorially expand. If the symbol isn't there, fall back to barrel |
+| The fix changes the *target file* of receiver-resolved edges on existing graphs; downstream tools may have edge-targeting assumptions | Edge shape (source/target/relation/confidence) is unchanged. Only *which file* the target points at differs — that's the entire point of the fix. The `GRAPH_BUILDER_VERSION` bump forces clean re-extraction |
+
+## Post-ship discovery: the leading-`@` strip bug
+
+Implementing this change surfaced a separate latent bug in `_ts_clean_name` that, on inspection, is the **load-bearing root cause** Teton's report was actually pointing at — and the reason every scoped-import resolution failed on their codebase across 1.3.6 / 1.3.7 / 1.3.8 even after our resolver shipped.
+
+The `_ts_clean_name` helper extracted the identifier portion of a TS/JS specifier via:
+
+```python
+match = re.search(r"[A-Za-z_][A-Za-z0-9_.$:#/\-]*", value)
+```
+
+The character class doesn't include `@`. So for a scoped specifier `@aceiss/hooks`, the regex matched starting from the first valid identifier character — `a` — and returned `aceiss/hooks` (without the `@`). Every downstream consumer of the cleaned name then tried to match `aceiss/hooks` against tsconfig paths patterns whose keys contain `@aceiss/hooks` literally. No match → fall through to `external::*`.
+
+This means every npm scoped package (`@aws-sdk/*`, `@nestjs/*`, `@nx/*`, `@aceiss/*`, `@teton/*`, etc.) was being silently mangled before reaching the alias resolver. Our 1p2tf (TS receiver-type via imports) shipped in 1.3.7 and was structurally correct, but its `_ts_relation_candidates` upstream was already stripping the `@` — so the resolver never saw a specifier the alias map could match. Teton's repo uses 14 distinct scoped aliases; this bug applied to all of them, which is the mechanism behind the byte-identical 4.3% rate across three releases.
+
+Fix: preserve a leading `@` through `_ts_clean_name` so scoped specifiers survive. Bare `@` mid-string is not a valid identifier prefix in TS/JS, so the leading-character special case is unambiguous. Implementation in `graph_indexer.py:_ts_clean_name`.
+
+This is shipped as part of 1p2tz because the discovery happened during 1p2tz implementation and the two fixes ship together — barrel-export resolution depends on the alias actually resolving in the first place. Tagged here for narrative honesty: 1p2tz's *headline* contribution is barrel-following, but the *largest measurable impact* from the same commit is probably the `@` preservation fix, which closes a latent gap that should have been caught when 1p2tf landed.
+
+Memory entry queued: future TS/JS specifier-related work must verify `_ts_clean_name` round-trips the input shape (scoped packages, URL-like paths, relative-import sentinels) before downstream consumers assume identifier-only forms.

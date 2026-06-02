@@ -6,13 +6,35 @@ This file is at the project-level path (`.wavefoundry/CHANGELOG.md`) rather than
 
 ---
 
-## 1.3.8 — 2026-06-02
+## 1.3.9 — 2026-06-02
 
-Same-day patch on 1.3.7 covering three corrections surfaced by post-ship field validation: the graph builder version was never bumped to invalidate consumer caches for 1.3.5/1.3.6/1.3.7's extractor-shape changes, the `self_edge_kind` field shipped in 1.3.7 was being dropped when constructing `code_callhierarchy` entries, and the workflow-config `code_navigation_hints` block emission was reconsidered as duplicate-of-code-defaults noise.
+> **Operator-action note: graph builder version bumped 18 → 19.** First MCP query against the graph layer after upgrade will trigger a one-time synchronous rebuild (~10–30s on typical projects). The 131e2 safety net handles this automatically — no operator step required — but the rebuild pause is real.
+>
+> Affects **TypeScript and JavaScript only.** Repos in other stacks (Java, Python, Swift, etc.) will rebuild but their attribution numbers should not shift. Consumer projects on barrel-export-heavy library layouts (the dominant Nx pattern: every package's `src/index.ts` re-exports from `./lib/<name>`) should see their `attribution_counts_by_language["typescript"]["receiver_resolved"]` count rise materially after the rebuild — that's the load-bearing change.
+
+Round-7 field-feedback patch on 1.3.8, motivated by Teton's configuration supplement on the persistent 4.3% TS receiver-resolved rate. The supplement identified barrel re-export following as the missing primitive; implementing it surfaced a second latent bug in `_ts_clean_name` that was the actual root cause of every scoped-import resolution failing across 1.3.6 / 1.3.7 / 1.3.8.
 
 ### Changes
 
-- Bump `GRAPH_BUILDER_VERSION` from `17` to `18` so consumer projects' on-disk graph state mismatches the runtime version and triggers an auto-rebuild on the first MCP query after upgrade. Without the bump, the `.gen.ts` generated-file classifier (1.3.5), cross-file receiver-type resolution via tsconfig.paths-resolved imports (1.3.7), and `self_edge_kind` edge tagging (1.3.7) never re-extract against cached graphs — consumers reading existing graphs see byte-identical attribution numbers and assume the fixes didn't ship
+- Bump `GRAPH_BUILDER_VERSION` 18 → 19. See the operator-action note above
+- Follow barrel re-exports during TS/JS import resolution. tsconfig.paths aliases on Nx-shaped monorepos point at `src/index.ts` files that re-export from `./lib/<name>`. The receiver-type resolver now walks the re-export chain (`export { Foo } from './path'`, `export { Foo as Bar } from './path'`, `export { default as Foo } from './path'`, `export * from './path'`) until it reaches the actual definition file. `import_targets[name]` points at the definition file rather than the barrel index, so cross-package call edges land with per-symbol granularity instead of collapsing onto N hub nodes
+- Preserve a leading `@` in `_ts_clean_name`. The helper was stripping the `@` prefix from scoped specifiers (`@aceiss/hooks` → `aceiss/hooks`) before any downstream consumer saw them, so tsconfig.paths patterns whose keys start with `@` never matched. Every npm scoped package (`@aws-sdk/*`, `@nestjs/*`, `@nx/*`, `@scope/*`) was silently mangled. This is the load-bearing root cause of Teton's 4.3% rate persisting across 1.3.6 / 1.3.7 / 1.3.8 — our 1p2tf code was structurally correct but never saw a specifier the alias map could match. Fix surfaced during 1p2tz barrel-resolver implementation; both fixes ship together
+- Per-file barrel-parse cache keyed on `(path, mtime)` so each barrel file is parsed at most once per build. Recursion bound at 5 hops with cycle-set detection on resolved paths
+- Alias collision handled correctly: when two aliases point at the same physical file (Teton's `@aceiss/hooks` and `@teton/hooks` both → `libs/hooks/src/index.ts`), both resolve through the same barrel chain to the same definition file with no duplicate edges
+
+---
+
+## 1.3.8 — 2026-06-02
+
+> **Operator-action note: graph builder version bumped 17 → 18.** First MCP query against the graph layer after upgrade will trigger a one-time synchronous rebuild (~10–30s on typical project sizes). The 131e2 safety net handles this automatically — no operator step required — but the rebuild pause is real. Operators wanting to amortize it explicitly can run `wave_index_build(content='graph')` before their first query session.
+>
+> The bump invalidates consumer caches for extractor-shape changes shipped in 1.3.5 / 1.3.7 that previously couldn't take effect against pre-1.3.8 graphs: `.gen.ts` / `.generated.ts` JS-TS generated-file classifier (1p2q9 C), cross-file receiver-type resolution via tsconfig.paths-resolved imports (1p2tf), and `self_edge_kind` edge tagging on overloadable-language self-edges (1p2td). Affects all extracted languages — Java / Kotlin / C# / Swift / Scala / C++ for the overload tagging, TypeScript / JavaScript for the receiver-type and classifier changes.
+
+Same-day patch on 1.3.7 covering three corrections surfaced by post-ship field validation: the builder-version bump above (the load-bearing change), a `self_edge_kind` propagation gap in `code_callhierarchy` entries, and a reconsidered seed-emit that turned out to be duplicate-of-code-defaults noise.
+
+### Changes
+
+- Bump `GRAPH_BUILDER_VERSION` from `17` to `18`. See the operator-action note above for the operational impact; without this bump, the extractor-shape changes shipped in 1.3.5 and 1.3.7 cannot take effect on existing consumer projects because the auto-rebuild only fires when state version mismatches runtime
 - Propagate edge `self_edge_kind` to the `outgoing` and `incoming` entries returned by `code_callhierarchy`. The entry constructor reads the target/source node and was discarding the edge's overload-classification metadata before the response was assembled — consumers reading the list saw plain entries with no field. Now the field passes through; recursion / overload_forwarding / unknown surfaces alongside the call entry
 - Drop the `code_navigation_hints` block emission from the install seed and the upgrade-time backfill rule. The block was pure duplication of code defaults — the resolver already falls back to `["return", "throw", "raise", "guard", "assert"]` when the key is absent — so emitting it added noise without functional effect. Operators tuning guard tokens still find the schema in seed-211; the workflow-config skeleton stays clean
 

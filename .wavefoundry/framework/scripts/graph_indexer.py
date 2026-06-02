@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "18"  # bumped for wave 1p2q3 (1p2q9 C / 1p2tf / 1p2td 1.3.8): extractor-output-shape changes — .gen.ts generated classifier, tsconfig.paths cross-file receiver-type resolution emits new RECEIVER_RESOLVED edges, self_edge_kind on overloadable-language self-edges + param_signatures on merged nodes. Bump forces auto-rebuild on consumer projects (state v17 → runtime v18) so the new edge/node shapes actually fire instead of reading cached pre-1.3.8 graphs
+GRAPH_BUILDER_VERSION = "19"  # bumped for wave 1p2q3 (1p2tz 1.3.9): TS/JS barrel re-export resolution. tsconfig.paths aliases on Nx-shaped monorepos point at `src/index.ts` barrels that re-export from `./lib/<name>`; the resolver now follows the chain so import_targets points at the actual definition file. RECEIVER_RESOLVED edge targets shift from barrel files to definition files on consumer projects with barrel-export-heavy library layouts. Affects TypeScript and JavaScript only — other languages unchanged. Operator-visible: ~10–30s auto-rebuild on first MCP query post-upgrade. Previous bump (1.3.8 v17→v18) covered .gen.ts classifier + cross-file receiver-type via tsconfig.paths + self_edge_kind
 GRAPH_DIRNAME = "graph"
 GRAPH_FILENAMES = {
     "project": "project-graph.json",
@@ -1264,6 +1264,176 @@ def _resolve_ts_import_via_tsconfig(specifier: str, rel_path: str, root: Path) -
     return None
 
 
+# Wave 1p2q3 (1p2tz): barrel re-export resolution. tsconfig.paths aliases on
+# Nx-shaped monorepos point at `src/index.ts` barrel files that re-export
+# from `./lib/<name>`. Stopping at the barrel collapses every aliased import
+# onto the same N hub nodes; following re-exports to the definition file is
+# what produces RECEIVER_RESOLVED edges with per-symbol granularity.
+
+_TS_BARREL_PARSE_CACHE: dict[tuple[str, float], dict[str, str]] = {}
+_TS_BARREL_WILDCARDS_CACHE: dict[tuple[str, float], list[str]] = {}
+_TS_BARREL_RESOLVE_MAX_HOPS = 5
+
+# Match `export { Foo, Bar as Baz, default as Qux } from './path'`. Group 1 is
+# the brace clause body; group 2 is the module specifier.
+_TS_REEXPORT_NAMED_RE = re.compile(
+    r"export\s*\{\s*([^}]+?)\s*\}\s*from\s*['\"]([^'\"]+)['\"]"
+)
+# Match `export * from './path'`.
+_TS_REEXPORT_WILDCARD_RE = re.compile(
+    r"export\s*\*\s*from\s*['\"]([^'\"]+)['\"]"
+)
+
+
+def _parse_barrel(barrel_path: Path) -> tuple[dict[str, str], list[str]]:
+    """Return ({local_name: (module_specifier, source_name)}, [wildcard_modules]).
+
+    Cached per file path + mtime. `local_name` is the name as exposed by the
+    barrel; `source_name` is the original name in the re-exported module.
+    Default re-exports (`{ default as Foo }`) appear with source_name="default".
+    """
+    try:
+        stat = barrel_path.stat()
+    except OSError:
+        return ({}, [])
+    cache_key = (str(barrel_path), stat.st_mtime)
+    if cache_key in _TS_BARREL_PARSE_CACHE:
+        return (_TS_BARREL_PARSE_CACHE[cache_key], _TS_BARREL_WILDCARDS_CACHE.get(cache_key, []))
+    named_map: dict[str, str] = {}
+    sourcename_map: dict[str, str] = {}  # local_name -> original name in source module
+    wildcards: list[str] = []
+    try:
+        text = barrel_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        _TS_BARREL_PARSE_CACHE[cache_key] = {}
+        _TS_BARREL_WILDCARDS_CACHE[cache_key] = []
+        return ({}, [])
+    for m in _TS_REEXPORT_NAMED_RE.finditer(text):
+        clause = m.group(1)
+        module_spec = m.group(2)
+        for part in clause.split(","):
+            item = part.strip()
+            if not item:
+                continue
+            # Three shapes: "Foo", "Foo as Bar", "default as Foo".
+            if " as " in item:
+                left, right = [s.strip() for s in item.split(" as ", 1)]
+                source_name = left
+                local_name = right
+            else:
+                source_name = local_name = item
+            if not local_name:
+                continue
+            named_map[local_name] = module_spec
+            sourcename_map[local_name] = source_name
+    for m in _TS_REEXPORT_WILDCARD_RE.finditer(text):
+        wildcards.append(m.group(1))
+    _TS_BARREL_PARSE_CACHE[cache_key] = named_map
+    _TS_BARREL_WILDCARDS_CACHE[cache_key] = wildcards
+    # Stash the rename info under the same key as a small attached dict so the
+    # resolver can recover the original source name for the next hop.
+    _TS_BARREL_PARSE_CACHE[(str(barrel_path), stat.st_mtime, "_rename")] = sourcename_map  # type: ignore[assignment]
+    return (named_map, wildcards)
+
+
+def _resolve_relative_ts_import(specifier: str, from_file: Path, root: Path) -> str | None:
+    """Resolve a relative TS import specifier (`./foo`, `../bar`) against the
+    containing file. Returns the repo-relative project path or None when the
+    target doesn't probe to a real file."""
+    if not specifier:
+        return None
+    if not (specifier.startswith(".") or specifier.startswith("/")):
+        return None
+    candidate = (from_file.parent / specifier).resolve()
+    return _probe_ts_alias_target(candidate, root)
+
+
+def _file_declares_name(file_rel: str, name: str, root: Path) -> bool:
+    """Return True when the file declares `name` at the top level via class /
+    function / const / let / var / interface / type / enum syntax.
+
+    Pure syntactic check (regex) — avoids re-parsing through tree-sitter for
+    the secondary lookup. The classifier overshoots on commented-out
+    declarations but those are rare in barrel re-export targets; the cost of
+    a false-positive here is shipping the receiver-resolved edge to a real
+    project file rather than an external (still a strict improvement)."""
+    if not name:
+        return False
+    path = root / file_rel
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    # Bound the name with a non-identifier boundary so `Foo` doesn't match
+    # `FooBar`. Match common TS declaration prefixes.
+    pattern = (
+        r"(?m)^\s*(?:export\s+)?(?:default\s+)?"
+        r"(?:abstract\s+|async\s+)?"
+        r"(?:class|function|const|let|var|interface|type|enum)\s+"
+        + re.escape(name) + r"\b"
+    )
+    return bool(re.search(pattern, text))
+
+
+def _resolve_through_barrel(
+    imported_name: str,
+    target_rel_path: str,
+    root: Path,
+    _seen: set[str] | None = None,
+    _depth: int = 0,
+) -> str:
+    """Walk barrel re-exports until the symbol's actual definition file is found.
+
+    Returns the repo-relative project path. Falls back to ``target_rel_path``
+    (the input barrel) when no chain terminates at a declaration of
+    ``imported_name``. Recursion is bounded at ``_TS_BARREL_RESOLVE_MAX_HOPS``;
+    cycles in the resolved-paths chain are detected via ``_seen``.
+    """
+    if _depth >= _TS_BARREL_RESOLVE_MAX_HOPS:
+        return target_rel_path
+    if _seen is None:
+        _seen = set()
+    if target_rel_path in _seen:
+        return target_rel_path
+    _seen = _seen | {target_rel_path}
+    barrel_path = root / target_rel_path
+    if not barrel_path.is_file():
+        return target_rel_path
+    # If the current file declares the name directly, stop here.
+    if _depth > 0 and _file_declares_name(target_rel_path, imported_name, root):
+        return target_rel_path
+    named_map, wildcards = _parse_barrel(barrel_path)
+    # Named / renamed re-exports.
+    if imported_name in named_map:
+        try:
+            stat = barrel_path.stat()
+            sourcename_map = _TS_BARREL_PARSE_CACHE.get(
+                (str(barrel_path), stat.st_mtime, "_rename")  # type: ignore[arg-type]
+            ) or {}
+        except OSError:
+            sourcename_map = {}
+        next_module_spec = named_map[imported_name]
+        next_name = sourcename_map.get(imported_name, imported_name)
+        next_rel = _resolve_relative_ts_import(next_module_spec, barrel_path, root)
+        if next_rel is not None:
+            # Recurse with the source-side name (post-rename).
+            return _resolve_through_barrel(next_name, next_rel, root, _seen, _depth + 1)
+    # Wildcard re-exports: probe each. Stop at first hit where the name is
+    # declared; otherwise fall back to the barrel.
+    for wild_spec in wildcards:
+        wild_rel = _resolve_relative_ts_import(wild_spec, barrel_path, root)
+        if wild_rel is None:
+            continue
+        if _file_declares_name(wild_rel, imported_name, root):
+            return wild_rel
+        # Recurse into the wildcard target — it might itself be a barrel.
+        wild_resolved = _resolve_through_barrel(imported_name, wild_rel, root, _seen, _depth + 1)
+        if wild_resolved != wild_rel:
+            return wild_resolved
+    # No re-export chain produced a declaration; stay at the (last) barrel.
+    return target_rel_path
+
+
 def _ts_get_language(lang_key: str):
     if not _TS_AVAILABLE:
         return None
@@ -1335,6 +1505,17 @@ def _ts_clean_name(text: str) -> str:
     value = value.strip("`'\"")
     value = value.rstrip(";,)")
     value = value.strip()
+    # Wave 1p2q3 (1p2tz field follow-up): preserve a leading `@` so scoped npm /
+    # Nx package specifiers (`@aceiss/hooks`, `@teton/backend`, `@scope/pkg`)
+    # survive into the alias resolver. Without this, `@aceiss/hooks` would be
+    # cleaned to `aceiss/hooks` and fail to match the tsconfig.paths pattern
+    # `@aceiss/hooks` — which is the silent root cause of every scoped-import
+    # resolution failing on Nx monorepos. The leading `@` is the only special
+    # case; bare `@` mid-string is not a valid identifier prefix in TS/JS.
+    if value.startswith("@"):
+        rest_match = re.search(r"[A-Za-z_][A-Za-z0-9_.$:#/\-]*", value[1:])
+        if rest_match:
+            return "@" + rest_match.group(0)
     match = re.search(r"[A-Za-z_][A-Za-z0-9_.$:#/\-]*", value)
     if match:
         return match.group(0)
@@ -5163,8 +5344,16 @@ class GraphIndexSession:
                     # resolved target so the receiver-type resolver can
                     # promote `external::Foo.bar` to a project node when
                     # `Foo` was imported from a tsconfig.paths-aliased lib.
-                    for name in imported_names:
-                        import_targets[name] = resolved
+                    # Wave 1p2q3 (1p2tz): when the resolved target is a barrel
+                    # re-export (`src/index.ts` patterns), follow the chain so
+                    # the binding points at the actual definition file.
+                    if lang_key in ("typescript", "javascript") and resolved and not resolved.startswith("external::"):
+                        for name in imported_names:
+                            walked = _resolve_through_barrel(name, resolved, self.root)
+                            import_targets[name] = walked
+                    else:
+                        for name in imported_names:
+                            import_targets[name] = resolved
                 import_aliases.update(_ts_import_aliases(node, source_bytes, mode))
             if is_definition:
                 candidates = _ts_name_candidates(node, source_bytes, mode)
@@ -5268,8 +5457,15 @@ class GraphIndexSession:
                     add_edge(source_symbol, resolved, "imports", confidence="EXTRACTED")
                     # Wave 1p2q3 (1p2tf): register imported-name → target so the
                     # receiver-type resolver can use it on calls below.
-                    for name in imported_names:
-                        import_targets[name] = resolved
+                    # Wave 1p2q3 (1p2tz): follow barrel re-exports to the
+                    # actual definition file.
+                    if lang_key in ("typescript", "javascript") and resolved and not resolved.startswith("external::"):
+                        for name in imported_names:
+                            walked = _resolve_through_barrel(name, resolved, self.root)
+                            import_targets[name] = walked
+                    else:
+                        for name in imported_names:
+                            import_targets[name] = resolved
             if is_definition:
                 candidates = _ts_name_candidates(node, source_bytes, mode)
                 name = _ts_pick_symbol_name(candidates, mode, node_type)

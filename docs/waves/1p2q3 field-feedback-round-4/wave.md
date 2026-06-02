@@ -70,6 +70,9 @@ Change Status: `implemented`
 Change ID: `1p2th-enh workflow-config-emits-code-navigation-hints-block`
 Change Status: `reconsidered-and-reverted`
 
+Change ID: `1p2tz-bug ts-barrel-export-resolution-for-nx-aliases`
+Change Status: `implemented`
+
 ## Wave Summary
 
 (Populated on close.)

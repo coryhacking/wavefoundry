@@ -3226,6 +3226,244 @@ class TsReceiverTypeViaImportsTests(unittest.TestCase):
         )
 
 
+class TsBarrelReExportResolutionTests(unittest.TestCase):
+    """Wave 1p2q3 (1p2tz): barrel re-export following. tsconfig.paths aliases
+    on Nx-shaped monorepos point at `src/index.ts` barrels that re-export from
+    `./lib/<name>`. The receiver-type resolver must walk through the barrel
+    chain so import_targets points at the actual definition file, not the
+    barrel index.
+
+    Per Teton's configuration supplement: every alias in their tsconfig.base.json
+    resolves to a single-file barrel; the dominant Nx pattern.
+    """
+
+    def setUp(self):
+        try:
+            import tree_sitter_typescript  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_typescript not available")
+        self.mod = load_graph_indexer()
+        self.mod._TSCONFIG_PATHS_CACHE.clear()
+        self.mod._TSCONFIG_DISCOVERY_CACHE.clear()
+        self.mod._TS_BARREL_PARSE_CACHE.clear()
+        self.mod._TS_BARREL_WILDCARDS_CACHE.clear()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files):
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    # Helper unit tests for the resolver itself.
+
+    def test_parse_barrel_named_reexport(self):
+        barrel = self.root / "lib" / "index.ts"
+        barrel.parent.mkdir(parents=True, exist_ok=True)
+        barrel.write_text("export { Foo, Bar } from './impl';\n", encoding="utf-8")
+        named, wildcards = self.mod._parse_barrel(barrel)
+        self.assertEqual(named, {"Foo": "./impl", "Bar": "./impl"})
+        self.assertEqual(wildcards, [])
+
+    def test_parse_barrel_renamed_reexport(self):
+        barrel = self.root / "lib" / "index.ts"
+        barrel.parent.mkdir(parents=True, exist_ok=True)
+        barrel.write_text("export { Foo as Bar } from './impl';\n", encoding="utf-8")
+        named, _ = self.mod._parse_barrel(barrel)
+        self.assertEqual(named, {"Bar": "./impl"})
+
+    def test_parse_barrel_default_reexport(self):
+        barrel = self.root / "lib" / "index.ts"
+        barrel.parent.mkdir(parents=True, exist_ok=True)
+        barrel.write_text("export { default as Foo } from './impl';\n", encoding="utf-8")
+        named, _ = self.mod._parse_barrel(barrel)
+        self.assertEqual(named, {"Foo": "./impl"})
+
+    def test_parse_barrel_wildcard_reexport(self):
+        barrel = self.root / "lib" / "index.ts"
+        barrel.parent.mkdir(parents=True, exist_ok=True)
+        barrel.write_text("export * from './types';\nexport * from './utils';\n", encoding="utf-8")
+        _, wildcards = self.mod._parse_barrel(barrel)
+        self.assertEqual(sorted(wildcards), ["./types", "./utils"])
+
+    def test_parse_barrel_cache_keyed_on_mtime(self):
+        barrel = self.root / "lib" / "index.ts"
+        barrel.parent.mkdir(parents=True, exist_ok=True)
+        barrel.write_text("export { Foo } from './a';\n", encoding="utf-8")
+        n1, _ = self.mod._parse_barrel(barrel)
+        # Cache populated.
+        self.assertGreater(
+            len([k for k in self.mod._TS_BARREL_PARSE_CACHE if not (isinstance(k, tuple) and len(k) == 3)]),
+            0,
+        )
+        n2, _ = self.mod._parse_barrel(barrel)
+        self.assertEqual(n1, n2)
+
+    def test_resolve_through_barrel_named_chain(self):
+        # Two-hop chain: index.ts -> lib/impl.ts (declares Foo)
+        (self.root / "libs" / "utils" / "src").mkdir(parents=True, exist_ok=True)
+        (self.root / "libs" / "utils" / "src" / "index.ts").write_text(
+            "export { Foo } from './lib/impl';\n", encoding="utf-8",
+        )
+        (self.root / "libs" / "utils" / "src" / "lib").mkdir(parents=True, exist_ok=True)
+        (self.root / "libs" / "utils" / "src" / "lib" / "impl.ts").write_text(
+            "export class Foo { bar() {} }\n", encoding="utf-8",
+        )
+        result = self.mod._resolve_through_barrel(
+            "Foo", "libs/utils/src/index.ts", self.root,
+        )
+        self.assertEqual(result, "libs/utils/src/lib/impl.ts")
+
+    def test_resolve_through_barrel_renamed_chain(self):
+        # Imported as Bar locally, exported by impl.ts as Foo.
+        (self.root / "libs" / "utils" / "src").mkdir(parents=True, exist_ok=True)
+        (self.root / "libs" / "utils" / "src" / "index.ts").write_text(
+            "export { Foo as Bar } from './lib/impl';\n", encoding="utf-8",
+        )
+        (self.root / "libs" / "utils" / "src" / "lib").mkdir(parents=True, exist_ok=True)
+        (self.root / "libs" / "utils" / "src" / "lib" / "impl.ts").write_text(
+            "export class Foo { bar() {} }\n", encoding="utf-8",
+        )
+        # Caller imports Bar; resolver should land on impl.ts (where Foo lives).
+        result = self.mod._resolve_through_barrel(
+            "Bar", "libs/utils/src/index.ts", self.root,
+        )
+        self.assertEqual(result, "libs/utils/src/lib/impl.ts")
+
+    def test_resolve_through_barrel_wildcard_finds_declaration(self):
+        (self.root / "libs" / "utils" / "src").mkdir(parents=True, exist_ok=True)
+        (self.root / "libs" / "utils" / "src" / "index.ts").write_text(
+            "export * from './lib/types';\n", encoding="utf-8",
+        )
+        (self.root / "libs" / "utils" / "src" / "lib").mkdir(parents=True, exist_ok=True)
+        (self.root / "libs" / "utils" / "src" / "lib" / "types.ts").write_text(
+            "export interface Foo { bar: string; }\n", encoding="utf-8",
+        )
+        result = self.mod._resolve_through_barrel(
+            "Foo", "libs/utils/src/index.ts", self.root,
+        )
+        self.assertEqual(result, "libs/utils/src/lib/types.ts")
+
+    def test_resolve_through_barrel_no_declaration_falls_back_to_barrel(self):
+        (self.root / "libs" / "utils" / "src").mkdir(parents=True, exist_ok=True)
+        (self.root / "libs" / "utils" / "src" / "index.ts").write_text(
+            "// no re-exports here\n", encoding="utf-8",
+        )
+        result = self.mod._resolve_through_barrel(
+            "Foo", "libs/utils/src/index.ts", self.root,
+        )
+        # Falls back to barrel since no chain leads to a declaration.
+        self.assertEqual(result, "libs/utils/src/index.ts")
+
+    def test_resolve_through_barrel_cycle_detection(self):
+        # Set up a cycle: a/index.ts re-exports from ../b, b/index.ts re-exports from ../a.
+        (self.root / "a").mkdir(parents=True, exist_ok=True)
+        (self.root / "a" / "index.ts").write_text(
+            "export { Foo } from '../b';\n", encoding="utf-8",
+        )
+        (self.root / "b").mkdir(parents=True, exist_ok=True)
+        (self.root / "b" / "index.ts").write_text(
+            "export { Foo } from '../a';\n", encoding="utf-8",
+        )
+        # Should terminate without infinite loop.
+        result = self.mod._resolve_through_barrel("Foo", "a/index.ts", self.root)
+        # Falls back to one of the barrels — either is acceptable, just must not hang.
+        self.assertIn(result, ("a/index.ts", "b/index.ts"))
+
+    # End-to-end Nx-shaped fixture mirroring Teton's tsconfig.paths layout.
+
+    def test_aliased_import_through_barrel_resolves_to_definition_file(self):
+        (self.root / "tsconfig.base.json").write_text(
+            '{"compilerOptions": {"baseUrl": ".", "paths": {"@aceiss/utils": ["libs/utils/src/index.ts"]}}}',
+            encoding="utf-8",
+        )
+        files = {
+            "libs/utils/src/index.ts": (
+                "export { HttpRequest } from './lib/http-request';\n"
+            ),
+            "libs/utils/src/lib/http-request.ts": (
+                "export class HttpRequest {\n"
+                "  send(): number { return 1; }\n"
+                "}\n"
+            ),
+            "apps/web/src/main.ts": (
+                "import { HttpRequest } from '@aceiss/utils';\n"
+                "export function caller(h: HttpRequest): number {\n"
+                "  return h.send();\n"
+                "}\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = [e for e in payload.get("edges", []) if e.get("relation") == "calls"]
+        # Expect a RECEIVER_RESOLVED edge targeting the DEFINITION file, not the barrel.
+        definition_edges = [
+            e for e in calls
+            if e.get("confidence") == "RECEIVER_RESOLVED"
+            and e.get("target") == "libs/utils/src/lib/http-request.ts::HttpRequest.send"
+        ]
+        self.assertTrue(
+            definition_edges,
+            f"expected RECEIVER_RESOLVED edge through barrel to definition file; got calls: "
+            f"{[(e.get('source'), e.get('target'), e.get('confidence')) for e in calls]}",
+        )
+        # Negative: NO edge should target the barrel directly for this call.
+        for e in definition_edges:
+            self.assertNotEqual(e.get("target"), "libs/utils/src/index.ts::HttpRequest.send")
+
+    def test_alias_collision_both_resolve_to_same_definition(self):
+        # Per Teton supplement: @aceiss/hooks and @teton/hooks both map to libs/hooks/src/index.ts.
+        (self.root / "tsconfig.base.json").write_text(
+            '{"compilerOptions": {"baseUrl": ".", "paths": {'
+            '"@aceiss/hooks": ["libs/hooks/src/index.ts"],'
+            '"@teton/hooks":  ["libs/hooks/src/index.ts"]'
+            '}}}',
+            encoding="utf-8",
+        )
+        files = {
+            "libs/hooks/src/index.ts": (
+                "export { UseSession } from './lib/use-session';\n"
+            ),
+            "libs/hooks/src/lib/use-session.ts": (
+                "export class UseSession { compute(): number { return 1; } }\n"
+            ),
+            "apps/aceiss/src/main.ts": (
+                "import { UseSession } from '@aceiss/hooks';\n"
+                "export function aceissCaller(u: UseSession): number { return u.compute(); }\n"
+            ),
+            "apps/teton/src/main.ts": (
+                "import { UseSession } from '@teton/hooks';\n"
+                "export function tetonCaller(u: UseSession): number { return u.compute(); }\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = [e for e in payload.get("edges", []) if e.get("relation") == "calls"]
+        # Both callers should land receiver-resolved edges at the same definition file.
+        targets = [
+            e.get("target") for e in calls
+            if e.get("confidence") == "RECEIVER_RESOLVED"
+            and "UseSession.compute" in str(e.get("target") or "")
+        ]
+        self.assertTrue(targets, f"expected RECEIVER_RESOLVED edges from both aliases; got calls: {calls}")
+        # Every receiver-resolved edge for UseSession.compute must land at the same file.
+        for t in targets:
+            self.assertEqual(t, "libs/hooks/src/lib/use-session.ts::UseSession.compute")
+
+
 class GeneratedCodeIntegrationTests(unittest.TestCase):
     """End-to-end: generated tag propagates to node payload, cluster fraction, report filters."""
 
