@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-01
+Last verified: 2026-06-02
 
 Shortcut: **`Package Wavefoundry`** | Legacy: **`Package wave framework`** / **`Package wave context`**
 
@@ -36,14 +36,16 @@ python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH
 python3 -B .wavefoundry/framework/scripts/run_tests.py
 ```
 
-4. **Update `.wavefoundry/framework/RELEASE_NOTES.md`** — operator-visible release surface that ships in the zip and lands in the consumer's framework directory on `wave_upgrade`. **Notes are aggregated by semver version (`MAJOR.MINOR.PATCH`), not by build.** Multiple builds of the same semver share one entry. Two cases:
-   - **Semver bumps** (e.g., `1.2.0` → `1.2.1`): prepend a new section. Header `## MAJOR.MINOR.PATCH — YYYY-MM-DD`. Cover headline change, upgrade action required (`GRAPH_BUILDER_VERSION` bumps, MCP server restart needs), per-change summaries, breaking changes or deprecations with migration guidance, and the wave id reference. Mirror the prior entry's shape.
-   - **Semver unchanged, only build changes** (e.g., re-packaging `1.2.1` with a fresh build): edit the existing entry in place — do NOT add a new section.
+4. **Update `.wavefoundry/CHANGELOG.md`** — operator-visible release history at the project-level path. Sections are organized **by version, not by build**. Two cases:
+   - **Semver bumps** (e.g., `1.2.0` → `1.2.1`): prepend a new section. Header `## MAJOR.MINOR.PATCH — YYYY-MM-DD`. Cohesive narrative prose covering the headline change, upgrade action required (`GRAPH_BUILDER_VERSION` bumps, MCP server restart needs), per-change summaries, breaking changes or deprecations with migration guidance, and a one-line wave id reference at the end. Mirror the prior section's shape.
+   - **Semver unchanged, only build changes** (e.g., re-packaging `1.2.1` with a fresh build): **rewrite the existing section** as cohesive narrative covering the most important points across all builds of the version. Do NOT append a delta-style "build XXX added Y" log. Do NOT add a per-build subsection.
 
-   **Do not skip this step** — RELEASE_NOTES.md is the only release surface that travels with the package.
+   **Quality criteria:** operator impact (not chronology), no build numbers anywhere in the file (build numbers live in git history, `VERSION`, and dist zip filename), required-action callouts explicit, NOT Keep-a-Changelog category format. `build_pack.py` emits a non-fatal diagnostic when a section looks chronological or references build numbers — bypass with `--skip-changelog-diagnostic` only when the warning is a known false positive.
+
+   **Do not skip this step** — `CHANGELOG.md` is the only release surface that travels with the package.
 5. Ensure `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches the packaged revision unless you intentionally use `--skip-manifest-check`.
 6. Run the packaging command once. It stamps `.wavefoundry/framework/VERSION`, updates `.wavefoundry/framework/index/` by default, compacts the LanceDB tables, and creates the zip.
-7. Review the produced zip name and stamped `VERSION` for consistency. Spot-check that `RELEASE_NOTES.md` is in the zip (`unzip -l <zip> | grep RELEASE`) and that the latest entry matches the version just stamped.
+7. Review the produced zip name and stamped `VERSION` for consistency. Spot-check that `CHANGELOG.md` is in the zip (`unzip -l <zip> | grep CHANGELOG`) and that the latest section matches the version just stamped.
 8. Hand off diff + suggested commit message unless the operator explicitly asks to finalize the commit in this request.
 
 ## Output
@@ -65,6 +67,7 @@ wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
 - `--skip-framework-index`: skip updating and compacting `.wavefoundry/framework/index/` (emergency use only).
 - `--skip-manifest-check`: skip the `framework_revision` consistency check.
 - `--skip-docs-gate`: skip the docs-gardener / docs-lint pre-flight gate.
+- `--skip-changelog-diagnostic`: skip the chronological-section diagnostic on `.wavefoundry/CHANGELOG.md` (use only for known false positives).
 - `--verbose` / `-v`: print index build progress.
 
 ## Upgrade Path Coverage

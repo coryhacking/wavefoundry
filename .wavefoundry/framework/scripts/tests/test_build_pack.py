@@ -263,7 +263,11 @@ class BuildPackTests(unittest.TestCase):
 
     def test_all_entries_begin_with_wavefoundry_prefix(self):
         path = self._build()
-        allowed_prefixes = (".wavefoundry/framework/", ".wavefoundry/README.md")
+        allowed_prefixes = (
+            ".wavefoundry/framework/",
+            ".wavefoundry/README.md",
+            ".wavefoundry/CHANGELOG.md",
+        )
         for name in self._zip_names(path):
             self.assertTrue(
                 any(name.startswith(p) or name == p for p in allowed_prefixes),
@@ -274,6 +278,11 @@ class BuildPackTests(unittest.TestCase):
         path = self._build()
         names = self._zip_names(path)
         self.assertIn(".wavefoundry/README.md", names)
+
+    def test_wavefoundry_changelog_included_in_pack(self):
+        path = self._build()
+        names = self._zip_names(path)
+        self.assertIn(".wavefoundry/CHANGELOG.md", names)
 
     def test_expected_files_present(self):
         path = self._build()

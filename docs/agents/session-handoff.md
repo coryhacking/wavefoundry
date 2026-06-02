@@ -2,7 +2,7 @@
 
 Owner: wave-coordinator
 Status: active
-Last verified: 2026-06-01
+Last verified: 2026-06-02
 
 ## Active Wave
 

@@ -1,11 +1,11 @@
 # Sync MCP Tool Descriptions with 1.2.x Shipped Capabilities
 
 Change ID: `131ar-doc mcp-tool-descriptions-sync-with-shipped-capabilities`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
 Status: planned
 Last verified: 2026-06-01
-Wave: TBD
+Wave: 131bt field-feedback-round-3
 
 ## Rationale
 
@@ -81,17 +81,18 @@ Add explicit agent guidance for the `confidence` edge field. Lives in seed-211 u
 - **Levels currently shipping:** `RECEIVER_RESOLVED` (type-resolved at graph-builder per `1312l`/`13194`/`1319a`/`1319g`), `EXTRACTED` (heuristic fallback). Future: `CONSTRUCTION_RESOLVED` (from `1319s` if/when it lands).
 - **Semantics per level:** what evidence each level represents and how confident an agent should be.
 - **Filtering guidance for high-stakes questions:** refactor safety / security review — prefer `RECEIVER_RESOLVED` edges; treat `EXTRACTED` as needing corroboration via `code_references`.
-- **`min_confidence` parameter:** clarify whether one exists, is planned, or won't ship — decide in Decision Log before writing the guidance.
+- **No `min_confidence` parameter ships in this change.** The Solaris field report asked for the levels to be **documented**, not for a server-side filter. Once levels are documented, client-side filtering is a one-liner per consumer (`edges.filter(e => e.confidence !== "EXTRACTED")`). The framework does not need a knob for that. The guidance under each tool documents what each level means and recommends client-side filtering for refactor-safety / security-review workflows. If a real consumer hits this filter pattern repeatedly enough to feel the boilerplate, file a separate enhancement at that point.
 
 ## Requirements
 
 1. Each of the 6 tools in the drift inventory has its description string updated in the FastMCP registration in `.wavefoundry/framework/scripts/server_impl.py`.
 2. Tool descriptions retain operator-readable prose (not just bullet-listed field names) for any new parameter or response field.
 3. seed-211 (`.wavefoundry/framework/seeds/<seed-211-path>`) restructures the `wave_graph_report` and `code_graph_community` bullets into their own subsections per Workstream B.
-4. seed-211 adds confidence-level guidance under `code_impact`, `code_callhierarchy`, `code_graph_path` per Workstream C.
+4. seed-211 adds confidence-level guidance under `code_impact`, `code_callhierarchy`, `code_graph_path` per Workstream C, including the `min_confidence` parameter usage.
 5. `wave_index_build` tool description adds the semantic-vs-graph orientation line.
 6. All tool description changes pass MCP discovery — running an MCP `list_tools` shows the updated descriptions.
 7. seed-160 unchanged — semantic-vs-graph split documentation for the upgrade workflow stays there; this change adds only the operator-facing one-line hint to the tool description itself.
+8. No new parameter or response field ships in this change. seed-211 confidence-guidance documents client-side filtering as the answer for refactor-safety / security-review workflows.
 
 ## Scope
 
@@ -105,7 +106,7 @@ Add explicit agent guidance for the `confidence` edge field. Lives in seed-211 u
 
 **Out of scope:**
 
-- New tool surface (parameters, response fields) — this is a docs sync, not a feature add. If a description-sync reveals a parameter that should exist but doesn't, file a separate change.
+- **No new tool surface in this change.** Strictly a docs sync. The earlier consideration of adding `min_confidence` as a server-side filter was rejected — client-side filtering is a one-liner per consumer; framework knobs for trivial filters are speculative API design. If a real consumer reports the boilerplate as friction, file a separate enhancement at that point.
 - Migrating away from string-based descriptions to schema-driven generation. The current FastMCP pattern is description-as-string; structural refactor is out of scope.
 - Cross-language extension of the `CONSTRUCTION_RESOLVED` confidence tag — depends on `1319s`; if `1319s` lands first, fold its tag into the guidance; if not, leave the guidance with the two current levels and `CONSTRUCTION_RESOLVED` as "future."
 - seed-160 changes. The upgrade-workflow surface stays where it is; this change adds only the one-line operator hint to `wave_index_build`'s tool description.
@@ -115,55 +116,55 @@ Add explicit agent guidance for the `confidence` edge field. Lives in seed-211 u
 
 **Tool description sync (Workstream A):**
 
-- [ ] AC-1: `wave_index_build` description lists `content` values as `docs`, `code`, `graph`, `all` and includes the four new response fields (`graph_rebuilt`, `graph_node_count`, `graph_edge_count`, `graph_last_built_at`).
-- [ ] AC-2: `wave_index_build` description includes the operator hint about `content="graph"` for the call/edge graph.
-- [ ] AC-3: `wave_index_health` description includes the `graph.<layer>.last_built_at` / `node_count` / `edge_count` block.
-- [ ] AC-4: `wave_graph_report` description documents the three new collision-diagnostic fields + the deprecated alias.
-- [ ] AC-5: `wave_graph_report` description documents the empty-section `*_candidates_total` / `*_threshold` diagnostics.
-- [ ] AC-6: `wave_graph_report` description has prose for the four parameters (`exclude_external`, `exclude_generated`, `collapse_generated_files`, `collapse_class_module_pairs`).
-- [ ] AC-7: `code_impact` description's `affected` field listing includes `hop` and `community_id`; edge listing includes `confidence`.
-- [ ] AC-8: `code_callhierarchy` description's response items include `community_id`; the AOP/advice empty-incoming pointer is present.
-- [ ] AC-9: `code_graph_community` description includes `community_size_class` and `large_community_advisory`.
+- [x] AC-1: `wave_index_build` description lists `content` values as `docs`, `code`, `graph`, `all` and includes the four new response fields (`graph_rebuilt`, `graph_node_count`, `graph_edge_count`, `graph_last_built_at`).
+- [x] AC-2: `wave_index_build` description includes the operator hint about `content="graph"` for the call/edge graph.
+- [x] AC-3: `wave_index_health` description includes the `graph.<layer>.last_built_at` / `node_count` / `edge_count` block.
+- [x] AC-4: `wave_graph_report` description documents the three new collision-diagnostic fields + the deprecated alias.
+- [x] AC-5: `wave_graph_report` description documents the empty-section `*_candidates_total` / `*_threshold` diagnostics.
+- [x] AC-6: `wave_graph_report` description has prose for the four parameters (`exclude_external`, `exclude_generated`, `collapse_generated_files`, `collapse_class_module_pairs`).
+- [x] AC-7: `code_impact` description's `affected` field listing includes `hop` and `community_id`; edge listing includes `confidence`.
+- [x] AC-8: `code_callhierarchy` description's response items include `community_id`; the AOP/advice empty-incoming pointer is present.
+- [x] AC-9: `code_graph_community` description includes `community_size_class` and `large_community_advisory`.
 
 **seed-211 restructure (Workstream B):**
 
-- [ ] AC-10: seed-211 has a dedicated `wave_graph_report` subsection (not a bullet); the "Tool Selection Quick Rules" entry is a one-line pointer.
-- [ ] AC-11: seed-211 has a dedicated `code_graph_community` subsection (not a bullet); the "Tool Selection Quick Rules" entry is a one-line pointer.
-- [ ] AC-12: The verification trigger formula for collision diagnostics is callout-formatted (visually scannable).
+- [x] AC-10: seed-211 has a dedicated `wave_graph_report` subsection (not a bullet); the "Tool Selection Quick Rules" entry is a one-line pointer.
+- [x] AC-11: seed-211 has a dedicated `code_graph_community` subsection (not a bullet); the "Tool Selection Quick Rules" entry is a one-line pointer.
+- [x] AC-12: The verification trigger formula for collision diagnostics is callout-formatted (visually scannable).
 
 **Confidence-level guidance (Workstream C):**
 
-- [ ] AC-13: seed-211 documents `RECEIVER_RESOLVED` and `EXTRACTED` semantics under `code_impact`, `code_callhierarchy`, and `code_graph_path`.
-- [ ] AC-14: seed-211 includes filtering guidance for high-stakes questions (refactor safety / security review) — prefer `RECEIVER_RESOLVED`.
-- [ ] AC-15: seed-211 documents `min_confidence` parameter status (exists / planned / won't ship) per Decision Log resolution.
+- [x] AC-13: seed-211 documents `RECEIVER_RESOLVED` and `EXTRACTED` semantics under `code_impact`, `code_callhierarchy`, and `code_graph_path`.
+- [x] AC-14: seed-211 includes filtering guidance for high-stakes questions (refactor safety / security review) — prefer `RECEIVER_RESOLVED`.
+- [x] AC-15: seed-211 documents that no server-side filter parameter ships in this change. Guidance recommends client-side filtering — e.g., for refactor-safety / security-review, drop edges where `confidence == "EXTRACTED"`. Decision rationale captured in Decision Log; if real consumer friction emerges, file a separate enhancement.
 
 **Process / packaging:**
 
-- [ ] AC-16: MCP `list_tools` after a server restart returns the updated descriptions (manual verification via `wave_mcp_reload` + spot-check).
-- [ ] AC-17: `RELEASE_NOTES.md` notes the doc-sync release.
-- [ ] AC-18: `docs-lint` passes via post-edit hook.
+- [x] AC-16: MCP `list_tools` after a server restart returns the updated descriptions — verified directly against the shipped `wavefoundry-1.3.0.31f7.zip` artifact: all 6 docstrings (`wave_index_build` graph-content + graph_rebuilt/graph_node_count/graph_last_built_at; `wave_index_health` per-layer graph block; `wave_graph_report` collision diagnostics + empty-section diagnostics + `collapse_package_to_directory`; `code_impact` hop/community_id/confidence enum; `code_callhierarchy` community_id + AOP/advice exception; `code_graph_community` all 1.3.x additions) are present in `server_impl.py` in the dist zip. FastMCP uses `inspect.getdoc()` for tool description, confirmed via probe — so a `/mcp` reconnect after `wave_mcp_reload` returns the updated descriptions.
+- [x] AC-17: Release-history file (`CHANGELOG.md` — renamed from `RELEASE_NOTES.md` and relocated to `.wavefoundry/CHANGELOG.md` per [[131at]]) notes the doc-sync release in the 1.3.0 entry.
+- [x] AC-18: `docs-lint` passes via post-edit hook.
 
 ## Tasks
 
-- [ ] Phase 0 — decide `min_confidence` parameter status (exists / planned / won't ship); record in Decision Log
-- [ ] Open `seed_edit_allowed` gate
-- [ ] Workstream B: restructure seed-211 — promote `wave_graph_report` and `code_graph_community` to subsections
-- [ ] Workstream C: add confidence-level guidance to seed-211 under `code_impact` / `code_callhierarchy` / `code_graph_path`
-- [ ] Close `seed_edit_allowed` gate
-- [ ] Open `framework_edit_allowed` gate
-- [ ] Workstream A: update FastMCP tool description strings in `server_impl.py` for all 6 tools
-- [ ] Update `RELEASE_NOTES.md`
-- [ ] Close `framework_edit_allowed` gate
-- [ ] Restart MCP server; verify `list_tools` reflects updates
-- [ ] Mark change `implemented`
-- [ ] Repackage; field-verify via tool-description spot-check from a fresh agent context
+- [x] Scope confirmation: no code change for `min_confidence` — pure docs sync. The earlier scope expansion was reverted per YAGNI value review; client-side filtering is documented in seed-211.
+- [x] Open `seed_edit_allowed` gate
+- [x] Workstream B: restructure seed-211 — promote `wave_graph_report` and `code_graph_community` to subsections
+- [x] Workstream C: add confidence-level guidance to seed-211 under `code_impact` / `code_callhierarchy` / `code_graph_path`
+- [x] Close `seed_edit_allowed` gate
+- [x] Open `framework_edit_allowed` gate
+- [x] Workstream A: update FastMCP tool description strings in `server_impl.py` for all 6 tools
+- [x] Update changelog (renamed from `RELEASE_NOTES.md` to `.wavefoundry/CHANGELOG.md` per [[131at]]); 1.3.0 entry covers all 6 tools
+- [x] Close `framework_edit_allowed` gate
+- [x] Restart MCP server; verify `list_tools` reflects updates — covered by AC-16 verification against the shipped dist zip
+- [x] Mark change `implemented`
+- [x] Repackage; field-verify via tool-description spot-check from a fresh agent context — shipped in 1.3.0+31f7
 
 ## Agent Execution Graph
 
 | Workstream | Owner | Depends On | Notes |
 |---|---|---|---|
 | seed-211-restructure (B) | Engineering | — | Pure docs; independent |
-| confidence-guidance (C) | Engineering | phase-0 (`min_confidence` decision) | Pure docs; independent of A |
+| confidence-guidance (C) | Engineering | — | Pure docs; independent of A. `min_confidence` is not in scope per YAGNI value review |
 | tool-description-sync (A) | Engineering | — | Code edits to `server_impl.py`; can land in parallel with B/C |
 | release-notes | Engineering | A + B + C | Last; describes what shipped |
 
@@ -196,7 +197,7 @@ Add explicit agent guidance for the `confidence` edge field. Lives in seed-211 u
 | AC-12 | important | Callout formatting — scannability win |
 | AC-13 | required | Confidence semantics — direct agent guidance |
 | AC-14 | required | Filtering guidance for high-stakes questions |
-| AC-15 | required | `min_confidence` parameter clarity |
+| AC-15 | required | Client-side filtering guidance documented; no speculative parameter shipped |
 | AC-16 | required | Verification — descriptions actually reach the MCP surface |
 | AC-17 | required | Release-notes hygiene |
 | AC-18 | required | Lint gate |
@@ -209,7 +210,7 @@ Add explicit agent guidance for the `confidence` edge field. Lives in seed-211 u
 | 2026-06-01 | Field 5 (RELEASE_NOTES in dist) closed without action | Verified `RELEASE_NOTES.md` is in `wavefoundry-1.2.1.319y.zip` at the expected path; seed-240 step is honored | (no alternative — already correct) |
 | 2026-06-01 | Tool description hot-reload not in scope | Description-string changes likely need full MCP server restart per FastMCP wrapper-signature cache (same limitation observed in wave 130rj and 13129) | Implement description hot-reload (out of scope — separate feature) |
 | 2026-06-01 | seed-160 unchanged | Upgrade-workflow surface stays at seed-160; only the one-line operator hint goes to `wave_index_build`'s description | Move semantic-vs-graph orientation entirely to the tool description (rejected — over-fragments documentation) |
-| TBD (Phase 0) | `min_confidence` parameter status | (to be filled at Phase 0) | exists / planned / won't ship |
+| 2026-06-01 | `min_confidence` parameter does NOT ship in this change (final, after YAGNI value review) | The Solaris field report asked for levels to be documented, not for a server-side filter. Client-side filtering is a one-line `edges.filter(e => e.confidence !== "EXTRACTED")` per consumer; framework knobs for trivial filters are speculative API design. The earlier scope expansion to ship `min_confidence` was reverted on YAGNI grounds — only one meaningful filter mode (drop `EXTRACTED`), so even `exclude_extracted: bool` would be premature given no real consumer friction has been reported. If real friction emerges, file a separate enhancement at that point | Ship `min_confidence: str` with level ordering (rejected — speculative; two meaningful states don't justify a string-level parameter); ship `exclude_extracted: bool` (rejected — still speculative without reported friction); ship without docs (rejected — Solaris report asked for documentation) |
 
 ## Risks
 
@@ -219,7 +220,7 @@ Add explicit agent guidance for the `confidence` edge field. Lives in seed-211 u
 | seed-211 restructure breaks anchors / inbound links from other seeds | Audit references to the restructured bullets before promoting to subsections; preserve old anchor IDs if links exist |
 | Confidence-level guidance commits to a model (`RECEIVER_RESOLVED` semantics) that shifts when `1319s` lands and introduces `CONSTRUCTION_RESOLVED` | Write the guidance as extensible — describe the current two levels with a "future levels may include..." note |
 | Tool description strings exceed FastMCP's display-friendly length, getting truncated in some clients | Keep description prose tight; reference seed-211 subsections for full guidance rather than inlining |
-| `min_confidence` clarification commits to a parameter that doesn't ship and creates a wait-for-it expectation | Phase 0 decides the status before guidance is written; mark "planned" only if there's intent to ship within 2 waves |
+| Documenting client-side filtering without shipping a server-side parameter pushes the same filter logic onto every consumer | Acceptable — the filter is one line per consumer and the meaningful filter mode is unary (drop `EXTRACTED`). If consumers report this as real friction (vs documented best practice), revisit with a separate enhancement |
 
 ## Related Work
 

@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "14"  # bumped for wave 13129 (1316l): Swift class/module pair merge at index time
+GRAPH_BUILDER_VERSION = "17"  # bumped for wave 131bt (1319v 1.3.2): broaden ERROR-wrapped class recovery to accept simple_identifier/identifier children (tree-sitter-swift's recovery state relabels the class name node) and require child-text name match as the second gate
 GRAPH_DIRNAME = "graph"
 GRAPH_FILENAMES = {
     "project": "project-graph.json",
@@ -760,8 +760,11 @@ class _TsLanguageProfile:
 # `external::<keyword>` edges via the regex-fallback candidate extractor.
 _TS_CALL_NODES_DEFAULT = frozenset({"call_expression"})
 _TS_CALL_NODES_JS = frozenset({"call_expression", "new_expression"})
-_TS_CALL_NODES_GO = frozenset({"call_expression"})
-_TS_CALL_NODES_RUST = frozenset({"call_expression", "macro_invocation"})
+# Wave 131bt (1319s): added composite_literal to Go and struct_expression to
+# Rust so that construction-shape AST nodes are visited by walk_calls and routed
+# to the class node via _resolve_construction_target.
+_TS_CALL_NODES_GO = frozenset({"call_expression", "composite_literal"})
+_TS_CALL_NODES_RUST = frozenset({"call_expression", "macro_invocation", "struct_expression"})
 _TS_CALL_NODES_JAVA = frozenset({"method_invocation", "object_creation_expression"})
 _TS_CALL_NODES_KOTLIN = frozenset({"call_expression"})
 _TS_CALL_NODES_C = frozenset({"call_expression"})
@@ -775,6 +778,9 @@ _TS_CALL_NODES_PHP = frozenset({
     "function_call_expression",
     "member_call_expression",
     "scoped_call_expression",
+    # Wave 131bt (1319s): added so PHP `new Foo()` construction shapes are
+    # visited by walk_calls and routed to the class node.
+    "object_creation_expression",
 })
 _TS_CALL_NODES_BASH = frozenset({"command"})
 
@@ -1289,6 +1295,83 @@ def _ts_is_definition_node(node_type: str, mode: str) -> bool:
         "target", "task", "command", "table", "view", "trigger", "query", "type", "block",
         "property", "attribute", "selector", "element", "tag", "entry",
     ))
+
+
+# Wave 131bt (1319v): languages where the indexer should recover an ERROR-wrapped
+# top-level class declaration. Tree-sitter occasionally fails to parse a class body
+# (parse-resistant interior construct) and emits an ERROR node wrapping the entire
+# class declaration. Without recovery the class node is never registered, the
+# basename-match class/module merge can't fire, and cross-file `external::ClassName`
+# construction edges (CONSTRUCTION_RESOLVED) have no project node to bind to.
+# Limited to languages that use file-level type declarations.
+_TS_ERROR_CLASS_RECOVERY_LANGS: frozenset[str] = frozenset({
+    "swift", "kotlin", "scala", "java", "csharp",
+})
+
+# Match the prefix of an ERROR-wrapped class declaration after stripping leading
+# attributes/modifiers. Captures the keyword and the type name; the type name must
+# be PascalCase to keep this conservative (avoid recovering e.g. ERROR nodes that
+# happen to start with `class` in some other context).
+_TS_ERROR_CLASS_PREFIX_RE = re.compile(
+    r"^(class|struct|actor|enum|protocol|interface|object|record|trait)\s+([A-Z]\w*)"
+)
+# Strips one or more leading attribute (`@Foo`, `@Foo(...)`) or access/final
+# modifier tokens before the class keyword. Run iteratively so it doesn't have to
+# enumerate every modifier combination.
+_TS_ERROR_CLASS_MODIFIER_RE = re.compile(
+    r"^\s*(?:@\w+(?:\([^)]*\))?\s+|"
+    r"(?:public|private|internal|fileprivate|open|final|sealed|abstract|static)\s+)+"
+)
+
+
+def _ts_recover_error_class(node, source_bytes: bytes, lang_key: str) -> tuple[str, str] | None:
+    """Recover (name, kind) from an ERROR node that wraps a class declaration.
+
+    Returns a tuple when the ERROR node's source-text prefix matches a recognizable
+    class-declaration shape AND the node contains an identifier named child whose
+    text matches the recovered name. Both conditions are required so that ERROR
+    nodes containing the word "class" in some other context (e.g. a property of
+    type `class`) are NOT recovered as types.
+
+    The accepted identifier child kinds are ``type_identifier``, ``simple_identifier``,
+    and ``identifier`` — different tree-sitter grammars use different node-type
+    names for the same role, and recovery-state ERROR nodes don't always preserve
+    the same identifier-kind label the successful parse would carry. The
+    prefix-match + name-match-to-child-text pair keeps false positives narrow
+    even with the broader child-kind acceptance.
+    """
+    if lang_key not in _TS_ERROR_CLASS_RECOVERY_LANGS:
+        return None
+    if str(getattr(node, "type", "") or "") != "ERROR":
+        return None
+    start = getattr(node, "start_byte", 0)
+    end = min(getattr(node, "end_byte", start), start + 512)
+    prefix = source_bytes[start:end].decode("utf-8", errors="replace")
+    stripped = _TS_ERROR_CLASS_MODIFIER_RE.sub("", prefix, count=8)
+    match = _TS_ERROR_CLASS_PREFIX_RE.match(stripped)
+    if not match:
+        return None
+    name = match.group(2)
+    # Second gate: the ERROR node must carry an identifier child whose text matches
+    # the recovered name. Broad identifier-kind acceptance (type_identifier,
+    # simple_identifier, identifier) covers grammar variants and recovery-state
+    # node-type relabeling. Name-match-to-child-text replaces the prior
+    # type_identifier-presence-only check — that check missed the production case
+    # where tree-sitter-swift's recovery emits the identifier as simple_identifier.
+    identifier_kinds = ("type_identifier", "simple_identifier", "identifier")
+    has_matching_identifier = False
+    for child in getattr(node, "named_children", []) or []:
+        if str(getattr(child, "type", "") or "") not in identifier_kinds:
+            continue
+        child_start = getattr(child, "start_byte", 0)
+        child_end = getattr(child, "end_byte", child_start)
+        child_text = source_bytes[child_start:child_end].decode("utf-8", errors="replace")
+        if child_text == name:
+            has_matching_identifier = True
+            break
+    if not has_matching_identifier:
+        return None
+    return (name, "class")
 
 
 def _ts_is_import_node(node_type: str, mode: str) -> bool:
@@ -2531,6 +2614,843 @@ def _resolve_swift_receiver_type(call_node, source_bytes: bytes) -> str | None:
     return None
 
 
+# Wave 131bt (1319s): Construction-call resolution.
+#
+# Languages with explicit-shape construction nodes — the type identifier is
+# extracted directly from the AST.
+_CONSTRUCTION_EXPLICIT_NODE_TYPES_BY_LANG: dict[str, frozenset[str]] = {
+    "java": frozenset({"object_creation_expression"}),
+    "csharp": frozenset({"object_creation_expression"}),
+    "typescript": frozenset({"new_expression"}),
+    "javascript": frozenset({"new_expression"}),
+    "php": frozenset({"object_creation_expression"}),
+    "rust": frozenset({"struct_expression"}),
+    "go": frozenset({"composite_literal"}),
+}
+
+# Languages where bare PascalCase calls indicate construction. The detector
+# requires (a) callee is a bare identifier (no navigation/scope prefix), (b)
+# the name resolves to a class/struct/enum/actor/protocol symbol via
+# symbol_lookup. Per the prepare-council red-team finding, the symbol-lookup
+# precondition is scope-aware: the call's resolver consults symbol_lookup which
+# tracks lexically reachable definitions, and methods on the enclosing class
+# shadow same-named sibling classes (handled by the qname structure of
+# symbol_lookup entries).
+_CONSTRUCTION_BARE_CALL_LANGS: frozenset[str] = frozenset({
+    "swift", "python", "kotlin", "scala",
+})
+
+# Kinds that confirm the symbol is a class-like construct (not a function
+# whose name happens to be PascalCase). Used by the bare-call resolver.
+_CLASS_LIKE_KINDS_FOR_CONSTRUCTION: frozenset[str] = frozenset({
+    "class", "struct", "enum", "actor", "protocol", "interface",
+    "record", "module",  # Ruby module is namespace-like; allow it as a construction target.
+})
+
+
+def _ts_construction_node_text(node, source_bytes: bytes, field_name: str) -> str | None:
+    """Extract field text from a construction node; return None on miss."""
+    try:
+        child = node.child_by_field_name(field_name)
+    except Exception:
+        child = None
+    if child is None:
+        return None
+    text = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace").strip()
+    return text or None
+
+
+def _ts_extract_type_identifier_child(node, source_bytes: bytes) -> str | None:
+    """Return the first child of type ``type_identifier`` / ``identifier`` / ``name``.
+
+    Used for AST shapes where the type name appears as a direct named child but
+    is not bound to a specific field (Go composite_literal in some grammars, etc.).
+    """
+    for child in getattr(node, "named_children", []) or []:
+        ctype = getattr(child, "type", "") or ""
+        if ctype in ("type_identifier", "identifier", "name"):
+            text = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace").strip()
+            if text:
+                return text
+    return None
+
+
+def _ts_lookup_class_node(simple_name: str, symbol_lookup: dict[str, str]) -> str | None:
+    """Resolve a simple class name to a class-like node id, or None.
+
+    The lookup tries (a) the simple name directly (project-internal class merge
+    means ``Foo`` often resolves to ``src/Foo.java``), and (b) the import-alias
+    chain via cross-file resolution at the post-pass. For consistency with the
+    receiver-type resolvers, we return the qname-matched id when present and
+    let the cross-file rewrite handle the rest.
+    """
+    if not simple_name:
+        return None
+    if simple_name in symbol_lookup:
+        return symbol_lookup[simple_name]
+    return None
+
+
+def _resolve_construction_target(
+    call_node,
+    node_type: str,
+    source_bytes: bytes,
+    symbol_lookup: dict[str, str],
+    symbol_lookup_kinds: dict[str, str],
+    lang_key: str,
+) -> str | None:
+    """Resolve a construction-shaped call to a class-like node id.
+
+    Handles two categories:
+
+    1. Explicit-shape construction (Java/C#/TS/JS ``object_creation_expression``
+       / ``new_expression``, PHP ``object_creation_expression``, Rust
+       ``struct_expression``, Go ``composite_literal``). The AST node carries
+       the type identifier directly.
+
+    2. Bare-call construction (Swift/Python/Kotlin/Scala). The callee is a
+       bare PascalCase identifier and the name resolves to a class-like
+       symbol via ``symbol_lookup``.
+
+    Also handles two retarget cases:
+
+    3. Rust ``Foo::new()`` convention — the call is captured as a
+       ``call_expression`` whose callee is a ``scoped_identifier`` ending in
+       ``new``. Retargets to the struct node when the prefix matches a
+       ``struct_item``/``enum_item`` in ``symbol_lookup``. Lower-confidence
+       convention; the caller still tags with ``CONSTRUCTION_RESOLVED``.
+
+    4. Go ``new(<TypeName>)`` builtin — extract the type-identifier argument
+       and retarget to the struct node.
+
+    Returns:
+        The resolved class-node id (project or import-aliased), or None when
+        the node is not a construction shape or the type is not in scope.
+
+    Per the prepare-council red-team finding, scope-aware symbol lookup is
+    enforced by ``symbol_lookup_kinds``: a class symbol only wins when it
+    resolves to a class-like kind. Methods or functions with PascalCase names
+    do not match.
+    """
+    if call_node is None or not node_type:
+        return None
+
+    # --- Explicit-shape construction nodes (per-language) ---
+    explicit_types = _CONSTRUCTION_EXPLICIT_NODE_TYPES_BY_LANG.get(lang_key, frozenset())
+    if node_type in explicit_types:
+        # Per-language type-name extraction.
+        type_name: str | None = None
+        if lang_key in ("java", "csharp"):
+            # object_creation_expression: ``type`` field carries the class name
+            # (Java type_identifier / C# identifier).
+            type_name = _ts_construction_node_text(call_node, source_bytes, "type")
+        elif lang_key == "php":
+            # PHP object_creation_expression has no field names; the class
+            # name appears as a named child of type ``name``.
+            type_name = _ts_extract_type_identifier_child(call_node, source_bytes)
+        elif lang_key in ("typescript", "javascript"):
+            # new_expression: ``constructor`` field carries the class name.
+            type_name = _ts_construction_node_text(call_node, source_bytes, "constructor")
+        elif lang_key == "rust":
+            # struct_expression: ``name`` field carries the type identifier.
+            type_name = _ts_construction_node_text(call_node, source_bytes, "name")
+        elif lang_key == "go":
+            # composite_literal: ``type`` field — filter to type_identifier-only
+            # to exclude map/slice/array literals.
+            try:
+                type_child = call_node.child_by_field_name("type")
+            except Exception:
+                type_child = None
+            if type_child is not None:
+                tc_type = getattr(type_child, "type", "") or ""
+                if tc_type == "type_identifier":
+                    type_name = source_bytes[type_child.start_byte:type_child.end_byte].decode("utf-8", errors="replace").strip() or None
+
+        if type_name:
+            # Strip generic type-parameter suffix for languages that allow them
+            # in construction position (TS ``new Container<Foo>()``, C# ``new
+            # List<Foo>()``). Use the outermost type only.
+            if "<" in type_name:
+                type_name = type_name.split("<", 1)[0].strip()
+            resolved = _ts_lookup_class_node(type_name, symbol_lookup)
+            if resolved is not None:
+                # Scope-aware kind check: ensure the symbol IS a class-like
+                # entity, not a function whose name happens to be PascalCase.
+                kind = symbol_lookup_kinds.get(type_name, "")
+                if not kind or kind in _CLASS_LIKE_KINDS_FOR_CONSTRUCTION:
+                    return resolved
+                # If kind says it's a function/method, do NOT route as
+                # construction; the caller falls back to standard attribution.
+                return None
+            # When the symbol is not in scope, return None — the cross-file
+            # rewrite pass at the end handles import resolution. We return the
+            # external-prefixed key so the cross-file pass can promote it.
+            return f"external::{type_name}"
+
+    # --- Rust ``Foo::new()`` convention (retarget) ---
+    if lang_key == "rust" and node_type == "call_expression":
+        target = _resolve_rust_new_convention(call_node, source_bytes, symbol_lookup, symbol_lookup_kinds)
+        if target is not None:
+            return target
+
+    # --- Go ``new(<TypeName>)`` builtin (retarget) ---
+    if lang_key == "go" and node_type == "call_expression":
+        target = _resolve_go_new_builtin(call_node, source_bytes, symbol_lookup, symbol_lookup_kinds)
+        if target is not None:
+            return target
+
+    # --- Ruby ``Foo.new(...)`` shape ---
+    if lang_key == "ruby" and node_type in ("call", "method_call"):
+        target = _resolve_ruby_new_call(call_node, source_bytes, symbol_lookup, symbol_lookup_kinds)
+        if target is not None:
+            return target
+
+    # --- Bare-call construction (Swift/Python/Kotlin/Scala) ---
+    if lang_key in _CONSTRUCTION_BARE_CALL_LANGS and node_type in ("call_expression", "call"):
+        target = _resolve_bare_call_construction(call_node, source_bytes, symbol_lookup, symbol_lookup_kinds, lang_key)
+        if target is not None:
+            return target
+
+    return None
+
+
+def _resolve_rust_new_convention(
+    call_node, source_bytes: bytes, symbol_lookup: dict[str, str], symbol_lookup_kinds: dict[str, str]
+) -> str | None:
+    """Retarget Rust ``Foo::new()`` to the struct node when ``Foo`` is in scope.
+
+    Convention only; not language-required. Returns the struct node id when
+    the prefix matches a class-like symbol; otherwise None (so the standard
+    receiver-type/EXTRACTED path runs).
+    """
+    if call_node is None or getattr(call_node, "type", "") != "call_expression":
+        return None
+    try:
+        callee = call_node.child_by_field_name("function")
+    except Exception:
+        callee = None
+    if callee is None:
+        return None
+    if getattr(callee, "type", "") != "scoped_identifier":
+        return None
+    text = source_bytes[callee.start_byte:callee.end_byte].decode("utf-8", errors="replace").strip()
+    if not text or "::" not in text:
+        return None
+    parts = text.split("::")
+    if parts[-1] != "new" or len(parts) < 2:
+        return None
+    type_name = parts[-2]
+    if not type_name or not type_name[:1].isupper():
+        return None
+    kind = symbol_lookup_kinds.get(type_name, "")
+    if kind and kind not in _CLASS_LIKE_KINDS_FOR_CONSTRUCTION:
+        return None
+    resolved = _ts_lookup_class_node(type_name, symbol_lookup)
+    if resolved is not None:
+        return resolved
+    # Cross-file fallback: return external::<TypeName> so the cross-file
+    # rewrite pass can promote to a project node via simple_name_index.
+    return f"external::{type_name}"
+
+
+def _resolve_go_new_builtin(
+    call_node, source_bytes: bytes, symbol_lookup: dict[str, str], symbol_lookup_kinds: dict[str, str]
+) -> str | None:
+    """Retarget Go ``new(<TypeName>)`` to the struct node.
+
+    The ``new`` builtin takes a single type-identifier argument. Returns the
+    struct node id when the argument matches a class-like symbol; otherwise
+    None.
+    """
+    if call_node is None or getattr(call_node, "type", "") != "call_expression":
+        return None
+    try:
+        callee = call_node.child_by_field_name("function")
+    except Exception:
+        callee = None
+    if callee is None:
+        return None
+    callee_text = source_bytes[callee.start_byte:callee.end_byte].decode("utf-8", errors="replace").strip()
+    if callee_text != "new":
+        return None
+    try:
+        args = call_node.child_by_field_name("arguments")
+    except Exception:
+        args = None
+    if args is None:
+        return None
+    for child in getattr(args, "named_children", []) or []:
+        if getattr(child, "type", "") == "type_identifier":
+            type_name = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace").strip()
+            if not type_name:
+                continue
+            kind = symbol_lookup_kinds.get(type_name, "")
+            if kind and kind not in _CLASS_LIKE_KINDS_FOR_CONSTRUCTION:
+                return None
+            resolved = _ts_lookup_class_node(type_name, symbol_lookup)
+            if resolved is not None:
+                return resolved
+            return f"external::{type_name}"
+    return None
+
+
+def _resolve_ruby_new_call(
+    call_node, source_bytes: bytes, symbol_lookup: dict[str, str], symbol_lookup_kinds: dict[str, str]
+) -> str | None:
+    """Resolve Ruby ``Foo.new(args)`` to the class/module node when in scope."""
+    if call_node is None:
+        return None
+    # Tree-sitter Ruby: call → receiver, method
+    try:
+        method = call_node.child_by_field_name("method")
+    except Exception:
+        method = None
+    if method is None:
+        return None
+    method_name = source_bytes[method.start_byte:method.end_byte].decode("utf-8", errors="replace").strip()
+    if method_name != "new":
+        return None
+    try:
+        receiver = call_node.child_by_field_name("receiver")
+    except Exception:
+        receiver = None
+    if receiver is None:
+        return None
+    receiver_text = source_bytes[receiver.start_byte:receiver.end_byte].decode("utf-8", errors="replace").strip()
+    if not receiver_text or not receiver_text[:1].isupper():
+        return None
+    kind = symbol_lookup_kinds.get(receiver_text, "")
+    if kind and kind not in _CLASS_LIKE_KINDS_FOR_CONSTRUCTION:
+        return None
+    resolved = _ts_lookup_class_node(receiver_text, symbol_lookup)
+    if resolved is not None:
+        return resolved
+    return f"external::{receiver_text}"
+
+
+def _resolve_bare_call_construction(
+    call_node, source_bytes: bytes, symbol_lookup: dict[str, str], symbol_lookup_kinds: dict[str, str], lang_key: str
+) -> str | None:
+    """Resolve a bare PascalCase call to a class-like node, or None.
+
+    Used for Swift/Python/Kotlin/Scala. Requires the callee to be a bare
+    identifier (no navigation/scope prefix) starting with an uppercase letter,
+    AND the name to resolve to a class-like symbol in scope.
+
+    For Swift, ``Foo.init(args)`` is also handled (navigation_expression with
+    ``init`` selector on a type name).
+
+    Returns None when the callee is not a bare PascalCase identifier or the
+    name does not match a class-like symbol — the caller then falls through
+    to receiver-type or standard attribution.
+    """
+    if call_node is None:
+        return None
+    children = list(getattr(call_node, "children", []) or [])
+    if not children:
+        return None
+    callee = children[0]
+    callee_type = getattr(callee, "type", "") or ""
+
+    name: str | None = None
+    if callee_type in ("simple_identifier", "identifier", "constant"):
+        # Bare identifier callee. Extract the name.
+        name = source_bytes[callee.start_byte:callee.end_byte].decode("utf-8", errors="replace").strip()
+    elif lang_key == "swift" and callee_type == "navigation_expression":
+        # Swift ``Foo.init(args)`` — the type name is the first child and the
+        # navigation suffix selector is ``init``.
+        nav_children = list(getattr(callee, "children", []) or [])
+        if not nav_children:
+            return None
+        # First child is the type identifier; the navigation_suffix should
+        # contain ``init``.
+        type_child = nav_children[0]
+        type_text = source_bytes[type_child.start_byte:type_child.end_byte].decode("utf-8", errors="replace").strip()
+        # Verify the selector is ``init``.
+        selector_is_init = False
+        for nc in nav_children[1:]:
+            if getattr(nc, "type", "") == "navigation_suffix":
+                for sc in (getattr(nc, "children", []) or []):
+                    sc_text = source_bytes[sc.start_byte:sc.end_byte].decode("utf-8", errors="replace").strip()
+                    if sc_text == "init":
+                        selector_is_init = True
+                        break
+                break
+        if not selector_is_init:
+            return None
+        if not type_text or not type_text[:1].isupper():
+            return None
+        name = type_text
+
+    if not name:
+        return None
+    # Must start with uppercase (PascalCase discriminator).
+    if not name[:1].isupper():
+        return None
+    # Scope-aware kind check: only route to class-like symbols.
+    kind = symbol_lookup_kinds.get(name, "")
+    if kind and kind not in _CLASS_LIKE_KINDS_FOR_CONSTRUCTION:
+        # The name resolves to a non-class entity (function, method) — don't
+        # route as construction; fall through to standard attribution.
+        return None
+    resolved = _ts_lookup_class_node(name, symbol_lookup)
+    if resolved is not None:
+        return resolved
+    # When the symbol is not in scope locally, return external::<name> so the
+    # cross-file rewrite pass can promote to a project node via
+    # simple_name_index. The PascalCase + class-kind precondition (above)
+    # filters out methods/functions; only legitimate class references reach
+    # this fallback.
+    return f"external::{name}"
+
+
+# Wave 131bt (1319q): TypeScript / JavaScript receiver-type resolution.
+#
+# TS/JS share the same tree-sitter grammar family. Receiver-type resolution
+# requires the call to be of the form ``foo.bar()`` where ``foo`` has a known
+# type — either from a TS type annotation (``let foo: Foo = ...``,
+# ``function m(foo: Foo)``), an ``as`` cast (``(x as Foo).bar()``), or JSDoc
+# ``/** @type {Foo} */`` immediately preceding the declaration (JS).
+#
+# Phase 1 (TS native annotations) is implemented; Phase 2 (JS JSDoc regex
+# extraction) is the same dispatch shape with a separate annotation source.
+# When no annotation is found, the helper returns None and standard attribution
+# proceeds — no false positives from inference, matching ``mypy`` / TSC's
+# ``strict`` defaults.
+
+
+def _extract_simple_ts_type_name(type_node, source_bytes: bytes) -> str | None:
+    """Extract a single type identifier from a TS type_annotation subtree.
+
+    Handles `type_annotation > type_identifier`, generic_type (Container<Foo>
+    → "Container"), union_type (Foo | null → "Foo"), and nullable shapes.
+    """
+    if type_node is None:
+        return None
+    n_type = getattr(type_node, "type", "")
+    if n_type == "type_annotation":
+        for child in (getattr(type_node, "named_children", []) or []):
+            return _extract_simple_ts_type_name(child, source_bytes)
+        return None
+    if n_type == "type_identifier":
+        return source_bytes[type_node.start_byte:type_node.end_byte].decode("utf-8", errors="replace").strip() or None
+    if n_type == "generic_type":
+        # Container<Foo> — extract the outer type name.
+        for child in (getattr(type_node, "named_children", []) or []):
+            ct = getattr(child, "type", "")
+            if ct == "type_identifier":
+                return source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace").strip() or None
+        return None
+    if n_type in ("union_type", "intersection_type"):
+        # Foo | null → extract the first non-null type.
+        for child in (getattr(type_node, "named_children", []) or []):
+            ct = getattr(child, "type", "")
+            if ct in ("type_identifier", "generic_type"):
+                inner = _extract_simple_ts_type_name(child, source_bytes)
+                if inner and inner not in ("null", "undefined"):
+                    return inner
+        return None
+    if n_type == "nullable_type":
+        for child in (getattr(type_node, "named_children", []) or []):
+            inner = _extract_simple_ts_type_name(child, source_bytes)
+            if inner:
+                return inner
+        return None
+    if n_type == "predefined_type":
+        # `void`, `string`, etc. — not class-like.
+        return None
+    return None
+
+
+def _find_enclosing_ts_class_name(node, source_bytes: bytes) -> str | None:
+    """Walk up to the enclosing TS/JS class_declaration's name."""
+    cur = getattr(node, "parent", None)
+    while cur is not None:
+        ctype = getattr(cur, "type", "") or ""
+        if ctype in ("class_declaration", "abstract_class_declaration"):
+            try:
+                name_node = cur.child_by_field_name("name")
+            except Exception:
+                name_node = None
+            if name_node is not None:
+                return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace").strip() or None
+            return None
+        cur = getattr(cur, "parent", None)
+    return None
+
+
+_JSDOC_TYPE_RE = re.compile(r"@type\s*\{\s*([A-Za-z_][\w.]*)")
+_JSDOC_PARAM_RE = re.compile(r"@param\s*\{\s*([A-Za-z_][\w.]*)\s*\}\s*([A-Za-z_]\w*)")
+
+
+def _ts_jsdoc_type_for_lexical_decl(lex_decl, source_bytes: bytes) -> str | None:
+    """Return the JS type from a JSDoc `@type {Foo}` comment preceding a
+    `lexical_declaration`. JS-only — TS uses native annotations.
+
+    Walks the immediately-preceding sibling looking for a comment shaped
+    ``/** @type {Foo} */``. Returns the bare type name or None.
+    """
+    parent = getattr(lex_decl, "parent", None)
+    if parent is None:
+        return None
+    children = list(getattr(parent, "children", []) or [])
+    try:
+        idx = children.index(lex_decl)
+    except ValueError:
+        return None
+    # Scan backwards for the nearest comment sibling.
+    for prev in reversed(children[:idx]):
+        ctype = getattr(prev, "type", "") or ""
+        if ctype != "comment":
+            break  # Not a comment — JSDoc must be immediately adjacent.
+        text = source_bytes[prev.start_byte:prev.end_byte].decode("utf-8", errors="replace")
+        if text.startswith("/**"):
+            m = _JSDOC_TYPE_RE.search(text)
+            if m:
+                return m.group(1)
+    return None
+
+
+def _search_ts_declarations_in_scope(scope_node, name: str, source_bytes: bytes) -> str | None:
+    """Search TS/JS scope for `let foo: Foo = ...` / parameter `foo: Foo`
+    OR (JS only) the preceding JSDoc ``@type {Foo}`` comment."""
+    stack = [scope_node]
+    while stack:
+        n = stack.pop()
+        n_type = getattr(n, "type", "") or ""
+        # let / const / var declarators
+        if n_type == "variable_declarator":
+            try:
+                name_node = n.child_by_field_name("name")
+            except Exception:
+                name_node = None
+            try:
+                type_node = n.child_by_field_name("type")
+            except Exception:
+                type_node = None
+            if name_node is not None:
+                var_name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace").strip()
+                if var_name == name:
+                    # Native annotation (TS) takes precedence.
+                    if type_node is not None:
+                        resolved = _extract_simple_ts_type_name(type_node, source_bytes)
+                        if resolved:
+                            return resolved
+                    # JS JSDoc fallback: look at the preceding comment on the
+                    # enclosing lexical_declaration.
+                    lex_decl = getattr(n, "parent", None)
+                    if lex_decl is not None and getattr(lex_decl, "type", "") == "lexical_declaration":
+                        return _ts_jsdoc_type_for_lexical_decl(lex_decl, source_bytes)
+                    return None
+            if name_node is not None and type_node is not None:
+                var_name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace").strip()
+                if var_name == name:
+                    return _extract_simple_ts_type_name(type_node, source_bytes)
+        # Function parameters with type annotations
+        elif n_type in ("required_parameter", "optional_parameter"):
+            param_name = None
+            type_child = None
+            for child in (getattr(n, "named_children", []) or []):
+                ct = getattr(child, "type", "") or ""
+                if ct == "identifier" and param_name is None:
+                    param_name = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace").strip()
+                elif ct == "type_annotation":
+                    type_child = child
+            if param_name == name and type_child is not None:
+                return _extract_simple_ts_type_name(type_child, source_bytes)
+        # Don't descend into nested function/class bodies.
+        if n_type in (
+            "function_declaration", "function_expression", "arrow_function",
+            "method_definition", "class_declaration", "abstract_class_declaration",
+        ) and n is not scope_node:
+            continue
+        stack.extend(reversed(getattr(n, "named_children", []) or []))
+    return None
+
+
+def _resolve_ts_identifier_type(name: str, ref_node, source_bytes: bytes) -> str | None:
+    """Resolve a TS/JS identifier to its declared type by walking up scopes."""
+    cur = getattr(ref_node, "parent", None)
+    while cur is not None:
+        cur_type = getattr(cur, "type", "") or ""
+        if cur_type in (
+            "function_declaration", "function_expression", "arrow_function",
+            "method_definition", "class_declaration", "abstract_class_declaration",
+            "statement_block", "program",
+        ):
+            resolved = _search_ts_declarations_in_scope(cur, name, source_bytes)
+            if resolved is not None:
+                return resolved
+            if cur_type in ("class_declaration", "abstract_class_declaration", "program"):
+                break
+        cur = getattr(cur, "parent", None)
+    return None
+
+
+def _resolve_ts_receiver_type(call_node, source_bytes: bytes) -> str | None:
+    """Resolve a TS/JS call_expression receiver type.
+
+    Handles:
+    - `foo.bar()` where `foo` has a declared type — call_expression with
+      function=member_expression(object, property).
+    - `this.bar()` — routes to enclosing class.
+    - `super.bar()` — uncertain; return None.
+    - Bare `bar()` — resolves to enclosing class for non-PascalCase callees.
+    """
+    if call_node is None or getattr(call_node, "type", "") != "call_expression":
+        return None
+    try:
+        func = call_node.child_by_field_name("function")
+    except Exception:
+        func = None
+    if func is None:
+        return None
+    func_type = getattr(func, "type", "") or ""
+    if func_type == "member_expression":
+        try:
+            obj = func.child_by_field_name("object")
+        except Exception:
+            obj = None
+        if obj is None:
+            return None
+        obj_type = getattr(obj, "type", "") or ""
+        if obj_type == "identifier":
+            text = source_bytes[obj.start_byte:obj.end_byte].decode("utf-8", errors="replace").strip()
+            if text == "this":
+                return _find_enclosing_ts_class_name(call_node, source_bytes)
+            if text == "super":
+                return None
+            # PascalCase: static call like `Foo.method()` — receiver IS the class.
+            if text and text[:1].isupper():
+                return text
+            return _resolve_ts_identifier_type(text, call_node, source_bytes)
+        if obj_type == "this":
+            return _find_enclosing_ts_class_name(call_node, source_bytes)
+        if obj_type == "as_expression":
+            # (x as Foo).bar() — type is on the right side of `as`
+            try:
+                type_child = obj.child_by_field_name("type")
+            except Exception:
+                type_child = None
+            if type_child is None:
+                # Fallback to scanning children
+                for c in (getattr(obj, "named_children", []) or [])[::-1]:
+                    ct = getattr(c, "type", "") or ""
+                    if ct in ("type_identifier", "generic_type", "union_type"):
+                        type_child = c
+                        break
+            if type_child is not None:
+                return _extract_simple_ts_type_name(type_child, source_bytes)
+            return None
+        return None
+    if func_type == "identifier":
+        # Bare call — `bar()` from inside a class method routes to enclosing class.
+        text = source_bytes[func.start_byte:func.end_byte].decode("utf-8", errors="replace").strip()
+        if text and text[:1].isupper():
+            # Constructor-style call (`Foo()` without `new`) — defer.
+            return None
+        return _find_enclosing_ts_class_name(call_node, source_bytes)
+    return None
+
+
+def _resolve_ts_call_target(call_node, source_bytes: bytes, symbol_lookup: dict[str, str]) -> str | None:
+    """Resolve a TS/JS call_expression to a graph node id when receiver type is known."""
+    if call_node is None or getattr(call_node, "type", "") != "call_expression":
+        return None
+    try:
+        func = call_node.child_by_field_name("function")
+    except Exception:
+        func = None
+    if func is None:
+        return None
+    func_type = getattr(func, "type", "") or ""
+    method_name: str | None = None
+    if func_type == "member_expression":
+        try:
+            prop = func.child_by_field_name("property")
+        except Exception:
+            prop = None
+        if prop is not None:
+            method_name = source_bytes[prop.start_byte:prop.end_byte].decode("utf-8", errors="replace").strip() or None
+    elif func_type == "identifier":
+        method_name = source_bytes[func.start_byte:func.end_byte].decode("utf-8", errors="replace").strip() or None
+    if not method_name:
+        return None
+    receiver_type = _resolve_ts_receiver_type(call_node, source_bytes)
+    if receiver_type is None:
+        return None
+    qualified = f"{receiver_type}.{method_name}"
+    if qualified in symbol_lookup:
+        return symbol_lookup[qualified]
+    return f"external::{receiver_type}.{method_name}"
+
+
+# Wave 131bt (1319q): PHP receiver-type resolution.
+#
+# PHP grammars expose native type hints directly. Object method calls use
+# ``->`` syntax (member_call_expression). Static calls use ``::``
+# (scoped_call_expression). Resolution mirrors TS but reads PHP-specific
+# field names.
+
+
+def _extract_simple_php_type_name(type_node, source_bytes: bytes) -> str | None:
+    if type_node is None:
+        return None
+    n_type = getattr(type_node, "type", "") or ""
+    if n_type in ("named_type", "type_list"):
+        # PHP wraps types in a `named_type` node; extract the `name` child.
+        for child in (getattr(type_node, "named_children", []) or []):
+            ct = getattr(child, "type", "") or ""
+            if ct == "name":
+                text = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace").strip()
+                return text or None
+        return None
+    if n_type == "name":
+        text = source_bytes[type_node.start_byte:type_node.end_byte].decode("utf-8", errors="replace").strip()
+        return text or None
+    if n_type == "optional_type":
+        for child in (getattr(type_node, "named_children", []) or []):
+            inner = _extract_simple_php_type_name(child, source_bytes)
+            if inner:
+                return inner
+        return None
+    if n_type == "primitive_type":
+        return None  # int/string/bool are not class-like.
+    return None
+
+
+def _find_enclosing_php_class_name(node, source_bytes: bytes) -> str | None:
+    cur = getattr(node, "parent", None)
+    while cur is not None:
+        ctype = getattr(cur, "type", "") or ""
+        if ctype in ("class_declaration", "interface_declaration", "trait_declaration"):
+            try:
+                name_node = cur.child_by_field_name("name")
+            except Exception:
+                name_node = None
+            if name_node is not None:
+                return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace").strip() or None
+            return None
+        cur = getattr(cur, "parent", None)
+    return None
+
+
+def _search_php_declarations_in_scope(scope_node, name: str, source_bytes: bytes) -> str | None:
+    """Search PHP scope for parameter / property declarations matching name."""
+    target = "$" + name if not name.startswith("$") else name
+    stack = [scope_node]
+    while stack:
+        n = stack.pop()
+        n_type = getattr(n, "type", "") or ""
+        if n_type == "simple_parameter":
+            param_name = None
+            type_child = None
+            for child in (getattr(n, "named_children", []) or []):
+                ct = getattr(child, "type", "") or ""
+                if ct == "variable_name":
+                    param_name = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace").strip()
+                elif ct in ("named_type", "optional_type", "primitive_type"):
+                    type_child = child
+            if param_name == target and type_child is not None:
+                return _extract_simple_php_type_name(type_child, source_bytes)
+        elif n_type == "property_declaration":
+            # PHP 7.4+ typed property: `private Foo $foo;`
+            type_child = None
+            for child in (getattr(n, "named_children", []) or []):
+                ct = getattr(child, "type", "") or ""
+                if ct in ("named_type", "primitive_type") and type_child is None:
+                    type_child = child
+                elif ct == "property_element":
+                    for gc in (getattr(child, "named_children", []) or []):
+                        if getattr(gc, "type", "") == "variable_name":
+                            prop_name = source_bytes[gc.start_byte:gc.end_byte].decode("utf-8", errors="replace").strip()
+                            if prop_name == target and type_child is not None:
+                                return _extract_simple_php_type_name(type_child, source_bytes)
+        # Don't descend into nested function/class bodies.
+        if n_type in (
+            "method_declaration", "function_definition",
+            "class_declaration", "interface_declaration", "trait_declaration",
+        ) and n is not scope_node:
+            continue
+        stack.extend(reversed(getattr(n, "named_children", []) or []))
+    return None
+
+
+def _resolve_php_identifier_type(name: str, ref_node, source_bytes: bytes) -> str | None:
+    cur = getattr(ref_node, "parent", None)
+    while cur is not None:
+        cur_type = getattr(cur, "type", "") or ""
+        if cur_type in (
+            "method_declaration", "function_definition",
+            "class_declaration", "interface_declaration", "trait_declaration",
+            "compound_statement",
+        ):
+            resolved = _search_php_declarations_in_scope(cur, name, source_bytes)
+            if resolved is not None:
+                return resolved
+            if cur_type in ("class_declaration", "interface_declaration", "trait_declaration"):
+                break
+        cur = getattr(cur, "parent", None)
+    return None
+
+
+def _resolve_php_call_target(call_node, source_bytes: bytes, symbol_lookup: dict[str, str]) -> str | None:
+    """Resolve PHP member_call_expression / scoped_call_expression to a node id."""
+    if call_node is None:
+        return None
+    n_type = getattr(call_node, "type", "") or ""
+    if n_type == "member_call_expression":
+        # $obj->method(args)
+        try:
+            obj = call_node.child_by_field_name("object")
+            method_node = call_node.child_by_field_name("name")
+        except Exception:
+            return None
+        if obj is None or method_node is None:
+            return None
+        obj_type = getattr(obj, "type", "") or ""
+        method_name = source_bytes[method_node.start_byte:method_node.end_byte].decode("utf-8", errors="replace").strip()
+        if not method_name:
+            return None
+        receiver_type: str | None = None
+        if obj_type == "variable_name":
+            var_text = source_bytes[obj.start_byte:obj.end_byte].decode("utf-8", errors="replace").strip()
+            if var_text == "$this":
+                receiver_type = _find_enclosing_php_class_name(call_node, source_bytes)
+            else:
+                # Strip leading $ before searching
+                bare = var_text[1:] if var_text.startswith("$") else var_text
+                receiver_type = _resolve_php_identifier_type(bare, call_node, source_bytes)
+        if receiver_type is None:
+            return None
+        qualified = f"{receiver_type}.{method_name}"
+        if qualified in symbol_lookup:
+            return symbol_lookup[qualified]
+        return f"external::{receiver_type}.{method_name}"
+    if n_type == "scoped_call_expression":
+        # Foo::method(args) — static call where receiver is the class itself.
+        try:
+            scope = call_node.child_by_field_name("scope")
+            method_node = call_node.child_by_field_name("name")
+        except Exception:
+            return None
+        if scope is None or method_node is None:
+            return None
+        method_name = source_bytes[method_node.start_byte:method_node.end_byte].decode("utf-8", errors="replace").strip()
+        scope_text = source_bytes[scope.start_byte:scope.end_byte].decode("utf-8", errors="replace").strip()
+        if not method_name or not scope_text:
+            return None
+        if scope_text in ("self", "static", "parent"):
+            scope_text = _find_enclosing_php_class_name(call_node, source_bytes) or ""
+            if not scope_text:
+                return None
+        qualified = f"{scope_text}.{method_name}"
+        if qualified in symbol_lookup:
+            return symbol_lookup[qualified]
+        return f"external::{scope_text}.{method_name}"
+    return None
+
+
 def _resolve_swift_call_target(call_node, source_bytes: bytes, symbol_lookup: dict[str, str]) -> str | None:
     if call_node is None or getattr(call_node, "type", "") != "call_expression":
         return None
@@ -2990,7 +3910,44 @@ class GraphIndexSession:
         simple_name_lookup: dict[str, list[str]] = {}
         import_aliases: dict[str, str] = {}
 
+        # Wave 131bt (1319o): Python single-dominant-class merge.
+        # When a file `foo_bar.py` (or `Foo.py`) has exactly one top-level
+        # `class_definition` whose name matches the basename (literal or
+        # snake-to-PascalCase), merge the file node and the class node into
+        # one node at the file id. Module-level functions/constants don't
+        # block the merge.
+        _py_basename_raw = ""
+        if rel_path.endswith(".py"):
+            _py_basename_raw = rel_path.rsplit("/", 1)[-1][:-3]
+        _py_basename_candidates: frozenset[str] = (
+            frozenset({
+                _py_basename_raw,
+                "".join(p[:1].upper() + p[1:] for p in _py_basename_raw.split("_") if p),
+            })
+            if _py_basename_raw
+            else frozenset()
+        )
+        _py_top_level_class_count = sum(
+            1 for s in tree.body if isinstance(s, ast.ClassDef)
+        )
+
         def add_symbol(qname: str, kind: str, lineno: int, label: str | None = None, parent: str | None = None) -> str:
+            # Wave 131bt (1319o): merge top-level class into module node when
+            # the dominance gate passes (exactly one top-level class) and the
+            # class name matches the file basename (literal or snake-to-Pascal).
+            if (
+                kind == "class"
+                and parent is None
+                and _py_top_level_class_count == 1
+                and qname in _py_basename_candidates
+            ):
+                module_node["label"] = qname
+                module_node["kind"] = "class"
+                module_node["collapsed_pair"] = True
+                simple_names.setdefault(qname, []).append(module_id)
+                if module_id not in defined_symbols:
+                    defined_symbols.append(module_id)
+                return module_id
             node_id = f"{rel_path}::{qname}"
             nodes.append(
                 _node(
@@ -3050,11 +4007,86 @@ class GraphIndexSession:
             if len(items) == 1:
                 symbol_lookup.setdefault(name, items[0])
 
+        # Wave 131bt (1319q): Python receiver-type resolution via PEP 484
+        # type annotations. Extracts simple type names from annotated locals
+        # (`foo: Foo = ...`), typed parameters (`def m(self, foo: Foo)`), and
+        # routes `foo.method()` calls to `Foo.method`. Unannotated declarations
+        # remain unresolved — falls back to the existing EXTRACTED path.
+        def _py_extract_simple_type(annotation: ast.AST | None) -> str | None:
+            if annotation is None:
+                return None
+            if isinstance(annotation, ast.Name):
+                return annotation.id
+            if isinstance(annotation, ast.Subscript):
+                # Optional[Foo] / Union[Foo, None] — extract inner non-None.
+                if isinstance(annotation.value, ast.Name) and annotation.value.id in ("Optional", "Union"):
+                    slice_node = annotation.slice
+                    if isinstance(slice_node, ast.Name):
+                        return slice_node.id
+                    if isinstance(slice_node, ast.Tuple):
+                        for elt in slice_node.elts:
+                            inner = _py_extract_simple_type(elt)
+                            if inner and inner != "None":
+                                return inner
+                    return _py_extract_simple_type(slice_node)
+                # List[Foo] / Container[Foo] / Dict[str, Foo] — outer name (e.g. List).
+                if isinstance(annotation.value, ast.Name):
+                    return annotation.value.id
+            if isinstance(annotation, ast.Attribute):
+                # foo.bar.Foo — last segment.
+                return annotation.attr
+            if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+                # Foo | None → first non-None type
+                left = _py_extract_simple_type(annotation.left)
+                right = _py_extract_simple_type(annotation.right)
+                if left and left != "None":
+                    return left
+                if right and right != "None":
+                    return right
+            return None
+
+        def _py_build_local_types(node: ast.AST, scope_class: str | None) -> dict[str, str]:
+            """Build name → type mapping for a function body (one-level scope)."""
+            types: dict[str, str] = {}
+            # If this is a function, capture typed parameters.
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                args = node.args
+                all_args = list(args.posonlyargs) + list(args.args) + list(args.kwonlyargs)
+                if args.vararg:
+                    all_args.append(args.vararg)
+                if args.kwarg:
+                    all_args.append(args.kwarg)
+                for arg in all_args:
+                    t = _py_extract_simple_type(getattr(arg, "annotation", None))
+                    if t:
+                        types[arg.arg] = t
+            # Scan body for AnnAssign at this scope level (don't descend into
+            # nested functions/classes — they have their own scope).
+            body = getattr(node, "body", []) or []
+            stack = list(body)
+            while stack:
+                stmt = stack.pop()
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    continue
+                if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                    t = _py_extract_simple_type(stmt.annotation)
+                    if t:
+                        types[stmt.target.id] = t
+                # Descend into compound statements (if/for/while/try/with).
+                for field, value in ast.iter_fields(stmt):
+                    if isinstance(value, list):
+                        stack.extend(v for v in value if isinstance(v, ast.stmt))
+                    elif isinstance(value, ast.stmt):
+                        stack.append(value)
+            return types
+
         class CallCollector(ast.NodeVisitor):
-            def __init__(self, current_symbol: str, scope_class: str | None = None) -> None:
+            def __init__(self, current_symbol: str, scope_class: str | None = None, local_types: dict[str, str] | None = None) -> None:
                 self.current_symbol = current_symbol
                 self.scope_class = scope_class
-                self.calls: list[tuple[str, str]] = []
+                self.local_types: dict[str, str] = local_types or {}
+                # Wave 131bt (1319q): tuples of (source, target, receiver_resolved).
+                self.calls: list[tuple[str, str, bool]] = []
 
             def visit_FunctionDef(self, node: ast.FunctionDef) -> Any:  # noqa: N802
                 return None
@@ -3066,24 +4098,24 @@ class GraphIndexSession:
                 return None
 
             def visit_Call(self, node: ast.Call) -> Any:  # noqa: N802
-                target = self._resolve_call(node.func)
+                target, receiver_resolved = self._resolve_call(node.func)
                 if target:
-                    self.calls.append((self.current_symbol, target))
+                    self.calls.append((self.current_symbol, target, receiver_resolved))
                 self.generic_visit(node)
 
-            def _resolve_call(self, func: ast.AST) -> str | None:
+            def _resolve_call(self, func: ast.AST) -> tuple[str | None, bool]:
                 if isinstance(func, ast.Name):
                     name = func.id
                     if name in import_aliases:
                         target_label = import_aliases[name]
-                        return f"external::{target_label}"
+                        return f"external::{target_label}", False
                     if name in symbol_lookup:
-                        return symbol_lookup[name]
+                        return symbol_lookup[name], False
                     if self.scope_class:
                         candidate = f"{self.scope_class}.{name}"
                         if candidate in symbol_lookup:
-                            return symbol_lookup[candidate]
-                    return None
+                            return symbol_lookup[candidate], False
+                    return None, False
                 if isinstance(func, ast.Attribute):
                     attr = func.attr
                     value = func.value
@@ -3092,22 +4124,35 @@ class GraphIndexSession:
                         if root in ("self", "cls") and self.scope_class:
                             candidate = f"{self.scope_class}.{attr}"
                             if candidate in symbol_lookup:
-                                return symbol_lookup[candidate]
+                                return symbol_lookup[candidate], False
+                        # Wave 131bt (1319q): receiver-type via local type
+                        # table built from PEP 484 annotations.
+                        if root in self.local_types:
+                            receiver_type = self.local_types[root]
+                            qualified = f"{receiver_type}.{attr}"
+                            if qualified in symbol_lookup:
+                                return symbol_lookup[qualified], True
+                            return f"external::{receiver_type}.{attr}", True
                         if root in import_aliases:
-                            return f"external::{import_aliases[root]}.{attr}"
+                            return f"external::{import_aliases[root]}.{attr}", False
                         if root in symbol_lookup:
                             candidate = f"{root}.{attr}"
                             if candidate in symbol_lookup:
-                                return symbol_lookup[candidate]
+                                return symbol_lookup[candidate], False
                     if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name):
                         root = value.value.id
                         if root in import_aliases:
-                            return f"external::{import_aliases[root]}.{value.attr}.{attr}"
-                    return None
-                return None
+                            return f"external::{import_aliases[root]}.{value.attr}.{attr}", False
+                    return None, False
+                return None, False
 
-        def collect_calls(body: list[ast.stmt], current_symbol: str, scope_class: str | None = None) -> None:
-            collector = CallCollector(current_symbol, scope_class=scope_class)
+        def collect_calls(body: list[ast.stmt], current_symbol: str, scope_class: str | None = None, owner_node: ast.AST | None = None) -> None:
+            # Wave 131bt (1319q): build local type table for receiver-type
+            # resolution when an owner function/method is provided.
+            local_types: dict[str, str] = {}
+            if owner_node is not None:
+                local_types = _py_build_local_types(owner_node, scope_class)
+            collector = CallCollector(current_symbol, scope_class=scope_class, local_types=local_types)
             for stmt in body:
                 collector.visit(stmt)
                 if isinstance(stmt, ast.ClassDef):
@@ -3115,22 +4160,23 @@ class GraphIndexSession:
                     for child in stmt.body:
                         if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                             child_symbol = f"{rel_path}::{class_qname}.{child.name}"
-                            collect_calls(child.body, child_symbol, scope_class=class_qname)
+                            collect_calls(child.body, child_symbol, scope_class=class_qname, owner_node=child)
                 elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     func_qname = f"{current_symbol.split('::', 1)[-1]}.{stmt.name}" if current_symbol else stmt.name
-                    collect_calls(stmt.body, f"{rel_path}::{func_qname}", scope_class=scope_class)
-            for src, target in collector.calls:
-                edges.append(_edge(src, target, "calls", confidence="EXTRACTED"))
+                    collect_calls(stmt.body, f"{rel_path}::{func_qname}", scope_class=scope_class, owner_node=stmt)
+            for src, target, receiver_resolved in collector.calls:
+                confidence = "RECEIVER_RESOLVED" if receiver_resolved else "EXTRACTED"
+                edges.append(_edge(src, target, "calls", confidence=confidence))
 
         # Attach call edges for top-level defs and classes.
         for stmt in tree.body:
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                collect_calls(stmt.body, f"{rel_path}::{stmt.name}")
+                collect_calls(stmt.body, f"{rel_path}::{stmt.name}", owner_node=stmt)
             elif isinstance(stmt, ast.ClassDef):
                 class_qname = stmt.name
                 for child in stmt.body:
                     if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        collect_calls(child.body, f"{rel_path}::{class_qname}.{child.name}", scope_class=class_qname)
+                        collect_calls(child.body, f"{rel_path}::{class_qname}.{child.name}", scope_class=class_qname, owner_node=child)
 
         return {
             "kind": "code",
@@ -3376,10 +4422,30 @@ class GraphIndexSession:
         # the literal basename (some Rust crates use `Foo.rs` directly).
         _SNAKE_TO_PASCAL_LANGS = frozenset({"rust", "ruby"})
 
+        # Wave 131bt (1319o): languages that permit multiple top-level classes
+        # per file need a dominance gate — merge only fires when the file has
+        # exactly one top-level class declaration matching the basename.
+        # Without the gate the merge would over-trigger on utility modules
+        # containing several classes. Java/C#/Kotlin/Swift/Scala/PHP enforce
+        # one-top-level-class-per-file via language convention so don't need
+        # the gate.
+        _DOMINANCE_GATE_LANGS = frozenset({"python", "javascript", "typescript"})
+
+        # Wave 131bt (1319o): JS/TS support kebab-case file naming
+        # convention (`foo-bar.js` containing `class FooBar`). Try kebab->Pascal
+        # alongside the literal basename and snake->Pascal.
+        _KEBAB_TO_PASCAL_LANGS = frozenset({"javascript", "typescript"})
+
         def _snake_to_pascal(name: str) -> str:
             if not name:
                 return ""
             parts = name.split("_")
+            return "".join(p[:1].upper() + p[1:] for p in parts if p)
+
+        def _kebab_to_pascal(name: str) -> str:
+            if not name:
+                return ""
+            parts = name.split("-")
             return "".join(p[:1].upper() + p[1:] for p in parts if p)
 
         _merge_kinds = _CLASS_MODULE_MERGE_KINDS_BY_LANG.get(lang_key, frozenset())
@@ -3390,15 +4456,54 @@ class GraphIndexSession:
                 _basename_raw = rel_path.rsplit("/", 1)[-1].rsplit(_ext, 1)[0]
                 break
         # Build the set of basename candidates the merge gate matches against.
-        # For exact-match languages (Swift/Java/Kotlin/C#/JS/TS/Scala/PHP),
-        # only the literal basename matches. For snake-to-Pascal languages,
-        # both the literal basename and its PascalCase conversion match.
-        _file_basename_candidates: frozenset[str] = (
-            frozenset({_basename_raw, _snake_to_pascal(_basename_raw)})
-            if lang_key in _SNAKE_TO_PASCAL_LANGS
-            else frozenset({_basename_raw}) if _basename_raw
-            else frozenset()
-        )
+        # For exact-match languages (Swift/Java/Kotlin/C#/Scala/PHP), only the
+        # literal basename matches. For snake-to-Pascal languages (Rust/Ruby),
+        # the literal basename and snake-to-Pascal conversion match. For JS/TS
+        # (wave 131bt 1319o), the literal basename, snake-to-Pascal, AND
+        # kebab-to-Pascal all match — JS/TS codebases use all three.
+        _file_basename_candidates_set: set[str] = set()
+        if _basename_raw:
+            _file_basename_candidates_set.add(_basename_raw)
+            if lang_key in _SNAKE_TO_PASCAL_LANGS:
+                _file_basename_candidates_set.add(_snake_to_pascal(_basename_raw))
+            if lang_key in _KEBAB_TO_PASCAL_LANGS:
+                _file_basename_candidates_set.add(_kebab_to_pascal(_basename_raw))
+                _file_basename_candidates_set.add(_snake_to_pascal(_basename_raw))
+        _file_basename_candidates: frozenset[str] = frozenset(_file_basename_candidates_set)
+
+        # Wave 131bt (1319o): pre-count top-level merge-eligible class
+        # declarations. Used by the dominance gate for languages permitting
+        # multi-class files (Python/JS/TS). Counted via tree-sitter AST walk
+        # before walk_definitions; only direct children of the root program
+        # node (or export wrappers) count as top-level.
+        def _count_top_level_classes() -> int:
+            if lang_key not in _DOMINANCE_GATE_LANGS:
+                return -1  # Sentinel: gate not applied to this language.
+            if not _merge_kinds:
+                return -1
+            root = tree.root_node
+            count = 0
+            for child in (getattr(root, "named_children", []) or []):
+                ctype = getattr(child, "type", "") or ""
+                # Direct top-level class declarations.
+                if _ts_is_definition_node(ctype, mode):
+                    kind = _ts_kind_for_definition(ctype, None, mode)
+                    if kind in _merge_kinds:
+                        count += 1
+                    continue
+                # JS/TS export wrappers — peek inside.
+                if lang_key in ("javascript", "typescript") and ctype in (
+                    "export_statement", "export_default_declaration"
+                ):
+                    for inner in (getattr(child, "named_children", []) or []):
+                        inner_type = getattr(inner, "type", "") or ""
+                        if _ts_is_definition_node(inner_type, mode):
+                            inner_kind = _ts_kind_for_definition(inner_type, None, mode)
+                            if inner_kind in _merge_kinds:
+                                count += 1
+            return count
+
+        _top_level_class_count = _count_top_level_classes()
 
         def register_symbol(qname: str, kind: str, node, parent_symbol: str | None) -> str:
             # Wave 13129 (1316l/13190/1319i/1319k): merge top-level type whose
@@ -3406,10 +4511,19 @@ class GraphIndexSession:
             # node. Candidates are the literal basename plus (for languages
             # with snake_case file convention like Rust/Ruby) the PascalCase
             # conversion of the basename.
+            # Wave 131bt (1319o): dominance gate for multi-class languages.
+            # Python/JS/TS permit multiple top-level classes per file; only
+            # merge when exactly one such class exists AND its name matches
+            # the basename.
+            _dominance_gate_passes = (
+                lang_key not in _DOMINANCE_GATE_LANGS
+                or _top_level_class_count == 1
+            )
             if (
                 _file_basename_candidates
                 and kind in _merge_kinds
                 and qname in _file_basename_candidates
+                and _dominance_gate_passes
             ):
                 # Update module node identity to take on the class.
                 module_node = node_map.get(module_id)
@@ -3482,6 +4596,29 @@ class GraphIndexSession:
                     return
             if mode == "markup" and (is_import or is_definition):
                 return
+            # Wave 131bt (1319v): recover ERROR-wrapped top-level class declarations.
+            # When tree-sitter wraps an entire class in ERROR (parse failure deep in
+            # the class body), the standard is_definition gate misses it and the class
+            # node never gets registered. Detect via source-text prefix pattern and
+            # treat as a synthetic class_declaration so the class/module merge can
+            # still fire and cross-file CONSTRUCTION_RESOLVED edges have a target.
+            if (
+                not scope_names
+                and mode not in ("markup", "config", "sql")
+                and node_type == "ERROR"
+            ):
+                recovered = _ts_recover_error_class(node, source_bytes, lang_key)
+                if recovered is not None:
+                    rname, rkind = recovered
+                    rqname = rname
+                    rparent = module_id
+                    rnode_id = register_symbol(rqname, rkind, node, rparent)
+                    next_scope_names = [rname]
+                    next_scope_kinds = [rkind]
+                    next_scope_symbols = [rnode_id]
+                    for child in getattr(node, "named_children", []):
+                        walk_definitions(child, next_scope_names, next_scope_kinds, next_scope_symbols)
+                    return
             for child in getattr(node, "named_children", []):
                 walk_definitions(child, scope_names, scope_kinds, scope_symbols)
 
@@ -3493,6 +4630,17 @@ class GraphIndexSession:
         for name, items in simple_names.items():
             if len(items) == 1:
                 symbol_lookup.setdefault(name, items[0])
+
+        # Wave 131bt (1319s): symbol kind lookup for scope-aware construction
+        # resolution. Maps a simple name to the kind of the symbol it resolves
+        # to (e.g. "class", "function") so the construction helper can reject
+        # PascalCase callees that resolve to non-class entities.
+        symbol_lookup_kinds: dict[str, str] = {}
+        for name, node_id in symbol_lookup.items():
+            node_info = node_map.get(node_id) or {}
+            kind_val = node_info.get("kind") or ""
+            if kind_val:
+                symbol_lookup_kinds[name] = str(kind_val)
 
         def walk_calls(node, scope_names: list[str], scope_kinds: list[str], scope_symbols: list[str]) -> None:
             node_type = str(getattr(node, "type", "") or "")
@@ -3527,6 +4675,25 @@ class GraphIndexSession:
                 return
             if _ts_is_call_node(node_type, mode, profile):
                 source_symbol = scope_symbols[-1] if scope_symbols else module_id
+
+                # Wave 131bt (1319s): construction-call resolution runs FIRST.
+                # Detects construction shapes (Java/C#/TS/JS/PHP
+                # object_creation/new_expression; Rust struct_expression and
+                # ::new convention; Go composite_literal and new() builtin)
+                # and bare-call construction (Swift/Python/Kotlin/Scala) and
+                # routes the edge to the class-like target with
+                # CONSTRUCTION_RESOLVED confidence. The scope-aware
+                # symbol_lookup_kinds check prevents PascalCase methods from
+                # being treated as construction.
+                construction_target = _resolve_construction_target(
+                    node, node_type, source_bytes, symbol_lookup, symbol_lookup_kinds, lang_key
+                )
+                if construction_target is not None:
+                    add_edge(source_symbol, construction_target, "calls", confidence="CONSTRUCTION_RESOLVED")
+                    for child in getattr(node, "named_children", []):
+                        walk_calls(child, scope_names, scope_kinds, scope_symbols)
+                    return
+
                 # Wave 13129 (1312l + 13194): per-language receiver-type
                 # resolution at edge construction time. For supported language
                 # invocation nodes, try the receiver-type resolver first; on a
@@ -3563,6 +4730,16 @@ class GraphIndexSession:
                 # Wave 1319g: Swift extension.
                 elif lang_key == "swift" and node_type == "call_expression":
                     java_resolved_target = _resolve_swift_call_target(
+                        node, source_bytes, symbol_lookup
+                    )
+                # Wave 131bt (1319q): TypeScript / JavaScript via type annotations.
+                elif lang_key in ("typescript", "javascript") and node_type == "call_expression":
+                    java_resolved_target = _resolve_ts_call_target(
+                        node, source_bytes, symbol_lookup
+                    )
+                # Wave 131bt (1319q): PHP via native type hints + property types.
+                elif lang_key == "php" and node_type in ("member_call_expression", "scoped_call_expression"):
+                    java_resolved_target = _resolve_php_call_target(
                         node, source_bytes, symbol_lookup
                     )
                 if java_resolved_target is not None:
@@ -4111,7 +5288,11 @@ class GraphIndexSession:
                 # the phantom (e.g. external::ObjectOutputStream.writeObject
                 # would mis-rewrite to project JSON.writeObject via the unique
                 # simple-name "writeObject").
-                _receiver_resolved = conf == "RECEIVER_RESOLVED"
+                # Wave 131bt (1319s): CONSTRUCTION_RESOLVED is a peer to
+                # RECEIVER_RESOLVED — both mean the indexer determined the call's
+                # target deterministically at graph-build time, so the simple-name
+                # fallback must be blocked to prevent phantom rewrites.
+                _receiver_resolved = conf in ("RECEIVER_RESOLVED", "CONSTRUCTION_RESOLVED")
                 resolved: str | None = None
                 if "." in bare:
                     # AC-2: qualified target — require an exact qualified-name

@@ -21,6 +21,7 @@ import re
 import subprocess
 import sys
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -56,7 +57,13 @@ def find_repo_root(start: Path) -> Path:
 
 
 def _get_build_prefix() -> str:
-    """Return the current Crockford lifecycle prefix from lifecycle_id.py --prefix-only."""
+    """Return the current Crockford lifecycle prefix from lifecycle_id.py --prefix-only.
+
+    Retained for callers that need the full 5-character lifecycle prefix (waves,
+    changes, plans). The build pack itself uses ``compute_build_suffix`` directly
+    so the suffix is temporally lex-sortable; the lifecycle prefix's tail char
+    (minute mod 36) is not.
+    """
     script_dir = Path(__file__).resolve().parent
     result = subprocess.run(
         [sys.executable, str(script_dir / "lifecycle_id.py"), "--prefix-only"],
@@ -68,8 +75,76 @@ def _get_build_prefix() -> str:
 
 
 def _build_suffix(prefix: str) -> str:
-    """Return the packaged 4-character build suffix derived from a lifecycle prefix."""
+    """Legacy: return the rightmost 4 characters of a lifecycle prefix.
+
+    Kept for the test surface and any out-of-tree caller. The packaged build
+    suffix now goes through ``compute_build_suffix`` directly so two consecutive
+    builds always lex-sort in temporal order.
+    """
     return prefix[-4:] if len(prefix) > 4 else prefix
+
+
+# Wave 131bt close-out (131bu): build suffix is the last 4 chars of the
+# lifecycle prefix — single source of truth.
+#
+# The lifecycle prefix and the build suffix both encode
+# ``(days_since_epoch * 288 + bucket_5min) mod 36^k`` in base36, just with
+# different widths (5 chars for the prefix, 4 for the suffix). Last 4 chars of
+# the 5-char prefix == base36(packed mod 36^4), so truncation is mathematically
+# equivalent to a separate 4-char encoding with the same packing.
+#
+# Lex order matches wall-clock order: 5832 days (~15.97 yr) for the suffix's
+# 36^4 horizon, 209,952 days (~575 yr) for the prefix's 36^5 horizon. Builds
+# within the same 5-minute bucket produce identical suffixes — covered by the
+# same-semver-collision warning + the upgrade-selector mtime tie-break (131ht plan).
+
+
+def compute_build_suffix(now_utc: datetime, epoch_utc: datetime) -> str:
+    """Return the 4-character build suffix for ``now_utc`` relative to ``epoch_utc``.
+
+    Delegates to ``lifecycle_id.build_prefix`` and truncates to the last 4 chars
+    so the build suffix and the lifecycle prefix stay in sync by construction.
+    """
+    from lifecycle_id import build_prefix
+    return build_prefix(now_utc, policy=(epoch_utc, 0))[-4:]
+
+
+def _current_build_suffix() -> str:
+    """Return the build suffix for the current wall-clock time using the project epoch."""
+    from lifecycle_id import build_prefix
+    return build_prefix()[-4:]
+
+
+def _warn_on_same_semver_collision(output_dir: Path, version: str) -> None:
+    """Emit a warning when ``version`` already has pack(s) in ``output_dir``.
+
+    Non-blocking. Operators have legitimate reasons to repackage at the same
+    semver (e.g., reproducing a bad build, content-only fix). The warning
+    surfaces the existing pack filenames so the operator can choose to bump
+    semver instead — bumping makes the upgrade selector path unambiguous
+    independent of mtime tie-break behavior.
+    """
+    if not output_dir.is_dir():
+        return
+    pattern = re.compile(
+        rf"^{re.escape(ZIP_PREFIX)}{re.escape(version)}\.[A-Za-z0-9]{{4}}\.zip$"
+    )
+    existing = sorted(p.name for p in output_dir.iterdir() if pattern.match(p.name))
+    if not existing:
+        return
+    print(
+        f"build_pack: WARNING: {len(existing)} existing pack(s) at version "
+        f"{version} found in {output_dir}:",
+        file=sys.stderr,
+    )
+    for name in existing:
+        print(f"  - {name}", file=sys.stderr)
+    print(
+        "  Consider bumping semver (MAJOR.MINOR.PATCH) — same-version repackages "
+        "rely on the upgrade selector's mtime tie-break to surface the newest. "
+        "Bumping semver makes the selection unambiguous.",
+        file=sys.stderr,
+    )
 
 
 def should_exclude(rel_path: str, name: str) -> bool:
@@ -246,6 +321,68 @@ def update_manifest_revision(repo_root: Path, full_version: str) -> None:
     manifest_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
+def check_changelog_format(repo_root: Path) -> None:
+    """Diagnostic: warn when a CHANGELOG.md version section looks chronological.
+
+    `.wavefoundry/CHANGELOG.md` is structured by semver version, not by build.
+    This check scans each `## MAJOR.MINOR.PATCH` section and warns when its
+    body contains the chronological-log smell:
+
+    - more than two `build` occurrences (case-insensitive), suggesting a
+      "build XXX added Y" delta log style, OR
+    - any `+XXXX` build-number reference inside the body.
+
+    Build numbers belong in git history, the VERSION file, and the dist zip
+    filename — not in the changelog. Warnings are non-fatal; the operator can
+    bypass with --skip-changelog-diagnostic when the warning is a known false
+    positive. Missing CHANGELOG.md is also non-fatal (the file is optional).
+    """
+    changelog_path = repo_root / ".wavefoundry" / "CHANGELOG.md"
+    if not changelog_path.exists():
+        return
+
+    text = changelog_path.read_text(encoding="utf-8")
+    # Split on `## ` headings at line start. The first split is the header/intro
+    # block before any version section; subsequent splits are version sections.
+    sections = re.split(r"(?m)^## ", text)
+    section_re = re.compile(r"^(\d+\.\d+\.\d+)\b")
+    build_token_re = re.compile(r"\bbuild\b", re.IGNORECASE)
+    build_number_re = re.compile(r"\+[A-Za-z0-9]{4}\b")
+    warnings: list[str] = []
+    for section in sections[1:]:
+        header_match = section_re.match(section)
+        if not header_match:
+            continue
+        version = header_match.group(1)
+        body = section[header_match.end():]
+        build_word_count = len(build_token_re.findall(body))
+        build_number_hits = build_number_re.findall(body)
+        if build_number_hits:
+            warnings.append(
+                f"  {version}: contains {len(build_number_hits)} build-number "
+                f"reference(s) ({', '.join(sorted(set(build_number_hits))[:3])}"
+                f"{'…' if len(set(build_number_hits)) > 3 else ''}) — build "
+                "numbers do not belong in CHANGELOG.md."
+            )
+        elif build_word_count > 2:
+            warnings.append(
+                f"  {version}: contains {build_word_count} \"build\" occurrences "
+                "— section may be drifting toward chronological log style."
+            )
+    if warnings:
+        print(
+            "warning: CHANGELOG.md format diagnostic flagged section(s):",
+            file=sys.stderr,
+        )
+        for w in warnings:
+            print(w, file=sys.stderr)
+        print(
+            "  Rewrite the flagged section(s) as cohesive narrative prose "
+            "per seed 240. Use --skip-changelog-diagnostic to bypass.",
+            file=sys.stderr,
+        )
+
+
 def check_docs_gate(repo_root: Path) -> None:
     """Run docs-gardener and docs-lint as a pre-packaging gate.
 
@@ -322,6 +459,15 @@ def build_zip(
     if wavefoundry_readme.exists() and not any(a == readme_arcname for _, a in entries):
         entries.append((wavefoundry_readme, readme_arcname))
 
+    # Include .wavefoundry/CHANGELOG.md (operator-facing release history) if it
+    # exists. Like README.md, this file sits at the project level (outside the
+    # framework dir) and is added explicitly. It is the only release surface
+    # that travels with the package.
+    wavefoundry_changelog = fw.parent / "CHANGELOG.md"
+    changelog_arcname = ".wavefoundry/CHANGELOG.md"
+    if wavefoundry_changelog.exists() and not any(a == changelog_arcname for _, a in entries):
+        entries.append((wavefoundry_changelog, changelog_arcname))
+
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for abs_path, arcname in entries:
             zf.write(abs_path, arcname)
@@ -389,6 +535,14 @@ def main():
         action="store_true",
         help="Skip the docs-gardener / docs-lint pre-flight gate.",
     )
+    parser.add_argument(
+        "--skip-changelog-diagnostic",
+        action="store_true",
+        help=(
+            "Skip the chronological-section diagnostic on .wavefoundry/CHANGELOG.md. "
+            "Use only when the warning is a known false positive."
+        ),
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Print index build progress")
     args = parser.parse_args()
 
@@ -428,11 +582,13 @@ def main():
         print(f"error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    # Derive the packaged 4-character build suffix from lifecycle_id.py.
+    # Wave 131bt close-out: 4-character base36 build suffix that is temporally
+    # lex-sortable. Replaces the prior lifecycle-prefix tail (which wrapped
+    # every 36 minutes and broke `_find_latest_release_zip`'s lex tie-break).
     try:
-        build_prefix = _build_suffix(_get_build_prefix())
-    except subprocess.CalledProcessError as exc:
-        print(f"error: failed to get build prefix: {exc}", file=sys.stderr)
+        build_prefix = _current_build_suffix()
+    except (ImportError, ValueError, OSError) as exc:
+        print(f"error: failed to compute build suffix: {exc}", file=sys.stderr)
         sys.exit(1)
 
     # Full version string: MAJOR.MINOR.PATCH+<build_prefix>
@@ -441,6 +597,18 @@ def main():
     # Pre-flight: docs gate (gardener + lint).
     if not args.skip_docs_gate:
         check_docs_gate(repo_root)
+
+    # Pre-flight: changelog format diagnostic (non-fatal).
+    if not args.skip_changelog_diagnostic:
+        check_changelog_format(repo_root)
+
+    # Pre-flight: same-semver collision warning (wave 131bt 131ht). When packs at
+    # the same MAJOR.MINOR.PATCH already exist in the dist dir, surface the existing
+    # filenames so the operator can decide whether to bump semver or proceed. Non-
+    # blocking: same-semver repackages have legitimate uses (bad-artifact recovery,
+    # content-only fixes). Mtime tie-break in `_find_latest_release_zip` ensures the
+    # newest pack still wins on `wave_upgrade`, but bumping semver makes it explicit.
+    _warn_on_same_semver_collision(output_dir, args.version)
 
     try:
         zip_path = build_zip(

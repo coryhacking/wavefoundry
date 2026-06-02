@@ -112,21 +112,56 @@ def current_utc_time() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# Wave 131bt close-out (131bu): integer-packed 5-minute-bucket encoding.
+#
+# Prior scheme appended ``BASE36[elapsed_minutes % 36]`` as the tail char, which
+# wraps every 36 minutes — breaking the "lex order = creation order" guarantee.
+# New scheme packs ``(days_since_epoch * 288 + bucket_5min) mod 36^5`` as a
+# single base36 number, padded to 5 chars. Lex order matches wall-clock order
+# across any day boundary within the 36^5 / 288 = 209,952 day (~575 year) horizon.
+#
+# 5-minute buckets (288 per day) align with whole-minute boundaries and whole-
+# second boundaries (300 sec each); divide 36^5 cleanly with zero wasted slots
+# (60,466,176 / 288 = 209,952 exact). The build suffix used by build_pack.py is
+# the last 4 chars of this prefix — single source of truth for both encodings.
+_BUCKETS_PER_DAY = 288
+_BUCKET_WIDTH_MIN = 5
+_PREFIX_MOD = 36 ** 5  # 60,466,176
+
+
+def _packed_value(now_utc: datetime, epoch_utc: datetime, hour_offset_buckets: int = 0) -> int:
+    days = (now_utc.date() - epoch_utc.date()).days
+    if days < 0:
+        raise ValueError(
+            f"timestamp must not be earlier than the configured lifecycle epoch "
+            f"({epoch_utc.isoformat().replace('+00:00', 'Z')}); got {now_utc.isoformat()}"
+        )
+    bucket = (now_utc.hour * 60 + now_utc.minute) // _BUCKET_WIDTH_MIN
+    packed = days * _BUCKETS_PER_DAY + bucket + hour_offset_buckets
+    return packed % _PREFIX_MOD
+
+
 def build_prefix(
     timestamp: datetime | None = None,
     *,
     policy: tuple[datetime, int] | None = None,
 ) -> str:
+    """Return the 5-character base36 lifecycle prefix for ``timestamp`` (default: now UTC).
+
+    Encodes ``(days_since_epoch * 288 + bucket_5min) mod 36^5`` as base36, right-padded
+    to 5 characters. Lex order matches wall-clock order within any 575-year window;
+    builds within the same 5-minute window produce identical prefixes.
+
+    ``policy`` is ``(epoch_utc, hour_offset)``; ``hour_offset`` is applied as
+    ``hour_offset * 12`` additional buckets so existing config files with non-zero
+    ``hour_offset`` continue to shift the encoding monotonically rather than by
+    a different scale.
+    """
     current_time = (timestamp or current_utc_time()).astimezone(timezone.utc)
     epoch, hour_offset = policy if policy is not None else load_lifecycle_policy()
-    elapsed_hours = int((current_time - epoch).total_seconds() // 3600) + hour_offset
-    if elapsed_hours < 0:
-        raise ValueError(
-            f"timestamp must not be earlier than the configured lifecycle epoch ({epoch.isoformat().replace('+00:00', 'Z')}) "
-            f"after applying hour_offset ({hour_offset})",
-        )
-    elapsed_minutes = int((current_time - epoch).total_seconds() // 60)
-    return encode_base36(elapsed_hours).rjust(4, "0") + BASE36_ALPHABET[elapsed_minutes % 36]
+    hour_offset_buckets = hour_offset * (60 // _BUCKET_WIDTH_MIN)  # hour_offset hours → buckets
+    packed = _packed_value(current_time, epoch, hour_offset_buckets)
+    return encode_base36(packed).rjust(5, "0")
 
 
 _PREFIX_RE = re.compile(r"^([0-9a-z]{5})[-\s]")

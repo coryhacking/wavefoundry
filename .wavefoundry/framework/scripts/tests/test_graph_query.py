@@ -103,6 +103,29 @@ class GraphQueryTraversalTests(unittest.TestCase):
     def test_resolve_symbol_qualified(self):
         self.assertEqual(self.index.resolve_symbol("src/a.py::foo"), "src/a.py::foo")
 
+    def test_resolve_symbol_qualified_alias_for_merged_class(self):
+        """131bu polish 1: when a Swift class/module merge consumed the class node
+        into the file id (`Foo.swift` is now `kind: class, label: Foo, collapsed_pair: True`),
+        querying the natural qualified form `Foo.swift::Foo` should alias to the
+        file id rather than returning graph_symbol_not_found. Confirmed-design
+        outcome from Solaris field validation on wave 131bt 1319v."""
+        idx = self.mod.GraphQueryIndex({
+            "present": True,
+            "nodes": [
+                {"id": "Sources/Foo.swift", "label": "Foo", "kind": "class", "collapsed_pair": True},
+                {"id": "Sources/Bar.swift", "label": "Bar", "kind": "module"},
+            ],
+            "edges": [],
+        })
+        # Qualified-id alias resolves to the file id.
+        self.assertEqual(idx.resolve_symbol("Sources/Foo.swift::Foo"), "Sources/Foo.swift")
+        # Bare symbol still resolves via label.
+        self.assertEqual(idx.resolve_symbol("Foo"), "Sources/Foo.swift")
+        # Non-merged file's natural qualified form does NOT alias (no collapsed_pair).
+        self.assertIsNone(idx.resolve_symbol("Sources/Bar.swift::Bar"))
+        # Wrong class name in alias position is not consumed.
+        self.assertIsNone(idx.resolve_symbol("Sources/Foo.swift::Quux"))
+
     def test_graph_impact_finds_callers(self):
         impact = self.index.graph_impact("src/b.py::bar", max_hops=2)
         self.assertTrue(impact["resolved"])
@@ -156,6 +179,50 @@ class GraphQueryShortestPathTests(unittest.TestCase):
     def test_max_hops_exceeded_returns_not_found(self):
         result = self.index.shortest_path("src/a.py::foo", "src/b.py::bar", max_hops=0)
         self.assertFalse(result["found"])
+
+    def test_path_prefers_construction_resolved_over_extracted_on_tie(self):
+        """131bu polish 2: when BFS finds multiple paths of equal hop count from
+        source to destination, prefer paths through deterministic-attribution
+        edges (CONSTRUCTION_RESOLVED / RECEIVER_RESOLVED) over EXTRACTED. From
+        Solaris field validation: a construction edge would tie with an
+        EXTRACTED import-placeholder edge; the construction edge is the more
+        useful path to surface."""
+        idx = self.mod.GraphQueryIndex({
+            "present": True,
+            "nodes": [
+                {"id": "AppDelegate.swift::App.go", "label": "go", "kind": "function"},
+                {"id": "StatusBarManager.swift", "label": "StatusBarManager", "kind": "class"},
+                {"id": "external::t", "label": "t", "kind": "external"},
+            ],
+            "edges": [
+                # Direct construction edge — deterministic attribution.
+                {
+                    "source": "AppDelegate.swift::App.go",
+                    "target": "StatusBarManager.swift",
+                    "relation": "calls",
+                    "confidence": "CONSTRUCTION_RESOLVED",
+                },
+                # Phantom import path with same hop count — EXTRACTED.
+                {
+                    "source": "AppDelegate.swift::App.go",
+                    "target": "external::t",
+                    "relation": "imports",
+                    "confidence": "EXTRACTED",
+                },
+                {
+                    "source": "external::t",
+                    "target": "StatusBarManager.swift",
+                    "relation": "imports",
+                    "confidence": "EXTRACTED",
+                },
+            ],
+        })
+        result = idx.shortest_path("AppDelegate.swift::App.go", "StatusBarManager.swift")
+        self.assertTrue(result["found"])
+        self.assertEqual(result["hop_count"], 1, "should surface the 1-hop construction edge, not the 2-hop import path")
+        edge_confidences = [e.get("confidence") for e in result["path_edges"]]
+        self.assertEqual(edge_confidences, ["CONSTRUCTION_RESOLVED"],
+                         f"BFS should prefer CONSTRUCTION_RESOLVED on tie; got {edge_confidences}")
 
     def test_unresolvable_symbol_returns_not_found(self):
         result = self.index.shortest_path("no_such_symbol", "src/b.py::bar")

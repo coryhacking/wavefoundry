@@ -37,11 +37,152 @@ def _get_graph_indexer():
     return _GRAPH_INDEXER_MOD
 
 
+# Wave 131bt (131e2): per-process cache for stale-graph version checks.
+# Maps (root, layer) → (payload_mtime, verified_builder_version) so the
+# version check on the state file fires at most once per file change.
+import threading as _threading
+_VERSION_CHECK_LOCK = _threading.Lock()
+_VERSION_CHECK_CACHE: dict[tuple[str, str], tuple[float, str]] = {}
+
+
+def _graph_payload_path(root: Path, layer: str) -> Path:
+    if layer == "framework":
+        return root / ".wavefoundry" / "framework" / "index" / "graph" / f"{layer}-graph.json"
+    return root / ".wavefoundry" / "index" / "graph" / f"{layer}-graph.json"
+
+
+def _graph_state_path(root: Path, layer: str) -> Path:
+    return _graph_payload_path(root, layer).with_name(f"{layer}-graph-state.json")
+
+
+def _graph_index_dir(root: Path, layer: str) -> Path:
+    if layer == "framework":
+        return root / ".wavefoundry" / "framework" / "index"
+    return root / ".wavefoundry" / "index"
+
+
+def _ensure_graph_builder_current(root: Path, layer: str) -> dict[str, Any] | None:
+    """Check the on-disk graph's ``builder_version`` against runtime.
+
+    Returns:
+        - None when the graph is current (no diagnostic to surface), already
+          checked this mtime, or no graph exists yet.
+        - A structured diagnostic dict when an auto-rebuild fired (success or
+          failure). The caller attaches it to the payload.
+
+    Synchronously rebuilds the graph when the version mismatches. Once-per-
+    upgrade cost; subsequent queries hit the in-process mtime cache and skip
+    the state file read entirely.
+    """
+    if layer not in ("project", "framework"):
+        return None
+    indexer = _get_graph_indexer()
+    runtime_version = str(getattr(indexer, "GRAPH_BUILDER_VERSION", "") or "")
+    if not runtime_version:
+        return None
+    payload_path = _graph_payload_path(root, layer)
+    if not payload_path.exists():
+        # No graph index yet — nothing to rebuild. The query layer surfaces
+        # graph_not_ready_diagnostic separately.
+        return None
+    try:
+        payload_mtime = payload_path.stat().st_mtime
+    except OSError:
+        return None
+    cache_key = (str(root.resolve()), layer)
+    with _VERSION_CHECK_LOCK:
+        cached = _VERSION_CHECK_CACHE.get(cache_key)
+        if cached is not None and cached[0] == payload_mtime and cached[1] == runtime_version:
+            return None  # Already verified this exact graph state.
+    state_path = _graph_state_path(root, layer)
+    if not state_path.exists():
+        # No state file — can't determine builder_version. Mark as verified
+        # to avoid re-checking on every query.
+        with _VERSION_CHECK_LOCK:
+            _VERSION_CHECK_CACHE[cache_key] = (payload_mtime, runtime_version)
+        return None
+    import json
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        with _VERSION_CHECK_LOCK:
+            _VERSION_CHECK_CACHE[cache_key] = (payload_mtime, runtime_version)
+        return None
+    state_version = str(state.get("builder_version") or "")
+    if state_version == runtime_version:
+        with _VERSION_CHECK_LOCK:
+            _VERSION_CHECK_CACHE[cache_key] = (payload_mtime, runtime_version)
+        return None
+    # --- Mismatch: synchronously rebuild. ---
+    import time
+    import importlib.util
+    indexer_script_path = Path(__file__).resolve().parent / "indexer.py"
+    if not indexer_script_path.exists():
+        return {
+            "code": "graph_auto_rebuild_skipped",
+            "message": f"Graph builder version mismatch ({state_version} → {runtime_version}) but indexer.py not found. Run wave_index_build(content='graph') manually.",
+            "from_builder_version": state_version,
+            "to_builder_version": runtime_version,
+            "recovery_tools": ["wave_index_build"],
+            "recovery_usage": "wave_index_build(content='graph', mode='rebuild')",
+        }
+    start = time.monotonic()
+    try:
+        spec = importlib.util.spec_from_file_location("indexer_for_graph_query_rebuild", indexer_script_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Unable to load indexer from {indexer_script_path}")
+        indexer_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(indexer_mod)
+        index_dir = _graph_index_dir(root, layer)
+        indexer_mod.build_index(
+            root,
+            full=True,
+            content="graph",
+            index_dir=index_dir,
+            verbose=False,
+        )
+        duration_ms = int((time.monotonic() - start) * 1000)
+    except Exception as exc:
+        return {
+            "code": "graph_auto_rebuild_failed",
+            "message": f"Stale graph builder version mismatch ({state_version} → {runtime_version}) detected but automatic rebuild failed: {exc}. Run wave_index_build(content='graph') manually.",
+            "from_builder_version": state_version,
+            "to_builder_version": runtime_version,
+            "recovery_tools": ["wave_index_build"],
+            "recovery_usage": "wave_index_build(content='graph', mode='rebuild')",
+        }
+    # Cache the post-rebuild state (mtime has changed) so subsequent queries
+    # don't re-check.
+    try:
+        new_mtime = payload_path.stat().st_mtime
+    except OSError:
+        new_mtime = payload_mtime
+    with _VERSION_CHECK_LOCK:
+        _VERSION_CHECK_CACHE[cache_key] = (new_mtime, runtime_version)
+    return {
+        "code": "graph_auto_rebuilt",
+        "message": f"Graph rebuilt automatically: builder_version {state_version} → {runtime_version} ({duration_ms} ms).",
+        "from_builder_version": state_version,
+        "to_builder_version": runtime_version,
+        "rebuild_duration_ms": duration_ms,
+    }
+
+
 def load_graph(root: Path, *, layer: str = "project") -> dict[str, Any]:
-    """Load one graph layer. Returns payload with nodes/edges; ``present=False`` when missing."""
+    """Load one graph layer. Returns payload with nodes/edges; ``present=False`` when missing.
+
+    Wave 131bt (131e2): when the on-disk graph's ``builder_version`` differs
+    from the runtime ``GRAPH_BUILDER_VERSION``, a full rebuild fires
+    synchronously before the payload is loaded. The resulting diagnostic is
+    attached to the payload as ``auto_rebuild_diagnostic`` for the consumer
+    tool to surface.
+    """
     if layer not in ("project", "framework"):
         raise ValueError(f"Unsupported graph layer: {layer}")
+    rebuild_diag = _ensure_graph_builder_current(root, layer)
     payload = _get_graph_indexer().read_graph_payload(root, layer)
+    if rebuild_diag is not None:
+        payload["auto_rebuild_diagnostic"] = rebuild_diag
     return payload
 
 
@@ -287,6 +428,230 @@ _CLASS_MODULE_COLLAPSE_LANGUAGES: dict[str, set[str]] = {
 }
 
 
+# Wave 131bt (1319m): directory-aggregation language detection.
+#
+# Maps file extension → detection config. Three detection modes:
+#   - "declaration_match": files in a directory must all share the same
+#     ``package`` or ``namespace`` declaration (regex-matched in source).
+#   - "init_file": directory must contain an ``__init__.py`` file.
+#   - "convention": all files in the directory with this extension collapse
+#     (no declaration verification).
+#
+# Kind preserves the language-native term ("package" vs "namespace") so
+# operators reading the graph see familiar vocabulary.
+import re as _re
+
+_DIRECTORY_AGG_LANGUAGES: dict[str, dict[str, Any]] = {
+    # Strict / language-enforced.
+    ".go":     {"mode": "declaration_match", "pattern": _re.compile(r"^\s*package\s+([A-Za-z_]\w*)", _re.MULTILINE), "kind": "package"},
+    ".py":     {"mode": "init_file", "kind": "package"},
+    # Convention-based / build-system-enforced.
+    ".java":   {"mode": "declaration_match", "pattern": _re.compile(r"^\s*package\s+([A-Za-z_][\w.]*)\s*;", _re.MULTILINE), "kind": "package"},
+    ".kt":     {"mode": "declaration_match", "pattern": _re.compile(r"^\s*package\s+([A-Za-z_][\w.]*)", _re.MULTILINE), "kind": "package"},
+    ".scala":  {"mode": "declaration_match", "pattern": _re.compile(r"^\s*package\s+([A-Za-z_][\w.]*)", _re.MULTILINE), "kind": "package"},
+    ".cs":     {"mode": "declaration_match", "pattern": _re.compile(r"^\s*namespace\s+([A-Za-z_][\w.]*)", _re.MULTILINE), "kind": "namespace"},
+    ".php":    {"mode": "declaration_match", "pattern": _re.compile(r"^\s*namespace\s+([A-Za-z_][\w\\]*)\s*;", _re.MULTILINE), "kind": "namespace"},
+    # Swift uses build-target convention; no in-source declaration.
+    ".swift":  {"mode": "convention", "kind": "package"},
+}
+
+# Excluded from directory aggregation: Rust (mod tree, not directory-bound),
+# Ruby (module is namespace declaration, not directory-bound), JS/TS (no
+# package concept beyond ES modules).
+_DIRECTORY_AGG_EXCLUDED_EXTS: frozenset[str] = frozenset({
+    ".rs", ".rb", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx",
+})
+
+
+def collapse_package_to_directory_view(
+    payload: dict[str, Any], *, root: Path | None = None
+) -> dict[str, Any]:
+    """Aggregate files in a directory into a single package/namespace node (wave 131bt — 1319m).
+
+    For supported languages, files in the same directory that share the same
+    package/namespace declaration (Go/Java/Kotlin/C#/Scala/PHP), are within a
+    Python package directory (``__init__.py`` present), or follow Swift's
+    build-target convention (all ``.swift`` files in a directory), are merged
+    into one package/namespace node. Edges from outside the package retarget
+    to the package node; intra-package edges between merged files collapse.
+
+    Per-symbol navigation tools deliberately do NOT consume this view —
+    they need the unmodified per-file graph.
+
+    Languages outside the eight-language scope (Rust ``mod`` tree, Ruby
+    namespace declarations, JS/TS ES modules) are unchanged by this view.
+    """
+    nodes_in = list(payload.get("nodes") or [])
+    edges_in = list(payload.get("edges") or [])
+
+    # Phase 1: group file nodes by directory + detect language groupings.
+    # file_node_id → (dir_path, ext, declared_unit)
+    file_groups: dict[str, tuple[str, str, str]] = {}
+    nodes_by_id: dict[str, dict[str, Any]] = {}
+    for node in nodes_in:
+        if not isinstance(node, dict):
+            continue
+        nid = str(node.get("id") or "")
+        if not nid:
+            continue
+        nodes_by_id[nid] = node
+        # Only file/module nodes are candidates.
+        if node.get("kind") != "module":
+            continue
+        if "::" in nid:
+            continue  # symbol id, not a file path
+        # Extract directory and extension from the node id (which is the path).
+        slash_idx = nid.rfind("/")
+        if slash_idx < 0:
+            continue
+        ext_idx = nid.rfind(".")
+        if ext_idx <= slash_idx:
+            continue
+        ext = nid[ext_idx:]
+        if ext in _DIRECTORY_AGG_EXCLUDED_EXTS:
+            continue
+        if ext not in _DIRECTORY_AGG_LANGUAGES:
+            continue
+        dir_path = nid[:slash_idx]
+        if not dir_path:
+            continue
+        file_groups[nid] = (dir_path, ext, "")  # declared_unit filled in phase 2
+
+    if not file_groups:
+        return dict(payload)
+
+    # Phase 2: per (dir, ext) group, determine the grouping unit.
+    # Group by (dir, ext); read source files for declaration_match languages.
+    by_dir_ext: dict[tuple[str, str], list[str]] = {}
+    for nid, (dir_path, ext, _) in file_groups.items():
+        by_dir_ext.setdefault((dir_path, ext), []).append(nid)
+
+    # Per-(dir, ext) → resolved grouping unit (or empty when collapse should
+    # skip — e.g., mixed-package directory, single-file, etc.)
+    resolved_unit: dict[tuple[str, str], str] = {}
+    for (dir_path, ext), file_ids in by_dir_ext.items():
+        # Single-file directories are not collapsed (per AC-13 design).
+        if len(file_ids) < 2:
+            continue
+        cfg = _DIRECTORY_AGG_LANGUAGES[ext]
+        mode = cfg["mode"]
+        if mode == "convention":
+            # Swift: all files in this directory are one package; unit name is
+            # the directory's basename.
+            unit = dir_path.rsplit("/", 1)[-1] or dir_path
+            resolved_unit[(dir_path, ext)] = unit
+        elif mode == "init_file":
+            # Python: require an __init__.py in the directory.
+            init_id = f"{dir_path}/__init__.py"
+            if init_id in nodes_by_id:
+                unit = dir_path.rsplit("/", 1)[-1] or dir_path
+                resolved_unit[(dir_path, ext)] = unit
+        elif mode == "declaration_match":
+            # Read each file's source (via filesystem) to extract the
+            # declaration; require all files to agree.
+            if root is None:
+                continue  # No root to read sources; skip this group.
+            pattern = cfg["pattern"]
+            units: set[str] = set()
+            agreement = True
+            for fid in file_ids:
+                fpath = root / fid
+                if not fpath.is_file():
+                    agreement = False
+                    break
+                try:
+                    text = fpath.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    agreement = False
+                    break
+                m = pattern.search(text)
+                if not m:
+                    agreement = False
+                    break
+                units.add(m.group(1))
+            if agreement and len(units) == 1:
+                resolved_unit[(dir_path, ext)] = next(iter(units))
+
+    if not resolved_unit:
+        return dict(payload)
+
+    # Phase 3: build collapse mapping (file_id → package_id) and new package nodes.
+    collapse_map: dict[str, str] = {}
+    package_nodes: list[dict[str, Any]] = []
+    package_files_per_pkg: dict[str, list[str]] = {}
+    package_unit_per_pkg: dict[str, str] = {}
+    package_kind_per_pkg: dict[str, str] = {}
+
+    for (dir_path, ext), unit in resolved_unit.items():
+        cfg = _DIRECTORY_AGG_LANGUAGES[ext]
+        # Package node id: <directory>/<__package__>:<unit>
+        # Use a stable scheme that operators can recognize.
+        pkg_id = f"{dir_path}/__package__::{unit}"
+        package_unit_per_pkg[pkg_id] = unit
+        package_kind_per_pkg[pkg_id] = cfg["kind"]
+        # Find file ids belonging to this group.
+        for fid in by_dir_ext.get((dir_path, ext), []):
+            collapse_map[fid] = pkg_id
+            package_files_per_pkg.setdefault(pkg_id, []).append(fid)
+
+    for pkg_id, file_ids in package_files_per_pkg.items():
+        package_nodes.append({
+            "id": pkg_id,
+            "label": package_unit_per_pkg[pkg_id],
+            "kind": package_kind_per_pkg[pkg_id],
+            "source_file": pkg_id,
+            "source_location": "1:0",
+            "collapse_origin_files": sorted(file_ids),
+            "collapse_unit": package_unit_per_pkg[pkg_id],
+            "collapse_lang": pkg_id.rsplit(".", 0)[0],  # placeholder, refined below
+        })
+
+    # Phase 4: build output nodes (drop collapsed file nodes; keep their child
+    # symbols; add package nodes).
+    out_nodes: list[dict[str, Any]] = []
+    for node in nodes_in:
+        if not isinstance(node, dict):
+            continue
+        nid = str(node.get("id") or "")
+        if nid in collapse_map:
+            # File node absorbed into package — drop.
+            continue
+        out_nodes.append(node)
+    out_nodes.extend(package_nodes)
+
+    # Phase 5: rewrite edges. Cross-package edges retarget to the package node;
+    # intra-package edges between absorbed files collapse (deduped).
+    seen_edge_keys: set[tuple[str, str, str, str]] = set()
+    out_edges: list[dict[str, Any]] = []
+    for edge in edges_in:
+        if not isinstance(edge, dict):
+            continue
+        src = str(edge.get("source") or "")
+        tgt = str(edge.get("target") or "")
+        if not src or not tgt:
+            continue
+        new_src = collapse_map.get(src, src)
+        new_tgt = collapse_map.get(tgt, tgt)
+        # Drop intra-package self-loops (file_a → file_b both collapse to pkg).
+        if new_src == new_tgt and new_src.endswith("__package__::" + new_src.rsplit("::", 1)[-1]):
+            continue
+        relation = str(edge.get("relation") or "")
+        confidence = str(edge.get("confidence") or "")
+        key = (new_src, new_tgt, relation, confidence)
+        if key in seen_edge_keys:
+            continue
+        seen_edge_keys.add(key)
+        new_edge = dict(edge)
+        new_edge["source"] = new_src
+        new_edge["target"] = new_tgt
+        out_edges.append(new_edge)
+
+    out_payload = dict(payload)
+    out_payload["nodes"] = out_nodes
+    out_payload["edges"] = out_edges
+    return out_payload
+
+
 def collapse_class_module_view(payload: dict[str, Any]) -> dict[str, Any]:
     """Return a payload where each file+top-level-class pair is collapsed (wave 13129 — 1312h).
 
@@ -413,7 +778,14 @@ def collapse_class_module_view(payload: dict[str, Any]) -> dict[str, Any]:
 class GraphQueryIndex:
     """In-memory adjacency index over a loaded graph payload."""
 
-    __slots__ = ("layer", "present", "builder_version", "nodes", "edges", "_out", "_in", "_node_by_id")
+    __slots__ = (
+        "layer", "present", "builder_version", "nodes", "edges",
+        "_out", "_in", "_node_by_id",
+        # Wave 131bt (131e2): when load_graph fired a synchronous rebuild
+        # for a stale GRAPH_BUILDER_VERSION, the diagnostic propagates here
+        # so consumer tools can echo it into their MCP response.
+        "auto_rebuild_diagnostic",
+    )
 
     def __init__(self, payload: dict[str, Any]):
         self.layer = str(payload.get("layer") or "project")
@@ -423,6 +795,10 @@ class GraphQueryIndex:
         # the indexer already cleaned up (e.g., the code_callhierarchy
         # receiver-type filter is no-op on v13+ graphs).
         self.builder_version = str(payload.get("builder_version") or "")
+        # Wave 131bt (131e2): payload-level diagnostic from the auto-rebuild
+        # path; None when the graph was already current.
+        raw_diag = payload.get("auto_rebuild_diagnostic")
+        self.auto_rebuild_diagnostic = raw_diag if isinstance(raw_diag, dict) else None
         self.nodes: list[dict[str, Any]] = list(payload.get("nodes") or [])
         self.edges: list[dict[str, Any]] = list(payload.get("edges") or [])
         self._node_by_id: dict[str, dict[str, Any]] = {}
@@ -456,6 +832,20 @@ class GraphQueryIndex:
             return None
         if symbol in self._node_by_id:
             return symbol
+        # Merged class/module alias: when the query is `<file_id>::<class_name>` and
+        # the file id resolves to a collapsed_pair merged node whose label matches
+        # the suffix, treat the query as an alias for the file id. The class/module
+        # merge (1316l/13190) consumes the class node into the file id, so callers
+        # querying the natural qualified form would otherwise see graph_symbol_not_found.
+        if "::" in symbol:
+            file_part, _, class_name = symbol.rpartition("::")
+            file_node = self._node_by_id.get(file_part)
+            if (
+                file_node is not None
+                and file_node.get("collapsed_pair")
+                and file_node.get("label") == class_name
+            ):
+                return file_part
         # Suffix match on qualified names
         matches = [nid for nid in self._node_by_id if nid.endswith(f"::{symbol}") or nid == symbol]
         if len(matches) == 1:
@@ -630,8 +1020,17 @@ class GraphQueryIndex:
                     neighbor = edge.get("source")
                     if isinstance(neighbor, str):
                         candidates.append((edge, neighbor, "backward"))
-            # Tie-break by neighbor-id length (shortest first) for deterministic output
-            candidates.sort(key=lambda c: (len(c[1]), c[1]))
+            # Tie-break order: deterministic-attribution edges first
+            # (RECEIVER_RESOLVED / CONSTRUCTION_RESOLVED rank higher than
+            # EXTRACTED), then by neighbor-id length, then by neighbor id.
+            # Surfaces the direct construction edge before phantom import paths
+            # when both reach the destination in the same hop count.
+            _CONFIDENCE_RANK = {"RECEIVER_RESOLVED": 0, "CONSTRUCTION_RESOLVED": 0, "EXTRACTED": 1}
+            candidates.sort(key=lambda c: (
+                _CONFIDENCE_RANK.get(str(c[0].get("confidence") or ""), 2),
+                len(c[1]),
+                c[1],
+            ))
             for edge, neighbor, trav_dir in candidates:
                 if neighbor in visited:
                     continue

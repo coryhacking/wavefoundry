@@ -3014,10 +3014,232 @@ class WaveMcpReloadTests(unittest.TestCase):
         # impl_matches_disk is false when test root VERSION differs from installed pack VERSION
         self.assertIs(result["data"]["impl_matches_disk"], False)
 
+    def test_perform_mcp_reload_re_registers_tools_and_reports_count(self):
+        """1319bt (131d8): perform_mcp_reload re-registers the FastMCP tool
+        surface so parameter / description changes land in-process. The
+        response carries ``tools_reregistered`` ≥ 1 (the first-party tool
+        count minus the wave_mcp_reload survivor)."""
+        try:
+            mcp = self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+        pre_count = len(self.srv._registered_mcp_tool_names(mcp))
+        self.assertGreater(pre_count, 1)
+        result = self.runner.perform_mcp_reload()
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("tools_reregistered", result["data"])
+        self.assertGreaterEqual(result["data"]["tools_reregistered"], 1)
+        # Tool surface should still contain the same first-party prefix set.
+        post_count = len(self.srv._registered_mcp_tool_names(mcp))
+        self.assertEqual(
+            post_count, pre_count,
+            f"Tool count drifted across reload: pre={pre_count} post={post_count}",
+        )
+
+    def test_perform_mcp_reload_preserves_wave_mcp_reload_tool(self):
+        """The survivor list keeps wave_mcp_reload registered through the refresh
+        — otherwise the tool that triggered the reload would unregister itself."""
+        try:
+            mcp = self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+        self.assertIn("wave_mcp_reload", self.srv._registered_mcp_tool_names(mcp))
+        self.runner.perform_mcp_reload()
+        self.assertIn(
+            "wave_mcp_reload", self.srv._registered_mcp_tool_names(mcp),
+            "wave_mcp_reload was removed during refresh; the survivor list is broken",
+        )
+
+    def test_perform_mcp_reload_refreshes_tool_schemas_in_place(self):
+        """1319bt (131d8): the FastMCP tool registry holds freshly introspected
+        schemas after perform_mcp_reload. Verified by checking that
+        ``wave_graph_report``'s schema includes the wave 131bt parameter
+        ``collapse_package_to_directory`` after the reload sequence — even if
+        the tool function signature changed, the registry would have picked
+        up the change via the re-registration."""
+        try:
+            mcp = self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+        import asyncio
+        async def list_tools():
+            return await mcp.list_tools()
+        # Force a reload to exercise the refresh path.
+        self.runner.perform_mcp_reload()
+        tools = asyncio.run(list_tools())
+        wgr = next((t for t in tools if t.name == "wave_graph_report"), None)
+        self.assertIsNotNone(wgr, "wave_graph_report missing from tool list after reload")
+        props = set((wgr.inputSchema or {}).get("properties", {}).keys())
+        # The wave 131bt collapse_package_to_directory parameter should be in
+        # the schema after the refresh — proving fresh introspection happened.
+        self.assertIn(
+            "collapse_package_to_directory",
+            props,
+            f"wave_graph_report schema is stale after reload — props were {sorted(props)}",
+        )
+
+    def test_perform_mcp_reload_reports_no_description_change_on_unchanged_reload(self):
+        """131bu: when no tool description text changed between snapshots,
+        ``description_changed_tools`` is empty and no protocol notification
+        fires — `/mcp` reconnect alone covers any parameter schema deltas."""
+        try:
+            mcp = self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+        # Two reloads in a row — server_impl module didn't change between them,
+        # so no description should differ.
+        self.runner.perform_mcp_reload()
+        result = self.runner.perform_mcp_reload()
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"].get("description_changed_tools"), [])
+        self.assertFalse(
+            result["data"].get("tool_list_changed_notification_sent"),
+            "Notification should not fire when no descriptions changed",
+        )
+
+    def test_perform_mcp_reload_detects_description_change_and_sends_notification(self):
+        """131bu: when a tool's docstring-derived description changes between
+        snapshots, perform_mcp_reload sends the MCP `notifications/tools/list_changed`
+        protocol notification to the connected client. Spec-conformant clients
+        re-fetch tools/list on receipt and surface the new descriptions without
+        requiring a host restart. Response carries ``description_changed_tools``
+        and ``tool_list_changed_notification_sent: True``, plus a structured
+        diagnostic with code ``tool_list_changed_notification_sent``."""
+        try:
+            mcp = self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+        # Establish a clean baseline.
+        self.runner.perform_mcp_reload()
+        # Force a description change by mutating a single tool's description
+        # directly in the FastMCP registry, then trigger the reload.
+        tools_reg = mcp._tool_manager._tools
+        target_name = "wave_graph_report"
+        original = tools_reg[target_name].description
+        tools_reg[target_name].description = "STALE PLACEHOLDER DESCRIPTION"
+        try:
+            result = self.runner.perform_mcp_reload()
+        finally:
+            if tools_reg[target_name].description == "STALE PLACEHOLDER DESCRIPTION":
+                tools_reg[target_name].description = original
+        self.assertEqual(result["status"], "ok")
+        self.assertIn(target_name, result["data"]["description_changed_tools"])
+        # Notification may or may not have actually sent depending on whether
+        # the test harness has an active MCP session — the field should be
+        # present either way. If it failed, the failed-diagnostic should be
+        # present; if it succeeded, the sent-diagnostic should be present.
+        self.assertIn("tool_list_changed_notification_sent", result["data"])
+        diag_codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertTrue(
+            "tool_list_changed_notification_sent" in diag_codes
+            or "tool_list_changed_notification_failed" in diag_codes,
+            f"Expected one of the notification diagnostics; got: {diag_codes}",
+        )
+
 
 # ---------------------------------------------------------------------------
 # DX fix tests (AC-16 through AC-20)
 # ---------------------------------------------------------------------------
+
+class StaleGraphAutoRebuildTests(unittest.TestCase):
+    """131bt (131e2): synchronous auto-rebuild when on-disk graph builder_version
+    differs from runtime GRAPH_BUILDER_VERSION."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+        # Load graph_query freshly so per-process cache state doesn't leak.
+        import importlib.util, sys as _sys
+        scripts = Path(__file__).resolve().parents[1]
+        spec = importlib.util.spec_from_file_location("graph_query_under_test", scripts / "graph_query.py")
+        self.gq = importlib.util.module_from_spec(spec)
+        _sys.modules["graph_query_under_test"] = self.gq
+        spec.loader.exec_module(self.gq)
+        # Build a real (small) graph index in this temp repo.
+        (self.root / "src").mkdir(parents=True, exist_ok=True)
+        (self.root / "src" / "foo.py").write_text(
+            "def make():\n    return 1\n", encoding="utf-8",
+        )
+        # Use the indexer directly to write a real on-disk graph.
+        idxer_spec = importlib.util.spec_from_file_location("indexer_for_test", scripts / "indexer.py")
+        self.idxer = importlib.util.module_from_spec(idxer_spec)
+        _sys.modules["indexer_for_test"] = self.idxer
+        idxer_spec.loader.exec_module(self.idxer)
+        self.idxer.build_index(
+            self.root, full=True, content="graph",
+            index_dir=self.root / ".wavefoundry" / "index", verbose=False,
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _state_path(self):
+        return self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.json"
+
+    def _payload_path(self):
+        return self.root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
+
+    def _force_stale_state(self, old_version: str = "0"):
+        """Rewrite the state file with an older builder_version + bust the cache."""
+        import json
+        state_path = self._state_path()
+        self.assertTrue(state_path.exists(), "state file missing — graph build failed")
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["builder_version"] = old_version
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        # Also touch the payload file so its mtime differs from any cached entry.
+        payload_path = self._payload_path()
+        if payload_path.exists():
+            import os
+            t = payload_path.stat().st_mtime - 1.0
+            os.utime(payload_path, (t, t))
+        # Clear the in-process cache so the next load re-checks.
+        self.gq._VERSION_CHECK_CACHE.clear()
+
+    def test_auto_rebuild_fires_when_builder_version_stale(self):
+        self._force_stale_state(old_version="0")
+        payload = self.gq.load_graph(self.root, layer="project")
+        diag = payload.get("auto_rebuild_diagnostic")
+        self.assertIsNotNone(diag, f"Expected auto_rebuild_diagnostic on stale graph; got payload keys={sorted(payload.keys())}")
+        self.assertEqual(diag.get("code"), "graph_auto_rebuilt")
+        self.assertEqual(diag.get("from_builder_version"), "0")
+        # After rebuild the state file's builder_version should match runtime.
+        import json
+        state = json.loads(self._state_path().read_text(encoding="utf-8"))
+        runtime_version = self.gq._get_graph_indexer().GRAPH_BUILDER_VERSION
+        self.assertEqual(state["builder_version"], runtime_version)
+
+    def test_already_fresh_graph_does_not_trigger_rebuild(self):
+        # Setup wrote a fresh graph. First load should NOT carry diagnostic.
+        # Reset cache so we go through the full path.
+        self.gq._VERSION_CHECK_CACHE.clear()
+        payload = self.gq.load_graph(self.root, layer="project")
+        self.assertNotIn("auto_rebuild_diagnostic", payload, "Fresh graph should not trigger auto-rebuild")
+
+    def test_repeat_query_uses_cache_no_second_rebuild(self):
+        self._force_stale_state(old_version="0")
+        # First load triggers rebuild.
+        first = self.gq.load_graph(self.root, layer="project")
+        self.assertIsNotNone(first.get("auto_rebuild_diagnostic"))
+        # Second load should be a no-op (cached as verified).
+        second = self.gq.load_graph(self.root, layer="project")
+        self.assertNotIn("auto_rebuild_diagnostic", second, "Second query should not re-trigger rebuild")
+
+    def test_auto_rebuild_diagnostic_surfaces_through_graph_query_index(self):
+        """The diagnostic on the loaded payload must propagate onto the
+        GraphQueryIndex.auto_rebuild_diagnostic slot so consumer tools can
+        attach it to their MCP responses (131e2 polish)."""
+        self._force_stale_state(old_version="0")
+        # Use load_graph and construct an index — mirrors the consumer-tool
+        # path of `GraphQueryIndex(load_graph(...))`.
+        payload = self.gq.load_graph(self.root, layer="project")
+        idx = self.gq.GraphQueryIndex(payload)
+        self.assertIsNotNone(idx.auto_rebuild_diagnostic,
+                             "Diagnostic should propagate from payload to GraphQueryIndex slot")
+        self.assertEqual(idx.auto_rebuild_diagnostic.get("code"), "graph_auto_rebuilt")
+        self.assertEqual(idx.auto_rebuild_diagnostic.get("from_builder_version"), "0")
+
 
 class WaveCloseModeDiscoverabilityTests(unittest.TestCase):
     """AC-16: wave_close invalid-mode response includes valid_modes field."""

@@ -167,8 +167,15 @@ def _find_latest_release_zip(root: Path) -> Path | None:
       4. ~/.wavefoundry/dist/
 
     Non-matching filenames are skipped silently. When multiple zips share the
-    same MAJOR.MINOR.PATCH, the one with the lexicographically greatest
-    4-character build suffix is returned.
+    same MAJOR.MINOR.PATCH, the file with the most recent mtime is returned
+    (wave 131bt 131ht). Lexicographic build-suffix comparison is the deterministic
+    fallback when mtimes tie exactly, so the selection is stable across reruns.
+
+    Background: 1.3.4+ build suffixes are temporally lex-monotonic by construction
+    (wave 131bt 131bu integer-packed encoding), so semver+suffix would also give
+    the right answer for those builds. Mtime is preferred regardless because it
+    handles same-bucket builds (5-minute collision window) and any future scheme
+    change correctly without the selector having to track build-encoding versions.
     """
     try:
         from check_version import _to_version
@@ -194,7 +201,12 @@ def _find_latest_release_zip(root: Path) -> Path | None:
                 v = _to_version(ver_str)
             except (ValueError, Exception):
                 continue
-            key = (v, build)
+            try:
+                mtime = entry.stat().st_mtime
+            except OSError:
+                mtime = 0.0
+            # Tuple comparison: semver primary, then mtime, then build string for determinism.
+            key = (v, mtime, build)
             if best is None or key > best:
                 best = key
                 best_path = entry

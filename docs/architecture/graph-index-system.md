@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-30
+Last verified: 2026-06-02
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
-> **Line citations** reference `GRAPH_BUILDER_VERSION="7"` / `CLUSTER_BUILDER_VERSION="8"`. Line numbers shift on builder version bumps — use function names as stable anchors when citing across versions.
+> **Line citations** reference `GRAPH_BUILDER_VERSION="17"` (current at wave 131bt close-out). Line numbers shift on builder version bumps — use function names as stable anchors when citing across versions.
 
 ---
 
@@ -108,7 +108,7 @@ Four constants gate incremental reuse (`graph_indexer.py:25-35`):
 
 ```
 GRAPH_SCHEMA_VERSION  = "1"
-GRAPH_BUILDER_VERSION = "7"
+GRAPH_BUILDER_VERSION = "17"
 ```
 
 A full re-extraction is forced whenever any of `schema_version`, `builder_version`, `walker_version`, or `chunker_version` changes — detected by `_load_state()` at `graph_indexer.py:1044-1061`.

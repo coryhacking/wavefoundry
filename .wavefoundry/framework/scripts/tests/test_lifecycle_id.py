@@ -57,27 +57,29 @@ class LifecycleIdScriptTests(unittest.TestCase):
         )
 
     # ------------------------------------------------------------------
-    # Existing prefix/ID encoding tests — updated for base36
-    # Epoch: 2020-02-02T02:02:00Z = unix 1580608920
-    # unix=1735691400: elapsed_hours=43078 → '0x8m'; elapsed_minutes=2584708; 2584708%36=16 → 'g' → prefix '0x8mg'
-    # unix=1735773300: elapsed_hours=43101 → '0x99'; elapsed_minutes=2586073; 2586073%36=13 → 'd' → prefix '0x99d'
-    # unix=1735779540: elapsed_hours=43102 → '0x9a'; elapsed_minutes=2586177; 2586177%36=9  → '9' → prefix '0x9a9'
+    # Encoding tests — integer-packed scheme (wave 131bt 131bu)
+    # Epoch: 2020-02-02T02:02:00Z (date 2020-02-02)
+    # Packing: base36((days_since_epoch * 288 + bucket_5min) mod 36^5), padded to 5.
+    #
+    # unix=1735691400 (2025-01-01T00:30:00Z) → days=1795, bucket=6  → '0b2w6'
+    # unix=1735773300 (2025-01-01T23:15:00Z) → days=1795, bucket=279 → '0b33r'
+    # unix=1735779540 (2025-01-02T00:59:00Z) → days=1796, bucket=11 → '0b34b'
     # ------------------------------------------------------------------
 
-    def test_prefix_only_uses_epoch_hours_plus_minute_bucket(self) -> None:
+    def test_prefix_only_packs_days_and_bucket(self) -> None:
         result = self.run_script("--prefix-only", "--unix-seconds", "1735691400")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(result.stdout.strip(), "0x8mg")
+        self.assertEqual(result.stdout.strip(), "0b2w6")
 
     def test_bug_id_uses_shared_prefix(self) -> None:
         result = self.run_script("--kind", "bug", "--slug", "runtime-retry", "--unix-seconds", "1735773300")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(result.stdout.strip(), "0x99d-bug runtime-retry")
+        self.assertEqual(result.stdout.strip(), "0b33r-bug runtime-retry")
 
     def test_wave_id_uses_shared_prefix(self) -> None:
         result = self.run_script("--kind", "wave", "--slug", "routine-behavior-contract", "--unix-seconds", "1735779540")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(result.stdout.strip(), "0x9a9 routine-behavior-contract")
+        self.assertEqual(result.stdout.strip(), "0b34b routine-behavior-contract")
 
     def test_legacy_wave_id_uses_reserved_prefix(self) -> None:
         result = self.run_script("--kind", "wave", "--slug", "wave-zero-plans-and-specs", "--legacy")
@@ -90,7 +92,11 @@ class LifecycleIdScriptTests(unittest.TestCase):
         self.assertIn("slug must contain only lowercase letters, digits, and dashes", result.stderr)
 
     def test_timestamp_before_epoch_is_rejected(self) -> None:
-        result = self.run_script("--prefix-only", "--unix-seconds", "1580608919")
+        # Epoch is 2020-02-02; use a timestamp clearly before that date.
+        # (The new integer-packed scheme uses date-resolution comparison, so
+        # sub-day-before-epoch timestamps land on day 0 — only different-date
+        # pre-epoch inputs are rejected.)
+        result = self.run_script("--prefix-only", "--unix-seconds", "0")
         self.assertEqual(result.returncode, 2)
         self.assertIn("timestamp must not be earlier than the configured lifecycle epoch", result.stderr)
 
@@ -119,9 +125,10 @@ class DecodeBase36Tests(unittest.TestCase):
 
     def test_decode_inverts_encode_for_prefix_sized_values(self) -> None:
         mod = self.mod
-        # Spot-check the three test timestamps
-        for n in (43078, 43101, 43102):
-            encoded = mod.encode_base36(n).rjust(4, "0")
+        # Round-trip a representative spread: small, day-boundary, day-mid, end-of-day,
+        # and the very last packed value (36^5 - 1).
+        for n in (0, 1, 287, 288, 1296, 517446, 517719, 60466175):
+            encoded = mod.encode_base36(n).rjust(5, "0")
             self.assertEqual(mod.decode_base36(encoded), n)
 
     def test_decode_full_5char_prefix_roundtrip(self) -> None:
@@ -134,39 +141,68 @@ class DecodeBase36Tests(unittest.TestCase):
         self.assertEqual(mod.encode_base36(n).rjust(5, "0"), prefix)
 
 
-class ElapsedMinutes5thCharTests(unittest.TestCase):
+class IntegerPackedPrefixTests(unittest.TestCase):
+    """Wave 131bt (131bu): integer-packed prefix scheme — `(days * 288 + bucket_5min) mod 36^5`.
+
+    Replaces the prior `elapsed_hours base36 + minute % 36` scheme. The 5th-char
+    minute-mod-36 disambiguator wrapped every 36 minutes; the new scheme is fully
+    monotonic across days within the 36^5 / 288 = 209,952-day (~575-year) horizon.
+    """
+
     def setUp(self) -> None:
         self.mod = _load_module()
 
     def _policy(self):
         return (self.mod.DEFAULT_EPOCH_UTC, 0)
 
-    def test_5th_char_encodes_elapsed_minutes_mod_36(self) -> None:
+    def test_prefix_advances_with_bucket(self) -> None:
+        """Two timestamps in different 5-minute buckets produce strictly-increasing prefixes."""
         mod = self.mod
-        epoch_unix = 1580608920  # 2020-02-02T02:02:00Z
-        for unix_seconds, expected_mod in (
-            (1735691400, 16),  # 2584708 % 36 = 16 → 'g'
-            (1735773300, 13),  # 2586073 % 36 = 13 → 'd'
-            (1735779540,  9),  # 2586177 % 36 =  9 → '9'
-        ):
-            ts = datetime.fromtimestamp(unix_seconds, tz=timezone.utc)
-            elapsed_minutes = (unix_seconds - epoch_unix) // 60
-            self.assertEqual(elapsed_minutes % 36, expected_mod)
-            prefix = mod.build_prefix(ts, policy=self._policy())
-            self.assertEqual(prefix[4], mod.BASE36_ALPHABET[expected_mod])
-
-    def test_minute_boundary_increments_5th_char(self) -> None:
-        mod = self.mod
-        # Two timestamps 60 s apart should have different 5th chars when they
-        # fall in different elapsed-minute buckets.
         epoch_unix = 1580608920
-        # Pick a second aligned to a minute boundary
-        ts1 = datetime.fromtimestamp(epoch_unix + 60, tz=timezone.utc)   # elapsed_minutes=1
-        ts2 = datetime.fromtimestamp(epoch_unix + 120, tz=timezone.utc)  # elapsed_minutes=2
+        # 5 min = 300 sec apart, aligned to bucket boundary at minute 0
+        ts1 = datetime.fromtimestamp(epoch_unix + 300, tz=timezone.utc)   # bucket+1
+        ts2 = datetime.fromtimestamp(epoch_unix + 600, tz=timezone.utc)   # bucket+2
         policy = self._policy()
         p1 = mod.build_prefix(ts1, policy=policy)
         p2 = mod.build_prefix(ts2, policy=policy)
-        self.assertNotEqual(p1[4], p2[4])
+        self.assertLess(p1, p2)
+
+    def test_same_bucket_produces_same_prefix(self) -> None:
+        """Two timestamps within the same 5-minute window produce identical prefixes.
+
+        That's the documented behavior: 5-minute resolution is the bucket size.
+        Higher resolution would require a different bit budget."""
+        mod = self.mod
+        epoch_unix = 1580608920
+        ts1 = datetime.fromtimestamp(epoch_unix + 60, tz=timezone.utc)
+        ts2 = datetime.fromtimestamp(epoch_unix + 120, tz=timezone.utc)
+        policy = self._policy()
+        self.assertEqual(mod.build_prefix(ts1, policy=policy),
+                         mod.build_prefix(ts2, policy=policy))
+
+    def test_day_boundary_increments_prefix(self) -> None:
+        """A prefix from midnight UTC of the next day lex-sorts after every prefix on the current day."""
+        mod = self.mod
+        epoch_unix = 1580608920
+        # End of UTC day 0 vs start of UTC day 1
+        last_bucket_day0 = datetime.fromtimestamp(epoch_unix + 23*3600 + 55*60, tz=timezone.utc)
+        first_bucket_day1 = datetime.fromtimestamp(epoch_unix + 24*3600, tz=timezone.utc)
+        policy = self._policy()
+        p_end = mod.build_prefix(last_bucket_day0, policy=policy)
+        p_start = mod.build_prefix(first_bucket_day1, policy=policy)
+        self.assertLess(p_end, p_start)
+
+    def test_monotonic_across_full_day(self) -> None:
+        """No lex-order violations across all 1440 minutes of a UTC day."""
+        mod = self.mod
+        epoch_unix = 1580608920
+        policy = self._policy()
+        prev = ""
+        for minute in range(1440):
+            ts = datetime.fromtimestamp(epoch_unix + minute * 60, tz=timezone.utc)
+            prefix = mod.build_prefix(ts, policy=policy)
+            self.assertGreaterEqual(prefix, prev, f"Lex regression at minute {minute}: {prev!r} → {prefix!r}")
+            prev = prefix
 
 
 class BorrowFromFutureTests(unittest.TestCase):
@@ -191,60 +227,60 @@ class BorrowFromFutureTests(unittest.TestCase):
 
     def test_no_borrow_when_prefix_is_unused(self) -> None:
         mod = self.mod
-        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0x8mg'
+        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0b2w6'
         prefix = mod.next_available_prefix(ts, policy=self._policy(), repo_root=self.repo_root)
-        self.assertEqual(prefix, "0x8mg")
+        self.assertEqual(prefix, "0b2w6")
 
     def test_no_scan_when_repo_root_is_none(self) -> None:
         mod = self.mod
         ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)
         prefix = mod.next_available_prefix(ts, policy=self._policy(), repo_root=None)
-        self.assertEqual(prefix, "0x8mg")
+        self.assertEqual(prefix, "0b2w6")
 
     def test_borrow_skips_taken_change_doc_in_plans(self) -> None:
         mod = self.mod
         # Simulate a staged change doc that owns the natural prefix
-        (self.repo_root / "docs" / "plans" / "0x8mg-enh something.md").touch()
-        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0x8mg'
+        (self.repo_root / "docs" / "plans" / "0b2w6-enh something.md").touch()
+        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0b2w6'
         prefix = mod.next_available_prefix(ts, policy=self._policy(), repo_root=self.repo_root)
-        self.assertEqual(prefix, "0x8mh")  # 0x8mg + 1 in base36
+        self.assertEqual(prefix, "0b2w7")  # 0b2w6 + 1 in base36
 
     def test_borrow_skips_taken_change_doc_in_waves(self) -> None:
         mod = self.mod
-        wave_dir = self.repo_root / "docs" / "waves" / "0x8mg test-wave"
+        wave_dir = self.repo_root / "docs" / "waves" / "0b2w6 test-wave"
         wave_dir.mkdir(parents=True)
-        (wave_dir / "0x8mg-enh foo.md").touch()
+        (wave_dir / "0b2w6-enh foo.md").touch()
         ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)
         prefix = mod.next_available_prefix(ts, policy=self._policy(), repo_root=self.repo_root)
-        # Both the directory name AND the stem are scanned, but only one unique '0x8mg' entry; next is '0x8mh'
-        self.assertEqual(prefix, "0x8mh")
+        # Both the directory name AND the stem are scanned, but only one unique '0b2w6' entry; next is '0b2w7'
+        self.assertEqual(prefix, "0b2w7")
 
     def test_borrow_skips_multiple_taken_prefixes(self) -> None:
         mod = self.mod
         plans = self.repo_root / "docs" / "plans"
-        (plans / "0x8mg-enh first.md").touch()
-        (plans / "0x8mh-enh second.md").touch()
+        (plans / "0b2w6-enh first.md").touch()
+        (plans / "0b2w7-enh second.md").touch()
         ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)
         prefix = mod.next_available_prefix(ts, policy=self._policy(), repo_root=self.repo_root)
-        self.assertEqual(prefix, "0x8mi")  # skips 0x8mg and 0x8mh
+        self.assertEqual(prefix, "0b2w8")  # skips 0b2w6 and 0b2w7
 
     def test_borrow_applies_to_change_ids(self) -> None:
         mod = self.mod
         plans = self.repo_root / "docs" / "plans"
-        (plans / "0x8mg-enh taken.md").touch()
+        (plans / "0b2w6-enh taken.md").touch()
         ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)
         result = mod.build_id("enh", "new-thing", legacy=False, timestamp=ts, repo_root=self.repo_root, policy=self._policy())
-        self.assertTrue(result.startswith("0x8mh-enh"), result)
+        self.assertTrue(result.startswith("0b2w7-enh"), result)
 
     def test_borrow_applies_to_wave_ids(self) -> None:
         # AC-8: wave IDs must also go through collision checking
         mod = self.mod
-        # Simulate an existing wave directory that owns '0x8mg'
-        wave_dir = self.repo_root / "docs" / "waves" / "0x8mg old-wave"
+        # Simulate an existing wave directory that owns '0b2w6'
+        wave_dir = self.repo_root / "docs" / "waves" / "0b2w6 old-wave"
         wave_dir.mkdir(parents=True)
         ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)
         result = mod.build_id("wave", "new-wave", legacy=False, timestamp=ts, repo_root=self.repo_root, policy=self._policy())
-        self.assertEqual(result, "0x8mh new-wave")
+        self.assertEqual(result, "0b2w7 new-wave")
 
     def test_legacy_bypasses_borrow_check(self) -> None:
         mod = self.mod
@@ -255,50 +291,50 @@ class BorrowFromFutureTests(unittest.TestCase):
     def test_existing_prefixes_scans_plans_and_waves(self) -> None:
         mod = self.mod
         plans = self.repo_root / "docs" / "plans"
-        (plans / "0x8mg-enh plan-doc.md").touch()
-        wave_dir = self.repo_root / "docs" / "waves" / "0x99d old-wave"
+        (plans / "0b2w6-enh plan-doc.md").touch()
+        wave_dir = self.repo_root / "docs" / "waves" / "0b33r old-wave"
         wave_dir.mkdir(parents=True)
         prefixes = mod._existing_prefixes(self.repo_root)
-        self.assertIn("0x8mg", prefixes)
-        self.assertIn("0x99d", prefixes)
+        self.assertIn("0b2w6", prefixes)
+        self.assertIn("0b33r", prefixes)
 
     def test_existing_prefixes_ignores_wave_dot_md(self) -> None:
         # wave.md itself should not produce a spurious prefix entry
         mod = self.mod
-        wave_dir = self.repo_root / "docs" / "waves" / "0x8mg my-wave"
+        wave_dir = self.repo_root / "docs" / "waves" / "0b2w6 my-wave"
         wave_dir.mkdir(parents=True)
         (wave_dir / "wave.md").touch()
         prefixes = mod._existing_prefixes(self.repo_root)
         # 'wave' stem doesn't match _PREFIX_RE → not added
         self.assertNotIn("wave.", prefixes)
-        self.assertIn("0x8mg", prefixes)  # from directory name
+        self.assertIn("0b2w6", prefixes)  # from directory name
 
     def test_rapid_successive_calls_return_unique_prefixes(self) -> None:
         mod = self.mod
-        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0x8mg'
+        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0b2w6'
         p1 = mod.next_available_prefix(ts, policy=self._policy(), repo_root=self.repo_root)
         p2 = mod.next_available_prefix(ts, policy=self._policy(), repo_root=self.repo_root)
         p3 = mod.next_available_prefix(ts, policy=self._policy(), repo_root=self.repo_root)
-        self.assertEqual(p1, "0x8mg")
-        self.assertEqual(p2, "0x8mh")
-        self.assertEqual(p3, "0x8mi")
+        self.assertEqual(p1, "0b2w6")
+        self.assertEqual(p2, "0b2w7")
+        self.assertEqual(p3, "0b2w8")
 
     def test_in_memory_floor_not_applied_when_time_advances(self) -> None:
         mod = self.mod
-        ts1 = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0x8mg'
-        ts2 = datetime.fromtimestamp(1735773300, tz=timezone.utc)  # → '0x99d'
+        ts1 = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0b2w6'
+        ts2 = datetime.fromtimestamp(1735773300, tz=timezone.utc)  # → '0b33r'
         p1 = mod.next_available_prefix(ts1, policy=self._policy(), repo_root=self.repo_root)
-        self.assertEqual(p1, "0x8mg")
+        self.assertEqual(p1, "0b2w6")
         p2 = mod.next_available_prefix(ts2, policy=self._policy(), repo_root=self.repo_root)
-        self.assertEqual(p2, "0x99d")
+        self.assertEqual(p2, "0b33r")
 
     def test_in_memory_floor_applies_without_repo_root(self) -> None:
         mod = self.mod
-        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0x8mg'
+        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0b2w6'
         p1 = mod.next_available_prefix(ts, policy=self._policy(), repo_root=None)
-        self.assertEqual(p1, "0x8mg")
+        self.assertEqual(p1, "0b2w6")
         p2 = mod.next_available_prefix(ts, policy=self._policy(), repo_root=None)
-        self.assertEqual(p2, "0x8mh")
+        self.assertEqual(p2, "0b2w7")
 
 
 if __name__ == "__main__":

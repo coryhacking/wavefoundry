@@ -1,0 +1,190 @@
+# Wavefoundry Changelog
+
+Operator-facing release history for the wavefoundry framework. Sections are organized by semver version (`MAJOR.MINOR.PATCH`) with git-commit-style summary bullets describing what each release delivers. The latest release appears first.
+
+This file is at the project-level path (`.wavefoundry/CHANGELOG.md`) rather than inside `.wavefoundry/framework/`. Downstream consumer projects receive the file as a snapshot of release history at upgrade time; they do not edit it locally.
+
+---
+
+## 1.3.4 — 2026-06-01
+
+Lifecycle-ID and build-suffix encoding rewrite. The prior scheme appended `BASE36[elapsed_minutes % 36]` as the 5th char of the lifecycle prefix and took the rightmost 4 chars as the build suffix — both wrapped every 36 minutes, causing lex order to disagree with wall-clock order. Three same-day 1.3.2 builds shipped within 27 minutes demonstrated the failure (`upgrade_wavefoundry` lex-selected the oldest one).
+
+### Changes
+
+- Replace lifecycle prefix encoding with integer-packed `(days_since_epoch * 288 + bucket_5min) mod 36^5`, base36 right-padded to 5 chars. 5-minute buckets (288/day) align cleanly with whole-minute AND whole-second boundaries and divide 36^5 with zero wasted slots. Lex order matches wall-clock within a 209,952-day (~575-year) horizon
+- Build suffix is now the last 4 chars of the lifecycle prefix — single source of truth. Last-4-chars truncation is mathematically equivalent to packing with `mod 36^4`, giving a 5,832-day (~15.97-year) lex-monotonic horizon
+- Shift project epoch from `2020-08-24` to `1999-05-01` so today's first new ID under the integer-packed scheme lex-sorts past the historical max real ID (`1p0r6` at 2,846,994). New IDs today begin at `1p2g0`
+- Update `docs/workflow-config.json` lifecycle_id_policy: new `epoch_utc`, new `time_unit: "5-minute-bucket"`, new `buckets_per_day: 288`, expanded `notes` documenting the encoding
+
+---
+
+## 1.3.3 — 2026-06-01
+
+Same-day patch covering description-refresh propagation, two graph-query polish fixes, and the wave 131bu close-out. Bumped from 1.3.2 because semver comparison strips build metadata; a same-version republish would have been invisible to `wave_upgrade` and left operators stuck on the prior build.
+
+### Changes
+
+- Detect tool-description changes during `wave_mcp_reload` and explicitly send the MCP `notifications/tools/list_changed` protocol notification so conformant clients re-fetch and surface the new descriptions automatically (FastMCP's `add_tool`/`remove_tool` do not send this automatically); response carries `description_changed_tools` + `tool_list_changed_notification_sent`; structured diagnostic explains success or failure path
+- Alias `<file_id>::<class_name>` queries to the file id when the file is a class/module-merged node — operators querying with explicit qualification no longer hit `graph_symbol_not_found` for merged classes
+- Tie-break `code_graph_path` BFS candidates on confidence: `RECEIVER_RESOLVED` / `CONSTRUCTION_RESOLVED` paths surface before `EXTRACTED` import placeholders when both reach the destination in the same hop count
+- Update `seed-160` upgrade workflow to document the notification-based description-refresh path (no operator action required when conformant clients honor `tools/list_changed`; full restart remains the fallback when they don't)
+
+---
+
+## 1.3.2 — 2026-06-01
+
+Patch on 1.3.1's ERROR-wrapped class declaration recovery. Field validation against the actual Solaris repository showed 1.3.1's recovery predicate accepted only `type_identifier` children — tree-sitter-swift's grammar-recovery state emits the class name as `simple_identifier` in practice, so the predicate silently missed every production ERROR-wrapped class. The graph rebuilds automatically on the first query after upgrade.
+
+### Changes
+
+- Broaden ERROR-wrapped class recovery predicate to accept `simple_identifier` and `identifier` children alongside `type_identifier` (tree-sitter grammars relabel the class-name node kind in their recovery state)
+- Add child-text name-match as the second gate replacing the prior child-kind-presence-only check — keeps false-positive surface narrow even with the broader child-kind acceptance
+- Extend recovery source-text prefix slice from 256 to 512 bytes to cover ERROR nodes whose modifier prefix runs longer than the prior bound
+
+---
+
+## 1.3.1 — 2026-06-01
+
+Field-feedback patch covering one Swift attribution edge case and one cross-tool documentation gap. The graph rebuilds automatically on the first query after upgrade.
+
+### Changes
+
+- Recover ERROR-wrapped top-level class declarations in graph-builder definition walk so cross-file construction edges still resolve when tree-sitter wraps a class declaration in ERROR due to a parse failure deep in the class body (Swift, Kotlin, Scala, Java, C# — file-level-type languages)
+- Document `CONSTRUCTION_RESOLVED` confidence value on `code_impact` response shape alongside `RECEIVER_RESOLVED` and `EXTRACTED`
+
+Full per-change docs: `docs/waves/131bt field-feedback-round-3/1319v-bug error-wrapped-class-declaration-recovery.md` in the wavefoundry repository.
+
+---
+
+## 1.3.0 — 2026-06-01
+
+Cross-language graph-builder precision improvements, new query-time aggregation, and upgrade-lifecycle automation. The graph rebuilds automatically on the first query after upgrade; MCP tool descriptions and parameter signatures refresh via `wave_mcp_reload` followed by a client reconnect (`/mcp` in Claude Code).
+
+### Changes
+
+- Resolve receiver types via type annotations in TypeScript, Python, PHP, and JavaScript (JSDoc); annotated declarations route to the correct method node, unannotated falls back to standard attribution
+- Route construction-call edges to the class node across 11 languages: `new Foo()` in Java/C#/TypeScript/JavaScript/PHP, bare-call `Foo()` in Swift/Python/Kotlin/Scala, `Foo.new` in Ruby, struct-literal `Foo { x: 1 }` and `Foo::new()` in Rust, composite-literal `&Foo{}` and `new(Foo)` in Go
+- Add `CONSTRUCTION_RESOLVED` confidence tag on construction-routed edges, peer-level to `RECEIVER_RESOLVED`
+- Extend single-dominant-class merge to Python, JavaScript, TypeScript with dominance gate; add kebab-to-PascalCase basename matching for JS/TS
+- Add `collapse_package_to_directory: bool` parameter to `wave_graph_report` covering Go, Python, Java, Kotlin, C#, Scala, PHP, Swift; produces `package` / `namespace` nodes per language idiom
+- Hot-reload MCP tool schemas via `wave_mcp_reload`; parameter and description changes land in-process without a server restart
+- Auto-rebuild stale graph synchronously on first query when the on-disk builder version is behind runtime; structured `graph_auto_rebuilt` diagnostic surfaces in the response
+- Sync MCP tool descriptions for `wave_index_build`, `wave_index_health`, `wave_graph_report`, `code_impact`, `code_callhierarchy`, `code_graph_community` with shipped capabilities; restructure related seed-211 guidance
+- Document client-side confidence filtering for refactor-safety and security-review workflows
+- Rename release notes to `CHANGELOG.md` and relocate to `.wavefoundry/CHANGELOG.md` (project-level path; upgrade prunes the old `.wavefoundry/framework/RELEASE_NOTES.md` automatically); cumulative narrative format, no build-number structure, deliberately not Keep-a-Changelog
+
+Full per-change docs: `docs/waves/131bt field-feedback-round-3/` in the wavefoundry repository.
+
+---
+
+## 1.2.1 — 2026-06-01
+
+Operator field-feedback follow-on across two iteration rounds. Eliminate phantom call edges at index time, decompose collision diagnostics, broaden cross-language coverage for class/module merge and receiver-type resolution.
+
+### Action required on upgrade
+
+Rebuild the graph index once after upgrade: `wave_index_build(content='graph')`.
+
+### Changes
+
+- Move Java receiver-type resolution into the graph builder; eliminate phantom `calls` edges at index construction time so `code_impact` and `code_callhierarchy` return consistent results
+- Decompose `name_collision_count` into `same_name_node_count`, `cross_file_collision: bool`, and `external_name_collision_count` (deprecated alias preserved one release)
+- Curate per-language stdlib allowlist for `external_name_collision_count` across Java, C#, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Scala, PHP, Ruby
+- Split `file_hubs` section out of `chokepoints` on `wave_graph_report` so function-level rankings stay pure
+- Add `community_size_class` (`small` / `medium` / `large` at <50 / 50–200 / 200+ thresholds) and `large_community_advisory` to `code_graph_community` responses
+- Add stable `community_hub_node_id` anchor for community references (survives re-clustering across rebuilds)
+- Add `collapse_class_module_pairs: bool` query-time view to `wave_graph_report` merging Swift file-and-class pairs
+- Document and lock module fan-out semantics in `wave_graph_report` with a regression test
+- Add empty-section diagnostic fields (`*_candidates_total`, `*_threshold`) to `chokepoints`, `file_hubs`, `orphan_docs`, `cross_layer` so `[]` distinguishes "no data" from "no hits"
+- Surface graph rebuild discoverability on `wave_index_health` (per-layer `graph.last_built_at` / `node_count` / `edge_count`) and on `wave_index_build` responses (`graph_rebuilt` field + clarifying notice when `content` is not `graph`)
+- Fix module-node simple-name extraction (basename without extension instead of bare extension)
+- Merge Swift file-and-class nodes at the graph builder when the basename matches a top-level type declaration; extend to Java, Kotlin, C#, JavaScript, TypeScript, Scala, PHP, Rust (snake-to-PascalCase), Ruby (snake-to-PascalCase)
+- Extend graph-builder receiver-type resolution to Kotlin, C#, Swift, Go, Rust, Scala
+- Bundle a fix for the cross-file resolution `qualified_index` duplicate-suffix bug discovered during the receiver-type rollout
+
+Full per-change docs: `docs/waves/13129 graph-tools-field-feedback-round-2/` in the wavefoundry repository.
+
+---
+
+## 1.2.0 — 2026-06-01
+
+Initial graph tools field-feedback delivery from Solaris (Swift) and Aceiss (Java) tier-1 and tier-2 reports.
+
+### Action required on upgrade
+
+Rebuild the indexes after upgrade.
+
+### Changes
+
+- Add question-type pattern library covering navigational, explanatory, and instructional queries in the guru seed
+- Improve graph tool shape consistency: dual community return on `code_impact`, pagination, per-hop attribution, communities overview
+- Add generated-code classifier for Java and C# (header detection, path heuristics, `.gitattributes` opt-in) with `exclude_generated` filter and collapse mode
+- Add AOP/advice empty-incoming detection (`caller_pattern: "advice"`) for Java and C# attribute annotations
+- Classify Java `method_reference` (`Foo::bar`) as call sites
+- Enable Kotlin reference resolution end-to-end
+- Add `name_collision_count` diagnostic, `betweenness_computed` field, large-community `pagination_hint`, and `exclude_external` filter to `wave_graph_report`
+- Add Java receiver-type filter at `code_callhierarchy` query time (promoted to graph builder in 1.2.1)
+
+Full per-change docs: `docs/waves/130rj graph-tools-field-feedback-tier-1-and-2/` in the wavefoundry repository.
+
+---
+
+## 1.1.0 — 2026-05-31
+
+Graph index extraction and clustering, graph-backed MCP query surface, refresh-and-instruct unification across graph tools, dashboard graph visualization.
+
+### Action required on upgrade
+
+Build the graph index once: `wave_index_build(content='graph')`.
+
+### Changes
+
+- Build per-layer code/doc graph during indexing with `defines` / `imports` / `calls` / `doc_references_*` edges; reverse invalidation prunes stale edges on file delete or rename
+- Cluster the graph into communities via Leiden with label-propagation fallback
+- Switch indexer to incremental chunk-delta embedding; force full LanceDB rebuild when `chunk_hash` is missing
+- Centralize workflow-config include-prefix reading in the indexer; drop redundant forwarding from post-edit hook, dashboard, and server background paths
+- Add `code_graph_path`, `code_graph_community`, `code_graph_status` MCP tools and `wavefoundry://graph/*` resources
+- Add `direction=forward|backward|either` to `code_graph_path`
+- Add graph-narrowed `code_definition` with incremental refresh; cold lookups drop from 38–43 s to sub-300 ms
+- Flip graph augmentation default to on for `code_keyword`, `code_search`, `code_definition`, `code_references`
+- Wire refresh-and-instruct uniformly across `code_references`, `code_callhierarchy`, `code_callgraph`, `code_impact`, `code_graph_path`, `code_graph_community`, `wave_graph_report`
+- Consolidate graph-degradation diagnostic vocabulary to `graph_index_missing_degraded` / `graph_not_ready` / `graph_symbol_not_found`
+- Add dashboard graph visualization, community overview, diff view, and index/graph status tiles; reorder Agents panel above Graph; remove breadcrumb back arrow and view-mode pills
+- Modal dialogs own Escape key instead of the graph back handler
+- Ignore `.wavefoundry/` runtime lock files via gitignore and rendered `.aiignore`
+- Anonymize council synthesis output; enforce prepare-phase council-verdict recording
+- Encode fix-now-not-later default in review-seat seeds (~20 LOC threshold; per-finding justification required when routing to follow-on)
+
+Full per-change docs: `docs/waves/12xr1`, `12xr2`, `12xr3`, `1304x`, `1305t` in the wavefoundry repository.
+
+---
+
+## 1.0.1 — 2026-05-26
+
+Patch release with test runner fix, search heuristics canonicalization, and README refresh.
+
+### Changes
+
+- Fix test runner single-run guard to prevent duplicate test execution
+- Canonicalize search retrieval heuristics across `code_search` and `code_keyword`
+- Refresh README with current operator orientation
+- Strengthen test_run_tests_cache lifecycle assertions
+
+Full per-change docs: `docs/waves/0rld3`, `0rld5` in the wavefoundry repository.
+
+---
+
+## 1.0.0 — 2026-05-24
+
+Initial semver release. Python tool venv, venv-aware launcher shims, framework_revision manifest contract.
+
+### Changes
+
+- Adopt semver versioning for the framework with stamped `.wavefoundry/framework/VERSION`
+- Introduce Python tool venv at `~/.wavefoundry/venv` for isolated dependencies
+- Add venv-aware launcher shims under `.wavefoundry/bin/` for setup, docs-lint, docs-gardener, mcp-server, update-indexes, upgrade-wavefoundry, wave-dashboard, wave-gate
+- Establish `framework_revision` contract in `docs/prompts/prompt-surface-manifest.json` aligned with the stamped VERSION
+
+Full per-change docs: `docs/waves/12tms` in the wavefoundry repository.
+

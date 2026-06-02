@@ -74,12 +74,106 @@ When attaching seed or architecture doc content as stable context (not retrievin
 - Use `code_callhierarchy` when the question is "what calls X?" or "what does X call?" and you want exact call-site line numbers and snippets alongside caller/callee structure. Returns direct callers (incoming) and callees (outgoing) at depth 1 with graph-backed attribution. Prefer over `code_references` for structural caller/callee questions; use `code_references` when you need non-call-site hits (mentions, definitions, imports) or when the graph index is absent. External (non-project) entries are suppressed by default and counted in `external_outgoing_count` / `external_incoming_count`; pass `include_external=true` if you need the full list. **Fallback:** if a project-internal caller/callee question returns an empty list and the project is in a language whose cross-file resolution is less mature (Swift, Java, Kotlin, C/C++/C#, ObjC, Ruby, PHP, Scala — anything besides Python/JS/TS/Go/Rust), fall back to `code_references` for the same symbol — it uses text-based search and finds the call sites with line numbers regardless of graph-extractor coverage. **AOP/advice exception:** if the empty incoming is on a Java method in a class with `@Advice.OnMethodEnter`, `@Advice.OnMethodExit`, `@Around`, `@Before`, `@After`, `@AfterReturning`, or `@AfterThrowing` annotations, do NOT fall back to `code_references` — the callers are wired by the AOP framework (ByteBuddy, AspectJ) at runtime and have no Java call sites. Instead search for the advice registration: `code_keyword(queries=[<advice_class_name>], glob="**/*Instrumentation*.java")` finds the `TypeInstrumentation.transform()` / `@Aspect` pointcut declaration; that registration IS the caller.
 - Use `code_callgraph` for call-structure traversal beyond one hop (depth > 1), or when raw graph edges with line numbers are more useful than the incoming/outgoing framing. Chain `code_callhierarchy` for targeted depth-1 lookups; use `code_callgraph` for broader trees. Test-path nodes are excluded by default; pass `include_tests=true` when test callers are part of the question (symmetric with `code_impact`).
 - Use `code_impact` when the question is "what would be affected if I change X?" — it returns all upstream callers transitively up to `max_hops`. Run it before modifying a shared symbol to size the blast radius before planning a refactor or API change. Test callers are excluded by default; pass `include_tests=true` to include them. The `path=` heuristic mode only detects imports in Python, JavaScript, TypeScript, Go, and Rust — for any other language it returns `unsupported_language: true` immediately rather than silently scanning to zero. For impact analysis on other languages, use `symbol=` (graph mode) instead.
-- Use `code_graph_community(community_id=…)` to drill into a single community's members (sorted by degree). Get community ids from the `wavefoundry://graph/communities` resource or `wave_graph_report`. When a community id is absent, the response returns a `suggestions` list of close-match communities — use those to recover without a second tool call. Check `community_size_class` on the response: `small` (<50) or `medium` (50–200) communities are safe to page through; `large` (200+) communities also carry a `large_community_advisory` diagnostic — follow the diagnostic's `recovery_usage` (`code_callhierarchy` on the hub) instead of paging through all members. Enumerating a 3000-member community via `pagination_hint` burns 60+ round-trips for what one hub-targeted `code_callhierarchy` call answers.
+- Use `code_graph_community(community_id=…)` to drill into a single community's members. See the **code_graph_community — interpreting community size signals** subsection below for full guidance on `community_size_class`, `large_community_advisory`, and when to follow the advisory vs page through members.
 - Use `code_graph_path(from_symbol=…, to_symbol=…)` to trace the shortest connecting path between two symbols. `direction="forward"` (default) walks outgoing calls/imports — answers "does A reach B?". `direction="backward"` walks incoming edges — answers "who reaches A?". `direction="either"` finds any connection regardless of direction; each `path_edges` entry then carries a `traversal_direction` field so the chain is unambiguous. Pick `either` when you don't know which way the call flows.
-- Use `wave_graph_report` for structural orientation across the whole graph: fan_in (most-called symbols), fan_out (high call-out nodes), chokepoints (function/method/class fan_out >= 20), file_hubs (file-level fan_out >= 20 — the dedicated file-level view; wave 13129 split this out of chokepoints so the function-level ranking stays pure), orphan_docs (disconnected docs), and cross_layer edges. Run once at the start of a cross-cutting investigation or refactor to identify hotspots before targeting individual symbols. **Migration note (wave 13129):** if you previously queried `sections=["chokepoints"]` to find both file-level and function-level hubs, switch to `sections=["chokepoints", "file_hubs"]` to keep both views; the default section set now returns both automatically. Each ranking entry carries three collision-diagnostic fields (wave 13129): `same_name_node_count` (project nodes sharing the symbol's simple name; deprecated alias `name_collision_count` preserved one release), `cross_file_collision: bool` (true when 2+ project files own a same-simple-name node), and `external_name_collision_count: int` (1 when the symbol's simple name appears in the curated stdlib/framework allowlist for the project node's language — extension-dispatched across Java/C#/Kotlin/Swift/Python; 0 otherwise). Example allowlist hits: Java `run`/`close`/`equals`/`hashCode`/`writeObject`; C# `Equals`/`Dispose`/`MoveNext`/`Compare`; Kotlin `let`/`apply`/`also`/`equals`; Swift `init`/`description`/`encode`/`forEach`; Python `__init__`/`__str__`/`__enter__`/`close`. The allowlist replaced a graph-state-based count in wave 1316p because the residue external nodes the original count depended on were eliminated by 1312l's receiver-type resolution at index time. Extended to multi-language in wave 13192. Languages without an allowlist (Go, Rust, JS/TS) return 0. **Verification trigger:** treat the fan_in figure as suspect when `(same_name_node_count > 1 AND cross_file_collision: true)` OR `(external_name_collision_count > 0)`. Same-file-only collisions with no external collision are file-tree shape noise and trustworthy without verification. When suspect, follow up with `code_callhierarchy(node_id=…)` on the specific node_id before treating the number as authoritative.
+- Use `wave_graph_report` for structural orientation across the whole graph. See the **wave_graph_report — using the collision diagnostics** subsection below for the full sections list, per-entry collision-diagnostic fields, empty-section diagnostics, parameter behavior, and the verification trigger formula.
 - Use `code_keyword` when the operator gives an exact token, import path, or string literal and expects deterministic coverage.
 - `code_keyword`, `code_search`, `code_definition`, and `code_references` return a `graph_neighbors` block by default — 1-hop structural relations for top hits, sourced from the graph index. Pass `graph=false` to suppress when you need a lean response (size-sensitive callers, snapshot tests).
 - Use `code_read` after discovery to validate the actual implementation at the cited lines.
+
+### `wave_graph_report` — using the collision diagnostics
+
+`wave_graph_report` gives structural orientation across the whole graph. Run once at the start of a cross-cutting investigation or refactor to identify hotspots before targeting individual symbols. Each call returns a subset of the following sections (use `sections=[...]` to narrow):
+
+- **fan_in** — most-called symbols (highest incoming `calls` edge count).
+- **fan_out** — symbols issuing the most outgoing `calls` edges.
+- **chokepoints** — `function` / `method` / `class` entries with fan_out ≥ 20 (potential bottlenecks).
+- **file_hubs** — file-level (`kind: "module"`) entries with fan_out ≥ 20 (the dedicated file-level view, wave 13129).
+- **orphan_docs** — disconnected documentation.
+- **cross_layer** — edges crossing the project/framework boundary (`layer="union"` only).
+- **betweenness** — bridge nodes by betweenness centrality (skipped on graphs > 10,000 nodes with diagnostic).
+- **communities** — top communities by node_count with `community_id`, `label`, `hub_node_id`, `hub_label`.
+
+**Migration note (wave 13129):** if you previously queried `sections=["chokepoints"]` to find both file-level and function-level hubs, switch to `sections=["chokepoints", "file_hubs"]` to keep both views. The default section set now returns both automatically.
+
+**Per-entry collision-diagnostic fields (wave 13129) on every fan_in / fan_out / chokepoints / file_hubs / betweenness entry:**
+
+- `same_name_node_count` (int) — count of project nodes sharing the entry's simple name.
+- `cross_file_collision` (bool) — true when 2+ project files own a same-simple-name node.
+- `external_name_collision_count` (int) — 1 when the entry's simple name appears in the curated stdlib/framework allowlist for the entry's source-file language (extension-dispatched across Java/C#/Kotlin/Swift/Python/JS/TS/Go/Rust/Scala/PHP/Ruby after waves 1316p/13192/13198); 0 otherwise. Example hits: Java `run`/`close`/`equals`/`hashCode`/`writeObject`; C# `Equals`/`Dispose`/`MoveNext`/`Compare`; Kotlin `let`/`apply`/`also`/`equals`; Swift `init`/`description`/`encode`/`forEach`; Python `__init__`/`__str__`/`__enter__`/`close`. The allowlist replaced a graph-state-based count in wave 1316p (after 1312l eliminated the residue external nodes the original count depended on). Languages with no allowlist coverage return 0.
+- `name_collision_count` — deprecated alias for `same_name_node_count`, preserved one release.
+
+**Empty-section diagnostic fields (wave 1316t)** distinguish "no data" from "no hits" on sections that can legitimately return `[]`:
+
+- `chokepoints_candidates_total` / `chokepoints_threshold` — how many candidates were considered before the threshold filter.
+- `file_hubs_candidates_total` / `file_hubs_threshold` — same shape for file_hubs.
+- `orphan_docs_candidates_total` — docs node pool considered.
+- `cross_layer_candidates_total` — edges considered before the boundary filter.
+- `betweenness_computed` (bool) + `betweenness_skipped_reason` (string when False) — from wave 130rj.
+
+When a section is `[]` AND `<section>_candidates_total: 0`, the graph genuinely has nothing. When `[]` AND `_candidates_total > 0`, the filter threshold removed everything — adjust `sections` parameters or investigate whether the threshold matches your project shape.
+
+**Verification trigger (when to follow up before trusting the fan_in/fan_out figure):**
+
+> Treat the entry as suspect when
+> `(same_name_node_count > 1 AND cross_file_collision: true)` OR
+> `(external_name_collision_count > 0)`.
+> Same-file-only collisions with no external collision are file-tree-shape noise and trustworthy without verification.
+
+When suspect, follow up with `code_callhierarchy(node_id=…)` on the specific node_id before treating the number as authoritative.
+
+**Parameter cheat-sheet:**
+
+- `exclude_external` (default False) — filter `external::*` nodes from fan_in/fan_out/chokepoints/betweenness. Use for "show me MY code" architectural orientation; safe to combine with `exclude_generated`.
+- `exclude_generated` (default False) — filter nodes tagged `generated: true` (Java + C# generated-code classifier coverage). Independent of `exclude_external`.
+- `collapse_generated_files` (default False) — aggregate generated source files into per-file nodes before computing sections. Preserves "handwritten code calls into ELParser" topology while shrinking apparent complexity (ELParser's 330 internal nodes collapse to 1). Per-symbol tools do NOT support this flag.
+- `collapse_class_module_pairs` (default False) — merge file-and-class pairs into one node per file. Swift-first; Java/Kotlin/C# enablement is operator-validation-driven via `_CLASS_MODULE_COLLAPSE_LANGUAGES`. Per-symbol tools do NOT support this flag.
+- `collapse_package_to_directory` (default False, wave 1319m) — aggregate files in a directory into one `package` / `namespace` node per language. Detection per language: Go matching `package <name>` declarations; Python `__init__.py` presence; Java/Kotlin/Scala/C#/PHP matching `package` / `namespace` declarations; Swift directory-presence convention. Rust (mod tree), Ruby (namespace declaration), JS/TS (ES modules) deliberately excluded. Mixed-package directories skip with no collapse; single-file directories skip. Collapsed nodes carry `collapse_origin_files`, `collapse_unit`, and `kind` of `"package"` or `"namespace"` preserving language idiom. Stacks with `collapse_class_module_pairs` (file → class then files → packages). Per-symbol tools do NOT support this flag.
+
+### `code_graph_community` — interpreting community size signals
+
+Drill into a single community's members (sorted by degree desc). Get community ids from the `wavefoundry://graph/communities` resource or `wave_graph_report.communities`. When a community id is absent, the response returns a `suggestions` list of close-match communities — use those to recover without a second tool call.
+
+**Stable references across rebuilds:** Leiden community numbering is emergent; `community_id` can change between graph rebuilds. Use `hub_node_id` (the community's highest-degree member, identified by node id) for cached or persisted references — node ids are stable across rebuilds. When both `community_id` and `hub_node_id` are provided, `community_id` wins.
+
+**Size signals on the response (wave 1316r / 1312j):**
+
+- `community_size_class: "small" | "medium" | "large"` — always present; thresholds `< 50` / `50–200` / `200+`.
+- `large_community_advisory` — structured diagnostic, present only when `total_node_count > 200`. Carries `recovery_tools: ["code_callhierarchy", "code_graph_path"]` and `recovery_usage` pointing at the community's hub `code_callhierarchy` call.
+- `community_hub_node_id` / `hub_label` — always present; the highest-degree member.
+
+**When to follow the advisory vs page through members:**
+
+| Size class | Recommended action |
+|---|---|
+| `small` (< 50) | Page through `nodes` directly; the full member list fits in one or two calls. |
+| `medium` (50–200) | Paginate with `offset` if needed; pagination cost is bounded. |
+| `large` (200+) | **Follow `large_community_advisory.recovery_usage`** — typically `code_callhierarchy` on the hub. Enumerating a 3000-member community via `offset` pagination burns 60+ round-trips for what one hub-targeted call answers. The advisory complements `pagination_hint` (both surface on large communities) rather than replacing it. |
+
+### Confidence-level guidance for graph-attributed edges
+
+`code_impact`, `code_callhierarchy`, and `code_graph_path` return graph edges (or affected/path entries derived from edges). Each edge carries a `confidence` field indicating how the indexer attributed it:
+
+- **`RECEIVER_RESOLVED`** — the indexer matched the call's receiver expression against a declared type and routed the edge to the right method node. Waves `1312l`/`13194`/`1319a`/`1319g` shipped this for Java, Kotlin, C#, Swift, Go, Rust, Scala (declared-type lookup). Wave `1319q` extends coverage to TypeScript / Python / PHP via native type annotations (PEP 484, TS native annotations, PHP native type hints) and JavaScript via JSDoc `/** @type {Foo} */` comments. Unannotated declarations in those five languages fall through to standard attribution — no false positives from inference. High confidence — the call's target type is known.
+- **`CONSTRUCTION_RESOLVED`** — the indexer detected a construction-shaped call (`new Foo()` in Java/C#/TS/JS/PHP, `Foo()` bare-call construction in Swift/Kotlin/Scala, `Foo.new(...)` in Ruby, `Foo { x: 1 }` struct literal or `Foo::new()` convention in Rust, `&Foo{}` composite literal or `new(Foo)` in Go) and routed the edge to the class/struct/module node with type-resolution confidence. Wave `1319s` shipped this peer-level to `RECEIVER_RESOLVED`. Operators querying `code_callhierarchy(<ClassName>).incoming` see constructor callers as direct edges to the class node.
+- **`EXTRACTED`** — heuristic / text-based fallback attribution. May include phantom edges where simple-name matching attached the call to the wrong same-named target. Lower confidence — corroboration recommended for refactor-safety or security-review work.
+- **Future levels** may include additional values as new resolution paths land. Treat the tag as an extensible enum; default unknown values to "treat as heuristic until documented."
+
+**Filtering recommendation for high-stakes questions:**
+
+For refactor-safety analysis ("if I change this method's signature, what breaks?") or security review ("who actually constructs this class?"), filter client-side to `RECEIVER_RESOLVED` or `CONSTRUCTION_RESOLVED` edges (both are type-resolved, peer-level confidence):
+
+```
+# JS / TS client-side — keep type-resolved edges, drop heuristic
+edges.filter(e => e.confidence === "RECEIVER_RESOLVED" || e.confidence === "CONSTRUCTION_RESOLVED")
+
+# Python client-side
+[e for e in edges if e["confidence"] in ("RECEIVER_RESOLVED", "CONSTRUCTION_RESOLVED")]
+```
+
+For `EXTRACTED` edges that look load-bearing, corroborate with `code_references` to confirm the call site exists in the source before treating the edge as authoritative. Treat the absence of `confidence` on legacy responses (pre-wave-13129 graphs) as `EXTRACTED` semantics — the receiver-type resolution is only present on graphs built at `GRAPH_BUILDER_VERSION >= 13`.
+
+**No server-side filter parameter is provided.** Client-side filtering is one line per consumer and the meaningful filter mode is unary (drop `EXTRACTED`). If real consumer friction emerges around the boilerplate, file a separate enhancement.
 
 ### Question-type recipes (chain tools rather than pick one)
 

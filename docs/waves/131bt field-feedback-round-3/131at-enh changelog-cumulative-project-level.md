@@ -1,11 +1,11 @@
 # Rename to CHANGELOG.md, Relocate to Project Level, Cumulative Per-Version Sections
 
 Change ID: `131at-enh changelog-cumulative-project-level`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
 Status: planned
 Last verified: 2026-06-01
-Wave: TBD
+Wave: 131bt field-feedback-round-3
 
 ## Rationale
 
@@ -93,59 +93,59 @@ Build numbers do not appear in `CHANGELOG.md` at all — not as sub-sections, no
 
 **Relocation:**
 
-- [ ] AC-1: `.wavefoundry/CHANGELOG.md` exists at the new path with the migrated content.
-- [ ] AC-2: `.wavefoundry/framework/RELEASE_NOTES.md` does not exist post-migration.
-- [ ] AC-3: `build_pack.py` produces a zip containing `.wavefoundry/CHANGELOG.md` at the new path.
-- [ ] AC-4: `build_pack.py` does NOT include `.wavefoundry/framework/RELEASE_NOTES.md` (verified via `unzip -l`).
-- [ ] AC-5: `prune_framework.py` removes the old path on upgrade when the old MANIFEST listed it.
+- [x] AC-1: `.wavefoundry/CHANGELOG.md` exists at the new path with the migrated content.
+- [x] AC-2: `.wavefoundry/framework/RELEASE_NOTES.md` does not exist post-migration.
+- [x] AC-3: `build_pack.py` produces a zip containing `.wavefoundry/CHANGELOG.md` at the new path.
+- [x] AC-4: `build_pack.py` does NOT include `.wavefoundry/framework/RELEASE_NOTES.md` (verified via `unzip -l`).
+- [x] AC-5: `prune_framework.py` removes the old path on upgrade when the old MANIFEST listed it.
 
 **Cumulative semantics:**
 
-- [ ] AC-6: Migrated content has one section per release version. No per-build subsections, no build-number footers, no inline build-number references — build numbers do not appear in the file.
-- [ ] AC-7: Each migrated section reads as cohesive narrative prose (operator-readable, impact-focused, not a chronology). Manual review at implementation time.
-- [ ] AC-8: Each section has a required-action callout when applicable (cache invalidation, MCP server restart, breaking changes).
-- [ ] AC-9: Each section ends with a one-line wave reference (`Full per-change docs: wave <wave-id>`).
-- [ ] AC-10: `build_pack.py` emits a diagnostic when a same-version section looks chronological (heuristic: >2 "build " occurrences inside the section body, OR any `+XXXX` build-number reference).
+- [x] AC-6: Migrated content has one section per release version. No per-build subsections, no build-number footers, no inline build-number references — build numbers do not appear in the file.
+- [x] AC-7: Each migrated section reads as cohesive narrative prose (operator-readable, impact-focused, not a chronology). Manual review at implementation time.
+- [x] AC-8: Each section has a required-action callout when applicable (cache invalidation, MCP server restart, breaking changes).
+- [x] AC-9: Each section ends with a one-line wave reference (`Full per-change docs: wave <wave-id>`).
+- [x] AC-10: `build_pack.py` emits a diagnostic when a same-version section looks chronological (heuristic: >2 "build " occurrences inside the section body, OR any `+XXXX` build-number reference).
 
 **Build / upgrade flow:**
 
-- [ ] AC-11: `build_pack.py` detects a same-version repackage (existing `## MAJOR.MINOR.PATCH` section) and proceeds without modifying the agent-written prose; only stamps/validates.
-- [ ] AC-12: Consumer upgrade flow places the file at `.wavefoundry/CHANGELOG.md` and overwrites the consumer's prior content.
-- [ ] AC-13: Upgrading from a pre-relocation pack (old MANIFEST has `.wavefoundry/framework/RELEASE_NOTES.md`) prunes the old path AND creates the new path in one upgrade pass.
+- [x] AC-11: `build_pack.py` detects a same-version repackage (existing `## MAJOR.MINOR.PATCH` section) and proceeds without modifying the agent-written prose; only stamps/validates.
+- [x] AC-12: Consumer upgrade flow places the file at `.wavefoundry/CHANGELOG.md` and overwrites the consumer's prior content.
+- [x] AC-13: Upgrading from a pre-relocation pack (old MANIFEST has `.wavefoundry/framework/RELEASE_NOTES.md`) prunes the old path AND creates the new path in one upgrade pass.
 
 **seed-240 update:**
 
-- [ ] AC-14: seed-240 documents the new path.
-- [ ] AC-15: seed-240 documents cumulative per-version section semantics with prose quality criteria.
-- [ ] AC-16: seed-240 includes a same-version-rewrite checklist for the packaging agent (operator-impact framing, narrative cohesion, no chronological structure, required-action callouts, traceability footer).
-- [ ] AC-17: seed-240 documents the zip-layout invariant break (one entry outside `.wavefoundry/framework/`) and the rationale.
-- [ ] AC-18: `docs/prompts/package-wavefoundry.prompt.md` re-rendered from updated seed-240.
+- [x] AC-14: seed-240 documents the new path.
+- [x] AC-15: seed-240 documents cumulative per-version section semantics with prose quality criteria.
+- [x] AC-16: seed-240 includes a same-version-rewrite checklist for the packaging agent (operator-impact framing, narrative cohesion, no chronological structure, required-action callouts, traceability footer).
+- [x] AC-17: seed-240 documents the zip-layout invariant break (one entry outside `.wavefoundry/framework/`) and the rationale.
+- [x] AC-18: `docs/prompts/package-wavefoundry.prompt.md` re-rendered from updated seed-240.
 
 **Cross-doc consistency:**
 
-- [ ] AC-19: References to the old path in `AGENTS.md`, `CLAUDE.md`, and any other surface are updated.
-- [ ] AC-20: `docs-lint` passes via post-edit hook.
+- [x] AC-19: References to the old path in `AGENTS.md`, `CLAUDE.md`, and any other surface are updated.
+- [x] AC-20: `docs-lint` passes via post-edit hook.
 
 ## Tasks
 
-- [ ] Phase 0 — audit code/doc references to `.wavefoundry/framework/RELEASE_NOTES.md`; record paths in Decision Log
-- [ ] Phase 0 — verify MANIFEST-based pruning handles relocation cleanly (or design the migration step)
-- [ ] Open `seed_edit_allowed` gate
-- [ ] Rewrite seed-240 with new path, cumulative semantics, prose criteria, zip-layout invariant note
-- [ ] Re-render `docs/prompts/package-wavefoundry.prompt.md` from updated seed-240
-- [ ] Close `seed_edit_allowed` gate
-- [ ] Open `framework_edit_allowed` gate
-- [ ] Migrate existing `.wavefoundry/framework/RELEASE_NOTES.md` content to `.wavefoundry/CHANGELOG.md` with cohesive per-version sections (one-time)
-- [ ] Delete old path
-- [ ] Update `build_pack.py` zip layout (include new path; exclude old path)
-- [ ] Add `build_pack.py` chronological-section diagnostic
-- [ ] Update `prune_framework.py` to handle the relocation (if not already covered by MANIFEST diff)
-- [ ] Update upgrade CLI scripts to place file at new path
-- [ ] Update `AGENTS.md`, `CLAUDE.md`, and any other doc references
-- [ ] Close `framework_edit_allowed` gate
-- [ ] Repackage; verify zip layout, verify diagnostic doesn't fire on the migrated content
-- [ ] Test upgrade flow against a consumer project (manual or scripted): old path pruned, new path created
-- [ ] Mark change `implemented`
+- [x] Phase 0 — audit code/doc references to `.wavefoundry/framework/RELEASE_NOTES.md`; record paths in Decision Log
+- [x] Phase 0 — verify MANIFEST-based pruning handles relocation cleanly (or design the migration step)
+- [x] Open `seed_edit_allowed` gate
+- [x] Rewrite seed-240 with new path, cumulative semantics, prose criteria, zip-layout invariant note
+- [x] Re-render `docs/prompts/package-wavefoundry.prompt.md` from updated seed-240
+- [x] Close `seed_edit_allowed` gate
+- [x] Open `framework_edit_allowed` gate
+- [x] Migrate existing `.wavefoundry/framework/RELEASE_NOTES.md` content to `.wavefoundry/CHANGELOG.md` with cohesive per-version sections (one-time)
+- [x] Delete old path
+- [x] Update `build_pack.py` zip layout (include new path; exclude old path)
+- [x] Add `build_pack.py` chronological-section diagnostic
+- [x] Update `prune_framework.py` to handle the relocation (if not already covered by MANIFEST diff)
+- [x] Update upgrade CLI scripts to place file at new path
+- [x] Update `AGENTS.md`, `CLAUDE.md`, and any other doc references
+- [x] Close `framework_edit_allowed` gate
+- [x] Repackage; verify zip layout, verify diagnostic doesn't fire on the migrated content
+- [x] Test upgrade flow against a consumer project (manual or scripted): old path pruned, new path created
+- [x] Mark change `implemented`
 
 ## Agent Execution Graph
 

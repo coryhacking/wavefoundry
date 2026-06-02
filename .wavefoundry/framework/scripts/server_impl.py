@@ -1647,6 +1647,44 @@ def _diagnostic(
     return payload
 
 
+def _graph_auto_rebuild_diagnostic(index: Any) -> list[dict[str, Any]]:
+    """Wave 131bt (131e2): surface the GraphQueryIndex auto-rebuild diagnostic.
+
+    Returns a single-element list when ``graph_query.load_graph()`` fired a
+    synchronous rebuild for a stale GRAPH_BUILDER_VERSION; an empty list
+    otherwise. Call sites can splat this unconditionally.
+    """
+    diag = getattr(index, "auto_rebuild_diagnostic", None)
+    if not isinstance(diag, dict):
+        return []
+    return [diag]
+
+
+def _attach_auto_rebuild_diag(envelope: dict[str, Any], index: Any) -> dict[str, Any]:
+    """Wave 131bt (131e2): prepend the auto-rebuild diagnostic to an existing
+    MCP response envelope. Mutates and returns the envelope so call sites
+    can write ``return _attach_auto_rebuild_diag(_response("ok", data, ...), index)``.
+
+    No-op when the index has no diagnostic (the common case post-rebuild
+    when the cache has already verified). Idempotent — duplicate calls
+    don't insert the diagnostic twice.
+    """
+    if envelope is None or not isinstance(envelope, dict):
+        return envelope
+    extras = _graph_auto_rebuild_diagnostic(index)
+    if not extras:
+        return envelope
+    existing = envelope.get("diagnostics")
+    if not isinstance(existing, list):
+        existing = []
+    # Idempotency: if the same diagnostic already at the head, skip.
+    diag = extras[0]
+    if existing and isinstance(existing[0], dict) and existing[0].get("code") == diag.get("code"):
+        return envelope
+    envelope["diagnostics"] = [diag, *existing]
+    return envelope
+
+
 def _response(
     status: str,
     data: dict[str, Any] | None = None,
@@ -1687,6 +1725,26 @@ def _registered_mcp_tool_names(mcp: Any) -> set[str]:
     if legacy:
         return set(legacy.keys())
     return set()
+
+
+def _registered_mcp_tool_descriptions(mcp: Any) -> dict[str, str]:
+    """Return {tool_name: description} for first-party tools from FastMCP's registry.
+
+    Used by wave_mcp_reload to snapshot descriptions before/after the re-register
+    pass so the response can honestly report when description strings changed.
+    Server-side change detection — does not imply the MCP host's tool-list display
+    has refreshed (the MCP protocol's notifications/tools/list_changed propagation
+    is host-implementation-dependent).
+    """
+    tm = getattr(mcp, "_tool_manager", None)
+    tools = getattr(tm, "_tools", None) if tm is not None else None
+    if not tools:
+        tools = getattr(mcp, "_tools", None) or {}
+    out: dict[str, str] = {}
+    for name, tool in tools.items():
+        desc = getattr(tool, "description", None) or ""
+        out[name] = str(desc)
+    return out
 
 
 def _ensure_no_extra_args(tool_name: str, kwargs: dict[str, Any]) -> Optional[dict[str, Any]]:
@@ -9563,7 +9621,10 @@ def code_callhierarchy_response(
                 seen_context.add(other)
         data["context"] = context_entries
 
-    return _response("ok", data, diagnostics=advice_diagnostics, next_tools=["code_read", "code_callgraph"], usage=f"code_callgraph(symbol={symbol!r}, direction='both')")
+    return _attach_auto_rebuild_diag(
+        _response("ok", data, diagnostics=advice_diagnostics, next_tools=["code_read", "code_callgraph"], usage=f"code_callgraph(symbol={symbol!r}, direction='both')"),
+        index,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -10479,24 +10540,27 @@ def _code_impact_graph_response(
     truncated = len(affected_enriched) > max_results
     # Recompute affected_files after test filter
     affected_files = sorted({str(a.get("source_file") or "") for a in affected_enriched if a.get("source_file")})
-    return _response(
-        "ok",
-        {
-            "symbol": symbol,
-            "node_id": impact.get("node_id"),
-            "layer": layer_value,
-            "method": "graph",
-            "max_hops": max_hops,
-            "relations": impact.get("relations") or [],
-            "include_tests": include_tests,
-            "affected": affected_enriched[:max_results],
-            "affected_files": affected_files,
-            "edges": impact.get("edges") or [],
-            "truncated": truncated,
-            "total_found": len(affected_enriched),
-        },
-        next_tools=["code_callgraph", "code_read"],
-        usage=f"code_callgraph(symbol={symbol!r}, direction='both')",
+    return _attach_auto_rebuild_diag(
+        _response(
+            "ok",
+            {
+                "symbol": symbol,
+                "node_id": impact.get("node_id"),
+                "layer": layer_value,
+                "method": "graph",
+                "max_hops": max_hops,
+                "relations": impact.get("relations") or [],
+                "include_tests": include_tests,
+                "affected": affected_enriched[:max_results],
+                "affected_files": affected_files,
+                "edges": impact.get("edges") or [],
+                "truncated": truncated,
+                "total_found": len(affected_enriched),
+            },
+            next_tools=["code_callgraph", "code_read"],
+            usage=f"code_callgraph(symbol={symbol!r}, direction='both')",
+        ),
+        index,
     )
 
 
@@ -10652,20 +10716,23 @@ def code_callgraph_response(
                         new_edge["line"] = ref["line"]
         enriched_edges.append(new_edge)
 
-    return _response(
-        "ok",
-        {
-            "symbol": symbol,
-            "node_id": result.get("node_id"),
-            "layer": layer_value,
-            "depth": depth,
-            "direction": direction_value,
-            "include_tests": include_tests,
-            "nodes": result.get("nodes") or [],
-            "edges": enriched_edges,
-        },
-        next_tools=["code_impact", "code_read"],
-        usage=f"code_impact(symbol={symbol!r}, max_hops=2)",
+    return _attach_auto_rebuild_diag(
+        _response(
+            "ok",
+            {
+                "symbol": symbol,
+                "node_id": result.get("node_id"),
+                "layer": layer_value,
+                "depth": depth,
+                "direction": direction_value,
+                "include_tests": include_tests,
+                "nodes": result.get("nodes") or [],
+                "edges": enriched_edges,
+            },
+            next_tools=["code_impact", "code_read"],
+            usage=f"code_impact(symbol={symbol!r}, max_hops=2)",
+        ),
+        index,
     )
 
 
@@ -10679,6 +10746,7 @@ def wave_graph_report_response(
     exclude_external: bool = False,
     collapse_generated_files: bool = False,
     collapse_class_module_pairs: bool = False,
+    collapse_package_to_directory: bool = False,
 ) -> dict[str, Any]:
     gq = _load_graph_query()
     try:
@@ -10736,6 +10804,21 @@ def wave_graph_report_response(
         }
         merged_payload = gq.collapse_class_module_view(original_payload)
         index = gq.GraphQueryIndex(merged_payload)
+    # Wave 131bt (1319m): collapse_package_to_directory aggregates files in a
+    # directory into a single package/namespace node per language detection
+    # (Go: matching package declarations; Python: __init__.py presence;
+    # Java/Kotlin/Scala/C#/PHP: matching package/namespace declarations;
+    # Swift: directory-presence convention). Independent of class/module
+    # pair collapse — both can apply together. Per-symbol tools don't consume.
+    if collapse_package_to_directory:
+        original_payload = {
+            "layer": index.layer,
+            "present": index.present,
+            "nodes": list(index.nodes),
+            "edges": list(index.edges),
+        }
+        directory_payload = gq.collapse_package_to_directory_view(original_payload, root=root)
+        index = gq.GraphQueryIndex(directory_payload)
     report = index.report(limit=max(1, min(limit, 100)), sections=sections)
     # AC-from-wave-130rj (Aceiss field feedback §2.2): community overview section.
     # Adds a single-call architectural-orientation surface listing top
@@ -11180,11 +11263,15 @@ def wave_graph_report_response(
     report["exclude_external"] = exclude_external
     report["collapse_generated_files"] = collapse_generated_files
     report["collapse_class_module_pairs"] = collapse_class_module_pairs
-    return _response(
-        "ok",
-        report,
-        next_tools=["code_callgraph", "code_impact"],
-        usage="code_callgraph(symbol='path::symbol')",
+    report["collapse_package_to_directory"] = collapse_package_to_directory
+    return _attach_auto_rebuild_diag(
+        _response(
+            "ok",
+            report,
+            next_tools=["code_callgraph", "code_impact"],
+            usage="code_callgraph(symbol='path::symbol')",
+        ),
+        index,
     )
 
 
@@ -11300,21 +11387,24 @@ def code_graph_path_response(
             usage="code_callhierarchy(symbol='...')",
         )
     result = index.shortest_path(from_id, to_id, relations=relations, max_hops=max_hops, direction=direction_value)
-    return _response(
-        "ok",
-        {
-            "from_symbol": from_symbol,
-            "to_symbol": to_symbol,
-            "direction": direction_value,
-            "layer": layer_value,
-            "found": result["found"],
-            "path_nodes": result["path_nodes"],
-            "path_edges": result["path_edges"],
-            "hop_count": result["hop_count"],
-            "suggestions": suggestions,
-        },
-        next_tools=["code_callhierarchy", "code_impact"],
-        usage=f"code_callhierarchy(symbol={from_symbol!r})",
+    return _attach_auto_rebuild_diag(
+        _response(
+            "ok",
+            {
+                "from_symbol": from_symbol,
+                "to_symbol": to_symbol,
+                "direction": direction_value,
+                "layer": layer_value,
+                "found": result["found"],
+                "path_nodes": result["path_nodes"],
+                "path_edges": result["path_edges"],
+                "hop_count": result["hop_count"],
+                "suggestions": suggestions,
+            },
+            next_tools=["code_callhierarchy", "code_impact"],
+            usage=f"code_callhierarchy(symbol={from_symbol!r})",
+        ),
+        index,
     )
 
 
@@ -11571,12 +11661,15 @@ def code_graph_community_response(
             recovery_usage=recovery_usage,
         ))
     usage_target = page[0]['id'] if page else '...'
-    return _response(
-        "ok",
-        response_payload,
-        diagnostics=advisory_diagnostics if advisory_diagnostics else None,
-        next_tools=["code_callhierarchy", "code_impact"],
-        usage=f"code_callhierarchy(symbol='{usage_target}', direction='both')",
+    return _attach_auto_rebuild_diag(
+        _response(
+            "ok",
+            response_payload,
+            diagnostics=advisory_diagnostics if advisory_diagnostics else None,
+            next_tools=["code_callhierarchy", "code_impact"],
+            usage=f"code_callhierarchy(symbol='{usage_target}', direction='both')",
+        ),
+        index,
     )
 
 
@@ -12350,9 +12443,20 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - symbol: the queried symbol name
         - resolved: true when the symbol was found in the graph
         - node_id: resolved graph node id
-        - affected: list of {node_id, label, kind, source_file, community} — upstream callers/importers; test callers excluded by default
+        - affected: list of {node_id, label, kind, source_file, hop, community_id, community} —
+          upstream callers/importers. ``hop`` (int) is the traversal distance from the queried
+          symbol (1 = direct caller). ``community_id`` is the stable community identifier of
+          the affected node (wave 1316r) — useful for grouping cross-cutting changes by
+          community. Test callers excluded by default.
         - affected_files: sorted list of unique files containing affected nodes
-        - edges: traversed edges
+        - edges: traversed edges. Each edge carries a ``confidence`` field:
+          ``RECEIVER_RESOLVED`` (type-resolved at graph-builder; high confidence),
+          ``CONSTRUCTION_RESOLVED`` (construction-call routed to the class node;
+          peer to RECEIVER_RESOLVED in deterministic-attribution rank), or
+          ``EXTRACTED`` (heuristic / text-based fallback). For refactor-safety
+          analysis, filter to ``RECEIVER_RESOLVED`` + ``CONSTRUCTION_RESOLVED``
+          edges only; for ``EXTRACTED`` edges that look load-bearing, corroborate
+          with ``code_references``.
         - include_tests: whether test-path nodes were included
         - suggestions: near-match candidates when the symbol is not found in the graph
 
@@ -12444,6 +12548,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         exclude_external: bool = False,
         collapse_generated_files: bool = False,
         collapse_class_module_pairs: bool = False,
+        collapse_package_to_directory: bool = False,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Structural summary over the persisted code/doc graph.
@@ -12490,6 +12595,26 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           Allowlist is Java-focused in this release; non-Java symbols receive 0.
         - ``name_collision_count`` (deprecated alias for ``same_name_node_count``, removed after one release).
 
+        Empty-section diagnostic fields (wave 1316t) distinguish "no data" from "no hits"
+        on sections that can legitimately return ``[]``:
+
+        - ``chokepoints_candidates_total`` / ``chokepoints_threshold`` — how many function/method/
+          class candidates were considered before the threshold filter, and the cutoff that
+          filtered them.
+        - ``file_hubs_candidates_total`` / ``file_hubs_threshold`` — same shape for file-level
+          (``kind: "module"``) entries.
+        - ``orphan_docs_candidates_total`` — docs node pool considered before the
+          ``doc_references_code`` filter.
+        - ``cross_layer_candidates_total`` — edges considered before the boundary filter.
+        - ``betweenness_computed`` (bool, from wave 130rj) + ``betweenness_skipped_reason``
+          (when False) — graph-size or igraph-availability skip diagnostic.
+
+        When a section is ``[]`` AND ``<section>_candidates_total: 0``, the graph genuinely
+        has nothing matching. When ``[]`` AND ``_candidates_total > 0``, the threshold filter
+        removed everything — adjust the request or investigate threshold fit. The
+        ``communities`` section also carries ``betweenness_dominated_by_generated: bool``
+        when >50% of top-N betweenness results are tagged generated.
+
         Args:
             layer: Graph layer (default ``project``). Use ``union`` for cross-layer summaries.
             limit: Max rows per ranking section (default 20).
@@ -12512,6 +12637,16 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 330 internal nodes collapse to 1). Per-symbol tools (code_callhierarchy, code_impact,
                 code_graph_path, code_callgraph) deliberately do NOT support this flag — they need
                 the full per-symbol view.
+            collapse_package_to_directory: When True (wave 131bt — 1319m), aggregates files in a
+                directory into a single package/namespace node per-language. Detection: Go matches
+                files sharing the same ``package <name>`` declaration; Python uses ``__init__.py``
+                presence; Java/Kotlin/Scala/C#/PHP match files sharing the same ``package``/``namespace``
+                declaration; Swift collapses ``.swift`` files in a directory via build-target convention.
+                Rust (``mod`` tree), Ruby (namespace declaration), JS/TS (ES modules) are excluded.
+                Single-file directories and mixed-package directories skip with no collapse. Collapsed
+                nodes carry ``collapse_origin_files``, ``collapse_unit``, and ``kind`` of ``"package"`` or
+                ``"namespace"`` preserving language idiom. Stacks with ``collapse_class_module_pairs``.
+                Per-symbol navigation tools deliberately do NOT support this flag.
             collapse_class_module_pairs: When True (wave 13129 — 1312h), merges Swift file-and-class
                 pairs into one node for report consumption. For ``Foo.swift`` containing top-level
                 ``class Foo`` (or ``struct``/``actor``/``enum``/``protocol`` Foo), the file node and
@@ -12534,6 +12669,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             exclude_external=exclude_external,
             collapse_generated_files=collapse_generated_files,
             collapse_class_module_pairs=collapse_class_module_pairs,
+            collapse_package_to_directory=collapse_package_to_directory,
         ), t_start, "wave_graph_report")
 
     @mcp.tool(annotations=_READONLY_TOOL)
@@ -13049,7 +13185,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_index_health(**kwargs: Any) -> dict[str, Any]:
-        """Check the semantic index health for each layer (project + framework).
+        """Check the semantic and graph index health for each layer (project + framework).
 
         Returns per-layer ``readiness`` (``missing`` / ``stale`` / ``current`` / ``idle``),
         aggregate ``readiness_overview`` (``incomplete`` / ``needs_update`` / ``degraded`` /
@@ -13057,8 +13193,22 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         and ``semantic_ready``. Use this to diagnose index issues explicitly rather than
         inferring them from degraded docs_search results.
 
+        Graph index health (wave 1316n): the response carries a ``graph`` object per layer
+        with the following fields when the graph artifact exists:
+
+        - ``present`` (bool) — whether a graph index is stored for this layer.
+        - ``last_built_at`` (ISO timestamp) — when the graph was last rebuilt.
+        - ``node_count`` / ``edge_count`` (int) — current graph size.
+
+        Graph health surfaces independently of semantic readiness. A layer can be
+        ``semantic_ready: true`` while its graph is stale (e.g. when ``content='code'``
+        or ``content='all'`` was rebuilt without ``content='graph'``). Inspect both
+        signals when planning a refresh.
+
         If ``readiness_overview`` is not ``ready``, call ``wave_index_build`` to rebuild
         the missing or stale layer (e.g. ``wave_index_build(content='docs', mode='update')``).
+        If the graph artifact is stale or missing, run ``wave_index_build(content='graph')``
+        explicitly — semantic rebuilds do not touch it.
         """
         bad = _ensure_no_extra_args("wave_index_health", kwargs)
         if bad is not None:
@@ -13089,21 +13239,34 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_index_build(content: str = "docs", mode: str = "update", layer: str = "project", **kwargs: Any) -> dict[str, Any]:
-        """Run a semantic index **build** for the current repo root.
+        """Run a semantic or graph index **build** for the current repo root.
 
         Use ``mode='update'`` (default) for an incremental hash-based refresh of changed files.
         Use ``mode='rebuild'`` to force a full rebuild of the selected ``content`` for ``layer``.
-        Successful responses include ``mode``, ``index_scope``, and runtime ``stats``.
 
         **content values:**
 
-        - ``docs`` — rebuild the docs/seed semantic embedding index only
-        - ``code`` — rebuild the code semantic embedding index only
-        - ``all`` — rebuild both docs and code embedding indexes together (slowest; ~5–10 min)
+        - ``docs`` — rebuild the docs/seed semantic embedding index only.
+        - ``code`` — rebuild the code semantic embedding index only.
+        - ``all`` — rebuild both docs and code embedding indexes together (slowest; ~5–10 min).
         - ``graph`` — rebuild **only the graph index** (node/edge extraction + community clustering).
           Skips all semantic embedding. Completes in ~10 seconds. Use this when you need to
-          refresh the codebase graph or community map without re-running the full embedding pipeline.
-          Equivalent to "rebuild graph index" or "rebuild just the graph."
+          refresh the codebase graph or community map without re-running the full embedding
+          pipeline. **Distinct from the semantic embedding indexes:** the call/edge graph used
+          by ``wave_graph_report``, ``code_impact``, ``code_callhierarchy``, ``code_graph_path``,
+          and ``code_graph_community`` lives in the graph layer. Pass ``content='graph'`` to
+          refresh it (the semantic ``docs``/``code`` rebuilds do NOT touch the graph).
+
+        Response fields:
+        - ``mode`` — the resolved build mode (``update`` or ``rebuild``).
+        - ``index_scope`` — what was rebuilt (e.g. ``docs``, ``code``, ``all``, ``graph``).
+        - ``stats`` — runtime per-layer counts (files added/updated/removed, chunks).
+        - ``graph_rebuilt`` (bool, wave 1316n) — true when this call rebuilt the graph layer.
+        - ``graph_node_count`` / ``graph_edge_count`` (int, when graph artifact exists, wave 1316n)
+          — current node and edge counts for the project graph.
+        - ``graph_last_built_at`` (ISO timestamp, when graph artifact exists, wave 1316n) —
+          when the graph was last rebuilt. When ``content`` is not ``'graph'``, a clarifying
+          notice surfaces inline so operators know the graph layer was not touched by this call.
 
         Args:
             content: One of `docs`, `code`, `all`, or `graph`.
@@ -13612,12 +13775,31 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Response fields:
         - symbol: the queried symbol name
         - definition_file: path of the file where the symbol is defined (null if not found)
-        - outgoing: list of {name, file, line, snippet, community} — symbols called by this symbol (when direction includes "outgoing")
-        - incoming: list of {name, file, line, snippet, community} — symbols that call this symbol (when direction includes "incoming")
-        - external_outgoing_count, external_incoming_count: number of external (non-project) entries suppressed from the lists (wave 130ol). Set ``include_external=True`` to surface them inline.
-        - context: (when context_depth > 0) one-hop expansion from all immediate callers/callees; each entry is {id, label, kind, source_file, community, relation}
+        - outgoing: list of {name, file, line, snippet, community_id, community} — symbols called by
+          this symbol (when direction includes "outgoing"). ``community_id`` (wave 1316r) is the
+          stable identifier of the caller's community, useful for grouping cross-cutting changes.
+        - incoming: list of {name, file, line, snippet, community_id, community} — symbols that call
+          this symbol (when direction includes "incoming"). ``community_id`` is the stable
+          community id of each caller (stable across graph rebuilds, unlike Leiden numbering).
+        - external_outgoing_count, external_incoming_count: number of external (non-project) entries
+          suppressed from the lists (wave 130ol). Set ``include_external=True`` to surface them inline.
+        - context: (when context_depth > 0) one-hop expansion from all immediate callers/callees;
+          each entry is {id, label, kind, source_file, community_id, community, relation}
         - suggestions: near-match candidates when the symbol is not found in the graph
         - parser_used: method used for definition lookup
+
+        **AOP/advice exception:** empty ``incoming`` on a Java method with
+        ``@Advice.OnMethodEnter`` / ``@Advice.OnMethodExit`` / ``@Around`` / ``@Before`` /
+        ``@After`` / ``@AfterReturning`` / ``@AfterThrowing`` annotations is expected —
+        the callers are wired by the AOP framework (ByteBuddy, AspectJ) at weave time and
+        have no Java call sites. Do NOT fall back to ``code_references``; instead look for
+        the advice registration via ``code_keyword`` on ``**/*Instrumentation*.java``.
+
+        Edge confidence: incoming/outgoing entries are derived from graph edges that carry
+        a ``confidence`` field (``RECEIVER_RESOLVED`` for type-resolved attribution at the
+        graph-builder, ``EXTRACTED`` for heuristic fallback). See the seed-211 confidence
+        guidance for client-side filtering recommendations on refactor-safety or
+        security-review investigations.
 
         Args:
             symbol: Symbol name to query (e.g. "process_payment", "UserService").
@@ -13718,6 +13900,19 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - offset: the requested page offset
         - has_more: true when more members exist past this page
         - nodes: page of {id, label, kind, source_file, degree} sorted by degree descending
+        - community_hub_node_id / hub_label (wave 1316r): the highest-degree member of
+          the community, identified by node id. Stable across graph rebuilds — pass this
+          back via the ``hub_node_id`` parameter for cached/persisted references rather
+          than the ``community_id`` (which Leiden re-clustering renumbers between builds).
+        - community_size_class (wave 1312j): ``"small"`` (< 50) / ``"medium"`` (50–200) /
+          ``"large"`` (200+) — always present. Use this to decide whether to page through
+          members or follow the advisory.
+        - large_community_advisory (wave 1312j): structured diagnostic present when
+          ``total_node_count > 200``. Carries
+          ``recovery_tools: ["code_callhierarchy", "code_graph_path"]`` and ``recovery_usage``
+          pointing at the hub's ``code_callhierarchy`` call. Follow it instead of paging
+          through 200+ members one offset at a time. Complements ``pagination_hint`` (both
+          surface on large communities) rather than replacing it.
 
         Response fields (not-found error):
         - community_id: the requested community identifier
