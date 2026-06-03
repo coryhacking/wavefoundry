@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-22
+Last verified: 2026-06-03
 
 Shortcut: **`Evaluate decision`** | Aliases: **`Evaluate option`** / **`Compare options`** / **`Architecture evaluation`**
 
@@ -24,7 +24,7 @@ Follows the seven-phase contract in `.wavefoundry/framework/seeds/176-evaluate-d
 1. **Frame** — scope the question, establish current state, define what is out of scope
 2. **Guru: current-state grounding** — read the actual implementation before the red-team argues; correct framing assumptions from code evidence
 3. **Red-team** — adversarial comparison; argue from the strongest version of each option; name specific failure modes and the conditions under which the losing option would win
-4. **Council** — reality-checker challenges red-team framing; red-team second pass challenges itself; council-moderator synthesizes with explicit bounds
+4. **Council** — reality-checker challenges red-team framing; red-team second pass challenges itself; wave-council synthesizes with explicit bounds
 5. **Operator interview** — the most important phase; operator probes assumptions, adds historical context, refines scope; agents update analysis in response, not just acknowledge
 6. **Guru: feasibility check** — ground the recommended future path in current code structure; confirm additive vs restructuring before writing the ADR
 7. **ADR** — written after the operator interview; includes context scope, single-sentence decision, alternatives not fully rejected, explicit revisit conditions, and what will not be built
@@ -44,7 +44,7 @@ The evaluation of MCP-embedded tree-sitter vs LSP-backed code navigation (May 20
 1. **Framed**: structural navigation only; semantic search (`code_search`, `code_ask`) explicitly out of scope
 2. **Guru**: confirmed `code_definition`, `code_references`, `code_outline` follow a provider-merge pattern — gave the red-team accurate entry points
 3. **Red-team**: LSP wins on type precision; loses on deployment complexity, startup latency, state management, language coverage gaps
-4. **Council**: reality-checker flagged the precision ceiling as a future concern; red-team second pass noted the semantic index has its own freshness trade-offs; council-moderator added explicit revisit conditions
+4. **Council**: reality-checker flagged the precision ceiling as a future concern; red-team second pass noted the semantic index has its own freshness trade-offs; wave-council added explicit revisit conditions
 5. **Operator interview**: clarified LSP is irrelevant to semantic search; introduced IDE-resident server bridging; confirmed standalone servers already exist — we should not build our own LSP client
 6. **Guru**: confirmed LSP tier-0 insertion is additive — three functions, same merge pattern, no restructuring needed
 7. **ADR**: `docs/architecture/decisions/12t6f-adr code-nav-lsp-vs-mcp.md`

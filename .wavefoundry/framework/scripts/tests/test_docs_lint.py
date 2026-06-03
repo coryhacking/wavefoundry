@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -342,6 +343,95 @@ class DocsLintFixtureTests(unittest.TestCase):
         finally:
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 0, msg=f"stderr: {result.stderr}")
+
+    def test_workflow_config_accepts_new_wave_implement_key(self) -> None:
+        """Wave 1p337 (1p336) AC-6: docs-lint required-keys check passes with the new
+        `wave_implement` key set and the legacy `wave_execution` key absent."""
+        root = self.copy_fixture()
+        config = root / "docs/workflow-config.json"
+        data = json.loads(config.read_text(encoding="utf-8"))
+        # Rename wave_execution → wave_implement (the new canonical name).
+        data["wave_implement"] = data.pop("wave_execution")
+        config.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, msg=f"new-key path should lint clean — stderr: {result.stderr}")
+
+    def test_workflow_config_accepts_legacy_wave_execution_key(self) -> None:
+        """Wave 1p337 (1p336) AC-7: docs-lint required-keys check passes with the
+        legacy `wave_execution` key set and the new `wave_implement` key absent
+        (no-silent-break promise for existing consumer configs)."""
+        root = self.copy_fixture()
+        # Base fixture already uses the legacy key; no edit needed — just verify pass.
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, msg=f"legacy-key path must remain clean — stderr: {result.stderr}")
+
+    def test_workflow_config_fails_when_neither_alias_present(self) -> None:
+        """Wave 1p337 (1p336) AC-8: docs-lint required-keys check fails when neither
+        `wave_implement` nor `wave_execution` is set; error message names both
+        acceptable keys so the operator sees the migration path inline."""
+        root = self.copy_fixture()
+        config = root / "docs/workflow-config.json"
+        data = json.loads(config.read_text(encoding="utf-8"))
+        del data["wave_execution"]  # remove both possible aliases
+        config.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        # Error message must name both the new and legacy keys.
+        self.assertIn("wave_implement", result.stderr)
+        self.assertIn("wave_execution", result.stderr)
+        self.assertIn("legacy", result.stderr.lower())
+
+    def test_workflow_config_accepts_new_wave_review_key(self) -> None:
+        """Wave 1p337 (1p33f) AC-3: docs-lint required-keys check passes with the new
+        `wave_review` key set and the legacy `wave_council_policy` key absent."""
+        root = self.copy_fixture()
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, msg=f"new-key path should lint clean — stderr: {result.stderr}")
+
+    def test_workflow_config_accepts_legacy_wave_council_policy_key(self) -> None:
+        """Wave 1p337 (1p33f) AC-4: docs-lint required-keys check passes with the
+        legacy `wave_council_policy` key set and the new `wave_review` key absent
+        (alias-tuple back-compat for the council-policy rename)."""
+        root = self.copy_fixture()
+        config = root / "docs/workflow-config.json"
+        data = json.loads(config.read_text(encoding="utf-8"))
+        data["wave_council_policy"] = data.pop("wave_review")
+        config.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, msg=f"legacy-key path must remain clean — stderr: {result.stderr}")
+
+    def test_workflow_config_fails_when_neither_council_alias_present(self) -> None:
+        """Wave 1p337 (1p33f) AC-5: docs-lint required-keys check fails when neither
+        `wave_review` nor `wave_council_policy` is set; error message names both
+        acceptable keys so the operator sees the migration path inline."""
+        root = self.copy_fixture()
+        config = root / "docs/workflow-config.json"
+        data = json.loads(config.read_text(encoding="utf-8"))
+        del data["wave_review"]
+        config.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("wave_review", result.stderr)
+        self.assertIn("wave_council_policy", result.stderr)
+        self.assertIn("legacy", result.stderr.lower())
 
     def test_ac_priority_placeholder_priority_fails(self) -> None:
         root = self.copy_fixture()
@@ -1268,7 +1358,7 @@ class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
         wave_md = root / self.ACTIVE_WAVE
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
-            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (moderator: council-moderator; primer-depth: standard; seats: red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker; rotating-seat: none; strongest-challenge: red-team identified the remaining unknowns; strongest-alternative: keep the verdict structured and machine-readable)\n",
+            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (moderator: wave-council; primer-depth: standard; seats: red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker; rotating-seat: none; strongest-challenge: red-team identified the remaining unknowns; strongest-alternative: keep the verdict structured and machine-readable)\n",
             encoding="utf-8",
         )
 

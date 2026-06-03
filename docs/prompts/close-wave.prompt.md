@@ -40,4 +40,4 @@ Finalize and archive the wave. Closure requires full reconciliation — not just
 - If framework scripts changed: confirm `python3 .wavefoundry/framework/scripts/run_tests.py` passes
 - If `docs/prompts/` or manifest changed: confirm docs gate passes (**`wave_validate`** over MCP, or **`.wavefoundry/bin/docs-lint`** if MCP is unavailable)
 - If seed prompts changed: confirm guard-overrides reset to `false`
-- If Wave Council is enabled: confirm `council-moderator` recorded both council signoffs in `## Review Evidence`
+- If Wave Council is enabled: confirm `wave-council` recorded both council signoffs in `## Review Evidence`

@@ -31,7 +31,7 @@ Reach for the **Wave Council** when the artifact is code, architecture, trust-bo
 
 ## What this does
 
-`council-moderator` chairs five archetypes, each running in isolation against the artifact, then synthesizes across orthogonal stances. Default seats:
+`wave-council` chairs five archetypes, each running in isolation against the artifact, then synthesizes across orthogonal stances. Default seats:
 
 - **Sun Tzu** — strategic positioning; unforced losses; pre-positioning ("what ground is undefended?")
 - **Yoda** — cognitive readiness; commitment threshold; reader orientation ("what state must the reader be in?")
@@ -62,7 +62,7 @@ Operators may invoke other archetypes ad hoc (e.g., `Archetype review with Da Vi
 Structurally consistent with the existing `prepare-council` verdict so future validator integration is straightforward. **No validator consumes this line in v1** — it is forward-compat scaffolding.
 
 ```
-- **Archetype Council [archetype-review] — <date>: PASS** (moderator: council-moderator; seats: sun-tzu, yoda, spock, marcus-aurelius, feynman; rotating-seat: feynman; strongest-axis: <which seat's findings bound the most must-fixes>; must-fix-count: <n>; advisory-count: <n>)
+- **Archetype Council [archetype-review] — <date>: PASS** (moderator: wave-council; seats: sun-tzu, yoda, spock, marcus-aurelius, feynman; rotating-seat: feynman; strongest-axis: <which seat's findings bound the most must-fixes>; must-fix-count: <n>; advisory-count: <n>)
 ```
 
 Verdict values: **PASS**, **PASS WITH IN-SESSION FIXES**, **NOT READY**.

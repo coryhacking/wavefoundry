@@ -92,7 +92,7 @@ def _prepare_council_verdict_line(
         seats = f"{seats}, {rotating_seat}"
     return (
         f"- **Prepare-phase Wave Council [prepare-council] — {date}: {verdict}** "
-        f"(moderator: council-moderator; primer-depth: standard; seats: {seats}; rotating-seat: {rotating_seat}; "
+        f"(moderator: wave-council; primer-depth: standard; seats: {seats}; rotating-seat: {rotating_seat}; "
         f"strongest-challenge: {strongest_challenge}; strongest-alternative: {strongest_alternative})"
     )
 
@@ -7323,8 +7323,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 "enabled": enabled,
                 "transition_policy": transition_policy,
                 "phases": {
-                    "prepare": {"signoff_key": "wave-council-readiness", "moderator_role": "council-moderator"},
-                    "review": {"signoff_key": "wave-council-delivery", "moderator_role": "council-moderator"},
+                    "prepare": {"signoff_key": "wave-council-readiness", "moderator_role": "wave-council"},
+                    "review": {"signoff_key": "wave-council-delivery", "moderator_role": "wave-council"},
                 },
             },
         }
@@ -7445,6 +7445,94 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
         self.assertEqual(result["data"]["required_council_signoffs"], ["wave-council-delivery"])
         self.assertFalse(any(d["code"] == "missing_wave_council_signoff" for d in result.get("diagnostics", [])))
+
+    def _write_config_with_new_key(self, enabled=True, transition_policy=""):
+        """Wave 1p337 (1p336): write config using the new `wave_review` key."""
+        cfg = {
+            "lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0},
+            "wave_review": {
+                "enabled": enabled,
+                "transition_policy": transition_policy,
+                "phases": {
+                    "prepare": {"signoff_key": "wave-council-readiness", "moderator_role": "wave-council"},
+                    "review": {"signoff_key": "wave-council-delivery", "moderator_role": "wave-council"},
+                },
+            },
+        }
+        (self.root / "docs" / "workflow-config.json").write_text(json.dumps(cfg), encoding="utf-8")
+
+    def test_reader_uses_new_wave_review_key_when_present(self):
+        """Wave 1p337 (1p336) AC-1: `_read_wave_council_policy()` reads `wave_review`
+        first and returns its policy dict when present."""
+        # Reset the one-shot deprecation guard so per-test behavior is isolated.
+        self.srv._WAVE_REVIEW_LEGACY_DEPRECATION_NOTED = False
+        self._write_config_with_new_key(enabled=True)
+        policy = self.srv._read_wave_council_policy(self.root)
+        self.assertTrue(policy, msg="policy must be returned when `wave_review` is set and enabled")
+        self.assertIn("phases", policy)
+
+    def test_reader_falls_back_to_legacy_wave_council_policy_key(self):
+        """Wave 1p337 (1p336) AC-2: when `wave_review` is absent, the reader falls
+        back to `wave_council_policy` and returns its policy dict (no silent break)."""
+        self.srv._WAVE_REVIEW_LEGACY_DEPRECATION_NOTED = False
+        self._write_config(enabled=True)  # legacy `wave_council_policy` only
+        policy = self.srv._read_wave_council_policy(self.root)
+        self.assertTrue(policy, msg="policy must be returned via legacy key fallback")
+        self.assertIn("phases", policy)
+
+    def test_reader_prefers_new_key_when_both_present(self):
+        """Wave 1p337 (1p336) AC-3: when both keys are set, `wave_review` wins and
+        `wave_council_policy` is ignored entirely (no legacy-precedence ambiguity)."""
+        self.srv._WAVE_REVIEW_LEGACY_DEPRECATION_NOTED = False
+        cfg = {
+            "lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0},
+            # New key: enabled → policy should be returned
+            "wave_review": {
+                "enabled": True,
+                "phases": {
+                    "prepare": {"signoff_key": "wave-council-readiness", "moderator_role": "wave-council"},
+                    "review": {"signoff_key": "wave-council-delivery", "moderator_role": "wave-council"},
+                },
+            },
+            # Legacy key: disabled → would return {} if it won; precedence test
+            "wave_council_policy": {"enabled": False},
+        }
+        (self.root / "docs" / "workflow-config.json").write_text(json.dumps(cfg), encoding="utf-8")
+        policy = self.srv._read_wave_council_policy(self.root)
+        self.assertTrue(policy, msg="new-key precedence: `wave_review.enabled=True` must win over legacy `enabled=False`")
+
+    def test_legacy_key_emits_one_shot_deprecation_note_to_stderr(self):
+        """Wave 1p337 (1p336) AC-4: when the legacy `wave_council_policy` key is the
+        source of the returned policy, a one-line deprecation note is emitted to stderr
+        — and it fires at most once per process."""
+        import io
+        from contextlib import redirect_stderr
+        self.srv._WAVE_REVIEW_LEGACY_DEPRECATION_NOTED = False
+        self._write_config(enabled=True)  # legacy key only
+        buf1 = io.StringIO()
+        with redirect_stderr(buf1):
+            self.srv._read_wave_council_policy(self.root)
+        first_call_stderr = buf1.getvalue()
+        self.assertIn("workflow-config.json: legacy key `wave_council_policy` is deprecated", first_call_stderr)
+        self.assertIn("rename to `wave_review`", first_call_stderr)
+
+        # Second call must NOT re-emit the note (one-shot guard).
+        buf2 = io.StringIO()
+        with redirect_stderr(buf2):
+            self.srv._read_wave_council_policy(self.root)
+        self.assertEqual(buf2.getvalue(), "", msg="deprecation note must fire at most once per process")
+
+    def test_no_deprecation_note_when_new_key_is_used(self):
+        """Wave 1p337 (1p336) AC-4: when the new `wave_review` key is the source of
+        the returned policy, no deprecation note is emitted (signal not spurious)."""
+        import io
+        from contextlib import redirect_stderr
+        self.srv._WAVE_REVIEW_LEGACY_DEPRECATION_NOTED = False
+        self._write_config_with_new_key(enabled=True)
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            self.srv._read_wave_council_policy(self.root)
+        self.assertEqual(buf.getvalue(), "", msg="no deprecation note when the new key is used")
 
 
 class HarnessCoverageAuditTests(unittest.TestCase):
@@ -14507,7 +14595,7 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
-            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (moderator: council-moderator; seats: red-team; rotating-seat: none)\n",
+            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (moderator: wave-council; seats: red-team; rotating-seat: none)\n",
             encoding="utf-8",
         )
 

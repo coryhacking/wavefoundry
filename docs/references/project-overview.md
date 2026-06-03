@@ -63,7 +63,7 @@ Wavefoundry uses the standard Wave Framework generic roles:
 |------|------------------------|
 | `planner` | Authors change docs; performs discovery; plans waves |
 | `wave-coordinator` | Admits work into waves; manages execution order; declares closure |
-| `council-moderator` | Synthesizes Wave Council readiness and delivery verdicts |
+| `wave-council` | Synthesizes Wave Council readiness and delivery verdicts |
 | `implementer` | Executes code changes per admitted change doc |
 | `code-reviewer` | Reviews implementation correctness and pattern compliance |
 | `architecture-reviewer` | Reviews boundary and layering impact |
@@ -74,7 +74,7 @@ Wavefoundry uses the standard Wave Framework generic roles:
 
 Role docs live under `docs/agents/`. Factor-review agents for applicable factors live under `.claude/agents/`.
 
-When `docs/workflow-config.json` `wave_council_policy.enabled` is true, every wave also requires a universal two-phase Wave Council pass: one readiness pass before implementation and one delivery pass before closure. The council-moderator owns those verdicts; the wave-coordinator still owns lifecycle routing.
+The framework ships `wave_review.enabled: true` by default so the Wave Council surface is available out of the box. When the operator opts into enforcement via `required_for_all_waves: true`, every wave also requires a universal two-phase Wave Council pass: one readiness pass before implementation and one delivery pass before closure. The wave-council owns those verdicts; the wave-coordinator still owns lifecycle routing.
 
 ## Project Personas
 

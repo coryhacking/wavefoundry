@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-06-03
 
 ## Review Lane Summary
 
@@ -15,8 +15,8 @@ Last verified: 2026-05-08
 | `docs-contract-reviewer` | `docs/specs/*.md` behavioral contract changes | Yes at wave closure |
 | `performance-reviewer` | Indexing, search, or MCP response path changes | Advisory |
 | `release-reviewer` | Packaging, VERSION, or distribution format changes | Yes |
-| `wave-council-readiness` | Every wave before implementation (`wave_council_policy.enabled`) | Yes |
-| `wave-council-delivery` | Every wave after implementation and before closure (`wave_council_policy.enabled`) | Yes |
+| `wave-council-readiness` | Every wave before implementation (`wave_review.enabled`) | Yes |
+| `wave-council-delivery` | Every wave after implementation and before closure (`wave_review.enabled`) | Yes |
 
 ## Readiness Checklist (Prepare Wave)
 
@@ -26,7 +26,7 @@ Before implementation begins, the wave-coordinator confirms:
 - [ ] AC priority recorded on each change doc (`## AC priority`)
 - [ ] product-owner acknowledgment recorded for product-impacting waves
 - [ ] `qa-reviewer` confirmed for any bug fix (per `review_policies.require_qa_reviewer_for_bug_fixes`)
-- [ ] `wave-council-readiness` signoff recorded in `## Review Evidence` when `wave_council_policy.enabled`
+- [ ] `wave-council-readiness` signoff recorded in `## Review Evidence` when `wave_review.enabled`
 
 ## Wave Closure
 
@@ -34,7 +34,7 @@ Before implementation begins, the wave-coordinator confirms:
 
 1. All changes marked `complete` or `deferred` with explicit rationale
 2. All required review lanes from readiness are reconciled in `## Review checkpoints` (including deferred with rationale when applicable)
-3. `wave-council-readiness` and `wave-council-delivery` signoffs are present in `## Review Evidence` when `wave_council_policy.enabled`
+3. `wave-council-readiness` and `wave-council-delivery` signoffs are present in `## Review Evidence` when `wave_review.enabled`
 4. Docs-contract review: recorded as performed (findings in `## Review checkpoints`) or `not applicable` with rationale, when any `docs/specs/*.md` changed during the wave
 5. Journal distillation complete: any important implementation/review lessons added to relevant role or persona journals
 6. Durable memory promoted to `docs/references/project-context-memory.md` (and other canonical docs when applicable)
@@ -45,16 +45,16 @@ Before implementation begins, the wave-coordinator confirms:
 
 ## Wave Council
 
-When `docs/workflow-config.json` `wave_council_policy.enabled` is true, Wavefoundry requires a universal two-phase council pass for every wave:
+The framework ships `wave_review.enabled: true` by default (formerly `wave_council_policy`) so the council surface is available without operator action. When `required_for_all_waves: true` (operator opt-in for enforcement), Wavefoundry requires a universal two-phase council pass for every wave:
 
 - `wave-council-readiness` before implementation
 - `wave-council-delivery` before closure
 
-Wave Council runs a red-team adversarial primer (Phase 1) before fixed seats (Phase 2), then synthesizes. The full protocol — depth tiers, seat responsibilities, output shape — is in `docs/agents/council-moderator.md`.
+Wave Council runs a red-team adversarial primer (Phase 1) before fixed seats (Phase 2), then synthesizes. The full protocol — depth tiers, seat responsibilities, output shape — is in `docs/agents/specialists/wave-council.md`.
 
 Fixed Phase 2 seats: `architecture-reviewer`, `security-reviewer`, `qa-reviewer`, `reality-checker`, plus one rotating domain seat from wave evidence.
 
-The `council-moderator` owns the protocol and verdict. The `wave-coordinator` routes lanes and enforces the gate.
+The `wave-council` owns the protocol and verdict. The `wave-coordinator` routes lanes and enforces the gate.
 
 Record machine-readable council signoffs in `## Review Evidence`. Record the narrative synthesis in `## Review checkpoints`.
 

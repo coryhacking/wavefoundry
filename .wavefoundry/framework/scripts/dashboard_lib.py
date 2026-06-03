@@ -1099,7 +1099,7 @@ def _strip_agent_header(text: str) -> str:
 
 _REVIEW_SUFFIXES = ("-reviewer", "-auditor", "-tester")
 _REVIEW_STEMS = frozenset({"reality-checker"})
-_COORDINATE_STEMS = frozenset({"guru", "planner", "wave-coordinator", "council-moderator", "platform-mapping", "session-handoff"})
+_COORDINATE_STEMS = frozenset({"guru", "planner", "wave-coordinator", "wave-council", "platform-mapping", "session-handoff"})
 _COORDINATE_SUFFIXES = ("-coordinator", "-moderator")
 _FACTOR_PREFIX = "factor-"
 # Pattern-based: any stem ending with these suffixes is a hands-on builder.

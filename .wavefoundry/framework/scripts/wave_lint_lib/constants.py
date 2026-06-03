@@ -37,8 +37,14 @@ WAVE_REQUIRED_PATHS = (
     "docs/agents/personas",
 )
 
+# Wave 1p337 (1p336): tuple entries express "alias groups" — any one of the listed
+# keys satisfies the requirement. String entries express single canonical keys.
+# This generalization supports the seed-prose rename `wave_execution` → `wave_implement`
+# without breaking consumer configs that still use the legacy key; future renames can
+# be added the same way without touching the validator logic.
 WORKFLOW_REQUIRED_KEYS = (
-    "wave_execution",
+    ("wave_implement", "wave_execution"),
+    ("wave_review", "wave_council_policy"),
     "agent_memory",
     "project_persona_generation",
     "prompt_generation",

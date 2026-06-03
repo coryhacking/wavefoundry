@@ -21,7 +21,7 @@ Projects may enable **Wave Council** as a universal meta-review for every wave. 
 
 Wave Council uses a two-phase structured protocol:
 
-1. The council-moderator declares a **primer depth tier** based on trust boundaries touched, files in scope, and change type:
+1. The wave-council declares a **primer depth tier** based on trust boundaries touched, files in scope, and change type:
 
    | Tier | Stances | `primer_questions` | When |
    |---|---|---|---|
@@ -31,10 +31,10 @@ Wave Council uses a two-phase structured protocol:
 2. **Phase 1 — Red-team adversarial primer**: `red-team` runs in `council-adversarial-primer` mode in isolation at the declared depth. Its output — `strongest_challenge`, `best_alternative`, `thinking_stances_applied`, `primer_questions` — is added to the briefing packet.
 3. **Phase 2 — Fixed seats**: each fixed seat runs in isolation and receives the standard briefing *plus* the Phase 1 primer. Each seat must explicitly address the primer's `strongest_challenge` and answer `primer_questions` from its lane's perspective.
 4. The rotating fifth seat runs after fixed seats and surfaces the strongest alternative the wave did not take.
-5. The **council-moderator** synthesizes across primer and all seat outputs into a single verdict. The first synthesis pass runs on **anonymized** seat outputs (seat/role identity stripped) so findings are weighed on merit before identity is re-attached, reducing authority-anchoring across seats. The primer is first-class evidence in synthesis. **Non-waiver guard:** anonymization governs only the convergence/agreement assessment — a finding carrying blocking authority from a required specialist lane keeps its lane attribution and blocking status at all times and must never be merit-weighted below blocking.
-6. The moderator records a **`seat_agreement_aggregate`** — `seat_agreement` (`unanimous` / `majority` / `split`) and `max_severity` (per the severity ladder below) — as a triage signal in `## Review checkpoints`. When the aggregate is `split` (or `max_severity` is `high`/`critical` with disagreement on whether it blocks), the council-moderator may run **one targeted challenge round** on the disputed claims only.
+5. The **wave-council** synthesizes across primer and all seat outputs into a single verdict. The first synthesis pass runs on **anonymized** seat outputs (seat/role identity stripped) so findings are weighed on merit before identity is re-attached, reducing authority-anchoring across seats. The primer is first-class evidence in synthesis. **Non-waiver guard:** anonymization governs only the convergence/agreement assessment — a finding carrying blocking authority from a required specialist lane keeps its lane attribution and blocking status at all times and must never be merit-weighted below blocking.
+6. The moderator records a **`seat_agreement_aggregate`** — `seat_agreement` (`unanimous` / `majority` / `split`) and `max_severity` (per the severity ladder below) — as a triage signal in `## Review checkpoints`. When the aggregate is `split` (or `max_severity` is `high`/`critical` with disagreement on whether it blocks), the wave-council may run **one targeted challenge round** on the disputed claims only.
 
-The council-moderator is distinct from the wave-coordinator. The wave-coordinator owns lifecycle routing, readiness, and closure state. The council-moderator owns council synthesis and council verdict text.
+The wave-council is distinct from the wave-coordinator. The wave-coordinator owns lifecycle routing, readiness, and closure state. The wave-council owns council synthesis and council verdict text.
 
 ### Default seat model
 
@@ -98,7 +98,7 @@ Inferential sensors are LLM-run reviewer agents that assess semantic quality. Th
 
 ## Harness Specialist Table
 
-Harness specialists are invoked by the coordinator or council-moderator for targeted analysis. They are not required review lanes by default — they are activated by policy or coordinator decision.
+Harness specialists are invoked by the coordinator or wave-council for targeted analysis. They are not required review lanes by default — they are activated by policy or coordinator decision.
 
 | Specialist | Seed | Modes |
 |---|---|---|
@@ -149,11 +149,11 @@ Projects that enable Wave Council should also declare an explicit council policy
     "phases": {
       "prepare": {
         "signoff_key": "wave-council-readiness",
-        "moderator_role": "council-moderator"
+        "moderator_role": "wave-council"
       },
       "review": {
         "signoff_key": "wave-council-delivery",
-        "moderator_role": "council-moderator"
+        "moderator_role": "wave-council"
       }
     }
   }
@@ -181,8 +181,8 @@ The format is: `- <lane-name>: <verdict> [(<severity> — <one-line summary>)]`.
 When Wave Council is enabled, record the machine-readable council signoffs in the **same** `## Review Evidence` section:
 
 ```
-- wave-council-readiness: approved (moderator: council-moderator — seats aligned on scope, lane selection, and protected surfaces; prepare-council verdict recorded with structured fields)
-- wave-council-delivery: approved-with-notes (moderator: council-moderator — ship path accepted; follow-up docs-contract work noted)
+- wave-council-readiness: approved (moderator: wave-council — seats aligned on scope, lane selection, and protected surfaces; prepare-council verdict recorded with structured fields)
+- wave-council-delivery: approved-with-notes (moderator: wave-council — ship path accepted; follow-up docs-contract work noted)
 ```
 
 Keep the detailed narrative synthesis in `## Review checkpoints`. At minimum, record:

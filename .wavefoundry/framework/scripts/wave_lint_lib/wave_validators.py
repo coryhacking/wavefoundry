@@ -59,7 +59,7 @@ _AGENT_ROLE_REQUIRED_PATHS = frozenset(
     {
         "docs/agents/architecture-reviewer.md",
         "docs/agents/code-reviewer.md",
-        "docs/agents/council-moderator.md",
+        "docs/agents/specialists/wave-council.md",
         "docs/agents/docs-contract-reviewer.md",
         "docs/agents/factor-03-config.md",
         "docs/agents/factor-05-build-release-run.md",
@@ -80,7 +80,7 @@ _AGENT_ROLE_REQUIRED_PATHS = frozenset(
 )
 _REVIEW_SUFFIXES = ("-reviewer", "-auditor", "-tester")
 _REVIEW_STEMS = frozenset({"reality-checker"})
-_COORDINATE_STEMS = frozenset({"planner", "wave-coordinator", "council-moderator"})
+_COORDINATE_STEMS = frozenset({"planner", "wave-coordinator", "wave-council"})
 _COORDINATE_SUFFIXES = ("-coordinator", "-moderator")
 _BUILD_SUFFIXES = ("-engineer", "-developer", "-builder", "-automator", "-programmer", "-coder")
 _BUILD_STEMS = frozenset({"implementer"})

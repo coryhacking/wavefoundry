@@ -1274,10 +1274,37 @@ def _read_project_required_review_lanes(root: Path) -> list[str]:
     return [str(lane).strip() for lane in raw if isinstance(lane, str) and str(lane).strip()]
 
 
+_WAVE_REVIEW_LEGACY_DEPRECATION_NOTED: bool = False
+
+
 def _read_wave_council_policy(root: Path) -> dict[str, Any]:
-    """Return normalized Wave Council policy from workflow-config.json."""
+    """Return normalized Wave Council policy from workflow-config.json.
+
+    Wave 1p337 (1p336): reader-side back-compat for the seed-prose rename
+    ``wave_council_policy`` → ``wave_review`` (shipped in seed prose 1.3.27).
+    New-key precedence: ``wave_review`` is read first; if absent, ``wave_council_policy``
+    is read as a legacy fallback so existing consumer configs keep working.
+
+    When the legacy key is consumed (because the new key is absent), a one-time
+    deprecation note is emitted to stderr per process — discoverable for migrating
+    operators, not spammy on every read.
+    """
+    global _WAVE_REVIEW_LEGACY_DEPRECATION_NOTED
     cfg = _read_workflow_config(root)
-    raw = cfg.get("wave_council_policy", {})
+    raw = cfg.get("wave_review")
+    if raw is None:
+        raw = cfg.get("wave_council_policy", {})
+        # Fire the deprecation note only when the legacy key was the source of the
+        # returned dict AND the new key was genuinely absent (not present-but-empty).
+        # The one-shot guard prevents log noise across repeated reads in the same
+        # process; tests reset the guard via `setUp` to verify each scenario cleanly.
+        if isinstance(raw, dict) and raw and not _WAVE_REVIEW_LEGACY_DEPRECATION_NOTED:
+            print(
+                "workflow-config.json: legacy key `wave_council_policy` is deprecated; "
+                "rename to `wave_review`. The runtime accepts both for now.",
+                file=sys.stderr,
+            )
+            _WAVE_REVIEW_LEGACY_DEPRECATION_NOTED = True
     if not isinstance(raw, dict) or not bool(raw.get("enabled")):
         return {}
 
@@ -1295,11 +1322,11 @@ def _read_wave_council_policy(root: Path) -> dict[str, Any]:
         if not isinstance(phase_raw, dict):
             phase_raw = {}
         signoff_key = str(phase_raw.get("signoff_key", default_key)).strip()
-        moderator_role = str(phase_raw.get("moderator_role", "council-moderator")).strip()
+        moderator_role = str(phase_raw.get("moderator_role", "wave-council")).strip()
         if signoff_key:
             phases[phase] = {
                 "signoff_key": signoff_key,
-                "moderator_role": moderator_role or "council-moderator",
+                "moderator_role": moderator_role or "wave-council",
             }
 
     return {
@@ -6370,7 +6397,7 @@ def _prepare_council_verdict_template(rotating_seat: str | None) -> str:
     seats = ", ".join(seat_list)
     return (
         "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** "
-        f"(moderator: council-moderator; primer-depth: standard; seats: {seats}; rotating-seat: {rotating_part}; "
+        f"(moderator: wave-council; primer-depth: standard; seats: {seats}; rotating-seat: {rotating_part}; "
         "strongest-challenge: <summary>; strongest-alternative: <summary>)"
     )
 
@@ -6390,7 +6417,7 @@ def _build_prepare_council_brief(wave_id: str, wave_text: str, change_ids: list[
         "council_seats": seats,
         "instructions": (
             "Run each council seat in isolation against the admitted change docs and wave record. "
-            "Have council-moderator synthesize findings. "
+            "Have wave-council synthesize findings. "
             "Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line "
             f"(e.g. `{_prepare_council_verdict_template(rotating_seat)}`) "
             "before calling wave_prepare(mode='create')."

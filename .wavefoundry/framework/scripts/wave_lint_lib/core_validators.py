@@ -187,11 +187,29 @@ def check_workflow_config(root: Path) -> list[str]:
         return [f"docs/workflow-config.json: unreadable or invalid JSON ({error})"]
     assert data is not None
     policy_failures = _check_lifecycle_id_policy(data)
-    if any(key in data for key in WORKFLOW_REQUIRED_KEYS):
+
+    # Wave 1p337 (1p336): `WORKFLOW_REQUIRED_KEYS` entries are either strings (single
+    # canonical key) or tuples (alias groups where any one key satisfies the requirement).
+    # Tuple form is the back-compat affordance for seed-prose renames.
+    def _requirement_satisfied(req) -> bool:
+        if isinstance(req, tuple):
+            return any(k in data for k in req)
+        return req in data
+
+    def _requirement_label(req) -> str:
+        if isinstance(req, tuple):
+            primary, *legacy = req
+            if legacy:
+                legacy_str = " or legacy " + " / ".join(f"`{k}`" for k in legacy)
+                return f"`{primary}`{legacy_str}"
+            return f"`{primary}`"
+        return f"`{req}`"
+
+    if any(_requirement_satisfied(req) for req in WORKFLOW_REQUIRED_KEYS):
         failures: list[str] = []
-        for key in WORKFLOW_REQUIRED_KEYS:
-            if key not in data:
-                failures.append(f"docs/workflow-config.json: missing `{key}` section")
+        for req in WORKFLOW_REQUIRED_KEYS:
+            if not _requirement_satisfied(req):
+                failures.append(f"docs/workflow-config.json: missing {_requirement_label(req)} section")
         return policy_failures + failures
 
     legacy_compatible_keys = {
@@ -205,9 +223,9 @@ def check_workflow_config(root: Path) -> list[str]:
         return policy_failures
 
     failures = []
-    for key in WORKFLOW_REQUIRED_KEYS:
-        if key not in data:
-            failures.append(f"docs/workflow-config.json: missing `{key}` section")
+    for req in WORKFLOW_REQUIRED_KEYS:
+        if not _requirement_satisfied(req):
+            failures.append(f"docs/workflow-config.json: missing {_requirement_label(req)} section")
     return policy_failures + failures
 
 

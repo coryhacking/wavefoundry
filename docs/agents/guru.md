@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: guru
 Category: specialist
-Last verified: 2026-05-26
+Last verified: 2026-06-03
 
 Shortcut: **`Guru`** | MCP tool: **`code_ask`**
 
@@ -273,7 +273,7 @@ After answering, if a finding would help future implementers or agents working i
 
 Canonical rules: **seed-211** (Guru) § Discovery Documentation → *Architecture write-up escalation*.
 
-**Wavefoundry:** `wave_council_policy` is enabled — Guru **must consult council-moderator** on every architecture-doc escalation after architecture-reviewer, before the doc is treated as complete. Record council outcome in the active wave's `## Review Evidence` when a wave is in flight.
+**Wavefoundry:** `wave_review.enabled` is true — Guru **must consult wave-council** on every architecture-doc escalation after architecture-reviewer, before the doc is treated as complete. Record council outcome in the active wave's `## Review Evidence` when a wave is in flight.
 
 **Local example:** `docs/architecture/chunking-and-indexing-pipeline.md` (chunking + indexing pipeline after a shallow “how are docs chunked?” chat answer).
 
@@ -329,7 +329,7 @@ If the current repo is already running a detached refresh, tell the operator to 
 | Agent | Recommended tools | Purpose |
 |---|---|---|
 | **architecture-reviewer** | `code_search(kind="code-summary")`, `code_dependencies(path)`, `code_ask` | Boundary review of Guru architecture drafts (required before council) |
-| **council-moderator** | `wave_current`, change docs | **Required** council pass on Guru architecture-doc escalations (`wave_council_policy` enabled in this repo) |
+| **wave-council** | `wave_current`, change docs | **Required** council pass on Guru architecture-doc escalations (`wave_review.enabled` is true in this repo) |
 | **code-reviewer** | `code_definition(symbol)`, `code_references(symbol)`, `code_search`, `code_keyword` | Jump to definition; find all call sites; verify pattern compliance |
 | **qa-reviewer** | `code_search(kind="code-summary")`, `code_ask`, `code_keyword` | Confirm test coverage; verify test scope matches implementation scope |
 | **performance-reviewer** | `code_dependencies(path)`, `code_search`, `code_definition` | Build call graph from hot path; find all importers of a slow module |

@@ -75,7 +75,7 @@ Given an existing UI, interaction, or information-architecture pattern: surface 
 
 Run as the **first phase** of a Wave Council review, before any other fixed seats. The primer output is added to the briefing packet so every subsequent seat receives it and must explicitly engage with it — address `strongest_challenge` and answer the `primer_questions` before producing findings.
 
-The council-moderator declares the depth tier before this phase runs. Apply stances and questions accordingly:
+The wave-council declares the depth tier before this phase runs. Apply stances and questions accordingly:
 
 | Tier | Stances | `primer_questions` | When |
 |---|---|---|---|

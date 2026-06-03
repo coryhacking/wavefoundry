@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-06-03
 
 ## Role Routing
 
@@ -14,7 +14,7 @@ Wavefoundry uses the standard Wave Framework generic roles. The wave-coordinator
 |------|------------|
 | `planner` | Drafting a consolidated change doc; discovery; planning a wave shape |
 | `wave-coordinator` | Admitting changes; managing execution order; closing waves |
-| `council-moderator` | Synthesizing Wave Council readiness and delivery passes when `wave_council_policy.enabled` |
+| `wave-council` | Synthesizing Wave Council readiness and delivery passes when `wave_review.enabled` |
 | `implementer` | Executing code changes per admitted change doc |
 | `code-reviewer` | Any implementation change (mandatory for non-trivial code changes) |
 | `architecture-reviewer` | Changes touching module boundaries, integration contracts, or data flow |
@@ -30,14 +30,14 @@ Wavefoundry uses the standard Wave Framework generic roles. The wave-coordinator
 
 ## Wave Council Routing
 
-When `docs/workflow-config.json` `wave_council_policy.enabled` is true:
+When `docs/workflow-config.json` `wave_review.enabled` is true:
 
 - `wave-council-readiness` is required at **Prepare wave**
 - `wave-council-delivery` is required at **Review wave** / before **Close wave**
-- `council-moderator` owns the synthesis output for both phases
+- `wave-council` owns the synthesis output for both phases
 - `wave-coordinator` gathers evidence, routes lanes, and enforces the gate, but does not author the council verdict
 
-Council runs a red-team adversarial primer (Phase 1) before fixed seats (Phase 2), then synthesizes. Full protocol is in `docs/agents/council-moderator.md`.
+Council runs a red-team adversarial primer (Phase 1) before fixed seats (Phase 2), then synthesizes. Full protocol is in `docs/agents/specialists/wave-council.md`.
 
 Default fixed Phase 2 seats: `architecture-reviewer`, `security-reviewer`, `qa-reviewer`, `reality-checker`. The fifth seat rotates from wave evidence (`docs-contract-reviewer`, `performance-reviewer`, `release-reviewer`, or an applicable persona).
 

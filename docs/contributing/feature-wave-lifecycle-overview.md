@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-06-03
 
 Adapted from `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` for Wavefoundry's specific reviewer roles, personas, and artifact paths.
 
@@ -62,12 +62,12 @@ Close wave / Finalize feature
 
 ## Wave Council
 
-When `docs/workflow-config.json` `wave_council_policy.enabled` is true, every wave also requires:
+The framework ships `wave_review.enabled: true` by default (formerly `wave_council_policy`) so the Wave Council surface is available out of the box. Enforcement on every wave is operator opt-in via `required_for_all_waves: true`. When enforcement is on, every wave also requires:
 
 - `wave-council-readiness` before implementation
 - `wave-council-delivery` before closure
 
-The `council-moderator` owns council synthesis. The `wave-coordinator` still owns lifecycle state and gates.
+The `wave-council` owns council synthesis. The `wave-coordinator` still owns lifecycle state and gates.
 
 ## Factor-Review Agents (applicable)
 

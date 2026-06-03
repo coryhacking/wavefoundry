@@ -19,7 +19,7 @@ Run a full Wave Council review on any artifact — a plan, implementation, decis
 
 Run `red-team` in `council-adversarial-primer` mode in isolation before any other seat. See `docs/agents/specialists/red-team.md`.
 
-The council-moderator declares a **primer depth tier** before Phase 1 runs:
+The wave-council declares a **primer depth tier** before Phase 1 runs:
 
 | Tier | Stances | `primer_questions` | When |
 |---|---|---|---|
@@ -59,7 +59,7 @@ Trigger at most one targeted challenge round when the `seat_agreement_aggregate`
 
 ### Synthesis
 
-`council-moderator` synthesizes across primer + all seat outputs. See `docs/agents/council-moderator.md`.
+`wave-council` synthesizes across primer + all seat outputs. See `docs/agents/wave-council.md`.
 
 The first synthesis pass runs on **anonymized** seat outputs (seat/role identity stripped, labeled `Seat 1..N` in randomized order) so findings are weighed on merit before identity is re-attached. **Non-waiver guard:** anonymization governs only the convergence/agreement assessment — a finding carrying blocking authority from a required specialist lane keeps its lane attribution and blocking status at all times and is never merit-weighted below blocking.
 

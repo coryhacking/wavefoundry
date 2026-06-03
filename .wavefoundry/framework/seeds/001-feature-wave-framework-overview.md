@@ -89,7 +89,7 @@ flowchart TD
 - Readiness includes validating that admitted change docs are already in `docs/waves/<wave-id>/`, repairing staged-only drift when needed, and clearing duplicate staging copies.
 - The readiness evaluation determines which implementer lanes, reviewer lanes, persona lanes, and any required Wave Council seats must participate.
 - If a user asks to implement the wave directly, the coordinator should run or confirm this readiness evaluation automatically first.
-- When the project enables Wave Council, readiness is not complete until the council-moderator has synthesized the isolated council-seat outputs into a recorded `wave-council-readiness` verdict and the wave record contains a structured `prepare-council` verdict line in `## Review Checkpoints`.
+- When the project enables Wave Council, readiness is not complete until the wave-council has synthesized the isolated council-seat outputs into a recorded `wave-council-readiness` verdict and the wave record contains a structured `prepare-council` verdict line in `## Review Checkpoints`.
 
 ## 3. Implement The Wave
 
@@ -114,7 +114,7 @@ flowchart TD
 - Admitted change docs should already live under `docs/waves/<wave-id>/` after `Add change to wave`; `Prepare wave` repairs drift defensively if staging copies remain.
 - Verification follows the project's build, test, docs, and smoke-check procedures before wave closure.
 - For exact reviewer roles, personas, and gate triggers, use the seeded project's agent-team workflow and review docs.
-- When the project enables Wave Council, delivery review includes a second council pass after implementation: isolated seat outputs first, then council-moderator synthesis into a recorded `wave-council-delivery` verdict.
+- When the project enables Wave Council, delivery review includes a second council pass after implementation: isolated seat outputs first, then wave-council synthesis into a recorded `wave-council-delivery` verdict.
 
 ## 3a. Implement Loop Execution Model
 
@@ -140,7 +140,7 @@ Before the first edit, the coordinator produces an ordered execution plan: which
 
 Reviewer and persona lanes that share no dependencies run concurrently. The coordinator records a single merged `Observe:` entry synthesizing all concurrent lane outputs before emitting the next `Thought:`. This prevents the coordinator from acting on partial findings from one lane while others are still running.
 
-When Wave Council is enabled, the council seats also run in parallel on an isolated first pass. The council-moderator — not the wave-coordinator — owns the synthesis step, optional targeted challenge round on material disagreement, and final council verdict. The wave-coordinator remains responsible for lifecycle routing and gate enforcement.
+When Wave Council is enabled, the council seats also run in parallel on an isolated first pass. The wave-council — not the wave-coordinator — owns the synthesis step, optional targeted challenge round on material disagreement, and final council verdict. The wave-coordinator remains responsible for lifecycle routing and gate enforcement.
 
 ### Finding Classification (CRITIC)
 

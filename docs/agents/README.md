@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-23
+Last verified: 2026-06-03
 
 Generic Wave Framework agent roles used in Wavefoundry delivery work. Agent docs carry `Category:` metadata for dashboard grouping; role-bearing docs also carry `Role:` and define operating identity, salience triggers, and memory responsibilities.
 
@@ -12,7 +12,7 @@ Generic Wave Framework agent roles used in Wavefoundry delivery work. Agent docs
 |------|-----|----------------------|
 | planner | `docs/agents/planner.md` | Discovery, change doc authoring, wave planning |
 | wave-coordinator | `docs/agents/wave-coordinator.md` | Wave admission, execution order, closure |
-| council-moderator | `docs/agents/council-moderator.md` | Wave Council synthesis and verdict ownership |
+| wave-council | `docs/agents/specialists/wave-council.md` | Wave Council synthesis and verdict ownership |
 | implementer | `docs/agents/implementer.md` | Code changes per admitted change doc |
 | code-reviewer | `docs/agents/code-reviewer.md` | Implementation correctness and pattern compliance |
 | architecture-reviewer | `docs/agents/architecture-reviewer.md` | Boundary and layering impact |
@@ -35,6 +35,8 @@ Currently supported universal specialists. These are the cross-project roles tha
 | workflow-architect | Happy-path, failure-path, and handoff design before implementation |
 | reality-checker | Evidence-first release skepticism and claim validation; fixed seat in the default Wave Council template |
 | red-team | Multi-perspective adversarial and alternative-path challenge: bypass/failure pressure-testing, option challenge, technology evaluation, workflow challenge, feature-definition challenge, design provocation, and council participation. Distinct from `reality-checker` (evidence skepticism) and `security-reviewer` (security signoff). |
+| wave-council | Wave Council protocol coordinator: assembles the briefing packet, runs the two-phase protocol (red-team primer → fixed seats), synthesizes seat outputs into a single verdict. Framework-default council (shipped `enabled: true` in `wave_review`). |
+| archetype-council | Archetype Council protocol coordinator: stance-based council (Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman + documented Hemingway/Munger swap-ins) — general-purpose thinking lenses applied to plans, design docs, code, prose, decision narratives, naming, and AC formulations. Operator-invoked, not default-required. |
 
 ## Challenger Specialist Routing
 

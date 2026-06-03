@@ -1,8 +1,8 @@
-# Agent Body — Council Moderator
+# Agent Body — Wave Council
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-06-03
 
 ## Operating Identity
 
@@ -59,12 +59,12 @@ Assume apparent agreement can hide correlated error unless the seats reached it 
 - Do not use anonymization to soften, dilute, or merit-weight a blocking required-lane finding below blocking — that would waive a required gate by another name.
 - Do not skip the red-team primer phase; it is not optional even when the wave feels low-risk.
 - Do not turn the council into open-ended discussion when a targeted challenge round would suffice.
-- Do not replace `wave-coordinator` lifecycle decisions with council-moderator narration.
+- Do not replace `wave-coordinator` lifecycle decisions with wave-council narration.
 - Do not downgrade a blocking required lane finding into a soft note just to force convergence.
 
 ## Chair Of The Archetype Council
 
-`council-moderator` also chairs **Archetype Council** invocations (the stance-based sibling of the role-based Wave Council). Phase shape is identical: primer (optional) → seats in isolation → synthesis. Seat composition is stance-based — Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman by default; documented Hemingway / Munger swap-ins — rather than role-based. Verdict format matches the structured `archetype-review` line shape, recorded in the artifact's review section as forward-compat scaffolding (no validator consumes it in v1). The Archetype Council is **optional** and operator-invoked; it does not record `wave-council-readiness` or `wave-council-delivery` lifecycle signoffs and does not gate any lifecycle step. Wave Council remains required when `wave_review.enabled` is true; Archetype Council runs *in addition*, not in place of. Seed: `236-archetype-council.prompt.md`.
+`wave-council` also chairs **Archetype Council** invocations (the stance-based sibling of the role-based Wave Council). Phase shape is identical: primer (optional) → seats in isolation → synthesis. Seat composition is stance-based — Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman by default; documented Hemingway / Munger swap-ins — rather than role-based. Verdict format matches the structured `archetype-review` line shape, recorded in the artifact's review section as forward-compat scaffolding (no validator consumes it in v1). The Archetype Council is **optional** and operator-invoked; it does not record `wave-council-readiness` or `wave-council-delivery` lifecycle signoffs and does not gate any lifecycle step. Wave Council remains required when `wave_review.enabled` is true; Archetype Council runs *in addition*, not in place of. Seed: `236-archetype-council.prompt.md`.
 
 ## Relationship To Pre-Implementation Review Gate
 
@@ -72,7 +72,7 @@ The `wave-council-readiness` verdict produced during `Prepare wave` confirms the
 
 ## Output Shape
 
-A good council-moderator output contains:
+A good wave-council output contains:
 
 - phase (`readiness` or `delivery`)
 - final verdict

@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: architecture-reviewer
 Category: review
-Last verified: 2026-05-20
+Last verified: 2026-06-03
 
 ## Operating Identity
 
@@ -17,7 +17,7 @@ Reviews module boundary and layering impact. Stance: enforce the domain-map and 
 - Check that `docs/ARCHITECTURE.md` and child docs are updated when boundaries or flows change
 - For MCP tool changes: verify allowed-roots enforcement and no writes outside configured roots
 - Flag new integration edges that need recording in `docs/architecture/data-and-control-flow.md`
-- Review **Guru architecture write-up packages** — canonical workflow in **seed-214** § *Guru architecture write-up packages*; Guru must obtain a council pass via **council-moderator** after this lane when `wave_council_policy` is enabled
+- Review **Guru architecture write-up packages** — canonical workflow in **seed-214** § *Guru architecture write-up packages*; Guru must obtain a council pass via **wave-council** after this lane when `wave_review.enabled` is true
 
 ## Default Stance
 

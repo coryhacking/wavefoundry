@@ -64,7 +64,7 @@ Run all three council seats in sequence. Each seat reads the red-team evaluation
 - Does the winning option have weaknesses the first pass understated?
 - What would a critic of the recommendation say, and is that criticism fair?
 
-**Council-moderator** — synthesizes across all seats:
+**Wave-council** — synthesizes across all seats:
 - Where do the seats agree? That is the settled ground.
 - What nuances did the council surface that the red-team evaluation alone would not have captured?
 - What should the ADR record that the red-team output alone would miss?

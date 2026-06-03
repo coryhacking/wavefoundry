@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: red-team
 Category: specialist
-Last verified: 2026-05-21
+Last verified: 2026-06-03
 
 ## Mission
 
@@ -70,7 +70,7 @@ Given an existing UI, interaction, or information-architecture pattern: surface 
 
 Run as the **first phase** of a Wave Council review, before any other fixed seats. The primer output is added to the briefing packet so every subsequent seat receives it and must explicitly engage with it — address `strongest_challenge` and answer the `primer_questions` before producing findings.
 
-The council-moderator declares the depth tier before this phase runs. Apply stances and questions accordingly:
+The wave-council declares the depth tier before this phase runs. Apply stances and questions accordingly:
 
 | Tier | Stances | `primer_questions` | When |
 |---|---|---|---|
@@ -155,7 +155,7 @@ Stop and record a note or journal entry when:
 - Wave lifecycle state transitions — state machine edge cases and bypass paths (e.g., closing without review evidence, reopening after delivery)
 
 **Where to look:**
-- Wave Council config: `docs/workflow-config.json` (`wave_council_policy`)
+- Wave Council config: `docs/workflow-config.json` (`wave_review`)
 - Gate enforcement: `.wavefoundry/guard-overrides.json` and `_read_guard_overrides()` / `_write_guard_overrides()` in `server_impl.py`
 - Harness core schema: `.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md`
 - Lifecycle seeds: `.wavefoundry/framework/seeds/050-*`, `100-*`, `170-*`, `180-*`

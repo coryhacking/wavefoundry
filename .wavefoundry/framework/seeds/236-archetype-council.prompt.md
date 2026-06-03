@@ -7,7 +7,7 @@ Last verified: 2026-06-03
 
 **Shortcut phrases:** `Archetype review` · `Archetype council`
 
-Run a stance-based council review on an artifact whose load-bearing surface is text precision, prose, decision narrative, naming, or AC formulation — situations where the role-based Wave Council's specialist seats are overkill or in the wrong shape.
+Run a stance-based council review on any artifact — plans, design documents, code, prose drafts, decision narratives, naming choices, AC formulations — where role-specialist seats are overkill or the wrong shape, and where orthogonal thinking-stance lenses (strategy, logic, durability, first-principles, wisdom, prose-craft, inversion) are what the artifact actually rewards. The archetypes are general-purpose lenses, not text-only critics; they apply equally to a system design, a refactor plan, a function diff, or a README section.
 
 > **Note:** Archetype Council is **optional** and **operator-invoked**. It does not gate Prepare wave, Review wave, or Close wave. It complements the mandatory Wave Council; it does not replace it. The Wave Council remains required when `wave_review.enabled` is true.
 
@@ -19,9 +19,9 @@ Run a stance-based council review on an artifact whose load-bearing surface is t
 |---|---|---|
 | **`red-team`** alone | Single adversarial stance, in isolation | A focused artifact needs one sharp challenge before commit; or as Phase 1 primer to Wave Council |
 | **Wave Council** | Role-based seats (architecture, security, qa, reality-checker + rotating fifth), mandatory at Prepare and Review | Code, architecture, trust-boundary, or implementation-shaped work; integrates with the wave lifecycle |
-| **Archetype Council** | Stance-based seats (orthogonal axes, not specialist roles), optional | AC-text precision passes, prose drafts, naming decisions, decision narratives, and other artifacts where role-specialist seats are overkill or in the wrong shape |
+| **Archetype Council** | Stance-based seats (orthogonal axes, not specialist roles), optional | Any artifact where orthogonal thinking-stance lenses are what the work rewards — plans, design docs, code review passes, decision narratives, prose drafts, AC formulations, naming decisions. Especially valuable when role-specialist seats would be overkill or in the wrong shape (e.g., a refactor plan benefits from Sun Tzu's positioning lens and Marcus's durability lens more than from another architecture-reviewer pass). |
 
-Archetype Council is **complementary**, not a replacement. For a wave whose primary work is a public-facing README rewrite, the Wave Council still runs at Prepare and Review; the Archetype Council is invoked on the AC table and the prose draft *in addition* to round out the lens coverage.
+Archetype Council is **complementary**, not a replacement. For a wave whose primary work is a public-facing README rewrite, the Wave Council still runs at Prepare and Review; the Archetype Council is invoked on the AC table, the prose draft, *and on the surrounding plan or implementation* to round out the lens coverage. The choice of which artifacts to send through Archetype Council is operator-discretion — there is no fixed "this artifact type only" rule.
 
 ---
 
@@ -31,7 +31,7 @@ The phase shape mirrors the Wave Council: a primer-then-seats-then-synthesis str
 
 ### Phase 0 — Moderator Declaration
 
-`council-moderator` chairs the Archetype Council (same role as for the Wave Council) and declares the seat composition before Phase 1:
+`wave-council` chairs the Archetype Council (same role as for the Wave Council) and declares the seat composition before Phase 1:
 
 - **Default five seats:** Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman.
 - **Swap protocol:** the fifth seat (Feynman) may be swapped for an alternative archetype when the artifact rewards a different stance. Declare the swap up front (e.g., *"Archetype review with Hemingway swapped in for Feynman"*) so the recorded verdict reflects the actual axes exercised.
@@ -59,7 +59,7 @@ Each archetype runs in isolation, applying its stance against the artifact. Each
 
 ### Phase 3 — Synthesis
 
-`council-moderator` synthesizes across the seats. Synthesis must include:
+`wave-council` synthesizes across the seats. Synthesis must include:
 
 - Seat roster with declared swap (if any) and stance each seat owned
 - **Axes-covered** — which orthogonal axes were actually exercised; flag any axis-overlap between seats (if two seats clustered on the same axis, the protocol operated on fewer effective axes than seats)
@@ -156,13 +156,13 @@ Operators may invoke other archetypes ad hoc (Da Vinci, Hemingway, Munger, Ricko
 Record the verdict in the reviewed artifact's review section (`## Review Evidence` for change docs, `## Review Checkpoints` for wave docs). The verdict line is structurally consistent with the existing `prepare-council` verdict shape so future validator integration is straightforward — but no validator consumes the line in v1.
 
 ```
-- **Archetype Council [archetype-review] — <date>: PASS** (moderator: council-moderator; seats: sun-tzu, yoda, spock, marcus-aurelius, feynman; rotating-seat: feynman; strongest-axis: <which seat's findings bound the most must-fixes>; must-fix-count: <n>; advisory-count: <n>)
+- **Archetype Council [archetype-review] — <date>: PASS** (moderator: wave-council; seats: sun-tzu, yoda, spock, marcus-aurelius, feynman; rotating-seat: feynman; strongest-axis: <which seat's findings bound the most must-fixes>; must-fix-count: <n>; advisory-count: <n>)
 ```
 
 When the fifth seat is swapped, name the swap-in:
 
 ```
-- **Archetype Council [archetype-review] — <date>: PASS** (moderator: council-moderator; seats: sun-tzu, yoda, spock, marcus-aurelius, hemingway; rotating-seat: hemingway; strongest-axis: spock; must-fix-count: 3; advisory-count: 2)
+- **Archetype Council [archetype-review] — <date>: PASS** (moderator: wave-council; seats: sun-tzu, yoda, spock, marcus-aurelius, hemingway; rotating-seat: hemingway; strongest-axis: spock; must-fix-count: 3; advisory-count: 2)
 ```
 
 Verdict values: **PASS**, **PASS WITH IN-SESSION FIXES**, **NOT READY**.

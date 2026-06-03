@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: environment-auditor
 Category: specialist
-Last verified: 2026-05-19
+Last verified: 2026-06-03
 
 ## Operating Identity
 
@@ -23,7 +23,7 @@ This role performs read-only inspection. It does not edit any file.
 - `AGENTS.md` — presence, key sections, line count advisory
 - `docs/prompts/prompt-surface-manifest.json` — presence, `framework_revision` alignment
 - `docs/prompts/index.md` — shortcut coverage
-- `docs/workflow-config.json` — presence, key flags (`required_review_lanes`, `wave_council_policy`)
+- `docs/workflow-config.json` — presence, key flags (`required_review_lanes`, `wave_review`)
 - `docs/agents/session-handoff.md` — active/paused/stale/absent state
 - Active `wave.md` `## Review Evidence` — which lanes have signoffs
 - Hook files (`.cursor/hooks.json`, `.claude/settings.json`, `.windsurf/hooks.json`) — presence check only

@@ -9,7 +9,7 @@
     "buckets_per_day": 288,
     "notes": "Epoch shifted to 1999-05-01 (wave 131bt close-out) so today's first new ID under the integer-packed scheme lex-sorts after the historical real-ID max (1p0r6 from wave 12wsj, value 2,846,994). New encoding: base36((days_since_epoch * 288 + bucket_5min_within_day) mod 36^5), right-padded to 5 chars. Bucket index = (hour*60+minute) // 5, range 0..287, 5-minute resolution. The build suffix used by build_pack.py is the last 4 characters of this prefix — single source of truth for both encodings. Lex order matches wall-clock for builds and IDs within their respective horizons: 36^5/288 = 209,952 days (~575 yr) for the lifecycle ID, 36^4/288 = 5,832 days (~15.97 yr) for the build suffix."
   },
-  "wave_execution": {
+  "wave_implement": {
     "waves_required_for_non_trivial_work": true,
     "wave_root": "docs/waves/",
     "readiness_required_before_implementation": true,
@@ -103,7 +103,7 @@
     "findings_advisory": true,
     "active_personas": ["framework-operator", "wave-coordinator"]
   },
-  "wave_council_policy": {
+  "wave_review": {
     "enabled": true,
     "required_for_all_waves": true,
     "evidence_section": "## Review Evidence",
@@ -113,7 +113,7 @@
     "phases": {
       "prepare": {
         "signoff_key": "wave-council-readiness",
-        "moderator_role": "council-moderator",
+        "moderator_role": "wave-council",
         "fixed_seats": [
           "architecture-reviewer",
           "security-reviewer",
@@ -124,7 +124,7 @@
       },
       "review": {
         "signoff_key": "wave-council-delivery",
-        "moderator_role": "council-moderator",
+        "moderator_role": "wave-council",
         "fixed_seats": [
           "architecture-reviewer",
           "security-reviewer",

@@ -2,6 +2,9 @@
   "wave_execution": {
     "enabled": true
   },
+  "wave_review": {
+    "enabled": true
+  },
   "agent_memory": {
     "enabled": true
   },

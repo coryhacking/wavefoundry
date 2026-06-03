@@ -1733,8 +1733,8 @@ class AgentClassificationTests(unittest.TestCase):
         self.assertEqual(self.classify("reality-checker", "specialist"), "specialist")
 
     def test_specialist_group_beats_coordinate_stem(self):
-        # "council-moderator" is in _COORDINATE_STEMS but specialist group must win.
-        self.assertEqual(self.classify("council-moderator", "specialist"), "specialist")
+        # "wave-council" is in _COORDINATE_STEMS but specialist group must win.
+        self.assertEqual(self.classify("wave-council", "specialist"), "specialist")
 
     def test_specialist_group_beats_build_suffix(self):
         # An agent in specialists/ with a build-like name still gets "specialist".
@@ -1780,7 +1780,8 @@ class AgentClassificationTests(unittest.TestCase):
         self.assertEqual(self.classify("sprint-coordinator", "agent"), "coordinate")
 
     def test_moderator_suffix_is_coordinate(self):
-        self.assertEqual(self.classify("council-moderator", "agent"), "coordinate")
+        # Use a synthetic name to exercise the `-moderator` suffix path.
+        self.assertEqual(self.classify("custom-moderator", "agent"), "coordinate")
 
     def test_planner_exact_stem_is_coordinate(self):
         self.assertEqual(self.classify("planner", "agent"), "coordinate")
