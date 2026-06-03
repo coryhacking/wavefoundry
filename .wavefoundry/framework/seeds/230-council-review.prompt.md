@@ -94,6 +94,7 @@ The council reviews what you give it. If the artifact is ambiguous, the red-team
 | Command | When to use |
 |---|---|
 | **Council review** | Any artifact, any time — standalone adversarial + council pass |
+| **Archetype review** | Optional stance-based supplement when the artifact's load-bearing surface is AC text precision, prose, decision narrative, or naming. Wave Council remains required; Archetype Council runs *in addition*, not in place of. Does not record `wave-council-readiness`. Seed: `236-archetype-council.prompt.md` |
 | **Prepare wave** | Lifecycle gate — council readiness pass is embedded; records `wave-council-readiness` signoff |
 | **Review wave** | Lifecycle gate — council delivery pass is embedded; records `wave-council-delivery` signoff |
 | **Evaluate decision** | Architecture/technology decision specifically — produces an ADR |

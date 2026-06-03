@@ -37,6 +37,10 @@ Assume any doc that has not been verified recently is stale until its claims are
 - Do not patch stale docs by appending notes — either update the canonical section or mark the doc for removal.
 - Do not assume code comments are a substitute for operator-facing documentation.
 
+## Recommended Review Pass For Public-Facing Drafts
+
+*Consider **Archetype review** with Hemingway swapped in for Feynman as the recommended pass for prose-heavy artifacts (README, getting-started guides, conceptual overviews, public-launch surface docs) before publishing to a public surface. Default seats: Sun Tzu, Yoda, Spock, Marcus Aurelius, Hemingway. Hemingway's prose-craft stance — cut every sentence that doesn't move the story — is load-bearing here. Optional and operator-invoked; does not record `wave-council-readiness`. Seed: `236-archetype-council.prompt.md`.*
+
 ## Output Shape
 
 A good technical writer output contains:

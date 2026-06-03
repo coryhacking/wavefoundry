@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-26
+Last verified: 2026-06-03
 
 ## What Wavefoundry Is
 
@@ -27,7 +27,7 @@ wavefoundry/
   .wavefoundry/framework/scripts/  Framework tooling (lint, gardener, lifecycle ID, packaging, rendering, dashboard server)
   .wavefoundry/framework/dashboard/ Browser assets for the optional local dashboard
   .wavefoundry/framework/README.md Canonical prompt map, public commands, factor model
-  .wavefoundry/framework/VERSION   Current distribution version (2026-05-06g)
+  .wavefoundry/framework/VERSION   Current distribution version — semver tracked at `.wavefoundry/framework/VERSION`; the README badge auto-syncs from the latest GitHub Release tag.
   docs/                            Wavefoundry self-hosted Wave Framework operating surface (this tree)
   AGENTS.md                        Root agent entry map with shortcuts, stage gate, git commits policy
   README.md                        Product README for Wavefoundry

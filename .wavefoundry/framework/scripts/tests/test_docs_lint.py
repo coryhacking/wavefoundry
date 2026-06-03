@@ -246,6 +246,103 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertIn("`## Tasks` uses plain bullet format", result.stderr)
         self.assertIn("checkbox syntax", result.stderr)
 
+    def test_tilde_ac_with_inline_italic_note_passes(self) -> None:
+        """Wave 1p31b (1p32k): a `[~]` AC at required priority with an inline italic
+        status note must lint clean."""
+        root = self.copy_fixture()
+        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc.write_text(
+            change_doc.read_text(encoding="utf-8").replace(
+                "- [x] AC-1: Fixture criterion satisfied.",
+                "- [~] AC-1: Mermaid diagram removed entirely per operator direction. *Original draft used a five-subgraph composite; operator subsequently directed removal in favor of prose description. See Decision Log entry on 2026-06-03.*",
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, msg=f"stderr: {result.stderr}")
+
+    def test_tilde_ac_with_long_inline_prose_passes(self) -> None:
+        """Wave 1p31b (1p32k): the inline-note requirement is satisfied by 40+ chars of
+        prose after the AC label, even without italic markup."""
+        root = self.copy_fixture()
+        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc.write_text(
+            change_doc.read_text(encoding="utf-8").replace(
+                "- [x] AC-1: Fixture criterion satisfied.",
+                "- [~] AC-1: Mermaid diagram intentionally removed per operator direction on 2026-06-03 — see Decision Log.",
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, msg=f"stderr: {result.stderr}")
+
+    def test_silent_tilde_required_ac_fails(self) -> None:
+        """Wave 1p31b (1p32k): a `[~]` AC at required priority with no inline note
+        (or only a trivial label) must produce a lint error naming the AC."""
+        root = self.copy_fixture()
+        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc.write_text(
+            change_doc.read_text(encoding="utf-8").replace(
+                "- [x] AC-1: Fixture criterion satisfied.",
+                "- [~] AC-1: deferred",
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("lacks an inline status note", result.stderr)
+        self.assertIn("AC-1", result.stderr)
+
+    def test_tilde_on_nonrequired_priority_passes_without_note(self) -> None:
+        """Wave 1p31b (1p32k): `[~]` on important / nice-to-have / not-this-scope
+        priorities does not require the inline note (mechanical enforcement applies
+        only to required-priority ACs)."""
+        root = self.copy_fixture()
+        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc.write_text(
+            change_doc.read_text(encoding="utf-8")
+            .replace(
+                "- [x] AC-1: Fixture criterion satisfied.",
+                "- [~] AC-1: deferred",
+            )
+            .replace(
+                "| AC-1 | required |",
+                "| AC-1 | important |",
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, msg=f"stderr: {result.stderr}")
+
+    def test_tilde_task_without_inline_note_passes(self) -> None:
+        """Wave 1p31b (1p32k): tasks accept `[~]` without requiring an inline note
+        — asymmetric with the AC rule per Req-12. Task `[~]` is for implementation
+        hints that were streamlined out; the AC system carries the audit trail."""
+        root = self.copy_fixture()
+        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc.write_text(
+            change_doc.read_text(encoding="utf-8")
+            + "\n## Tasks\n\n- [x] Inspect parser behavior.\n- [~] Run the 5,000-row bench fixture\n",
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, msg=f"stderr: {result.stderr}")
+
     def test_ac_priority_placeholder_priority_fails(self) -> None:
         root = self.copy_fixture()
         change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"

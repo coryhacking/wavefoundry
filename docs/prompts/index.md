@@ -4,17 +4,19 @@ Owner: Engineering
 Status: active
 Last verified: 2026-06-03
 
-Public shortcut phrase catalog for Wavefoundry. See `AGENTS.md` for the routing table.
+The public catalog of shortcut phrases you can say to your agent. Each phrase routes to the documented prompt body for that command. See `AGENTS.md` for the agent-side routing table.
 
-## Operating Rules
+If you're new to Wavefoundry, the [README](../../README.md) walks the install path and a first wave end-to-end; this index is the reference for everything else.
 
-This prompt surface follows `.wavefoundry/framework/seeds/020-run-contract.prompt.md` as the authoritative run contract. Key behavioral rules:
+## Operating principles
 
-- **Scoped-work triage:** classify by risk, blast radius, and lifecycle impact before proceeding. Lightweight means compact output *within* the lifecycle checkpoints that apply per `AGENTS.md` — not a skipped document/admit/Prepare-wave path when those gates apply. Complex/high-stakes and always-gated work requires full reasoning depth and lifecycle gates.
-- **Brownfield pattern detection:** detect dominant patterns before implementing; follow them; surface significant problems with rationale before deviating; no silent divergence.
-- **Surface assumptions explicitly;** prefer the smallest correct change after pattern obligations; diagnose before retrying; prefer one clarifying question over a wrong assumption; verify changes actually solved the problem.
-- **Prompt Preflight:** Before acting on any task, apply the six-point preflight rubric from `seed-020` **Prompt Preflight**: Evidence first, Own the boundary, What breaks, Order matters, State uncertainty, Verify before declaring done. Implementers restate expected behavior before writing; reviewers ask "what evidence proves this claim"; coordinators push back on unverifiable status before synthesizing.
-- **Full lifecycle before code:** document → admit → Prepare wave. See `AGENTS.md` **Stage Gate (repository code)**.
+The behavioral rules below apply to every command in this catalog. They are summarized here so an agent reading this index has the contract in scope before invoking any phrase.
+
+- **Triage by risk and blast radius before acting.** Compact output is fine for low-stakes work; full lifecycle gates still apply when the work crosses them.
+- **Detect existing patterns before introducing new ones.** Surface a divergence with rationale rather than silently changing convention.
+- **Surface assumptions; prefer the smallest correct change.** Ask one clarifying question rather than make a wrong assumption. Verify a change actually solved the stated problem.
+- **Preflight every task.** Six points: evidence first, own the boundary, what breaks, order matters, state uncertainty, verify before declaring done.
+- **Full lifecycle before code.** Change doc → wave admission → Prepare wave → first edit. See `AGENTS.md` **Stage Gate (repository code)** for the gate definition.
 
 ## Public Commands
 
@@ -41,6 +43,7 @@ This prompt surface follows `.wavefoundry/framework/seeds/020-run-contract.promp
 | **Finalize feature** | Single-change closure path | `docs/prompts/finalize-feature.prompt.md` |
 | **Interrogate this plan** | Stress-test a change doc before admission | `docs/prompts/interrogate-plan.prompt.md` |
 | **Council review** / **Run council** | Two-phase adversarial council review on any artifact: red-team primer → fixed seats → synthesis | `docs/prompts/council-review.prompt.md` |
+| **Archetype review** / **Archetype council** | Optional stance-based council review on text-precision / prose / naming / AC artifacts (Sun Tzu / Yoda / Spock / Marcus Aurelius / Feynman; swap Hemingway or Munger for the fifth seat). Complementary to Wave Council; does not record `wave-council-readiness` | `docs/prompts/archetype-council.prompt.md` |
 | **Evaluate decision** | Red-team + council evaluation of an architectural decision or technology comparison; produces an ADR | `docs/prompts/evaluate-decision.prompt.md` |
 | **Guru** | Ask a natural-language question about the codebase; returns cited answer, next-hop citations, and rank metadata (`final_rank`, `demoted`) | `docs/agents/guru.md` — MCP: `code_ask(question)` |
 

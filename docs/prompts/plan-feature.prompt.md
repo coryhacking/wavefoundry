@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-26
+Last verified: 2026-06-03
 
 Shortcut: **`Plan feature`**
 
@@ -34,8 +34,8 @@ Author a consolidated change document at `docs/plans/<change-id>.md`. Wave admis
    - `## Rationale` — specific motivation a reviewer can understand
    - `## Requirements` — numbered behavioral requirements
    - `## Scope` — in-scope / out-of-scope
-   - `## Acceptance Criteria` — testable outcomes written with stable checkbox identifiers: `- [ ] AC-1: <outcome>`, `- [ ] AC-2: <outcome>`, etc.
-   - `## Tasks` — implementation checklist items written as checkboxes: `- [ ] <step>`
+   - `## Acceptance Criteria` — testable outcomes written with stable checkbox identifiers: `- [ ] AC-1: <outcome>`, `- [ ] AC-2: <outcome>`, etc. Three checkbox states are canonical: `[ ]` (unmet, in scope), `[x]` (done), `[~]` (intentionally not met — operator-directed removal or scope-narrowing during implementation, with mandatory inline status note for required-priority ACs). See `.wavefoundry/framework/seeds/170-plan-feature.prompt.md` *"AC and task checkbox states — the `[~]` marker"* for the canonical convention.
+   - `## Tasks` — implementation checklist items written as checkboxes: `- [ ] <step>`. The `[~]` marker applies here too, with looser enforcement (no mandatory inline note).
    - `## Affected architecture docs` — which architecture docs need updating, or N/A with rationale (required when the change crosses module boundaries, integration contracts, primary data/control paths, or test/release seams)
    - if the operator's request clearly extends work already admitted into the current wave, prefer updating that existing change rather than creating a fresh one; extend that change's Acceptance Criteria and Tasks to capture the added scope, and create a new change only when the remaining work is materially different or should be tracked separately
 6. Surface assumptions explicitly; prefer one clarifying question over a wrong assumption.

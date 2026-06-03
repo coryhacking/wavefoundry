@@ -9,6 +9,8 @@ Intent:
 
 - Given a change doc or wave record as context, walk every unresolved decision branch one question at a time, provide a recommended answer derived from project resources when possible, and surface only questions that genuinely require operator judgment. Stop when all branches in Requirements, Acceptance Criteria, and Scope are resolved.
 
+- During interrogation, ACs marked `[~]` (intentionally not met) are treated as resolved and skipped — the convention's contract is that a `[~]` AC carries its rationale inline. See `170-plan-feature.prompt.md` "AC and task checkbox states — the `[~]` marker" for the canonical definition.
+
 Before interrogating, consult all available project resources to self-answer questions without operator input:
 
 - Source code under the target repository's product, package, app, service, library, or shared module roots
@@ -52,6 +54,8 @@ Required output:
 - Confirmation that all branches in Requirements + ACs + Scope are resolved (or operator-triggered stop).
 
 This is an optional stress-testing tool — not a required lifecycle gate. It may be run before or after plan admission, at the operator's discretion, to improve planning depth before implementation begins.
+
+*Consider **Archetype review** as a stance-based alternative or complement to this interrogation pass when the plan's load-bearing surface is AC text precision rather than execution risk. Default seats: Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman. Use either; use both when the plan is high-stakes. Optional and operator-invoked. Seed: `236-archetype-council.prompt.md`.*
 
 Guardrails:
 

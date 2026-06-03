@@ -117,6 +117,8 @@ Check whether any of these docs reference the newly-specced component without a 
 
 Add links to the new spec where relevant. Do not rewrite those docs — just add the link.
 
+*Consider **Archetype review** on the spec's interface contracts and acceptance section when the spec is text-precision-heavy (boundary contracts, attribute key declarations, configuration schemas). Default seats: Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman — Spock and Marcus Aurelius are particularly load-bearing for spec invariants and time-axis stability. Optional and operator-invoked. Seed: `236-archetype-council.prompt.md`.*
+
 ## Required outputs
 
 - `docs/specs/<slug>.md` — the spec file

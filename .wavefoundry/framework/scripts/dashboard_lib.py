@@ -21,7 +21,10 @@ _TITLE_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 _OWNER_RE = re.compile(r"^Owner:\s+(.+)$", re.MULTILINE)
 _WAVE_RE = re.compile(r"^Wave:\s+`([^`]+)`", re.MULTILINE)
 _SECTION_RE = re.compile(r"^##\s+(.+)$", re.MULTILINE)
-_TASK_RE = re.compile(r"^\s*-\s+(?:(?:\[(?P<mark>[ xX])\])\s+)?(?P<label>.+?)\s*$", re.MULTILINE)
+# Wave 1p31b (1p32k): include `~` as a valid checkbox mark for intentionally-deferred
+# tasks and ACs. The dashboard renders `[~]` as a distinct third state (not done, not
+# pending) and excludes `[~]` items from progress denominators.
+_TASK_RE = re.compile(r"^\s*-\s+(?:(?:\[(?P<mark>[ xX~])\])\s+)?(?P<label>.+?)\s*$", re.MULTILINE)
 _ACTIVE_WAVE_RE = re.compile(r"^\*\*Active wave:\*\*\s+(.+)$", re.MULTILINE)
 DASHBOARD_START_LOCK_NAME = "dashboard-start.lock"
 DASHBOARD_PROCESS_LOCK_NAME = "dashboard-process.lock"
@@ -458,25 +461,45 @@ def _parse_progress_log(section_text: str) -> list[dict[str, str]]:
 def _parse_tasks(tasks_section: str, change_status: str) -> dict[str, Any]:
     tasks = []
     completed = 0
+    deferred = 0
     for match in _TASK_RE.finditer(tasks_section):
         mark = (match.group("mark") or "").strip().lower()
-        done = mark == "x" if mark else _is_terminal_change_status(change_status)
-        if done:
+        # Wave 1p31b (1p32k): `[~]` = intentionally deferred. Neither done nor pending;
+        # excluded from the progress denominator so a fully-met change with `[~]` tasks
+        # does not render as incomplete.
+        is_deferred = mark == "~"
+        done = (mark == "x") if mark else _is_terminal_change_status(change_status)
+        if is_deferred:
+            deferred += 1
+        elif done:
             completed += 1
-        tasks.append({"label": match.group("label").strip(), "done": done})
+        tasks.append({
+            "label": match.group("label").strip(),
+            "done": done,
+            "deferred": is_deferred,
+        })
+    in_scope_total = len(tasks) - deferred
     return {
-        "total": len(tasks),
+        "total": in_scope_total,
         "completed": completed,
-        "open": len(tasks) - completed,
+        "open": max(0, in_scope_total - completed),
+        "deferred": deferred,
         "items": tasks,
     }
 
 
-_AC_LINE_RE = re.compile(r"^\s*(?:-|\d+\.)\s+(?:(?:\[(?P<mark>[ xX])\])\s+)?(?P<text>.+?)\s*$", re.MULTILINE)
+_AC_LINE_RE = re.compile(r"^\s*(?:-|\d+\.)\s+(?:(?:\[(?P<mark>[ xX~])\])\s+)?(?P<text>.+?)\s*$", re.MULTILINE)
 
 
 def _parse_ac_items(ac_section: str, priority_section: str, change_status: str) -> list[dict[str, Any]]:
-    """Return individual AC items with text, completion status, and priority."""
+    """Return individual AC items with text, completion status, deferred status, and priority.
+
+    Wave 1p31b (1p32k): `[~]` ACs are marked ``deferred=True``. They are neither done
+    nor pending — they are intentionally out of scope (operator direction, reconsidered
+    requirement, or genuine scope-narrowing during implementation). The dashboard
+    excludes them from progress denominators so a fully-met change with `[~]` ACs renders
+    as complete rather than as incomplete-by-the-deferred-count.
+    """
     priority_rows: list[str] = []
     priority_map: dict[str, str] = {}
     for row in _markdown_table_rows(priority_section)[1:]:
@@ -489,7 +512,8 @@ def _parse_ac_items(ac_section: str, priority_section: str, change_status: str) 
     items = []
     for index, match in enumerate(_AC_LINE_RE.finditer(ac_section)):
         mark = (match.group("mark") or "").strip().lower()
-        done = mark == "x" if mark else _is_terminal_change_status(change_status)
+        is_deferred = mark == "~"
+        done = (mark == "x") if mark else _is_terminal_change_status(change_status)
         text = match.group("text").strip()
         id_match = _AC_ID_RE.search(text)
         ac_id = id_match.group(1) if id_match else ""
@@ -498,14 +522,33 @@ def _parse_ac_items(ac_section: str, priority_section: str, change_status: str) 
             priority = priority_rows[index]
         if priority is None:
             priority = "unknown"
-        items.append({"id": ac_id, "text": text, "done": done, "priority": priority})
+        items.append({
+            "id": ac_id,
+            "text": text,
+            "done": done and not is_deferred,
+            "deferred": is_deferred,
+            "priority": priority,
+        })
     return items
 
 
 def _completed_ac_counts(items: list[dict[str, Any]]) -> dict[str, int]:
     counts: dict[str, int] = {"required": 0, "important": 0, "nice-to-have": 0, "not-this-scope": 0, "unknown": 0}
     for item in items:
+        if item.get("deferred"):
+            continue
         if not item.get("done"):
+            continue
+        priority = str(item.get("priority") or "unknown")
+        counts[priority] = counts.get(priority, 0) + 1
+    return counts
+
+
+def _deferred_ac_counts(items: list[dict[str, Any]]) -> dict[str, int]:
+    """Wave 1p31b (1p32k): per-priority counts of `[~]` (intentionally-deferred) ACs."""
+    counts: dict[str, int] = {"required": 0, "important": 0, "nice-to-have": 0, "not-this-scope": 0, "unknown": 0}
+    for item in items:
+        if not item.get("deferred"):
             continue
         priority = str(item.get("priority") or "unknown")
         counts[priority] = counts.get(priority, 0) + 1
@@ -576,10 +619,19 @@ def _wave_only_metric_counts(
     )
     ac_total = 0
     ac_done = 0
+    ac_deferred = 0
     for c in current_wave_changes:
         items = _visible_ac_items(c)
-        ac_total += len(items)
-        ac_done += len(items) if c.get("wave_id") in closed_wave_ids else sum(1 for item in items if item.get("done"))
+        # Wave 1p31b (1p32k): `[~]` ACs are excluded from the progress denominator and
+        # surfaced as a separate count so the dashboard doesn't render a fully-met
+        # change with `[~]` ACs as incomplete.
+        in_scope = [item for item in items if not item.get("deferred")]
+        ac_deferred += len(items) - len(in_scope)
+        ac_total += len(in_scope)
+        if c.get("wave_id") in closed_wave_ids:
+            ac_done += len(in_scope)
+        else:
+            ac_done += sum(1 for item in in_scope if item.get("done"))
 
     return {
         "changes": {
@@ -596,6 +648,7 @@ def _wave_only_metric_counts(
             "total": ac_total,
             "done": ac_done,
             "pending": max(0, ac_total - ac_done),
+            "deferred": ac_deferred,
         },
         "scope": scope,
     }
@@ -638,9 +691,11 @@ class ChangeRecord:
     owner: str
     tasks_total: int
     tasks_completed: int
+    tasks_deferred: int  # Wave 1p31b (1p32k): count of `[~]` tasks intentionally deferred
     tasks_items: list[dict[str, Any]]
     ac_priority_counts: dict[str, int]
     ac_completed_counts: dict[str, int]
+    ac_deferred_counts: dict[str, int]  # Wave 1p31b (1p32k): per-priority counts of `[~]` ACs
     ac_items: list[dict[str, Any]]
     latest_progress: dict[str, str] | None
     progress_log: list[dict[str, str]] = None  # type: ignore[assignment]
@@ -678,6 +733,7 @@ def parse_change_doc(root: Path, change_path: Path) -> ChangeRecord:
     ac_counts = _parse_ac_priority_counts(ac_priority_section)
     ac_items = _parse_ac_items(ac_section, ac_priority_section, change_status)
     ac_completed = _completed_ac_counts(ac_items)
+    ac_deferred = _deferred_ac_counts(ac_items)
     tasks = _parse_tasks(tasks_section, change_status)
     progress = _parse_progress_log(_extract_section(text, "Progress Log"))
     latest = progress[-1] if progress else None
@@ -694,9 +750,11 @@ def parse_change_doc(root: Path, change_path: Path) -> ChangeRecord:
         owner=owner,
         tasks_total=tasks["total"],
         tasks_completed=tasks["completed"],
+        tasks_deferred=tasks.get("deferred", 0),
         tasks_items=tasks["items"],
         ac_priority_counts=ac_counts,
         ac_completed_counts=ac_completed,
+        ac_deferred_counts=ac_deferred,
         ac_items=ac_items,
         latest_progress=latest,
         progress_log=progress,

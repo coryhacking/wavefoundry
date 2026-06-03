@@ -1220,6 +1220,87 @@ class IncrementalBuildTests(unittest.TestCase):
         meta = json.loads((index_dir / "meta.json").read_text())
         self.assertIn(".wavefoundry/framework/scripts/server.py", meta["file_meta"])
 
+    def test_workflow_config_evolution_reaps_orphaned_lance_rows(self):
+        """Wave 1p31b (1p312): incremental update must reap LanceDB rows for
+        paths excluded by workflow-config evolution, even when meta.json and
+        the on-disk eligible set both already reflect the post-narrowing
+        state (the post-evolution stable state where the reaper is the only
+        thing that can detect the LanceDB orphan condition).
+
+        Simulates the bug pattern in its hardest form: a prior build correctly
+        cleaned meta.json AND the now-ineligible files no longer exist in the
+        eligible set on disk, but earlier eviction failed to remove the
+        LanceDB rows. Subsequent incrementals see "current matches meta" and
+        treat the index as up-to-date — the orphan condition is invisible to
+        the existing change-detection logic, so the reaper is the only
+        guarantee that orphans are removed.
+        """
+        # Build with both src/ and lib/ indexed.
+        _make_repo(self.root, {
+            "src/app.py": "def app(): pass\n",
+            "lib/helper.py": "def help(): pass\n",
+            "lib/another.py": "def other(): pass\n",
+        })
+        self._run_build(full=True)
+
+        index_dir = self.root / ".wavefoundry" / "index"
+        meta_path = index_dir / "meta.json"
+
+        # Confirm starting state: lib/ paths are in LanceDB.
+        code_chunks_before = _read_index_chunks(index_dir, "code")
+        paths_before = {c["path"] for c in code_chunks_before}
+        self.assertIn("lib/helper.py", paths_before)
+        self.assertIn("lib/another.py", paths_before)
+
+        # Simulate post-evolution stable state:
+        # 1. Trim meta.json to drop lib/ (workflow-config narrowing was applied).
+        # 2. Delete the lib/ files from disk (the eligibility set narrowed and a
+        #    subsequent run dropped them from meta, but earlier eviction failed
+        #    to remove the LanceDB rows). This is the silent-orphan condition
+        #    every operator with an evolving workflow-config accumulates.
+        meta = json.loads(meta_path.read_text())
+        meta["file_meta"] = {
+            k: v for k, v in meta["file_meta"].items()
+            if not k.startswith("lib/")
+        }
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+        (self.root / "lib" / "helper.py").unlink()
+        (self.root / "lib" / "another.py").unlink()
+
+        # Run incremental update. From _detect_changes' perspective the index
+        # is up-to-date (current eligible matches meta, both exclude lib/),
+        # but LanceDB still has lib/ rows. The reaper must catch and remove
+        # them on the up-to-date path itself.
+        result = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+
+        # Reaper count surfaces in response.
+        self.assertIn("stranded_rows_reaped", result)
+        self.assertGreater(result["stranded_rows_reaped"], 0, msg="reaper should report > 0 orphans removed")
+
+        # LanceDB no longer contains lib/ paths.
+        code_chunks_after = _read_index_chunks(index_dir, "code")
+        paths_after = {c["path"] for c in code_chunks_after}
+        self.assertNotIn("lib/helper.py", paths_after)
+        self.assertNotIn("lib/another.py", paths_after)
+        # src/app.py survives — it was never excluded.
+        self.assertIn("src/app.py", paths_after)
+
+    def test_reaper_idempotent_on_clean_index(self):
+        """Wave 1p31b (1p312): subsequent reaper runs on an already-clean
+        index report stranded_rows_reaped: 0. Verifies AC-5 second-half:
+        once orphans are reaped, future runs surface 0."""
+        _make_repo(self.root, {
+            "src/foo.py": "def f(): pass\n",
+            "src/bar.py": "def g(): pass\n",
+        })
+        self._run_build(full=True)
+        # First incremental on a clean (no orphan) index.
+        result = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        self.assertEqual(result.get("stranded_rows_reaped", 0), 0)
+        # Second incremental on a clean index.
+        result2 = self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        self.assertEqual(result2.get("stranded_rows_reaped", 0), 0)
+
 
 class StatCacheTests(unittest.TestCase):
     """12b1a: stat+inode cache pre-filter for incremental change detection."""

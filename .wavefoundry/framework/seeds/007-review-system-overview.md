@@ -52,6 +52,16 @@ The framework default is a two-phase structure:
 
 Projects may adapt the rotating-seat policy locally, but the non-waiver rule is framework-wide: **Wave Council may summarize or escalate specialist findings, but it may not waive blocking required lanes by itself.**
 
+## Archetype Council Meta-Review (Optional)
+
+A third adversarial-review primitive, complementary to `red-team` (single-stance, in isolation) and Wave Council (role-based specialist seats). The **Archetype Council** runs orthogonal stance-based seats (Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman; with documented Hemingway / Munger swap-ins) and is invoked **optionally** by the operator. It does not gate Prepare wave, Review wave, or Close wave and does not record `wave-council-readiness` or `wave-council-delivery` signoffs. Reach for it when the artifact's load-bearing surface is AC text precision, prose, decision narrative, or naming — situations where the Wave Council's role-based seats are in the wrong shape. Wave Council remains required when `wave_review.enabled` is true; the Archetype Council runs *in addition*, not in place of. Seed: `236-archetype-council.prompt.md`.
+
+| Surface | When to invoke |
+|---|---|
+| **`red-team`** alone | A focused artifact needs one sharp challenge before commit; or as Phase 1 primer to Wave Council |
+| **Wave Council** | Code, architecture, trust-boundary, implementation-shaped work; mandatory at Prepare and Review when `wave_review.enabled` is true |
+| **Archetype Council** | AC text precision, prose drafts, naming decisions, decision narratives; optional and operator-invoked |
+
 ## Generic Review Lanes
 
 The framework commonly expects some combination of these lanes in seeded repositories:

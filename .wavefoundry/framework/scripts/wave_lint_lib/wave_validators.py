@@ -112,7 +112,11 @@ def _contains_any(text: str, markers: Iterable[str]) -> bool:
 
 
 _AC_PRIORITY_VALUES = {"required", "important", "nice-to-have", "not-this-scope"}
-_AC_LINE_RE = re.compile(r"^\s*-\s+(?:(?:\[(?P<mark>[ xX])\])\s+)?(?P<text>.+?)\s*$", re.MULTILINE)
+# Wave 1p31b (1p32k): include `~` as a valid checkbox mark for intentionally-deferred ACs and tasks.
+# A `[~]` AC is one that was reconsidered, removed by operator direction during implementation,
+# or genuinely narrowed by scope-discovery — it is neither satisfied nor still in-scope-but-unmet.
+# See seed `170-plan-feature.prompt.md` for the canonical definition.
+_AC_LINE_RE = re.compile(r"^\s*-\s+(?:(?:\[(?P<mark>[ xX~])\])\s+)?(?P<text>.+?)\s*$", re.MULTILINE)
 _AC_ID_RE = re.compile(r"(AC-[\w\-]+)")
 
 
@@ -188,8 +192,15 @@ def _check_ac_priority_alignment(text: str, rel: str) -> list[str]:
 
 
 _PLAIN_AC_LINE_RE = re.compile(r"^\s*-\s+AC-[\w\-]+:", re.MULTILINE)
-_CHECKBOX_AC_LINE_RE = re.compile(r"^\s*-\s+\[[ xX]\]\s+", re.MULTILINE)
-_CHECKBOX_TASK_LINE_RE = re.compile(r"^\s*-\s+\[[ xX]\]\s+", re.MULTILINE)
+# Wave 1p31b (1p32k): `~` accepted alongside ` ` / `x` to recognize intentionally-deferred items.
+_CHECKBOX_AC_LINE_RE = re.compile(r"^\s*-\s+\[[ xX~]\]\s+", re.MULTILINE)
+_CHECKBOX_TASK_LINE_RE = re.compile(r"^\s*-\s+\[[ xX~]\]\s+", re.MULTILINE)
+_TILDE_AC_LINE_RE = re.compile(r"^\s*-\s+\[~\]\s+(?P<ac_id>AC-[\w\-]+):\s*(?P<rest>.*)$", re.MULTILINE)
+# A "non-empty inline rationale" is at least 40 chars of prose after the AC label OR
+# a markdown italic segment (`*...*`) anywhere in the line. Both signal a real explanation
+# rather than a silent marker.
+_INLINE_ITALIC_RE = re.compile(r"\*[^*\n]{4,}\*")
+_INLINE_NOTE_MIN_CHARS = 40
 
 
 def _check_checkbox_ac_syntax(text: str, rel: str) -> list[str]:
@@ -209,7 +220,8 @@ def _check_checkbox_ac_syntax(text: str, rel: str) -> list[str]:
         return []
     return [
         f"{rel}: `## Acceptance Criteria` uses plain bullet format; "
-        "use checkbox syntax (`- [ ] AC-1: ...` / `- [x] AC-1: ...`) so AC completion can be tracked during implementation"
+        "use checkbox syntax (`- [ ] AC-1: ...` / `- [x] AC-1: ...` / `- [~] AC-1: ...` for intentionally-deferred) "
+        "so AC completion can be tracked during implementation"
     ]
 
 
@@ -226,8 +238,84 @@ def _check_checkbox_task_syntax(text: str, rel: str) -> list[str]:
         return []
     return [
         f"{rel}: `## Tasks` uses plain bullet format; "
-        "use checkbox syntax (`- [ ] step` / `- [x] step`) so task completion can be tracked during implementation"
+        "use checkbox syntax (`- [ ] step` / `- [x] step` / `- [~] step` for intentionally-deferred) "
+        "so task completion can be tracked during implementation"
     ]
+
+
+def _check_tilde_required_ac_has_inline_note(text: str, rel: str) -> list[str]:
+    """Wave 1p31b (1p32k): a `[~]` AC at required priority must carry an inline status note.
+
+    The convention's defense against silent technical debt is mechanical: `[~]` without
+    a recorded rationale defeats the discoverability promise. Required-priority ACs
+    carry contract weight, so the inline note is enforced; important / nice-to-have ACs
+    can use `[~]` more loosely. Tasks never require the inline note (per Req-12).
+
+    A line satisfies the inline-note rule if it contains:
+      - a markdown italic segment (`*...*` with at least 4 chars of content), OR
+      - at least ``_INLINE_NOTE_MIN_CHARS`` characters of prose after the AC label.
+    """
+    sections = _extract_sections(text)
+    ac_section = sections.get("## Acceptance Criteria", "")
+    priority_section = sections.get("## AC Priority", "")
+    if not ac_section:
+        return []
+
+    # Build AC-id -> priority map from the priority table (priority by AC-id; positional fallback).
+    priority_map: dict[str, str] = {}
+    priority_rows: list[str] = []
+    for row in _markdown_table_rows(priority_section)[1:]:
+        if len(row) < 2:
+            continue
+        ac_id_raw = row[0].strip()
+        priority = _normalize_ac_priority(row[1])
+        priority_rows.append(priority)
+        if ac_id_raw:
+            id_match = _AC_ID_RE.search(ac_id_raw)
+            if id_match:
+                priority_map[id_match.group(1)] = priority
+
+    # Walk AC bullets in order; for each `[~]` AC at required priority, check for inline note.
+    failures: list[str] = []
+    ac_index = 0
+    for match in _AC_LINE_RE.finditer(ac_section):
+        text_part = match.group("text").strip()
+        id_match = _AC_ID_RE.search(text_part)
+        ac_id = id_match.group(1) if id_match else ""
+        # Resolve priority by id first, then positional fallback.
+        priority = priority_map.get(ac_id)
+        if priority is None and ac_index < len(priority_rows):
+            priority = priority_rows[ac_index]
+        if priority is None:
+            priority = "unknown"
+        ac_index += 1
+
+        # Only enforce on required-priority ACs.
+        if priority != "required":
+            continue
+        # Only check ACs that use the tilde marker.
+        if match.group("mark") != "~":
+            continue
+
+        # Has an inline italic segment?
+        if _INLINE_ITALIC_RE.search(text_part):
+            continue
+        # Or sufficient prose length after the AC label?
+        rationale = ""
+        ac_label_match = re.match(r"AC-[\w\-]+:\s*(.*)$", text_part)
+        if ac_label_match:
+            rationale = ac_label_match.group(1).strip()
+        if len(rationale) >= _INLINE_NOTE_MIN_CHARS:
+            continue
+
+        failures.append(
+            f"{rel}: `[~]` required AC `{ac_id or '<unidentified>'}` lacks an inline status note. "
+            "Wrap the rationale in italics (e.g. *Operator-directed removal during implementation, "
+            "see Decision Log entry on <date>*) or include at least "
+            f"{_INLINE_NOTE_MIN_CHARS} characters of prose explaining the deferral. "
+            "See seed `170-plan-feature.prompt.md` for the convention."
+        )
+    return failures
 
 
 def _metadata_value(text: str, key: str) -> str | None:
@@ -734,6 +822,7 @@ def check_wave_docs(root: Path) -> list[str]:
                     failures.extend(_check_ac_priority_alignment(change_text, change_rel))
                     failures.extend(_check_checkbox_ac_syntax(change_text, change_rel))
                     failures.extend(_check_checkbox_task_syntax(change_text, change_rel))
+                    failures.extend(_check_tilde_required_ac_has_inline_note(change_text, change_rel))
                     if not _H1_TITLE_RE.search(change_text):
                         failures.append(f"{change_rel}: change doc must have an H1 title (`# Title text`) — used by the dashboard")
                     for section in _CHANGE_DOC_REQUIRED_SECTIONS:

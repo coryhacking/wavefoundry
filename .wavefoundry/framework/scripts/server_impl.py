@@ -404,7 +404,20 @@ class WaveIndex:
         index_dir = self.index_dir if layer == "project" else self.framework_index_dir
         files = [path for path in files if not idx._is_relative_to(path, index_dir)]
         if layer == "project":
-            files = idx._filter_project_index_excludes(files, self.root, ())
+            # Wave 1p31b (1p312 in-session): match the indexer's actual
+            # files_for_meta eligibility by reading project_include_prefixes
+            # from workflow-config. Without this, the audit's "current
+            # eligibility" misses workflow-config opt-ins (e.g. wavefoundry's
+            # own self-host opts in `.wavefoundry/framework/scripts` and
+            # `.wavefoundry/framework/dashboard`) and reports false-positive
+            # ``removed_paths`` for paths the indexer correctly indexed.
+            meta_project_includes = idx._merged_project_include_prefixes_for_graph(self.root, ())
+            files = idx._filter_project_index_excludes(
+                files,
+                self.root,
+                (),
+                project_include_prefixes=meta_project_includes,
+            )
         else:
             files = idx._filter_by_prefixes(files, self.root, (".wavefoundry/framework/",))
             files = idx._filter_framework_pack_artifacts(files, self.root)
@@ -1362,6 +1375,92 @@ _WAVE_ID_PATTERN = re.compile(r"^wave-id:\s+`([^`]+)`", re.MULTILINE)
 _STATUS_PATTERN = re.compile(r"^Status:\s+(\S+)", re.MULTILINE)
 _CHANGE_ID_PATTERN = re.compile(r"^Change ID:\s+`([^`]+)`", re.MULTILINE)
 _CHANGE_STATUS_PATTERN = re.compile(r"^(?:Change|Item) Status:\s+`([^`]+)`", re.MULTILINE)
+
+# Wave 1p31b (1p32k): close-time hard gate — every AC and task across the wave's admitted
+# changes must be `[x]` (done) or `[~]` (intentionally deferred). Silent `[ ]` items block
+# close. `not-this-scope` priority ACs are exempt (the priority encodes the exclusion).
+_CLOSE_GATE_CHECKBOX_LINE_RE = re.compile(r"^\s*-\s+\[(?P<mark>[ xX~])\]\s+(?P<text>.+?)\s*$", re.MULTILINE)
+_CLOSE_GATE_AC_ID_RE = re.compile(r"(AC-[\w\-]+)")
+
+
+def _extract_close_gate_section(text: str, heading: str) -> str:
+    """Extract H2 section content by heading name (without `## ` prefix)."""
+    pattern = re.compile(rf"^## {re.escape(heading)}\s*\n(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
+    match = pattern.search(text)
+    return match.group(1) if match else ""
+
+
+def _close_gate_parse_ac_priority(priority_section: str) -> dict[str, str]:
+    """Return `AC-id -> priority` map from a markdown AC priority table (normalized lowercase)."""
+    result: dict[str, str] = {}
+    for raw in priority_section.splitlines():
+        line = raw.strip()
+        if not line.startswith("|") or line.count("|") < 2:
+            continue
+        # Skip the markdown separator row.
+        if set(line.replace("|", "").replace("-", "").replace(":", "").strip()) == set():
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        id_match = _CLOSE_GATE_AC_ID_RE.search(cells[0])
+        if not id_match:
+            continue
+        result[id_match.group(1)] = cells[1].lower().replace(" ", "-")
+    return result
+
+
+def _collect_silent_unchecked_items_for_close(wave_md: Path, wave_text: str) -> list[dict[str, str]]:
+    """Walk admitted change docs; return silent ``[ ]`` items that block close.
+
+    Wave 1p31b (1p32k): the close-time hard gate. Every AC and task must be ``[x]`` or
+    ``[~]`` at close. AC items at ``not-this-scope`` priority are exempt. Returns a list of
+    ``{'change_id', 'item_type' ('AC' or 'task'), 'item_id', 'item_text'}`` dicts.
+    """
+    findings: list[dict[str, str]] = []
+    for change_id in _CHANGE_ID_PATTERN.findall(wave_text):
+        change_path = wave_md.parent / f"{change_id}.md"
+        if not change_path.exists():
+            continue
+        try:
+            change_text = change_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+
+        ac_section = _extract_close_gate_section(change_text, "Acceptance Criteria")
+        priority_section = _extract_close_gate_section(change_text, "AC Priority")
+        priorities = _close_gate_parse_ac_priority(priority_section)
+
+        # Walk AC items — silent `[ ]` at non-exempt priority blocks close.
+        for match in _CLOSE_GATE_CHECKBOX_LINE_RE.finditer(ac_section):
+            if match.group("mark") != " ":
+                continue
+            text_part = match.group("text").strip()
+            id_match = _CLOSE_GATE_AC_ID_RE.search(text_part)
+            ac_id = id_match.group(1) if id_match else "<unidentified>"
+            priority = priorities.get(ac_id, "unknown")
+            if priority == "not-this-scope":
+                continue
+            findings.append({
+                "change_id": change_id,
+                "item_type": "AC",
+                "item_id": ac_id,
+                "item_text": text_part[:120],
+            })
+
+        # Walk task items — every silent `[ ]` blocks close (no priority exemption for tasks).
+        task_section = _extract_close_gate_section(change_text, "Tasks")
+        for match in _CLOSE_GATE_CHECKBOX_LINE_RE.finditer(task_section):
+            if match.group("mark") != " ":
+                continue
+            text_part = match.group("text").strip()
+            findings.append({
+                "change_id": change_id,
+                "item_type": "task",
+                "item_id": "",
+                "item_text": text_part[:120],
+            })
+    return findings
 _TITLE_PATTERN = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 
 
@@ -2624,6 +2723,40 @@ def run_index_rebuild(
     _file_count = pre_stats.get("files_total", "?")
 
     if not full and _index_is_up_to_date(root, layer, content):
+        # Wave 1p31b (1p312): even when files are up-to-date, LanceDB rows for
+        # paths now excluded by workflow-config narrowing must be reaped. The
+        # bug is invisible to ``_index_is_up_to_date`` (meta.json was already
+        # cleaned of the dropped paths) but the LanceDB rows persist until a
+        # full rebuild. Run the reaper directly here — no subprocess spawn
+        # needed; the reaper is O(LanceDB row count) and finishes in <100ms
+        # on tables up to ~5K rows.
+        index_dir_uptd = _index_dir_for_layer(root, layer)
+        reaped_uptd: dict[str, int] = {"docs": 0, "code": 0, "total": 0}
+        try:
+            from indexer import _reap_stranded_lance_rows  # late import: heavy module
+            meta_uptd_path = index_dir_uptd / "meta.json"
+            if meta_uptd_path.exists():
+                try:
+                    meta_uptd = json.loads(meta_uptd_path.read_text(encoding="utf-8"))
+                except Exception:
+                    meta_uptd = {}
+                eligible_uptd = {
+                    p for p in (meta_uptd.get("file_meta") or {}).keys() if isinstance(p, str)
+                }
+                # Reap both tables regardless of ``content`` arg: a docs-only
+                # update must still reap code-table orphans (and vice versa).
+                # See indexer._reap_stranded_lance_rows for rationale.
+                if eligible_uptd:
+                    reaped_uptd = _reap_stranded_lance_rows(
+                        index_dir_uptd,
+                        eligible_uptd,
+                        tables=("docs", "code"),
+                    )
+        except Exception:
+            # Reaper is best-effort on the up-to-date hot path; never block a
+            # successful response on a reaper failure. The next non-up-to-date
+            # build will retry via the subprocess path.
+            pass
         return {
             "passed": True,
             "already_running": False,
@@ -2635,6 +2768,8 @@ def run_index_rebuild(
             "index_scope": "incremental_update",
             "layer": layer,
             "stats": pre_stats,
+            "stranded_rows_reaped": reaped_uptd.get("total", 0),
+            "stranded_rows_reaped_by_table": reaped_uptd,
         }
 
     # Persist stats from the previous completed build before overwriting the log.
@@ -7030,6 +7165,30 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
             )
     if not lint_result["passed"]:
         diagnostics.extend([_diagnostic("docs_lint_error", err, recovery_tools=["wave_validate"]) for err in lint_result["errors"]])
+    # Wave 1p31b (1p32k): close-time hard gate — every AC and task across admitted changes
+    # must be `[x]` (done) or `[~]` (intentionally deferred). Silent `[ ]` items block close.
+    silent_unchecked = _collect_silent_unchecked_items_for_close(wave_md, text)
+    if silent_unchecked:
+        # Build a structured, operator-readable message naming up to 10 items inline; counts
+        # beyond that summarized. The diagnostic carries the full list in its data for tools.
+        sample_lines: list[str] = []
+        for item in silent_unchecked[:10]:
+            tag = f"[{item['item_id']}]" if item["item_id"] else "[task]"
+            sample_lines.append(f"  - {item['change_id']} {tag} {item['item_type']}: {item['item_text']}")
+        more = f"\n  ...and {len(silent_unchecked) - 10} more" if len(silent_unchecked) > 10 else ""
+        diagnostics.append(
+            _diagnostic(
+                "silent_unchecked_items_at_close",
+                (
+                    f"Wave close blocked: {len(silent_unchecked)} unchecked AC or task item(s) "
+                    "across admitted changes must be marked `[x]` (completed) or `[~]` (intentionally deferred) before close. "
+                    "Silent `[ ]` items are blocking findings per the close-time hard gate. "
+                    f"See seed `170-plan-feature.prompt.md` for the `[~]` convention.\n{chr(10).join(sample_lines)}{more}"
+                ),
+                recovery_tools=["wave_current", "wave_validate"],
+                recovery_usage="wave_current()",
+            )
+        )
     # Gate close runs unconditionally so open gates are always reported (and closed in
     # create mode) even when other diagnostics cause an early return.
     gate_diagnostics = _force_gates_closed(root, mode_s)

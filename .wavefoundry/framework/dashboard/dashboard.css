@@ -793,6 +793,16 @@ td .wave-change-id {
   color: var(--muted);
 }
 
+/* Wave 1p31b (1p32k): intentionally-deferred ACs and tasks. Visually distinct from both
+   done (green check) and pending (muted circle) so an operator scanning the list sees
+   them as a third category — not as just-uncomplete or as completed. The muted-italic
+   styling reads as "set aside on purpose" without competing with the done-green for
+   attention. */
+.metric-dialog-ac-item--deferred .metric-dialog-ac-text {
+  color: var(--muted);
+  font-style: italic;
+}
+
 .metric-dialog-ac-id {
   flex-shrink: 0;
   white-space: nowrap;
@@ -808,16 +818,43 @@ td .wave-change-id {
   flex-shrink: 0;
 }
 
+/* Wave 1p31b (1p32k): glyph is bold + slightly larger so all three states stand out
+   against the AC text. Width bumped to keep the centered glyph from clipping. */
 .metric-dialog-ac-check {
   flex-shrink: 0;
-  font-size: 0.75rem;
+  font-size: 1rem;
+  font-weight: 700;
   color: var(--muted);
-  width: 1rem;
+  width: 1.25rem;
   text-align: center;
+  line-height: 1;
 }
 
 .metric-dialog-ac-check--done {
   color: #53AC04;
+}
+
+/* Wave 1p31b (1p32k): deferred check glyph (`~`) styling — muted blue distinct from the
+   done-green and pending-grey. The italic in the text + this muted-blue glyph together
+   read as "intentionally set aside." */
+.metric-dialog-ac-check--deferred {
+  color: #6B7AA8;
+}
+
+/* Wave 1p31b (1p32k): "deferred" badge replaces the priority badge on `[~]` ACs.
+   Muted blue background to match the glyph; reads as "set aside" rather than competing
+   for attention with required / important / nice-to-have. */
+.status-badge.status-deferred {
+  background: rgba(107, 122, 168, 0.15);
+  color: #6B7AA8;
+  border: 1px solid rgba(107, 122, 168, 0.3);
+}
+
+/* Wave 1p31b (1p32k): the small "· N deferred" suffix next to a progress fraction. Keeps
+   the count discoverable without competing with the primary done/total. */
+.progress-row-deferred {
+  color: var(--muted);
+  font-size: 0.85em;
 }
 
 .metric-dialog-ac-text {

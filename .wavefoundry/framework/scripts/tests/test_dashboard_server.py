@@ -348,7 +348,8 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertIn('const acMetrics = acProgressStats(scopeChanges);', source)
         self.assertIn('const allInWaves = snapshot.changes?.in_waves || [];', source)
         self.assertIn('const progressChanges = scopeChanges || allInWaves;', source)
-        self.assertIn('const acTotal = allCountedChanges.reduce((s, c) => s + visibleAcItems(c).length, 0);', source)
+        # Wave 1p31b (1p32k): the AC total now excludes `[~]` deferred items from the denominator.
+        self.assertIn('const acTotal = allCountedChanges.reduce((s, c) => s + visibleAcItems(c).filter(a => !a.deferred).length, 0);', source)
 
     def test_no_active_wave_dialog_titles_use_pending_copy(self):
         root = Path(self.tmp.name) / "pending-dialogs"
@@ -701,16 +702,87 @@ Wave: `12x test-wave`
         self.assertEqual(snapshot["metrics"]["tasks"]["total"], 0)
 
         source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
-        progress_row_src = source.split("function ProgressRow({ label, done, total, variant }) {", 1)[1].split(
+        # Wave 1p31b (1p32k): ProgressRow signature extended with `deferred` to surface `[~]` counts.
+        progress_row_src = source.split("function ProgressRow({ label, done, total, variant, deferred }) {", 1)[1].split(
             "function ProgressCard({ snapshot, scopeChanges }) {", 1
         )[0]
-        self.assertIn('h(ProgressRow, { label: "ACs",   done: acDone,    total: acTotal,    variant: "acs" })', source)
-        self.assertIn('h(ProgressRow, { label: "Tasks", done: tasksDone, total: tasksTotal, variant: "tasks" })', source)
+        self.assertIn('h(ProgressRow, { label: "ACs",   done: acDone,    total: acTotal,    variant: "acs",   deferred: acDeferred })', source)
+        self.assertIn('h(ProgressRow, { label: "Tasks", done: tasksDone, total: tasksTotal, variant: "tasks", deferred: tasksDeferred })', source)
         self.assertNotIn('acTotal    ? h(ProgressRow', source)
         self.assertNotIn('tasksTotal ? h(ProgressRow', source)
         self.assertNotIn('if (!total) return null;', progress_row_src)
         self.assertIn('const progressChanges = scopeChanges || allInWaves;', source)
         self.assertIn('const allInWaves = snapshot.changes?.in_waves || [];', source)
+
+    def test_parse_ac_items_recognizes_tilde_marker(self):
+        """Wave 1p31b (1p32k): `[~]` ACs parse with deferred=True and done=False."""
+        ac_section = (
+            "- [x] AC-1: Done criterion.\n"
+            "- [ ] AC-2: Pending criterion.\n"
+            "- [~] AC-3: Intentionally deferred per operator direction. *See Decision Log.*\n"
+        )
+        priority_section = (
+            "| AC | Priority | Rationale |\n"
+            "| --- | --- | --- |\n"
+            "| AC-1 | required | Core. |\n"
+            "| AC-2 | required | Polish. |\n"
+            "| AC-3 | important | Optional. |\n"
+        )
+        items = self.lib._parse_ac_items(ac_section, priority_section, "planned")
+        self.assertEqual(len(items), 3)
+        self.assertEqual(items[0]["id"], "AC-1")
+        self.assertTrue(items[0]["done"])
+        self.assertFalse(items[0]["deferred"])
+        self.assertEqual(items[1]["id"], "AC-2")
+        self.assertFalse(items[1]["done"])
+        self.assertFalse(items[1]["deferred"])
+        self.assertEqual(items[2]["id"], "AC-3")
+        self.assertFalse(items[2]["done"], msg="`[~]` must not be counted as done")
+        self.assertTrue(items[2]["deferred"], msg="`[~]` must set deferred=True")
+
+    def test_parse_tasks_recognizes_tilde_marker(self):
+        """Wave 1p31b (1p32k): `[~]` tasks parse with deferred=True and done=False;
+        the in-scope `total` excludes deferred tasks."""
+        tasks_section = (
+            "- [x] Implement feature.\n"
+            "- [ ] Write docs.\n"
+            "- [~] Bench against synthetic fixture\n"
+        )
+        result = self.lib._parse_tasks(tasks_section, "planned")
+        self.assertEqual(result["total"], 2, msg="in-scope total excludes the `[~]` task")
+        self.assertEqual(result["completed"], 1)
+        self.assertEqual(result["open"], 1)
+        self.assertEqual(result["deferred"], 1)
+        # Item-level: the third task must be flagged deferred and not done.
+        self.assertEqual(len(result["items"]), 3)
+        self.assertTrue(result["items"][2]["deferred"])
+        self.assertFalse(result["items"][2]["done"])
+
+    def test_deferred_acs_excluded_from_progress_denominator(self):
+        """Wave 1p31b (1p32k): a change with 2 `[x]` and 2 `[~]` of 4 ACs reports
+        100% complete (2/2), not 50% (2/4). The deferred count surfaces separately."""
+        ac_section = (
+            "- [x] AC-1: First.\n"
+            "- [x] AC-2: Second.\n"
+            "- [~] AC-3: Removed per operator. *See Decision Log.*\n"
+            "- [~] AC-4: Also removed. *Same rationale.*\n"
+        )
+        priority_section = (
+            "| AC | Priority | Rationale |\n"
+            "| --- | --- | --- |\n"
+            "| AC-1 | required | Core. |\n"
+            "| AC-2 | required | Polish. |\n"
+            "| AC-3 | required | Was core, removed. |\n"
+            "| AC-4 | important | Was nice, removed. |\n"
+        )
+        items = self.lib._parse_ac_items(ac_section, priority_section, "planned")
+        completed = self.lib._completed_ac_counts(items)
+        deferred = self.lib._deferred_ac_counts(items)
+        self.assertEqual(completed["required"], 2, msg="both `[x]` required ACs counted")
+        # `[~]` ACs must not be counted as completed regardless of priority.
+        self.assertNotIn("AC-3", [k for k in completed.keys() if completed[k] > 0])
+        self.assertEqual(deferred["required"], 1, msg="AC-3 surfaces in required-priority deferred count")
+        self.assertEqual(deferred["important"], 1, msg="AC-4 surfaces in important-priority deferred count")
 
     def test_snapshot_includes_git_key_as_dict(self):
         snapshot = self.lib.collect_dashboard_snapshot(self.root, skip_git=True)

@@ -156,9 +156,13 @@ function computeProgress(changes) {
 }
 
 function waveStats(waveChanges) {
-  const tasksTotal = waveChanges.reduce((s, c) => s + (Number(c.tasks_total) || 0), 0);
-  const tasksDone  = waveChanges.reduce((s, c) => s + (Number(c.tasks_completed) || 0), 0);
-  const acTotals = {}, acDone = {};
+  // Wave 1p31b (1p32k): `[~]` (intentionally-deferred) items are excluded from progress
+  // denominators and surfaced separately. The backend already returns `tasks_total` with
+  // deferreds excluded; we additionally aggregate `tasks_deferred` and `ac_deferred_counts`.
+  const tasksTotal    = waveChanges.reduce((s, c) => s + (Number(c.tasks_total) || 0), 0);
+  const tasksDone     = waveChanges.reduce((s, c) => s + (Number(c.tasks_completed) || 0), 0);
+  const tasksDeferred = waveChanges.reduce((s, c) => s + (Number(c.tasks_deferred) || 0), 0);
+  const acTotals = {}, acDone = {}, acDeferred = {};
   for (const c of waveChanges) {
     for (const [k, v] of Object.entries(c.ac_priority_counts || {})) {
       acTotals[k] = (acTotals[k] || 0) + v;
@@ -166,8 +170,11 @@ function waveStats(waveChanges) {
     for (const [k, v] of Object.entries(c.ac_completed_counts || {})) {
       acDone[k] = (acDone[k] || 0) + v;
     }
+    for (const [k, v] of Object.entries(c.ac_deferred_counts || {})) {
+      acDeferred[k] = (acDeferred[k] || 0) + v;
+    }
   }
-  return { tasksTotal, tasksDone, acTotals, acDone };
+  return { tasksTotal, tasksDone, tasksDeferred, acTotals, acDone, acDeferred };
 }
 
 function visibleAcItems(change) {
@@ -175,15 +182,22 @@ function visibleAcItems(change) {
 }
 
 function acProgressStats(changes) {
+  // Wave 1p31b (1p32k): exclude `[~]` (deferred) items from the denominator; surface
+  // `deferred` separately so the UI can render a distinct badge without affecting progress %.
   let total = 0;
   let done = 0;
+  let deferred = 0;
   for (const change of changes || []) {
     for (const ac of visibleAcItems(change)) {
+      if (ac.deferred) {
+        deferred += 1;
+        continue;
+      }
       total += 1;
       if (ac.done) done += 1;
     }
   }
-  return { total, done, pending: Math.max(0, total - done) };
+  return { total, done, deferred, pending: Math.max(0, total - done) };
 }
 
 function stripScopePrefix(scope) {
@@ -432,9 +446,10 @@ function Header({ snapshot, dark, onToggleDark }) {
   );
 }
 
-function ProgressRow({ label, done, total, variant }) {
+function ProgressRow({ label, done, total, variant, deferred }) {
   const safeTotal = Number(total) || 0;
   const safeDone = Number(done) || 0;
+  const safeDeferred = Number(deferred) || 0;
   const pct = safeTotal > 0 ? Math.round((safeDone / safeTotal) * 100) : 0;
   const complete = safeTotal > 0 && safeDone >= safeTotal;
   const cls = ["progress-row", variant && `progress-row--${variant}`, complete && "progress-row--complete"]
@@ -453,7 +468,14 @@ function ProgressRow({ label, done, total, variant }) {
         h("div", { className: "progress-bar-fill", style: { width: `${pct}%` } }),
       ),
     ),
-    h("div", { className: "progress-row-fraction" }, `${safeDone}/${safeTotal}`),
+    h("div", { className: "progress-row-fraction" },
+      `${safeDone}/${safeTotal}`,
+      // Wave 1p31b (1p32k): surface intentionally-deferred count next to the fraction so
+      // operators see them as a category without affecting the progress bar.
+      safeDeferred > 0
+        ? h("span", { className: "progress-row-deferred", title: `${safeDeferred} intentionally deferred` }, ` · ${safeDeferred} deferred`)
+        : null,
+    ),
   );
 }
 
@@ -480,15 +502,20 @@ function ProgressCard({ snapshot, scopeChanges }) {
   const closedInWaves = allInWaves.filter(c => closedWaveIds.has(c.wave_id));
   const allCountedChanges = [...openProgressChanges, ...closedInWaves];
 
+  // Wave 1p31b (1p32k): exclude `[~]` deferred items from totals and surface them as a
+  // separate count. The backend's `tasks_total` already excludes `tasks_deferred`; for ACs
+  // we filter on the item-level `deferred` flag.
   const tasksTotal = allCountedChanges.reduce((s, c) => s + (Number(c.tasks_total) || 0), 0);
   const tasksDone  = allCountedChanges.reduce((s, c) =>
     s + (closedWaveIds.has(c.wave_id) ? (Number(c.tasks_total) || 0) : (Number(c.tasks_completed) || 0)), 0);
+  const tasksDeferred = allCountedChanges.reduce((s, c) => s + (Number(c.tasks_deferred) || 0), 0);
 
-  const acTotal = allCountedChanges.reduce((s, c) => s + visibleAcItems(c).length, 0);
+  const acTotal = allCountedChanges.reduce((s, c) => s + visibleAcItems(c).filter(a => !a.deferred).length, 0);
   const acDone  = allCountedChanges.reduce((s, c) => {
-    const items = visibleAcItems(c);
-    return s + (closedWaveIds.has(c.wave_id) ? items.length : items.filter(a => a.done).length);
+    const inScope = visibleAcItems(c).filter(a => !a.deferred);
+    return s + (closedWaveIds.has(c.wave_id) ? inScope.length : inScope.filter(a => a.done).length);
   }, 0);
+  const acDeferred = allCountedChanges.reduce((s, c) => s + visibleAcItems(c).filter(a => a.deferred).length, 0);
 
   return h("article", { className: "progress-card" },
     h("div", { className: "progress-header" },
@@ -497,8 +524,8 @@ function ProgressCard({ snapshot, scopeChanges }) {
     h("div", { className: "progress-rows" },
       h(ProgressRow, { label: "Waves",   done: closedWaves, total: totalWaves,   variant: "waves" }),
       h(ProgressRow, { label: "Changes", done: changesDone, total: changesTotal, variant: "changes" }),
-      h(ProgressRow, { label: "ACs",   done: acDone,    total: acTotal,    variant: "acs" }),
-      h(ProgressRow, { label: "Tasks", done: tasksDone, total: tasksTotal, variant: "tasks" }),
+      h(ProgressRow, { label: "ACs",   done: acDone,    total: acTotal,    variant: "acs",   deferred: acDeferred }),
+      h(ProgressRow, { label: "Tasks", done: tasksDone, total: tasksTotal, variant: "tasks", deferred: tasksDeferred }),
     ),
   );
 }
@@ -933,7 +960,8 @@ function AcsDialog({ snapshot, onClose }) {
   const PRIORITY_BADGE = { required: "status-blocked", important: "status-warn", "nice-to-have": "status-neutral", unknown: "status-unknown" };
   return h(DialogFrame, { title: scope === "active" ? "Active ACs" : "Pending ACs", onClose },
     changes.length ? changes.map(c => {
-      const items = sortPendingFirst(visibleAcItems(c), ac => Boolean(ac.done));
+      // Wave 1p31b (1p32k): treat deferred items as "not pending" so they sort with done.
+      const items = sortPendingFirst(visibleAcItems(c), ac => Boolean(ac.done) || Boolean(ac.deferred));
       if (!items.length) return null;
       const wave = c.wave_id ? waveMap[c.wave_id] : null;
       const evidence = wave?.review_evidence || [];
@@ -946,15 +974,30 @@ function AcsDialog({ snapshot, onClose }) {
         ),
         h("div", { className: "metric-dialog-card-title" }, c.title),
         h("div", { className: "metric-dialog-ac-rows" },
-          items.map((ac, i) =>
-            h("div", { key: i, className: `metric-dialog-ac-item${ac.done ? " metric-dialog-ac-item--done" : ""}` },
-              h("span", { className: `metric-dialog-ac-check${ac.done ? " metric-dialog-ac-check--done" : ""}` }, ac.done ? "✓" : "○"),
-              h("span", { className: "metric-dialog-ac-text" }, renderInline(ac.text || "")),
-              ac.priority && ac.priority !== "unknown"
+          items.map((ac, i) => {
+            // Wave 1p31b (1p32k): render `[~]` deferred ACs with a distinct check icon (`~`)
+            // and a `--deferred` modifier so operators see them as a third category rather
+            // than falsely-pending or falsely-done.
+            const stateMod = ac.deferred
+              ? " metric-dialog-ac-item--deferred"
+              : (ac.done ? " metric-dialog-ac-item--done" : "");
+            const checkMod = ac.deferred
+              ? " metric-dialog-ac-check--deferred"
+              : (ac.done ? " metric-dialog-ac-check--done" : "");
+            const checkGlyph = ac.deferred ? "~" : (ac.done ? "✓" : "○");
+            // Wave 1p31b (1p32k): for deferred ACs, replace the priority badge with a
+            // "deferred" label — the priority isn't load-bearing once the AC is set aside.
+            const badge = ac.deferred
+              ? h("span", { className: "status-badge status-deferred metric-dialog-ac-priority" }, "deferred")
+              : (ac.priority && ac.priority !== "unknown"
                 ? h("span", { className: `status-badge ${PRIORITY_BADGE[ac.priority] || "status-unknown"} metric-dialog-ac-priority` }, ac.priority)
-                : null,
-            )
-          ),
+                : null);
+            return h("div", { key: i, className: `metric-dialog-ac-item${stateMod}` },
+              h("span", { className: `metric-dialog-ac-check${checkMod}`, title: ac.deferred ? "Intentionally deferred" : null }, checkGlyph),
+              h("span", { className: "metric-dialog-ac-text" }, renderInline(ac.text || "")),
+              badge,
+            );
+          }),
         ),
       );
     }).filter(Boolean) : h("div", { className: "empty-state" }, scope === "active" ? "No active ACs." : "No pending ACs."),
@@ -964,7 +1007,8 @@ function AcsDialog({ snapshot, onClose }) {
 function TasksDialog({ snapshot, onClose }) {
   const { scope, changes } = dialogChangesForScope(snapshot);
   const cards = changes.map(c => {
-    const items = sortPendingFirst(c.tasks_items || [], task => Boolean(task.done));
+    // Wave 1p31b (1p32k): treat deferred tasks as "not pending" so they sort with done.
+    const items = sortPendingFirst(c.tasks_items || [], task => Boolean(task.done) || Boolean(task.deferred));
     if (!items.length) return null;
     return h("div", { key: c.change_id, className: "metric-dialog-card" },
       h("div", { className: "metric-dialog-card-header" },
@@ -972,12 +1016,20 @@ function TasksDialog({ snapshot, onClose }) {
       ),
       h("div", { className: "metric-dialog-card-title" }, c.title),
       h("div", { className: "metric-dialog-ac-rows" },
-        items.map((task, i) =>
-          h("div", { key: i, className: `metric-dialog-ac-item${task.done ? " metric-dialog-ac-item--done" : ""}` },
-            h("span", { className: `metric-dialog-ac-check${task.done ? " metric-dialog-ac-check--done" : ""}` }, task.done ? "✓" : "○"),
+        items.map((task, i) => {
+          // Wave 1p31b (1p32k): same `[~]` distinct treatment for tasks as for ACs.
+          const stateMod = task.deferred
+            ? " metric-dialog-ac-item--deferred"
+            : (task.done ? " metric-dialog-ac-item--done" : "");
+          const checkMod = task.deferred
+            ? " metric-dialog-ac-check--deferred"
+            : (task.done ? " metric-dialog-ac-check--done" : "");
+          const checkGlyph = task.deferred ? "~" : (task.done ? "✓" : "○");
+          return h("div", { key: i, className: `metric-dialog-ac-item${stateMod}` },
+            h("span", { className: `metric-dialog-ac-check${checkMod}`, title: task.deferred ? "Intentionally deferred" : null }, checkGlyph),
             h("span", { className: "metric-dialog-ac-text" }, renderInline(task.label || "")),
-          )
-        ),
+          );
+        }),
       ),
     );
   }).filter(Boolean);

@@ -62,6 +62,10 @@ Assume apparent agreement can hide correlated error unless the seats reached it 
 - Do not replace `wave-coordinator` lifecycle decisions with council-moderator narration.
 - Do not downgrade a blocking required lane finding into a soft note just to force convergence.
 
+## Chair Of The Archetype Council
+
+`council-moderator` also chairs **Archetype Council** invocations (the stance-based sibling of the role-based Wave Council). Phase shape is identical: primer (optional) → seats in isolation → synthesis. Seat composition is stance-based — Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman by default; documented Hemingway / Munger swap-ins — rather than role-based. Verdict format matches the structured `archetype-review` line shape, recorded in the artifact's review section as forward-compat scaffolding (no validator consumes it in v1). The Archetype Council is **optional** and operator-invoked; it does not record `wave-council-readiness` or `wave-council-delivery` lifecycle signoffs and does not gate any lifecycle step. Wave Council remains required when `wave_review.enabled` is true; Archetype Council runs *in addition*, not in place of. Seed: `236-archetype-council.prompt.md`.
+
 ## Relationship To Pre-Implementation Review Gate
 
 The `wave-council-readiness` verdict produced during `Prepare wave` confirms the wave is **admissible** for implementation. It does not replace the **pre-implementation review gate**, which is the coordinator's responsibility as the mandatory first phase of `Implement wave`. The council does not need to run a second dedicated session for the pre-implementation gate unless the coordinator's pre-mortem surfaces a risk large enough to warrant council-level synthesis. When that happens, the moderator runs an expedited single-question round — not a full repeat of readiness — and records the outcome as a `pre-implementation-review: passed/blocked` finding in `## Review Checkpoints`.

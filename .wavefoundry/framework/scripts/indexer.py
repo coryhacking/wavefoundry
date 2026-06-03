@@ -1136,6 +1136,73 @@ def _delete_lance_rows_by_ids(table, ids: set[str]) -> None:
         table.delete(f"id IN ({in_clause})")
 
 
+def _reap_stranded_lance_rows(
+    db_path: Path,
+    eligible_paths: set[str],
+    *,
+    tables: tuple[str, ...] = ("docs", "code"),
+    verbose: bool = False,
+) -> dict[str, int]:
+    """Delete LanceDB rows whose ``path`` is not in the current eligible set.
+
+    Closes the workflow-config-evolution blind spot: when ``workflow-config.json``
+    narrows include-prefixes, the next incremental update drops the now-ineligible
+    paths from ``meta.json`` (via ``_detect_changes``), but only paths that were
+    *still in old_meta when the narrowing was detected* get evicted from LanceDB.
+    Subsequent incrementals never see those paths in ``old_meta`` again, so their
+    LanceDB rows orphan silently until a full rebuild.
+
+    This reaper reconciles the *current* LanceDB row set against the *current*
+    eligible set on every incremental update, regardless of meta state. It is
+    set-difference + a single batched DELETE per table — no file I/O for
+    ineligible paths.
+
+    Returns ``{"docs": N, "code": M, "total": N+M}`` row counts reaped per table.
+    """
+    reaped: dict[str, int] = {"docs": 0, "code": 0, "total": 0}
+    if not (db_path / "docs.lance").is_dir() and not (db_path / "code.lance").is_dir():
+        return reaped
+    try:
+        db = _get_lance_db(db_path)
+    except Exception as exc:
+        if verbose:
+            print(f"build_index: reaper skipped — could not open LanceDB ({exc})", flush=True)
+        return reaped
+    for table_name in tables:
+        if not (db_path / f"{table_name}.lance").is_dir():
+            continue
+        try:
+            table = db.open_table(table_name)
+            # Pull just the path column to keep the read cheap on large tables.
+            path_arrow = table.to_arrow().column("path")
+            lance_paths = {p for p in path_arrow.to_pylist() if p}
+            stranded = lance_paths - eligible_paths
+            if not stranded:
+                continue
+            # Count rows-to-delete (not unique paths) for accurate operator signal.
+            count_pre = table.count_rows()
+            ordered = sorted(stranded)
+            for idx in range(0, len(ordered), 100):
+                batch = [p.replace("'", "''") for p in ordered[idx:idx + 100]]
+                in_clause = ", ".join(f"'{p}'" for p in batch)
+                table.delete(f"path IN ({in_clause})")
+            count_post = table.count_rows()
+            reaped_here = max(count_pre - count_post, 0)
+            reaped[table_name] = reaped_here
+            reaped["total"] += reaped_here
+            if verbose:
+                print(
+                    f"build_index: reaper {table_name} — {len(stranded)} stranded path(s), "
+                    f"{reaped_here} row(s) reaped",
+                    flush=True,
+                )
+        except Exception as exc:
+            if verbose:
+                print(f"build_index: reaper {table_name} failed ({exc})", flush=True)
+            continue
+    return reaped
+
+
 def _embed_chunks_for_incremental(label: str, chunks: list[dict], embedder) -> "Optional[np.ndarray]":
     """Embed only the chunks that changed during the incremental path."""
     if not chunks:
@@ -1965,14 +2032,46 @@ def _build_index_locked(
     stale = changed | removed
 
     if not full and not stale:
+        # Even when no files changed, LanceDB rows for paths now excluded by
+        # workflow-config narrowing must still be reaped — meta.json drift is
+        # invisible to ``stale`` once a prior build dropped those paths from
+        # ``old_file_meta``. Reaping here ensures post-edit-hook triggers
+        # (which fire incrementals with zero changes) still close the orphan
+        # gap on the typical hot path.
+        #
+        # Reap both tables regardless of ``content`` arg: a docs-only update
+        # must still reap code-table orphans (and vice versa), otherwise the
+        # bug recurs whenever a docs-only incremental fires while the code
+        # table has accumulated stranded rows. ``current_file_meta`` is the
+        # union of all eligible paths for this layer, so checking both
+        # tables against it is correct.
+        reap_idle = _reap_stranded_lance_rows(
+            index_dir,
+            set(current_file_meta.keys()),
+            tables=("docs", "code"),
+            verbose=verbose,
+        )
         if verbose:
             print("build_index: index is up to date", flush=True)
-        return {"files_indexed": 0, "files_total": len(files), "up_to_date": True}
+        return {
+            "files_indexed": 0,
+            "files_total": len(files),
+            "up_to_date": True,
+            "stranded_rows_reaped": reap_idle.get("total", 0),
+            "stranded_rows_reaped_by_table": reap_idle,
+        }
 
     if dry_run:
         scope = "full" if full else f"{len(changed)} changed, {len(removed)} removed"
         print(f"build_index: dry-run — rebuild needed ({scope})", flush=True)
-        return {"files_indexed": 0, "files_total": len(files), "up_to_date": False, "dry_run": True}
+        return {
+            "files_indexed": 0,
+            "files_total": len(files),
+            "up_to_date": False,
+            "dry_run": True,
+            "stranded_rows_reaped": 0,
+            "stranded_rows_reaped_by_table": {"docs": 0, "code": 0, "total": 0},
+        }
 
     _index_label = {"docs": "docs/seed", "code": "code", "all": "docs/seed + code"}.get(content, content)
     if full:
@@ -2241,12 +2340,34 @@ def _build_index_locked(
     }
     _save_meta(index_dir, new_meta)
 
+    # Reap LanceDB rows whose path is no longer in the current eligible set.
+    # Runs on every incremental update across both tables — the workflow-
+    # config-evolution blind spot is invisible from meta.json alone (the
+    # narrowing already updated meta), so the reaper must reconcile LanceDB
+    # directly. Reaping both tables regardless of ``content`` arg keeps the
+    # cross-content failure mode closed: a docs-only update reaps code-table
+    # orphans (and vice versa). Full rebuilds drop the tables entirely so
+    # this pass is a no-op there.
+    stranded_rows_reaped = 0
+    stranded_rows_reaped_by_table: dict[str, int] = {"docs": 0, "code": 0, "total": 0}
+    if not full:
+        reap_result = _reap_stranded_lance_rows(
+            lance_db_path,
+            set(current_file_meta.keys()),
+            tables=("docs", "code"),
+            verbose=verbose,
+        )
+        stranded_rows_reaped_by_table = reap_result
+        stranded_rows_reaped = reap_result.get("total", 0)
+
     summary = {
         "files_indexed": len(files_to_index),
         "files_total": len(files),
         "doc_chunks": total_doc_chunks,
         "code_chunks": total_code_chunks,
         "up_to_date": False,
+        "stranded_rows_reaped": stranded_rows_reaped,
+        "stranded_rows_reaped_by_table": stranded_rows_reaped_by_table,
     }
     files_summary = f"{len(added)} added, {len(updated)} updated, {len(removed)} removed"
     if build_docs:

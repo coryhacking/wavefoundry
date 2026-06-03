@@ -1477,6 +1477,139 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertTrue(any(d["code"] == "missing_required_lane" for d in result["diagnostics"]))
 
+    def _setup_close_gate_wave(self, change_doc_text: str) -> Path:
+        """Wave 1p31b (1p32k): helper for close-time gate tests.
+
+        Writes a wave + change doc with the supplied AC/Task content; sets up sign-offs
+        so other gates pass and only the close-time hard gate is in play.
+        """
+        wave_dir = self.root / "docs" / "waves" / "1200a test-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        wave_md = wave_dir / "wave.md"
+        wave_md.write_text(
+            (
+                "# Wave Record\n"
+                "wave-id: `1200a test-wave`\n"
+                "Status: active\n\n"
+                "## Changes\n\n"
+                "Change ID: `1200a-feat sample`\n"
+                "Change Status: `complete`\n\n"
+                "## Review Evidence\n\n"
+                "- operator-signoff: approved\n"
+            ),
+            encoding="utf-8",
+        )
+        (wave_dir / "1200a-feat sample.md").write_text(change_doc_text, encoding="utf-8")
+        return wave_md
+
+    def test_close_gate_passes_when_all_ac_and_tasks_checked(self):
+        """Wave 1p31b (1p32k) AC-23(a): wave with all `[x]` items closes cleanly."""
+        change_doc = (
+            "# Sample\n\n"
+            "Change ID: `1200a-feat sample`\n"
+            "Change Status: `implemented`\n\n"
+            "## Rationale\n\nWhy.\n\n"
+            "## Requirements\n\n1. One.\n\n"
+            "## Scope\n\nIn scope.\n\n"
+            "## Acceptance Criteria\n\n- [x] AC-1: First criterion met.\n- [x] AC-2: Second criterion met.\n\n"
+            "## Tasks\n\n- [x] Implement first.\n- [x] Implement second.\n\n"
+            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n| AC-2 | important | Polish. |\n"
+        )
+        self._setup_close_gate_wave(change_doc)
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+        codes = {d["code"] for d in result.get("diagnostics", [])}
+        self.assertNotIn("silent_unchecked_items_at_close", codes, msg=f"diagnostics: {result.get('diagnostics')}")
+
+    def test_close_gate_passes_with_mix_of_checked_and_tilde(self):
+        """Wave 1p31b (1p32k) AC-23(b): wave with `[x]` + `[~]` items closes cleanly."""
+        change_doc = (
+            "# Sample\n\n"
+            "Change ID: `1200a-feat sample`\n"
+            "Change Status: `implemented`\n\n"
+            "## Rationale\n\nWhy.\n\n"
+            "## Requirements\n\n1. One.\n\n"
+            "## Scope\n\nIn scope.\n\n"
+            "## Acceptance Criteria\n\n"
+            "- [x] AC-1: First criterion met.\n"
+            "- [~] AC-2: Removed mid-implementation per operator direction. *See Decision Log entry on 2026-06-03 explaining the operator-directed removal of this AC.*\n\n"
+            "## Tasks\n\n- [x] Implement first.\n- [~] Bench against synthetic fixture — covered by unit-test path.\n\n"
+            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n| AC-2 | required | Polish. |\n"
+        )
+        self._setup_close_gate_wave(change_doc)
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+        codes = {d["code"] for d in result.get("diagnostics", [])}
+        self.assertNotIn("silent_unchecked_items_at_close", codes, msg=f"diagnostics: {result.get('diagnostics')}")
+
+    def test_close_gate_blocks_on_silent_required_ac(self):
+        """Wave 1p31b (1p32k) AC-23(c): one silent `[ ]` required AC blocks close."""
+        change_doc = (
+            "# Sample\n\n"
+            "Change ID: `1200a-feat sample`\n"
+            "Change Status: `implemented`\n\n"
+            "## Rationale\n\nWhy.\n\n"
+            "## Requirements\n\n1. One.\n\n"
+            "## Scope\n\nIn scope.\n\n"
+            "## Acceptance Criteria\n\n- [x] AC-1: First criterion met.\n- [ ] AC-2: Second criterion silent at close.\n\n"
+            "## Tasks\n\n- [x] Implement first.\n\n"
+            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n| AC-2 | required | Polish. |\n"
+        )
+        self._setup_close_gate_wave(change_doc)
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+        self.assertEqual(result["status"], "error")
+        gate_diags = [d for d in result["diagnostics"] if d["code"] == "silent_unchecked_items_at_close"]
+        self.assertEqual(len(gate_diags), 1, msg=f"all codes: {[d['code'] for d in result['diagnostics']]}")
+        self.assertIn("AC-2", gate_diags[0]["message"])
+        self.assertIn("1200a-feat sample", gate_diags[0]["message"])
+
+    def test_close_gate_blocks_on_silent_task(self):
+        """Wave 1p31b (1p32k) AC-23(d): one silent `[ ]` task blocks close."""
+        change_doc = (
+            "# Sample\n\n"
+            "Change ID: `1200a-feat sample`\n"
+            "Change Status: `implemented`\n\n"
+            "## Rationale\n\nWhy.\n\n"
+            "## Requirements\n\n1. One.\n\n"
+            "## Scope\n\nIn scope.\n\n"
+            "## Acceptance Criteria\n\n- [x] AC-1: First criterion met.\n\n"
+            "## Tasks\n\n- [x] Implement first.\n- [ ] Run a missing bench fixture\n\n"
+            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n"
+        )
+        self._setup_close_gate_wave(change_doc)
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+        self.assertEqual(result["status"], "error")
+        gate_diags = [d for d in result["diagnostics"] if d["code"] == "silent_unchecked_items_at_close"]
+        self.assertEqual(len(gate_diags), 1)
+        self.assertIn("task", gate_diags[0]["message"].lower())
+        self.assertIn("missing bench fixture", gate_diags[0]["message"])
+
+    def test_close_gate_exempts_not_this_scope_priority_ac(self):
+        """Wave 1p31b (1p32k) AC-23(e): silent `[ ]` `not-this-scope` AC closes cleanly."""
+        change_doc = (
+            "# Sample\n\n"
+            "Change ID: `1200a-feat sample`\n"
+            "Change Status: `implemented`\n\n"
+            "## Rationale\n\nWhy.\n\n"
+            "## Requirements\n\n1. One.\n\n"
+            "## Scope\n\nIn scope.\n\n"
+            "## Acceptance Criteria\n\n- [x] AC-1: First criterion met.\n- [ ] AC-2: Out-of-scope-by-design criterion.\n\n"
+            "## Tasks\n\n- [x] Implement first.\n\n"
+            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n| AC-2 | not-this-scope | Bound check. |\n"
+        )
+        self._setup_close_gate_wave(change_doc)
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+        codes = {d["code"] for d in result.get("diagnostics", [])}
+        self.assertNotIn("silent_unchecked_items_at_close", codes, msg=f"diagnostics: {result.get('diagnostics')}")
+
 
 class WaveReopenTests(unittest.TestCase):
     """12eb0: wave_reopen MCP tool."""

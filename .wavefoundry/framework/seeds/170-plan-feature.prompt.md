@@ -71,7 +71,36 @@ Change document format:
 - `## Requirements` captures numbered behavioral requirements — each requirement must be specific enough that an implementer can act on it unambiguously and a reviewer can verify it without asking for clarification; vague requirements are a blocking gap at `Prepare wave`
 - `## Requirements` should capture operational salience only when it changes engineering behavior. Use "Salience / Impact" for trust-risk, repeated rework, operator-signal, urgency, confusion, or confidence-shift that affects planning, not for routine priority labels.
 - `## Acceptance Criteria` and `## Tasks` must name concrete verification evidence, not only desired outcomes. Translate "fix the bug" into a reproducer plus passing result when feasible, "add validation" into explicit invalid-input checks, and "refactor" into before/after verification expectations. When a reproducer test is not feasible, record the substitute verification path and why. Each AC must use checkbox syntax with a stable identifier: `- [ ] AC-1: <outcome>`, `- [x] AC-2: <outcome>` (checked when actually complete) — this gives each criterion a stable ID for the AC Priority table, review comments, and test evidence, and enables live progress tracking identical to Tasks. Agents must mark AC and task checkboxes incrementally as work is done, not batch-update at closure. When an AC or task is intentionally left unchecked or reopened, the reason must be recorded in a nearby note, a Progress Log entry, or a Review Checkpoints entry so the rationale is durable.
+
+### AC and task checkbox states — the `[~]` marker
+
+Three checkbox states are canonical for ACs and tasks:
+
+| State | Meaning | When to use |
+|---|---|---|
+| `[ ]` | Unmet — in scope, not yet done | Default at admission; flipped to `[x]` when the work completes |
+| `[x]` | Done — verification evidence exists | Mark immediately when the AC's verification step lands; never batch-update at close |
+| `[~]` | **Intentionally not met** — the original requirement was reconsidered, removed by operator direction during implementation, or genuinely narrowed by scope-discovery within the wave's contract. **Not** the same as "deferred to follow-on" (follow-on work stays `[ ]` with a follow-on-plan reference). | When a requirement falls away mid-wave for a recorded reason |
+
+**Every `[~]` AC at required priority must carry an inline status note** explaining the rationale on the same line — naming when the deferral was decided, who directed or surfaced it, and why the original AC is no longer applicable. Wrap the rationale in markdown italics for readability and to satisfy the docs-lint inline-note check:
+
+```markdown
+- [~] AC-13: Mermaid diagram removed entirely per operator direction.
+  *Original draft used a five-subgraph composite; operator subsequently directed
+  removal in favor of prose description. See Decision Log entry on 2026-06-03.*
+```
+
+For `important` and `nice-to-have` priority ACs the inline note is *recommended but not lint-required*. For tasks the inline note is *recommended but not lint-required* regardless of priority, since tasks are implementation hints rather than contract surface.
+
+**Silent `[~]` is a docs-lint error for required-priority ACs.** The mechanical enforcement is the discipline that prevents `[~]` from becoming a silent-deferral pattern. A `[~]` AC that lacks both a markdown italic segment AND sufficient prose (at least 40 characters after the AC label) raises a lint failure at `wave_validate` time.
+
+**Close-wave hard gate.** At `wave_close`, every AC and every task across the wave's admitted changes must be `[x]` (completed) or `[~]` (intentionally deferred). A silent `[ ]` is a blocking close-time finding that surfaces with the change ID, item type, identifier, and inline text. ACs at `not-this-scope` priority are exempt from the close-time gate (the priority already encodes the exclusion). This gate is the discipline that makes the convention *real* rather than optional — at close time, everything is accounted for.
+
+#### Worked example — wave `1p31b` `1p318` AC-13 and AC-19
+
+The `[~]` convention grew from a real artifact: during the public-launch README rewrite (`1p318`), the operator directed full removal of the Mermaid concept-spine diagram mid-implementation. AC-13 (the diagram exists between walkthrough and Core Concepts) and AC-19 (diagram source committed alongside README; render verified) were no longer applicable but neither was satisfied. They were marked `[~]` with inline status notes recording the operator-directed deferral, and the corresponding Decision Log entry on `1p318` named the reasoning. Open `docs/waves/1p31b public-launch-prep/1p318-enh public-launch-surface-doc-rewrite.md` to read the worked example end-to-end.
 - `## Tasks` captures the inline implementation checklist
+- *Consider **Archetype review** when the change's load-bearing surface is AC formulation, rationale prose, or naming. Default seats: Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman. Swap Hemingway in for Feynman on prose-heavy rationale. Optional and operator-invoked; does not record `wave-council-readiness`. Seed: `236-archetype-council.prompt.md`.*
 - `## Affected architecture docs` lists which canonical architecture children (`docs/ARCHITECTURE.md` hub row updates, `docs/architecture/current-state.md`, `domain-map.md`, `layering-rules.md`, `cross-cutting-concerns.md`, `data-and-control-flow.md`, `testing-architecture.md`, `docs/architecture/decisions/*`) the change is expected to touch during planning, implementation, or closure — use **`N/A`** with rationale when the work stays within one module and does not move boundaries, flows, invariants, or test topology; align listed names with **domain-map** identifiers
 - do NOT create a separate `docs/specs/changes/<change-id>/` folder or cross-link to one; all change-tracking content lives in the single document
 - `Change ID:` uses `<id-prefix>-<kind> <slug>` from the MCP `wave_new_*` change-creation tool for the selected kind, or from the CLI fallback `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>` when MCP is unavailable (kinds: bug, feat, enh, change, doc, debt, ref, task, maint, ops)

@@ -104,6 +104,8 @@ Participate in Wave Council as a challenger seat alongside specialist reviewers 
 
 **vs. `senior-engineering-challenger`:** `senior-engineering-challenger` pressure-tests technical claims and assumptions inside a plan or delivered artifact: are the claims internally consistent, are the ACs reachable, is the delivered result genuinely complete? `red-team` challenges from outside the plan: adversarial attack, alternative paths, technology choices, feature definition, and design. Use `senior-engineering-challenger` for plan/delivery pressure-testing; use `red-team` for adversarial or alternative-perspective challenge.
 
+**vs. Archetype Council:** `red-team` runs a single adversarial stance (or all five thinking stances inside one mode). **Archetype Council** runs multiple stance-based seats (Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman) in isolation across orthogonal axes and synthesizes across them. Invoke `red-team` when one sharp challenge is the right shape; invoke Archetype Council when multiple orthogonal axes need to fire simultaneously on a text-precision / prose / naming artifact. The two are complementary, not overlapping. Seed: `236-archetype-council.prompt.md`.
+
 ## Output Shape
 
 Every red-team output must include:

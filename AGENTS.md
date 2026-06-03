@@ -97,6 +97,7 @@ Public Wave Framework commands for Wavefoundry's self-hosted surface. Full detai
 | **Close wave** | Finalize and archive the wave | `docs/prompts/close-wave.prompt.md` |
 | **Finalize feature** | Single-change closure path | `docs/prompts/finalize-feature.prompt.md` |
 | **Interrogate this plan** | Stress-test a change doc before admission | `docs/prompts/interrogate-plan.prompt.md` |
+| **Archetype review** / **Archetype council** | Optional stance-based review on text-precision / prose / naming / AC artifacts; complements Wave Council | `docs/prompts/archetype-council.prompt.md` |
 | **Package Wavefoundry** | Build framework zip distribution | `docs/prompts/package-wavefoundry.prompt.md` |
 | **Migrate to Wavefoundry** | Migrate a target repo from legacy layout | `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md` |
 
@@ -155,6 +156,8 @@ find .wavefoundry/framework/scripts -type d -name '__pycache__' -prune -exec rm 
 ## Change Doc Tracking (Real-Time)
 
 Mark task and AC checkboxes `[x]` as each item completes; update `Change Status` in the change doc and `wave.md` immediately — not at wave end.
+
+Three checkbox states are canonical: `[ ]` (unmet, in scope), `[x]` (done, evidence exists), and `[~]` (**intentionally not met** — requirement reconsidered, removed by operator direction, or genuinely narrowed by scope-discovery during implementation). Every `[~]` AC at required priority must carry an inline status note explaining the rationale; silent `[~]` is a docs-lint error. At `wave_close` every AC and task must be `[x]` or `[~]` (the hard close-time gate); silent `[ ]` blocks close. See `.wavefoundry/framework/seeds/170-plan-feature.prompt.md` *"AC and task checkbox states — the `[~]` marker"* for the canonical convention.
 
 ## Git Commits (Operator-Owned)
 

@@ -70,6 +70,8 @@ Run all three council seats in sequence. Each seat reads the red-team evaluation
 - What should the ADR record that the red-team output alone would miss?
 - What are the explicit bounds of this decision — when does it hold, when should it be revisited?
 
+*Consider **Archetype review** as an additional pass on the council's synthesis when the decision is structured as an option comparison or when durability and essentiality questions are load-bearing. Default seats: Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman. Swap Munger in for Feynman when the decision is a "how would this fail?" inversion pass. Optional and operator-invoked; does not record `wave-council-readiness`. Seed: `236-archetype-council.prompt.md`.*
+
 ### Phase 4 — Operator Interview
 
 After the council synthesis, invite the operator to ask follow-up questions. This is the most important phase. The operator holds context the agents do not: prior discussions, organisational constraints, scope intentions, and domain knowledge that can change the framing entirely.
