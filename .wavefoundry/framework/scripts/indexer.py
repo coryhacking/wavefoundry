@@ -1393,6 +1393,23 @@ def _index_build_lock(index_dir: Path):
     lock_path = index_dir / INDEX_BUILD_LOCK_NAME
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     prior_owner = classify_index_build_lock_owner(read_index_build_lock_metadata(lock_path))
+    # Wave 1p2q3 (1p2w5): proactively unlink lock-file metadata that records a
+    # dead PID. The OS-held `flock()` is released when its holding process
+    # exits, so a fresh acquire below will succeed regardless — but leaving
+    # the stale metadata on disk causes downstream tools that read it (status
+    # surfaces, diagnostic messages) to keep surfacing the dead PID. Unlink
+    # races are safe: POSIX `unlink` does not affect file descriptors already
+    # open in other processes, and concurrent unlink callers see
+    # FileNotFoundError which we ignore.
+    if prior_owner == "stale" and lock_path.exists():
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            # Permission or filesystem issue — fall through and let the
+            # `open()` below surface the underlying error.
+            pass
     fh = lock_path.open("a+", encoding="utf-8")
     acquired = False
     try:
@@ -2068,27 +2085,33 @@ def _build_index_locked(
     try:
         import numpy as _np
         graph_layer = _graph_layer_for_index_dir(index_dir)
-        # Docs, code, and graph run concurrently — each writes to a separate
-        # location (docs.lance, code.lance, graph/) so there are no write conflicts.
-        # Each LanceDB worker gets its own connection to avoid shared-state issues.
-        n_workers = 1 + (1 if build_docs else 0) + (1 if build_code else 0)
+        # Wave 1p2q3 (1p2wd post-ship 1.3.22 / Bug 4 part 2): graph extraction
+        # runs on the main thread, NOT in the docs/code ThreadPoolExecutor.
+        # Teton field session on 1.3.21 surfaced a deadlock: when
+        # `_build_graph_artifacts` ran inside the threadpool's
+        # `wavefoundry-index_0` worker thread, the graph layer's own
+        # multi-process parallel extraction (`ProcessPoolExecutor` with spawn
+        # start method) blocked indefinitely at `Process.start()`. macOS
+        # Python 3.13 has a known hazard where `multiprocessing` spawn-mode
+        # `Process.start()` from a non-main thread deadlocks on internal
+        # signal-handler and pickle state. The graph layer already
+        # parallelizes per-file extraction across multiple processes, so
+        # threading the graph build added zero concurrency benefit anyway —
+        # it just exposed the hazard. The docs/code writes stay in the
+        # threadpool because they're I/O-bound on LanceDB and threads are
+        # the correct tool for that workload.
+        pool_workers = (1 if build_docs else 0) + (1 if build_code else 0)
         _docs_elapsed: list[float] = []
         _code_elapsed: list[float] = []
-        with ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix="wavefoundry-index") as executor:
+        # Use a nullcontext when there's no docs/code work so we don't
+        # construct an empty pool just to immediately tear it down.
+        if pool_workers > 0:
+            _pool_cm = ThreadPoolExecutor(max_workers=pool_workers, thread_name_prefix="wavefoundry-index")
+        else:
+            import contextlib as _ctx_mod
+            _pool_cm = _ctx_mod.nullcontext(None)
+        with _pool_cm as executor:
             futures = []
-            futures.append(executor.submit(
-                _build_graph_artifacts,
-                root=root,
-                index_dir=index_dir,
-                layer=graph_layer,
-                files=files_for_graph,
-                current_file_meta=current_file_meta,
-                changed=changed_for_graph,
-                removed=removed,
-                walker_version=WALKER_VERSION,
-                chunker_version=current_chunker_version,
-                verbose=verbose,
-            ))
             if verbose:
                 layers = ", ".join(filter(None, [
                     "docs" if build_docs else "",
@@ -2158,6 +2181,23 @@ def _build_index_locked(
                         _lance_incremental_write(_db_path, _stale, [], None, _code_chunks, _code_emb, False, True, _verbose)
                         _elapsed.append(time.monotonic() - _t0)
                     futures.append(executor.submit(_write_code_incr))
+            # Wave 1p2q3 (1p2wd post-ship 1.3.22 / Bug 4 part 2): graph
+            # extraction runs synchronously on the main thread, concurrently
+            # with the in-flight docs/code futures above. This is the load-
+            # bearing fix for Teton's hang — see the long comment at the top
+            # of this try-block.
+            _build_graph_artifacts(
+                root=root,
+                index_dir=index_dir,
+                layer=graph_layer,
+                files=files_for_graph,
+                current_file_meta=current_file_meta,
+                changed=changed_for_graph,
+                removed=removed,
+                walker_version=WALKER_VERSION,
+                chunker_version=current_chunker_version,
+                verbose=verbose,
+            )
             for f in futures:
                 f.result()
         # Get total chunk counts from Lance tables for the summary.

@@ -622,6 +622,30 @@ class IndexBuildLockTests(unittest.TestCase):
         )
         self.assertEqual(completed, "completed")
 
+    def test_stale_lock_file_is_unlinked_before_acquire(self):
+        """Wave 1p2q3 (1p2w5 / Bug 1): a lock file whose metadata records a
+        dead PID must be unlinked at `_index_build_lock` entry so downstream
+        tools that read the file (status surfaces, diagnostic messages) see
+        the fresh post-acquire metadata, not the dead-pid legacy."""
+        lock_path = self.index_dir / self.bi.INDEX_BUILD_LOCK_NAME
+        lock_path.write_text(
+            json.dumps({"pid": 99999999, "started_at": 0.0}),
+            encoding="utf-8",
+        )
+        # Capture the inode of the pre-existing file so we can confirm the
+        # post-acquire file is a fresh inode (i.e. the unlink ran).
+        pre_inode = lock_path.stat().st_ino
+        with redirect_stderr(io.StringIO()):
+            with self.bi._index_build_lock(self.index_dir):
+                post_inode = lock_path.stat().st_ino
+                meta = json.loads(lock_path.read_text(encoding="utf-8"))
+                self.assertEqual(meta.get("pid"), os.getpid())
+        self.assertNotEqual(
+            pre_inode, post_inode,
+            "stale lock file should have been unlinked before acquire — "
+            "same inode means the original dead-PID metadata file was reused",
+        )
+
     def test_recent_completed_owner_does_not_log_reclaimed_stale(self):
         lock_path = self.index_dir / self.bi.INDEX_BUILD_LOCK_NAME
         lock_path.write_text(

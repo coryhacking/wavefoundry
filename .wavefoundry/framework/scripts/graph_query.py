@@ -46,6 +46,21 @@ import threading as _threading
 _VERSION_CHECK_LOCK = _threading.Lock()
 _VERSION_CHECK_CACHE: dict[tuple[str, str], tuple[float, str]] = {}
 
+# Wave 1p2q3 (1p2w5): in-process coordination of concurrent auto-rebuild
+# attempts. When a `GRAPH_BUILDER_VERSION` bump invalidates the on-disk graph,
+# every `load_graph` call detects the mismatch independently. Without
+# coordination, concurrent MCP tool calls each fire their own synchronous
+# `build_index`, all but one of which race for the index-build flock and lose
+# — emitting `graph_auto_rebuild_failed` even though a rebuild is actively
+# succeeding in a sibling call. This map records in-flight rebuilds keyed on
+# `(root, layer)`; concurrent callers see the marker and defer with a
+# `graph_auto_rebuild_in_progress` diagnostic. Each entry stores the wall-
+# clock start time so a crashed rebuild does not pin the marker indefinitely
+# (see _INFLIGHT_REBUILD_STALE_SECONDS).
+_VERSION_REBUILD_INFLIGHT_LOCK = _threading.Lock()
+_VERSION_REBUILD_INFLIGHT: dict[tuple[str, str], float] = {}
+_INFLIGHT_REBUILD_STALE_SECONDS = 120.0
+
 # Wave 1p2q3 (131hh): post-rebuild callback registry. server_impl wires this at
 # MCP startup to dispatch `notifications/resources/updated` for wavefoundry://
 # graph/* URIs whenever the auto-rebuild path completes. graph_query stays
@@ -145,6 +160,34 @@ def _ensure_graph_builder_current(root: Path, layer: str) -> dict[str, Any] | No
             "recovery_tools": ["wave_index_build"],
             "recovery_usage": "wave_index_build(content='graph', mode='rebuild')",
         }
+    # Wave 1p2q3 (1p2w5): coordinate concurrent auto-rebuild attempts. If a
+    # rebuild is already in-flight for this (root, layer), defer rather than
+    # race for the index-build flock. The stale-inflight safety net allows a
+    # fresh attempt after _INFLIGHT_REBUILD_STALE_SECONDS in case a prior
+    # rebuild crashed without releasing the marker.
+    import time as _time
+    inflight_started: float | None = None
+    with _VERSION_REBUILD_INFLIGHT_LOCK:
+        inflight_started = _VERSION_REBUILD_INFLIGHT.get(cache_key)
+        now_ts = _time.time()
+        if inflight_started is not None:
+            age = now_ts - inflight_started
+            if age < _INFLIGHT_REBUILD_STALE_SECONDS:
+                return {
+                    "code": "graph_auto_rebuild_in_progress",
+                    "message": (
+                        f"Graph builder version mismatch ({state_version} → {runtime_version}); "
+                        f"a rebuild for this layer is already in progress (started {age:.1f}s ago). "
+                        "Skipping duplicate auto-rebuild attempt. Re-run the tool once the rebuild completes."
+                    ),
+                    "from_builder_version": state_version,
+                    "to_builder_version": runtime_version,
+                    "rebuild_started_at_age_seconds": round(age, 1),
+                    "recovery_tools": ["wave_index_build_status"],
+                    "recovery_usage": "wave_index_build_status()",
+                }
+            # Stale in-flight marker; fall through and claim it ourselves.
+        _VERSION_REBUILD_INFLIGHT[cache_key] = now_ts
     start = time.monotonic()
     try:
         spec = importlib.util.spec_from_file_location("indexer_for_graph_query_rebuild", indexer_script_path)
@@ -170,6 +213,11 @@ def _ensure_graph_builder_current(root: Path, layer: str) -> dict[str, Any] | No
             "recovery_tools": ["wave_index_build"],
             "recovery_usage": "wave_index_build(content='graph', mode='rebuild')",
         }
+    finally:
+        # Release the in-flight marker on every exit path (success, failure,
+        # or unhandled exception). Idempotent: pop returns None if no entry.
+        with _VERSION_REBUILD_INFLIGHT_LOCK:
+            _VERSION_REBUILD_INFLIGHT.pop(cache_key, None)
     # Cache the post-rebuild state (mtime has changed) so subsequent queries
     # don't re-check.
     try:

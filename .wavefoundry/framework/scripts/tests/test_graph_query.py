@@ -536,6 +536,114 @@ class GraphQueryAutoRebuildCallbackTests(unittest.TestCase):
             diag = self.mod._ensure_graph_builder_current(self.root, "project")
         self.assertEqual(diag["code"], "graph_auto_rebuilt")
 
+    def test_concurrent_auto_rebuild_defers_via_inflight_marker(self):
+        """Wave 1p2q3 (1p2w5 / Bug 3): a second `_ensure_graph_builder_current`
+        call that arrives while another rebuild is in-flight must defer with
+        a `graph_auto_rebuild_in_progress` diagnostic instead of racing for
+        the index-build flock. Reproduces the noisy
+        `graph_auto_rebuild_failed` spam Teton observed during the v22→v23
+        auto-rebuild window."""
+        self._seed_stale_graph()
+        cache_key = (str(self.root.resolve()), "project")
+        # Pre-populate the in-flight marker with a started_at well inside the
+        # stale-inflight window (i.e. a "live" rebuild that hasn't crashed).
+        import time
+        with self.mod._VERSION_REBUILD_INFLIGHT_LOCK:
+            self.mod._VERSION_REBUILD_INFLIGHT[cache_key] = time.time()
+        try:
+            diag = self.mod._ensure_graph_builder_current(self.root, "project")
+        finally:
+            with self.mod._VERSION_REBUILD_INFLIGHT_LOCK:
+                self.mod._VERSION_REBUILD_INFLIGHT.pop(cache_key, None)
+        self.assertIsNotNone(diag)
+        self.assertEqual(diag["code"], "graph_auto_rebuild_in_progress")
+        self.assertIn("rebuild_started_at_age_seconds", diag)
+        self.assertGreaterEqual(diag["rebuild_started_at_age_seconds"], 0)
+        self.assertEqual(diag["recovery_tools"], ["wave_index_build_status"])
+
+    def test_stale_inflight_marker_allows_fresh_rebuild_attempt(self):
+        """Wave 1p2q3 (1p2w5 / Bug 3 AC-5): an in-flight marker older than
+        `_INFLIGHT_REBUILD_STALE_SECONDS` does not pin future rebuild
+        attempts. Without the safety net a crashed rebuild that never
+        reached the finally-pop would block every subsequent auto-rebuild
+        indefinitely."""
+        self._seed_stale_graph()
+        cache_key = (str(self.root.resolve()), "project")
+        # Marker older than the stale-inflight threshold.
+        import time
+        stale_age = self.mod._INFLIGHT_REBUILD_STALE_SECONDS + 1
+        with self.mod._VERSION_REBUILD_INFLIGHT_LOCK:
+            self.mod._VERSION_REBUILD_INFLIGHT[cache_key] = time.time() - stale_age
+        p1, p2 = self._with_fake_rebuild()
+        try:
+            with p1, p2:
+                diag = self.mod._ensure_graph_builder_current(self.root, "project")
+        finally:
+            with self.mod._VERSION_REBUILD_INFLIGHT_LOCK:
+                self.mod._VERSION_REBUILD_INFLIGHT.pop(cache_key, None)
+        self.assertIsNotNone(diag)
+        self.assertEqual(diag["code"], "graph_auto_rebuilt")
+
+    def test_inflight_marker_released_on_success_and_failure(self):
+        """Wave 1p2q3 (1p2w5 / Bug 3): the in-flight marker is released on
+        every exit path. The finally clause runs after both the try
+        (success → graph_auto_rebuilt) and except (failure →
+        graph_auto_rebuild_failed) branches. A leaked marker would gate
+        future rebuild attempts until the stale-inflight safety net fires
+        (default 120s)."""
+        cache_key = (str(self.root.resolve()), "project")
+
+        # Success path.
+        self._seed_stale_graph()
+        p1, p2 = self._with_fake_rebuild()
+        with p1, p2:
+            diag = self.mod._ensure_graph_builder_current(self.root, "project")
+        self.assertEqual(diag["code"], "graph_auto_rebuilt")
+        with self.mod._VERSION_REBUILD_INFLIGHT_LOCK:
+            self.assertNotIn(cache_key, self.mod._VERSION_REBUILD_INFLIGHT,
+                             "in-flight marker should be cleared after a successful rebuild")
+
+        # Failure path: reset state-file version so the mismatch fires again,
+        # and fake build_index to raise so the except branch runs.
+        graph_state = self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.json"
+        graph_state.write_text(json.dumps({"builder_version": "0"}), encoding="utf-8")
+        # Bust the in-process verification cache so the rebuild fires again.
+        with self.mod._VERSION_CHECK_LOCK:
+            self.mod._VERSION_CHECK_CACHE.clear()
+        from unittest.mock import patch
+
+        class _FakeLoader:
+            def exec_module(self, module):
+                def _raise(*a, **k):
+                    raise RuntimeError("simulated build_index failure")
+                module.build_index = _raise
+
+        class _FakeSpec:
+            name = "indexer_for_graph_query_rebuild"
+            loader = _FakeLoader()
+
+        real_spec = importlib.util.spec_from_file_location
+        real_module = importlib.util.module_from_spec
+
+        def _fake_spec(name, path):
+            if name == "indexer_for_graph_query_rebuild":
+                return _FakeSpec()
+            return real_spec(name, path)
+
+        def _fake_module(spec):
+            if getattr(spec, "name", "") == "indexer_for_graph_query_rebuild":
+                import types
+                return types.ModuleType("fake_indexer_for_rebuild")
+            return real_module(spec)
+
+        with patch("importlib.util.spec_from_file_location", _fake_spec), \
+             patch("importlib.util.module_from_spec", _fake_module):
+            diag = self.mod._ensure_graph_builder_current(self.root, "project")
+        self.assertEqual(diag["code"], "graph_auto_rebuild_failed")
+        with self.mod._VERSION_REBUILD_INFLIGHT_LOCK:
+            self.assertNotIn(cache_key, self.mod._VERSION_REBUILD_INFLIGHT,
+                             "in-flight marker should be cleared after a failed rebuild too")
+
 
 if __name__ == "__main__":
     unittest.main()

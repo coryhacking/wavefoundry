@@ -997,6 +997,18 @@ def render_bin_launchers(repo_root: Path) -> None:
         + 'cd "$REPO_ROOT"\n'
         'exec "$PYTHON" ".wavefoundry/framework/scripts/wave_gate.py" "$@"\n'
     )
+    lifecycle_id_src = (
+        "#!/usr/bin/env bash\n"
+        "# Canonical lifecycle-id launcher — .wavefoundry/bin/lifecycle-id\n"
+        "# Mints lifecycle prefixes for waves and changes. Prefer the MCP wave_new_*\n"
+        "# tools (they borrow from future buckets on collision); this CLI is the\n"
+        "# venv-aware fallback when the MCP server is unavailable.\n"
+        "set -euo pipefail\n"
+        'REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"\n'
+        + _venv_block
+        + 'cd "$REPO_ROOT"\n'
+        'exec "$PYTHON" ".wavefoundry/framework/scripts/lifecycle_id.py" "$@"\n'
+    )
     write_text(bin_dir / "docs-lint", docs_lint_src, executable=True)
     write_text(bin_dir / "docs-gardener", docs_gardener_src, executable=True)
     write_text(bin_dir / "wave-dashboard", wave_dashboard_src, executable=True)
@@ -1005,7 +1017,8 @@ def render_bin_launchers(repo_root: Path) -> None:
     write_text(bin_dir / "upgrade-wavefoundry", upgrade_wavefoundry_src, executable=True)
     write_text(bin_dir / "mcp-server", mcp_server_src, executable=True)
     write_text(bin_dir / "wave-gate", wave_gate_src, executable=True)
-    for stale in ["upgrade-wavefoundry.bat", "wave_dashboard", "register-codex-mcp"]:
+    write_text(bin_dir / "lifecycle-id", lifecycle_id_src, executable=True)
+    for stale in ["upgrade-wavefoundry.bat", "wave_dashboard", "register-codex-mcp", "wave-id"]:
         stale_path = bin_dir / stale
         if stale_path.exists():
             stale_path.unlink()

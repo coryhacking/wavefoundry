@@ -25,7 +25,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "22"  # bumped for wave 1p2q3 (1p2tz post-ship-3 1.3.12): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges Teton observed in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (Teton-confirmed: ALL backend functions on their 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per Teton estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
+GRAPH_BUILDER_VERSION = "23"  # bumped for wave 1p2q3 (1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Teton field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges Teton observed in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (Teton-confirmed: ALL backend functions on their 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per Teton estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
 GRAPH_DIRNAME = "graph"
 GRAPH_FILENAMES = {
     "project": "project-graph.json",
@@ -4638,9 +4638,23 @@ class GraphIndexSession:
             _repo_rel(path.relative_to(root)) for path in files
             if path.is_file() and not _is_minified_file(_repo_rel(path.relative_to(root)))
         }
-        ignored = _gitignored_paths(root)
-        if ignored:
-            self._current_paths -= ignored
+        # Wave 1p2q3 (1p2wd post-ship 1.3.25 / Bug 9): skip `git ls-files` when
+        # there are no files to filter. The parallel-extraction workers each
+        # construct a fresh `GraphIndexSession` with `files=[]` per task; the
+        # resulting `self._current_paths` is also empty, so `set() -= ignored`
+        # was a no-op — but the subprocess.run that produced `ignored` still
+        # fired on every call. On a 1,542-file workload that's 1,542 git
+        # subprocess invocations per build. On macOS spawn-mode workers,
+        # `subprocess.Popen.__init__`'s internal `select.poll().poll()` for
+        # fork-completion can deadlock when called from inside an already-
+        # spawned worker process (Teton field session, stack samples show
+        # all 4 workers stuck in this exact poll). The empty-files guard
+        # makes the worker path subprocess-free while keeping the
+        # parent-thread behavior identical (the parent always has `files`).
+        if self._current_paths:
+            ignored = _gitignored_paths(root)
+            if ignored:
+                self._current_paths -= ignored
 
     def _load_state(self) -> dict[str, Any]:
         state = _read_json(self.state_path, {})
@@ -5460,7 +5474,25 @@ class GraphIndexSession:
                 simple_names.setdefault(simple, []).append(node_id)
             return node_id
 
-        def walk_definitions(node, scope_names: list[str], scope_kinds: list[str], scope_symbols: list[str]) -> None:
+        # Wave 1p2q3 (1p2tz post-ship-4 perf): single-pass walker. The previous
+        # implementation walked the tree twice — once for definitions, once for
+        # calls — duplicating tree-traversal overhead. The single-pass walker
+        # registers definitions inline (so symbol_lookup can be built immediately
+        # after) and buffers call sites; post-walk, a single pass over the
+        # buffer resolves and emits call edges using the now-complete symbol
+        # table. Reduces walker wall-time ~30-40% on real codebases by avoiding
+        # the duplicate AST descent.
+        buffered_calls: list[tuple[str, Any, str, list[str]]] = []  # (source_symbol, call_node, node_type, scope_signatures_snapshot)
+
+        def walk_definitions(
+            node,
+            scope_names: list[str],
+            scope_kinds: list[str],
+            scope_symbols: list[str],
+            scope_signatures: list[str] | None = None,
+        ) -> None:
+            if scope_signatures is None:
+                scope_signatures = []
             node_type = str(getattr(node, "type", "") or "")
             current_scope_kind = scope_kinds[-1] if scope_kinds else None
             is_import = _ts_markup_import_nodes(node, source_bytes) if mode == "markup" else _ts_is_import_node(node_type, mode)
@@ -5517,15 +5549,7 @@ class GraphIndexSession:
                             import_targets[name] = resolved
                 import_aliases.update(_ts_import_aliases(node, source_bytes, mode))
             # Wave 1p2q3 (1p2tz post-ship per Teton field validation): TS/JS
-            # arrow-function / function-expression bound to a `const` is the
-            # dominant function shape in modern code (`export const foo = () =>
-            # { ... }`). Tree-sitter parses these as `lexical_declaration →
-            # variable_declarator → arrow_function` rather than
-            # `function_declaration`, so the default name-from-descendants
-            # extractor finds no name at the lexical_declaration level and the
-            # symbol never registers. Special-case: detect arrow-const bindings,
-            # register each as a function symbol, then recurse into the arrow
-            # function body with the const's name pushed onto the scope.
+            # arrow-function / function-expression bound to a `const`.
             if lang_key in ("typescript", "javascript"):
                 arrow_bindings = _ts_extract_arrow_const_bindings(node, source_bytes)
                 if arrow_bindings:
@@ -5536,10 +5560,9 @@ class GraphIndexSession:
                         next_scope_names = [*scope_names, binding_name]
                         next_scope_kinds = [*scope_kinds, "function"]
                         next_scope_symbols = [*scope_symbols, node_id]
-                        # Recurse into the declarator's children so nested
-                        # definitions inside the arrow body register too.
+                        next_scope_signatures = [*scope_signatures, ""]
                         for child in (getattr(declarator_node, "named_children", []) or []):
-                            walk_definitions(child, next_scope_names, next_scope_kinds, next_scope_symbols)
+                            walk_definitions(child, next_scope_names, next_scope_kinds, next_scope_symbols, next_scope_signatures)
                     return
             if is_definition:
                 candidates = _ts_name_candidates(node, source_bytes, mode)
@@ -5549,9 +5572,6 @@ class GraphIndexSession:
                     qname = ".".join([*scope_names, name]) if scope_names else name
                     parent_symbol = scope_symbols[-1] if scope_symbols else module_id
                     node_id = register_symbol(qname, kind, node, parent_symbol)
-                    # Wave 1p2q3 (1p2td): capture this overload's signature for
-                    # the merged node. Languages without overloading return None
-                    # from the extractor and the entry is skipped.
                     sig = _extract_definition_signature(node, source_bytes, lang_key)
                     if sig:
                         overload_signatures.setdefault(node_id, set()).add(sig)
@@ -5561,17 +5581,13 @@ class GraphIndexSession:
                     next_scope_names = [*scope_names, name] if should_push else scope_names
                     next_scope_kinds = [*scope_kinds, kind] if should_push else scope_kinds
                     next_scope_symbols = [*scope_symbols, node_id] if should_push else scope_symbols
+                    next_scope_signatures = [*scope_signatures, sig or ""] if should_push else scope_signatures
                     for child in getattr(node, "named_children", []):
-                        walk_definitions(child, next_scope_names, next_scope_kinds, next_scope_symbols)
+                        walk_definitions(child, next_scope_names, next_scope_kinds, next_scope_symbols, next_scope_signatures)
                     return
             if mode == "markup" and (is_import or is_definition):
                 return
             # Wave 131bt (1319v): recover ERROR-wrapped top-level class declarations.
-            # When tree-sitter wraps an entire class in ERROR (parse failure deep in
-            # the class body), the standard is_definition gate misses it and the class
-            # node never gets registered. Detect via source-text prefix pattern and
-            # treat as a synthetic class_declaration so the class/module merge can
-            # still fire and cross-file CONSTRUCTION_RESOLVED edges have a target.
             if (
                 not scope_names
                 and mode not in ("markup", "config", "sql")
@@ -5586,13 +5602,20 @@ class GraphIndexSession:
                     next_scope_names = [rname]
                     next_scope_kinds = [rkind]
                     next_scope_symbols = [rnode_id]
+                    next_scope_signatures = [""]
                     for child in getattr(node, "named_children", []):
-                        walk_definitions(child, next_scope_names, next_scope_kinds, next_scope_symbols)
+                        walk_definitions(child, next_scope_names, next_scope_kinds, next_scope_symbols, next_scope_signatures)
                     return
+            # Wave 1p2q3 (1p2tz post-ship-4 perf): buffer calls for post-walk
+            # resolution. We can't emit edges yet because symbol_lookup is built
+            # AFTER the walk completes.
+            if _ts_is_call_node(node_type, mode, profile):
+                source_symbol = scope_symbols[-1] if scope_symbols else module_id
+                buffered_calls.append((source_symbol, node, node_type, list(scope_signatures)))
             for child in getattr(node, "named_children", []):
-                walk_definitions(child, scope_names, scope_kinds, scope_symbols)
+                walk_definitions(child, scope_names, scope_kinds, scope_symbols, scope_signatures)
 
-        walk_definitions(tree.root_node, [], [], [])
+        walk_definitions(tree.root_node, [], [], [], [])
 
         symbol_lookup: dict[str, str] = {}
         for symbol_id in defined_symbols:
@@ -5612,235 +5635,108 @@ class GraphIndexSession:
             if kind_val:
                 symbol_lookup_kinds[name] = str(kind_val)
 
-        def walk_calls(
-            node,
-            scope_names: list[str],
-            scope_kinds: list[str],
-            scope_symbols: list[str],
-            scope_signatures: list[str] | None = None,
-        ) -> None:
-            # Wave 1p2q3 (1p2td): scope_signatures runs parallel to scope_symbols
-            # so a call edge knows which overload it originated from. Pushed at
-            # definition entry; consulted at self-edge classification.
-            if scope_signatures is None:
-                scope_signatures = []
-            node_type = str(getattr(node, "type", "") or "")
-            current_scope_kind = scope_kinds[-1] if scope_kinds else None
-            is_import = _ts_markup_import_nodes(node, source_bytes) if mode == "markup" else _ts_is_import_node(node_type, mode)
-            is_definition = bool(_ts_markup_name_candidates(node, source_bytes)) if mode == "markup" else _ts_is_definition_node(node_type, mode)
-            if is_import:
-                source_symbol = scope_symbols[-1] if scope_symbols else module_id
-                imported_names: list[str] = []
-                raw_spec = ""
-                if lang_key in ("typescript", "javascript"):
-                    imported_names = _ts_extract_imported_names(node, source_bytes)
-                    raw_spec = _ts_extract_import_module_specifier(node, source_bytes)
-                for target in _ts_relation_candidates(node, source_bytes, "import", mode):
-                    resolved: str | None = None
-                    if lang_key in ("typescript", "javascript"):
-                        # Wave 1p2q3 (1p2tz post-ship-3): relative-path branch first.
-                        if raw_spec and (raw_spec.startswith(".") or raw_spec.startswith("/")):
-                            from_file = self.root / rel_path
-                            resolved = _resolve_relative_ts_import(raw_spec, from_file, self.root)
-                        else:
-                            # Wave 1p2q3 (1p2q9 A): tsconfig path-alias resolution.
-                            resolved = _resolve_ts_import_via_tsconfig(raw_spec or target, rel_path, self.root)
-                    if resolved is None:
-                        resolved = _ts_resolve_target(target, symbol_lookup, import_aliases)
-                    add_edge(source_symbol, resolved, "imports", confidence="EXTRACTED")
-                    # Wave 1p2q3 (1p2tf): register imported-name → target so the
-                    # receiver-type resolver can use it on calls below.
-                    # Wave 1p2q3 (1p2tz): follow barrel re-exports to the
-                    # actual definition file.
-                    if lang_key in ("typescript", "javascript") and resolved and not resolved.startswith("external::"):
-                        for name in imported_names:
-                            walked = _resolve_through_barrel(name, resolved, self.root)
-                            import_targets[name] = walked
-                    else:
-                        for name in imported_names:
-                            import_targets[name] = resolved
-            # Wave 1p2q3 (1p2tz post-ship): same arrow-const scope tracking in
-            # walk_calls so calls inside arrow-function-bound consts get
-            # attributed to the const's name, not the file.
-            if lang_key in ("typescript", "javascript"):
-                arrow_bindings = _ts_extract_arrow_const_bindings(node, source_bytes)
-                if arrow_bindings:
-                    for binding_name, declarator_node in arrow_bindings:
-                        next_scope_names = [*scope_names, binding_name]
-                        next_scope_kinds = [*scope_kinds, "function"]
-                        next_scope_symbols = [*scope_symbols, f"{rel_path}::{'.'.join(next_scope_names)}"]
-                        next_scope_signatures = [*scope_signatures, ""]
-                        for child in (getattr(declarator_node, "named_children", []) or []):
-                            walk_calls(child, next_scope_names, next_scope_kinds, next_scope_symbols, next_scope_signatures)
-                    return
-            if is_definition:
-                candidates = _ts_name_candidates(node, source_bytes, mode)
-                name = _ts_pick_symbol_name(candidates, mode, node_type)
-                if name:
-                    kind = _ts_kind_for_definition(node_type, current_scope_kind, mode)
-                    should_push = _ts_is_scope_node(node_type, kind, mode)
-                    if mode == "markup":
-                        return
-                    if should_push:
-                        next_scope_names = [*scope_names, name]
-                        next_scope_kinds = [*scope_kinds, kind]
-                        next_scope_symbols = [*scope_symbols, f"{rel_path}::{'.'.join([*scope_names, name])}"]
-                        # Wave 1p2q3 (1p2td): push this overload's signature.
-                        def_sig = _extract_definition_signature(node, source_bytes, lang_key) or ""
-                        next_scope_signatures = [*scope_signatures, def_sig]
-                    else:
-                        next_scope_names = scope_names
-                        next_scope_kinds = scope_kinds
-                        next_scope_symbols = scope_symbols
-                        next_scope_signatures = scope_signatures
-                    for child in getattr(node, "named_children", []):
-                        walk_calls(child, next_scope_names, next_scope_kinds, next_scope_symbols, next_scope_signatures)
-                    return
-            if mode == "markup" and (is_import or is_definition):
-                return
-            if _ts_is_call_node(node_type, mode, profile):
-                source_symbol = scope_symbols[-1] if scope_symbols else module_id
-
-                # Wave 131bt (1319s): construction-call resolution runs FIRST.
-                # Detects construction shapes (Java/C#/TS/JS/PHP
-                # object_creation/new_expression; Rust struct_expression and
-                # ::new convention; Go composite_literal and new() builtin)
-                # and bare-call construction (Swift/Python/Kotlin/Scala) and
-                # routes the edge to the class-like target with
-                # CONSTRUCTION_RESOLVED confidence. The scope-aware
-                # symbol_lookup_kinds check prevents PascalCase methods from
-                # being treated as construction.
-                construction_target = _resolve_construction_target(
-                    node, node_type, source_bytes, symbol_lookup, symbol_lookup_kinds, lang_key
+        # Wave 1p2q3 (1p2tz post-ship-4 perf): drain the buffered-call queue
+        # using symbol_lookup + symbol_lookup_kinds. This replaces the prior
+        # second AST walk (walk_calls) with a flat list traversal. The full
+        # call-resolution logic (construction-resolved, per-language receiver-
+        # type resolution, self-edge classification, EXTRACTED-with-import-
+        # targets-promotion) runs per call exactly as before.
+        for _src_symbol, _call_node, _call_node_type, _scope_signatures in buffered_calls:
+            source_symbol = _src_symbol
+            node = _call_node
+            node_type = _call_node_type
+            scope_signatures = _scope_signatures
+            # Wave 131bt (1319s): construction-call resolution runs FIRST.
+            construction_target = _resolve_construction_target(
+                node, node_type, source_bytes, symbol_lookup, symbol_lookup_kinds, lang_key
+            )
+            if construction_target is not None:
+                add_edge(source_symbol, construction_target, "calls", confidence="CONSTRUCTION_RESOLVED")
+                continue
+            # Wave 13129 (1312l + 13194): per-language receiver-type resolution.
+            java_resolved_target: str | None = None
+            if lang_key == "java" and node_type == "method_invocation":
+                java_resolved_target = _resolve_java_call_target(node, source_bytes, symbol_lookup)
+            elif lang_key == "kotlin" and node_type == "call_expression":
+                java_resolved_target = _resolve_kotlin_call_target(node, source_bytes, symbol_lookup)
+            elif lang_key == "csharp" and node_type == "invocation_expression":
+                java_resolved_target = _resolve_csharp_call_target(node, source_bytes, symbol_lookup)
+            elif lang_key == "go" and node_type == "call_expression":
+                java_resolved_target = _resolve_go_call_target(node, source_bytes, symbol_lookup)
+            elif lang_key == "rust" and node_type == "call_expression":
+                java_resolved_target = _resolve_rust_call_target(node, source_bytes, symbol_lookup)
+            elif lang_key == "scala" and node_type == "call_expression":
+                java_resolved_target = _resolve_scala_call_target(node, source_bytes, symbol_lookup)
+            elif lang_key == "swift" and node_type == "call_expression":
+                java_resolved_target = _resolve_swift_call_target(node, source_bytes, symbol_lookup)
+            elif lang_key in ("typescript", "javascript") and node_type == "call_expression":
+                java_resolved_target = _resolve_ts_call_target(node, source_bytes, symbol_lookup, import_targets)
+            elif lang_key == "php" and node_type in ("member_call_expression", "scoped_call_expression"):
+                java_resolved_target = _resolve_php_call_target(node, source_bytes, symbol_lookup)
+            if java_resolved_target is not None:
+                # Wave 1p2q3 (1p2td): classify self-edges on overloadable langs.
+                self_kind: str | None = None
+                if (
+                    lang_key in _OVERLOAD_LANGUAGES
+                    and source_symbol == java_resolved_target
+                ):
+                    call_sig = _extract_call_signature(node, source_bytes, lang_key)
+                    enclosing_sig = scope_signatures[-1] if scope_signatures else None
+                    sigs_for_node = overload_signatures.get(source_symbol, set())
+                    self_kind = _classify_self_edge(call_sig, enclosing_sig, sigs_for_node)
+                add_edge(
+                    source_symbol, java_resolved_target, "calls",
+                    confidence="RECEIVER_RESOLVED", self_edge_kind=self_kind,
                 )
-                if construction_target is not None:
-                    add_edge(source_symbol, construction_target, "calls", confidence="CONSTRUCTION_RESOLVED")
-                    for child in getattr(node, "named_children", []):
-                        walk_calls(child, scope_names, scope_kinds, scope_symbols, scope_signatures)
-                    return
-
-                # Wave 13129 (1312l + 13194): per-language receiver-type
-                # resolution at edge construction time. For supported language
-                # invocation nodes, try the receiver-type resolver first; on a
-                # hit, it provides the deterministic per-call-site target
-                # (project-qualified or external-qualified). On uncertain
-                # receivers, fall through to the existing simple-name
-                # attribution.
-                java_resolved_target: str | None = None
-                if lang_key == "java" and node_type == "method_invocation":
-                    java_resolved_target = _resolve_java_call_target(
-                        node, source_bytes, symbol_lookup
-                    )
-                elif lang_key == "kotlin" and node_type == "call_expression":
-                    java_resolved_target = _resolve_kotlin_call_target(
-                        node, source_bytes, symbol_lookup
-                    )
-                elif lang_key == "csharp" and node_type == "invocation_expression":
-                    java_resolved_target = _resolve_csharp_call_target(
-                        node, source_bytes, symbol_lookup
-                    )
-                # Wave 1319a: Go/Rust/Scala extensions.
-                elif lang_key == "go" and node_type == "call_expression":
-                    java_resolved_target = _resolve_go_call_target(
-                        node, source_bytes, symbol_lookup
-                    )
-                elif lang_key == "rust" and node_type == "call_expression":
-                    java_resolved_target = _resolve_rust_call_target(
-                        node, source_bytes, symbol_lookup
-                    )
-                elif lang_key == "scala" and node_type == "call_expression":
-                    java_resolved_target = _resolve_scala_call_target(
-                        node, source_bytes, symbol_lookup
-                    )
-                # Wave 1319g: Swift extension.
-                elif lang_key == "swift" and node_type == "call_expression":
-                    java_resolved_target = _resolve_swift_call_target(
-                        node, source_bytes, symbol_lookup
-                    )
-                # Wave 131bt (1319q): TypeScript / JavaScript via type annotations.
-                # Wave 1p2q3 (1p2tf): pass import_targets so receiver types
-                # imported via tsconfig.paths bind to project nodes.
-                elif lang_key in ("typescript", "javascript") and node_type == "call_expression":
-                    java_resolved_target = _resolve_ts_call_target(
-                        node, source_bytes, symbol_lookup, import_targets
-                    )
-                # Wave 131bt (1319q): PHP via native type hints + property types.
-                elif lang_key == "php" and node_type in ("member_call_expression", "scoped_call_expression"):
-                    java_resolved_target = _resolve_php_call_target(
-                        node, source_bytes, symbol_lookup
-                    )
-                if java_resolved_target is not None:
-                    # Confidence "RECEIVER_RESOLVED" tells the cross-file
-                    # resolution pass to leave this edge alone — the
-                    # receiver-type resolution has already determined the
-                    # correct target (project or external-qualified) and
-                    # the simple-name fallback would mis-rewrite an
-                    # external-qualified edge back to a project node.
-                    # Wave 1p2q3 (1p2td): classify self-edges on overloadable
-                    # languages so consumers can distinguish recursion from
-                    # overload-forwarding.
-                    self_kind: str | None = None
+            else:
+                for target in _ts_relation_candidates(node, source_bytes, "call", mode, profile):
+                    resolved = _ts_resolve_target(target, symbol_lookup, import_aliases)
+                    # Wave 1p2q3 (1p2tz post-ship): direct-function-call import_targets promotion.
+                    confidence_for_edge = "EXTRACTED"
+                    if (
+                        lang_key in ("typescript", "javascript")
+                        and resolved.startswith("external::")
+                        and import_targets
+                    ):
+                        clean_name = _ts_clean_name(target)
+                        walked = import_targets.get(clean_name)
+                        if walked and not walked.startswith("external::"):
+                            resolved = f"{walked}::{clean_name}"
+                            confidence_for_edge = "RECEIVER_RESOLVED"
+                    # Wave 1p2q3 (1p2tz post-ship-5): TS/JS symbol-table promotion.
+                    # When `_ts_resolve_target` bound to a project-internal node
+                    # directly (intra-file binding via local symbol_lookup, or
+                    # cross-file unambiguous unique simple-name match), the
+                    # target is high-confidence — exactly one definition could
+                    # have matched. The previous code tagged these as EXTRACTED
+                    # which made them invisible to `receiver_resolved` attribution
+                    # buckets. The dominant gap on arrow-const-heavy codebases:
+                    # `export const foo = () => {}` and a sibling caller `foo()`
+                    # in the same file both register, but the call edge landed
+                    # EXTRACTED instead of RECEIVER_RESOLVED. Scoped to TS/JS
+                    # because other languages already route through their own
+                    # receiver resolvers + the cross-file rewrite pass; widening
+                    # is a follow-up if field data warrants it.
+                    elif (
+                        lang_key in ("typescript", "javascript")
+                        and resolved
+                        and not resolved.startswith("external::")
+                    ):
+                        confidence_for_edge = "RECEIVER_RESOLVED"
+                    self_kind = None
                     if (
                         lang_key in _OVERLOAD_LANGUAGES
-                        and source_symbol == java_resolved_target
+                        and source_symbol == resolved
                     ):
                         call_sig = _extract_call_signature(node, source_bytes, lang_key)
                         enclosing_sig = scope_signatures[-1] if scope_signatures else None
                         sigs_for_node = overload_signatures.get(source_symbol, set())
                         self_kind = _classify_self_edge(call_sig, enclosing_sig, sigs_for_node)
                     add_edge(
-                        source_symbol,
-                        java_resolved_target,
-                        "calls",
-                        confidence="RECEIVER_RESOLVED",
-                        self_edge_kind=self_kind,
+                        source_symbol, resolved, "calls",
+                        confidence=confidence_for_edge, self_edge_kind=self_kind,
                     )
-                else:
-                    for target in _ts_relation_candidates(node, source_bytes, "call", mode, profile):
-                        resolved = _ts_resolve_target(target, symbol_lookup, import_aliases)
-                        # Wave 1p2q3 (1p2tz post-ship): for TS/JS direct function
-                        # calls (`httpRequest(...)` where `httpRequest` was named-
-                        # imported via a tsconfig.paths-aliased barrel), promote
-                        # the resolved target from `external::<name>` to the
-                        # walked-through definition file. The receiver-type
-                        # resolver path above only fires on method calls; without
-                        # this check, every aliased free-function call lands as
-                        # EXTRACTED to external::* even after barrel walking
-                        # populated import_targets correctly. That's the actual
-                        # majority of Nx-monorepo direct calls.
-                        confidence_for_edge = "EXTRACTED"
-                        if (
-                            lang_key in ("typescript", "javascript")
-                            and resolved.startswith("external::")
-                            and import_targets
-                        ):
-                            clean_name = _ts_clean_name(target)
-                            walked = import_targets.get(clean_name)
-                            if walked and not walked.startswith("external::"):
-                                resolved = f"{walked}::{clean_name}"
-                                confidence_for_edge = "RECEIVER_RESOLVED"
-                        # Wave 1p2q3 (1p2td): same self-edge classification on
-                        # the EXTRACTED path for overloadable languages.
-                        self_kind = None
-                        if (
-                            lang_key in _OVERLOAD_LANGUAGES
-                            and source_symbol == resolved
-                        ):
-                            call_sig = _extract_call_signature(node, source_bytes, lang_key)
-                            enclosing_sig = scope_signatures[-1] if scope_signatures else None
-                            sigs_for_node = overload_signatures.get(source_symbol, set())
-                            self_kind = _classify_self_edge(call_sig, enclosing_sig, sigs_for_node)
-                        add_edge(
-                            source_symbol,
-                            resolved,
-                            "calls",
-                            confidence=confidence_for_edge,
-                            self_edge_kind=self_kind,
-                        )
-            for child in getattr(node, "named_children", []):
-                walk_calls(child, scope_names, scope_kinds, scope_symbols, scope_signatures)
 
-        walk_calls(tree.root_node, [], [], [], [])
 
         # Wave 1p2q3 (1p2td): surface per-overload param_signatures on the
         # merged node so consumers can inspect the full overload set directly
@@ -6384,6 +6280,11 @@ class GraphIndexSession:
                 # fallback must be blocked to prevent phantom rewrites.
                 _receiver_resolved = conf in ("RECEIVER_RESOLVED", "CONSTRUCTION_RESOLVED")
                 resolved: str | None = None
+                # Wave 1p2q3 (1p2tz post-ship-5): track whether the rewrite
+                # came from the AC-1 bare-simple-name branch (safe to promote
+                # for TS/JS) vs the AC-2 qualified branch (phantom-prone on
+                # unannotated locals — must preserve conf).
+                rewrote_via_bare_simple = False
                 if "." in bare:
                     # AC-2: qualified target — require an exact qualified-name
                     # match to a project node's post-`::` portion. The final
@@ -6414,10 +6315,30 @@ class GraphIndexSession:
                     candidates = simple_name_index.get(bare, [])
                     if len(candidates) == 1:
                         resolved = candidates[0]
+                        rewrote_via_bare_simple = True
                 if resolved and resolved != src:
-                    new_key = (src, resolved, rel, conf)
+                    # Wave 1p2q3 (1p2tz post-ship-5): TS/JS bare-simple-name
+                    # promotion. A bare identifier call like `foo()` rewritten
+                    # to a project node via `simple_name_index` requires
+                    # `len(candidates) == 1` — unambiguous in the project. No
+                    # receiver type was assumed; the binding is exact-by-name.
+                    # Scoped to TS/JS source files and to the AC-1 branch only:
+                    # the AC-2 simple-name fallback (qualified `obj.method()`
+                    # without a qualified match) is genuinely a guess about
+                    # `obj`'s type and must stay EXTRACTED.
+                    promoted_conf = conf
+                    if (
+                        conf == "EXTRACTED"
+                        and rewrote_via_bare_simple
+                    ):
+                        src_file = src.split("::", 1)[0] if "::" in src else src
+                        if src_file and src_file.lower().endswith((".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")):
+                            promoted_conf = "RECEIVER_RESOLVED"
+                    new_key = (src, resolved, rel, promoted_conf)
                     new_edge = dict(edge)
                     new_edge["target"] = resolved
+                    if promoted_conf != conf:
+                        new_edge["confidence"] = promoted_conf
                     # setdefault: if a same-key edge already exists, the
                     # rewrite collapses both into one — desired dedupe.
                     new_edge_map.setdefault(new_key, new_edge)
@@ -6589,28 +6510,139 @@ class GraphIndexSession:
 # Doc/seed extraction stays serial because it depends on cross-file
 # `symbol_terms` built across artifacts; only code-file extraction parallelizes.
 _PARALLEL_EXTRACTION_THRESHOLD = int(os.environ.get("WAVEFOUNDRY_GRAPH_PARALLEL_THRESHOLD", "100"))
-_PARALLEL_EXTRACTION_WORKERS = int(
-    os.environ.get("WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS", str(min((os.cpu_count() or 1), 4)))
+# Wave 1p2q3 (1p2wd / Bug 4): parallel extraction now uses `spawn` start
+# method (default) + a worker `initializer` that registers `graph_indexer`
+# in each fresh worker's `sys.modules` before task unpickling. The 1.3.14
+# `fork` path deadlocked on macOS after transitive C extension state
+# (tree-sitter parsers, possibly objc/Foundation) initialized in the parent;
+# spawn boots a clean interpreter per worker and avoids the inheritance
+# hazard entirely.
+#
+# Worker count auto-scales by file count (set in 1.3.20). The 1.3.18→1.3.19
+# default of `1` (always-serial) was conservative — small projects don't
+# benefit from parallel because spawn boot (~500ms–1s × workers) exceeds
+# their per-file work, but Teton-scale builds (1k+ files) leave 2-3× perf
+# on the table. The scale tiers reflect break-even math for spawn boot vs.
+# parallelizable extraction time:
+#   - file_count <  200 → 2 workers (modest projects)
+#   - file_count <  500 → 3 workers (medium monorepos)
+#   - file_count >= 500 → min(cpu_count, 4) workers (Teton-shape)
+# Operators can override the auto-scaled count via
+# WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS (any positive int; 1 disables parallel).
+# The 100-file threshold for entering the parallel path at all (set by
+# WAVEFOUNDRY_GRAPH_PARALLEL_THRESHOLD) is unchanged — auto-scale only
+# decides *how many* workers, never *whether* to go parallel.
+_PARALLEL_EXTRACTION_WORKERS_OVERRIDE: int | None = (
+    int(os.environ["WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS"])
+    if "WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS" in os.environ
+    else None
 )
+
+
+def _auto_scale_worker_count(file_count: int) -> int:
+    """Choose a worker count for parallel extraction.
+
+    Operator's `WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS` env var wins
+    unconditionally (use `1` to disable parallel without touching the
+    threshold env var). When unset, scale by `file_count`.
+    """
+    if _PARALLEL_EXTRACTION_WORKERS_OVERRIDE is not None:
+        return _PARALLEL_EXTRACTION_WORKERS_OVERRIDE
+    cpu_cap = min(os.cpu_count() or 1, 4)
+    if file_count < 200:
+        return min(2, cpu_cap)
+    if file_count < 500:
+        return min(3, cpu_cap)
+    return cpu_cap
 
 
 def _worker_init_graph_indexer(graph_indexer_path: str) -> None:
     """ProcessPoolExecutor initializer for parallel extraction workers.
 
-    graph_indexer is loaded via `spec_from_file_location` in production (and
-    in tests) rather than the standard import system, which means workers
-    can't pickle-deserialize a function reference to this module without
-    setting up `sys.modules["graph_indexer"]` first. This initializer runs
-    once per worker process at startup and registers the module so worker
-    tasks unpickle cleanly.
+    Spawn-mode workers (the default since 1.3.19 / wave 1p2q3 / 1p2wd Bug 4)
+    boot a fresh Python interpreter with no inherited state from the parent.
+    The function reference pickled by `pool.map` resolves to
+    ``graph_indexer._extract_artifact_for_worker``; since this file is loaded
+    via ``importlib.util.spec_from_file_location`` (not the standard import
+    system, because the framework scripts directory is not a package), a
+    spawn-mode worker has no way to find the module by name unless we
+    register it ourselves.
+
+    This initializer fires once per worker process at startup, *before* the
+    first task is dispatched (per the ProcessPoolExecutor contract), and
+    loads this same `.py` file under the canonical ``"graph_indexer"`` name
+    so subsequent task unpickling finds the function reference.
     """
     import importlib.util as _il_util
-    spec = _il_util.spec_from_file_location("graph_indexer", graph_indexer_path)
-    if spec is None or spec.loader is None:
-        return
-    module = _il_util.module_from_spec(spec)
-    sys.modules["graph_indexer"] = module
-    spec.loader.exec_module(module)
+    try:
+        spec = _il_util.spec_from_file_location("graph_indexer", graph_indexer_path)
+        if spec is None or spec.loader is None:
+            return
+        module = _il_util.module_from_spec(spec)
+        sys.modules["graph_indexer"] = module
+        spec.loader.exec_module(module)
+    except Exception:
+        # If the initializer fails the worker will still attempt the task
+        # and crash with a clearer ImportError than a deadlock — the parent's
+        # `except Exception: ... falling back to serial` branch handles
+        # whichever surface the failure takes.
+        pass
+    # Wave 1p2q3 (1p2wd post-ship 1.3.24 / Bug 7): macOS spawn-mode workers
+    # don't self-terminate reliably when the parent dies. `multiprocessing`'s
+    # `parent_sentinel` pipe is supposed to signal EOF when the parent exits,
+    # but under macOS launchd's re-parenting the pipe can stay open and the
+    # worker keeps running forever, idling on `call_queue.get()`. Every
+    # killed build then leaks N worker processes plus the resource_tracker.
+    # Mitigation: spawn a daemon thread inside each worker that polls
+    # `os.getppid()` every 2s and `os._exit(0)`s as soon as the ppid changes
+    # (re-parented = orphaned). Daemon thread dies with the worker so it
+    # leaves no trace on clean shutdown.
+    try:
+        import threading as _t
+        import time as _time
+        import os as _os
+
+        def _ppid_watchdog() -> None:
+            try:
+                orig_ppid = _os.getppid()
+            except Exception:
+                return
+            while True:
+                _time.sleep(2.0)
+                try:
+                    cur_ppid = _os.getppid()
+                except Exception:
+                    return
+                if cur_ppid != orig_ppid or cur_ppid == 1:
+                    try:
+                        print(
+                            f"build_index: [worker pid={_os.getpid()}] parent died "
+                            f"(ppid {orig_ppid} -> {cur_ppid}); exiting",
+                            file=sys.stderr, flush=True,
+                        )
+                    except Exception:
+                        pass
+                    _os._exit(0)
+
+        _t.Thread(target=_ppid_watchdog, daemon=True, name="ppid-watchdog").start()
+    except Exception:
+        # Watchdog is best-effort; failure to start it just means the worker
+        # falls back to the (broken-on-macOS-spawn) parent_sentinel behavior.
+        pass
+
+
+def _extract_artifacts_for_worker_batch(batch_args: list) -> list:
+    """Worker entry point for a BATCH of files.
+
+    Wave 1p2q3 (1p2wd post-ship 1.3.24 / Bug 8): per-task IPC was ~96× the
+    cost of chunked IPC (`pool.map(chunksize=96)`); single-file submission
+    via the bounded-in-flight pattern in 1.3.23 produced correct results but
+    ran ~57× slower than serial on a 1,542-file workload because each file
+    incurred a full pickle/unpickle round trip through the multiprocessing
+    call queue. This batch entry processes a list of tuples in one IPC
+    cycle, amortizing the pipe overhead across the whole batch.
+    """
+    return [_extract_artifact_for_worker(args) for args in batch_args]
 
 
 def _extract_artifact_for_worker(args: tuple) -> tuple[str, dict | None]:
@@ -6624,6 +6656,21 @@ def _extract_artifact_for_worker(args: tuple) -> tuple[str, dict | None]:
     Module-level (required by `spawn` start method on macOS) and self-
     contained so each worker can be a fresh Python process.
     """
+    # Wave 1p2q3 (1p2wd post-ship 1.3.23 / Bug 4 part 3): worker-side
+    # breadcrumb that routes through the worker's stderr -> parent's log.
+    # If this never prints in a hung field run, workers literally never
+    # reach Python code (the deadlock is in `Process.start()` or earlier).
+    # Per-worker prints are deduplicated by pid + first-task heuristic
+    # because the gate prints once per process-id.
+    if os.environ.get("WAVEFOUNDRY_GRAPH_WORKER_TRACE") == "1" or not getattr(_extract_artifact_for_worker, "_logged_boot", False):
+        try:
+            print(f"build_index: [worker-debug pid={os.getpid()}] _extract_artifact_for_worker called", file=sys.stderr, flush=True)
+        except Exception:
+            pass
+        try:
+            _extract_artifact_for_worker._logged_boot = True  # type: ignore[attr-defined]
+        except Exception:
+            pass
     rel_path, source_text, root_str, layer, gitattrs_list, walker_version, chunker_version = args
     # Workers spawned via `spawn` re-import this module fresh; use whichever
     # GraphIndexSession is in the worker's sys.modules (registered by the
@@ -6725,8 +6772,9 @@ def update_graph_index(
         else:
             doc_work_items.append((rel, text))
 
+    worker_count = _auto_scale_worker_count(len(code_work_items))
     use_parallel = (
-        _PARALLEL_EXTRACTION_WORKERS > 1
+        worker_count > 1
         and len(code_work_items) >= _PARALLEL_EXTRACTION_THRESHOLD
     )
     if use_parallel:
@@ -6737,64 +6785,187 @@ def update_graph_index(
         if verbose:
             print(
                 f"build_index: graph extraction parallel — "
-                f"{_PARALLEL_EXTRACTION_WORKERS} workers, "
+                f"{worker_count} workers, "
                 f"{len(code_work_items)} code files (threshold "
                 f"{_PARALLEL_EXTRACTION_THRESHOLD})",
                 flush=True,
             )
+        # Wave 1p2q3 (1p2wd post-ship 1.3.21): instrumented parallel branch.
+        # Teton field session showed a Python-level threading.Lock deadlock in
+        # the indexer BEFORE any worker subprocess spawned — `pool.map`-style
+        # eager submit blocks waiting on Future.result() while the
+        # ExecutorManagerThread is itself blocked in `Process.start()`'s pipe
+        # handshake. Stack samples narrowed the hang to between the parallel
+        # log line and the first task return, but not to a specific code
+        # line. These breadcrumbs let the next field run pinpoint the exact
+        # step that hangs. All gated by `verbose=True` so non-verbose builds
+        # are silent.
+        def _pdbg(msg: str) -> None:
+            if verbose:
+                try:
+                    import threading as _t
+                    thread_names = sorted(t.name for t in _t.enumerate())
+                    thread_suffix = f" [threads={len(thread_names)}: {','.join(thread_names[:6])}{'...' if len(thread_names) > 6 else ''}]"
+                except Exception:
+                    thread_suffix = ""
+                print(f"build_index: [parallel-debug] {msg}{thread_suffix}", flush=True)
+
+        _pdbg(f"step 1/8: worker_args list comprehension over {len(code_work_items)} items")
         worker_args = [
             (rel, text, str(root), layer, gitattrs_list, walker_version, chunker_version)
             for rel, text in code_work_items
         ]
-        # graph_indexer is loaded via `spec_from_file_location` in production
-        # rather than the standard import system, so workers spawned via the
-        # default `spawn` start method can't `import graph_indexer` during
-        # task pickle deserialization (it isn't on sys.path under the name
-        # "graph_indexer"). We use `fork` start method which inherits the
-        # parent's sys.modules — workers immediately have graph_indexer
-        # available with no import gymnastics. macOS emits a DeprecationWarning
-        # but fork works correctly for pure-Python workloads without active
-        # parent threads; our parent here is single-threaded synchronous
-        # Python so the risk is minimal. Operators can override via the
-        # WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD env var.
+        _pdbg(f"step 2/8: worker_args built ({len(worker_args)} tuples)")
+        # Wave 1p2q3 (1p2wd / Bug 4): start method is `spawn`, not `fork`.
+        # Teton field validation on 1.3.17 reproduced 3-of-3 a deterministic
+        # deadlock on a 1,360-TS/JS-file Nx monorepo: all worker processes +
+        # the coordinator at 0.0% CPU immediately after the parent's pre-warm
+        # log line, no progress output, indefinitely. This is the macOS
+        # fork() hazard — fork()ing after tree-sitter C extension state (and
+        # possibly objc/Foundation init from transitive imports) is
+        # initialized in the parent leaves children with inconsistent mutex
+        # state that deadlocks on first synchronization primitive use. Spawn
+        # avoids the hazard by booting a fresh interpreter per worker with
+        # zero inherited state.
+        #
+        # The challenge with spawn is that workers must be able to RESOLVE
+        # the pickled function reference back to a module BEFORE the worker
+        # initializer runs — `multiprocessing.spawn._main` calls
+        # `pickle.load(from_parent)` for its own bootstrap state, and that
+        # load tries to `__import__("graph_indexer")` because that's the
+        # `__module__` attribute we gave the worker entry point. We solve
+        # this by adding this script's directory to `PYTHONPATH` for the
+        # spawned workers so `import graph_indexer` succeeds via the
+        # standard import system. The `initializer=` callable is preserved
+        # as a defense-in-depth re-registration (no-op when PYTHONPATH
+        # works; insurance for any pickle path that fires after worker
+        # startup).
+        #
+        # The `WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD` escape hatch is
+        # preserved for operators who want to opt back to fork or try
+        # forkserver — at their own risk.
+        _pdbg("step 3/8: importing ProcessPoolExecutor + multiprocessing")
         from concurrent.futures import ProcessPoolExecutor
         import multiprocessing as _mp
-        import warnings as _warnings
-        chunksize = max(1, len(worker_args) // (_PARALLEL_EXTRACTION_WORKERS * 4))
-        start_method = os.environ.get("WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD", "fork")
+        chunksize = max(1, len(worker_args) // (worker_count * 4))
+        start_method = os.environ.get("WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD", "spawn")
+        _pdbg(f"step 4/8: getting mp context for start_method={start_method!r} (chunksize={chunksize})")
         try:
-            with _warnings.catch_warnings():
-                # Silence the macOS DeprecationWarning about fork at pool creation
-                # time. Operators who want to opt out can set the env var to "spawn".
-                _warnings.simplefilter("ignore", DeprecationWarning)
-                mp_ctx = _mp.get_context(start_method)
+            mp_ctx = _mp.get_context(start_method)
         except (ValueError, RuntimeError):
             mp_ctx = None
-        if mp_ctx is None:
-            for rel, text in code_work_items:
-                session.record_file(rel, text)
-        else:
-            try:
-                with _warnings.catch_warnings():
-                    _warnings.simplefilter("ignore", DeprecationWarning)
-                    with ProcessPoolExecutor(
-                        max_workers=_PARALLEL_EXTRACTION_WORKERS,
-                        mp_context=mp_ctx,
-                    ) as pool:
-                        for rel_path, entry in pool.map(
-                            _extract_artifact_for_worker, worker_args, chunksize=chunksize
-                        ):
-                            if entry is not None:
-                                session.pending_code[rel_path] = entry
-            except Exception as exc:
-                if verbose:
-                    print(
-                        f"build_index: parallel extraction failed "
-                        f"({type(exc).__name__}: {exc}); falling back to serial",
-                        flush=True,
-                    )
+        _pdbg(f"step 5/8: mp_ctx acquired ({type(mp_ctx).__name__ if mp_ctx is not None else 'None'})")
+        graph_indexer_path = str(Path(__file__).resolve())
+        # Multiprocessing/spawn serializes the parent's `sys.path` into the
+        # child via the bootstrap pickle — NOT `PYTHONPATH` from the
+        # environment. So putting the directory on the env var alone does
+        # nothing for the child; we have to mutate `sys.path` itself in the
+        # parent before pool construction. Restore on exit so we don't leak
+        # the path entry into long-lived processes (MCP server, multi-layer
+        # builds).
+        graph_indexer_dir = str(Path(graph_indexer_path).parent)
+        path_inserted = False
+        if graph_indexer_dir not in sys.path:
+            sys.path.insert(0, graph_indexer_dir)
+            path_inserted = True
+        _pdbg(f"step 6/8: sys.path[0]={sys.path[0]!r} (path_inserted={path_inserted})")
+        try:
+            if mp_ctx is None:
                 for rel, text in code_work_items:
                     session.record_file(rel, text)
+            else:
+                try:
+                    _pdbg(
+                        f"step 7/8: constructing ProcessPoolExecutor "
+                        f"(max_workers={worker_count}, initializer=_worker_init_graph_indexer)"
+                    )
+                    # Wave 1p2q3 (1p2wd post-ship 1.3.24 / Bug 8): bounded-in-
+                    # flight submission of CHUNKED batches. 1.3.23's single-
+                    # file bounded-in-flight fixed the pipe-fill deadlock but
+                    # blew away IPC amortization — 1,542 individual pickle/
+                    # unpickle cycles vs. ~16 chunked cycles led to a 57×
+                    # slowdown vs. serial on Teton's 1,542-file workload.
+                    # Re-introducing chunking restores amortization; keeping
+                    # the bounded-in-flight discipline keeps the call queue
+                    # short enough that the writer thread never blocks past
+                    # what the workers can drain.
+                    from concurrent.futures import wait as _wait, FIRST_COMPLETED
+                    # Pick a batch size that amortizes per-round-trip IPC
+                    # (pickle/unpickle + pipe write) over enough files that
+                    # IPC overhead is small relative to per-batch extraction
+                    # work. Teton field measurement on 1.3.25 (batch=24)
+                    # showed parallel-4 was 1.6× SLOWER than serial because
+                    # ~67 batches × ~50ms IPC overhead per batch dominated
+                    # the actual extraction work. Bumping the cap to 128
+                    # cuts that to ~12 batches for Teton-scale workloads.
+                    # The bounded-in-flight discipline keeps the call queue
+                    # at most `worker_count` batches deep — even at 128
+                    # files per batch the pickled payload (~5KB per file ×
+                    # 128 ≈ 640KB) fits in 4 × 64KB pipe writes that
+                    # workers drain promptly, so no deadlock recurrence.
+                    batch_size = max(1, min(128, len(worker_args) // (worker_count * 3)))
+                    batches = [
+                        worker_args[i:i + batch_size]
+                        for i in range(0, len(worker_args), batch_size)
+                    ]
+                    _pdbg(f"batched {len(worker_args)} tasks into {len(batches)} batches of up to {batch_size}")
+                    with ProcessPoolExecutor(
+                        max_workers=worker_count,
+                        mp_context=mp_ctx,
+                        initializer=_worker_init_graph_indexer,
+                        initargs=(graph_indexer_path,),
+                    ) as pool:
+                        _pdbg("step 8/8: pool entered; about to bounded-in-flight submit batches (workers will spawn on first submit)")
+                        batch_iter = iter(batches)
+                        in_flight: set = set()
+                        # Pre-submit one batch per worker to trigger spawn
+                        # without overrunning the queue.
+                        for _ in range(worker_count):
+                            try:
+                                next_batch = next(batch_iter)
+                            except StopIteration:
+                                break
+                            in_flight.add(pool.submit(_extract_artifacts_for_worker_batch, next_batch))
+                        _pdbg(f"pre-warm: submitted {len(in_flight)} batches (one per worker); waiting for first result")
+                        _seen = 0
+                        while in_flight:
+                            done, in_flight = _wait(in_flight, return_when=FIRST_COMPLETED)
+                            for fut in done:
+                                batch_results = fut.result()
+                                for rel_path, entry in batch_results:
+                                    _seen += 1
+                                    if _seen == 1:
+                                        _pdbg(f"first task returned: rel_path={rel_path!r} (workers confirmed spawned)")
+                                    elif _seen % 250 == 0:
+                                        _pdbg(f"progress: {_seen}/{len(worker_args)} tasks returned")
+                                    if entry is not None:
+                                        session.pending_code[rel_path] = entry
+                                # Refill: maintain at most `worker_count` in-flight.
+                                try:
+                                    next_batch = next(batch_iter)
+                                    in_flight.add(pool.submit(_extract_artifacts_for_worker_batch, next_batch))
+                                except StopIteration:
+                                    pass
+                        _pdbg(f"pool drained: {_seen} task results consumed")
+                except Exception as exc:
+                    if verbose:
+                        print(
+                            f"build_index: parallel extraction failed "
+                            f"({type(exc).__name__}: {exc}); falling back to serial",
+                            flush=True,
+                        )
+                    for rel, text in code_work_items:
+                        session.record_file(rel, text)
+        finally:
+            # Restore parent sys.path so its state is unchanged after the
+            # pool exits (matters when update_graph_index is called
+            # repeatedly within a long-lived process such as the MCP server
+            # or a multi-layer build).
+            if path_inserted:
+                try:
+                    sys.path.remove(graph_indexer_dir)
+                except ValueError:
+                    pass
     else:
         for rel, text in code_work_items:
             session.record_file(rel, text)

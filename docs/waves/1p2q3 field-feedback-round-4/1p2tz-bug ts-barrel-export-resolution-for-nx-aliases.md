@@ -260,3 +260,40 @@ Fix shipped in `_ts_extract_arrow_const_bindings` helper + walker integration:
 `GRAPH_BUILDER_VERSION` bumped 20 → 21 with the language-coverage callout. Affects TypeScript and JavaScript only — the canonical form occurs in both languages.
 
 Test coverage: 3 new tests — arrow-const node registration, function-expression form, and call-attribution through the arrow body.
+
+## Post-ship correction 4 (1.3.15): single-pass walker + pre-fork declared-names cache
+
+After 1.3.12-1.3.14 closed the first wave of perf gaps (regex caches, lru_cache on path probes, parallel extraction across CPU cores), profiling pointed at two remaining sources of redundant work in the tree-sitter extractor:
+
+1. The walker visited each AST twice — once via `walk_definitions` to register symbols, once via `walk_calls` to emit call edges. On large source files this duplicated descent dominated walker wall-time after the cache wins.
+2. Parallel extraction warmed `_TS_FILE_DECLARED_NAMES_CACHE` per worker independently. Each fork started cold and re-ran the declared-names regex pass on the same files the barrel walker reached from every angle.
+
+Two changes shipped together:
+
+- **Single-pass walker** — `walk_definitions` now buffers call-shaped nodes (gated by `_ts_is_call_node` against the per-language profile) into a flat `buffered_calls` list while it walks. Post-walk, after `symbol_lookup` and `symbol_lookup_kinds` are built, a single loop over the buffer runs the full call-resolution pipeline per call: construction-resolved first, then per-language receiver-type resolution (`_resolve_java_call_target`, `_resolve_kotlin_call_target`, `_resolve_csharp_call_target`, `_resolve_go_call_target`, `_resolve_rust_call_target`, `_resolve_scala_call_target`, `_resolve_swift_call_target`, `_resolve_ts_call_target`, `_resolve_php_call_target`), then `_ts_relation_candidates` with `EXTRACTED`-to-`RECEIVER_RESOLVED` promotion via `import_targets`. The walker now threads `scope_signatures` alongside `scope_symbols` so self-edge overload classification still resolves correctly. The standalone `walk_calls` function is deleted (~232 lines).
+- **Pre-fork declared-names cache warmup** — before submitting work to the ProcessPoolExecutor, parent runs `_prewarm_declared_names_cache(code_work_items, root)` which iterates the batch and populates `_TS_FILE_DECLARED_NAMES_CACHE[(path, mtime)] = frozenset(declared_names)` from the in-memory source text (no extra disk I/O). With the `fork` start method, workers inherit the populated cache via copy-on-write — the barrel walker now hits cache on cross-file declared-name lookups instead of each worker re-running the regex pass per file independently.
+
+Output is byte-for-byte identical to 1.3.14 (no `GRAPH_BUILDER_VERSION` bump). Verified: 2244 framework tests pass; the construction-resolved, receiver-resolved, and overload self-edge classification test suites are unchanged.
+
+## Post-ship correction 5 (1.3.16): TS/JS symbol-table promotion to RECEIVER_RESOLVED
+
+Teton field validation on the v22 stable state (1.3.15 confirmed byte-identical to 1.3.14):
+
+> No movement on resolved-share or the named-out intra-file arrow-const lift. The graph rebuild confirms the post-v22 state is stable across server-side patches. Next real signal will be when GRAPH_BUILDER_VERSION next bumps.
+>
+> `getRootToken incoming (intra-file arrow-const)` — 5 EXTRACTED.
+
+The symbol IS registered (v21 arrow-const node-emission fix). The intra-file callers ARE recognized — they emit `calls` edges to the right target node. But the call edges land as `EXTRACTED`, not `RECEIVER_RESOLVED`, so they are silently dropped from `attribution_counts_by_language["typescript"]["receiver_resolved"]`. The resolved-share metric undercounts by exactly this gap.
+
+Root cause: in the buffered-call drain (post-walker, in the single-pass extractor), bare-identifier calls like `getRootToken()` fall through `_resolve_ts_call_target` (which returns `None` when no receiver is present) into the `_ts_relation_candidates` fallback. There, `_ts_resolve_target` consults `symbol_lookup` and binds the identifier directly to the locally-defined symbol id — but the confidence stayed `EXTRACTED`. A symbol-table-resolved binding is high-confidence by construction (exact name match in a known table), not a low-certainty guess.
+
+Two promotions ship together, both scoped to TS/JS only:
+
+- **Extraction-time intra-file promotion.** In the buffered-call drain, when `lang_key in ("typescript", "javascript")` and `_ts_resolve_target` returns a non-`external::` project node, the edge confidence becomes `RECEIVER_RESOLVED` instead of `EXTRACTED`. Covers intra-file callers and any other case where the local `symbol_lookup` table already contains the target.
+- **Cross-file AC-1 rewrite promotion.** In the post-extraction cross-file rewrite pass, the AC-1 branch (bare `external::name` rewritten via unique `simple_name_index[name]` match) now promotes the rewritten edge from `EXTRACTED` to `RECEIVER_RESOLVED` when the source file is `.ts/.tsx/.js/.jsx/.mjs/.cjs`. AC-2 (qualified-target simple-name fallback for shapes like `obj.method()` where `obj` is unannotated) intentionally stays `EXTRACTED` — that path is a phantom-prone type guess, not a deterministic bind. The existing test `test_javascript_unannotated_local_call_does_not_land_receiver_resolved` guards this distinction.
+
+`GRAPH_BUILDER_VERSION` bumped 22 → 23. Affects TS/JS only — other languages' attribution counts are unchanged because they route through their per-language receiver resolvers + the rewrite path stays preserve-confidence for non-TS/JS sources.
+
+Test coverage: 2 new regression tests — `test_intra_file_arrow_const_call_lands_receiver_resolved` (intra-file path, Teton's `getRootToken` shape), `test_cross_file_unique_simple_name_call_lands_receiver_resolved` (AC-1 cross-file path).
+
+Expected field impact: Teton's `getRootToken` 5 incoming edges should migrate EXTRACTED → RECEIVER_RESOLVED after auto-rebuild. The total TS resolved-share (currently 8.3% on the 47,034-edge attributed bucket) should rise substantially because every intra-file arrow-const call and every cross-file bare-identifier unique-match was previously misclassified. The exact magnitude depends on the intra-file-call / cross-file-bare-call density in the codebase.

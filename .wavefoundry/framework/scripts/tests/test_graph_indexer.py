@@ -2552,14 +2552,17 @@ class JavaReceiverTypeAttributionTests(unittest.TestCase):
     # import_targets promotion + bundler-mode .js→.ts extension swap.
     # 1p2q3 (1p2tz post-ship-2) bumped 20→21 to invalidate caches for arrow-const node registration
     # (`export const foo = () => {}` dominates modern TS; was never being emitted as a graph node).
-    # 1p2q3 (1p2tz post-ship-3) bumped 21→22 to invalidate caches for relative-import path
-    # resolution into import_targets — intra-package direct calls to arrow-const targets now
-    # land as RECEIVER_RESOLVED instead of EXTRACTED.
+    # 1p2q3 (1p2tz post-ship-5) bumped 22→23 to invalidate caches for TS/JS symbol-table
+    # promotion — intra-file (and cross-file unique-simple-name) calls where
+    # `_ts_resolve_target` bound directly to a project node now land as
+    # RECEIVER_RESOLVED instead of EXTRACTED. Closes the v22 gap where
+    # `getRootToken`-style intra-file arrow-const callers were invisible to
+    # the `receiver_resolved` attribution bucket.
     def test_graph_builder_version_is_at_or_above_latest_bump(self):
         runtime = int(self.mod.GRAPH_BUILDER_VERSION)
-        self.assertGreaterEqual(runtime, 22,
-                                "GRAPH_BUILDER_VERSION must be ≥ 22 (wave 1p2q3 extractor-shape changes — "
-                                "relative-import path resolution into import_targets). "
+        self.assertGreaterEqual(runtime, 23,
+                                "GRAPH_BUILDER_VERSION must be ≥ 23 (wave 1p2q3 extractor-shape changes — "
+                                "TS/JS symbol-table promotion of intra-file calls to RECEIVER_RESOLVED). "
                                 "Bump in the same change as any future extractor-output shape modification.")
 
 
@@ -3587,6 +3590,71 @@ class TsBarrelReExportResolutionTests(unittest.TestCase):
             f"expected `calls` edge sourced at libs/svc/index.ts::callerFunc; got: {calls}",
         )
 
+    def test_intra_file_arrow_const_call_lands_receiver_resolved(self):
+        """Wave 1p2q3 (1p2tz post-ship-5 per Teton v22 stable-state field data):
+        an intra-file caller of an arrow-const-bound function must produce a
+        RECEIVER_RESOLVED edge. The pre-fix code resolved the target correctly
+        (`_ts_resolve_target` returned the local symbol id via symbol_lookup)
+        but tagged the edge as EXTRACTED — making it invisible to the
+        `receiver_resolved` attribution bucket. Teton's `getRootToken` had 5
+        incoming intra-file callers all landing as EXTRACTED; this test guards
+        the promotion."""
+        files = {
+            "libs/svc/auth.ts": (
+                "export const getRootToken = (): string => { return 'tok'; };\n"
+                "export const caller1 = (): string => getRootToken();\n"
+                "export const caller2 = async (): Promise<string> => await getRootToken();\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = [e for e in payload.get("edges", []) if e.get("relation") == "calls"]
+        token_edges = [
+            e for e in calls
+            if e.get("target") == "libs/svc/auth.ts::getRootToken"
+        ]
+        self.assertTrue(
+            token_edges,
+            f"expected call edges targeting libs/svc/auth.ts::getRootToken; got: {calls}",
+        )
+        for e in token_edges:
+            self.assertEqual(
+                e.get("confidence"), "RECEIVER_RESOLVED",
+                f"intra-file arrow-const call must land RECEIVER_RESOLVED, "
+                f"not {e.get('confidence')!r}; edge: {e}",
+            )
+
+    def test_cross_file_unique_simple_name_call_lands_receiver_resolved(self):
+        """The same promotion applies when `symbol_lookup` resolves a unique
+        cross-file simple-name match at extraction time. The walker populates
+        symbol_lookup from `simple_names` entries with `len(items) == 1`, so
+        unambiguous cross-file bare-identifier calls bind directly during
+        extraction (not via the cross-file rewrite pass). Confidence must be
+        RECEIVER_RESOLVED in that case too."""
+        files = {
+            "libs/util/format.ts": (
+                "export const uniqueFormatterX = (n: number): string => String(n);\n"
+            ),
+            "libs/app/main.ts": (
+                "export const useFormatter = (n: number): string => uniqueFormatterX(n);\n"
+            ),
+        }
+        payload = self._build(files)
+        calls = [e for e in payload.get("edges", []) if e.get("relation") == "calls"]
+        target_edges = [
+            e for e in calls
+            if e.get("target") == "libs/util/format.ts::uniqueFormatterX"
+            and e.get("source") == "libs/app/main.ts::useFormatter"
+        ]
+        self.assertTrue(
+            target_edges,
+            f"expected cross-file unique-simple-name binding edge; got: {calls}",
+        )
+        self.assertEqual(
+            target_edges[0].get("confidence"), "RECEIVER_RESOLVED",
+            f"unique cross-file simple-name match must land RECEIVER_RESOLVED; "
+            f"got {target_edges[0]}",
+        )
+
     def test_direct_function_call_through_barrel_resolves_to_definition(self):
         """Wave 1p2q3 (1p2tz post-ship): direct function-call dispatch through
         an aliased barrel must produce a RECEIVER_RESOLVED edge at the
@@ -3750,3 +3818,270 @@ class GeneratedCodeIntegrationTests(unittest.TestCase):
             f"Expected ELParser nodes to carry generated: true; got {generated_node_ids}"
         )
 
+
+class ParallelExtractionSpawnModeTests(unittest.TestCase):
+    """Wave 1p2q3 (1p2wd / Bug 4): parallel extraction uses spawn start
+    method + worker initializer that registers `graph_indexer` in each
+    worker's sys.modules before task unpickling. These tests verify the
+    wiring (start method + initializer args) and the initializer's effect.
+    The full end-to-end pool spawn is exercised by AC-1's manual
+    `build_pack --version <next>` validation step rather than by unit
+    tests, because spawning real worker subprocesses materially slows the
+    suite for low marginal value (the wiring tests already pin the
+    contract).
+    """
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+
+    def test_worker_initializer_registers_graph_indexer_in_sys_modules(self):
+        """AC-3: the initializer registers `graph_indexer` under that
+        canonical name so spawn-mode workers can unpickle the function
+        reference `graph_indexer._extract_artifact_for_worker`."""
+        import importlib.util as _iu
+        import sys as _sys
+        graph_indexer_path = str(
+            Path(self.mod.__file__).resolve()
+            if hasattr(self.mod, "__file__") and self.mod.__file__
+            else Path("/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/graph_indexer.py")
+        )
+        # Snapshot whatever's currently registered (the test runs after
+        # load_graph_indexer, which uses a uniquified module name) and
+        # restore afterwards so we don't leak state into sibling tests.
+        prior = _sys.modules.pop("graph_indexer", None)
+        try:
+            self.mod._worker_init_graph_indexer(graph_indexer_path)
+            self.assertIn("graph_indexer", _sys.modules,
+                          "initializer must register the module under the canonical 'graph_indexer' name")
+            registered = _sys.modules["graph_indexer"]
+            # The registered module must expose the worker entry point so
+            # `pool.map(_extract_artifact_for_worker, ...)` unpickling finds it.
+            self.assertTrue(hasattr(registered, "_extract_artifact_for_worker"),
+                            "registered module lacks _extract_artifact_for_worker — "
+                            "unpickling in workers will fail")
+            self.assertTrue(callable(registered._extract_artifact_for_worker))
+        finally:
+            if prior is None:
+                _sys.modules.pop("graph_indexer", None)
+            else:
+                _sys.modules["graph_indexer"] = prior
+
+    def test_auto_scale_worker_count_tiers(self):
+        """Wave 1p2q3 (1p2wd post-ship 1.3.20): worker-count auto-scale tiers
+        by file count when `WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS` is not set.
+        Pin the breakpoints so a future inadvertent change shows up."""
+        from unittest.mock import patch
+        # Force override-None and cpu_count = 8 so the cap isn't the
+        # binding constraint at any tier.
+        with patch.object(self.mod, "_PARALLEL_EXTRACTION_WORKERS_OVERRIDE", None), \
+             patch("os.cpu_count", return_value=8):
+            # Below 200 files: 2 workers
+            self.assertEqual(self.mod._auto_scale_worker_count(0), 2)
+            self.assertEqual(self.mod._auto_scale_worker_count(100), 2)
+            self.assertEqual(self.mod._auto_scale_worker_count(199), 2)
+            # 200-499 files: 3 workers
+            self.assertEqual(self.mod._auto_scale_worker_count(200), 3)
+            self.assertEqual(self.mod._auto_scale_worker_count(499), 3)
+            # ≥500 files: cpu_cap (min(cpu_count, 4) = 4 with cpu_count=8)
+            self.assertEqual(self.mod._auto_scale_worker_count(500), 4)
+            self.assertEqual(self.mod._auto_scale_worker_count(10_000), 4)
+
+    def test_auto_scale_respects_cpu_count_cap_on_small_machines(self):
+        """On a hypothetical 2-core machine the cap kicks in at every tier."""
+        from unittest.mock import patch
+        with patch.object(self.mod, "_PARALLEL_EXTRACTION_WORKERS_OVERRIDE", None), \
+             patch("os.cpu_count", return_value=2):
+            self.assertEqual(self.mod._auto_scale_worker_count(50), 2)
+            self.assertEqual(self.mod._auto_scale_worker_count(300), 2)
+            self.assertEqual(self.mod._auto_scale_worker_count(5000), 2)
+
+    def test_auto_scale_override_wins_unconditionally(self):
+        """`WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS=N` overrides auto-scale,
+        including the special case of `1` (which disables parallel by
+        making `use_parallel` False at the gate)."""
+        from unittest.mock import patch
+        with patch.object(self.mod, "_PARALLEL_EXTRACTION_WORKERS_OVERRIDE", 1):
+            self.assertEqual(self.mod._auto_scale_worker_count(10_000), 1)
+        with patch.object(self.mod, "_PARALLEL_EXTRACTION_WORKERS_OVERRIDE", 7):
+            self.assertEqual(self.mod._auto_scale_worker_count(50), 7)
+            self.assertEqual(self.mod._auto_scale_worker_count(50_000), 7)
+
+    def test_worker_initializer_swallows_failures_silently(self):
+        """The initializer wraps the load in try/except so a malformed
+        path doesn't raise out of the worker's startup hook (which would
+        leave the worker in a broken state without a clear failure
+        signal). The worker will then fail at first-task unpickling with
+        a clear ImportError — caught by the parent's graceful-fallback
+        branch."""
+        # Intentionally bogus path — exec_module would raise.
+        try:
+            self.mod._worker_init_graph_indexer("/nonexistent/path/to/graph_indexer.py")
+        except Exception as exc:  # pragma: no cover — test asserts no exception
+            self.fail(f"initializer must swallow load failures; raised {exc!r}")
+
+    def test_parallel_branch_end_to_end_with_real_spawn_workers(self):
+        """AC-1 in-suite: spawn-mode workers complete end-to-end on a tiny
+        fixture without hanging. Catches regressions where the
+        parent's sys.path is not propagated to spawned children — a class
+        of bug where the wiring (start method, initializer) looks correct
+        but unpickling fails at worker boot. Costs ~3-5s for real
+        ProcessPoolExecutor startup; flagged as the load-bearing
+        regression for Bug 4 and worth the cost."""
+        from unittest.mock import patch
+
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmp.name)
+            _make_repo(root)
+            files: list[Path] = []
+            meta: dict = {}
+            for i in range(4):
+                rel = f"src/m{i}.py"
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(
+                    f"def fn_{i}(x):\n    return x + {i}\n\n\nclass C{i}:\n    def m(self):\n        return fn_{i}(1)\n",
+                    encoding="utf-8",
+                )
+                files.append(p)
+                meta[rel] = {"hash": f"h{i}"}
+
+            # First: capture the serial-path payload for byte-equivalence
+            # comparison. Override resolves to "1 worker → serial path".
+            with patch.object(self.mod, "_PARALLEL_EXTRACTION_WORKERS_OVERRIDE", 1):
+                serial_payload = self.mod.update_graph_index(
+                    root=root,
+                    index_dir=root / ".wavefoundry" / "index",
+                    layer="project",
+                    files=files,
+                    current_file_meta=meta,
+                    changed=set(meta.keys()),
+                    removed=set(),
+                    walker_version="1",
+                    chunker_version="1",
+                    verbose=False,
+                )
+
+            # Now exercise the parallel branch with real spawn workers. The
+            # override forces 2 workers regardless of auto-scale's per-file
+            # tier choice.
+            with patch.object(self.mod, "_PARALLEL_EXTRACTION_THRESHOLD", 2), \
+                 patch.object(self.mod, "_PARALLEL_EXTRACTION_WORKERS_OVERRIDE", 2):
+                parallel_payload = self.mod.update_graph_index(
+                    root=root,
+                    index_dir=root / ".wavefoundry" / "index",
+                    layer="project",
+                    files=files,
+                    current_file_meta=meta,
+                    changed=set(meta.keys()),
+                    removed=set(),
+                    walker_version="1",
+                    chunker_version="1",
+                    verbose=False,
+                )
+        finally:
+            tmp.cleanup()
+
+        # Counts and structure must be identical between serial and parallel
+        # paths. The node/edge lists are pre-sorted in `update_graph_index`'s
+        # output, so direct equality is meaningful.
+        self.assertEqual(
+            serial_payload["counts"], parallel_payload["counts"],
+            f"serial counts={serial_payload['counts']}, "
+            f"parallel counts={parallel_payload['counts']} — "
+            "spawn-mode parallel must produce identical output",
+        )
+        self.assertEqual(
+            len(serial_payload["nodes"]), len(parallel_payload["nodes"]),
+            "node counts diverged between serial and parallel paths",
+        )
+        self.assertEqual(
+            {n["id"] for n in serial_payload["nodes"]},
+            {n["id"] for n in parallel_payload["nodes"]},
+            "node id sets diverged between serial and parallel paths",
+        )
+
+    def test_parallel_branch_wires_spawn_and_initializer(self):
+        """AC-2 wiring: when the use_parallel branch fires, the
+        ProcessPoolExecutor is constructed with the spawn start method and
+        with `_worker_init_graph_indexer` as the initializer. Verifies
+        the contract without actually spawning workers (we spy on the
+        executor construction)."""
+        from unittest.mock import patch, MagicMock
+
+        captured: dict = {}
+
+        class _SpyExecutor:
+            def __init__(self, *args, **kwargs):
+                captured["args"] = args
+                captured["kwargs"] = kwargs
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def map(self, fn, args, chunksize=1):
+                # Run the task function in-process so the test exercises
+                # the same code path the workers would, without forking.
+                for item in args:
+                    yield fn(item)
+
+        # The parallel branch only fires when there are ≥THRESHOLD code
+        # files AND the auto-scaled worker count is > 1. We patch the
+        # threshold to a low value and force the worker count via the
+        # `_PARALLEL_EXTRACTION_WORKERS_OVERRIDE` (which trumps auto-scale).
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmp.name)
+            _make_repo(root)
+            files: list[Path] = []
+            meta: dict = {}
+            for i in range(3):
+                rel = f"src/m{i}.py"
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(f"def fn_{i}():\n    return {i}\n", encoding="utf-8")
+                files.append(p)
+                meta[rel] = {"hash": f"h{i}"}
+
+            with patch.object(self.mod, "_PARALLEL_EXTRACTION_THRESHOLD", 2), \
+                 patch.object(self.mod, "_PARALLEL_EXTRACTION_WORKERS_OVERRIDE", 2), \
+                 patch("concurrent.futures.ProcessPoolExecutor", _SpyExecutor):
+                self.mod.update_graph_index(
+                    root=root,
+                    index_dir=root / ".wavefoundry" / "index",
+                    layer="project",
+                    files=files,
+                    current_file_meta=meta,
+                    changed=set(meta.keys()),
+                    removed=set(),
+                    walker_version="1",
+                    chunker_version="1",
+                    verbose=False,
+                )
+        finally:
+            tmp.cleanup()
+
+        # The pool MUST have been constructed with our initializer wired.
+        kwargs = captured.get("kwargs") or {}
+        self.assertIs(
+            kwargs.get("initializer"),
+            self.mod._worker_init_graph_indexer,
+            "ProcessPoolExecutor must be constructed with _worker_init_graph_indexer as initializer; "
+            f"got initializer={kwargs.get('initializer')!r}",
+        )
+        initargs = kwargs.get("initargs")
+        self.assertIsNotNone(initargs)
+        self.assertEqual(len(initargs), 1,
+                         "initargs must be a single-element tuple carrying the graph_indexer.py path")
+        self.assertTrue(
+            Path(initargs[0]).name == "graph_indexer.py",
+            f"initargs[0] should be the absolute path to graph_indexer.py; got {initargs[0]!r}",
+        )
+        # And the start method must be spawn (verified through the mp_context).
+        mp_ctx = kwargs.get("mp_context")
+        self.assertIsNotNone(mp_ctx, "mp_context must be passed to ProcessPoolExecutor")
+        self.assertEqual(mp_ctx.get_start_method(), "spawn",
+                         f"start method must be 'spawn' (Bug 4 fix); got {mp_ctx.get_start_method()!r}")

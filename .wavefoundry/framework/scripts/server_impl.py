@@ -214,6 +214,14 @@ BACKGROUND_INDEX_REFRESH_THROTTLE_SECONDS = 15.0
 # Both this value and indexer.LOCK_STALE_SECONDS encode "max time a build can run
 # before its lock is declared stale." Change them together if that assumption changes.
 BACKGROUND_INDEX_LOCK_STALE_SECONDS = 60 * 60
+# Wave 1p2q3 (1p2w5): synchronous verification window after run_index_rebuild's
+# Popen call. We poll the subprocess for up to TIMEOUT seconds in POLL_INTERVAL
+# increments. A process that survives the window has acquired its locks and is
+# in build_index proper; a process that exits inside the window with non-zero
+# code surfaces as build_failed_early in the response. Tests can monkeypatch
+# the constants to short-circuit the wait.
+_INDEX_BUILD_VERIFY_TIMEOUT_SECONDS = 1.5
+_INDEX_BUILD_VERIFY_POLL_INTERVAL_SECONDS = 0.1
 
 
 def _index_layer_readiness(layer: dict[str, Any]) -> str:
@@ -2729,6 +2737,80 @@ def run_index_rebuild(
         )
 
     mode_label = "rebuild" if full else "update"
+    # Wave 1p2q3 (1p2w5): synchronous post-Popen verification window. The
+    # subprocess can die in its first few hundred ms with "lock file busy"
+    # written to the log; the prior code returned `passed: True` immediately
+    # after Popen and the caller got no signal that the rebuild silently
+    # failed. We poll briefly (≤1.5s, sampled every 100ms): a process that
+    # survives the window has acquired its locks and is in `build_index`
+    # proper. If the process exited inside the window with a non-zero exit
+    # code, surface the failure to the caller.
+    import time as _time
+    _verify_deadline = _time.monotonic() + _INDEX_BUILD_VERIFY_TIMEOUT_SECONDS
+    _early_exit_code: int | None = None
+    while _time.monotonic() < _verify_deadline:
+        _poll_result = proc.poll()
+        # Real `subprocess.Popen.poll()` returns Optional[int]: None means
+        # "still running", an int is the exit code. We type-check here both
+        # to guard against test mocks that don't configure poll() and to
+        # tolerate any future Popen wrapper returning richer objects.
+        if isinstance(_poll_result, int):
+            _early_exit_code = _poll_result
+            break
+        _time.sleep(_INDEX_BUILD_VERIFY_POLL_INTERVAL_SECONDS)
+    if _early_exit_code is not None and _early_exit_code != 0:
+        # Subprocess died inside the verification window. Read the log to
+        # surface a useful diagnostic to the caller.
+        log_tail = ""
+        try:
+            log_tail = log_path.read_text(encoding="utf-8", errors="replace")[-2048:]
+        except OSError:
+            pass
+        lock_busy = (
+            "Another index build is already running" in log_tail
+            or "lock file busy" in log_tail
+        )
+        diagnostic_code = "build_skipped_lock_busy" if lock_busy else "index_build_subprocess_failed"
+        # Look up the lock-holder PID so the caller can decide whether to
+        # wait or to clean up after a known-dead holder.
+        lock_owner_pid: int | None = None
+        try:
+            import importlib.util as _importlib_util
+            _indexer_spec = _importlib_util.spec_from_file_location(
+                "wavefoundry_indexer_for_lock_owner",
+                Path(__file__).resolve().parent / "indexer.py",
+            )
+            if _indexer_spec is not None and _indexer_spec.loader is not None:
+                _indexer_mod = _importlib_util.module_from_spec(_indexer_spec)
+                _indexer_spec.loader.exec_module(_indexer_mod)
+                _lock_path = root / ".wavefoundry" / "index" / "index-build.lock"
+                _meta = _indexer_mod.read_index_build_lock_metadata(_lock_path)
+                if isinstance(_meta, dict) and isinstance(_meta.get("pid"), int):
+                    lock_owner_pid = int(_meta["pid"])
+        except Exception:
+            pass
+        return {
+            "passed": False,
+            "already_running": False,
+            "build_failed_early": True,
+            "exit_code": _early_exit_code,
+            "lock_owner_pid": lock_owner_pid,
+            "diagnostic_code": diagnostic_code,
+            "notice": (
+                f"Index rebuild subprocess (pid {proc.pid}) exited within {1.5}s with code "
+                f"{_early_exit_code}"
+                + (f" — lock held by pid {lock_owner_pid}." if lock_busy and lock_owner_pid else ".")
+            ),
+            "content": content,
+            "full": full,
+            "mode": mode_label,
+            "index_scope": "full_rebuild" if full else "incremental_update",
+            "layer": layer,
+            "stats": pre_stats,
+            "log": str(log_path),
+            "log_tail": log_tail,
+            "pid": proc.pid,
+        }
     return {
         "passed": True,
         "already_running": False,
@@ -4949,9 +5031,15 @@ def wave_index_build_response(
             next_tools=["wave_help"],
             usage="wave_help(goal='maintain_framework')",
         )
-    # Only invalidate the cache when a rebuild was actually spawned — not for
-    # up-to-date or already-running short-circuits.
-    if cache and not result.get("up_to_date") and not result.get("already_running"):
+    # Only invalidate the cache when a rebuild was actually spawned and the
+    # subprocess survived the verification window — not for up-to-date,
+    # already-running, or early-exit short-circuits.
+    if (
+        cache
+        and not result.get("up_to_date")
+        and not result.get("already_running")
+        and not result.get("build_failed_early")
+    ):
         cache.invalidate()
     diagnostics = []
     if result.get("already_running"):
@@ -4960,6 +5048,25 @@ def wave_index_build_response(
             result["notice"],
             recovery_tools=["wave_index_health"],
             recovery_usage="wave_index_health()",
+        ))
+    # Wave 1p2q3 (1p2w5): synchronous Popen-verification surfaced a subprocess
+    # early-exit. Emit a `build_skipped_lock_busy` (or
+    # `index_build_subprocess_failed`) diagnostic carrying the lock-holder pid
+    # so the caller sees a clear actionable recovery path instead of a
+    # misleading success response.
+    if result.get("build_failed_early"):
+        _failure_code = str(result.get("diagnostic_code") or "index_build_subprocess_failed")
+        _failure_message = str(result.get("notice") or "Index rebuild subprocess exited early.")
+        if result.get("lock_owner_pid"):
+            _failure_message = (
+                f"{_failure_message} Recovery: confirm the lock holder is still running; if dead, "
+                f"remove {root}/.wavefoundry/index/index-build.lock and retry."
+            )
+        diagnostics.append(_diagnostic(
+            _failure_code,
+            _failure_message,
+            recovery_tools=["wave_index_build_status", "wave_index_build"],
+            recovery_usage="wave_index_build_status()",
         ))
     # Wave 13129 (1316n): surface graph state regardless of content. Operators
     # running content='code'|'docs'|'all' need to see the graph wasn't touched
@@ -4982,14 +5089,22 @@ def wave_index_build_response(
         if graph_callout not in existing_notice:
             result["notice"] = (existing_notice + graph_callout).strip(" |")
     else:
-        result["graph_rebuilt"] = True
+        # Wave 1p2q3 (1p2w5): graph_rebuilt reflects whether a rebuild actually
+        # ran. A subprocess early-exit (lock-busy) means the rebuild never
+        # happened despite the spawn; do not claim graph_rebuilt: true.
+        result["graph_rebuilt"] = not (
+            result.get("already_running")
+            or result.get("up_to_date")
+            or result.get("build_failed_early")
+        )
         # Wave 1p2q3 (131hh): explicit graph rebuild — notify MCP clients that
         # cached wavefoundry://graph/* resources may be stale. Skip when the
-        # request was already-running or up-to-date (no rebuild fired).
-        if not result.get("already_running") and not result.get("up_to_date"):
+        # request was already-running, up-to-date, or failed early (no rebuild
+        # fired in any of those cases).
+        if result["graph_rebuilt"]:
             _dispatch_graph_resources_updated(root=root, layer=target_layer)
     return _response(
-        "ok",
+        "ok" if not result.get("build_failed_early") else "error",
         result,
         diagnostics=diagnostics,
         next_tools=["wave_index_health"],

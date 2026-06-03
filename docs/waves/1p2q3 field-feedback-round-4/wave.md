@@ -73,6 +73,12 @@ Change Status: `reconsidered-and-reverted`
 Change ID: `1p2tz-bug ts-barrel-export-resolution-for-nx-aliases`
 Change Status: `implemented`
 
+Change ID: `1p2w5-bug index-build-lock-and-autorebuild-coordination`
+Change Status: `implemented`
+
+Change ID: `1p2wd-bug parallel-extraction-fork-deadlock-spawn-mode-fix`
+Change Status: `implemented`
+
 ## Wave Summary
 
 (Populated on close.)

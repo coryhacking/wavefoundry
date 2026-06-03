@@ -28,7 +28,18 @@ def load_server():
     srv_mod = importlib.util.module_from_spec(spec)
     sys.modules["server"] = srv_mod
     spec.loader.exec_module(srv_mod)
-    return sys.modules["server_impl"]
+    impl = sys.modules["server_impl"]
+    # Wave 1p2q3 (1p2w5): run_index_rebuild gained a post-Popen verification
+    # window (default 1.5s) to detect subprocesses that exit early with a
+    # lock-busy error. Many tests across this file rely on the historical
+    # race window where `subprocess.Popen` returns instantly and downstream
+    # reads of the fixture graph happen before the spawned subprocess can
+    # rewrite it. Zero out the verify timeout at module-load time so all
+    # tests inherit the original timing. Tests that exercise the
+    # verification behavior itself can locally re-patch the constant.
+    if hasattr(impl, "_INDEX_BUILD_VERIFY_TIMEOUT_SECONDS"):
+        impl._INDEX_BUILD_VERIFY_TIMEOUT_SECONDS = 0.0
+    return impl
 
 
 def load_thin_runner():
@@ -2027,8 +2038,17 @@ class RunIndexRebuildTests(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
+        # Wave 1p2q3 (1p2w5): run_index_rebuild polls proc.poll() for up to
+        # _INDEX_BUILD_VERIFY_TIMEOUT_SECONDS after Popen. Tests mock Popen
+        # to return a MagicMock whose poll() returns a MagicMock (not int),
+        # so the verification loop runs the full window. Short-circuit it.
+        self._verify_timeout_patch = patch.object(
+            self.srv, "_INDEX_BUILD_VERIFY_TIMEOUT_SECONDS", 0.0
+        )
+        self._verify_timeout_patch.start()
 
     def tearDown(self):
+        self._verify_timeout_patch.stop()
         self.tmp.cleanup()
 
     def _write_index_state(
@@ -2203,6 +2223,59 @@ class RunIndexRebuildTests(unittest.TestCase):
         popen.assert_not_called()
         self.assertTrue(result["already_running"])
         self.assertTrue(result["passed"])
+
+    def test_subprocess_early_exit_with_lock_busy_surfaces_failure(self):
+        """Wave 1p2q3 (1p2w5 / Bug 2): when the spawned indexer subprocess
+        exits within the verification window with a non-zero code and
+        "lock file busy" in its log, run_index_rebuild must return
+        `build_failed_early=True`, `passed=False`, and
+        `diagnostic_code='build_skipped_lock_busy'` carrying the lock-holder
+        PID. Pre-fix behavior returned `passed=True` and `graph_rebuilt=True`
+        regardless of subprocess outcome."""
+        # Pre-write the lock file so the lock-owner lookup has a PID to read.
+        index_dir = self.root / ".wavefoundry" / "index"
+        index_dir.mkdir(parents=True, exist_ok=True)
+        (index_dir / "index-build.lock").write_text(
+            json.dumps({"pid": 77777, "started_at": 1780000000.0}),
+            encoding="utf-8",
+        )
+        logs_dir = self.root / ".wavefoundry" / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        log_path = logs_dir / "project-index-build.log"
+
+        # The production code truncates log_path via `open(log_path, "w", ...)`
+        # before Popen. Use a Popen side_effect to write lock-busy content
+        # AFTER that truncation, simulating an indexer subprocess that ran,
+        # tried to acquire its flock, failed, wrote the conflict message,
+        # and exited with non-zero — all inside the verification window.
+        def _popen_side_effect(*args, **kwargs):
+            log_path.write_text(
+                "Another index build is already running for /tmp/x — "
+                "live build in progress (owner pid 77777)\n",
+                encoding="utf-8",
+            )
+            m = MagicMock()
+            m.pid = 99999
+            m.poll = MagicMock(return_value=1)  # exited with code 1
+            return m
+
+        # Force a finite verify window so the failure-detection branch runs.
+        original_verify = getattr(self.srv, "_INDEX_BUILD_VERIFY_TIMEOUT_SECONDS", 1.5)
+        self.srv._INDEX_BUILD_VERIFY_TIMEOUT_SECONDS = 0.5
+        try:
+            with patch("subprocess.Popen", side_effect=_popen_side_effect), \
+                 patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+                result = self.srv.run_index_rebuild(
+                    self.root, content="graph", full=True
+                )
+        finally:
+            self.srv._INDEX_BUILD_VERIFY_TIMEOUT_SECONDS = original_verify
+        self.assertFalse(result["passed"])
+        self.assertTrue(result["build_failed_early"])
+        self.assertEqual(result["exit_code"], 1)
+        self.assertEqual(result["diagnostic_code"], "build_skipped_lock_busy")
+        self.assertEqual(result["lock_owner_pid"], 77777)
+        self.assertEqual(result["pid"], 99999)
 
     def test_invalid_content_raises(self):
         with self.assertRaises(ValueError):
@@ -9948,8 +10021,18 @@ class TestGraphRefreshThenRecheck(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
+        # Wave 1p2q3 (1p2w5): tests rely on the historical race window where
+        # `subprocess.Popen` returns instantly and downstream `from_root`
+        # reads the fixture graph before the spawned subprocess can rewrite
+        # it. Short-circuit the new post-Popen verification so behavior
+        # matches the prior contract for these unit tests.
+        self._verify_timeout_patch = patch.object(
+            self.srv, "_INDEX_BUILD_VERIFY_TIMEOUT_SECONDS", 0.0
+        )
+        self._verify_timeout_patch.start()
 
     def tearDown(self):
+        self._verify_timeout_patch.stop()
         self.tmp.cleanup()
 
     def test_recheck_returns_value_when_refresh_succeeds(self):
@@ -10092,8 +10175,17 @@ class TestGraphRefreshAndResolve(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
+        # Wave 1p2q3 (1p2w5): short-circuit run_index_rebuild's post-Popen
+        # verification window so these tests retain the original behavior
+        # (subprocess Popen returns; fixture graph is read before subprocess
+        # rewrites it).
+        self._verify_timeout_patch = patch.object(
+            self.srv, "_INDEX_BUILD_VERIFY_TIMEOUT_SECONDS", 0.0
+        )
+        self._verify_timeout_patch.start()
 
     def tearDown(self):
+        self._verify_timeout_patch.stop()
         self.tmp.cleanup()
 
     def _write_graph(self, nodes):
