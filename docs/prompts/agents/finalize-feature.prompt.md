@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-04
+Last verified: 2026-06-03
 
 ## Context
 
@@ -17,4 +17,4 @@ Same closure requirements as **Close wave** (see `docs/prompts/close-wave.prompt
 - Framework tests must pass if scripts were changed
 - Docs gate must pass
 - Guard-overrides must be reset if seeds were edited
-- When `wave_council_policy.enabled` is true, both council signoffs must be present in `## Review Evidence`
+- When `wave_review.enabled` is true, both council signoffs must be present in `## Review Evidence`

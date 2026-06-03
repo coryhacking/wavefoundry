@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-26
+Last verified: 2026-06-03
 
 Shortcut: **`Upgrade wave framework`** | Legacy: **`Upgrade Wavefoundry`** / **`Upgrade wave context`**
 
@@ -43,7 +43,14 @@ What this prompt is not:
 
 **Versioning contract:** Releases use `MAJOR.MINOR.PATCH` semver. The version appears as `MAJOR.MINOR.PATCH+<build>` in `VERSION` and `framework_revision`, and as `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` in filenames. See `docs/architecture/decisions/12tm5-adr semver-versioning-contract.md` for the version bump policy.
 
-**Distribution directories:** `upgrade_wavefoundry.py` searches the repository root, `~/.wavefoundry/`, and `~/.wavefoundry/dist/`, then picks the highest semver zip. Non-matching filenames are skipped silently.
+**Distribution directories:** `upgrade_wavefoundry.py` searches the repository root, `~/`, `~/.wavefoundry/`, and `~/.wavefoundry/dist/`, then picks the highest semver zip. Non-matching filenames are skipped silently.
+
+**Agent-safe zip discovery (use these, not `ls`):** `ls -1 ~/.wavefoundry/dist/` sorts lexicographically and ranks `wavefoundry-1.3.9.*.zip` *above* `wavefoundry-1.3.30.*.zip`, which causes agents to identify and apply a stale pack. Use the script flags instead — both run the same semver comparator the upgrade itself uses:
+
+- `.wavefoundry/bin/upgrade-wavefoundry --detect-zip` — prints the absolute path of the selected pack and exits `0`. Exits `1` with empty output when no matching zip is found.
+- `.wavefoundry/bin/upgrade-wavefoundry --list-zips` — prints every match across all four search paths, semver-sorted (highest first), with `* ` on the selected pack.
+
+When MCP is attached, `wave_upgrade(mode='dry_run')` is the preferred path — it prints the selected pack on a `Zip to apply:` line in the same output that surfaces seed diffs and hook inventory.
 
 **Step 0 (optional zip adoption):** If a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` is in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`, the upgrade seed stages the selected pack under `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation. Non-matching filenames are skipped. On Windows, run this flow from **WSL2** rather than native `cmd.exe` or PowerShell.
 

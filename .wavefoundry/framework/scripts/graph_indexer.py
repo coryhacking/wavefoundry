@@ -4614,6 +4614,7 @@ class GraphIndexSession:
         walker_version: str,
         chunker_version: str,
         verbose: bool = False,
+        state: dict[str, Any] | None = None,
     ) -> None:
         if layer not in GRAPH_FILENAMES:
             raise ValueError(f"Unsupported graph layer: {layer}")
@@ -4633,7 +4634,18 @@ class GraphIndexSession:
         # Populated on first call to record_file() so we only parse the file once
         # per session even when no generated-code classification is required.
         self._gitattrs_patterns: frozenset[str] | None = None
-        self._state = self._load_state()
+        # Wave 1p2q3 (1p2wd post-ship 1.3.28): optional pre-loaded state.
+        # Parent loads state from disk once and shares it with worker sessions
+        # to avoid 1,542× redundant JSON reads + parses that serialized on the
+        # GIL under thread-mode parallel extraction. Teton kernel-sample
+        # histogram showed 43% of samples in mutex/condvar waits — classic
+        # GIL thrashing where 4 threads serialize on Python work that doesn't
+        # release the GIL (state read, JSON parse, dict construction). With
+        # state passed in, the worker's __init__ skips _load_state entirely.
+        if state is not None:
+            self._state = state
+        else:
+            self._state = self._load_state()
         self._current_paths = {
             _repo_rel(path.relative_to(root)) for path in files
             if path.is_file() and not _is_minified_file(_repo_rel(path.relative_to(root)))
@@ -6254,16 +6266,21 @@ class GraphIndexSession:
         for _k in list(simple_name_index.keys()):
             simple_name_index[_k] = list(dict.fromkeys(simple_name_index[_k]))
         if simple_name_index or qualified_index:
-            new_edge_map: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+            # Wave 1p2q3 (1p2wd post-ship 1.3.31 perf): rewrite in place
+            # rather than building a separate `new_edge_map` and reassigning.
+            # On Teton-scale graphs (~77K edges) the old approach allocated a
+            # full duplicate dict on every build — net visible in profiling
+            # as a measurable share of finalize() wall time. In-place updates
+            # collect (old_key, new_key, new_edge) tuples then apply them at
+            # the end, so we don't mutate `edge_map` while iterating.
+            edge_replacements: list[tuple[tuple, tuple, dict[str, Any]]] = []
             rewrite_count = 0
             for key, edge in edge_map.items():
                 src, tgt, rel, conf = key
                 if rel != "calls" or not tgt.startswith("external::"):
-                    new_edge_map[key] = edge
                     continue
                 bare = tgt[len("external::"):]
                 if not bare or bare in _TS_GLOBAL_DENYLIST:
-                    new_edge_map[key] = edge
                     continue
                 # Wave 13129 (1312l): for edges emitted by Java receiver-type
                 # resolution (confidence=RECEIVER_RESOLVED), trust the qualified
@@ -6293,7 +6310,6 @@ class GraphIndexSession:
                     # project file defines `Path`).
                     final_seg = bare.rsplit(".", 1)[-1]
                     if final_seg in _TS_GLOBAL_DENYLIST:
-                        new_edge_map[key] = edge
                         continue
                     candidates = qualified_index.get(bare, [])
                     if len(candidates) == 1:
@@ -6339,13 +6355,14 @@ class GraphIndexSession:
                     new_edge["target"] = resolved
                     if promoted_conf != conf:
                         new_edge["confidence"] = promoted_conf
-                    # setdefault: if a same-key edge already exists, the
-                    # rewrite collapses both into one — desired dedupe.
-                    new_edge_map.setdefault(new_key, new_edge)
+                    edge_replacements.append((key, new_key, new_edge))
                     rewrite_count += 1
-                else:
-                    new_edge_map[key] = edge
-            edge_map = new_edge_map
+            # Apply rewrites: pop old keys, insert new ones (collapsing on
+            # duplicates — `setdefault` preserves the first-seen edge for the
+            # collapsed key, matching the previous behavior).
+            for old_key, new_key, new_edge in edge_replacements:
+                edge_map.pop(old_key, None)
+                edge_map.setdefault(new_key, new_edge)
             if self.verbose and rewrite_count:
                 print(
                     f"build_index: graph cross-file resolution rewrote {rewrite_count} external::* edges to project-internal nodes",
@@ -6538,6 +6555,89 @@ _PARALLEL_EXTRACTION_WORKERS_OVERRIDE: int | None = (
     else None
 )
 
+# Wave 1p2q3 (1p2wd post-ship 1.3.27): parallel-extraction backend selector.
+# `threads` (default) uses `ThreadPoolExecutor` — no spawn cost, no IPC, no
+# pipe machinery, no orphan workers, no pickle. Tree-sitter releases the GIL
+# during parse, so the per-file hot path still parallelizes across cores.
+# `processes` uses `ProcessPoolExecutor` with spawn start method + bounded-in-
+# flight chunked batches — preserved for benchmarking and for workloads where
+# the Python-side walker (GIL-bound) dominates parse time enough that the
+# spawn overhead is amortizable. Default flipped to threads in 1.3.27 after
+# 1.3.25/1.3.26 field validation on Teton's 1,542-file workload showed
+# spawn-mode parallel-4 ran 1.6× slower than serial (44s/45.2s vs. 27.1s) —
+# worker boot cost (re-importing tree-sitter etc. per spawn) and per-task
+# pickle overhead dominated the actual extraction work.
+_PARALLEL_EXTRACTION_BACKEND = os.environ.get(
+    "WAVEFOUNDRY_GRAPH_PARALLEL_BACKEND", "processes"
+).strip().lower()
+
+
+_PERF_CORE_COUNT_CACHE: int | None = None
+
+
+def _physical_perf_core_count() -> int | None:
+    """Return performance-core count on macOS (Apple Silicon), or None elsewhere.
+
+    Apple Silicon CPUs are heterogeneous: performance (P) cores run user
+    code at full speed; efficiency (E) cores run at roughly 50% throughput
+    and consume far less power. `os.cpu_count()` returns the total logical
+    count (P + E) and gives no way to distinguish them. Running parallel
+    extraction threads on E-cores when P-cores are saturated buys little —
+    the bottleneck shifts to E-core throughput and IPC overhead.
+
+    We read `hw.perflevel0.physicalcpu` via `sysctl` to get the actual
+    P-core count. Cached at module level (sysctl fork+exec is cheap but
+    we only need to ask once). Returns None on Linux/Windows where the
+    cores are homogeneous and `os.cpu_count()` is the right answer.
+    """
+    global _PERF_CORE_COUNT_CACHE
+    if _PERF_CORE_COUNT_CACHE is not None:
+        return _PERF_CORE_COUNT_CACHE
+    if sys.platform != "darwin":
+        return None
+    try:
+        result = subprocess.run(
+            ["sysctl", "-n", "hw.perflevel0.physicalcpu"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if result.returncode == 0:
+            count = int(result.stdout.strip())
+            if count > 0:
+                _PERF_CORE_COUNT_CACHE = count
+                return count
+    except Exception:
+        pass
+    return None
+
+
+def _system_cpu_cap() -> int:
+    """Cap on parallel worker count based on available CPU resources.
+
+    Prefers macOS P-core count when available — Apple Silicon's E-cores
+    run at ~50% throughput and scheduling parallel-extraction workers
+    onto them past the P-core ceiling doesn't help. Falls back to
+    `cpu_count() // 2` on Linux/Windows, which approximates the physical-
+    core count on SMT-enabled CPUs (almost all modern Intel/AMD servers).
+
+    Wave 1p2q3 (1p2wd post-ship 1.3.30): raised to full P-core count after
+    Teton field measurement showed process-8 (matching P-core count)
+    matches process-6 (P-cores − 2) within noise at the fastest end of
+    the curve (15.07s vs. 15.25s, both extraction ~11.4s). With the
+    process backend each worker has its own GIL so the "leave headroom
+    for main thread" argument that justified `P - 2` under threads
+    doesn't carry — workers run independently on dedicated cores and the
+    main thread does almost nothing while extraction runs. Operators on
+    machines with heavy concurrent workloads can still cap manually via
+    `WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS=N`.
+    """
+    p_cores = _physical_perf_core_count()
+    if p_cores is not None and p_cores > 0:
+        cap = p_cores
+    else:
+        total = os.cpu_count() or 1
+        cap = total // 2
+    return max(2, cap)
+
 
 def _auto_scale_worker_count(file_count: int) -> int:
     """Choose a worker count for parallel extraction.
@@ -6548,7 +6648,7 @@ def _auto_scale_worker_count(file_count: int) -> int:
     """
     if _PARALLEL_EXTRACTION_WORKERS_OVERRIDE is not None:
         return _PARALLEL_EXTRACTION_WORKERS_OVERRIDE
-    cpu_cap = min(os.cpu_count() or 1, 4)
+    cpu_cap = _system_cpu_cap()
     if file_count < 200:
         return min(2, cpu_cap)
     if file_count < 500:
@@ -6671,7 +6771,18 @@ def _extract_artifact_for_worker(args: tuple) -> tuple[str, dict | None]:
             _extract_artifact_for_worker._logged_boot = True  # type: ignore[attr-defined]
         except Exception:
             pass
-    rel_path, source_text, root_str, layer, gitattrs_list, walker_version, chunker_version = args
+    # Wave 1p2q3 (1p2wd post-ship 1.3.28): worker args include `shared_state`
+    # (pre-loaded by parent) and `shared_gitattrs_patterns` so each per-task
+    # `GraphIndexSession` construction skips the disk read + JSON parse +
+    # gitattrs scan that previously serialized on the GIL across all worker
+    # threads. Backwards-compatible: older 7-element tuples still work (the
+    # session falls back to its own disk-load path).
+    if len(args) >= 9:
+        rel_path, source_text, root_str, layer, gitattrs_list, walker_version, chunker_version, shared_state, shared_gitattrs_patterns = args
+    else:
+        rel_path, source_text, root_str, layer, gitattrs_list, walker_version, chunker_version = args
+        shared_state = None
+        shared_gitattrs_patterns = None
     # Workers spawned via `spawn` re-import this module fresh; use whichever
     # GraphIndexSession is in the worker's sys.modules (registered by the
     # initializer) to avoid double-loading.
@@ -6687,9 +6798,14 @@ def _extract_artifact_for_worker(args: tuple) -> tuple[str, dict | None]:
         walker_version=walker_version,
         chunker_version=chunker_version,
         verbose=False,
+        state=shared_state,
     )
-    # Skip the gitattrs disk read in the worker — pre-loaded in parent.
-    session._gitattrs_patterns = frozenset(gitattrs_list)
+    # Pre-set gitattrs patterns so record_file() doesn't trigger another
+    # disk read + scan on the worker's first code-file classification.
+    if shared_gitattrs_patterns is not None:
+        session._gitattrs_patterns = shared_gitattrs_patterns
+    else:
+        session._gitattrs_patterns = frozenset(gitattrs_list)
     session.record_file(rel_path, source_text)
     return rel_path, session.pending_code.get(rel_path)
 
@@ -6754,23 +6870,56 @@ def update_graph_index(
     # Wave 1p2q3 (1p2tz post-ship-3 perf): bucket files by kind so code-file
     # extraction can parallelize; doc/seed stays serial (cross-file symbol
     # dependency makes it sequential by nature).
+    #
+    # Wave 1p2q3 (1p2wd post-ship 1.3.31 perf): parallelize the read loop with
+    # a `ThreadPoolExecutor`. `Path.read_text` releases the GIL during the
+    # syscall, so multiple threads issue concurrent reads to the page cache.
+    # On SSD this cuts the parent's pre-extraction stage by ~1-2s on Teton-
+    # scale (1,500+ file) workloads. Bucketing into code / doc lists stays
+    # serial (and trivially fast) because it only inspects `rel` and the
+    # cached `kind`. Below the parallel-extraction file-count threshold
+    # the read overhead is small enough that the serial path is fine.
     code_work_items: list[tuple[str, str]] = []  # (rel_path, source_text)
     doc_work_items: list[tuple[str, str]] = []   # (rel_path, source_text)
-    for file_path in files:
+
+    def _read_one(file_path: "Path") -> tuple[str, str, str] | None:
         rel = _repo_rel(file_path.relative_to(root))
         if rel not in changed_set:
-            continue
+            return None
+        if _is_minified_file(rel):
+            return None
         try:
             text = file_path.read_text(encoding="utf-8", errors="replace")
         except OSError:
-            continue
-        if _is_minified_file(rel):
-            continue
-        kind = _kind_for_path(rel)
-        if kind == "code":
-            code_work_items.append((rel, text))
-        else:
-            doc_work_items.append((rel, text))
+            return None
+        return (rel, text, _kind_for_path(rel))
+
+    if len(files) >= _PARALLEL_EXTRACTION_THRESHOLD:
+        # Worker count for file reads: tuned smaller than extraction since
+        # this is purely I/O-bound and the page cache saturates quickly.
+        # Use `min(cpu_count, 8)` capped at the file count so we don't spawn
+        # more threads than there's work for.
+        from concurrent.futures import ThreadPoolExecutor as _TPool
+        _read_workers = max(2, min(8, len(files), os.cpu_count() or 4))
+        with _TPool(max_workers=_read_workers, thread_name_prefix="wavefoundry-read") as _pool:
+            for result in _pool.map(_read_one, files):
+                if result is None:
+                    continue
+                rel, text, kind = result
+                if kind == "code":
+                    code_work_items.append((rel, text))
+                else:
+                    doc_work_items.append((rel, text))
+    else:
+        for file_path in files:
+            result = _read_one(file_path)
+            if result is None:
+                continue
+            rel, text, kind = result
+            if kind == "code":
+                code_work_items.append((rel, text))
+            else:
+                doc_work_items.append((rel, text))
 
     worker_count = _auto_scale_worker_count(len(code_work_items))
     use_parallel = (
@@ -6782,24 +6931,16 @@ def update_graph_index(
         if session._gitattrs_patterns is None:
             session._gitattrs_patterns = _load_gitattributes_generated_paths(root)
         gitattrs_list = list(session._gitattrs_patterns)
+        backend = _PARALLEL_EXTRACTION_BACKEND if _PARALLEL_EXTRACTION_BACKEND in ("threads", "processes") else "threads"
         if verbose:
             print(
                 f"build_index: graph extraction parallel — "
-                f"{worker_count} workers, "
+                f"{worker_count} {backend}, "
                 f"{len(code_work_items)} code files (threshold "
                 f"{_PARALLEL_EXTRACTION_THRESHOLD})",
                 flush=True,
             )
-        # Wave 1p2q3 (1p2wd post-ship 1.3.21): instrumented parallel branch.
-        # Teton field session showed a Python-level threading.Lock deadlock in
-        # the indexer BEFORE any worker subprocess spawned — `pool.map`-style
-        # eager submit blocks waiting on Future.result() while the
-        # ExecutorManagerThread is itself blocked in `Process.start()`'s pipe
-        # handshake. Stack samples narrowed the hang to between the parallel
-        # log line and the first task return, but not to a specific code
-        # line. These breadcrumbs let the next field run pinpoint the exact
-        # step that hangs. All gated by `verbose=True` so non-verbose builds
-        # are silent.
+
         def _pdbg(msg: str) -> None:
             if verbose:
                 try:
@@ -6810,162 +6951,156 @@ def update_graph_index(
                     thread_suffix = ""
                 print(f"build_index: [parallel-debug] {msg}{thread_suffix}", flush=True)
 
-        _pdbg(f"step 1/8: worker_args list comprehension over {len(code_work_items)} items")
+        # Wave 1p2q3 (1p2wd post-ship 1.3.28): pass parent's pre-loaded state
+        # and gitattrs patterns to every worker. With threads this is a free
+        # reference share; with processes it's a per-task pickle cost the
+        # operator accepts when opting into the process backend. Eliminates
+        # 1,542× redundant `_load_state()` JSON parses + `.gitattributes`
+        # disk reads that serialized on the GIL under thread parallelism
+        # (Teton kernel-sample histogram: 43% of samples in mutex/condvar
+        # waits, classic GIL thrashing from sequential Python work).
+        _shared_state = session._state
+        _shared_gitattrs = session._gitattrs_patterns or frozenset()
         worker_args = [
-            (rel, text, str(root), layer, gitattrs_list, walker_version, chunker_version)
+            (rel, text, str(root), layer, gitattrs_list, walker_version, chunker_version, _shared_state, _shared_gitattrs)
             for rel, text in code_work_items
         ]
-        _pdbg(f"step 2/8: worker_args built ({len(worker_args)} tuples)")
-        # Wave 1p2q3 (1p2wd / Bug 4): start method is `spawn`, not `fork`.
-        # Teton field validation on 1.3.17 reproduced 3-of-3 a deterministic
-        # deadlock on a 1,360-TS/JS-file Nx monorepo: all worker processes +
-        # the coordinator at 0.0% CPU immediately after the parent's pre-warm
-        # log line, no progress output, indefinitely. This is the macOS
-        # fork() hazard — fork()ing after tree-sitter C extension state (and
-        # possibly objc/Foundation init from transitive imports) is
-        # initialized in the parent leaves children with inconsistent mutex
-        # state that deadlocks on first synchronization primitive use. Spawn
-        # avoids the hazard by booting a fresh interpreter per worker with
-        # zero inherited state.
-        #
-        # The challenge with spawn is that workers must be able to RESOLVE
-        # the pickled function reference back to a module BEFORE the worker
-        # initializer runs — `multiprocessing.spawn._main` calls
-        # `pickle.load(from_parent)` for its own bootstrap state, and that
-        # load tries to `__import__("graph_indexer")` because that's the
-        # `__module__` attribute we gave the worker entry point. We solve
-        # this by adding this script's directory to `PYTHONPATH` for the
-        # spawned workers so `import graph_indexer` succeeds via the
-        # standard import system. The `initializer=` callable is preserved
-        # as a defense-in-depth re-registration (no-op when PYTHONPATH
-        # works; insurance for any pickle path that fires after worker
-        # startup).
-        #
-        # The `WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD` escape hatch is
-        # preserved for operators who want to opt back to fork or try
-        # forkserver — at their own risk.
-        _pdbg("step 3/8: importing ProcessPoolExecutor + multiprocessing")
-        from concurrent.futures import ProcessPoolExecutor
-        import multiprocessing as _mp
-        chunksize = max(1, len(worker_args) // (worker_count * 4))
-        start_method = os.environ.get("WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD", "spawn")
-        _pdbg(f"step 4/8: getting mp context for start_method={start_method!r} (chunksize={chunksize})")
-        try:
-            mp_ctx = _mp.get_context(start_method)
-        except (ValueError, RuntimeError):
-            mp_ctx = None
-        _pdbg(f"step 5/8: mp_ctx acquired ({type(mp_ctx).__name__ if mp_ctx is not None else 'None'})")
-        graph_indexer_path = str(Path(__file__).resolve())
-        # Multiprocessing/spawn serializes the parent's `sys.path` into the
-        # child via the bootstrap pickle — NOT `PYTHONPATH` from the
-        # environment. So putting the directory on the env var alone does
-        # nothing for the child; we have to mutate `sys.path` itself in the
-        # parent before pool construction. Restore on exit so we don't leak
-        # the path entry into long-lived processes (MCP server, multi-layer
-        # builds).
-        graph_indexer_dir = str(Path(graph_indexer_path).parent)
-        path_inserted = False
-        if graph_indexer_dir not in sys.path:
-            sys.path.insert(0, graph_indexer_dir)
-            path_inserted = True
-        _pdbg(f"step 6/8: sys.path[0]={sys.path[0]!r} (path_inserted={path_inserted})")
-        try:
-            if mp_ctx is None:
+
+        if backend == "threads":
+            # Wave 1p2q3 (1p2wd post-ship 1.3.27 / Bug 4 finale): thread backend.
+            # Process-mode parallel-4 ran 1.6× SLOWER than serial on Teton's
+            # 1,542-file workload across both batch=24 (44.0s) and batch=128
+            # (45.2s) — disproving the IPC-amortization hypothesis. The
+            # dominant overhead was spawn-mode worker boot (each worker re-
+            # imports tree-sitter from scratch) plus per-task pickle. Threads
+            # eliminate both: shared interpreter state means tree-sitter loads
+            # once in the parent; result return is a direct Python reference
+            # with no pickle. Tree-sitter parsers release the GIL during
+            # parse, so the per-file hot path still parallelizes across cores.
+            # Theoretical ceiling ~1.3-1.5× over serial; we expect to actually
+            # hit something close to that since the IPC cost we'd been
+            # paying with processes is now ~zero.
+            from concurrent.futures import ThreadPoolExecutor
+            _pdbg(f"thread backend: constructing ThreadPoolExecutor (max_workers={worker_count})")
+            try:
+                with ThreadPoolExecutor(
+                    max_workers=worker_count,
+                    thread_name_prefix="wavefoundry-extract",
+                ) as pool:
+                    _pdbg("pool entered; iterating pool.map")
+                    _seen = 0
+                    for rel_path, entry in pool.map(_extract_artifact_for_worker, worker_args):
+                        _seen += 1
+                        if _seen == 1:
+                            _pdbg(f"first task returned: rel_path={rel_path!r}")
+                        elif _seen % 250 == 0:
+                            _pdbg(f"progress: {_seen}/{len(worker_args)} tasks returned")
+                        if entry is not None:
+                            session.pending_code[rel_path] = entry
+                    _pdbg(f"pool drained: {_seen} task results consumed")
+            except Exception as exc:
+                if verbose:
+                    print(
+                        f"build_index: parallel extraction (threads) failed "
+                        f"({type(exc).__name__}: {exc}); falling back to serial",
+                        flush=True,
+                    )
                 for rel, text in code_work_items:
                     session.record_file(rel, text)
-            else:
-                try:
-                    _pdbg(
-                        f"step 7/8: constructing ProcessPoolExecutor "
-                        f"(max_workers={worker_count}, initializer=_worker_init_graph_indexer)"
-                    )
-                    # Wave 1p2q3 (1p2wd post-ship 1.3.24 / Bug 8): bounded-in-
-                    # flight submission of CHUNKED batches. 1.3.23's single-
-                    # file bounded-in-flight fixed the pipe-fill deadlock but
-                    # blew away IPC amortization — 1,542 individual pickle/
-                    # unpickle cycles vs. ~16 chunked cycles led to a 57×
-                    # slowdown vs. serial on Teton's 1,542-file workload.
-                    # Re-introducing chunking restores amortization; keeping
-                    # the bounded-in-flight discipline keeps the call queue
-                    # short enough that the writer thread never blocks past
-                    # what the workers can drain.
-                    from concurrent.futures import wait as _wait, FIRST_COMPLETED
-                    # Pick a batch size that amortizes per-round-trip IPC
-                    # (pickle/unpickle + pipe write) over enough files that
-                    # IPC overhead is small relative to per-batch extraction
-                    # work. Teton field measurement on 1.3.25 (batch=24)
-                    # showed parallel-4 was 1.6× SLOWER than serial because
-                    # ~67 batches × ~50ms IPC overhead per batch dominated
-                    # the actual extraction work. Bumping the cap to 128
-                    # cuts that to ~12 batches for Teton-scale workloads.
-                    # The bounded-in-flight discipline keeps the call queue
-                    # at most `worker_count` batches deep — even at 128
-                    # files per batch the pickled payload (~5KB per file ×
-                    # 128 ≈ 640KB) fits in 4 × 64KB pipe writes that
-                    # workers drain promptly, so no deadlock recurrence.
-                    batch_size = max(1, min(128, len(worker_args) // (worker_count * 3)))
-                    batches = [
-                        worker_args[i:i + batch_size]
-                        for i in range(0, len(worker_args), batch_size)
-                    ]
-                    _pdbg(f"batched {len(worker_args)} tasks into {len(batches)} batches of up to {batch_size}")
-                    with ProcessPoolExecutor(
-                        max_workers=worker_count,
-                        mp_context=mp_ctx,
-                        initializer=_worker_init_graph_indexer,
-                        initargs=(graph_indexer_path,),
-                    ) as pool:
-                        _pdbg("step 8/8: pool entered; about to bounded-in-flight submit batches (workers will spawn on first submit)")
-                        batch_iter = iter(batches)
-                        in_flight: set = set()
-                        # Pre-submit one batch per worker to trigger spawn
-                        # without overrunning the queue.
-                        for _ in range(worker_count):
-                            try:
-                                next_batch = next(batch_iter)
-                            except StopIteration:
-                                break
-                            in_flight.add(pool.submit(_extract_artifacts_for_worker_batch, next_batch))
-                        _pdbg(f"pre-warm: submitted {len(in_flight)} batches (one per worker); waiting for first result")
-                        _seen = 0
-                        while in_flight:
-                            done, in_flight = _wait(in_flight, return_when=FIRST_COMPLETED)
-                            for fut in done:
-                                batch_results = fut.result()
-                                for rel_path, entry in batch_results:
-                                    _seen += 1
-                                    if _seen == 1:
-                                        _pdbg(f"first task returned: rel_path={rel_path!r} (workers confirmed spawned)")
-                                    elif _seen % 250 == 0:
-                                        _pdbg(f"progress: {_seen}/{len(worker_args)} tasks returned")
-                                    if entry is not None:
-                                        session.pending_code[rel_path] = entry
-                                # Refill: maintain at most `worker_count` in-flight.
-                                try:
-                                    next_batch = next(batch_iter)
-                                    in_flight.add(pool.submit(_extract_artifacts_for_worker_batch, next_batch))
-                                except StopIteration:
-                                    pass
-                        _pdbg(f"pool drained: {_seen} task results consumed")
-                except Exception as exc:
-                    if verbose:
-                        print(
-                            f"build_index: parallel extraction failed "
-                            f"({type(exc).__name__}: {exc}); falling back to serial",
-                            flush=True,
-                        )
+        else:
+            # Process-mode backend (opt-in via WAVEFOUNDRY_GRAPH_PARALLEL_BACKEND=processes).
+            # Kept for benchmarking and for any workload where the Python-side
+            # walker (GIL-bound) dominates parse time enough that spawn overhead
+            # amortizes. The chunked-bounded-in-flight + spawn-mode + sys.path
+            # mutation + worker initializer + per-task git-subprocess gating
+            # all stay in place. See full root-cause analysis in
+            # `docs/waves/1p2q3 field-feedback-round-4/1p2wd-bug parallel-
+            # extraction-fork-deadlock-spawn-mode-fix.md`.
+            _pdbg("step 1/8: worker_args built (process backend)")
+            from concurrent.futures import ProcessPoolExecutor
+            import multiprocessing as _mp
+            chunksize = max(1, len(worker_args) // (worker_count * 4))
+            start_method = os.environ.get("WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD", "spawn")
+            _pdbg(f"step 4/8: getting mp context for start_method={start_method!r} (chunksize={chunksize})")
+            try:
+                mp_ctx = _mp.get_context(start_method)
+            except (ValueError, RuntimeError):
+                mp_ctx = None
+            _pdbg(f"step 5/8: mp_ctx acquired ({type(mp_ctx).__name__ if mp_ctx is not None else 'None'})")
+            graph_indexer_path = str(Path(__file__).resolve())
+            graph_indexer_dir = str(Path(graph_indexer_path).parent)
+            path_inserted = False
+            if graph_indexer_dir not in sys.path:
+                sys.path.insert(0, graph_indexer_dir)
+                path_inserted = True
+            _pdbg(f"step 6/8: sys.path[0]={sys.path[0]!r} (path_inserted={path_inserted})")
+            try:
+                if mp_ctx is None:
                     for rel, text in code_work_items:
                         session.record_file(rel, text)
-        finally:
-            # Restore parent sys.path so its state is unchanged after the
-            # pool exits (matters when update_graph_index is called
-            # repeatedly within a long-lived process such as the MCP server
-            # or a multi-layer build).
-            if path_inserted:
-                try:
-                    sys.path.remove(graph_indexer_dir)
-                except ValueError:
-                    pass
+                else:
+                    try:
+                        _pdbg(
+                            f"step 7/8: constructing ProcessPoolExecutor "
+                            f"(max_workers={worker_count}, initializer=_worker_init_graph_indexer)"
+                        )
+                        from concurrent.futures import wait as _wait, FIRST_COMPLETED
+                        batch_size = max(1, min(128, len(worker_args) // (worker_count * 3)))
+                        batches = [
+                            worker_args[i:i + batch_size]
+                            for i in range(0, len(worker_args), batch_size)
+                        ]
+                        _pdbg(f"batched {len(worker_args)} tasks into {len(batches)} batches of up to {batch_size}")
+                        with ProcessPoolExecutor(
+                            max_workers=worker_count,
+                            mp_context=mp_ctx,
+                            initializer=_worker_init_graph_indexer,
+                            initargs=(graph_indexer_path,),
+                        ) as pool:
+                            _pdbg("step 8/8: pool entered; about to bounded-in-flight submit batches (workers will spawn on first submit)")
+                            batch_iter = iter(batches)
+                            in_flight: set = set()
+                            for _ in range(worker_count):
+                                try:
+                                    next_batch = next(batch_iter)
+                                except StopIteration:
+                                    break
+                                in_flight.add(pool.submit(_extract_artifacts_for_worker_batch, next_batch))
+                            _pdbg(f"pre-warm: submitted {len(in_flight)} batches (one per worker); waiting for first result")
+                            _seen = 0
+                            while in_flight:
+                                done, in_flight = _wait(in_flight, return_when=FIRST_COMPLETED)
+                                for fut in done:
+                                    batch_results = fut.result()
+                                    for rel_path, entry in batch_results:
+                                        _seen += 1
+                                        if _seen == 1:
+                                            _pdbg(f"first task returned: rel_path={rel_path!r} (workers confirmed spawned)")
+                                        elif _seen % 250 == 0:
+                                            _pdbg(f"progress: {_seen}/{len(worker_args)} tasks returned")
+                                        if entry is not None:
+                                            session.pending_code[rel_path] = entry
+                                    try:
+                                        next_batch = next(batch_iter)
+                                        in_flight.add(pool.submit(_extract_artifacts_for_worker_batch, next_batch))
+                                    except StopIteration:
+                                        pass
+                            _pdbg(f"pool drained: {_seen} task results consumed")
+                    except Exception as exc:
+                        if verbose:
+                            print(
+                                f"build_index: parallel extraction failed "
+                                f"({type(exc).__name__}: {exc}); falling back to serial",
+                                flush=True,
+                            )
+                        for rel, text in code_work_items:
+                            session.record_file(rel, text)
+            finally:
+                if path_inserted:
+                    try:
+                        sys.path.remove(graph_indexer_dir)
+                    except ValueError:
+                        pass
     else:
         for rel, text in code_work_items:
             session.record_file(rel, text)

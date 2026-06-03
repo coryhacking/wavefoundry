@@ -3867,13 +3867,15 @@ class ParallelExtractionSpawnModeTests(unittest.TestCase):
                 _sys.modules["graph_indexer"] = prior
 
     def test_auto_scale_worker_count_tiers(self):
-        """Wave 1p2q3 (1p2wd post-ship 1.3.20): worker-count auto-scale tiers
+        """Wave 1p2q3 (1p2wd post-ship 1.3.30): worker-count auto-scale tiers
         by file count when `WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS` is not set.
-        Pin the breakpoints so a future inadvertent change shows up."""
+        Pin the breakpoints + the full-P-cores cap so a future inadvertent
+        change shows up."""
         from unittest.mock import patch
-        # Force override-None and cpu_count = 8 so the cap isn't the
-        # binding constraint at any tier.
+        # Force override-None, simulate an 8-P-core machine so the cap
+        # equals 8 P-cores and only binds in the ≥500 tier.
         with patch.object(self.mod, "_PARALLEL_EXTRACTION_WORKERS_OVERRIDE", None), \
+             patch.object(self.mod, "_physical_perf_core_count", return_value=8), \
              patch("os.cpu_count", return_value=8):
             # Below 200 files: 2 workers
             self.assertEqual(self.mod._auto_scale_worker_count(0), 2)
@@ -3882,18 +3884,31 @@ class ParallelExtractionSpawnModeTests(unittest.TestCase):
             # 200-499 files: 3 workers
             self.assertEqual(self.mod._auto_scale_worker_count(200), 3)
             self.assertEqual(self.mod._auto_scale_worker_count(499), 3)
-            # ≥500 files: cpu_cap (min(cpu_count, 4) = 4 with cpu_count=8)
-            self.assertEqual(self.mod._auto_scale_worker_count(500), 4)
-            self.assertEqual(self.mod._auto_scale_worker_count(10_000), 4)
+            # ≥500 files: P_cores = 8 with 8 P-cores
+            self.assertEqual(self.mod._auto_scale_worker_count(500), 8)
+            self.assertEqual(self.mod._auto_scale_worker_count(10_000), 8)
 
     def test_auto_scale_respects_cpu_count_cap_on_small_machines(self):
-        """On a hypothetical 2-core machine the cap kicks in at every tier."""
+        """On a 2-physical-core machine the floor of `max(2, ...)` kicks
+        in at every tier."""
         from unittest.mock import patch
         with patch.object(self.mod, "_PARALLEL_EXTRACTION_WORKERS_OVERRIDE", None), \
+             patch.object(self.mod, "_physical_perf_core_count", return_value=2), \
              patch("os.cpu_count", return_value=2):
             self.assertEqual(self.mod._auto_scale_worker_count(50), 2)
             self.assertEqual(self.mod._auto_scale_worker_count(300), 2)
             self.assertEqual(self.mod._auto_scale_worker_count(5000), 2)
+
+    def test_auto_scale_uses_cpu_count_fallback_on_non_macos(self):
+        """On Linux/Windows where P-core detection isn't applicable,
+        `_system_cpu_cap` falls back to `cpu_count() // 2` (approximates
+        physical core count on SMT-enabled CPUs)."""
+        from unittest.mock import patch
+        with patch.object(self.mod, "_PARALLEL_EXTRACTION_WORKERS_OVERRIDE", None), \
+             patch.object(self.mod, "_physical_perf_core_count", return_value=None), \
+             patch("os.cpu_count", return_value=12):
+            # 12-logical-core SMT machine → physical ≈ 6 → cap = 6
+            self.assertEqual(self.mod._auto_scale_worker_count(10_000), 6)
 
     def test_auto_scale_override_wins_unconditionally(self):
         """`WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS=N` overrides auto-scale,
@@ -3964,9 +3979,12 @@ class ParallelExtractionSpawnModeTests(unittest.TestCase):
 
             # Now exercise the parallel branch with real spawn workers. The
             # override forces 2 workers regardless of auto-scale's per-file
-            # tier choice.
+            # tier choice. Explicitly request the process backend — the 1.3.27
+            # default is threads, but this test specifically exercises the
+            # spawn-mode plumbing.
             with patch.object(self.mod, "_PARALLEL_EXTRACTION_THRESHOLD", 2), \
-                 patch.object(self.mod, "_PARALLEL_EXTRACTION_WORKERS_OVERRIDE", 2):
+                 patch.object(self.mod, "_PARALLEL_EXTRACTION_WORKERS_OVERRIDE", 2), \
+                 patch.object(self.mod, "_PARALLEL_EXTRACTION_BACKEND", "processes"):
                 parallel_payload = self.mod.update_graph_index(
                     root=root,
                     index_dir=root / ".wavefoundry" / "index",
@@ -3999,6 +4017,75 @@ class ParallelExtractionSpawnModeTests(unittest.TestCase):
             {n["id"] for n in serial_payload["nodes"]},
             {n["id"] for n in parallel_payload["nodes"]},
             "node id sets diverged between serial and parallel paths",
+        )
+
+    def test_thread_backend_end_to_end(self):
+        """Wave 1p2q3 (1p2wd post-ship 1.3.27): thread backend (default)
+        produces byte-identical output to serial. No spawn, no IPC, no
+        pickle — just `ThreadPoolExecutor.map` over the same per-file
+        worker function."""
+        from unittest.mock import patch
+
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmp.name)
+            _make_repo(root)
+            files: list[Path] = []
+            meta: dict = {}
+            for i in range(4):
+                rel = f"src/m{i}.py"
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(
+                    f"def fn_{i}(x):\n    return x + {i}\n\n\nclass C{i}:\n    def m(self):\n        return fn_{i}(1)\n",
+                    encoding="utf-8",
+                )
+                files.append(p)
+                meta[rel] = {"hash": f"h{i}"}
+
+            # Serial baseline.
+            with patch.object(self.mod, "_PARALLEL_EXTRACTION_WORKERS_OVERRIDE", 1):
+                serial_payload = self.mod.update_graph_index(
+                    root=root,
+                    index_dir=root / ".wavefoundry" / "index",
+                    layer="project",
+                    files=files,
+                    current_file_meta=meta,
+                    changed=set(meta.keys()),
+                    removed=set(),
+                    walker_version="1",
+                    chunker_version="1",
+                    verbose=False,
+                )
+
+            # Thread backend (default in 1.3.27).
+            with patch.object(self.mod, "_PARALLEL_EXTRACTION_THRESHOLD", 2), \
+                 patch.object(self.mod, "_PARALLEL_EXTRACTION_WORKERS_OVERRIDE", 2), \
+                 patch.object(self.mod, "_PARALLEL_EXTRACTION_BACKEND", "threads"):
+                parallel_payload = self.mod.update_graph_index(
+                    root=root,
+                    index_dir=root / ".wavefoundry" / "index",
+                    layer="project",
+                    files=files,
+                    current_file_meta=meta,
+                    changed=set(meta.keys()),
+                    removed=set(),
+                    walker_version="1",
+                    chunker_version="1",
+                    verbose=False,
+                )
+        finally:
+            tmp.cleanup()
+
+        self.assertEqual(
+            serial_payload["counts"], parallel_payload["counts"],
+            f"thread backend output must match serial; "
+            f"serial counts={serial_payload['counts']}, "
+            f"parallel counts={parallel_payload['counts']}",
+        )
+        self.assertEqual(
+            {n["id"] for n in serial_payload["nodes"]},
+            {n["id"] for n in parallel_payload["nodes"]},
         )
 
     def test_parallel_branch_wires_spawn_and_initializer(self):
@@ -4048,6 +4135,7 @@ class ParallelExtractionSpawnModeTests(unittest.TestCase):
 
             with patch.object(self.mod, "_PARALLEL_EXTRACTION_THRESHOLD", 2), \
                  patch.object(self.mod, "_PARALLEL_EXTRACTION_WORKERS_OVERRIDE", 2), \
+                 patch.object(self.mod, "_PARALLEL_EXTRACTION_BACKEND", "processes"), \
                  patch("concurrent.futures.ProcessPoolExecutor", _SpyExecutor):
                 self.mod.update_graph_index(
                     root=root,

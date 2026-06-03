@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-19
+Last verified: 2026-06-03
 
 Shortcut: **`Close wave`**
 
@@ -14,7 +14,7 @@ Finalize and archive the wave. Closure requires full reconciliation — not just
 
 1. All changes marked `complete` or `deferred` with explicit rationale
 2. All required review lanes from readiness reconciled in `## Review checkpoints` (or deferred with rationale)
-3. When `wave_council_policy.enabled` is true, both `wave-council-readiness` and `wave-council-delivery` are present in `## Review Evidence`
+3. When `wave_review.enabled` is true, both `wave-council-readiness` and `wave-council-delivery` are present in `## Review Evidence`
 4. **Docs-contract review:** recorded as performed with findings, or `Docs-contract review: not applicable` with rationale — required whenever any `docs/specs/*.md` changed during the wave
 5. Chronology reconciled: `Status: completed`, `Completed at:` date, all change statuses finalized
 6. Journal distillation: important implementation/review lessons added to relevant role or persona journals (absence of new journal entries is acceptable if nothing warranted one)

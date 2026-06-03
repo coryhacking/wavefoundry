@@ -66,7 +66,7 @@ Tasks:
 
  When a signal is present, include a concise evidence reference (file path or import). When no evidence is found for a group, record `false` rather than omitting the key.
 
-8. **Brownfield pattern catalog** — When the repository has existing implementation history (source files with multiple prior implementations to learn from), scan a representative cross-section of the codebase and catalog dominant patterns under `code_patterns` in `docs/repo-profile.json`. Consumed by `seed-020` pattern-detection obligations at implementation time. At minimum, document:
+8. **Brownfield pattern catalog** — When the repository has existing implementation history (source files with multiple prior implementations to learn from), scan a representative cross-section of the codebase and catalog dominant patterns under `code_pattern` in `docs/repo-profile.json`. Consumed by `seed-020` pattern-detection obligations at implementation time. At minimum, document:
 
  - **Naming conventions** — variable, function / method, type, file, and module naming style per primary language (e.g., `camelCase` functions, `PascalCase` types, `kebab-case` files).
  - **Error handling style** — how errors propagate (exceptions vs result types vs sentinel values); how they are logged or surfaced; whether errors are wrapped with context.
@@ -75,7 +75,7 @@ Tasks:
  - **Test structure** — test file location convention (co-located vs separate test directory), naming pattern for test files and test cases, use of mocks vs real dependencies, fixture and setup style.
  - **Module organization** — grouping by feature, by layer, or by type; whether modules expose a public API surface or share implementation freely.
 
- If the repository has fewer than three source files with meaningful implementation to compare, record `code_patterns: { "status": "insufficient_history" }` and skip the catalog.
+ If the repository has fewer than three source files with meaningful implementation to compare, record `code_pattern: { "status": "insufficient_history" }` and skip the catalog.
 
 9. **Module inventory format for `docs/repo-index.md`** — When recording top-level modules, use the structured `## Module: <name>` format below. This makes the inventory machine-readable for the Guru's orientation pass and consistent with `kind="code-summary"` chunks that the semantic index emits per source file:
 
@@ -124,7 +124,7 @@ Required outputs or updates in the target repository:
  | `performance_sensitivity` | 3 | `seed-050`, `seed-070` |
  | `design_sensitivity` | 3 | `seed-040`, `seed-050` |
  | `design_system.design_evidence` | 7 | `seed-010`, `seed-040`, `seed-160` |
- | `code_patterns` | 8 | `seed-020` (at implementation time) |
+ | `code_pattern` | 8 | `seed-020` (at implementation time) |
  | `persona_candidates` | 11 | `seed-120` |
  | `factor_review` | 12 | `seed-050`, `seed-070` |
 
@@ -150,5 +150,5 @@ Guardrails:
 - Prefer evidence from the repository over assumptions. **Do not invent signals** — a framework, CI platform, or cloud-runtime detection must be grounded in a dependency, config file, or code reference; a name match alone is not sufficient.
 - Keep unknowns explicit when evidence is missing: use `TBD` or `Unknown` in prose, and appropriate null / empty-list values in `docs/repo-profile.json`.
 - If a repository already has valid canonical inventory docs, update them rather than duplicating them.
-- **On upgrade runs, preserve operator-refined values** in `factor_review.*.rationale`, `code_patterns.*`, and `persona_candidates[*].evidence` when the underlying repository evidence still supports them; overwrite only when evidence has materially changed, and prefer additive edits (appending a new evidence line) over wholesale replacement. This parallels `seed-160`'s preservation rule for `lifecycle_id_policy.epoch_utc`; when in doubt, keep the human text and record the new signal as an adjacent evidence bullet.
+- **On upgrade runs, preserve operator-refined values** in `factor_review.*.rationale`, `code_pattern.*`, and `persona_candidates[*].evidence` when the underlying repository evidence still supports them; overwrite only when evidence has materially changed, and prefer additive edits (appending a new evidence line) over wholesale replacement. This parallels `seed-160`'s preservation rule for `lifecycle_id_policy.epoch_utc`; when in doubt, keep the human text and record the new signal as an adjacent evidence bullet.
 - Load `seed-031` **at most once per run**, and only when disambiguation across multiple stacks is required; a typical Init or Upgrade run should complete without loading the full detection catalog.

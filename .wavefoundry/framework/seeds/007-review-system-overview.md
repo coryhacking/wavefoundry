@@ -131,7 +131,7 @@ Projects that enable Wave Council should also declare an explicit council policy
 
 ```json
 {
-  "wave_council_policy": {
+  "wave_review": {
     "enabled": true,
     "required_for_all_waves": true,
     "evidence_section": "## Review Evidence",

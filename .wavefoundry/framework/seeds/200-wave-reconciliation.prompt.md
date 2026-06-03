@@ -39,7 +39,7 @@ Orchestration responsibilities:
 
 Required wave planning-mode handoff semantics (when writing or updating `docs/agents/session-handoff.md` for a wave in `planning` state — i.e., admitted but not yet prepared):
 
-- `Mode: wave_planning`
+- `Mode: wave_prepare`
 - Active wave ID and active change IDs
 - **In-scope files** — list every file explicitly named under `## Scope` (`**In scope:**`) in the admitted change doc; add a gate warning: "All listed surfaces are gated by the Stage Gate (wave-admitted surfaces) in `AGENTS.md` — do not edit these files until `Prepare wave` passes."
 - Next lifecycle step: `Prepare wave`

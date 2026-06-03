@@ -82,7 +82,7 @@ When **Guru** escalates a deep technical question to `docs/architecture/<topic>.
 - Request updates to hub child docs and `docs/architecture/data-and-control-flow.md` when the draft changes documented integration edges
 - Return a standard lane verdict (`approved`, `approved-with-notes`, or `needs-revision`)
 
-Guru must not treat the write-up as complete until this review finishes. When `wave_council_policy.enabled` is true, Guru must also **consult council-moderator** after architecture-reviewer; this lane does not substitute for Wave Council.
+Guru must not treat the write-up as complete until this review finishes. When `wave_review.enabled` is true, Guru must also **consult council-moderator** after architecture-reviewer; this lane does not substitute for Wave Council.
 
 ## What This Lane Does Not Cover
 

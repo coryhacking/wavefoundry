@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-18
+Last verified: 2026-06-03
 
 ## Context
 
@@ -14,7 +14,7 @@ You are running **Prepare wave** on Wavefoundry. This is the stage gate for impl
 2. Verify each change doc has: Rationale, Requirements, Scope, Acceptance Criteria, Affected architecture docs.
 3. Select review lanes (see `docs/contributing/agent-team-workflow.md`).
 4. Confirm `qa-reviewer` for any bug fix.
-5. When `wave_council_policy.enabled` is true, run the Wave Council readiness pass: declare a primer depth tier (`lightweight` / `standard` / `full`), run `red-team` in `council-adversarial-primer` mode first, then fixed seats each receiving the primer, then `council-moderator` synthesizes; record `wave-council-readiness` in `## Review Evidence`.
+5. When `wave_review.enabled` is true, run the Wave Council readiness pass: declare a primer depth tier (`lightweight` / `standard` / `full`), run `red-team` in `council-adversarial-primer` mode first, then fixed seats each receiving the primer, then `council-moderator` synthesizes; record `wave-council-readiness` in `## Review Evidence`.
 6. Record `## AC priority` on each change doc.
 7. Record readiness verdict in wave record `## Review checkpoints`.
 8. Update wave record `Status: active`.

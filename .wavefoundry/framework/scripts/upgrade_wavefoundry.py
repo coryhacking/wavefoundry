@@ -222,6 +222,57 @@ def _find_zip(root: Path) -> Path | None:
     return _find_latest_release_zip(root)
 
 
+def _print_all_release_zips(root: Path) -> None:
+    """Print every matching wavefoundry zip across all search paths, semver-sorted.
+
+    Highest version first. The selected-latest is prefixed with `* `. Format
+    per line is `<marker> <version> <path>`. Output stays empty when no zips
+    are found (callers can grep / wc on it without special-casing).
+
+    Used by `upgrade_wavefoundry.py --list-zips` to give agents an
+    authoritative inventory instead of having them shell out to `ls -1`
+    (which sorts lexicographically and ranks `1.3.9` above `1.3.30`).
+    """
+    try:
+        from check_version import _to_version
+    except (ImportError, ModuleNotFoundError):
+        return
+    seen: dict[Path, tuple] = {}
+    search_dirs = (
+        root,
+        _HOME_DIR.expanduser(),
+        _HOME_WAVEFOUNDRY_DIR.expanduser(),
+        _DIST_DIR.expanduser(),
+    )
+    for search_dir in search_dirs:
+        if not search_dir.is_dir():
+            continue
+        for entry in search_dir.iterdir():
+            m = _ZIP_NAME_RE.match(entry.name)
+            if not m:
+                continue
+            ver_str, build = m.group(1), m.group(2)
+            try:
+                v = _to_version(ver_str)
+            except (ValueError, Exception):
+                continue
+            try:
+                mtime = entry.stat().st_mtime
+            except OSError:
+                mtime = 0.0
+            # Dedupe by resolved absolute path so symlinked dirs don't
+            # emit duplicate entries.
+            seen[entry.resolve()] = (v, mtime, build, ver_str)
+    if not seen:
+        return
+    # Sort highest-first by (semver, mtime, build).
+    ordered = sorted(seen.items(), key=lambda kv: kv[1], reverse=True)
+    selected = ordered[0][0] if ordered else None
+    for path, (_v, _mtime, _build, ver_str) in ordered:
+        marker = "*" if path == selected else " "
+        print(f"{marker} {ver_str} {path}")
+
+
 def _read_pack_version(root: Path) -> str | None:
     p = root / ".wavefoundry" / "framework" / "VERSION"
     try:
@@ -1061,12 +1112,51 @@ def main(argv: list[str] | None = None) -> int:
             "for agent review before the real upgrade runs."
         ),
     )
+    parser.add_argument(
+        "--detect-zip",
+        action="store_true",
+        dest="detect_zip",
+        help=(
+            "Print the absolute path of the highest-semver `wavefoundry-*.zip` "
+            "across all search paths (repo root, ~/, ~/.wavefoundry/, "
+            "~/.wavefoundry/dist/), then exit 0. Exit 1 with empty output if no "
+            "matching zip is found. Use this instead of `ls -1` so the answer "
+            "comes from the same semver comparator the upgrade itself uses — "
+            "`ls -1` sorts lexicographically, which puts `1.3.9` after `1.3.30`."
+        ),
+    )
+    parser.add_argument(
+        "--list-zips",
+        action="store_true",
+        dest="list_zips",
+        help=(
+            "Print every matching `wavefoundry-*.zip` across all search paths, "
+            "one per line, semver-sorted (highest first), with the selected-"
+            "latest prefixed by `* `. Use this when you need to see everything "
+            "available, not just the selected pack. Exits 0 even when no zips "
+            "are found (prints nothing in that case)."
+        ),
+    )
     args = parser.parse_args(argv)
     root = Path(args.root).resolve()
 
     # Ensure upgrade_lib is importable (same directory as this script)
     if str(SCRIPTS_DIR) not in sys.path:
         sys.path.insert(0, str(SCRIPTS_DIR))
+
+    # ── Agent-facing zip-discovery helpers ────────────────────────────────
+    # Routed before any other phase so they short-circuit without spawning
+    # the upgrade pipeline. Both produce stable, machine-readable output for
+    # agents that previously fell back to `ls -1` (broken under lex sort).
+    if args.detect_zip:
+        z = _find_latest_release_zip(root)
+        if z is None:
+            return 1
+        print(str(z))
+        return 0
+    if args.list_zips:
+        _print_all_release_zips(root)
+        return 0
 
     import upgrade_lib
 

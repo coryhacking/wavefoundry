@@ -36,7 +36,7 @@ Required closure tasks:
    - record why a lane was skipped rather than leaving the checkpoint blank
    - **Close wave and behavioral specs:** When using `Close wave`, if the wave’s admitted changes touched any `docs/specs/*.md` or other canonical docs that define runtime behavior, closure is incomplete until **docs-contract review** (spec review) is recorded in the wave’s **Review checkpoints** — scope, evidence, findings or explicit clean bill. If no behavioral spec or equivalent canonical doc changed, record **Docs-contract review: not applicable** with a one-line rationale; do not omit the checkpoint entirely.
    - **product-owner review** (`product-owner`): when the wave changed product behavior, UX, or durable feature semantics, record alignment with wave **Product intent**, list **`docs/specs/*.md`** files updated to reflect **final** intent, or **product-owner: N/A** / no spec promotion with rationale. Framework-only or internal-tooling waves may use **N/A** when no product semantics moved (`docs/agents/product-owner.md`)
-8. When `wave_council_policy.enabled` is true, confirm both universal council signoffs exist in `## Review Evidence` before closure:
+8. When `wave_review.enabled` is true, confirm both universal council signoffs exist in `## Review Evidence` before closure:
    - `wave-council-readiness`
    - `wave-council-delivery`
    Record the narrative council synthesis in `## Review checkpoints`. The council-moderator owns those verdicts. The checkpoint must include the phase roster, the rotating fifth seat when present, any material disagreements between seats, and how those disagreements were resolved or why they remain unresolved. Wave Council is universal meta-review and does not waive blocking required specialist lanes.
@@ -74,7 +74,7 @@ Commonly missed closure work to check explicitly:
 - **code review** missing, generic, or treated as optional when the wave changed non-trivial product logic — especially when per-key state or repeated-invocation paths were involved
 - **`qa-reviewer` missing** on a **bug** or product defect wave when `docs/workflow-config.json` `review_policies.require_qa_reviewer_for_bug_fixes` is true — record retrospective QA or obtain an explicit waiver in the wave/change doc
 - review checkpoints written as "Passed" without documenting what was actually reviewed
-- `wave_council_policy` enabled but `wave-council-readiness` or `wave-council-delivery` missing from `## Review Evidence`
+- `wave_review` enabled but `wave-council-readiness` or `wave-council-delivery` missing from `## Review Evidence`
 - docs-contract review limited to wave/workflow files even though the implemented behavior changed a canonical spec
 - `Close wave` completed without a **Docs-contract review** checkpoint when `docs/specs/*.md` or other behavior contracts were updated during the wave
 - closed wave still claiming "no remaining mismatches" after a follow-up review proved canonical docs were stale

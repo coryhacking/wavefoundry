@@ -28,7 +28,7 @@ This lane performs read-only inspection of the project's operating surface. All 
 ### Workflow Config
 
 - Verify `docs/workflow-config.json` is present.
-- Note `required_review_lanes`, `wave_council_policy.enabled`, and any review policy flags.
+- Note `required_review_lanes`, `wave_review.enabled`, and any review policy flags.
 - Report the current state as-is; do not evaluate whether the config is correct — that is the coordinator's call.
 
 ### Handoff State

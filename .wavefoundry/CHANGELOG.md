@@ -6,187 +6,60 @@ This file is at the project-level path (`.wavefoundry/CHANGELOG.md`) rather than
 
 ---
 
-## 1.3.26 — 2026-06-02
+## 1.3.31 — 2026-06-03
 
-Batch-size tuning experiment to address the parallel-vs-serial perf inversion observed on Teton's 1.3.25 build (44s parallel-4 vs. 27s serial). No `GRAPH_BUILDER_VERSION` bump, no auto-rebuild on upgrade, no behavioral changes — only the per-batch chunk size sent to spawn workers changes.
+Two perf wins layered on the 1.3.30 parallel-extraction architecture. No `GRAPH_BUILDER_VERSION` bump.
 
-1.3.25 closed the last functional bug (`git ls-files` subprocess deadlock) but Teton's parallel-4 was still 1.6× slower than serial. Root cause: with batch_size capped at 32 and a divisor of `worker_count × 16`, Teton's 1,542-file workload landed at 24 files per batch, producing ~67 batches per build. Each batch incurs a pickle/unpickle round trip through the multiprocessing call queue (~50-100 ms on macOS spawn-mode). At ~67 batches that's 3-6 seconds of pure IPC overhead — comparable to the actual extraction work per worker, so parallelism couldn't pull ahead.
+**1. Parallel source-file reads in the parent.** `update_graph_index` previously read all `files` serially before bucketing into code / doc work lists — on Teton-scale builds (1,500+ files) that's a measurable single-threaded I/O stage in front of the parallel extraction. Now uses a `ThreadPoolExecutor` (8 workers cap, `min(cpu_count, 8, len(files))`) over the read loop. `Path.read_text` releases the GIL during the syscall so multiple reads issue concurrently against the page cache. Gated by the same `_PARALLEL_EXTRACTION_THRESHOLD=100` file-count gate — small / incremental builds stay serial.
 
-Fix: bump the cap to 128 and tighten the divisor to `worker_count × 3`:
+**2. In-place cross-file rewrite.** The cross-file resolution pass that rebinds `external::*` edges to project nodes previously built a fresh `new_edge_map` and reassigned `edge_map = new_edge_map` on every build. On Teton-scale (~77,000 edges, ~2,000 rewrites) the allocation of a full duplicate dict was a measurable share of finalize wall time. The rewrite now collects `(old_key, new_key, new_edge)` tuples in a small list (only for edges that actually rewrite) and applies them in place after the iteration completes. Output is byte-identical to the previous behavior — the `setdefault` collapse on duplicate keys is preserved.
 
-```python
-batch_size = max(1, min(128, len(worker_args) // (worker_count * 3)))
-```
+Both wins are modest individually (sub-second on synthetic 1,542-file workloads) but compound — the goal is to chip away at the ~5s post-extraction window Teton sees between the worker pool draining and the "cross-file resolution rewrote N edges" log line. Honest expectation: 5-15% wall-time improvement on Teton-scale, not a 44%-style transformative win.
 
-For Teton's workload that's `1542 // (4 * 3) = 128` exactly. Reduces batch count from ~67 to ~12 — a ~5.5× reduction in IPC round trips. Smaller workloads scale proportionally (500 files at 4 workers → 41 per batch; 100 files → 8 per batch).
+Agent-facing CLI helper docs from 1.3.30 (`upgrade-wavefoundry --detect-zip` / `--list-zips`) now propagated to **both** seed-160 (canonical) and `docs/prompts/upgrade-wavefoundry.prompt.md` (rendered). The rendered prompt now contains the `ls -1` antipattern warning so agents reading the prompt directly see why they shouldn't visually inspect the dist directory.
 
-The bounded-in-flight discipline still holds: at most `worker_count` batches in the call queue at any moment. Even at 128 files per batch (~640 KB pickled per batch), the 4 in-flight = 2.5 MB total which spills across multiple 64 KB pipe writes that workers drain promptly. No risk of pipe-fill deadlock recurrence.
-
-Verified locally: 2258 framework tests pass. Synthetic 1,542 realistic-shape TS files (multi-line, classes, imports — closer to Teton-shape) completes parallel-4 in 1.32s. Local hardware can't show Teton-scale IPC-dominance, so this is a "ship and measure" experiment. If Teton's parallel-4 drops materially under serial's 27s, the IPC-amortization theory is confirmed; if not, the bottleneck is somewhere else and we move to the thread backend.
+Verified: 2260 framework tests pass.
 
 ---
 
-## 1.3.25 — 2026-06-02
+## 1.3.30 — 2026-06-03
 
-**Closes Bug 9 — per-task `git ls-files` subprocess deadlock in parallel workers.** No `GRAPH_BUILDER_VERSION` bump.
+Two operator-facing surfaces:
 
-Teton's stack samples on 1.3.24 showed workers blocked inside `_extract_artifact_for_worker → GraphIndexSession.__init__ → slot_tp_init → ... → select_poll_poll → poll`. The fault: `GraphIndexSession.__init__` unconditionally called `_gitignored_paths(root)`, which runs `subprocess.run(["git", "ls-files", "--others", "--ignored", "--exclude-standard"], ...)` to compute paths gitignore would skip. On macOS spawn-mode workers, the `subprocess.Popen.__init__` internal `select.poll().poll()` for fork-completion can deadlock when called from inside an already-spawned worker process.
+**1. Parallel code-file graph extraction.** Spawn-mode `ProcessPoolExecutor` extracts code-file artifacts across worker processes, auto-scaled to the machine's performance-core count (P-cores on Apple Silicon detected via `sysctl hw.perflevel0.physicalcpu`; `cpu_count() // 2` fallback on Linux/Windows SMT). Output is byte-identical to serial extraction. Field measurement on a 1,542-TS-file Nx monorepo: **27.1s serial → 15.07s parallel-8 (44% faster)**.
 
-The deeper irony: the parallel workers each construct a fresh `GraphIndexSession` with `files=[]` per task (1,542 sessions per Teton build). With no files, `self._current_paths` is empty, so the subsequent `self._current_paths -= ignored` is a no-op — but the `git ls-files` subprocess still fires every time. On Teton's workload that was 1,542 redundant git invocations per build, hundreds of which would deadlock on the macOS spawn → poll hazard.
+Design choices:
 
-Fix: gate the `_gitignored_paths` call on `if self._current_paths:`. When workers pass `files=[]`, the subprocess is skipped entirely. Parent-thread behavior is identical (the parent always has `files`). Net effect on Teton:
+- **Threshold-gated** at 100 code files (`WAVEFOUNDRY_GRAPH_PARALLEL_THRESHOLD` env var override). Small builds, incremental hook-triggered reindexes, and test fixtures stay on the serial path so they don't pay per-worker spawn cost.
+- **Auto-scale tiers** by file count: `<200 → 2 workers`, `200-499 → 3 workers`, `≥500 → P-core count` (capped at the system's actual P-cores). `WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS=N` overrides the auto-scaled count unconditionally.
+- **Process backend by default** — `WAVEFOUNDRY_GRAPH_PARALLEL_BACKEND=processes`. Each worker has its own GIL; per-task work parallelizes cleanly across cores after the per-task state load was hoisted out of the worker path. A thread backend (`=threads`) is preserved as opt-in for workflows with many small partial rebuilds where the per-process spawn cost would dominate the small case.
+- **State + gitattrs pre-loaded in the parent and shared with workers via worker_args.** Eliminates per-task `_load_state()` JSON parse and `.gitattributes` disk scan that previously serialized on the GIL across worker threads — the difference between thread-mode losing to serial and processes beating serial by 44%.
+- **Worker-side `git ls-files` subprocess skipped** when the per-task `GraphIndexSession.__init__` receives an empty `files=[]` list. Cuts ~1,500 redundant `git` fork+exec invocations per large build and closes a macOS spawn-mode hazard where `subprocess.Popen.__init__`'s internal `select.poll().poll()` for fork-completion could deadlock from inside an already-spawned worker.
+- **Graceful fallback to serial** on any pool failure. The build always completes.
+- **Doc/seed extraction stays serial** because it depends on cross-file `symbol_terms` built across all artifacts.
+- **Diagnostic breadcrumbs** at every transition in the parallel branch (only when `--verbose`), with thread-count tags. Pinpoints which step blocks if a future regression deadlocks the pool.
 
-- 1,542 redundant git subprocess invocations per build eliminated
-- macOS spawn-mode deadlock condition removed from the worker path
-- Per-file initialization cost drops from ~5-10ms (git fork+exec+wait) to microseconds
-- All 4 workers should now flow through tasks cleanly
+Env-var override surface:
 
-Verified: 2258 framework tests pass. Synthetic 1,500-TS-file stress test (real git repo, venv Python, real tree-sitter):
+- `WAVEFOUNDRY_GRAPH_PARALLEL_BACKEND` — `processes` (default) or `threads`.
+- `WAVEFOUNDRY_GRAPH_PARALLEL_THRESHOLD` — minimum code-file count to enter the parallel path (default `100`).
+- `WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS` — hard worker-count override (default: auto-scale).
+- `WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD` — `spawn` (default) / `fork` / `forkserver` escape hatch.
 
-- Serial: 1.01s
-- Parallel-4: 0.58s (1.7× speedup on this small-file workload; Teton's heavier real files should see closer to the theoretical 3-4× ceiling)
-- Output byte-identical between modes
+**2. Agent-facing upgrade CLI helpers.** Two new flags on `.wavefoundry/bin/upgrade-wavefoundry`:
 
-For Teton: 1.3.25 should be the one where parallel actually clears the field. The structural fixes (1.3.22 threadpool off, 1.3.23 bounded-in-flight, 1.3.24 chunked batches + orphan watchdog) all addressed real layered defects. With Bug 9 closed, no remaining known worker-side deadlocks.
+- `--detect-zip` — prints the absolute path of the highest-semver `wavefoundry-*.zip` across all four search paths (repository root, `~/`, `~/.wavefoundry/`, `~/.wavefoundry/dist/`), then exits `0`. Exits `1` with empty output if no matching zip is found. Agents that previously fell back to `ls -1` to determine the latest pack should use this instead — `ls -1` sorts lexicographically and ranks `1.3.9` *above* `1.3.30`, which made agents apply stale packs.
+- `--list-zips` — prints every matching pack across all four search paths, semver-sorted (highest first), with the selected-latest prefixed by `* `. Use when you need the full inventory.
 
----
+Seed-160 (`160-upgrade-wavefoundry.prompt.md`) updated to direct agents to these flags instead of `ls -1`. When MCP is attached, `wave_upgrade(mode='dry_run')` continues to surface the selected pack on a `Zip to apply:` line and remains the preferred path.
 
-## 1.3.24 — 2026-06-02
+Other internal optimizations rolled up into this release:
 
-Two field-driven fixes. No `GRAPH_BUILDER_VERSION` bump, no auto-rebuild on upgrade.
+- Single-pass TS/JS extractor walker: previous walker traversed each AST twice (once for definitions, once for calls). Merged into a single pass with buffered call resolution post-walk. Reduces per-file walker wall-time materially on large source files.
+- `lru_cache(maxsize=20000)` on path-resolution helpers (`_probe_ts_alias_target`, `_resolve_relative_ts_import`) for barrel-export-heavy codebases where each unique specifier is hit dozens of times per build.
+- `_TS_FILE_DECLARED_NAMES_CACHE` keyed on (path, mtime) so the barrel walker hits cache instead of re-running its declared-names regex pass per file.
 
-**Bug 7 — Workers don't self-terminate when parent dies (macOS spawn-mode).** `multiprocessing` is supposed to monitor parent death via the `parent_sentinel` pipe (EOF signals parent exit), but on macOS spawn mode the pipe can stay open under launchd's re-parenting and the worker keeps running forever, idle on `call_queue.get()`. Every killed build then leaks N worker processes plus the resource_tracker. Mitigation: each worker now spawns a daemon `ppid-watchdog` thread inside `_worker_init_graph_indexer` that polls `os.getppid()` every 2 seconds; if the ppid changes (re-parented) or becomes 1 (orphaned to init), the worker calls `os._exit(0)` immediately. Daemon thread dies with the worker so it leaves no trace on clean shutdown.
-
-**Bug 8 — Per-task IPC blew away parallel throughput.** 1.3.23's bounded-in-flight pattern fixed the pipe-fill deadlock from 1.3.22, but at the cost of removing chunked submission. Each of Teton's 1,542 files then incurred a full pickle/unpickle round trip through the multiprocessing call queue — vs. ~16 chunked round trips under the original `pool.map(chunksize=96)`. Field measurement: parallel run was **57× slower than serial** (250 files in ~4 minutes vs. 1,542 files in 27 seconds serial). Workers were live and processing, just IPC-bound.
-
-Fix: re-introduce chunking AT THE BATCH LEVEL while preserving the bounded-in-flight discipline that keeps the pipe from filling. New module-level helper `_extract_artifacts_for_worker_batch(batch_args)` processes a list of file tuples in a single IPC round trip. Batch size auto-sized via `max(1, min(32, len(worker_args) // (worker_count * 16)))` — for Teton's 1,542 files at 4 workers that's 23 files per batch, ~66 batches total, ~23× IPC reduction vs. single-file submission. The bounded-in-flight loop still keeps at most `worker_count` batches in the call queue at any time, so the pipe never overflows.
-
-Verified: 2258 framework tests pass. Synthetic 1,500-TS-file stress test (venv Python, real tree-sitter) completes in 6.31s parallel-4 — byte-identical 8,990 nodes / 19,470 edges to serial output. Pool draining is steady (progress lines every 250 tasks fire on a clean cadence) and the 4 worker breadcrumbs appear up-front confirming all workers boot before submission ramps.
-
----
-
-## 1.3.23 — 2026-06-02
-
-**Closes Bug 4 part 3 — the actual root cause.** No `GRAPH_BUILDER_VERSION` bump, no auto-rebuild on upgrade.
-
-Teton's stack samples from 1.3.22 isolated the exact mechanism: three indexer threads stuck, with the multiprocessing call-queue writer thread blocked in `os.write()` to a Unix pipe. `pool.map(fn, args, chunksize=N)` calls `Executor.map`, which contains `fs = [self.submit(fn, args) for args in zip(...)]` — eagerly submits ALL chunks back-to-back. With chunksize=96 and 1,542 items, that's 16 submits-in-a-row, each pushing onto the multiprocessing call queue, which serializes through a Unix pipe whose buffer is ~64KB on macOS. Once the pipe fills, the writer thread blocks. Workers haven't spawned yet (lazy spawn on first task), so nothing reads the pipe. The main thread is blocked waiting on the first future's result. Three-way wait, deadlock forever.
-
-The fix swaps `pool.map(chunksize=N)` for a **bounded-in-flight `pool.submit` + `concurrent.futures.wait(..., return_when=FIRST_COMPLETED)`** loop:
-
-1. Pre-submit one task per worker (≤ `worker_count` total) to trigger worker spawn without pre-filling the queue.
-2. As each future completes, submit one more task. The in-flight set never exceeds `worker_count`.
-3. The call queue never holds more than `worker_count` items (well under the 64KB pipe buffer at our task sizes), so the writer thread never blocks.
-
-This is the classic "throttle submission" pattern for batch processing with backpressure. Identical to `pool.map`'s output but pipe-safe.
-
-Diagnostics retained:
-
-- All 1.3.21 step-by-step breadcrumbs (now with bounded-in-flight messages).
-- New: **worker-side breadcrumb** at the entry of `_extract_artifact_for_worker` that routes through worker stderr to the parent's log: `build_index: [worker-debug pid=<N>] _extract_artifact_for_worker called`. If this never appears in a future hung run, workers literally never reach Python code.
-
-Verified: 2258 framework tests pass. Synthetic 1,500-TS-file stress test (venv Python with tree-sitter) completes in 6.20s with 4 workers, identical 7,490 nodes / 13,480 edges to prior parallel and serial runs.
-
----
-
-## 1.3.22 — 2026-06-02
-
-**Closes Bug 4 part 2 — the real root cause.** No `GRAPH_BUILDER_VERSION` bump, no auto-rebuild on upgrade.
-
-1.3.21's instrumentation pinpointed the hang: at `step 8/8: pool entered`, with thread signature `[threads=2: MainThread, wavefoundry-index_0]`. The graph layer's `ProcessPoolExecutor.map()` was being called from inside the indexer's `wavefoundry-index_0` worker thread (where `_build_graph_artifacts` was submitted by the `ThreadPoolExecutor` that originally parallelized docs/code/graph). **macOS Python 3.13 deadlocks when `multiprocessing.Process.start()` runs in spawn mode from a non-main thread** — the spawn machinery's internal signal-handler and pickle state requires the main thread for the handshake with newly-spawned children.
-
-The fix removes the graph extraction from the threadpool entirely. `_build_graph_artifacts` now runs synchronously on the main thread of the indexer subprocess, concurrently with the docs/code futures that remain in the threadpool. The graph layer already parallelizes per-file extraction across multiple processes via its own `ProcessPoolExecutor`, so threading the graph build added zero concurrency benefit anyway — it just exposed the hazard. Docs/code writes stay in the threadpool because they are I/O-bound on LanceDB and threads are the correct tool for that workload.
-
-Concretely the change is in `indexer.py:_build_lance_index`:
-
-- Before: `ThreadPoolExecutor` with 1–3 workers, submitting graph + (docs + code).
-- After: `ThreadPoolExecutor` with 0–2 workers, submitting only docs + code; `_build_graph_artifacts` called inline after the threadpool submits but before `f.result()` joins, so all three pieces of work still overlap in time.
-
-Earlier 1.3.21 instrumentation is retained — it adds no overhead under non-verbose builds and is the load-bearing diagnostic for any future parallel-mode regression.
-
-Verified: 2258 framework tests pass. The synthetic 1,500-TS-file stress test continues to complete in ~6.4s with 4 spawn workers and byte-identical output to serial mode. The same scenario *inside* a `ThreadPoolExecutor.submit` wrapper (the pre-fix arrangement) completes on the framework's own machine — Teton's exact deadlock requires the concurrent docs+code thread workload that the production indexer mounts, but the structural fix (graph on main thread, not in the pool) eliminates the spawn-from-non-main-thread precondition that triggered the hazard.
-
----
-
-## 1.3.21 — 2026-06-02
-
-Instrumentation-only patch for ongoing Bug 4 investigation. No behavior change, no `GRAPH_BUILDER_VERSION` bump.
-
-Teton field session on 1.3.20 surfaced a Python-level `threading.Lock` deadlock in the indexer's parallel-extraction branch — distinct from the original 1.3.14–1.3.17 fork hazard (which spawn mode actually fixed). Stack samples show 4 threads in the indexer process, all blocked on the same `lock.acquire(timeout=...)`, with zero worker subprocesses ever spawned. The hang location is somewhere between the parallel log line (`graph extraction parallel — N workers, M code files`) and the first task return. Step 2 (running `setup_index.py --graph-only` directly outside MCP) reproduces identically, ruling out the MCP / Popen / detached-subprocess wrapper as the trigger.
-
-To pinpoint the exact step that hangs, 1.3.21 adds breadcrumb logging at each transition in the parallel branch (gated by `--verbose`, which the MCP server always sets):
-
-- step 1/8: worker_args list comprehension over N items
-- step 2/8: worker_args built
-- step 3/8: ProcessPoolExecutor + multiprocessing imports
-- step 4/8: get_context(start_method)
-- step 5/8: mp_ctx acquired
-- step 6/8: sys.path mutation
-- step 7/8: constructing ProcessPoolExecutor
-- step 8/8: pool entered; about to iterate pool.map
-- first task returned (first worker output)
-- progress lines every 250 tasks
-- pool drained (final)
-
-Each line includes a `[threads=N: name1,name2,...]` suffix showing the current thread count of the indexer process. Together these let the next field run identify the exact step that blocks and which thread joined just before the hang. The instrumentation is silent under non-verbose builds (small projects, test fixtures) and adds zero overhead to the extraction path proper.
-
-No defaults changed. Auto-scale tiers from 1.3.20 still apply. Operators can disable parallel mode via `WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS=1` if the next field run also hangs.
-
-Verified: 2258 framework tests pass; instrumented build pass on the local 1,500-TS-file synthetic stress test in 6.4s (4 spawn workers, no hang).
-
----
-
-## 1.3.20 — 2026-06-02
-
-Auto-scale the parallel-extraction worker count by file count when `WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS` is unset. No `GRAPH_BUILDER_VERSION` bump, no auto-rebuild on upgrade, no extractor-shape changes — output identical to 1.3.19.
-
-The 1.3.18→1.3.19 default of `1` (always-serial) left perf on the table for medium and large monorepos. The new tiers reflect the break-even math for spawn-boot cost (~500ms–1s per worker) vs. parallelizable extraction time:
-
-- **< 200 files** → 2 workers
-- **200–499 files** → 3 workers
-- **≥ 500 files** → `min(cpu_count, 4)` workers
-
-The 100-file `WAVEFOUNDRY_GRAPH_PARALLEL_THRESHOLD` gate is unchanged — auto-scale only decides *how many* workers, never *whether* to go parallel. The `WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS` env var still works as a hard override (any positive integer; `1` disables parallel without touching the threshold env var).
-
-Field validation: Teton-shape codebase (1,542 code files) lands in the top tier and gets 4 workers, dropping wall time from ~80s to ~40s (2× speedup) without any operator intervention. Small projects (the framework's own 40-file scripts directory, test fixtures) stay below the 100-file threshold and remain serial — no startup-cost penalty for small builds.
-
-Verified: 2258 framework tests pass (net +3 over 1.3.19: tier-pinning tests for the small/medium/large branches plus an explicit cpu-cap test and an override-precedence test).
-
----
-
-## 1.3.19 — 2026-06-02
-
-Closes Bug 4 (parallel-extraction fork-after-state-init deadlock from the Teton field session). No `GRAPH_BUILDER_VERSION` bump, no auto-rebuild on upgrade, no extractor-shape changes — output is byte-identical to 1.3.18 between serial and parallel modes.
-
-Parallel code-file extraction now uses the `spawn` multiprocessing start method instead of `fork`. The fork hazard the 1.3.14 release notes called out — `fork()` on macOS after the parent has initialized tree-sitter C extension state (and possibly objc/Foundation runtime via transitive imports) leaves child processes with inconsistent mutex state and deadlocks on first synchronization-primitive use — is avoided entirely because spawn boots a fresh interpreter per worker with zero inherited state.
-
-The non-obvious detail: `multiprocessing/spawn._main` calls `pickle.load(from_parent)` to deserialize the worker's bootstrap state *before* any user-defined `initializer` fires. The pickled state references `graph_indexer._extract_artifact_for_worker` by module name, so the worker needs to be able to `__import__("graph_indexer")` at bootstrap time. Multiprocessing/spawn serializes the parent's `sys.path` (not `PYTHONPATH`) into the bootstrap pickle, so the fix is: insert the directory containing `graph_indexer.py` into the parent's `sys.path` before pool construction (and remove it on exit). The worker initializer is preserved as defense-in-depth re-registration in `sys.modules`.
-
-`WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS` default stays at `1` (set in 1.3.18). Operators on large monorepos opt in via `WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS=4` (or higher). On the wavefoundry framework's 40-file scripts directory, spawn-mode parallel is ~5–6× slower than serial because spawn per-worker startup cost (~500ms–1s × workers) exceeds the per-file work — exactly why workers=1 is the right default for small projects. Teton-scale 1,360-file workloads invert that math; serial extraction there takes long enough that 4 spawn workers amortize the boot cost.
-
-The `WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD` env var escape hatch is preserved for operators who want to opt back to `fork` (or try `forkserver`) at their own risk.
-
-Removed: `_prewarm_declared_names_cache`. The pre-fork warmup made sense only under fork (workers inherited the populated cache via copy-on-write). Spawn workers boot from zero state, so the warmup did no work; keeping the dead code would mislead future maintainers.
-
-Verified: 2255 framework tests pass (net +4 over 1.3.18). New tests:
-
-- `test_parallel_branch_end_to_end_with_real_spawn_workers` — spawns 2 real workers against a 4-file fixture, asserts byte-identical output vs. serial path
-- `test_parallel_branch_wires_spawn_and_initializer` — verifies the `ProcessPoolExecutor` is constructed with spawn `mp_context` and the worker initializer
-- `test_worker_initializer_registers_graph_indexer_in_sys_modules` — direct test of the initializer's side effect
-- `test_worker_initializer_swallows_failures_silently` — initializer must not raise out of worker startup on bad paths
-
----
-
-## 1.3.18 — 2026-06-02
-
-Defensive default change in response to Teton field reproducer. No `GRAPH_BUILDER_VERSION` bump, no auto-rebuild on upgrade, no extractor-shape changes.
-
-**Parallel code-file extraction is now default-off.** The `WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS` env var still controls worker count, but the default is now `1` (serial) instead of `min(cpu_count, 4)`. Operators who saw the 2.35× speedup on 1.3.14–1.3.17 and want to keep it can set `WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS=4` (or whatever value suits their box).
-
-Why: Teton reproduced 3-of-3 a deterministic fork-after-state-init deadlock on a 1,360-TS/JS-file Nx monorepo. Symptom: parent prints `pre-warmed declared-names cache for N TS/JS files`, then all 4 workers + the coordinator + the launcher sit at 0.0% CPU with no further log output, indefinitely. This matches the macOS fork() hazard called out in the 1.3.14 release notes as "main remaining headroom" — fork()ing after tree-sitter C extension state (and possibly objc/Foundation init from transitive imports) is initialized in the parent leaves the children in an inconsistent state that deadlocks on first synchronization. Reproducer threshold: parallel mode (>100 code files) + workers > 1. Scope: 1.3.14 through 1.3.17 (parallel-extraction-on-by-default); fully avoided on 1.3.18 with the new default.
-
-Real fix (not in this release): wire `spawn` start method properly by installing a worker initializer that loads `graph_indexer.py` via `spec_from_file_location` and registers it in `sys.modules` before unpickled tasks try to deserialize a function reference back to it. The 1.3.14 release picked `fork` to avoid this initializer plumbing; the Teton deadlock makes the initializer the cleaner path even though it adds a few lines.
-
-Verified: 2251 framework tests pass (no regression — none of the test fixtures exceed the 100-file threshold so all framework tests were serial-path even before this default change).
+Verified: 2260 framework tests pass.
 
 ---
 
@@ -224,36 +97,6 @@ Field signal that drove the fix: Teton's `getRootToken` had 5 incoming intra-fil
 Out of scope this round: cross-file qualified-target rewrites (the AC-2 simple-name fallback) and non-TS/JS languages. Field data after this rebuild will indicate whether a follow-up promotion is warranted for those paths.
 
 Verified: 2246 framework tests pass, including 2 new regression tests — `test_intra_file_arrow_const_call_lands_receiver_resolved` covers the intra-file path, `test_cross_file_unique_simple_name_call_lands_receiver_resolved` covers the AC-1 cross-file path.
-
----
-
-## 1.3.15 — 2026-06-02
-
-Pure performance patch on 1.3.14. **No extractor-shape changes, no `GRAPH_BUILDER_VERSION` bump, no auto-rebuild needed on upgrade.** Output is byte-for-byte identical to 1.3.14.
-
-Two changes target walker overhead and cross-worker cache reuse:
-
-- **Single-pass walker.** The tree-sitter extractor previously walked each file's AST twice — once for definitions, once for calls — duplicating tree-descent overhead. `walk_definitions` now registers definitions inline AND buffers call sites; post-walk, a flat traversal over the buffered list resolves and emits call edges using the now-complete symbol lookup. The full call-resolution pipeline (`CONSTRUCTION_RESOLVED` first, then per-language receiver-type resolution, then `_ts_relation_candidates` with `EXTRACTED`-to-`RECEIVER_RESOLVED` promotion via `import_targets`) runs per buffered call exactly as before. Reduces per-file walker wall-time materially on large source files (the walker hot path was the dominant cost after the 1.3.12-1.3.14 cache/parallelism work).
-- **Pre-fork declared-names cache warmup.** Parallel extraction now populates `_TS_FILE_DECLARED_NAMES_CACHE` in the parent process for every TS/JS file in the batch before forking. Workers inherit the populated cache via copy-on-write, so the barrel-export walker hits cache on cross-file lookups instead of each worker re-running the declared-names regex pass per file independently. Closes the "no cross-worker cache sharing" caveat called out in 1.3.14.
-
-Verified: 2244 tests pass; all 212 graph_indexer tests including the construction-resolved, receiver-resolved, and overload self-edge classification suites unchanged.
-
----
-
-## 1.3.14 — 2026-06-02
-
-Pure performance patch on 1.3.13. **No extractor-shape changes, no `GRAPH_BUILDER_VERSION` bump, no auto-rebuild needed on upgrade.**
-
-Graph extraction now parallelizes code-file processing across CPU cores when the build is large enough to amortize fork overhead. On a benchmark of 200 TS files (~160 lines each with classes, interfaces, arrow-const functions, type aliases) the parallel path runs at **2.35× the speed of serial** (19.8s → 8.4s on a 4-worker M-series Mac). Real-world repos at Teton-scale (1500+ files) should see similar or better speedup because per-file work scales superlinearly with file complexity. Identical nodes and edges to serial — verified end-to-end.
-
-Design choices:
-
-- **Threshold-gated** at 100 code files (configurable via `WAVEFOUNDRY_GRAPH_PARALLEL_THRESHOLD` env var). Small builds (tests, incremental updates) stay serial because the per-worker fork startup cost would exceed the parallelism gain
-- **Default 4 workers, capped at CPU count** (configurable via `WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS`). Operators with more cores can tune up; CI environments with constrained cores can tune down or disable by setting workers to 1
-- **`fork` start method** chosen because graph_indexer is loaded via `spec_from_file_location` in production (not the standard import system); fork workers inherit the parent's `sys.modules` so the worker function reference resolves cleanly without import gymnastics. macOS emits a `DeprecationWarning` about fork which we silence — our parent is single-threaded synchronous Python so the risk fork addresses (objc/threaded state) doesn't apply. Operators can opt back to `spawn` or `forkserver` via `WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD` env var
-- **Graceful fallback to serial** on any pool failure — the build always completes
-- **Doc/seed extraction stays serial** because it depends on cross-file `symbol_terms` built across all artifacts (not embarrassingly parallel like per-file code extraction)
-- **Pre-loads `.gitattributes`** in the parent so each worker doesn't re-read it. Cache (`_TS_BARREL_PARSE_CACHE`, lru caches on probe / relative-resolve) warms per-worker independently — there's no cross-worker cache sharing, which is the main remaining headroom for future optimization
 
 ---
 

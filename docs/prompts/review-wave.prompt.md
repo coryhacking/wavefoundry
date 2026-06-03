@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-29
+Last verified: 2026-06-03
 
 Shortcut: **`Review wave`**
 
@@ -18,7 +18,7 @@ Run all required review lanes against the admitted changes. Review is not option
   - `qa-reviewer` — AC coverage, multi-step verification for stateful behavior
   - `architecture-reviewer` — boundary and layering impact
   - Other lanes as required per `docs/contributing/review-and-evals.md`
-3. When `wave_council_policy.enabled` is true, run the Wave Council delivery pass in two phases: first, the `council-moderator` declares a **primer depth tier** (`lightweight` / `standard` / `full`) based on trust boundaries touched, files in scope, and change type; (1) `red-team` runs the adversarial primer (`council-adversarial-primer` mode) first at the declared depth — strongest challenge, best alternative, `primer_questions`; (2) fixed seats each receive the standard briefing plus the primer and must address it before producing findings; rotating fifth seat finds the strongest unconsidered alternative; `council-moderator` synthesizes all outputs; record `wave-council-delivery` in `## Review Evidence` and summarize the reasoning in `## Review checkpoints`. The checkpoint must include the seat roster, the rotating fifth seat, any material disagreements, and how they were resolved or why they remain unresolved. When implementation passes through the prepare gate, the review must also be able to verify that the prior prepare-council verdict was structured and machine-readable, not just a freeform marker.
+3. When `wave_review.enabled` is true, run the Wave Council delivery pass in two phases: first, the `council-moderator` declares a **primer depth tier** (`lightweight` / `standard` / `full`) based on trust boundaries touched, files in scope, and change type; (1) `red-team` runs the adversarial primer (`council-adversarial-primer` mode) first at the declared depth — strongest challenge, best alternative, `primer_questions`; (2) fixed seats each receive the standard briefing plus the primer and must address it before producing findings; rotating fifth seat finds the strongest unconsidered alternative; `council-moderator` synthesizes all outputs; record `wave-council-delivery` in `## Review Evidence` and summarize the reasoning in `## Review checkpoints`. The checkpoint must include the seat roster, the rotating fifth seat, any material disagreements, and how they were resolved or why they remain unresolved. When implementation passes through the prepare gate, the review must also be able to verify that the prior prepare-council verdict was structured and machine-readable, not just a freeform marker.
 4. **AC scope gap check:** after confirming required ACs are met, surface important/nice-to-have items not in admitted scope; confirm not-this-scope deferrals.
 5. **AC priority reconciliation:** reconcile the `## AC priority` table against delivered behavior; update if scope shifted; `qa-reviewer` must attest every required row has verification evidence or a recorded deferral.
 6. Record all findings in the wave record `## Review checkpoints`.

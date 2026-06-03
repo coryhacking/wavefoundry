@@ -6007,19 +6007,71 @@ def _audit_harness_coverage(root: Path) -> dict[str, Any]:
 
 
 def _audit_harness_coherence(root: Path) -> dict[str, Any]:
-    """Scan seed surface for stale tool references and known contradiction patterns."""
+    """Scan seed surface for stale tool references and known contradiction patterns.
+
+    Wave 1p2q3 (1p314 post-ship): tightened detection logic after a 52-finding
+    audit on the wavefoundry self-host turned out to be 28+ false positives.
+    Fixes:
+
+    1. Scan ``server.py`` in addition to ``server_impl.py`` — ``wave_mcp_reload``
+       is defined in the thin runner because it must survive hot-reload.
+    2. Treat top-level keys of ``docs/workflow-config.json`` as legitimate
+       identifiers — ``code_navigation_hints`` etc. are config blocks, not tools.
+    3. Skip parameter-position matches: ``wave_pause(wave_id=...)``, URI
+       template variables like ``{wave_id}``, briefing-packet field lists.
+    4. Skip wildcard family references: ``wave_new_*`` is the canonical
+       reference form for the kind-specific ``wave_new_X`` tool family.
+    5. Bypass-pattern detection removed entirely — keyword co-occurrence
+       (skip/bypass/omit + gate/lane) is too broad. Every match in the
+       wavefoundry self-host was legitimate prose (red-team role descriptions,
+       explicit safeguards against bypass, anti-pattern callouts). The signal-
+       to-noise ratio doesn't justify keeping it; a future NLP-aware version
+       could re-enable.
+    """
     seed_dirs = [
         root / ".wavefoundry" / "framework" / "seeds",
         root / "docs" / "prompts",
     ]
-    # Collect live MCP tool names from this server module
+    # Collect live MCP tool names from BOTH server modules. server.py defines
+    # tools that must survive hot-reload (notably wave_mcp_reload itself);
+    # server_impl.py defines the rest of the surface.
     live_tools: set[str] = set()
     try:
         import re as _re
-        src = Path(__file__).read_text(encoding="utf-8")
-        live_tools = set(_re.findall(r'def (wave_\w+|docs_search|code_\w+|seed_get)\(', src))
+        for src_file in ("server.py", "server_impl.py"):
+            src_path = Path(__file__).parent / src_file
+            if not src_path.is_file():
+                continue
+            src = src_path.read_text(encoding="utf-8")
+            live_tools.update(
+                _re.findall(r'def (wave_\w+|docs_search|code_\w+|seed_get)\(', src)
+            )
     except Exception:
         pass
+
+    # Treat top-level workflow-config keys as legitimate identifiers — they're
+    # project-tunable schema blocks (e.g. code_navigation_hints,
+    # design_review_triggers), not tool names. Without this allowlist the
+    # audit flags them as "stale tool reference" when they're actually live
+    # config.
+    workflow_config_keys: set[str] = set()
+    try:
+        import json as _json_wf
+        wf_path = root / "docs" / "workflow-config.json"
+        if wf_path.is_file():
+            wf_data = _json_wf.loads(wf_path.read_text(encoding="utf-8"))
+            if isinstance(wf_data, dict):
+                workflow_config_keys = {k for k in wf_data if isinstance(k, str)}
+    except Exception:
+        pass
+
+    # Known non-tool identifiers that match the tool-name regex shape but
+    # legitimately appear as parameter/field/URI/module names. Without this
+    # allowlist they get over-matched.
+    NON_TOOL_IDENTIFIERS = {
+        "wave_id",        # parameter name in wave_pause/wave_reopen, URI {wave_id}, briefing field
+        "wave_lint_lib",  # Python module under framework/scripts/wave_lint_lib/
+    }
 
     findings = []
     scanned_files = 0
@@ -6037,21 +6089,37 @@ def _audit_harness_coherence(root: Path) -> dict[str, Any]:
 
             # Check for stale tool references (tool names mentioned but not in live set)
             import re as _re2
-            mentioned = set(_re2.findall(r'\b(wave_\w+|docs_search|code_\w+|seed_get)\b', text))
-            for tool in sorted(mentioned):
-                # Strip trailing punctuation artefacts and check
+            # Tool name must end in an alphanumeric character (not underscore)
+            # so we don't greedy-consume the trailing underscore in
+            # `wave_new_*` constructs. The optional `(_\*)?` group then has a
+            # chance to match the wildcard family-reference suffix.
+            for match in _re2.finditer(
+                r'\b(wave_[a-zA-Z_]*[a-zA-Z0-9]|docs_search|code_[a-zA-Z_]*[a-zA-Z0-9]|seed_get)(_\*)?',
+                text,
+            ):
+                tool = match.group(1)
+                wildcard_suffix = match.group(2)
+                if wildcard_suffix:
+                    # `wave_new_*` family reference — skip, even if `wave_new` itself isn't live.
+                    continue
                 clean = tool.rstrip("_")
-                if clean not in live_tools and clean + "_response" not in live_tools:
-                    # Exclude common false positives (e.g. wave_new_* family covered by pattern)
-                    if not any(clean.startswith(p) for p in ("wave_new_", "wave_list_", "wave_get_", "wave_set_")):
-                        findings.append({"file": rel, "type": "stale_tool_reference", "detail": f"Tool '{clean}' mentioned but not found in live MCP surface"})
+                if clean in live_tools or clean + "_response" in live_tools:
+                    continue
+                if clean in workflow_config_keys:
+                    continue
+                if clean in NON_TOOL_IDENTIFIERS:
+                    continue
+                # Skip kind-specific dispatcher prefixes that always have a kind suffix
+                # (e.g. `wave_new_X`, `wave_list_X`, `wave_get_X`, `wave_set_X`).
+                if any(clean.startswith(p) for p in ("wave_new_", "wave_list_", "wave_get_", "wave_set_")):
+                    continue
+                findings.append({
+                    "file": rel,
+                    "type": "stale_tool_reference",
+                    "detail": f"Tool '{clean}' mentioned but not found in live MCP surface",
+                })
 
-            # Check for bypass patterns (skip + gate/lane in same sentence)
-            lines = text.splitlines()
-            for i, line in enumerate(lines):
-                ll = line.lower()
-                if ("skip" in ll or "bypass" in ll or "omit" in ll) and ("gate" in ll or "required_review" in ll or "operator-signoff" in ll):
-                    findings.append({"file": rel, "type": "bypass_pattern", "detail": f"Line {i+1}: possible gate/lane bypass instruction"})
+            # Bypass-pattern detection deliberately omitted — see docstring.
 
     return {
         "scanned_files": scanned_files,

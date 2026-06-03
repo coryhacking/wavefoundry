@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-26
+Last verified: 2026-06-03
 
 Shortcut: **`Implement wave`**
 
@@ -24,7 +24,7 @@ The coordinator:
 5. Records a `Reflect:` entry after blocking findings, identifying the pattern and proactively updating remaining tasks.
 6. Updates checkbox-tracked ACs and tasks in the admitted change docs as each item actually completes; do not leave completion bookkeeping until the end of the wave.
 
-When `wave_council_policy.enabled` is true, implementation starts only after `wave-council-readiness` is recorded during **Prepare wave**. The delivery-phase council pass runs during **Review wave** after implementation evidence exists.
+When `wave_review.enabled` is true, implementation starts only after `wave-council-readiness` is recorded during **Prepare wave**. The delivery-phase council pass runs during **Review wave** after implementation evidence exists.
 
 ## Pre-Implementation Review Gate
 
@@ -44,12 +44,12 @@ Mandatory first phase before any code edit. Purpose: challenge the wave from a f
 ```
 - pre-implementation-review: passed (YYYY-MM-DD) — [brief note on highest risk and how it was addressed]
 ```
-A `blocked` verdict halts implementation until the gap is resolved. When `wave_council_policy.enabled`, the `wave-council-readiness` verdict covers admissibility; this gate is the coordinator's packet-completeness and failure-mode check.
+A `blocked` verdict halts implementation until the gap is resolved. When `wave_review.enabled`, the `wave-council-readiness` verdict covers admissibility; this gate is the coordinator's packet-completeness and failure-mode check.
 
 ## Implementation Guardrails
 
 - Stage gate applies: must be inside a clean Prepare wave pass.
-- Follow `docs/repo-profile.json` `code_patterns` when populated; surface significant pattern problems before deviating.
+- Follow `docs/repo-profile.json` `code_pattern` when populated; surface significant pattern problems before deviating.
 - After changes, verify they actually address the stated problem before declaring done.
 - Required review lanes from readiness must participate during execution.
 - Keep change-doc bookkeeping current: when a task or AC is completed during the run, mark it complete in that same implementation pass. Do not batch-update completion marks at review or closure time.
