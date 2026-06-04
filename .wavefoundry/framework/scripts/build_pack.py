@@ -409,6 +409,299 @@ def check_docs_gate(repo_root: Path) -> None:
             sys.exit(1)
 
 
+# ---------------------------------------------------------------------------
+# Release-orchestration helpers (wave 1p347)
+# ---------------------------------------------------------------------------
+#
+# These helpers support the `--release` flag, which extends `build_pack.py`
+# from a local-build CLI into the official release CLI: after a successful
+# local build (with the optimized + vacuumed framework index), `--release`
+# tags the commit, pushes the tag to origin, and uploads the zip as a
+# GitHub Release asset via `gh release create`.
+#
+# Pre-flight checks run BEFORE the build so failures (dirty tree, wrong
+# branch, missing CHANGELOG section, gh not auth'd) abort cheaply. The
+# post-build assertion verifies the produced zip contains the framework
+# index `.lance` files — guarding against silent skips in
+# `_compact_framework_index`. `--release-dry-run` walks the entire pipeline
+# without side effects (no git tag, no push, no gh upload) so the
+# orchestration logic itself can be smoke-tested before a real release.
+
+
+def _extract_changelog_section(changelog_path: Path, version: str) -> str:
+    """Extract the body of the ``## [<version>]`` section from CHANGELOG.md.
+
+    Returns the section body (excluding the heading) as a string. Empty
+    string if the section is missing. The section ends at the next ``## [``
+    heading or end of file.
+    """
+    if not changelog_path.exists():
+        return ""
+    text = changelog_path.read_text(encoding="utf-8")
+    section_pat = re.compile(rf"^## \[{re.escape(version)}\](?:\s|$)")
+    next_pat = re.compile(r"^## \[")
+    out: list[str] = []
+    in_section = False
+    for line in text.splitlines():
+        if not in_section:
+            if section_pat.match(line):
+                in_section = True
+            continue
+        if next_pat.match(line):
+            break
+        out.append(line)
+    # Trim leading and trailing blank lines.
+    while out and not out[0].strip():
+        out.pop(0)
+    while out and not out[-1].strip():
+        out.pop()
+    return "\n".join(out)
+
+
+def _assert_zip_contains_index(zip_path: Path) -> None:
+    """Post-build assertion: published zip must include framework-index `.lance` files.
+
+    Guards against silent failures in `_compact_framework_index` that would
+    let `--release` publish a zip without semantic embeddings — the exact
+    regression this wave exists to prevent.
+    """
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        has_lance = any(name.endswith(".lance") for name in zf.namelist())
+    if not has_lance:
+        raise RuntimeError(
+            "post-build assertion failed: zip does not contain framework index "
+            "(.lance files). Refusing to publish a regression-shape release. "
+            "Check that --skip-framework-index is not set and that "
+            "_compact_framework_index ran successfully."
+        )
+
+
+def _check_git_working_tree_clean(repo_root: Path) -> None:
+    """Refuse if any tracked file is modified or any untracked-non-ignored file exists."""
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=str(repo_root),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"git status failed: {result.stderr.strip()}")
+    if result.stdout.strip():
+        raise RuntimeError(
+            "working tree is not clean — commit or stash changes before --release. "
+            "Uncommitted work is a signal the release isn't ready.\n"
+            f"  git status --porcelain output:\n{result.stdout}"
+        )
+
+
+def _check_on_main_branch(repo_root: Path) -> None:
+    """Refuse on any branch other than `main`."""
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=str(repo_root),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"git rev-parse failed: {result.stderr.strip()}")
+    branch = result.stdout.strip()
+    if branch != "main":
+        raise RuntimeError(
+            f"current branch is `{branch}` — releases must be cut from `main`."
+        )
+
+
+def _check_tag_does_not_exist(repo_root: Path, tag: str) -> None:
+    """Refuse if the target tag exists locally or on the `origin` remote."""
+    import subprocess
+
+    local = subprocess.run(
+        ["git", "rev-parse", "--verify", f"refs/tags/{tag}"],
+        cwd=str(repo_root),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if local.returncode == 0:
+        raise RuntimeError(
+            f"local tag `{tag}` already exists. Delete it explicitly "
+            f"(`git tag -d {tag}`) before re-running --release for the same version."
+        )
+
+    remote = subprocess.run(
+        ["git", "ls-remote", "--tags", "origin", f"refs/tags/{tag}"],
+        cwd=str(repo_root),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if remote.returncode != 0:
+        # Network failure or no remote configured — surface but don't fail
+        # the check on inability to verify. Reuse subprocess.CalledProcessError
+        # semantics: empty stdout means no matching ref.
+        raise RuntimeError(
+            f"git ls-remote failed: {remote.stderr.strip() or 'unknown error'}"
+        )
+    if remote.stdout.strip():
+        raise RuntimeError(
+            f"remote tag `{tag}` already exists on `origin`. Delete it explicitly "
+            f"(`git push origin :refs/tags/{tag}`) before re-running --release."
+        )
+
+
+def _check_gh_authenticated() -> None:
+    """Refuse if `gh auth status` fails — the upload would fail anyway."""
+    import subprocess
+
+    result = subprocess.run(
+        ["gh", "auth", "status"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            "`gh auth status` failed — sign in with `gh auth login` (or `gh auth switch` "
+            "to select the account that owns the release repo) before --release."
+        )
+
+
+def _derive_tag_message(repo_root: Path, version: str) -> str:
+    """Derive an annotated-tag message from the most recent wave-close commit subject.
+
+    Looks for commit subjects matching `Close wave <id> and ship <prev> -> <new>`
+    (with either unicode `→` or ASCII `->`). On match, returns the close-wave subject
+    verbatim. Falls back to a generic `Release v<version>` if no match.
+    """
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "log", "-1", "--format=%s"],
+        cwd=str(repo_root),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return f"Release v{version}"
+    subject = result.stdout.strip()
+    close_pat = re.compile(r"^Close wave \S+ and ship .+\s*(?:→|->)\s*.+$")
+    if close_pat.match(subject):
+        return subject
+    return f"Release v{version}"
+
+
+def _run_release_orchestration(
+    repo_root: Path,
+    version: str,
+    zip_path: Path,
+    release_notes_body: str,
+    *,
+    dry_run: bool,
+) -> None:
+    """Tag, push, and upload via `gh release create`. Honors `dry_run`.
+
+    On any step failure, raises RuntimeError with an actionable recovery hint
+    that names the exact command to re-run the failed step manually. Partial
+    state (e.g., tag pushed but `gh release create` failed) is documented
+    inline in the error message.
+    """
+    import subprocess
+    import tempfile
+
+    tag = f"v{version}"
+    tag_message = _derive_tag_message(repo_root, version)
+
+    if dry_run:
+        print(f"[--release-dry-run] would run: git tag -a {tag} -m {tag_message!r}", file=sys.stderr)
+        print(f"[--release-dry-run] would run: git push origin {tag}", file=sys.stderr)
+        print(
+            f"[--release-dry-run] would run: gh release create {tag} "
+            f"--title {version!r} --notes-file <tmp> {zip_path}",
+            file=sys.stderr,
+        )
+        print(
+            f"[--release-dry-run] release notes (first 200 chars): {release_notes_body[:200]!r}",
+            file=sys.stderr,
+        )
+        return
+
+    # Step 1: create the annotated tag locally.
+    tag_result = subprocess.run(
+        ["git", "tag", "-a", tag, "-m", tag_message],
+        cwd=str(repo_root),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if tag_result.returncode != 0:
+        raise RuntimeError(
+            f"step 1/3 (git tag) failed: {tag_result.stderr.strip()}\n"
+            f"  recovery: investigate the error above; the local repo is untouched."
+        )
+
+    # Step 2: push the tag to origin.
+    push_result = subprocess.run(
+        ["git", "push", "origin", tag],
+        cwd=str(repo_root),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if push_result.returncode != 0:
+        raise RuntimeError(
+            f"step 2/3 (git push) failed: {push_result.stderr.strip()}\n"
+            f"  recovery: local tag `{tag}` was created. Either delete it "
+            f"(`git tag -d {tag}`) and retry, or push it manually "
+            f"(`git push origin {tag}`) once the underlying issue is fixed."
+        )
+
+    # Step 3: create the GitHub Release with the local zip as the asset.
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".md", delete=False, encoding="utf-8"
+    ) as notes_file:
+        notes_file.write(release_notes_body)
+        notes_path = notes_file.name
+    try:
+        release_result = subprocess.run(
+            [
+                "gh", "release", "create", tag,
+                "--title", version,
+                "--notes-file", notes_path,
+                str(zip_path),
+            ],
+            cwd=str(repo_root),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        try:
+            os.unlink(notes_path)
+        except OSError:
+            pass
+
+    if release_result.returncode != 0:
+        raise RuntimeError(
+            f"step 3/3 (gh release create) failed: {release_result.stderr.strip()}\n"
+            f"  recovery: tag `{tag}` is already on origin. Re-run only the "
+            f"release-create step:\n"
+            f"    gh release create {tag} --title {version} "
+            f"--notes-file <CHANGELOG-{version}-section> {zip_path}\n"
+            f"  Or, if the wrong tag was pushed, delete it "
+            f"(`git push origin :refs/tags/{tag}` and `git tag -d {tag}`) "
+            f"and re-run --release."
+        )
+
+    print(release_result.stdout.strip(), file=sys.stderr)
+
+
 def build_zip(
     output_dir: Path,
     version: str,
@@ -579,6 +872,26 @@ def main():
         ),
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Print index build progress")
+    parser.add_argument(
+        "--release",
+        action="store_true",
+        help=(
+            "After a successful local build, also tag the commit, push the tag "
+            "to origin, and publish a GitHub Release with the local zip attached. "
+            "Pre-flight checks refuse on dirty tree, non-main branch, existing "
+            "tag, missing CHANGELOG section, or unauthenticated gh. Incompatible "
+            "with --skip-framework-index."
+        ),
+    )
+    parser.add_argument(
+        "--release-dry-run",
+        action="store_true",
+        help=(
+            "Walk the --release pre-flight checks and orchestration without "
+            "any side effects (no git tag, no push, no gh upload). Use to "
+            "smoke-test the release pipeline before a real --release."
+        ),
+    )
     args = parser.parse_args()
 
     # Validate version format.
@@ -592,6 +905,18 @@ def main():
     if version_parts < (1, 0, 0):
         print(
             f"error: --version must be 1.0.0 or later; pre-1.0.0 packaging targets are no longer supported ({args.version!r})",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Mutex: --release publishes a zip; --skip-framework-index produces a zip
+    # without the semantic index. Combining them would publish the exact
+    # regression-shape artifact this wave (1p347) exists to prevent.
+    if (args.release or args.release_dry_run) and args.skip_framework_index:
+        print(
+            "error: --release / --release-dry-run is incompatible with "
+            "--skip-framework-index (would publish a zip without the framework "
+            "semantic index — the regression this flag exists to prevent).",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -629,6 +954,28 @@ def main():
     # Full version string: MAJOR.MINOR.PATCH+<build_prefix>
     full_version = f"{args.version}+{build_prefix}"
 
+    # Pre-flight: release-mode gates run BEFORE the build so failures abort
+    # cheaply without wasting time on a packaging pass that's about to be
+    # discarded.
+    release_notes_body = ""
+    if args.release or args.release_dry_run:
+        try:
+            _check_git_working_tree_clean(repo_root)
+            _check_on_main_branch(repo_root)
+            _check_tag_does_not_exist(repo_root, f"v{args.version}")
+            _check_gh_authenticated()
+            release_notes_body = _extract_changelog_section(
+                repo_root / "CHANGELOG.md", args.version
+            )
+            if not release_notes_body.strip():
+                raise RuntimeError(
+                    f"CHANGELOG.md has no `## [{args.version}]` section. "
+                    "Add the section (with release notes) before --release."
+                )
+        except RuntimeError as exc:
+            print(f"error: release preflight failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+
     # Pre-flight: docs gate (gardener + lint).
     if not args.skip_docs_gate:
         check_docs_gate(repo_root)
@@ -662,6 +1009,31 @@ def main():
     stamp = version_path.read_text(encoding="utf-8").strip()
     print(zip_path)
     print(f"Stamped VERSION: {stamp}", file=sys.stderr)
+
+    # Release mode: post-build assertion + orchestration. Post-build because
+    # the zip-contains-index check has to actually inspect the produced zip;
+    # nothing earlier can verify it.
+    if args.release or args.release_dry_run:
+        try:
+            _assert_zip_contains_index(zip_path)
+        except RuntimeError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        try:
+            _run_release_orchestration(
+                repo_root,
+                args.version,
+                zip_path,
+                release_notes_body,
+                dry_run=args.release_dry_run,
+            )
+        except RuntimeError as exc:
+            print(f"error: release orchestration failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+        if args.release_dry_run:
+            print(f"[--release-dry-run] complete; no side effects taken.", file=sys.stderr)
+        else:
+            print(f"Released v{args.version}.", file=sys.stderr)
 
 
 if __name__ == "__main__":

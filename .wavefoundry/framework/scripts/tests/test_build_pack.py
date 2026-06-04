@@ -267,6 +267,10 @@ class BuildPackTests(unittest.TestCase):
             ".wavefoundry/framework/",
             ".wavefoundry/README.md",
             ".wavefoundry/CHANGELOG.md",
+            # Top-level visible marker file (see build_pack INSTALL.md
+            # injection). macOS Finder hides `.wavefoundry/` by default,
+            # so INSTALL.md gives consumers a visible landing file.
+            "INSTALL.md",
         )
         for name in self._zip_names(path):
             self.assertTrue(
@@ -607,6 +611,217 @@ class DocsGateTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 build_pack.check_docs_gate(self.tmp)
         self.assertIn("docs-lint", captured.getvalue())
+
+
+# ---------------------------------------------------------------------------
+# Release orchestration helpers (wave 1p347 / change 1p349)
+# ---------------------------------------------------------------------------
+
+
+class ChangelogSectionExtractionTests(unittest.TestCase):
+    """Tests for _extract_changelog_section()."""
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.mkdtemp()
+        self.tmp = Path(self._tmp)
+        self.changelog = self.tmp / "CHANGELOG.md"
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _write(self, text):
+        self.changelog.write_text(text, encoding="utf-8")
+
+    def test_extracts_named_section_body_only(self):
+        """Heading is excluded; body is returned verbatim."""
+        self._write(
+            "# Changelog\n\n"
+            "## [1.4.0] - 2026-06-03\n\n"
+            "### Fixed\n\n- alpha\n- beta\n\n"
+            "## [1.3.32] - 2026-05-01\n\n"
+            "- previous\n"
+        )
+        body = build_pack._extract_changelog_section(self.changelog, "1.4.0")
+        self.assertIn("### Fixed", body)
+        self.assertIn("- alpha", body)
+        self.assertNotIn("## [1.4.0]", body)
+        self.assertNotIn("## [1.3.32]", body)
+
+    def test_returns_empty_when_section_missing(self):
+        """Section absent → empty string (caller refuses the release)."""
+        self._write("# Changelog\n\n## [1.3.32]\n\n- previous\n")
+        body = build_pack._extract_changelog_section(self.changelog, "1.4.0")
+        self.assertEqual(body.strip(), "")
+
+    def test_returns_empty_when_file_absent(self):
+        """Missing CHANGELOG → empty string (caller refuses the release)."""
+        body = build_pack._extract_changelog_section(
+            self.tmp / "missing.md", "1.4.0"
+        )
+        self.assertEqual(body, "")
+
+    def test_section_at_end_of_file_extracted(self):
+        """No subsequent `## [` heading → section runs to EOF."""
+        self._write("# Changelog\n\n## [1.4.0]\n\n- only\n")
+        body = build_pack._extract_changelog_section(self.changelog, "1.4.0")
+        self.assertIn("- only", body)
+
+
+class ZipIndexAssertionTests(unittest.TestCase):
+    """Tests for _assert_zip_contains_index() — RC-1 must-fix from prepare council."""
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.mkdtemp()
+        self.tmp = Path(self._tmp)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _make_zip(self, entries):
+        zip_path = self.tmp / "test.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            for name, body in entries:
+                zf.writestr(name, body)
+        return zip_path
+
+    def test_passes_when_lance_file_present(self):
+        """Index files end in `.lance` — presence is sufficient."""
+        zp = self._make_zip([
+            (".wavefoundry/framework/VERSION", "1.4.0+abcd"),
+            (".wavefoundry/framework/index/docs.lance/data/x.lance", b"binary"),
+        ])
+        build_pack._assert_zip_contains_index(zp)  # no exception
+
+    def test_refuses_when_no_lance_file_present(self):
+        """No `.lance` files → release halts before publish (the regression this guards)."""
+        zp = self._make_zip([
+            (".wavefoundry/framework/VERSION", "1.4.0+abcd"),
+            (".wavefoundry/framework/seeds/001.md", "seed"),
+        ])
+        with self.assertRaises(RuntimeError) as ctx:
+            build_pack._assert_zip_contains_index(zp)
+        self.assertIn(".lance", str(ctx.exception))
+
+
+class ReleasePreflightTests(unittest.TestCase):
+    """Tests for pre-flight gate refusals."""
+
+    def _mock_run(self, return_codes_and_outputs):
+        """Patch subprocess.run to return a sequence of mocked CompletedProcess objs."""
+        class _CP:
+            def __init__(self, rc, out="", err=""):
+                self.returncode = rc
+                self.stdout = out
+                self.stderr = err
+        results = iter(_CP(rc, out, err) for rc, out, err in return_codes_and_outputs)
+        def _next(*args, **kwargs):
+            return next(results)
+        return _next
+
+    def test_working_tree_dirty_refuses(self):
+        runner = self._mock_run([(0, " M foo.py\n", "")])
+        with patch("build_pack.subprocess.run", runner):
+            with self.assertRaises(RuntimeError) as ctx:
+                build_pack._check_git_working_tree_clean(Path("/tmp"))
+        self.assertIn("working tree", str(ctx.exception).lower())
+
+    def test_working_tree_clean_passes(self):
+        runner = self._mock_run([(0, "", "")])
+        with patch("build_pack.subprocess.run", runner):
+            build_pack._check_git_working_tree_clean(Path("/tmp"))  # no exception
+
+    def test_non_main_branch_refuses(self):
+        runner = self._mock_run([(0, "feature-branch\n", "")])
+        with patch("build_pack.subprocess.run", runner):
+            with self.assertRaises(RuntimeError) as ctx:
+                build_pack._check_on_main_branch(Path("/tmp"))
+        self.assertIn("feature-branch", str(ctx.exception))
+        self.assertIn("main", str(ctx.exception))
+
+    def test_main_branch_passes(self):
+        runner = self._mock_run([(0, "main\n", "")])
+        with patch("build_pack.subprocess.run", runner):
+            build_pack._check_on_main_branch(Path("/tmp"))
+
+    def test_local_tag_exists_refuses(self):
+        """rev-parse rc=0 means the tag exists locally."""
+        runner = self._mock_run([(0, "abc123\n", "")])
+        with patch("build_pack.subprocess.run", runner):
+            with self.assertRaises(RuntimeError) as ctx:
+                build_pack._check_tag_does_not_exist(Path("/tmp"), "v1.4.0")
+        self.assertIn("local tag", str(ctx.exception))
+
+    def test_remote_tag_exists_refuses(self):
+        runner = self._mock_run([
+            (1, "", "fatal: not a ref"),               # local: missing
+            (0, "abc123\trefs/tags/v1.4.0\n", ""),     # remote: present
+        ])
+        with patch("build_pack.subprocess.run", runner):
+            with self.assertRaises(RuntimeError) as ctx:
+                build_pack._check_tag_does_not_exist(Path("/tmp"), "v1.4.0")
+        self.assertIn("remote tag", str(ctx.exception))
+
+    def test_tag_absent_locally_and_remotely_passes(self):
+        runner = self._mock_run([
+            (1, "", "fatal: not a ref"),  # local: missing
+            (0, "", ""),                  # remote: empty stdout
+        ])
+        with patch("build_pack.subprocess.run", runner):
+            build_pack._check_tag_does_not_exist(Path("/tmp"), "v1.4.0")
+
+    def test_gh_unauthenticated_refuses(self):
+        runner = self._mock_run([(1, "", "not logged in")])
+        with patch("build_pack.subprocess.run", runner):
+            with self.assertRaises(RuntimeError) as ctx:
+                build_pack._check_gh_authenticated()
+        self.assertIn("gh auth", str(ctx.exception).lower())
+
+    def test_gh_authenticated_passes(self):
+        runner = self._mock_run([(0, "Logged in", "")])
+        with patch("build_pack.subprocess.run", runner):
+            build_pack._check_gh_authenticated()
+
+
+class TagMessageDerivationTests(unittest.TestCase):
+    """Tests for _derive_tag_message()."""
+
+    def _mock_run(self, rc, stdout):
+        class _CP:
+            def __init__(self, r, o):
+                self.returncode = r
+                self.stdout = o
+                self.stderr = ""
+        def _runner(*args, **kwargs):
+            return _CP(rc, stdout)
+        return _runner
+
+    def test_close_wave_subject_used_verbatim(self):
+        runner = self._mock_run(0, "Close wave 1p337 and ship 1.3.32 → 1.4.0\n")
+        with patch("build_pack.subprocess.run", runner):
+            msg = build_pack._derive_tag_message(Path("/tmp"), "1.4.0")
+        self.assertEqual(msg, "Close wave 1p337 and ship 1.3.32 → 1.4.0")
+
+    def test_ascii_arrow_close_wave_subject_recognized(self):
+        runner = self._mock_run(0, "Close wave 1p347 and ship 1.4.0 -> 1.4.1\n")
+        with patch("build_pack.subprocess.run", runner):
+            msg = build_pack._derive_tag_message(Path("/tmp"), "1.4.1")
+        self.assertEqual(msg, "Close wave 1p347 and ship 1.4.0 -> 1.4.1")
+
+    def test_non_close_subject_falls_back_to_default(self):
+        runner = self._mock_run(0, "chore: tweak gitignore\n")
+        with patch("build_pack.subprocess.run", runner):
+            msg = build_pack._derive_tag_message(Path("/tmp"), "1.4.1")
+        self.assertEqual(msg, "Release v1.4.1")
+
+    def test_git_failure_falls_back_to_default(self):
+        runner = self._mock_run(1, "")
+        with patch("build_pack.subprocess.run", runner):
+            msg = build_pack._derive_tag_message(Path("/tmp"), "1.4.1")
+        self.assertEqual(msg, "Release v1.4.1")
 
 
 if __name__ == "__main__":
