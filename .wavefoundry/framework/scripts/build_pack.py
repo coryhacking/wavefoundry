@@ -468,9 +468,44 @@ def build_zip(
     if wavefoundry_changelog.exists() and not any(a == changelog_arcname for _, a in entries):
         entries.append((wavefoundry_changelog, changelog_arcname))
 
+    # Top-level INSTALL.md sits OUTSIDE .wavefoundry/ so the unzipped folder
+    # has a visible file at the root. Without this, macOS Finder shows the
+    # extracted folder as empty because the only entry is `.wavefoundry/`
+    # (dot-prefixed = hidden by default).
+    install_md = (
+        "# Wavefoundry — Installation\n"
+        "\n"
+        f"This archive is Wavefoundry **{version}**. The framework tree lives under `.wavefoundry/`.\n"
+        "\n"
+        "## Where is the content?\n"
+        "\n"
+        "macOS Finder hides dot-prefixed folders by default — that's why this extracted folder may\n"
+        "look empty. Press **Cmd + Shift + .** in Finder to show hidden files, or open a terminal\n"
+        "and run `ls -la` to see `.wavefoundry/`.\n"
+        "\n"
+        "## What's inside\n"
+        "\n"
+        "- `.wavefoundry/framework/` — seeds, scripts, dashboard assets, VERSION, README, MANIFEST\n"
+        "- `.wavefoundry/README.md` — project-owner orientation doc\n"
+        "- `.wavefoundry/CHANGELOG.md` — release history\n"
+        "\n"
+        "## Install or upgrade\n"
+        "\n"
+        "From a target repository, the canonical paths are:\n"
+        "\n"
+        "- **New install:** invoke the framework's install flow per the project README, or run the\n"
+        "  shortcut phrase **`Install wave framework`** through an MCP-aware agent.\n"
+        "- **Upgrade:** if Wavefoundry is already installed, the agent shortcut\n"
+        "  **`Upgrade wave framework`** handles in-place migration; the `wave_upgrade` MCP tool is\n"
+        "  the programmatic entry point.\n"
+        "\n"
+        "Full framework documentation lives at https://github.com/coryhacking/wavefoundry.\n"
+    )
+
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for abs_path, arcname in entries:
             zf.write(abs_path, arcname)
+        zf.writestr("INSTALL.md", install_md)
 
     # MANIFEST is a packaging artifact — delete it from the source tree after
     # it has been written into the zip so it does not linger as a dirty file.
