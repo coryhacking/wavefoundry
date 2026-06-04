@@ -32,6 +32,7 @@ jobs:
 
       - name: Build distribution zip
         run: |
+          mkdir -p ./dist
           python3 .wavefoundry/framework/scripts/build_pack.py \
             --version "${{ steps.version.outputs.version }}" \
             --output ./dist
