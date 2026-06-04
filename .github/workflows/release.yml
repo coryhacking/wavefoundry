@@ -33,9 +33,12 @@ jobs:
       - name: Build distribution zip
         run: |
           mkdir -p ./dist
+          # --skip-framework-index avoids the numpy dependency in CI;
+          # consumers build the index locally on first wave_index_build call.
           python3 .wavefoundry/framework/scripts/build_pack.py \
             --version "${{ steps.version.outputs.version }}" \
-            --output ./dist
+            --output ./dist \
+            --skip-framework-index
 
       - name: Rename asset for public download
         run: |
