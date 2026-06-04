@@ -1,5 +1,7 @@
 # Agent Body — Database Optimizer
 
+**Applicable when:** the project has measurable database performance work (query optimization, indexing, connection-pool tuning). Skip when the database is a thin CRUD layer with no perf concerns.
+
 Owner: Engineering
 Status: active
 Lane: database-optimizer

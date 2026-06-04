@@ -1,5 +1,7 @@
 # Agent Body — Technical Writer
 
+**Applicable when:** the project has operator-facing or developer-facing documentation requiring sustained editorial discipline.
+
 Owner: Engineering
 Status: active
 Lane: technical-writer

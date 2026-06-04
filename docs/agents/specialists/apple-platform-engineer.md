@@ -2,8 +2,9 @@
 
 Owner: Engineering
 Status: active
+Role: apple-platform-engineer
 Category: specialist
-Last verified: 2026-05-23
+Last verified: 2026-06-04
 
 ## Operating Identity
 

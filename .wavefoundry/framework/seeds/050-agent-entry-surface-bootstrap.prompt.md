@@ -119,10 +119,7 @@ Implementation details to preserve:
 
 This rule must be present in `AGENTS.md` and any other agent entry files where a "development rules" or "workflow notes" section is appropriate. Add it once in a shared location rather than repeating it in every thin pointer file:
 
-> The framework test suite (`scripts/tests/`, `scripts/run_tests.py`) is a development-only artifact that lives in the Wavefoundry source repository and is **not included in the distribution pack**. Downstream repositories that vendor the pack do not have these files and must not attempt to run them. If anything created `__pycache__` caches, delete them:
-> ```
-> find .wavefoundry/framework/scripts -type d -name '__pycache__' -prune -exec rm -rf {} \;
-> ```
+> The framework test suite (`scripts/tests/`, `scripts/run_tests.py`) is a development-only artifact that lives in the Wavefoundry source repository and is **not included in the distribution pack**. Downstream repositories that vendor the pack do not have these files and must not attempt to run them. `__pycache__` directories created by Python imports under `.wavefoundry/framework/scripts/` are gitignored and excluded from `docs-lint` (wave `1p35d` / `1p35n`) — no manual cleanup needed.
 
 ## Codebase and Documentation Questions (auto-Guru) in AGENTS.md
 
@@ -256,13 +253,12 @@ This MCP-first principle extends beyond docs validation to **all wave and plan s
 - **Seed protection** — block (or warn+halt where pre-write is unavailable) edits to `*.prompt.md` files under `.wavefoundry/framework/` unless `.wavefoundry/guard-overrides.json` sets `seed_edit_allowed.enabled` to `true`. Use the repo-global override file only for intentional seed edits, then remove it or set the flag back to `false`.
 - **Framework plan gate** — block (or warn+halt) broad framework-maintenance edits to `.wavefoundry/framework/`, `docs/prompts/`, `AGENTS.md`, and tracked hook configs unless `.wavefoundry/guard-overrides.json` sets `framework_edit_allowed.enabled` to `true` after the operator reviews the file-level patch plan.
 - **`docs-lint` hook** — run **`.wavefoundry/bin/docs-lint`** after any Edit/Write to files under `docs/`, failing the hook when the docs gate fails (subprocess hook path; not MCP).
-- **pycache cleanup** (Claude Code only) — remove `__pycache__` directories after framework script runs.
 
 ### Per-platform capability matrix
 
 | Tool or Host | Pre-write block | Post-write validation | Config file |
 |--------------|------------------------------------------------------|---------------------------------------------------------|--------------------------------------------------------------------|
-| Claude Code | ✅ `PreToolUse` seed protection + framework plan gate | ✅ `PostToolUse` `docs-lint` + pycache cleanup | `.claude/settings.json` |
+| Claude Code | ✅ `PreToolUse` seed protection + framework plan gate | ✅ `PostToolUse` `docs-lint` | `.claude/settings.json` |
 | Cursor | ⚠️ `afterFileEdit` warn+halt (write already landed) | ✅ `afterFileEdit` `docs-lint` | `.cursor/hooks.json` |
 | Windsurf | ✅ `pre_write_code` true blocking (exit code 2) | ✅ `post_write_code` `docs-lint` | `.windsurf/hooks.json` |
 | Copilot | ✅ `preToolUse` seed + framework approval | ✅ `postToolUse` `docs-lint` | `.github/hooks/hooks.json` |
@@ -282,7 +278,6 @@ Seed or update `.claude/settings.json` with the hooks below. **Merge with any ex
  "hooks": {
  "PreToolUse": [ { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": ".claude/hooks/pre-edit", "statusMessage": "Checking framework edit gates..." } ] } ],
  "PostToolUse": [
- { "matcher": "Bash", "hooks": [ { "type": "command", "command": ".claude/hooks/pycache-cleanup", "statusMessage": "Cleaning __pycache__..." } ] },
  { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": ".claude/hooks/post-edit", "statusMessage": "Running docs gates..." } ] }
  ]
  }
@@ -292,7 +287,6 @@ Seed or update `.claude/settings.json` with the hooks below. **Merge with any ex
 Generated entrypoints (three variants each: `.py`, POSIX launcher, `.cmd`):
 - `.claude/hooks/pre-edit` — seed protection + framework plan gate
 - `.claude/hooks/post-edit` — `docs-lint`
-- `.claude/hooks/pycache-cleanup` — `__pycache__` cleanup after framework script runs
 - `.claude/hooks/simulate-hooks` — local test harness for the above
 
 `.gitignore` tracks `.claude/skills/` and `.claude/hooks/` (for reusable operator skills and generated hook entrypoints). `.claude/settings.json` is a committed project-level file and must not be gitignored; `.claude/settings.local.json` is a personal override and should be gitignored.
@@ -368,6 +362,50 @@ Junie does not ship the same hook surfaces as Cursor or Copilot. Rely on `AGENTS
 
 Do **not** add `.wavefoundry/framework/seeds/*.prompt.md` to `.aiignore` for Junie: in hosts that enforce `.aiignore`, that pattern blocks **reads** as well as writes, which hides canonical seeds from agents. The install renderer seeds `.aiignore` with **index directories only** (see `render_aiignore`).
 
+## Per-Role Authoritative Seeds
+
+When generating per-role docs at `docs/agents/<role>.md` and `docs/agents/specialists/<role>.md`, **read the authoritative per-role seed in full and incorporate its operating identity, responsibilities, modes, output shape, and salience triggers**. Generating a thin generic template from seed-050's structural fields alone produces shallower content than the role's authoritative seed carries.
+
+Authoritative per-role seed pointers:
+
+- `seed-214` — architecture-reviewer
+- `seed-215` — wave-council (framework-default council coordinator)
+- `seed-216` — reality-checker (fixed Wave Council seat)
+- `seed-221` — code-reviewer
+- `seed-222` — software-engineer
+- `seed-223` — frontend-developer (when UI surface present)
+- `seed-224` — data-engineer (when database/ETL present)
+- `seed-225` — red-team (universal challenger + Wave Council Phase 1 primer)
+- `seed-236` — archetype-council (operator-invoked Archetype Council)
+
+**The three councils MUST always be surfaced as specialist agents under `docs/agents/specialists/`:**
+
+- `red-team.md` — read `seed-225` in full
+- `wave-council.md` — read `seed-215` in full
+- `archetype-council.md` — read `seed-236` in full
+
+Generating thin generic templates for these three misses the framework's intent. Pull from the authoritative seeds; preserve protocol details, seat composition, swap-in lists, and the broader-scope framing (Archetype Council applies to plans, design docs, code, prose, decision narratives, naming, AC formulation — NOT text-only).
+
+## `docs/agents/platform-mapping.md` — Availability Matrix
+
+`docs/agents/platform-mapping.md` is the availability matrix the framework consults for "who can be invoked on this project." It is not a stub of intent; it is a record of fact. Its content must reflect on-disk state at the moment it is written.
+
+**Write timing.** Write `platform-mapping.md` **after** the canonical role docs and native wrappers have been written to disk in this seed's run (the generic role docs, factor-review docs when applicable, and any universal/archetype specialist docs the install configuration enables). Persona rows are appended later by `seed-120` (which owns persona synthesis). Writing the mapping table before the underlying docs exist produces a file that claims roles are available when they are not.
+
+**Pending-bootstrap stub.** If for any reason this seed must write `platform-mapping.md` before any per-role docs exist on disk (rare — e.g., a partial install that creates the file ahead of role-doc generation, or an upgrade harness that pre-touches the file), write the following stub instead of the normal mapping table:
+
+```markdown
+# Agent Platform Mapping
+
+Owner: Engineering
+Status: pending
+Last verified: <YYYY-MM-DD>
+
+> **Pending agent surface bootstrap.** No per-role docs exist on disk yet. Run **Init agent surfaces** (seed-050) to generate them; this file becomes the availability matrix once roles exist.
+```
+
+An unconditional "all roles available" stub is factually wrong before role docs exist, hides the missing-seed-050 failure mode behind a misleading availability claim, and was a documented retrospective failure (wave `1p35d` / `1p35l`). The conditional shape lets `wave_install_audit` and the dashboard report honest state.
+
 ## Canonical Agent Doc Structure
 
 Agent docs in `docs/agents/` are rendered directly in the dashboard — write them for human readability, not just machine parsing. The dashboard renders the full document body with markdown formatting (headings, bold, bullet lists). Authors should treat `## Operating Identity` and `## Responsibilities` as the primary human-facing sections.
@@ -384,7 +422,10 @@ Category: <build|review|coordinate|specialist|factor|operate|journal|factors>
 Last verified: <YYYY-MM-DD>
 ```
 
-`Role:` is required — it is the inclusion gate that tells the dashboard this file is an agent role doc. Files without `Role:` (e.g. `session-handoff.md`, `platform-mapping.md`, `README.md`) are not role docs and will be excluded from the Agents panel. The `Role:` value should match the filename slug (e.g. `Role: code-reviewer` for `code-reviewer.md`). `Category:` is the separate dashboard grouping field; use it to control which bucket the dashboard renders without reusing `Role:` for presentation.
+> **Every generated role doc MUST include `Role: <role-slug>` in the header.**
+> The dashboard classifies agents by this field; a doc missing `Role:` is **invisible** — it does not appear in the Agents panel, does not count toward role coverage, and is silently skipped without warning. `docs-lint` enforces this on every `docs/agents/*.md` file (`wave-1p35d` / `1p35l`); the `wave_install_audit` MCP tool surfaces lint failures so the gap fails fast at install time rather than at first dashboard load.
+
+`Role:` is the inclusion gate that tells the dashboard this file is an agent role doc. Files without `Role:` (e.g. `session-handoff.md`, `platform-mapping.md`, `README.md`) are not role docs and will be excluded from the Agents panel. The `Role:` value must match the filename slug (e.g. `Role: code-reviewer` for `code-reviewer.md`). `Category:` is the separate dashboard grouping field; use it to control which bucket the dashboard renders without reusing `Role:` for presentation.
 
 ### Canonical H2 Headings and Section Order
 

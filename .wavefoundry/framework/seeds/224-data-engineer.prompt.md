@@ -1,5 +1,7 @@
 # Agent Body — Data Engineer
 
+**Applicable when:** the project has a database, migrations (Flyway/Liquibase/Alembic), an ORM (JPA/SQLAlchemy/etc.), or ETL/pipeline code.
+
 Owner: Engineering
 Status: active
 Lane: data-engineer

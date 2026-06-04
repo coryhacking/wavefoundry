@@ -328,8 +328,10 @@ def _metadata_value(text: str, key: str) -> str | None:
 
 def _check_agent_role_metadata(root: Path) -> list[str]:
     failures: list[str] = []
-    if not (root / "docs" / "agents").is_dir():
+    agents_root = root / "docs" / "agents"
+    if not agents_root.is_dir():
         return failures
+    seen: set[Path] = set()
     for rel in sorted(_AGENT_ROLE_REQUIRED_PATHS):
         path = root / rel
         if not path.is_file():
@@ -341,6 +343,25 @@ def _check_agent_role_metadata(root: Path) -> list[str]:
         role_match = _ROLE_RE.search(text)
         if not role_match:
             failures.append(f"{rel}: missing required `Role:` metadata")
+            seen.add(path)
+            continue
+        role = role_match.group(1).strip()
+        if role != path.stem:
+            failures.append(f"{rel}: `Role:` must match filename slug `{path.stem}`")
+        seen.add(path)
+    for path in sorted(agents_root.rglob("*.md")):
+        if path in seen:
+            continue
+        if path.name in _AGENT_ROLE_EXEMPT_NAMES or "journals" in path.parts:
+            continue
+        rel = relative_to_root(root, path)
+        text = read_text(path)
+        role_match = _ROLE_RE.search(text)
+        if not role_match:
+            failures.append(
+                f"{rel}: missing required `Role:` metadata "
+                "(the dashboard classifies agents by this field; missing field = invisible agent)"
+            )
             continue
         role = role_match.group(1).strip()
         if role != path.stem:

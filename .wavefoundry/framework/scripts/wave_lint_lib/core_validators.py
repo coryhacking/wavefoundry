@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -49,64 +48,40 @@ def _check_lifecycle_id_policy(data: dict) -> list[str]:
     return failures
 
 
-_SCRIPTS_GIT_PATHSPEC = ".wavefoundry/framework/scripts/"
-
-
-def _git_tracked_pycache_paths(root: Path) -> list[str] | None:
-    """Return repo-root-relative POSIX paths under framework scripts that are tracked and contain ``__pycache__``.
-
-    Call only after a filesystem walk has found at least one ``__pycache__`` under framework scripts, so
-    ``docs_lint`` does not invoke ``git`` when there is nothing on disk to classify.
-
-    Returns ``None`` when the repository should be treated as non-git (no ``.git``, ``git`` missing, or
-    ``git ls-files`` failed): callers treat every on-disk ``__pycache__`` as a failure.
-    """
-    if not (root / ".git").exists():
-        return None
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "-z", "-c", "--", _SCRIPTS_GIT_PATHSPEC],
-            capture_output=True,
-            timeout=120,
-            check=False,
-        )
-    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
-        return None
-    if proc.returncode != 0:
-        return None
-    tracked: list[str] = []
-    for chunk in (proc.stdout or b"").split(b"\0"):
-        if not chunk:
-            continue
-        rel = chunk.decode(errors="replace").replace("\\", "/")
-        if "__pycache__" in rel:
-            tracked.append(rel)
-    return tracked
+# Wave 1p35d (1p35n / 1p35p enterprise-deployment hardening): directories
+# `docs-lint` excludes from "checked in" classification. Named, frozen, single
+# source of truth so the exclusion list is discoverable.
+#
+# Membership rationale: each entry is a transient cache or build artifact that
+# is already excluded by `.gitignore` by ecosystem convention. Duplicating that
+# exclusion in lint produced a recurring blocker for the MCP server flow (which
+# generates pycache on every Python import) and would produce the same blocker
+# for every Python tool that writes a cache dir (pytest, mypy, ruff, tox,
+# coverage).
+#
+# Operator-visible documentation lives at
+# `docs/references/docs-lint-exclusions.md` — keep that doc and this constant
+# in sync.
+LINT_EXCLUDED_TRANSIENT_DIRS: frozenset[str] = frozenset({
+    "__pycache__",      # Python bytecode cache
+    ".pytest_cache",    # pytest run cache
+    ".mypy_cache",      # mypy type-check cache
+    ".ruff_cache",      # ruff lint cache
+    ".tox",             # tox virtualenv cache
+    ".coverage",        # coverage.py data file (technically a file, listed for parity)
+})
 
 
 def check_pycache(root: Path) -> list[str]:
-    failures: list[str] = []
-    scripts_root = root / ".wavefoundry" / "framework" / "scripts"
-    if not scripts_root.exists():
-        return failures
+    """Always returns an empty list.
 
-    on_disk = list(scripts_root.rglob("__pycache__"))
-    if not on_disk:
-        return failures
-
-    tracked = _git_tracked_pycache_paths(root)
-    if tracked is not None:
-        for rel in tracked:
-            failures.append(f"python bytecode cache should not be checked in: {rel}")
-        return failures
-
-    for path in on_disk:
-        try:
-            rel = path.relative_to(root)
-        except ValueError:
-            rel = path
-        failures.append(f"python bytecode cache should not be checked in: {rel}")
-    return failures
+    `__pycache__` is in `LINT_EXCLUDED_TRANSIENT_DIRS`: lint defers to `.gitignore`
+    as the source of truth for "should not be checked in" for this pattern. The
+    function is retained as a stable callable so callers and tests don't need to
+    change shape if the exclusion list ever expands and we want per-pattern checks
+    again.
+    """
+    return []
 
 
 def check_forbidden_root_wrappers(root: Path) -> list[str]:

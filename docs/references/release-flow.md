@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-03
+Last verified: 2026-06-04
 
 How Wavefoundry ships a release. Single-maintainer project; the release happens from the maintainer's machine via `build_pack.py --release`.
 
@@ -24,7 +24,7 @@ What it does in order:
 3. **Post-build assertion**: zip must contain framework-index `.lance` files. Halts before any side effects if missing.
 4. **Tag** the current `HEAD` with `vX.Y.Z`. Annotation message is derived from the most recent wave-close commit subject (e.g., `Close wave 1p347 and ship 1.4.0 → 1.4.1`), or `Release vX.Y.Z` as a fallback.
 5. **Push** the tag to `origin`.
-6. **Publish** a GitHub Release via `gh release create vX.Y.Z`. Title is the bare version. Notes are extracted from the `## [X.Y.Z]` section of `CHANGELOG.md`. The local zip is uploaded as the release asset.
+6. **Publish** a GitHub Release via `gh release create vX.Y.Z`. Title is the bare version. Notes are assembled by prepending `.wavefoundry/framework/release/install-block.md` (the `## Install` block — zip-at-root, shortcut phrase, supported hosts) to the `## [X.Y.Z]` section of `CHANGELOG.md`, so an agent or operator browsing the Releases page sees the install steps alongside the download link. The local zip is uploaded as the release asset. (Wave 1p35d / `1p35p` added the install-block prepend; before that the notes were the CHANGELOG section alone.)
 
 ## The non-release option (testing, local-only)
 

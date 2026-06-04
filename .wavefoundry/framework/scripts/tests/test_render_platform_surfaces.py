@@ -118,6 +118,27 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             self.assertIn(".wavefoundry/framework", post_edit)
             self.assertIn("--no-ignore-files", post_edit)
             self.assertIn("python_exec = _venv_python_path()", post_edit)
+            # Wave 1p35d (1p35n, AC-9): the rendered hook helper source must no longer
+            # contain the dead `maybe_cleanup_pycache` helper or its `shutil` dependency.
+            # The previous third hook was never actually wired in any host's settings,
+            # but the helper code shipped in every rendered hook regardless. Verify it's
+            # gone across every rendered hook file, not just one.
+            rendered_hooks = [
+                repo_root / ".claude" / "hooks" / "pre-edit.py",
+                repo_root / ".claude" / "hooks" / "post-edit.py",
+                repo_root / ".cursor" / "hooks" / "after-file-edit.py",
+                repo_root / ".cursor" / "hooks" / "docs-lint.py",
+                repo_root / ".cursor" / "hooks" / "framework-plan-warn.py",
+                repo_root / ".cursor" / "hooks" / "seed-warn.py",
+                repo_root / ".github" / "hooks" / "pre-tool-use.py",
+                repo_root / ".github" / "hooks" / "post-tool-use.py",
+            ]
+            for path in rendered_hooks:
+                if not path.exists():
+                    continue
+                body = path.read_text(encoding="utf-8")
+                self.assertNotIn("maybe_cleanup_pycache", body, f"{path.name} still ships the retired pycache helper")
+                self.assertNotIn("import shutil", body, f"{path.name} still imports shutil (only the pycache helper used it)")
             self.assertIn("[python_exec, str(indexer), \"--root\", str(REPO_ROOT)]", post_edit)
             cursor_after = (repo_root / ".cursor" / "hooks" / "after-file-edit.py").read_text(encoding="utf-8")
             self.assertIn("python_exec = _venv_python_path()", cursor_after)

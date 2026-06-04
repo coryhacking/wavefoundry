@@ -2,8 +2,9 @@
 
 Owner: Engineering
 Status: active
+Role: framework-operator
 Category: persona
-Last verified: 2026-05-26
+Last verified: 2026-06-04
 
 ## Who
 

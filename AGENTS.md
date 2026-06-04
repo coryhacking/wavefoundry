@@ -97,7 +97,9 @@ Public Wave Framework commands for Wavefoundry's self-hosted surface. Full detai
 | **Close wave** | Finalize and archive the wave | `docs/prompts/close-wave.prompt.md` |
 | **Finalize feature** | Single-change closure path | `docs/prompts/finalize-feature.prompt.md` |
 | **Interrogate this plan** | Stress-test a change doc before admission | `docs/prompts/interrogate-plan.prompt.md` |
-| **Archetype review** / **Archetype council** | Optional stance-based review on text-precision / prose / naming / AC artifacts; complements Wave Council | `docs/prompts/archetype-council.prompt.md` |
+| **Evaluate decision** | Structured decision evaluation for ADR-shaped choices | `docs/prompts/evaluate-decision.prompt.md` |
+| **Distill journals** | Promote stable journal findings to durable memory; retire stale ones | `docs/prompts/distill-journals.prompt.md` |
+| **Archetype review** / **Archetype council** | Optional stance-based review applied to plans, design docs, code, prose, decision narratives, naming, AC formulation | `docs/prompts/archetype-council.prompt.md` |
 | **Package Wavefoundry** | Build framework zip distribution | `docs/prompts/package-wavefoundry.prompt.md` |
 | **Migrate to Wavefoundry** | Migrate a target repo from legacy layout | `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md` |
 

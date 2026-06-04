@@ -1,5 +1,7 @@
 # Council Review
 
+**Applicable when:** `wave_review.enabled` is true (framework default) and a council review is being run.
+
 Owner: Engineering
 Status: active
 Lane: council-review

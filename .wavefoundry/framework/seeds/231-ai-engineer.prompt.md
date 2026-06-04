@@ -1,5 +1,7 @@
 # Agent Body — AI Engineer
 
+**Applicable when:** the project uses LLMs, RAG pipelines, prompt engineering, fine-tuning, embedding models, or agentic systems.
+
 Owner: Engineering
 Status: active
 Lane: ai-engineer

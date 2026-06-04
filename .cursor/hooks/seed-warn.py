@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -130,16 +129,6 @@ def maybe_docs_lint(file_path: str) -> tuple[bool, str]:
         return False, ""
     message = (result.stdout + result.stderr).strip()
     return True, message or "docs-lint failed"
-
-
-def maybe_cleanup_pycache(command_text: str) -> None:
-    if ".wavefoundry/framework/scripts" not in command_text:
-        return
-    if not any(token in command_text for token in ("unittest", "pytest", "run_tests")):
-        return
-    scripts_root = REPO_ROOT / ".wavefoundry" / "framework" / "scripts"
-    for cache_dir in scripts_root.rglob("__pycache__"):
-        shutil.rmtree(cache_dir, ignore_errors=True)
 
 
 def should_reindex(path: str) -> bool:

@@ -428,6 +428,39 @@ def check_docs_gate(repo_root: Path) -> None:
 # orchestration logic itself can be smoke-tested before a real release.
 
 
+RELEASE_NOTES_INSTALL_BLOCK_REL = Path(".wavefoundry/framework/release/install-block.md")
+
+
+def _read_release_install_block(repo_root: Path) -> str:
+    """Read the install block that gets prepended to every release's notes.
+
+    Returns the block content (no trailing newline normalization beyond what
+    the file itself carries) or empty string if the file is missing. Missing
+    file is recoverable — callers fall through to CHANGELOG-only notes.
+    """
+    path = repo_root / RELEASE_NOTES_INSTALL_BLOCK_REL
+    if not path.is_file():
+        return ""
+    return path.read_text(encoding="utf-8")
+
+
+def _assemble_release_notes(repo_root: Path, changelog_body: str) -> str:
+    """Prepend the install block to the CHANGELOG-extracted notes.
+
+    Wave 1p35d (1p35p): every published release carries an `## Install` block
+    at the top of its notes so an agent or operator landing on the Releases
+    page sees the zip-at-root → shortcut-phrase flow alongside the download
+    link. Source of truth is `.wavefoundry/framework/release/install-block.md`.
+    """
+    block = _read_release_install_block(repo_root)
+    if not block.strip():
+        return changelog_body
+    # Single blank line between block and changelog body. The block itself
+    # ends with `---\n\n` so the join produces clean visual separation.
+    joined = block.rstrip() + "\n\n" + changelog_body.lstrip()
+    return joined
+
+
 def _extract_changelog_section(changelog_path: Path, version: str) -> str:
     """Extract the body of the ``## [<version>]`` section from CHANGELOG.md.
 
@@ -711,6 +744,7 @@ def build_zip(
     write_version: bool = True,
     update_manifest: bool = True,
     prebuild_index: bool = False,
+    inject_install_templates: bool = True,
     verbose: bool = False,
 ) -> Path:
     zip_name = f"{ZIP_PREFIX}{version}.{build_prefix}.zip"
@@ -761,44 +795,54 @@ def build_zip(
     if wavefoundry_changelog.exists() and not any(a == changelog_arcname for _, a in entries):
         entries.append((wavefoundry_changelog, changelog_arcname))
 
-    # Top-level INSTALL.md sits OUTSIDE .wavefoundry/ so the unzipped folder
-    # has a visible file at the root. Without this, macOS Finder shows the
+    # Top-level entry doc sits OUTSIDE .wavefoundry/ so the unzipped folder
+    # has a visible file at the root. Without it, macOS Finder shows the
     # extracted folder as empty because the only entry is `.wavefoundry/`
-    # (dot-prefixed = hidden by default).
-    install_md = (
-        "# Wavefoundry — Installation\n"
-        "\n"
-        f"This archive is Wavefoundry **{version}**. The framework tree lives under `.wavefoundry/`.\n"
-        "\n"
-        "## Where is the content?\n"
-        "\n"
-        "macOS Finder hides dot-prefixed folders by default — that's why this extracted folder may\n"
-        "look empty. Press **Cmd + Shift + .** in Finder to show hidden files, or open a terminal\n"
-        "and run `ls -la` to see `.wavefoundry/`.\n"
-        "\n"
-        "## What's inside\n"
-        "\n"
-        "- `.wavefoundry/framework/` — seeds, scripts, dashboard assets, VERSION, README, MANIFEST\n"
-        "- `.wavefoundry/README.md` — project-owner orientation doc\n"
-        "- `.wavefoundry/CHANGELOG.md` — release history\n"
-        "\n"
-        "## Install or upgrade\n"
-        "\n"
-        "From a target repository, the canonical paths are:\n"
-        "\n"
-        "- **New install:** invoke the framework's install flow per the project README, or run the\n"
-        "  shortcut phrase **`Install wave framework`** through an MCP-aware agent.\n"
-        "- **Upgrade:** if Wavefoundry is already installed, the agent shortcut\n"
-        "  **`Upgrade wave framework`** handles in-place migration; the `wave_upgrade` MCP tool is\n"
-        "  the programmatic entry point.\n"
-        "\n"
-        "Full framework documentation lives at https://github.com/coryhacking/wavefoundry.\n"
-    )
+    # (dot-prefixed = hidden by default). The entry doc is reference
+    # content — overwritten on every install/upgrade extract.
+    #
+    # The LIVE install log (.wavefoundry/install-log.md) is intentionally
+    # NOT written to the zip. The agent copies the template to that path on
+    # first install; on upgrades, the live log is preserved (not in the zip
+    # to overwrite). This separates framework artifact (template, overwrites)
+    # from operator state (live log, preserved).
+    #
+    # Wave 1p35d (1p35f): templates source-of-truth lives at
+    # .wavefoundry/framework/install/. Filename convention follows the
+    # framework's prompt.md pattern: foo.template.md (NOT foo.md.template).
+    # Variables {{version}} and {{generated_at}} are replaced at packaging
+    # time. Tests using stub framework dirs pass inject_install_templates=False.
+    install_wavefoundry_md = None
+    if inject_install_templates:
+        install_dir = fw / "install"
+        install_wavefoundry_template = install_dir / "install-wavefoundry.template.md"
+        install_log_template = install_dir / "install-log.template.md"
+
+        if not install_wavefoundry_template.exists():
+            raise RuntimeError(
+                f"missing template: {install_wavefoundry_template} — expected at "
+                "`.wavefoundry/framework/install/install-wavefoundry.template.md`"
+            )
+        if not install_log_template.exists():
+            raise RuntimeError(
+                f"missing template: {install_log_template} — expected at "
+                "`.wavefoundry/framework/install/install-log.template.md`"
+            )
+
+        install_wavefoundry_md = install_wavefoundry_template.read_text(encoding="utf-8")
+        install_wavefoundry_md = install_wavefoundry_md.replace("{{version}}", version)
+
+        # NOTE: install-log.template.md ships in the zip via the framework
+        # tree scan (it lives under .wavefoundry/framework/install/ which
+        # collect_files() includes). No explicit writestr for it here.
+        # The template's {{generated_at}} substitution happens when the
+        # agent copies it to .wavefoundry/install-log.md, not at packaging.
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for abs_path, arcname in entries:
             zf.write(abs_path, arcname)
-        zf.writestr("INSTALL.md", install_md)
+        if install_wavefoundry_md is not None:
+            zf.writestr("install-wavefoundry.md", install_wavefoundry_md)
 
     # MANIFEST is a packaging artifact — delete it from the source tree after
     # it has been written into the zip so it does not linger as a dirty file.
@@ -964,14 +1008,15 @@ def main():
             _check_on_main_branch(repo_root)
             _check_tag_does_not_exist(repo_root, f"v{args.version}")
             _check_gh_authenticated()
-            release_notes_body = _extract_changelog_section(
+            changelog_body = _extract_changelog_section(
                 repo_root / "CHANGELOG.md", args.version
             )
-            if not release_notes_body.strip():
+            if not changelog_body.strip():
                 raise RuntimeError(
                     f"CHANGELOG.md has no `## [{args.version}]` section. "
                     "Add the section (with release notes) before --release."
                 )
+            release_notes_body = _assemble_release_notes(repo_root, changelog_body)
         except RuntimeError as exc:
             print(f"error: release preflight failed: {exc}", file=sys.stderr)
             sys.exit(1)

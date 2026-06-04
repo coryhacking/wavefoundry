@@ -1,5 +1,7 @@
 # Agent Body — Software Engineer
 
+**Applicable when:** any project with substantive implementation work. Universal builder role.
+
 Owner: Engineering
 Status: active
 Lane: software-engineer

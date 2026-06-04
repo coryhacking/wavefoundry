@@ -1,5 +1,7 @@
 # Agent Body — Red Team
 
+**Applicable when:** any project. Red-team is a universal challenger lane invoked for adversarial review and as Wave Council Phase 1 primer.
+
 Owner: Engineering
 Status: active
 Lane: red-team

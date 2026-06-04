@@ -1,5 +1,7 @@
 # Agent Body — Backend Architect
 
+**Applicable when:** the project has a substantive service/API layer with multiple modules, controllers, repositories. Skip when the architecture is thin (a single CLI or one-file script).
+
 Owner: Engineering
 Status: active
 Lane: backend-architect

@@ -1,5 +1,7 @@
 # Agent Body — Frontend Developer
 
+**Applicable when:** the project has a UI surface (web, mobile, desktop) with frontend code (React, Vue, Swift, native, etc.).
+
 Owner: Engineering
 Status: active
 Lane: frontend-developer

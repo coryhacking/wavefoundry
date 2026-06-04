@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import os
 import sys
 import tempfile
@@ -837,6 +838,437 @@ class UpgradeLogTests(unittest.TestCase):
     def test_upgrade_log_path_helper(self):
         expected = self.root / ".wavefoundry" / "logs" / "upgrade.log"
         self.assertEqual(self.mod.upgrade_log_path(self.root), expected)
+
+
+# ---------------------------------------------------------------------------
+# 1.4.x → 1.5.0 migration helpers (wave 1p35d / 1p3ay)
+# ---------------------------------------------------------------------------
+
+def _load_upgrade_extensions():
+    """Load the canonical upgrade_extensions.py (not from a zip)."""
+    import importlib.util
+    scripts_root = Path(__file__).resolve().parents[1]
+    path = scripts_root / "upgrade_extensions.py"
+    spec = importlib.util.spec_from_file_location("upgrade_extensions_canonical", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class FromVersionPredatesTests(unittest.TestCase):
+    """AC-2, AC-3: version-gate correctness for 1.4.x → 1.5.0 migration."""
+
+    def setUp(self):
+        self.ext = _load_upgrade_extensions()
+
+    def test_pre_1_5_0_semver_strings_return_true(self):
+        for v in ("1.0.0", "1.3.32", "1.4.0", "1.4.1", "1.4.1+p347", "0.9.0"):
+            self.assertTrue(
+                self.ext._from_version_predates(v, "1.5.0"),
+                f"{v} should be older than 1.5.0",
+            )
+
+    def test_at_or_after_1_5_0_returns_false(self):
+        for v in ("1.5.0", "1.5.0+x", "1.5.1", "1.6.0", "2.0.0", "10.0.0"):
+            self.assertFalse(
+                self.ext._from_version_predates(v, "1.5.0"),
+                f"{v} should be at or after 1.5.0",
+            )
+
+    def test_unknown_or_unparseable_returns_true_safe_default(self):
+        """Idempotent migrations are safe to re-run; treating unknown as 'old'
+        means we never silently skip migration on a state that needs it."""
+        for v in (None, "", "2026-05-19a", "garbage", "v1.5.0"):
+            self.assertTrue(
+                self.ext._from_version_predates(v, "1.5.0"),
+                f"{v!r} should be treated as predating (safe default)",
+            )
+
+
+class RoleBackfillMigrationTests(unittest.TestCase):
+    """AC-4 through AC-6: Role: backfill on docs/agents/*.md."""
+
+    def setUp(self):
+        self.ext = _load_upgrade_extensions()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+        (self.root / "docs" / "agents").mkdir(parents=True)
+        (self.root / "docs" / "agents" / "specialists").mkdir(parents=True)
+        (self.root / "docs" / "agents" / "personas").mkdir(parents=True)
+        (self.root / "docs" / "agents" / "journals").mkdir(parents=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, rel: str, body: str) -> Path:
+        path = self.root / rel
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_inserts_role_when_missing_after_status_line(self):
+        path = self._write(
+            "docs/agents/code-reviewer.md",
+            "# Code Reviewer\n\n"
+            "Owner: Engineering\n"
+            "Status: active\n"
+            "Category: review\n"
+            "Last verified: 2026-05-01\n\n"
+            "## Operating Identity\n\nReviews code.\n",
+        )
+        modified = self.ext._backfill_role_field_on_agent_docs(self.root)
+        self.assertEqual(modified, ["docs/agents/code-reviewer.md"])
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("Role: code-reviewer", text)
+        # Inserted right after Status:
+        self.assertRegex(text, r"Status: active\nRole: code-reviewer\nCategory: review")
+
+    def test_falls_back_to_owner_anchor_when_no_status_line(self):
+        path = self._write(
+            "docs/agents/specialists/my-spec.md",
+            "# My Spec\n\n"
+            "Owner: Engineering\n"
+            "Category: specialist\n"
+            "Last verified: 2026-05-01\n\n"
+            "## Identity\n\nFoo.\n",
+        )
+        modified = self.ext._backfill_role_field_on_agent_docs(self.root)
+        self.assertEqual(modified, ["docs/agents/specialists/my-spec.md"])
+        text = path.read_text(encoding="utf-8")
+        self.assertRegex(text, r"Owner: Engineering\nRole: my-spec\nCategory: specialist")
+
+    def test_already_present_role_not_modified(self):
+        body = (
+            "# Existing\n\n"
+            "Owner: Engineering\n"
+            "Status: active\n"
+            "Role: existing\n"
+            "Category: review\n\n"
+            "## Identity\n\nFoo.\n"
+        )
+        path = self._write("docs/agents/existing.md", body)
+        original = path.read_text(encoding="utf-8")
+        modified = self.ext._backfill_role_field_on_agent_docs(self.root)
+        self.assertEqual(modified, [])
+        self.assertEqual(path.read_text(encoding="utf-8"), original)
+
+    def test_exempt_filenames_skipped(self):
+        for exempt in ("README.md", "session-handoff.md", "platform-mapping.md"):
+            self._write(
+                f"docs/agents/{exempt}",
+                "# X\n\nOwner: Engineering\nStatus: active\n\n## Body\n",
+            )
+        modified = self.ext._backfill_role_field_on_agent_docs(self.root)
+        self.assertEqual(modified, [])
+
+    def test_journals_directory_skipped(self):
+        path = self._write(
+            "docs/agents/journals/wave-coordinator.md",
+            "# Journal\n\nOwner: Engineering\nStatus: active\n\n## Captures\n",
+        )
+        modified = self.ext._backfill_role_field_on_agent_docs(self.root)
+        self.assertEqual(modified, [])
+        # Verify the journal file was not modified
+        self.assertNotIn("Role:", path.read_text(encoding="utf-8"))
+
+    def test_walks_specialists_and_personas_subdirs(self):
+        self._write(
+            "docs/agents/specialists/red-team.md",
+            "Owner: Engineering\nStatus: active\nCategory: specialist\n",
+        )
+        self._write(
+            "docs/agents/personas/admin.md",
+            "Owner: Engineering\nStatus: active\nCategory: persona\n",
+        )
+        modified = self.ext._backfill_role_field_on_agent_docs(self.root)
+        self.assertEqual(sorted(modified), [
+            "docs/agents/personas/admin.md",
+            "docs/agents/specialists/red-team.md",
+        ])
+
+    def test_idempotent_second_run_is_noop(self):
+        """AC-13: re-running performs zero modifications once Role: is set."""
+        self._write(
+            "docs/agents/code-reviewer.md",
+            "Owner: Engineering\nStatus: active\nCategory: review\n",
+        )
+        first = self.ext._backfill_role_field_on_agent_docs(self.root)
+        self.assertEqual(len(first), 1)
+        second = self.ext._backfill_role_field_on_agent_docs(self.root)
+        self.assertEqual(second, [])
+
+    def test_missing_agents_dir_safe(self):
+        # Fresh tmp without docs/agents/
+        with tempfile.TemporaryDirectory() as t:
+            bare_root = Path(t).resolve()
+            self.assertEqual(self.ext._backfill_role_field_on_agent_docs(bare_root), [])
+
+
+class PycacheLauncherCleanupTests(unittest.TestCase):
+    """AC-7: deletes .claude/hooks/pycache-cleanup* launcher files."""
+
+    def setUp(self):
+        self.ext = _load_upgrade_extensions()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+        (self.root / ".claude" / "hooks").mkdir(parents=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_deletes_all_three_launcher_variants(self):
+        for name in ("pycache-cleanup", "pycache-cleanup.py", "pycache-cleanup.cmd"):
+            (self.root / ".claude" / "hooks" / name).write_text("legacy\n", encoding="utf-8")
+        deleted = self.ext._delete_pycache_hook_launchers(self.root)
+        self.assertEqual(sorted(deleted), [
+            ".claude/hooks/pycache-cleanup",
+            ".claude/hooks/pycache-cleanup.cmd",
+            ".claude/hooks/pycache-cleanup.py",
+        ])
+        for name in ("pycache-cleanup", "pycache-cleanup.py", "pycache-cleanup.cmd"):
+            self.assertFalse((self.root / ".claude" / "hooks" / name).exists())
+
+    def test_deletes_only_existing(self):
+        (self.root / ".claude" / "hooks" / "pycache-cleanup.py").write_text("legacy\n", encoding="utf-8")
+        deleted = self.ext._delete_pycache_hook_launchers(self.root)
+        self.assertEqual(deleted, [".claude/hooks/pycache-cleanup.py"])
+
+    def test_idempotent_when_no_launchers_present(self):
+        self.assertEqual(self.ext._delete_pycache_hook_launchers(self.root), [])
+        # Second call still a no-op
+        self.assertEqual(self.ext._delete_pycache_hook_launchers(self.root), [])
+
+    def test_does_not_touch_other_launcher_files(self):
+        for name in ("pre-edit.py", "post-edit", "simulate-hooks.cmd"):
+            (self.root / ".claude" / "hooks" / name).write_text("framework\n", encoding="utf-8")
+        self.ext._delete_pycache_hook_launchers(self.root)
+        for name in ("pre-edit.py", "post-edit", "simulate-hooks.cmd"):
+            self.assertTrue((self.root / ".claude" / "hooks" / name).exists())
+
+    def test_missing_claude_dir_safe(self):
+        with tempfile.TemporaryDirectory() as t:
+            bare_root = Path(t).resolve()
+            self.assertEqual(self.ext._delete_pycache_hook_launchers(bare_root), [])
+
+
+class SettingsJsonPycacheRowStripTests(unittest.TestCase):
+    """AC-8, AC-9: removes the retired PostToolUse Bash pycache row,
+    preserves operator-added customs."""
+
+    def setUp(self):
+        self.ext = _load_upgrade_extensions()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+        self.settings_path = self.root / ".claude" / "settings.json"
+        self.settings_path.parent.mkdir(parents=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, data) -> None:
+        self.settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+    def _read(self):
+        return json.loads(self.settings_path.read_text(encoding="utf-8"))
+
+    def test_strips_legacy_pycache_row(self):
+        self._write({
+            "hooks": {
+                "PreToolUse": [
+                    {"matcher": "Edit|Write",
+                     "hooks": [{"type": "command", "command": ".claude/hooks/pre-edit"}]},
+                ],
+                "PostToolUse": [
+                    {"matcher": "Bash",
+                     "hooks": [{"type": "command", "command": ".claude/hooks/pycache-cleanup",
+                                "statusMessage": "Cleaning __pycache__..."}]},
+                    {"matcher": "Edit|Write",
+                     "hooks": [{"type": "command", "command": ".claude/hooks/post-edit"}]},
+                ],
+            },
+        })
+        result = self.ext._strip_pycache_row_from_claude_settings(self.root)
+        self.assertEqual(result, ".claude/settings.json")
+        data = self._read()
+        post = data["hooks"]["PostToolUse"]
+        self.assertEqual(len(post), 1)
+        self.assertEqual(post[0]["matcher"], "Edit|Write")
+        # PreToolUse preserved
+        self.assertEqual(len(data["hooks"]["PreToolUse"]), 1)
+
+    def test_strips_cmd_variant(self):
+        self._write({
+            "hooks": {"PostToolUse": [
+                {"matcher": "Bash",
+                 "hooks": [{"type": "command",
+                            "command": "cmd.exe /c .claude\\hooks\\pycache-cleanup.cmd"}]},
+            ]},
+        })
+        result = self.ext._strip_pycache_row_from_claude_settings(self.root)
+        self.assertEqual(result, ".claude/settings.json")
+        self.assertEqual(self._read()["hooks"]["PostToolUse"], [])
+
+    def test_preserves_operator_custom_bash_hook(self):
+        """An operator-added Bash hook with a DIFFERENT command must be preserved."""
+        self._write({
+            "hooks": {"PostToolUse": [
+                {"matcher": "Bash",
+                 "hooks": [{"type": "command", "command": ".claude/hooks/pycache-cleanup"}]},
+                {"matcher": "Bash",
+                 "hooks": [{"type": "command", "command": "/operator/custom/audit-log"}]},
+            ]},
+        })
+        result = self.ext._strip_pycache_row_from_claude_settings(self.root)
+        self.assertEqual(result, ".claude/settings.json")
+        post = self._read()["hooks"]["PostToolUse"]
+        self.assertEqual(len(post), 1)
+        self.assertIn("audit-log", post[0]["hooks"][0]["command"])
+
+    def test_noop_when_no_pycache_row(self):
+        """AC-9: when no pycache row present, no file rewrite, return None."""
+        self._write({
+            "hooks": {"PostToolUse": [
+                {"matcher": "Edit|Write",
+                 "hooks": [{"type": "command", "command": ".claude/hooks/post-edit"}]},
+            ]},
+        })
+        before = self.settings_path.read_text(encoding="utf-8")
+        result = self.ext._strip_pycache_row_from_claude_settings(self.root)
+        self.assertIsNone(result)
+        self.assertEqual(self.settings_path.read_text(encoding="utf-8"), before)
+
+    def test_missing_settings_file_returns_none(self):
+        # setUp creates the parent dir but never writes settings.json
+        self.assertFalse(self.settings_path.exists())
+        self.assertIsNone(self.ext._strip_pycache_row_from_claude_settings(self.root))
+
+    def test_malformed_settings_returns_none(self):
+        self.settings_path.write_text("{not valid json", encoding="utf-8")
+        self.assertIsNone(self.ext._strip_pycache_row_from_claude_settings(self.root))
+
+    def test_idempotent_second_run_is_noop(self):
+        """AC-13: after first strip, second call returns None and doesn't rewrite."""
+        self._write({
+            "hooks": {"PostToolUse": [
+                {"matcher": "Bash",
+                 "hooks": [{"type": "command", "command": ".claude/hooks/pycache-cleanup"}]},
+            ]},
+        })
+        first = self.ext._strip_pycache_row_from_claude_settings(self.root)
+        self.assertEqual(first, ".claude/settings.json")
+        second = self.ext._strip_pycache_row_from_claude_settings(self.root)
+        self.assertIsNone(second)
+
+
+class PostExtractHookOrchestrationTests(unittest.TestCase):
+    """AC-1, AC-10, AC-11, AC-12, AC-14: post_extract integration."""
+
+    def setUp(self):
+        self.ext = _load_upgrade_extensions()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _ctx(self, from_version: str | None = "1.4.1+p347"):
+        class _Ctx:
+            pass
+        ctx = _Ctx()
+        ctx.root = self.root
+        ctx.from_version = from_version
+        ctx.to_version = "1.5.0"
+        ctx.zip_path = None
+        ctx.yes = True
+        return ctx
+
+    def _report_path(self) -> Path:
+        return self.root / ".wavefoundry" / "logs" / "upgrade-migration-1.5.0.log"
+
+    def test_version_gate_skips_when_from_at_cutoff(self):
+        """AC-14: from_version = 1.5.0 → zero work, no report."""
+        # Plant a state that WOULD be migrated if the gate ran
+        (self.root / ".claude" / "hooks").mkdir(parents=True)
+        (self.root / ".claude" / "hooks" / "pycache-cleanup.py").write_text("legacy\n", encoding="utf-8")
+        self.ext.post_extract(self._ctx(from_version="1.5.0"))
+        # Launcher still present; report not written
+        self.assertTrue((self.root / ".claude" / "hooks" / "pycache-cleanup.py").exists())
+        self.assertFalse(self._report_path().exists())
+
+    def test_version_gate_fires_when_pre_cutoff(self):
+        """AC-1: from_version = 1.4.1 → migrations run."""
+        (self.root / ".claude" / "hooks").mkdir(parents=True)
+        (self.root / ".claude" / "hooks" / "pycache-cleanup.py").write_text("legacy\n", encoding="utf-8")
+        self.ext.post_extract(self._ctx(from_version="1.4.1"))
+        self.assertFalse((self.root / ".claude" / "hooks" / "pycache-cleanup.py").exists())
+        self.assertTrue(self._report_path().exists())
+
+    def test_no_report_written_when_no_work_done(self):
+        """AC-11: pre-1.5.0 from_version but already-clean state → no report."""
+        # No agent docs, no claude/hooks, no settings.json
+        self.ext.post_extract(self._ctx(from_version="1.4.1"))
+        self.assertFalse(self._report_path().exists())
+
+    def test_report_lists_all_three_migration_sections(self):
+        """AC-10: report names each migration and what fired."""
+        # Plant work for migrations 1, 2, 3
+        (self.root / "docs" / "agents").mkdir(parents=True)
+        (self.root / "docs" / "agents" / "code-reviewer.md").write_text(
+            "Owner: Engineering\nStatus: active\nCategory: review\n", encoding="utf-8"
+        )
+        (self.root / ".claude" / "hooks").mkdir(parents=True)
+        (self.root / ".claude" / "hooks" / "pycache-cleanup.py").write_text("legacy\n", encoding="utf-8")
+        (self.root / ".claude" / "settings.json").write_text(
+            json.dumps({"hooks": {"PostToolUse": [
+                {"matcher": "Bash",
+                 "hooks": [{"type": "command", "command": ".claude/hooks/pycache-cleanup"}]},
+            ]}}, indent=2),
+            encoding="utf-8",
+        )
+        self.ext.post_extract(self._ctx())
+        report = self._report_path().read_text(encoding="utf-8")
+        self.assertIn("Role: backfill", report)
+        self.assertIn("Pycache launcher cleanup", report)
+        self.assertIn("settings.json pycache row removal", report)
+        self.assertIn("code-reviewer.md", report)
+
+    def test_idempotent_full_pipeline(self):
+        """AC-13: a second full post_extract on an already-migrated repo
+        writes no report (no work performed)."""
+        (self.root / "docs" / "agents").mkdir(parents=True)
+        (self.root / "docs" / "agents" / "code-reviewer.md").write_text(
+            "Owner: Engineering\nStatus: active\nCategory: review\n", encoding="utf-8"
+        )
+        (self.root / ".claude" / "hooks").mkdir(parents=True)
+        (self.root / ".claude" / "hooks" / "pycache-cleanup.py").write_text("legacy\n", encoding="utf-8")
+        self.ext.post_extract(self._ctx())
+        report_after_first = self._report_path().read_text(encoding="utf-8")
+        self._report_path().unlink()  # remove first report so we can detect second-run state
+        # Second run — same from_version, but state already migrated
+        self.ext.post_extract(self._ctx())
+        self.assertFalse(self._report_path().exists())
+        # Sanity: the first report DID list the migration
+        self.assertIn("code-reviewer.md", report_after_first)
+
+    def test_exception_in_one_migration_isolated(self):
+        """AC-12: a migration helper raising must not abort other migrations
+        and must be recorded in the report."""
+        from unittest.mock import patch
+        # Plant launcher cleanup work
+        (self.root / ".claude" / "hooks").mkdir(parents=True)
+        (self.root / ".claude" / "hooks" / "pycache-cleanup.py").write_text("x", encoding="utf-8")
+        # Patch Role: backfill to raise
+        with patch.object(
+            self.ext, "_backfill_role_field_on_agent_docs",
+            side_effect=RuntimeError("synthetic failure"),
+        ):
+            self.ext.post_extract(self._ctx())
+        # Pycache launcher migration still ran
+        self.assertFalse((self.root / ".claude" / "hooks" / "pycache-cleanup.py").exists())
+        # Report captures both: ERROR for backfill, success for cleanup
+        report = self._report_path().read_text(encoding="utf-8")
+        self.assertIn("ERROR", report)
+        self.assertIn("synthetic failure", report)
+        self.assertIn("pycache-cleanup.py", report)
 
 
 if __name__ == "__main__":

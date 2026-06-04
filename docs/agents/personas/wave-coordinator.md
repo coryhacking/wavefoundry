@@ -2,8 +2,9 @@
 
 Owner: Engineering
 Status: active
+Role: wave-coordinator
 Category: persona
-Last verified: 2026-06-03
+Last verified: 2026-06-04
 
 ## Who
 

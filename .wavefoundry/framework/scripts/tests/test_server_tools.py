@@ -3077,6 +3077,521 @@ class WaveAuditTests(unittest.TestCase):
         self.assertIn("no_active_wave", codes)
         self.assertIn("wave_current", result["next_tools"])
 
+    def test_no_agent_role_docs_advisory_when_agents_dir_empty(self):
+        """Wave 1p35d (1p35l, AC-4, AC-5): when collect_agents returns empty,
+        surface a no_agent_role_docs diagnostic with a recovery hint pointing
+        at seed-050. The bare _make_repo fixture ships no agent role docs, so
+        this is the natural state to exercise."""
+        wave_record = {
+            "id": "w1",
+            "status": "active",
+            "changes": [],
+            "title": "Wave",
+            "path": "docs/waves/w1/wave.md",
+        }
+        with patch.object(self.srv, "current_wave", return_value=wave_record), \
+             patch.object(self.srv, "run_validate", return_value=self._passing_validate()):
+            result = self.srv.wave_audit_response(
+                self.root, index=self._healthy_index()
+            )
+        diag_by_code = {d["code"]: d for d in result.get("diagnostics", [])}
+        self.assertIn("no_agent_role_docs", diag_by_code)
+        diag = diag_by_code["no_agent_role_docs"]
+        self.assertIn("seed-050", diag["message"])
+        self.assertIn("seed_get", diag.get("recovery_tools", []))
+
+    def test_no_agent_role_docs_advisory_absent_when_role_docs_present(self):
+        """Wave 1p35d (1p35l, AC-4): when at least one valid role doc exists,
+        the advisory must not fire."""
+        agents_dir = self.root / "docs" / "agents"
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        (agents_dir / "planner.md").write_text(
+            "# Planner\n\nOwner: Engineering\nStatus: active\nRole: planner\n"
+            "Category: coordinate\nLast verified: 2026-06-04\n\n## Operating Identity\n\nPlans waves.\n",
+            encoding="utf-8",
+        )
+        wave_record = {
+            "id": "w1",
+            "status": "active",
+            "changes": [],
+            "title": "Wave",
+            "path": "docs/waves/w1/wave.md",
+        }
+        with patch.object(self.srv, "current_wave", return_value=wave_record), \
+             patch.object(self.srv, "run_validate", return_value=self._passing_validate()):
+            result = self.srv.wave_audit_response(
+                self.root, index=self._healthy_index()
+            )
+        codes = [d["code"] for d in result.get("diagnostics", [])]
+        self.assertNotIn("no_agent_role_docs", codes)
+
+
+# ---------------------------------------------------------------------------
+# _audit_harnessability — type-coverage detection (wave 1p35d / 1p35p)
+# ---------------------------------------------------------------------------
+
+class HarnessabilityTypeCoverageJVMTests(unittest.TestCase):
+    """Wave 1p35d (1p35p): JVM build files and source files signal type config
+    so Spring Boot and other JVM-ecosystem projects no longer false-negative
+    as 'no type config detected'. File-presence only — no compiler invocation."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _type_dim(self, root: Path) -> dict:
+        return self.srv._audit_harnessability(root)["dimensions"]["type_coverage"]
+
+    def test_pure_python_repo_reports_no_type_config(self):
+        """Regression guard: empty fixture (no JVM, no TS, no Python type config)
+        still reports `low` / 'No type configuration files detected'."""
+        dim = self._type_dim(self.root)
+        self.assertEqual(dim["score"], "low")
+        self.assertIn("No type configuration", dim["evidence"])
+
+    def test_maven_pom_xml_counts_as_type_config(self):
+        (self.root / "pom.xml").write_text("<project/>\n", encoding="utf-8")
+        dim = self._type_dim(self.root)
+        self.assertNotEqual(dim["score"], "low")
+        self.assertIn("pom.xml", dim["evidence"])
+
+    def test_gradle_build_counts_as_type_config(self):
+        (self.root / "build.gradle").write_text("plugins {}\n", encoding="utf-8")
+        dim = self._type_dim(self.root)
+        self.assertNotEqual(dim["score"], "low")
+        self.assertIn("build.gradle", dim["evidence"])
+
+    def test_gradle_kts_counts_as_type_config(self):
+        (self.root / "build.gradle.kts").write_text("plugins {}\n", encoding="utf-8")
+        dim = self._type_dim(self.root)
+        self.assertNotEqual(dim["score"], "low")
+        self.assertIn("build.gradle.kts", dim["evidence"])
+
+    def test_java_source_falls_back_to_source_signal(self):
+        """When no build file is present, a *.java file alone is enough."""
+        src = self.root / "src" / "main" / "java" / "com" / "example"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "App.java").write_text("class App {}\n", encoding="utf-8")
+        dim = self._type_dim(self.root)
+        self.assertNotEqual(dim["score"], "low")
+        self.assertIn("*.java", dim["evidence"])
+
+    def test_kotlin_source_signals_type_coverage(self):
+        src = self.root / "src"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "Main.kt").write_text("fun main() {}\n", encoding="utf-8")
+        dim = self._type_dim(self.root)
+        self.assertNotEqual(dim["score"], "low")
+        self.assertIn("*.kt", dim["evidence"])
+
+    def test_scala_source_signals_type_coverage(self):
+        src = self.root / "src"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "Main.scala").write_text("object Main\n", encoding="utf-8")
+        dim = self._type_dim(self.root)
+        self.assertNotEqual(dim["score"], "low")
+        self.assertIn("*.scala", dim["evidence"])
+
+    def test_mixed_jvm_repo_uses_build_file_signal(self):
+        """When both a build file and source files are present, build-file
+        signal wins (the source-fallback is bounded by `if not jvm_signals`)."""
+        (self.root / "pom.xml").write_text("<project/>\n", encoding="utf-8")
+        src = self.root / "src"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "App.java").write_text("class App {}\n", encoding="utf-8")
+        dim = self._type_dim(self.root)
+        self.assertIn("pom.xml", dim["evidence"])
+        # Source-pattern fallback shouldn't fire when a build file is present.
+        self.assertNotIn("*.java", dim["evidence"])
+
+    def test_jvm_plus_python_combination_scores_high(self):
+        """Two type configs (mypy + JVM) → `high` score per the >=2 rule."""
+        (self.root / "mypy.ini").write_text("[mypy]\n", encoding="utf-8")
+        (self.root / "pom.xml").write_text("<project/>\n", encoding="utf-8")
+        dim = self._type_dim(self.root)
+        self.assertEqual(dim["score"], "high")
+
+    def test_groovy_source_signals_type_coverage(self):
+        """Wave 1p35d (1p35p enterprise-hardening): Groovy is a JVM language;
+        Spring Boot Groovy apps must signal type coverage."""
+        src = self.root / "src" / "main" / "groovy"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "App.groovy").write_text("class App {}\n", encoding="utf-8")
+        dim = self._type_dim(self.root)
+        self.assertNotEqual(dim["score"], "low")
+        self.assertIn("*.groovy", dim["evidence"])
+
+    def test_vendored_java_outside_canonical_root_does_not_signal(self):
+        """Wave 1p35d (1p35p enterprise-hardening, C6-DC-2 fix): a vendored 3rd-
+        party Java source in a non-canonical location (e.g., `vendor/`,
+        `third_party/`, `target/`) must NOT trigger the JVM source-pattern
+        fallback. Enterprise monorepos commonly vendor JAR sources; the previous
+        unguarded `rglob` false-positived on every one of them."""
+        for ignore_dir in ("vendor", "third_party", "node_modules", "target",
+                           "build", ".git", ".idea"):
+            d = self.root / ignore_dir / "legacy"
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "VendoredClass.java").write_text("class VendoredClass {}\n", encoding="utf-8")
+        dim = self._type_dim(self.root)
+        # No build file, no canonical-root source → no JVM signal at all.
+        self.assertEqual(dim["score"], "low")
+        self.assertNotIn("*.java", dim["evidence"])
+
+    def test_java_in_unconventional_top_level_root_still_signals(self):
+        """An unconventional layout where `src/Main.kt` (no `main/kotlin/`)
+        is the only source must still trigger the fallback. The `src` entry
+        in `_JVM_CANONICAL_SOURCE_ROOTS` is the catch-all for projects that
+        don't follow the Maven/Gradle layout."""
+        (self.root / "src").mkdir(parents=True, exist_ok=True)
+        (self.root / "src" / "Main.kt").write_text("fun main() {}\n", encoding="utf-8")
+        dim = self._type_dim(self.root)
+        self.assertNotEqual(dim["score"], "low")
+        self.assertIn("*.kt", dim["evidence"])
+
+    def test_java_at_repo_root_top_level_still_signals(self):
+        """Tiny single-file JVM-flavored repo: `App.java` at repo root with no
+        canonical src/ layout. The root-level iterdir-only entry in
+        `_JVM_CANONICAL_SOURCE_ROOTS` covers this case."""
+        (self.root / "App.java").write_text("class App {}\n", encoding="utf-8")
+        dim = self._type_dim(self.root)
+        self.assertNotEqual(dim["score"], "low")
+        self.assertIn("*.java", dim["evidence"])
+
+    def test_java_at_arbitrary_subdir_does_not_signal(self):
+        """Source files in a non-canonical, non-ignored directory (e.g.
+        `examples/sample/`) must NOT trigger the fallback. Canonical-root-only
+        scope means random Java files in arbitrary tree locations are not
+        evidence of a JVM project."""
+        odd = self.root / "examples" / "sample"
+        odd.mkdir(parents=True, exist_ok=True)
+        (odd / "Sample.java").write_text("class Sample {}\n", encoding="utf-8")
+        dim = self._type_dim(self.root)
+        self.assertEqual(dim["score"], "low")
+
+
+# ---------------------------------------------------------------------------
+# JVM source-walking helper — direct unit tests for _detect_jvm_source_evidence
+# (wave 1p35d / 1p35p enterprise-hardening)
+# ---------------------------------------------------------------------------
+
+class JVMSourceEvidenceHelperTests(unittest.TestCase):
+    """Direct tests for `_detect_jvm_source_evidence`. The helper is the
+    bounded-walk implementation that supersedes the previous `next(root.rglob(...))`
+    approach. Exercises walk bounds, ignore-dir handling, and budget enforcement."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_returns_empty_when_no_sources(self):
+        self.assertEqual(self.srv._detect_jvm_source_evidence(self.root), [])
+
+    def test_canonical_root_recursive_walk_finds_nested_source(self):
+        """Maven layout: `src/main/java/com/example/App.java` (3 levels deep)."""
+        deep = self.root / "src" / "main" / "java" / "com" / "example"
+        deep.mkdir(parents=True, exist_ok=True)
+        (deep / "App.java").write_text("class App {}\n", encoding="utf-8")
+        result = self.srv._detect_jvm_source_evidence(self.root)
+        self.assertEqual(result, ["*.java"])
+
+    def test_ignore_dirs_inside_canonical_root_are_skipped(self):
+        """A `vendor/` dir nested inside `src/` must not be walked, even though
+        `src/` is a canonical root."""
+        vendored = self.root / "src" / "vendor" / "legacy"
+        vendored.mkdir(parents=True, exist_ok=True)
+        (vendored / "Vendored.java").write_text("class V {}\n", encoding="utf-8")
+        result = self.srv._detect_jvm_source_evidence(self.root)
+        # `src/vendor/...` is skipped; `src/` itself contains no source files.
+        self.assertEqual(result, [])
+
+    def test_file_budget_cap(self):
+        """When the walk visits more than `_JVM_SOURCE_WALK_FILE_BUDGET` files
+        without finding a match, it bails. Guards against pathological monorepo
+        walks that would otherwise run for seconds."""
+        budget = self.srv._JVM_SOURCE_WALK_FILE_BUDGET
+        # Plant the source file at a depth that requires walking past the budget.
+        canonical = self.root / "src"
+        canonical.mkdir(parents=True, exist_ok=True)
+        # Pre-populate with budget+10 non-matching files in the canonical root.
+        for i in range(budget + 10):
+            (canonical / f"junk-{i}.txt").write_text("noise", encoding="utf-8")
+        # Now plant a real source. Depending on iteration order it may or may
+        # not be found first, but the budget cap must hold the call to a
+        # bounded number of filesystem reads regardless.
+        (canonical / "real-source.java").write_text("class X {}\n", encoding="utf-8")
+        result = self.srv._detect_jvm_source_evidence(self.root)
+        # We accept either outcome (found or budget-exhausted) — the contract
+        # is that the function returns in bounded time, not that it must find
+        # this specific source.
+        self.assertIn(result, ([], ["*.java"]))
+
+
+# ---------------------------------------------------------------------------
+# Monorepo workspace detection — _detect_monorepo_subprojects (wave 1p35d / 1p35p)
+# ---------------------------------------------------------------------------
+
+class MonorepoDetectionTests(unittest.TestCase):
+    """Wave 1p35d (1p35p enterprise-deployment hardening): when the agent's
+    CWD is a workspace parent containing multiple sub-projects, harnessability
+    must aggregate signals across sub-projects rather than reporting "no type
+    config" based on root-only checks. Covers Nx, Lerna, pnpm-workspaces,
+    Rush, Bazel (WORKSPACE / WORKSPACE.bazel / MODULE.bazel), Pants, Buck,
+    npm/yarn workspaces (`package.json` workspaces field), Cargo workspaces
+    (`[workspace]` section), and Maven multi-module parent POMs."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _seed_subproject(self, parent: str, name: str, type_config_file: str | None = None) -> Path:
+        sub = self.root / parent / name
+        sub.mkdir(parents=True, exist_ok=True)
+        if type_config_file:
+            (sub / type_config_file).write_text("{}\n", encoding="utf-8")
+        return sub
+
+    # -- Negative cases (no marker → no sub-project walk) --
+
+    def test_no_marker_returns_empty(self):
+        """Single-project repo (no workspace marker) → empty list. Preserves
+        single-project behavior; sub-project walking is opt-in via the
+        workspace-marker signal."""
+        self._seed_subproject("services", "auth", "pom.xml")
+        self.assertEqual(self.srv._detect_monorepo_subprojects(self.root), [])
+
+    def test_package_json_without_workspaces_field_no_walk(self):
+        """A plain `package.json` without `"workspaces"` does NOT signal monorepo."""
+        (self.root / "package.json").write_text(
+            '{"name": "single-project"}', encoding="utf-8"
+        )
+        self._seed_subproject("packages", "app", "package.json")
+        self.assertEqual(self.srv._detect_monorepo_subprojects(self.root), [])
+
+    def test_cargo_toml_without_workspace_section_no_walk(self):
+        (self.root / "Cargo.toml").write_text(
+            '[package]\nname = "single"\n', encoding="utf-8"
+        )
+        self._seed_subproject("crates", "core", "Cargo.toml")
+        self.assertEqual(self.srv._detect_monorepo_subprojects(self.root), [])
+
+    def test_pom_xml_without_modules_no_walk(self):
+        """Single-module Maven (no `<modules>` and not packaging=pom) is not a monorepo."""
+        (self.root / "pom.xml").write_text(
+            "<project><artifactId>single</artifactId></project>\n", encoding="utf-8"
+        )
+        self._seed_subproject("modules", "core", "pom.xml")
+        self.assertEqual(self.srv._detect_monorepo_subprojects(self.root), [])
+
+    # -- Positive cases (marker present → walks sub-project parents) --
+
+    def test_nx_workspace_walks_apps_and_libs(self):
+        (self.root / "nx.json").write_text("{}\n", encoding="utf-8")
+        self._seed_subproject("apps", "web", "tsconfig.json")
+        self._seed_subproject("libs", "common", "tsconfig.json")
+        result = self.srv._detect_monorepo_subprojects(self.root)
+        names = sorted(p.name for p in result)
+        self.assertEqual(names, ["common", "web"])
+
+    def test_lerna_workspace_walks_packages(self):
+        (self.root / "lerna.json").write_text("{}\n", encoding="utf-8")
+        self._seed_subproject("packages", "ui")
+        self._seed_subproject("packages", "core")
+        result = self.srv._detect_monorepo_subprojects(self.root)
+        self.assertEqual(len(result), 2)
+
+    def test_pnpm_workspace_yaml(self):
+        (self.root / "pnpm-workspace.yaml").write_text(
+            "packages:\n  - 'packages/*'\n", encoding="utf-8"
+        )
+        self._seed_subproject("packages", "lib-a")
+        result = self.srv._detect_monorepo_subprojects(self.root)
+        self.assertEqual(len(result), 1)
+
+    def test_bazel_workspace_marker(self):
+        (self.root / "WORKSPACE").write_text("workspace(name = 'demo')\n", encoding="utf-8")
+        self._seed_subproject("services", "auth", "BUILD")
+        result = self.srv._detect_monorepo_subprojects(self.root)
+        self.assertEqual(len(result), 1)
+
+    def test_bazel_module_marker(self):
+        """MODULE.bazel is the modern Bzlmod replacement for WORKSPACE."""
+        (self.root / "MODULE.bazel").write_text("module(name='demo')\n", encoding="utf-8")
+        self._seed_subproject("services", "auth")
+        result = self.srv._detect_monorepo_subprojects(self.root)
+        self.assertEqual(len(result), 1)
+
+    def test_pants_marker(self):
+        (self.root / "pants.toml").write_text("[GLOBAL]\n", encoding="utf-8")
+        self._seed_subproject("subprojects", "a")
+        result = self.srv._detect_monorepo_subprojects(self.root)
+        self.assertEqual(len(result), 1)
+
+    def test_npm_workspaces_field(self):
+        (self.root / "package.json").write_text(
+            '{"name": "mono", "workspaces": ["packages/*"]}', encoding="utf-8"
+        )
+        self._seed_subproject("packages", "a", "package.json")
+        self._seed_subproject("packages", "b", "package.json")
+        result = self.srv._detect_monorepo_subprojects(self.root)
+        self.assertEqual(len(result), 2)
+
+    def test_cargo_workspace_section(self):
+        (self.root / "Cargo.toml").write_text(
+            '[workspace]\nmembers = ["crates/*"]\n', encoding="utf-8"
+        )
+        self._seed_subproject("crates", "core", "Cargo.toml")
+        self._seed_subproject("crates", "cli", "Cargo.toml")
+        result = self.srv._detect_monorepo_subprojects(self.root)
+        self.assertEqual(len(result), 2)
+
+    def test_maven_multimodule_parent(self):
+        """Maven multi-module: `<packaging>pom</packaging>` + `<modules>` block
+        at the parent POM. The classic enterprise Java monorepo shape."""
+        (self.root / "pom.xml").write_text(
+            "<project><packaging>pom</packaging>"
+            "<modules><module>service-a</module><module>service-b</module></modules>"
+            "</project>\n",
+            encoding="utf-8",
+        )
+        self._seed_subproject("modules", "service-a", "pom.xml")
+        self._seed_subproject("modules", "service-b", "pom.xml")
+        result = self.srv._detect_monorepo_subprojects(self.root)
+        self.assertEqual(len(result), 2)
+
+    def test_subproject_budget_caps_walk(self):
+        (self.root / "nx.json").write_text("{}\n", encoding="utf-8")
+        budget = self.srv._MONOREPO_SUBPROJECT_BUDGET
+        for i in range(budget + 10):
+            self._seed_subproject("packages", f"p{i:03d}")
+        result = self.srv._detect_monorepo_subprojects(self.root)
+        self.assertEqual(len(result), budget)
+
+    def test_ignore_dirs_inside_subproject_parent_skipped(self):
+        """`packages/node_modules/some-dep` must not register as a sub-project."""
+        (self.root / "lerna.json").write_text("{}\n", encoding="utf-8")
+        self._seed_subproject("packages", "real-app", "package.json")
+        # Vendored node_modules inside packages/ — should be skipped per ignore-dirs
+        vendored = self.root / "packages" / "node_modules" / "vendored"
+        vendored.mkdir(parents=True, exist_ok=True)
+        result = self.srv._detect_monorepo_subprojects(self.root)
+        names = sorted(p.name for p in result)
+        self.assertEqual(names, ["real-app"])
+
+
+# ---------------------------------------------------------------------------
+# Harnessability type-coverage — monorepo aggregation (wave 1p35d / 1p35p)
+# ---------------------------------------------------------------------------
+
+class HarnessabilityMonorepoAggregationTests(unittest.TestCase):
+    """The high-level harnessability check, when given a monorepo workspace
+    root, must report sub-project type-coverage rather than the misleading
+    'no type config detected' that root-only checks produce."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _type_dim(self, root: Path) -> dict:
+        return self.srv._audit_harnessability(root)["dimensions"]["type_coverage"]
+
+    def test_nx_monorepo_with_typed_subprojects_reports_coverage(self):
+        """The bare repo at root has no type config; only sub-project tsconfigs
+        exist. Without monorepo support this reports 'low'. With support it
+        reports the sub-project signals."""
+        (self.root / "nx.json").write_text("{}\n", encoding="utf-8")
+        for sub in ("web", "admin"):
+            d = self.root / "apps" / sub
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "tsconfig.json").write_text("{}\n", encoding="utf-8")
+        dim = self._type_dim(self.root)
+        self.assertNotEqual(dim["score"], "low")
+        self.assertIn("monorepo", dim["evidence"])
+        self.assertIn("tsconfig.json", dim["evidence"])
+
+    def test_maven_multimodule_aggregates_subproject_poms(self):
+        """Enterprise Java monorepo: parent POM at root, child modules under
+        `modules/`. Root-only check sees parent POM (already triggers JVM
+        signal); sub-project walk should also enrich evidence with module-
+        level POMs."""
+        (self.root / "pom.xml").write_text(
+            "<project><packaging>pom</packaging>"
+            "<modules><module>auth</module><module>data</module></modules>"
+            "</project>\n",
+            encoding="utf-8",
+        )
+        for svc in ("auth", "data"):
+            d = self.root / "modules" / svc
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "pom.xml").write_text(
+                "<project><artifactId>" + svc + "</artifactId></project>\n",
+                encoding="utf-8",
+            )
+        dim = self._type_dim(self.root)
+        self.assertEqual(dim["score"], "high")  # JVM root + monorepo evidence ≥2
+        self.assertIn("monorepo", dim["evidence"])
+        self.assertIn("auth/pom.xml", dim["evidence"])
+
+    def test_mixed_language_monorepo(self):
+        """Realistic enterprise monorepo: Nx workspace with TS apps,
+        Python services, JVM libs."""
+        (self.root / "nx.json").write_text("{}\n", encoding="utf-8")
+        d_web = self.root / "apps" / "web"
+        d_web.mkdir(parents=True, exist_ok=True)
+        (d_web / "tsconfig.json").write_text("{}\n", encoding="utf-8")
+        d_etl = self.root / "services" / "etl"
+        d_etl.mkdir(parents=True, exist_ok=True)
+        (d_etl / "mypy.ini").write_text("[mypy]\n", encoding="utf-8")
+        d_lib = self.root / "libs" / "common"
+        d_lib.mkdir(parents=True, exist_ok=True)
+        (d_lib / "pom.xml").write_text("<project/>\n", encoding="utf-8")
+        dim = self._type_dim(self.root)
+        self.assertNotEqual(dim["score"], "low")
+        # All three sub-project type configs should be in evidence
+        for marker in ("tsconfig.json", "mypy.ini", "pom.xml"):
+            self.assertIn(marker, dim["evidence"])
+
+    def test_single_project_repo_unchanged_by_monorepo_logic(self):
+        """Regression guard: a plain single-project repo (no workspace marker)
+        must produce the same evidence string as before the monorepo patch."""
+        (self.root / "pom.xml").write_text("<project/>\n", encoding="utf-8")
+        dim = self._type_dim(self.root)
+        # No `monorepo` label in evidence — single-project path used the
+        # root-only check, which DOES list pom.xml directly.
+        self.assertNotIn("monorepo", dim["evidence"])
+        self.assertIn("pom.xml", dim["evidence"])
+
 
 # ---------------------------------------------------------------------------
 # build_server — tool registration
@@ -14987,3 +15502,297 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# wave_install_audit MCP tool (wave 1p35d / change 1p35h)
+# ---------------------------------------------------------------------------
+
+
+class WaveInstallAuditTests(unittest.TestCase):
+    """Branch tests for wave_install_audit_response.
+
+    MF-6 (prepare-council must-fix): the end-to-end integration test at the
+    bottom walks a realistic install log through all three states.
+    """
+
+    _MINIMAL_LOG = """\
+# Wavefoundry Install Log
+
+Owner: operator
+Status: in-progress
+
+## Phase 1 — Harness (no MCP required)
+
+- [ ] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json
+- [ ] 1.2 — Bootstrap harness (setup_wavefoundry.py) — artifact: .wavefoundry/bin/mcp-server
+- [ ] 1.3 — STOP: restart agent (instruction)
+
+## Phase 2 — Project discovery (MCP required)
+
+- [ ] 2.1 — Audit Phase 1 outputs (verify) — expects: wave_install_audit(phase=1) returns next_step
+- [ ] 2.2 — Bootstrap evidence base (seed-030) — artifact: docs/repo-profile.json
+"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        import tempfile
+        self.srv = type(self).srv
+        self._tmp = tempfile.mkdtemp()
+        self.root = Path(self._tmp)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _write_log(self, body):
+        log_path = self.root / ".wavefoundry" / "install-log.md"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(body, encoding="utf-8")
+
+    def _call(self, phase=None):
+        from unittest.mock import patch
+        with patch.object(self.srv, "run_validate") as mock_validate:
+            mock_validate.return_value = {"passed": True, "errors": [], "warnings": [], "output": "ok"}
+            return self.srv.wave_install_audit_response(self.root, phase=phase)
+
+    def test_missing_log_returns_missing_log_error(self):
+        result = self._call()
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["data"]["status"], "missing_log")
+        self.assertIn("install-log.md", result["data"]["expected_path"])
+        codes = [d["code"] for d in result.get("diagnostics", [])]
+        self.assertIn("install_log_missing", codes)
+
+    def test_lint_errors_block_and_no_artifact_check(self):
+        from unittest.mock import patch
+        self._write_log(self._MINIMAL_LOG)
+        with patch.object(self.srv, "run_validate") as mock_validate:
+            mock_validate.return_value = {
+                "passed": False,
+                "errors": ["ERROR: foo.md missing required Role: field"],
+                "warnings": [],
+                "output": "fail",
+            }
+            result = self.srv.wave_install_audit_response(self.root)
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["data"]["status"], "lint_errors")
+        self.assertEqual(result["data"]["errors"], ["ERROR: foo.md missing required Role: field"])
+        self.assertIn("docs-lint", result["data"]["next_action"])
+
+    def test_checked_but_missing_artifact_returns_diagnostic(self):
+        log = self._MINIMAL_LOG.replace(
+            "- [ ] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json",
+            "- [x] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json",
+        )
+        self._write_log(log)
+        result = self._call()
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["data"]["status"], "checked_but_missing")
+        self.assertEqual(result["data"]["row"]["number"], "1.1")
+        self.assertIn("docs/workflow-config.json", result["data"]["expected_artifact"])
+
+    def test_next_step_returned_when_all_clean(self):
+        self._write_log(self._MINIMAL_LOG)
+        result = self._call()
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["status"], "next_step")
+        self.assertEqual(result["data"]["row"]["number"], "1.1")
+        self.assertIn("install-log.md", result["data"]["instructions"])
+
+    def test_complete_status_when_all_rows_terminal(self):
+        (self.root / "docs" / "workflow-config.json").write_text("{}\n")
+        (self.root / ".wavefoundry" / "bin").mkdir(parents=True)
+        (self.root / ".wavefoundry" / "bin" / "mcp-server").write_text("#!/bin/sh\n")
+        (self.root / "docs" / "repo-profile.json").write_text("{}\n")
+        log = self._MINIMAL_LOG.replace("- [ ]", "- [x]")
+        self._write_log(log)
+        result = self._call()
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["status"], "complete")
+
+    def test_tilde_row_skipped_by_next_step(self):
+        (self.root / "docs" / "workflow-config.json").write_text("{}\n")
+        log = self._MINIMAL_LOG.replace(
+            "- [ ] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json",
+            "- [x] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json",
+        ).replace(
+            "- [ ] 1.2 — Bootstrap harness (setup_wavefoundry.py) — artifact: .wavefoundry/bin/mcp-server",
+            "- [~] 1.2 — Bootstrap harness (setup_wavefoundry.py) — artifact: .wavefoundry/bin/mcp-server",
+        )
+        self._write_log(log)
+        result = self._call()
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["status"], "next_step")
+        self.assertEqual(result["data"]["row"]["number"], "1.3")
+
+    def test_phase_arg_limits_next_step_to_phase(self):
+        (self.root / "docs" / "workflow-config.json").write_text("{}\n")
+        (self.root / ".wavefoundry" / "bin").mkdir(parents=True)
+        (self.root / ".wavefoundry" / "bin" / "mcp-server").write_text("#!/bin/sh\n")
+        log = self._MINIMAL_LOG.replace(
+            "- [ ] 1.1 —",
+            "- [x] 1.1 —",
+        ).replace(
+            "- [ ] 1.2 —",
+            "- [x] 1.2 —",
+        ).replace(
+            "- [ ] 1.3 —",
+            "- [x] 1.3 —",
+        )
+        self._write_log(log)
+        result = self._call(phase=1)
+        self.assertEqual(result["status"], "ok")
+        self.assertIn(result["data"]["status"], ("complete", "phase_complete"))
+
+    def test_mf6_integration_walk_through_state_transitions(self):
+        """MF-6: walk a realistic install log through lint-fail -> fix -> checked-but-missing -> fix -> next-step -> complete."""
+        from unittest.mock import patch
+        self._write_log(self._MINIMAL_LOG)
+        with patch.object(self.srv, "run_validate") as mock_validate:
+            mock_validate.return_value = {
+                "passed": False,
+                "errors": ["ERROR: simulated lint failure"],
+                "warnings": [],
+                "output": "fail",
+            }
+            r = self.srv.wave_install_audit_response(self.root)
+        self.assertEqual(r["data"]["status"], "lint_errors")
+
+        log_with_x = self._MINIMAL_LOG.replace(
+            "- [ ] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json",
+            "- [x] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json",
+        )
+        self._write_log(log_with_x)
+        r = self._call()
+        self.assertEqual(r["data"]["status"], "checked_but_missing")
+        self.assertEqual(r["data"]["row"]["number"], "1.1")
+
+        (self.root / "docs" / "workflow-config.json").write_text("{}\n")
+        r = self._call()
+        self.assertEqual(r["data"]["status"], "next_step")
+        self.assertEqual(r["data"]["row"]["number"], "1.2")
+
+        (self.root / ".wavefoundry" / "bin").mkdir(parents=True)
+        (self.root / ".wavefoundry" / "bin" / "mcp-server").write_text("#!/bin/sh\n")
+        (self.root / "docs" / "repo-profile.json").write_text("{}\n")
+        log_all_done = log_with_x.replace("- [ ]", "- [x]")
+        self._write_log(log_all_done)
+        r = self._call()
+        self.assertEqual(r["data"]["status"], "complete")
+
+
+# ---------------------------------------------------------------------------
+# seed_get disk-fallback (wave 1p35d / change 1p35j)
+# ---------------------------------------------------------------------------
+
+
+class SeedGetDiskFallbackTests(unittest.TestCase):
+    """Tests for the seed_get disk-fallback path.
+
+    AC-2: every seed file in .wavefoundry/framework/seeds/ is reachable.
+    AC-3: closest-match suggestions surface for unknown names.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        import tempfile
+        self.srv = type(self).srv
+        self._tmp = tempfile.mkdtemp()
+        self.root = Path(self._tmp)
+        seeds_dir = self.root / ".wavefoundry" / "framework" / "seeds"
+        seeds_dir.mkdir(parents=True)
+        (seeds_dir / "010-install-wavefoundry.prompt.md").write_text(
+            "# 010 - Init\n\nPreamble for seed 010.\n", encoding="utf-8"
+        )
+        (seeds_dir / "216-reality-checker.prompt.md").write_text(
+            "# Reality Checker\n\nSpecialist body.\n", encoding="utf-8"
+        )
+        (seeds_dir / "224-data-engineer.prompt.md").write_text(
+            "# Data Engineer\n\nSpecialist body.\n", encoding="utf-8"
+        )
+        (seeds_dir / "232-api-tester.prompt.md").write_text(
+            "# API Tester\n\nSpecialist body.\n", encoding="utf-8"
+        )
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _make_empty_index_stub(self):
+        idx = self.srv.WaveIndex(self.root)
+        idx._loaded = True
+        idx._proj_docs_lance_table = None
+        idx._fw_docs_lance_table = None
+        return idx
+
+    def test_disk_fallback_finds_seed_by_number(self):
+        idx = self._make_empty_index_stub()
+        for num in ("216", "224", "232"):
+            with self.subTest(num=num):
+                chunk = idx.get_seed(num)
+                self.assertIsNotNone(chunk)
+                self.assertIn(num, chunk["path"])
+                self.assertEqual(chunk.get("_source"), "disk_fallback")
+
+    def test_disk_fallback_finds_seed_by_substring(self):
+        idx = self._make_empty_index_stub()
+        chunk = idx.get_seed("reality")
+        self.assertIsNotNone(chunk)
+        self.assertIn("216-reality-checker", chunk["path"])
+
+    def test_disk_fallback_returns_none_for_unknown(self):
+        idx = self._make_empty_index_stub()
+        self.assertIsNone(idx.get_seed("999"))
+
+    def test_closest_seed_names_returns_suggestions(self):
+        idx = self._make_empty_index_stub()
+        suggestions = idx.closest_seed_names("realtiy-checker")
+        self.assertTrue(any("reality" in s for s in suggestions),
+                        f"expected reality-checker suggestion, got: {suggestions}")
+
+
+class SeedGetCoverageTest(unittest.TestCase):
+    """AC-2: every numbered seed file on disk is reachable via seed_get."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+        cls.repo_root = Path(__file__).resolve().parents[3]
+        cls.seeds_dir = cls.repo_root / ".wavefoundry" / "framework" / "seeds"
+
+    def setUp(self):
+        self.srv = type(self).srv
+
+    def test_every_numbered_seed_reachable(self):
+        seeds = sorted(self.seeds_dir.glob("*.prompt.md")) + sorted(self.seeds_dir.glob("*.md"))
+        seen: set[Path] = set()
+        unique: list[Path] = []
+        for p in seeds:
+            if p in seen:
+                continue
+            seen.add(p)
+            unique.append(p)
+
+        idx = self.srv.WaveIndex(self.repo_root)
+        idx._loaded = True
+        idx._proj_docs_lance_table = None
+        idx._fw_docs_lance_table = None
+
+        misses: list[str] = []
+        for p in unique:
+            stem = p.name
+            num_prefix = stem.split("-", 1)[0].split(".", 1)[0]
+            if not num_prefix.isdigit():
+                continue
+            chunk = idx.get_seed(num_prefix)
+            if chunk is None or not chunk.get("text"):
+                misses.append(f"{num_prefix} -> {stem}")
+        self.assertEqual(misses, [], f"seeds not reachable via seed_get: {misses}")

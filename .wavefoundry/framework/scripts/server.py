@@ -304,12 +304,54 @@ def build_server(root: Path):
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Wavefoundry MCP server (stdio transport)")
     parser.add_argument("--root", default=None, help="Repository root (default: auto-discover)")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Verify the server can initialize without starting the stdio transport. "
+            "Builds the server (imports, tool registration, framework state) and exits "
+            "0 on success, non-zero on failure. Used by setup_wavefoundry.py as the "
+            "harness installation smoke test."
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     root = server_impl._discover_root(args.root)
+
+    if args.dry_run:
+        # Wave 1p35d (1p35f): smoke test invoked by setup_wavefoundry.py during
+        # install Phase 1. Build the server (verifies all framework imports, tool
+        # registration, and framework state) and exit cleanly without entering
+        # the stdio transport loop. Any startup failure surfaces as a non-zero
+        # exit + a clear error message.
+        try:
+            mcp = build_server(root)
+        except Exception as exc:
+            print(
+                f"wavefoundry mcp-server --dry-run: FAILED — server build raised "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+        # Touch the handler to confirm it initialized.
+        try:
+            handler = _get_handler()
+        except RuntimeError as exc:
+            print(
+                f"wavefoundry mcp-server --dry-run: FAILED — handler not initialized: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"wavefoundry mcp-server --dry-run: OK "
+            f"(root={root}, handler={type(handler).__name__})",
+            file=sys.stderr,
+        )
+        return 0
+
     mcp = build_server(root)
     mcp.run(transport="stdio")
     return 0

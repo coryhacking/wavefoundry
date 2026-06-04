@@ -1,5 +1,7 @@
 # Agent Body — Workflow Engineer
 
+**Applicable when:** the project has a CI/CD pipeline, automation, or workflow-orchestration concerns (GitHub Actions, scheduled jobs, etc.).
+
 Owner: Engineering
 Status: active
 Lane: workflow-engineer

@@ -1228,7 +1228,7 @@ class WaveIndex:
     def get_seed(self, name: str) -> Optional[dict]:
         self._ensure_loaded()
         name_lower = name.lower().strip()
-        # Query Lance docs table for seed chunks; fall back to empty if table absent.
+        # First: query Lance docs table for seed chunks.
         for table in filter(None, [
             getattr(self, "_proj_docs_lance_table", None),
             getattr(self, "_fw_docs_lance_table", None),
@@ -1244,7 +1244,57 @@ class WaveIndex:
                 if name_lower in path.lower() or name_lower in section.lower():
                     chunk["path"] = self._qualify_index_path(path, "framework" if table is getattr(self, "_fw_docs_lance_table", None) else "project")
                     return chunk
+
+        # Wave 1p35d (1p35j): disk fallback. The index can be incomplete (some
+        # seed files exist in file_meta but never produce chunks — root cause
+        # in the chunker is out of scope for this change; this fallback makes
+        # seed_get robust regardless). Scan the seeds directory directly for a
+        # filename match. Match precedence: exact-number-prefix > substring.
+        seed_dirs: list[Path] = []
+        fw_dir = Path(self.root) / ".wavefoundry" / "framework" / "seeds"
+        if fw_dir.is_dir():
+            seed_dirs.append(fw_dir)
+        for seed_dir in seed_dirs:
+            try:
+                candidates = sorted(seed_dir.glob("*.prompt.md")) + sorted(seed_dir.glob("*.md"))
+            except OSError:
+                continue
+            # Dedupe by absolute path while preserving order.
+            seen: set[Path] = set()
+            ordered: list[Path] = []
+            for p in candidates:
+                if p in seen:
+                    continue
+                seen.add(p)
+                ordered.append(p)
+            # Pass 1: exact-number-prefix match (e.g., name='216' matches '216-reality-checker.prompt.md').
+            if name_lower and name_lower[0].isdigit():
+                for p in ordered:
+                    stem = p.name
+                    if stem.lower().startswith(name_lower + "-") or stem.lower().startswith(name_lower + "."):
+                        return _seed_chunk_from_disk(p, self.root)
+            # Pass 2: substring match on filename.
+            for p in ordered:
+                if name_lower in p.name.lower():
+                    return _seed_chunk_from_disk(p, self.root)
         return None
+
+    def closest_seed_names(self, name: str, limit: int = 3) -> list[str]:
+        """Return the closest filename matches for a missing seed name.
+
+        Used by ``seed_get_response`` to surface a recovery hint when a seed
+        isn't found. Matches against ``<repo>/.wavefoundry/framework/seeds/``
+        directly so the suggestion works even when the index is empty/stale.
+        """
+        import difflib
+        fw_dir = Path(self.root) / ".wavefoundry" / "framework" / "seeds"
+        if not fw_dir.is_dir():
+            return []
+        try:
+            stems = [p.name for p in fw_dir.glob("*.md")]
+        except OSError:
+            return []
+        return difflib.get_close_matches(name, stems, n=limit, cutoff=0.4)
 
     def is_stale(self) -> bool:
         """Return True if the index may be out of date (no meta or missing files)."""
@@ -3180,6 +3230,26 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
     )
 
 
+def _seed_chunk_from_disk(path: Path, repo_root: Path) -> dict[str, Any]:
+    """Build a get_seed-shaped chunk by reading a seed file directly from disk.
+
+    Used as fallback when the index doesn't have the seed (wave 1p35d / 1p35j).
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        text = ""
+    rel_path = str(path.relative_to(repo_root)) if path.is_absolute() and repo_root else str(path)
+    rel_path = rel_path.replace("\\", "/")
+    return {
+        "path": rel_path,
+        "kind": "seed",
+        "section": "preamble",
+        "text": text,
+        "_source": "disk_fallback",
+    }
+
+
 def seed_get_response(index: WaveIndex, name: str) -> dict[str, Any]:
     try:
         chunk = index.get_seed(name)
@@ -3199,13 +3269,18 @@ def seed_get_response(index: WaveIndex, name: str) -> dict[str, Any]:
             usage="wave_help(goal='search_docs')",
         )
     if chunk is None:
+        # Wave 1p35d (1p35j): surface closest-name suggestions when a seed isn't found.
+        suggestions = index.closest_seed_names(name)
+        suggestion_msg = (
+            f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+        )
         return _response(
             "ok",
-            {"name": name, "seed": None},
+            {"name": name, "seed": None, "suggestions": suggestions},
             diagnostics=[
                 _diagnostic(
                     "seed_not_found",
-                    f"No seed found matching '{name}'.",
+                    f"No seed found matching '{name}'.{suggestion_msg}",
                     recovery_tools=["docs_search"],
                     recovery_usage=f"docs_search(query={name!r}, kind='seed')",
                 )
@@ -5009,6 +5084,57 @@ def wave_audit_response(
     if not next_tools:
         next_tools = ["wave_current"]
 
+    # --- Install audit advisory (wave 1p35d / change 1p35h) ---
+    # If an install log exists with pending rows, mention wave_install_audit so
+    # operators reading wave_audit during install discover the install-time gate.
+    # We deliberately do NOT auto-detect install state in wave_audit logic itself
+    # (Decision Log MF-2 in 1p35h): install-state and repo-state are
+    # fundamentally different checks; conflating them produces ambiguous output.
+    try:
+        import install_log_lib as _install_log_lib  # local import — module always present in this pack
+
+        _install_log_text = _install_log_lib.read_install_log(root)
+        if _install_log_text is not None:
+            _install_rows = _install_log_lib.parse_log(_install_log_text)
+            if _install_rows and not _install_log_lib.is_complete(_install_rows):
+                diagnostics.append(_diagnostic(
+                    "install_in_progress",
+                    (
+                        "Install log present and incomplete. wave_audit reports repo "
+                        "health; for install-state checks (lint + checked-row artifacts "
+                        "+ next step) call wave_install_audit instead."
+                    ),
+                    recovery_tools=["wave_install_audit"],
+                    recovery_usage="wave_install_audit()",
+                ))
+    except Exception:  # pragma: no cover — defensive; never block wave_audit on the advisory
+        pass
+
+    # --- Agent surface coverage advisory (wave 1p35d / change 1p35l) ---
+    # When zero agent role docs are present (post-install), the install never
+    # completed seed-050 or every generated doc is missing the `Role:` field
+    # (the inclusion gate the dashboard classifies on). Either way, the Agents
+    # panel will be empty — surface as a diagnostic with a recovery hint so
+    # operators don't have to discover the gap by looking at an empty panel.
+    try:
+        import dashboard_lib as _dashboard_lib  # local import — module always present
+        _agents = _dashboard_lib.collect_agents(root)
+        if not _agents:
+            diagnostics.append(_diagnostic(
+                "no_agent_role_docs",
+                (
+                    "No agent role docs found under docs/agents/. The dashboard "
+                    "Agents panel will be empty. Run seed-050 (Init agent "
+                    "surfaces) to generate per-role docs; ensure each generated "
+                    "file declares `Role: <role-slug>` in the header (docs-lint "
+                    "enforces this)."
+                ),
+                recovery_tools=["seed_get"],
+                recovery_usage='seed_get(name="050")',
+            ))
+    except Exception:  # pragma: no cover — defensive; never block wave_audit on the advisory
+        pass
+
     # --- Harness sub-checks ---
     commit_governance = _audit_commit_governance(root)
     harnessability = _audit_harnessability(root)
@@ -5075,6 +5201,179 @@ def wave_validate_response(root: Path) -> dict[str, Any]:
         next_tools=["wave_garden"] if result["passed"] else ["wave_help"],
         usage="wave_garden()" if result["passed"] else "wave_help(goal='maintain_framework')",
     )
+
+
+# --- Wave 1p35d (1p35h): install-time audit tool ---
+
+
+def wave_install_audit_response(root: Path, phase: Optional[int] = None) -> dict[str, Any]:
+    """Run the three-check install audit and return the first failure or the next step.
+
+    Check sequence (stops on first failure):
+      1. docs-lint — surface lint errors before advancing.
+      2. checked-row artifact validation — for every ``[x]`` row, verify its
+         expected artifact exists on disk. Mismatch surfaces the agent-recovery
+         path.
+      3. first unchecked row — when both checks pass, return the next pending
+         row with its seed pointer and the instruction to mark ``[x]`` and
+         re-call. When no pending rows remain, return ``status: complete``.
+
+    The ``phase`` argument optionally limits the audit (and the next-step return)
+    to a single phase. Missing log file returns an actionable error pointing at
+    ``install-wavefoundry.md``.
+    """
+    # Local import to avoid a hard cycle if install_log_lib later imports
+    # from server_impl (it currently doesn't, but defensive).
+    import install_log_lib
+
+    log_text = install_log_lib.read_install_log(root)
+    if log_text is None:
+        return _response(
+            "error",
+            {
+                "status": "missing_log",
+                "expected_path": str(root / install_log_lib.INSTALL_LOG_REL_PATH),
+            },
+            diagnostics=[
+                _diagnostic(
+                    "install_log_missing",
+                    (
+                        "No install log at .wavefoundry/install-log.md. "
+                        "If this is a fresh install, copy the template at "
+                        ".wavefoundry/framework/install/install-log.template.md to "
+                        ".wavefoundry/install-log.md (substitute {{generated_at}} with "
+                        "today's date), then re-call wave_install_audit. See "
+                        "install-wavefoundry.md at the repo root for bootstrap "
+                        "instructions."
+                    ),
+                    recovery_tools=[],
+                )
+            ],
+            next_tools=[],
+            usage="wave_install_audit()",
+        )
+
+    # CHECK 1 — docs-lint. Block advancement on errors.
+    lint_result = run_validate(root)
+    if not lint_result.get("passed", False):
+        return _response(
+            "error",
+            {
+                "status": "lint_errors",
+                "phase": phase,
+                "errors": lint_result.get("errors", []),
+                "warnings": lint_result.get("warnings", []),
+                "next_action": (
+                    "Fix the docs-lint errors above before advancing the install log. "
+                    "After fixing, re-call wave_install_audit."
+                ),
+            },
+            diagnostics=[
+                _diagnostic(
+                    "docs_lint_error",
+                    error,
+                    recovery_tools=["wave_install_audit", "wave_validate"],
+                )
+                for error in lint_result.get("errors", [])
+            ],
+            next_tools=["wave_install_audit"],
+            usage="wave_install_audit()",
+        )
+
+    rows = install_log_lib.parse_log(log_text)
+    scope_rows = install_log_lib.filter_phase(rows, phase)
+
+    # CHECK 2 — checked-row artifact validation. Block on missing artifacts.
+    missing = install_log_lib.checked_rows_missing_artifact(scope_rows, root)
+    if missing:
+        first_row, first_path = missing[0]
+        return _response(
+            "error",
+            {
+                "status": "checked_but_missing",
+                "phase": phase,
+                "row": _install_audit_row_brief(first_row),
+                "expected_artifact": str(first_path),
+                "all_missing": [
+                    {
+                        "row": _install_audit_row_brief(r),
+                        "expected_artifact": str(p),
+                    }
+                    for r, p in missing
+                ],
+                "next_action": (
+                    f"Row {first_row.number} is marked [x] but its expected artifact "
+                    f"({first_row.target}) does not exist at {first_path}. "
+                    f"Re-execute the step ({first_row.source}), confirm the artifact, "
+                    f"then re-call wave_install_audit."
+                ),
+            },
+            diagnostics=[
+                _diagnostic(
+                    "install_log_checked_but_missing",
+                    (
+                        f"Row {r.number} ({r.source}) marked [x] but artifact "
+                        f"{r.target!r} does not exist at {p}."
+                    ),
+                    recovery_tools=["wave_install_audit"],
+                )
+                for r, p in missing
+            ],
+            next_tools=["wave_install_audit"],
+            usage="wave_install_audit()",
+        )
+
+    # CHECK 3 — first unchecked row, or complete.
+    next_row = install_log_lib.first_unchecked_row(scope_rows)
+    if next_row is None:
+        # All rows in scope are terminal.
+        complete_overall = install_log_lib.is_complete(rows)
+        return _response(
+            "ok",
+            {
+                "status": "complete" if complete_overall else "phase_complete",
+                "phase": phase,
+                "message": (
+                    "Install complete: every row is [x] or [~]."
+                    if complete_overall
+                    else f"Phase {phase} complete; other phases still have pending rows."
+                ),
+            },
+            diagnostics=[],
+            next_tools=[],
+            usage="wave_install_audit()",
+        )
+
+    return _response(
+        "ok",
+        {
+            "status": "next_step",
+            "phase": phase,
+            "row": _install_audit_row_brief(next_row),
+            "instructions": (
+                f"Execute the step indicated by row {next_row.number} "
+                f"({next_row.source}: {next_row.slug}). When the expected outcome is "
+                f"reached, mark this row [x] in .wavefoundry/install-log.md and call "
+                f"wave_install_audit again."
+            ),
+        },
+        diagnostics=[],
+        next_tools=["wave_install_audit"],
+        usage="wave_install_audit()",
+    )
+
+
+def _install_audit_row_brief(row: Any) -> dict[str, Any]:
+    """Return a JSON-friendly summary of an install-log row."""
+    return {
+        "number": row.number,
+        "slug": row.slug,
+        "kind": row.kind,
+        "source": row.source,
+        "target": row.target,
+        "phase": row.phase,
+        "state": row.state,
+    }
 
 
 def wave_garden_response(root: Path, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
@@ -6062,6 +6361,239 @@ def _audit_commit_governance(root: Path) -> dict[str, Any]:
     }
 
 
+# Wave 1p35d (1p35p enterprise-deployment review): directories the JVM source-
+# pattern fallback skips when walking canonical roots. Enterprise monorepos
+# routinely vendor 3rd-party code, archive legacy implementations, or commit
+# build-tool caches that contain matching source-file extensions; without this
+# allowlist the heuristic would false-positive on any of them.
+_JVM_SOURCE_WALK_IGNORE_DIRS: frozenset[str] = frozenset({
+    "node_modules", "vendor", "third_party", "third-party", "thirdparty",
+    "target", "build", "dist", "out", "bin", "obj",
+    ".git", ".gradle", ".mvn", ".idea", ".vscode", ".settings",
+    "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox",
+})
+
+# Canonical JVM project root layouts in priority order. Maven/Gradle conventional
+# layouts are checked first (highest specificity); src/ / app/ / lib/ are common
+# unconventional fallbacks; root iterdir handles tiny single-file projects.
+_JVM_CANONICAL_SOURCE_ROOTS = (
+    ("src/main/java", True),
+    ("src/main/kotlin", True),
+    ("src/main/scala", True),
+    ("src/main/groovy", True),
+    ("src", True),
+    ("app", True),
+    ("lib", True),
+    ("", False),  # top-level iterdir only — no recursive walk
+)
+_JVM_SOURCE_PATTERNS: frozenset[str] = frozenset({".java", ".kt", ".scala", ".groovy"})
+_JVM_SOURCE_WALK_FILE_BUDGET = 5000  # bail after N files examined; guards against pathological monorepo walks
+
+
+def _detect_jvm_source_evidence(root: Path) -> list[str]:
+    """Return the first JVM source-pattern signal found in canonical project roots.
+
+    Returns a single-element list (e.g. ``["*.java"]``) when a JVM source file
+    is found in a canonical location, empty list otherwise. Walks bounded by
+    ``_JVM_SOURCE_WALK_IGNORE_DIRS`` (skips vendored/build/archive dirs) and
+    by ``_JVM_SOURCE_WALK_FILE_BUDGET`` (caps work on pathological monorepos).
+    """
+    files_examined = 0
+    for rel, recurse in _JVM_CANONICAL_SOURCE_ROOTS:
+        src_root = root / rel if rel else root
+        if not src_root.is_dir():
+            continue
+        if recurse:
+            try:
+                stack = [src_root]
+                while stack:
+                    if files_examined >= _JVM_SOURCE_WALK_FILE_BUDGET:
+                        return []
+                    current = stack.pop()
+                    try:
+                        entries = list(current.iterdir())
+                    except OSError:
+                        continue
+                    for entry in entries:
+                        if files_examined >= _JVM_SOURCE_WALK_FILE_BUDGET:
+                            return []
+                        if entry.is_dir():
+                            if entry.name in _JVM_SOURCE_WALK_IGNORE_DIRS:
+                                continue
+                            stack.append(entry)
+                            continue
+                        if entry.is_file():
+                            files_examined += 1
+                            if entry.suffix in _JVM_SOURCE_PATTERNS:
+                                return [f"*{entry.suffix}"]
+            except OSError:
+                continue
+        else:
+            # Top-level iterdir only — files directly at repo root.
+            try:
+                for entry in src_root.iterdir():
+                    if entry.is_file() and entry.suffix in _JVM_SOURCE_PATTERNS:
+                        return [f"*{entry.suffix}"]
+            except OSError:
+                continue
+    return []
+
+
+# Wave 1p35d (1p35p enterprise-deployment hardening, monorepo detection):
+# workspace-marker files signal the operator-CWD is a monorepo parent rather
+# than a single project. When present, harnessability checks aggregate signals
+# across sub-projects instead of returning a misleading "no config" answer
+# based only on the parent dir.
+_MONOREPO_MARKER_FILES: tuple[str, ...] = (
+    "nx.json",
+    "lerna.json",
+    "rush.json",
+    "pnpm-workspace.yaml",
+    "WORKSPACE",          # Bazel
+    "WORKSPACE.bazel",
+    "MODULE.bazel",
+    "pants.toml",         # Pants
+    ".buckconfig",        # Buck/Buck2
+    "BUCK",
+)
+
+# Canonical sub-project parent dirs in monorepo layouts. The walk goes one
+# level deep into each — `services/auth-service/` is a sub-project; deeper
+# nesting (`services/auth-service/src/main/java/.../`) is left to the per-
+# sub-project type-coverage check.
+_MONOREPO_SUBPROJECT_PARENTS: tuple[str, ...] = (
+    "services",
+    "apps",
+    "libs",
+    "packages",
+    "crates",
+    "modules",
+    "subprojects",
+    "components",
+    "projects",
+)
+
+# Per-sub-project type-config file markers. Each entry: (filename, label-on-evidence).
+_SUBPROJECT_TYPE_CONFIG_FILES: tuple[tuple[str, str], ...] = (
+    ("tsconfig.json", "tsconfig.json"),
+    ("mypy.ini", "mypy.ini"),
+    ("pyrightconfig.json", "pyrightconfig.json"),
+    (".pyrightconfig.json", ".pyrightconfig.json"),
+    ("pom.xml", "pom.xml"),
+    ("build.gradle", "build.gradle"),
+    ("build.gradle.kts", "build.gradle.kts"),
+    ("settings.gradle", "settings.gradle"),
+    ("settings.gradle.kts", "settings.gradle.kts"),
+    ("Cargo.toml", "Cargo.toml"),
+    ("go.mod", "go.mod"),
+)
+
+_MONOREPO_SUBPROJECT_BUDGET = 100  # cap sub-projects examined per call
+
+
+def _detect_monorepo_subprojects(root: Path) -> list[Path]:
+    """Return paths of likely sub-project roots when `root` looks like a monorepo.
+
+    Returns empty list when no monorepo workspace marker is found at root —
+    callers fall through to single-project behavior. When a marker IS found,
+    walks `_MONOREPO_SUBPROJECT_PARENTS` one level deep collecting sub-project
+    candidate dirs, skipping `_JVM_SOURCE_WALK_IGNORE_DIRS` and bounded by
+    `_MONOREPO_SUBPROJECT_BUDGET`.
+
+    Recognized markers:
+    - Direct: nx.json, lerna.json, pnpm-workspace.yaml, rush.json, Bazel
+      WORKSPACE files, Pants pants.toml, Buck .buckconfig
+    - package.json with a top-level "workspaces" field (npm/yarn workspaces)
+    - Cargo.toml with a top-level [workspace] section (Cargo workspaces)
+    - pom.xml with packaging=pom (Maven multi-module parent)
+    """
+    has_monorepo_marker = False
+
+    for marker in _MONOREPO_MARKER_FILES:
+        if (root / marker).exists():
+            has_monorepo_marker = True
+            break
+
+    if not has_monorepo_marker:
+        # Inspect package.json for `"workspaces"` field
+        pkg_json = root / "package.json"
+        if pkg_json.is_file():
+            try:
+                data = __import__("json").loads(pkg_json.read_text(encoding="utf-8"))
+                if isinstance(data, dict) and "workspaces" in data:
+                    has_monorepo_marker = True
+            except (OSError, ValueError):
+                pass
+
+    if not has_monorepo_marker:
+        # Inspect Cargo.toml for `[workspace]` section
+        cargo_toml = root / "Cargo.toml"
+        if cargo_toml.is_file():
+            try:
+                if "[workspace]" in cargo_toml.read_text(encoding="utf-8"):
+                    has_monorepo_marker = True
+            except OSError:
+                pass
+
+    if not has_monorepo_marker:
+        # Inspect pom.xml for multi-module marker — `<packaging>pom</packaging>`
+        # plus a `<modules>` section is the canonical Maven multi-module shape.
+        pom_xml = root / "pom.xml"
+        if pom_xml.is_file():
+            try:
+                txt = pom_xml.read_text(encoding="utf-8")
+                if "<packaging>pom</packaging>" in txt and "<modules>" in txt:
+                    has_monorepo_marker = True
+            except OSError:
+                pass
+
+    if not has_monorepo_marker:
+        return []
+
+    found: list[Path] = []
+    for parent_name in _MONOREPO_SUBPROJECT_PARENTS:
+        parent = root / parent_name
+        if not parent.is_dir():
+            continue
+        try:
+            for entry in sorted(parent.iterdir()):
+                if not entry.is_dir():
+                    continue
+                if entry.name in _JVM_SOURCE_WALK_IGNORE_DIRS:
+                    continue
+                if entry.name.startswith("."):
+                    continue
+                found.append(entry)
+                if len(found) >= _MONOREPO_SUBPROJECT_BUDGET:
+                    return found
+        except OSError:
+            continue
+    return found
+
+
+def _collect_subproject_type_evidence(subprojects: list[Path]) -> list[str]:
+    """For each sub-project, return the first type-config file found, prefixed
+    with the sub-project's parent/name. Used by the harnessability type-coverage
+    check to aggregate signals across a monorepo."""
+    evidence: list[str] = []
+    for sub in subprojects:
+        # Check each type-config file in priority order — first match wins.
+        for filename, label in _SUBPROJECT_TYPE_CONFIG_FILES:
+            if (sub / filename).exists():
+                # `services/auth-service/pom.xml` rather than just `pom.xml`
+                rel_label = f"{sub.parent.name}/{sub.name}/{label}"
+                evidence.append(rel_label)
+                break
+        else:
+            # No standard build/type file at sub-project root — check for
+            # JVM source-pattern fallback within this sub-project.
+            jvm_sub = _detect_jvm_source_evidence(sub)
+            if jvm_sub:
+                rel_label = f"{sub.parent.name}/{sub.name}/{jvm_sub[0]}"
+                evidence.append(rel_label)
+    return evidence
+
+
 def _audit_harnessability(root: Path) -> dict[str, Any]:
     """Assess codebase harnessability across three proxy dimensions."""
     # --- Type coverage ---
@@ -6079,6 +6611,45 @@ def _audit_harnessability(root: Path) -> dict[str, Any]:
                 typed_configs.append("pyproject.toml (typed)")
         except OSError:
             pass
+    # Wave 1p35d (1p35p): JVM build/source detection. Spring Boot and other
+    # JVM-ecosystem projects previously read as "no type config detected"
+    # because the checker only looked for TS/Python config. Lightweight
+    # file-presence check — no compiler invocation, no JVM runtime dependency.
+    #
+    # Late hardening (1p35p enterprise-deployment review): the previous
+    # `root.rglob(*.java)` walked the entire repo, slow on enterprise
+    # monorepos and false-positive on any vendored 3rd-party Java sources
+    # anywhere in the tree. Scoped to canonical project roots and source
+    # patterns are *.{java,kt,scala,groovy}.
+    jvm_signals = []
+    for build_file in ("pom.xml", "build.gradle", "build.gradle.kts",
+                       "settings.gradle", "settings.gradle.kts"):
+        if (root / build_file).exists():
+            jvm_signals.append(build_file)
+    if not jvm_signals:
+        jvm_signals.extend(_detect_jvm_source_evidence(root))
+    if jvm_signals:
+        typed_configs.append(f"JVM ({', '.join(jvm_signals)})")
+    # Wave 1p35d (1p35p enterprise-deployment hardening, monorepo support):
+    # when the agent's CWD is a monorepo workspace parent (Nx/Lerna/pnpm/
+    # Bazel/Pants/Cargo-workspaces/Maven-multi-module etc.), the root-only
+    # checks above miss type-config that lives inside sub-project dirs.
+    # Aggregate sub-project signals so the harnessability score reflects the
+    # actual typed surface, not just what happens to live at the workspace
+    # root.
+    subprojects = _detect_monorepo_subprojects(root)
+    if subprojects:
+        subproject_evidence = _collect_subproject_type_evidence(subprojects)
+        if subproject_evidence:
+            # Report at most 5 sub-projects inline; trailing "+N more" when
+            # the monorepo has many typed sub-projects.
+            shown = subproject_evidence[:5]
+            extra = len(subproject_evidence) - len(shown)
+            label = f"monorepo ({len(subprojects)} sub-projects scanned, "
+            label += f"{len(subproject_evidence)} typed): {', '.join(shown)}"
+            if extra > 0:
+                label += f", +{extra} more"
+            typed_configs.append(label)
     if typed_configs:
         type_score = "high" if len(typed_configs) >= 2 else "medium"
         type_evidence = f"Type config found: {', '.join(typed_configs)}"
@@ -14056,6 +14627,32 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         return wave_validate_response(get_handler().root)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def wave_install_audit(phase: Optional[int] = None, **kwargs: Any) -> dict[str, Any]:
+        """Audit install state via .wavefoundry/install-log.md. Three-check sequence: lint, artifact validation, next step.
+
+        Use during Wavefoundry install Phase 2 (after restart) to gate advancement
+        through the install log. On each call, runs docs-lint, validates that every
+        ``[x]`` row's expected artifact exists on disk, and returns the first unchecked
+        row's seed pointer + the instruction to mark ``[x]`` and re-call.
+
+        Stops on the first failure: lint errors block; checked-but-missing artifacts
+        block; only then returns the next unchecked row. When all rows are ``[x]``
+        or ``[~]``, returns ``status: complete``.
+
+        Distinct from ``wave_audit`` (post-install repo health). Do NOT use
+        ``wave_audit`` to check install state — see ``docs/references/install-log-format.md``
+        for the schema and trustworthy-invariant rule.
+
+        Args:
+            phase: Optional. Limit the audit + next-step return to rows in the named phase
+                   (1 or 2). Default: audit all phases.
+        """
+        bad = _ensure_no_extra_args("wave_install_audit", kwargs)
+        if bad is not None:
+            return bad
+        return wave_install_audit_response(get_handler().root, phase=phase)
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_run_sensors(**kwargs: Any) -> dict[str, Any]:

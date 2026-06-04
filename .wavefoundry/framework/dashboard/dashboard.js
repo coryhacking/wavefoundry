@@ -4424,7 +4424,22 @@ function AgentDialog({ agent, onClose }) {
 }
 
 function Agents({ agents, onSelectAgent }) {
-  if (!agents?.length) return null;
+  if (!agents?.length) {
+    // Wave 1p35d (1p35l, AC-6): empty Agents panel renders as guidance, not silence.
+    // An empty panel previously read as "feature unused"; the real cause is almost
+    // always that seed-050 (Init agent surfaces) never ran or that generated docs
+    // are missing the `Role:` inclusion gate.
+    return h("div", { className: "hero-agents hero-agents--empty" },
+      h("h2", { className: "hero-agents-heading" }, "Agents"),
+      h("p", { className: "hero-agents-empty-msg" },
+        "No agent role docs found. Run ",
+        h("strong", null, "Init agent surfaces"),
+        " (seed-050) to generate them. Each generated doc must declare ",
+        h("code", null, "Role: <role-slug>"),
+        " in the header — docs without it are silently skipped.",
+      ),
+    );
+  }
   const categories = ["coordinate", "review", "build", "specialist", "factor", "operate", "persona"];
   const labels = {
     build: "Build", review: "Review", coordinate: "Coordinate",
@@ -4520,7 +4535,7 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
           }),
           h(ProgressCard, { snapshot, scopeChanges }),
           h(FrameworkFlow, { onSelectProcess: setSelectedFrameworkProcess }),
-          agents.length ? h(Agents, { agents, onSelectAgent: setSelectedAgent }) : null,
+          h(Agents, { agents, onSelectAgent: setSelectedAgent }),
           h(GraphPanel, { snapshot }),
         ),
       ),

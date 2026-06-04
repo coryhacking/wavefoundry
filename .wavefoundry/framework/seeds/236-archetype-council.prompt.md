@@ -1,5 +1,7 @@
 # Archetype Council
 
+**Applicable when:** any project. The Archetype Council is operator-invoked, not default-required; this role doc exists so the surface is discoverable.
+
 Owner: Engineering
 Status: active
 Lane: archetype-council

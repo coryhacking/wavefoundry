@@ -1,5 +1,7 @@
 # Agent Body — API Tester
 
+**Applicable when:** the project has a REST or GraphQL API surface with no OpenAPI spec or with structured-testing-lane value beyond unit tests.
+
 Owner: Engineering
 Status: active
 Lane: api-tester

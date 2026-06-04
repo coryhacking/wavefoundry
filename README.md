@@ -61,19 +61,26 @@ Three hard prerequisites. Do not run any install command until all three resolve
 
 Two operator steps, one MCP restart, ~3 minutes if Python is ready. **The agent drives the install** — you drop the zip in your repo and say `Install Wavefoundry`; the agent does the rest.
 
+> **Do not extract the zip yourself.** The agent unpacks it as the first step of the install. Dropping the still-zipped file at your repo root is correct.
+
 ### Install walkthrough
 
 **(a) Drop the release zip at your repo root**
 
-Go to [Releases](https://github.com/coryhacking/wavefoundry/releases) and download the asset attached to the **latest stable release** — the one tagged `vMAJOR.MINOR.PATCH` (no `-rc`, `-beta`, or `-alpha` suffix). Drop the zip at the root of your target repository.
+Go to [Releases](https://github.com/coryhacking/wavefoundry/releases) and download the asset attached to the **latest stable release** — the one tagged `vMAJOR.MINOR.PATCH` (no `-rc`, `-beta`, or `-alpha` suffix). Drop the zip — still zipped, do not extract — at the root of your target repository.
 
 *Disqualifying patterns:* pre-release tags (`-rc`, `-beta`, `-alpha`); branch-zip downloads from `Code → Download ZIP`; assets not attached to a published Release.
 
-**(b) In your MCP-aware host, prompt the agent:**
+**(b) Type this shortcut phrase as a chat message to your AI agent:**
 
 ```
 Install Wavefoundry
 ```
+
+This is a **chat message** to your AI agent, not a shell command. The agent must already be open in your repository (the repo set as the working directory) and connected to a supported AI host:
+
+- **Claude Code** — Anthropic's CLI/Desktop/IDE agent
+- **Cursor**, **Codex**, **Junie**, **GitHub Copilot**, **Windsurf**, **Air**, **Warp** — see [Host support](#host-support) for the per-host registration step
 
 That's the only operator-typed command.
 
@@ -297,6 +304,18 @@ You'll use about six phrases day-to-day; the rest of the surface is there when y
 The [full tool surface](docs/prompts/index.md) covers wave admin, code search, graph queries, dashboard control, gate management, and adversarial review. The catalog is searchable from inside the agent (`docs_search`, `code_ask`).
 
 ---
+
+## For enterprise forks
+
+If you fork Wavefoundry for internal distribution, the upstream GitHub URLs above (`github.com/coryhacking/wavefoundry/releases`, the version badge, and the link inside the bundled `release/install-block.md`) need to point at your fork. The shortcut phrase, the install flow, and the in-zip surfaces are fork-stable; only the download/release-page links need redirecting.
+
+Specific places to update when you fork:
+
+- This `README.md` — the version badge URL (line ~3) and the Releases download link in **Quick start → (a)**.
+- `.wavefoundry/framework/release/install-block.md` — the README link near the bottom. This block is auto-prepended to every release's notes by `build_pack.py --release`, so the link follows your fork's release pages.
+- Any internal docs or onboarding decks that quote the install steps verbatim.
+
+The framework intentionally does not auto-detect "what fork is this" — the GitHub remote URL is the source of truth, but the install surfaces are static so that an air-gapped operator can still read them. Forks own the redirection step.
 
 ## For teams
 

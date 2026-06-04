@@ -1,5 +1,7 @@
 # 220 - Legacy Framework Migration (Internal Helper)
 
+**Applicable when:** the project has a pre-existing framework or convention layer being migrated INTO Wavefoundry.
+
 Intent:
 
 - Migrate a project's repository from legacy non-wave context footprints to Wavefoundry's `.wavefoundry/framework` layout.

@@ -561,6 +561,44 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("docs/agents/factor-03-config.md: missing required `Role:` metadata", result.stderr)
 
+    def test_role_metadata_required_for_arbitrary_specialist_doc(self) -> None:
+        """Wave 1p35d (1p35l): the Role: rule covers every agent doc, not just the canonical allow-list."""
+        root = self.copy_fixture()
+        specialist_dir = root / "docs/agents/specialists"
+        specialist_dir.mkdir(parents=True, exist_ok=True)
+        synthetic = specialist_dir / "synthetic-specialist.md"
+        synthetic.write_text(
+            "# Synthetic Specialist\n\nOwner: Engineering\nStatus: active\nCategory: specialist\nLast verified: 2026-06-04\n\n## Operating Identity\n\nFixture role doc with no Role: field.\n",
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            "docs/agents/specialists/synthetic-specialist.md: missing required `Role:` metadata",
+            result.stderr,
+        )
+        self.assertIn("invisible agent", result.stderr)
+
+    def test_three_councils_have_role_field_in_self_host(self) -> None:
+        """Wave 1p35d (1p35l, AC-11): the three universal-specialist council docs must
+        carry `Role:` in the self-host. These are the canonical surfaces the dashboard
+        must always be able to classify; their post-1p33i shape is the regression target."""
+        # PROJECT_ROOT at module scope is the parent of the scripts tree (cwd for the
+        # lint subprocess); the actual self-host repo root is one level deeper.
+        self_host_root = SCRIPTS_ROOT.parents[1].parent  # .wavefoundry/framework → repo root
+        import re as _re
+        for slug in ("red-team", "wave-council", "archetype-council"):
+            path = self_host_root / "docs" / "agents" / "specialists" / f"{slug}.md"
+            self.assertTrue(path.is_file(), f"missing council doc: {path}")
+            text = path.read_text(encoding="utf-8")
+            self.assertIsNotNone(
+                _re.search(rf"^Role:\s+{slug}\s*$", text, _re.MULTILINE),
+                f"{path.relative_to(self_host_root)} must declare `Role: {slug}`",
+            )
+
     def test_journal_docs_are_exempt_from_role_metadata_rule(self) -> None:
         root = self.copy_fixture()
         agent_doc = root / "docs/agents/code-reviewer.md"
@@ -953,7 +991,11 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("legacy-change.md", result.stderr)
 
-    def test_pycache_fails_docs_lint(self) -> None:
+    def test_pycache_directories_do_not_fail_docs_lint(self) -> None:
+        """Wave 1p35d (1p35n, AC-1, AC-7): `__pycache__` is in `LINT_EXCLUDED_TRANSIENT_DIRS`.
+        `.gitignore` is the source of truth; lint does not duplicate that check.
+        The MCP server creates pycache on every Python import — flagging it here
+        produced a recurring blocker the operator decided to retire."""
         root = self.copy_fixture()
         pycache_dir = root / ".wavefoundry/framework/scripts/__pycache__"
         pycache_dir.mkdir(parents=True, exist_ok=True)
@@ -962,8 +1004,23 @@ class DocsLintFixtureTests(unittest.TestCase):
             result = self.run_docs_lint(root)
         finally:
             shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("__pycache__", result.stderr)
+        self.assertNotIn("python bytecode cache", result.stderr)
+
+    def test_lint_still_flags_other_genuinely_forbidden_artifacts(self) -> None:
+        """Wave 1p35d (1p35n, AC-2, AC-8): the pycache exclusion is targeted, not blanket.
+        Other 'should not exist' checks must still fire. Uses a forbidden root wrapper
+        as the proof (`check_forbidden_root_wrappers` is unrelated to pycache and still active)."""
+        root = self.copy_fixture()
+        # Drop a retired root wrapper to trigger check_forbidden_root_wrappers
+        (root / "package-wave-framework").write_text("legacy wrapper\n", encoding="utf-8")
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
         self.assertEqual(result.returncode, 1)
-        self.assertIn("python bytecode cache should not be checked in", result.stderr)
+        self.assertIn("retired root wrapper", result.stderr)
 
     def test_persona_scope_section_is_forbidden(self) -> None:
         """## Scope is forbidden in persona docs — adding it should fail."""
@@ -1018,15 +1075,18 @@ class DocsLintFixtureTests(unittest.TestCase):
 
 
 class CheckPycacheTests(unittest.TestCase):
-    """Unit tests for ``check_pycache`` — tracked vs untracked ``__pycache__`` under framework scripts."""
+    """Wave 1p35d (1p35n): `check_pycache` is a documented no-op. Membership of
+    `__pycache__` in `LINT_EXCLUDED_TRANSIENT_DIRS` is the contract; lint defers
+    to `.gitignore` as the source of truth and never flags pycache directly."""
 
     def setUp(self) -> None:
         import sys
 
         sys.path.insert(0, str(SCRIPTS_ROOT))
-        from wave_lint_lib.core_validators import check_pycache
+        from wave_lint_lib.core_validators import check_pycache, LINT_EXCLUDED_TRANSIENT_DIRS
 
         self._check_pycache = check_pycache
+        self._exclusion_set = LINT_EXCLUDED_TRANSIENT_DIRS
         self._root = Path(tempfile.mkdtemp(prefix="wave-check-pycache-"))
 
     def tearDown(self) -> None:
@@ -1038,56 +1098,58 @@ class CheckPycacheTests(unittest.TestCase):
         (d / "fixture.pyc").write_bytes(b"x")
         return d
 
-    def _init_git(self) -> None:
-        (self._root / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
-        scripts = self._root / ".wavefoundry" / "framework" / "scripts"
-        scripts.mkdir(parents=True, exist_ok=True)
-        (scripts / "holder.txt").write_text("keep\n", encoding="utf-8")
-        subprocess.run(["git", "init"], cwd=self._root, check=True, capture_output=True)
-        subprocess.run(
-            ["git", "config", "user.email", "docs-lint-pycache-test@example.com"],
-            cwd=self._root,
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "docs-lint pycache test"],
-            cwd=self._root,
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(["git", "add", "-A"], cwd=self._root, check=True, capture_output=True)
-        subprocess.run(["git", "commit", "-m", "init"], cwd=self._root, check=True, capture_output=True)
+    def test_pycache_in_named_exclusion_set(self) -> None:
+        """The exclusion is discoverable via a named module constant, not buried inline (AC-2)."""
+        self.assertIn("__pycache__", self._exclusion_set)
 
-    def test_pycache_on_disk_without_git_fails(self) -> None:
-        self._scripts_pycache()
-        errors = self._check_pycache(self._root)
-        self.assertEqual(len(errors), 1)
-        self.assertIn("__pycache__", errors[0])
+    def test_universal_python_transients_in_exclusion_set(self) -> None:
+        """Wave 1p35d (1p35p enterprise-deployment hardening): the exclusion
+        list covers every Python-ecosystem cache that gets generated by routine
+        tool invocations and would otherwise produce the same recurring blocker
+        pattern that retired `check_pycache`. See
+        `docs/references/docs-lint-exclusions.md` for the operator-visible
+        rationale per pattern."""
+        for pattern in (".pytest_cache", ".mypy_cache", ".ruff_cache",
+                        ".tox", ".coverage"):
+            self.assertIn(
+                pattern, self._exclusion_set,
+                f"{pattern} must be in LINT_EXCLUDED_TRANSIENT_DIRS "
+                "(see docs/references/docs-lint-exclusions.md)",
+            )
 
-    def test_git_repo_without_on_disk_pycache_passes_without_invoking_classify(self) -> None:
-        """Filesystem has no ``__pycache__`` under framework scripts, so git is not consulted."""
-        self._init_git()
+    def test_exclusion_doc_exists_and_lists_each_pattern(self) -> None:
+        """The operator-visible doc at docs/references/docs-lint-exclusions.md
+        must enumerate every pattern in the exclusion set. Drift between the
+        Python constant and the operator-facing doc is exactly what the doc
+        exists to prevent — enterprise security review reads the doc, not
+        the source."""
+        # Resolve repo root from the test file location.
+        repo_root = SCRIPTS_ROOT.parents[1].parent
+        doc_path = repo_root / "docs" / "references" / "docs-lint-exclusions.md"
+        self.assertTrue(doc_path.is_file(), f"missing {doc_path}")
+        doc_text = doc_path.read_text(encoding="utf-8")
+        for pattern in self._exclusion_set:
+            self.assertIn(
+                pattern, doc_text,
+                f"{pattern} is in LINT_EXCLUDED_TRANSIENT_DIRS but not in "
+                "docs/references/docs-lint-exclusions.md — security audit drift",
+            )
+
+    def test_no_failures_when_pycache_absent(self) -> None:
         self.assertEqual(self._check_pycache(self._root), [])
 
-    def test_pycache_untracked_passes_in_git_repo(self) -> None:
-        self._init_git()
+    def test_no_failures_when_pycache_present_on_disk(self) -> None:
+        """Wave 1p35d (1p35n, AC-1): on-disk pycache is no longer flagged."""
         self._scripts_pycache()
         self.assertEqual(self._check_pycache(self._root), [])
 
-    def test_pycache_tracked_fails_in_git_repo(self) -> None:
-        self._init_git()
-        pycache = self._scripts_pycache()
-        subprocess.run(
-            ["git", "add", "-f", str(pycache / "fixture.pyc")],
-            cwd=self._root,
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(["git", "commit", "-m", "track pyc"], cwd=self._root, check=True, capture_output=True)
-        errors = self._check_pycache(self._root)
-        self.assertEqual(len(errors), 1)
-        self.assertIn("__pycache__", errors[0])
+    def test_no_failures_when_pycache_tracked_in_git(self) -> None:
+        """Per operator decision the check is fully retired — even tracked pycache
+        is no longer surfaced through this lint surface. Code review and `.gitignore`
+        are the controls for preventing bytecode in git from now on."""
+        self._scripts_pycache()
+        # No git setup needed — the function never consults git anymore.
+        self.assertEqual(self._check_pycache(self._root), [])
 
 
 class CheckPromptFileExtensionsTests(unittest.TestCase):

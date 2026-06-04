@@ -1,5 +1,7 @@
 # Agent Body — Enterprise Integration Engineer
 
+**Applicable when:** the project has enterprise-integration concerns (SAML, SCIM, ESB, message queues, EDI, B2B integrations).
+
 Owner: Engineering
 Status: active
 Lane: enterprise-integration-engineer

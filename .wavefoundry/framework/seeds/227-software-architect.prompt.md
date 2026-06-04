@@ -1,5 +1,7 @@
 # Agent Body — Software Architect
 
+**Applicable when:** the project has cross-cutting architectural concerns spanning multiple modules or services. Skip when architecture-reviewer is sufficient.
+
 Owner: Engineering
 Status: active
 Lane: software-architect

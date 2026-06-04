@@ -34,7 +34,7 @@ class BuildPackTests(unittest.TestCase):
 
     def _build(self, version=FAKE_VERSION, build_prefix=FAKE_PREFIX, extra_args=None):
         """Call build_pack.build_zip and return the resulting Path."""
-        return build_pack.build_zip(self.tmp, version, build_prefix, write_version=False, update_manifest=False)
+        return build_pack.build_zip(self.tmp, version, build_prefix, write_version=False, update_manifest=False, inject_install_templates=False)
 
     def _zip_names(self, zip_path):
         with zipfile.ZipFile(zip_path) as zf:
@@ -59,7 +59,7 @@ class BuildPackTests(unittest.TestCase):
         fw.mkdir(parents=True)
         (fw / "stub.txt").write_text("stub", encoding="utf-8")
         path = build_pack.build_zip(
-            self.tmp, "1.0.0", "2tm5", framework_dir=fw, write_version=True, update_manifest=False
+            self.tmp, "1.0.0", "2tm5", framework_dir=fw, write_version=True, update_manifest=False, inject_install_templates=False
         )
         self.assertEqual(path.name, "wavefoundry-1.0.0.2tm5.zip")
         self.assertEqual((fw / "VERSION").read_text(encoding="utf-8"), "1.0.0+2tm5\n")
@@ -107,6 +107,7 @@ class BuildPackTests(unittest.TestCase):
                 write_version=True,
                 update_manifest=False,
                 prebuild_index=True,
+                inject_install_templates=False,
             )
 
         mocked.assert_called_once()
@@ -141,6 +142,7 @@ class BuildPackTests(unittest.TestCase):
                 write_version=True,
                 update_manifest=False,
                 prebuild_index=True,
+                inject_install_templates=False,
             )
 
         kwargs = fake_indexer.build_index.call_args.kwargs
@@ -184,6 +186,7 @@ class BuildPackTests(unittest.TestCase):
                 write_version=True,
                 update_manifest=False,
                 prebuild_index=True,
+                inject_install_templates=False,
             )
 
         self.assertEqual(fake_db.open_table.call_args_list[0].args[0], "docs")
@@ -218,6 +221,7 @@ class BuildPackTests(unittest.TestCase):
                     write_version=True,
                     update_manifest=False,
                     prebuild_index=True,
+                    inject_install_templates=False,
                 )
 
         self.assertIn("compaction failed", str(ctx.exception))
@@ -267,10 +271,12 @@ class BuildPackTests(unittest.TestCase):
             ".wavefoundry/framework/",
             ".wavefoundry/README.md",
             ".wavefoundry/CHANGELOG.md",
-            # Top-level visible marker file (see build_pack INSTALL.md
+            # Top-level visible marker files (see build_pack template
             # injection). macOS Finder hides `.wavefoundry/` by default,
-            # so INSTALL.md gives consumers a visible landing file.
-            "INSTALL.md",
+            # so these give consumers visible landing files at the root.
+            # Replaced INSTALL.md in wave 1p35d (1p35f).
+            "install-wavefoundry.md",
+            "wavefoundry-install-log.md",
         )
         for name in self._zip_names(path):
             self.assertTrue(
@@ -377,7 +383,7 @@ class BuildPackTests(unittest.TestCase):
         (fw / "stray.tmp").write_text("temp\n", encoding="utf-8")
 
         path = build_pack.build_zip(
-            self.tmp, "1.0.0", "2tm5", framework_dir=fw, write_version=False, update_manifest=False
+            self.tmp, "1.0.0", "2tm5", framework_dir=fw, write_version=False, update_manifest=False, inject_install_templates=False
         )
         names = self._zip_names(path)
         for name in names:
@@ -396,7 +402,7 @@ class BuildPackTests(unittest.TestCase):
         import tempfile
         alt_dir = Path(tempfile.mkdtemp())
         try:
-            path = build_pack.build_zip(alt_dir, "1.0.0", "2abc", write_version=False, update_manifest=False)
+            path = build_pack.build_zip(alt_dir, "1.0.0", "2abc", write_version=False, update_manifest=False, inject_install_templates=False)
             self.assertEqual(path.parent, alt_dir)
             self.assertTrue(path.exists())
         finally:
@@ -453,14 +459,14 @@ class BuildPackTests(unittest.TestCase):
         fw = self.tmp / "mini-fw"
         fw.mkdir(parents=True)
         (fw / "seed.md").write_text("seed", encoding="utf-8")
-        build_pack.build_zip(self.tmp, "1.0.0", "2tm5", framework_dir=fw, write_version=False, update_manifest=False)
+        build_pack.build_zip(self.tmp, "1.0.0", "2tm5", framework_dir=fw, write_version=False, update_manifest=False, inject_install_templates=False)
         self.assertFalse((fw / "MANIFEST").exists(), "MANIFEST should be deleted after packaging")
 
     def test_manifest_included_in_zip(self):
         fw = self.tmp / "mini-fw"
         fw.mkdir(parents=True)
         (fw / "seed.md").write_text("seed", encoding="utf-8")
-        path = build_pack.build_zip(self.tmp, "1.0.0", "2tm5", framework_dir=fw, write_version=False, update_manifest=False)
+        path = build_pack.build_zip(self.tmp, "1.0.0", "2tm5", framework_dir=fw, write_version=False, update_manifest=False, inject_install_templates=False)
         with zipfile.ZipFile(path) as zf:
             self.assertIn(".wavefoundry/framework/MANIFEST", zf.namelist())
 
@@ -469,7 +475,7 @@ class BuildPackTests(unittest.TestCase):
         fw.mkdir(parents=True)
         (fw / "a.md").write_text("a", encoding="utf-8")
         (fw / "b.txt").write_text("b", encoding="utf-8")
-        path = build_pack.build_zip(self.tmp, "1.0.0", "2tm5", framework_dir=fw, write_version=False, update_manifest=False)
+        path = build_pack.build_zip(self.tmp, "1.0.0", "2tm5", framework_dir=fw, write_version=False, update_manifest=False, inject_install_templates=False)
         with zipfile.ZipFile(path) as zf:
             manifest_text = zf.read(".wavefoundry/framework/MANIFEST").decode()
         entries = {line for line in manifest_text.splitlines() if line.strip()}
@@ -486,7 +492,7 @@ class BuildPackTests(unittest.TestCase):
         tests_dir.mkdir(parents=True)
         (tests_dir / "test_foo.py").write_text("x", encoding="utf-8")
         (scripts_dir / "run_tests.py").write_text("x", encoding="utf-8")
-        path = build_pack.build_zip(self.tmp, "1.0.0", "2tm5", framework_dir=fw, write_version=False, update_manifest=False)
+        path = build_pack.build_zip(self.tmp, "1.0.0", "2tm5", framework_dir=fw, write_version=False, update_manifest=False, inject_install_templates=False)
         with zipfile.ZipFile(path) as zf:
             manifest_text = zf.read(".wavefoundry/framework/MANIFEST").decode()
         entries = {line for line in manifest_text.splitlines() if line.strip()}
@@ -546,7 +552,7 @@ class ManifestRevisionTests(unittest.TestCase):
         manifest_path = self.tmp / "docs" / "prompts" / "prompt-surface-manifest.json"
         self._write_manifest({"framework_revision": "1.0.0+2tm5"})
         (fw / "stub.txt").write_text("stub", encoding="utf-8")
-        build_pack.build_zip(self.tmp, "1.0.0", "2xyz", framework_dir=fw, write_version=False, update_manifest=True)
+        build_pack.build_zip(self.tmp, "1.0.0", "2xyz", framework_dir=fw, write_version=False, update_manifest=True, inject_install_templates=False)
         import json
         recorded = json.loads(manifest_path.read_text(encoding="utf-8"))["framework_revision"]
         self.assertEqual(recorded, "1.0.0+2xyz")
@@ -667,6 +673,71 @@ class ChangelogSectionExtractionTests(unittest.TestCase):
         self._write("# Changelog\n\n## [1.4.0]\n\n- only\n")
         body = build_pack._extract_changelog_section(self.changelog, "1.4.0")
         self.assertIn("- only", body)
+
+
+class ReleaseNotesInstallPrependTests(unittest.TestCase):
+    """Wave 1p35d (1p35p): release notes carry an `## Install` block at the
+    top so an agent or operator landing on the GitHub Releases page sees the
+    zip-at-root → shortcut-phrase flow alongside the download link. Source of
+    truth lives at `.wavefoundry/framework/release/install-block.md`."""
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.mkdtemp()
+        self.tmp = Path(self._tmp)
+        (self.tmp / build_pack.RELEASE_NOTES_INSTALL_BLOCK_REL.parent).mkdir(
+            parents=True, exist_ok=True
+        )
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _write_block(self, content: str) -> None:
+        (self.tmp / build_pack.RELEASE_NOTES_INSTALL_BLOCK_REL).write_text(
+            content, encoding="utf-8"
+        )
+
+    def test_install_block_is_prepended_to_changelog_body(self):
+        self._write_block("## Install\n\nDrop the zip.\n\n---\n\n")
+        notes = build_pack._assemble_release_notes(
+            self.tmp, "### Changed\n\n- thing\n"
+        )
+        self.assertTrue(notes.startswith("## Install"))
+        self.assertIn("Drop the zip.", notes)
+        # Changelog body still present after the block.
+        self.assertIn("### Changed", notes)
+        self.assertIn("- thing", notes)
+        # Install block precedes the changelog body in document order.
+        self.assertLess(notes.index("## Install"), notes.index("### Changed"))
+
+    def test_block_missing_falls_through_to_changelog_only(self):
+        """No install block on disk → notes are the CHANGELOG body alone."""
+        notes = build_pack._assemble_release_notes(
+            self.tmp, "### Changed\n\n- thing\n"
+        )
+        self.assertEqual(notes, "### Changed\n\n- thing\n")
+
+    def test_empty_block_file_falls_through(self):
+        """An on-disk-but-empty block file is treated as no block."""
+        self._write_block("")
+        notes = build_pack._assemble_release_notes(self.tmp, "### Changed\n- x\n")
+        self.assertEqual(notes, "### Changed\n- x\n")
+
+    def test_block_includes_shortcut_phrase_and_supported_hosts(self):
+        """The shipped install block at the repo source-of-truth path names the
+        canonical shortcut phrase and the supported agent-host list. Regression
+        guard against future drift — if the block evolves, this asserts the
+        agent-facing affordances stay present."""
+        repo_block = (
+            Path(__file__).resolve().parents[2]
+            / "release" / "install-block.md"
+        )
+        self.assertTrue(repo_block.is_file(), f"missing {repo_block}")
+        text = repo_block.read_text(encoding="utf-8")
+        self.assertIn("Install Wavefoundry", text)
+        for host in ("Claude Code", "Cursor", "Codex"):
+            self.assertIn(host, text)
 
 
 class ZipIndexAssertionTests(unittest.TestCase):
@@ -822,6 +893,106 @@ class TagMessageDerivationTests(unittest.TestCase):
         with patch("build_pack.subprocess.run", runner):
             msg = build_pack._derive_tag_message(Path("/tmp"), "1.4.1")
         self.assertEqual(msg, "Release v1.4.1")
+
+
+# ---------------------------------------------------------------------------
+# Install-log / install-entry-doc templates (wave 1p35d / change 1p35f)
+# ---------------------------------------------------------------------------
+
+
+class InstallTemplateInjectionTests(unittest.TestCase):
+    """Tests for `install-wavefoundry.md` and `wavefoundry-install-log.md` at zip root."""
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.mkdtemp()
+        self.tmp = Path(self._tmp)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _build(self, version="1.0.0", build_prefix="2tm5"):
+        return build_pack.build_zip(
+            self.tmp, version, build_prefix,
+            write_version=False, update_manifest=False,
+        )
+
+    def _zip_names(self, zip_path):
+        with zipfile.ZipFile(zip_path) as zf:
+            return zf.namelist()
+
+    def _zip_read(self, zip_path, arcname):
+        with zipfile.ZipFile(zip_path) as zf:
+            return zf.read(arcname).decode("utf-8")
+
+    def test_install_wavefoundry_md_at_zip_root(self):
+        """AC-7: install-wavefoundry.md ships at the zip root, not under .wavefoundry/."""
+        zp = self._build()
+        names = self._zip_names(zp)
+        self.assertIn("install-wavefoundry.md", names)
+        self.assertNotIn(".wavefoundry/install-wavefoundry.md", names)
+
+    def test_install_log_template_ships_in_framework_tree(self):
+        """AC-6: install-log.template.md ships inside the framework tree (not at zip root).
+
+        The agent copies it to .wavefoundry/install-log.md on first install;
+        the live log is never in the zip (preserved across upgrades).
+        """
+        zp = self._build()
+        names = self._zip_names(zp)
+        self.assertIn(".wavefoundry/framework/install/install-log.template.md", names)
+        # Live log MUST NOT be in the zip — that's the operator-preserved instance.
+        self.assertNotIn("install-log.md", names)
+        self.assertNotIn(".wavefoundry/install-log.md", names)
+
+    def test_install_md_no_longer_present(self):
+        """AC-8: INSTALL.md is removed; not aliased."""
+        zp = self._build()
+        names = self._zip_names(zp)
+        self.assertNotIn("INSTALL.md", names)
+
+    def test_install_wavefoundry_md_has_version_substituted(self):
+        """AC-7: {{version}} placeholder is substituted with the build version."""
+        zp = self._build(version="1.5.0")
+        body = self._zip_read(zp, "install-wavefoundry.md")
+        self.assertIn("1.5.0", body)
+        self.assertNotIn("{{version}}", body)
+
+    def test_install_log_template_preserves_generated_at_placeholder(self):
+        """The {{generated_at}} placeholder is NOT substituted at packaging time.
+
+        Substitution happens when the agent copies the template to
+        .wavefoundry/install-log.md on first install; build_pack ships
+        the template verbatim.
+        """
+        zp = self._build()
+        body = self._zip_read(zp, ".wavefoundry/framework/install/install-log.template.md")
+        self.assertIn("{{generated_at}}", body)
+
+    def test_install_log_template_contains_phase_1_and_phase_2(self):
+        """AC-4 + AC-5: template has both phase headings and the boundary marker."""
+        zp = self._build()
+        body = self._zip_read(zp, ".wavefoundry/framework/install/install-log.template.md")
+        self.assertIn("Phase 1", body)
+        self.assertIn("Phase 2", body)
+        # Restart marker between phases (Phase 1 last row mentions restart agent).
+        self.assertIn("restart", body.lower())
+
+    def test_install_log_template_phase_2_starts_with_wave_install_audit(self):
+        """AC-5: first Phase 2 row is a wave_install_audit call."""
+        zp = self._build()
+        body = self._zip_read(zp, ".wavefoundry/framework/install/install-log.template.md")
+        phase_2_section = body.split("Phase 2", 1)[1]  # everything after the heading
+        head = phase_2_section[:1200]
+        self.assertIn("wave_install_audit", head)
+
+    def test_install_wavefoundry_md_explains_template_to_log_copy(self):
+        """The entry doc instructs the agent to copy template -> .wavefoundry/install-log.md."""
+        zp = self._build()
+        body = self._zip_read(zp, "install-wavefoundry.md")
+        self.assertIn(".wavefoundry/install-log.md", body)
+        self.assertIn("install-log.template.md", body)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
 # 230 - Author Spec
 
+**Applicable when:** the project has `docs/specs/*.md` behavioral contracts being authored or modified. Universal authoring lane.
+
 Intent:
 
 - Derive and write a durable behavior contract (spec) for a stable system boundary, API, or security-critical component — based on code evidence rather than design intent.

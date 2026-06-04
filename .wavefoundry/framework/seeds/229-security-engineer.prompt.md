@@ -1,5 +1,7 @@
 # Agent Body — Security Engineer
 
+**Applicable when:** the project has authentication, authorization, secrets handling, cryptography, or compliance complexity warranting a dedicated specialist beyond security-reviewer.
+
 Owner: Engineering
 Status: active
 Lane: security-engineer

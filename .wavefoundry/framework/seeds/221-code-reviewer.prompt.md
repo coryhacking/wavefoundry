@@ -1,5 +1,7 @@
 # Agent Body — Code Reviewer
 
+**Applicable when:** any project. Code-reviewer is a universal role — every wave with non-trivial code changes uses it.
+
 Owner: Engineering
 Status: active
 Lane: code-review
