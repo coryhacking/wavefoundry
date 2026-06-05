@@ -24,6 +24,16 @@ Shortcut: **`Guru`** | MCP tool: **`code_ask`**
 
 **Auto-routing (all agent hosts):** Operators do not need to say **Guru**. Any agent answering code or documentation questions must follow `AGENTS.md` § **Codebase and documentation questions (auto-Guru)** and this role doc. Host entry files (thin pointers) carry a one-line guardrail; optional native surfaces (Cursor rules, Claude subagents, Codex skills) reinforce but do not replace that contract — see `seed-050` and `docs/agents/platform-mapping.md`.
 
+## When agents should route questions to me
+
+Mirror of `AGENTS.md` § **Codebase and documentation questions (auto-Guru)** — same boundary, reinforced from Guru's perspective. The lead agent reads `AGENTS.md` before answering; agents who reach this role doc were already routed correctly or are double-checking. Both surfaces use the same intent check and the same anchoring examples so they cannot drift apart.
+
+**Pre-flight question the lead agent applies before any response:** *does answering this require reading code or documentation to understand what's there?* If yes, that's a Guru question.
+
+**Anchoring examples (these are recognizable cases, NOT a keyword list to match against):** questions like *"how does authentication work"*, *"tell me about the way authentication works"*, *"walk me through the request flow"*, *"I want to understand session management"*, *"where is the rate limiter defined"*, *"explain how config loading works"*, and *"describe the data flow from request to response"* are all Guru questions — the surface form varies but the intent is "answer comes from reading code or docs." Operational requests like *"rename X to Y"*, *"delete the old config"*, or *"run the test suite"* are NOT Guru — the agent performs the operation directly.
+
+**Retrieval-intent backstop:** if any agent reaches for `code_search`, `code_keyword`, `code_read`, `code_definition`, `code_outline`, `code_callhierarchy`, `code_references`, or `code_pattern` in service of a user question, that retrieval is my work. Route to me; do not perform the retrieval directly.
+
 ## Purpose
 
 Guru is the team's most knowledgeable resource on the codebase — a senior engineer and architect who has worked on every part of the system, understands its inner workings, knows where the fragile areas are, and remembers the decisions and tradeoffs that shaped the current design.
@@ -61,6 +71,34 @@ When attaching seed or architecture doc content as stable context (not retrievin
 - **Resource** — ambient content attachment: you need the raw text as context and no error recovery envelope is required.
 - **Tool** (`seed_get`, `docs_search`, `code_ask`) — structured query: you need `diagnostics`, `next_tools`, or `usage` hints for error handling, fuzzy lookup, or uncertainty recovery.
 
+### Known Frictions And Workarounds
+
+Workflow-level frictions accumulated from real session use of the MCP code tools. These are NOT tool defects — they're either upstream-host gaps (the harness-level read-tracking case) or framework conventions that are now documented so agents don't rediscover them.
+
+**1. `code_read` is the right tool for inspection — use it freely, even when you plan to edit.** Its response includes containing symbol, edit-governance gate state, marker-region warnings, and a `read_invocation` field carrying the exact `{file_path, offset, limit}` to pass to the built-in `Read` tool.
+
+Before you `Edit` or `Write`, call `Read(file_path=..., offset=..., limit=...)` using `code_read`'s `read_invocation` values — the host harness's precondition tracks built-in `Read` calls only, so this targeted re-read of the same range is what unblocks the `Edit`. Same pattern after MCP file-creation tools (`wave_new_enhancement`, `wave_add_change`): `Read` the created file before writing into it.
+
+**2. `code_keyword` and `code_pattern` default to `limit=50` to prevent response overflow.**
+
+A search for a prevalent token (`"tree_sitter"`, `"server_impl"`, `"_response"`) against a large codebase can match hundreds or thousands of lines. The framework caps results at 50 by default — both tools include `truncated: true` and `total_matches_found: <int>` in the response when the cap fires. Pass `limit=0` for exhaustive results, or refine with `glob`/`limit=<smaller>` when truncation is fine.
+
+**Working pattern:**
+- For verification-style queries ("does this exist?"), default `limit=50` is fine — `truncated: true` tells you to refine
+- For exhaustive sweep queries ("every occurrence of X across the repo"), pass `limit=0` and ideally `glob` to scope by language/area
+- Watch the response — when `truncated: true` appears, the answer you got is partial. Refine with `glob` or raise `limit` rather than synthesizing from a truncated set
+
+**Note:** `code_pattern` previously named this parameter `max_results`; it now accepts `limit` (canonical) with `max_results` retained as a backward-compat alias.
+
+**3. `code_pattern` regex alternation in the suffix can silently return zero hits.**
+
+`code_pattern("MUST.*(specialist|specialists/)")` returns 0 matches; the literal-anchored equivalent `code_pattern("MUST.*surfaced as specialist")` returns the actual hits. The alternation `(A|B)` interacts poorly with the leading `.*` in some regex engines — Python's `re` exhibits this on long lines under specific patterns.
+
+**Working pattern:**
+- Prefer literal-anchored patterns over alternation in the suffix
+- When alternation is structurally required, run two queries (one per alternative) and merge results — more explicit and avoids the silent-zero failure mode
+- When a `code_pattern` call returns 0 hits but you're confident matches exist, retest with a simpler literal pattern before concluding "no matches"
+
 ### Tool Selection Quick Rules
 
 - Use `code_ask` to **orient** when synthesis across unknown files and layers is required — find likely files, symbols, and citation paths. It is not the final answer. **Do not use `code_ask` for navigational questions** when the symbol or file is already known: `code_definition` + `code_callhierarchy` answer "where is X defined?" / "what calls X?" 50–200× faster AND more precisely (exact line numbers and call sites vs synthesized prose). The response carries `vector_ms` and `rerank_ms` as diagnostic fields for evaluation reports, not as a runtime routing signal — start with the right tool; don't try `code_ask` and bail on slow timing.
@@ -80,6 +118,16 @@ When attaching seed or architecture doc content as stable context (not retrievin
 - Use `code_keyword` when the operator gives an exact token, import path, or string literal and expects deterministic coverage.
 - `code_keyword`, `code_search`, `code_definition`, and `code_references` return a `graph_neighbors` block by default — 1-hop structural relations for top hits, sourced from the graph index. Pass `graph=false` to suppress when you need a lean response (size-sensitive callers, snapshot tests).
 - Use `code_read` after discovery to validate the actual implementation at the cited lines.
+
+### Reading chunk section labels (wave `1p3b9` / `1p397`)
+
+`docs_search` and other chunked-doc retrieval surfaces return chunks with a `section` field. Standard labels look like `Doc Title > Section Heading`. Three suffixed conventions signal automatic decomposition by the chunker — they are NOT operator authoring conventions:
+
+- **`Doc Title > Section (part N/M)`** — universal-guard line-wrap. The section exceeded the per-kind cap (1500 chars for code, 2000 for everything else, both calibrated to the BGE-small embedder's 512-token input budget) and was split into M parts. The section breadcrumb is preserved on every part's text body so retrieval context survives. Bullet lists and numbered ACs land cleanly at line boundaries; prose sections cut at line boundaries.
+- **`Doc Title > Section (rows N–M of T)`** — markdown pipe-table per-row decomposition. The section contained a pipe table (header row + separator row + T data rows) that exceeded the cap. Each emitted chunk preserves the table's header + separator rows so column context (e.g., `| Date | Decision | Reason | Alternatives |` from a Decision Log) survives. Operators reading retrieval results don't need to chase the parent chunk to know what columns mean.
+- **`Doc Title > Section (part N/M)` inside a `(rows N–M of T)` chunk** — when a single oversized data row still exceeds the cap after table decomposition, the universal guard line-wraps that single chunk. The lead part carries the table header; continuations carry the row tail.
+
+When you see one of these suffixes in a retrieval result: the chunk is one slice of a larger semantic unit. Cite it normally (operators reading the section heading will understand it's an automatic split), but if the question requires the whole table or list, page through sibling chunks by querying with the un-suffixed section label or call `code_read` on the parent doc + line range.
 
 ### `wave_graph_report` — using the collision diagnostics
 

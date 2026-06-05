@@ -24,3 +24,7 @@ Guardrails:
 
 - Keep the scripts generic and portable.
 - Prefer safe updates and explicit reporting over hidden mutation.
+
+Operator reference:
+
+- Operators reviewing what `docs-lint` deliberately does NOT flag (e.g., transient cache directories like `__pycache__`, `.pytest_cache`, `.mypy_cache`) should consult **`.wavefoundry/framework/docs/lint-exclusions.md`**. The doc ships in the framework pack (vendored on every install / upgrade per wave `1p3b9` / `1p3b5`) and enumerates each excluded pattern with its generated-by tool and rationale. Single source of truth for security audit; the constant lives at `wave_lint_lib/core_validators.py:LINT_EXCLUDED_TRANSIENT_DIRS`.

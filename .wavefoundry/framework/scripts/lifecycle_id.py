@@ -194,7 +194,17 @@ def next_available_prefix(
     *,
     policy: tuple[datetime, int] | None = None,
     repo_root: Path | None = None,
+    commit: bool = True,
 ) -> str:
+    """Return the next available lifecycle prefix.
+
+    When ``commit=True`` (default), mutates the module-level
+    ``_last_assigned_prefix`` so subsequent calls advance past this prefix.
+    When ``commit=False`` (peek mode, wave 1p3dk / 1p3ds), returns the same
+    prefix without mutation — a subsequent ``commit=True`` call returns the
+    same prefix and only then advances. Used for ``dry_run`` MCP tool paths
+    so previewing a wave or change doesn't burn the lifecycle slot.
+    """
     global _last_assigned_prefix
     base = build_prefix(timestamp, policy=policy)
     existing = _existing_prefixes(repo_root) if repo_root is not None else set()
@@ -213,7 +223,8 @@ def next_available_prefix(
     while True:
         candidate = encode_base36(n).rjust(5, "0")
         if candidate not in existing:
-            _last_assigned_prefix = candidate
+            if commit:
+                _last_assigned_prefix = candidate
             return candidate
         n += 1
 
@@ -234,12 +245,18 @@ def build_id(
     timestamp: datetime | None = None,
     repo_root: Path | None = None,
     policy: tuple[datetime, int] | None = None,
+    commit: bool = True,
 ) -> str:
+    """Build a full lifecycle ID. Passes ``commit`` through to
+    ``next_available_prefix``; ``commit=False`` previews the ID without
+    consuming the lifecycle slot (wave 1p3dk / 1p3ds)."""
     validated_slug = validate_slug(slug, legacy=legacy)
     if legacy:
         prefix = "00000"
     else:
-        prefix = next_available_prefix(timestamp, policy=policy, repo_root=repo_root)
+        prefix = next_available_prefix(
+            timestamp, policy=policy, repo_root=repo_root, commit=commit,
+        )
     if kind == "wave":
         # Waves use `{prefix} {slug}` with no `-wave` token.
         return f"{prefix} {validated_slug}"

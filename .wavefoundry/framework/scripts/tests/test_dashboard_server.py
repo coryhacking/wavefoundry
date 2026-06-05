@@ -3080,6 +3080,39 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         self.assertNotEqual(kind_to_color["doc"], kind_to_color["external"])
 
 
+class AgentsEmptyStateGuidanceTests(unittest.TestCase):
+    """Wave 1p3b9 (1p3b7 F5): component-level coverage for the dashboard's
+    empty-Agents-panel guidance. The Agents React component must render
+    guidance copy (not silence) when collect_agents returns []. This test
+    asserts the guidance branch is present in dashboard.js — the same
+    string-presence pattern other dashboard tests use."""
+
+    def test_agents_component_has_empty_state_branch(self):
+        source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+        # Component definition exists
+        self.assertIn("function Agents({ agents, onSelectAgent })", source)
+        # Empty-state branch with the canonical class
+        self.assertIn("hero-agents--empty", source)
+        # Guidance heading
+        self.assertIn('"Agents"', source)
+        # Operator-facing shortcut phrase + recovery action
+        self.assertIn("No agent role docs found", source)
+        self.assertIn("Init agent surfaces", source)
+        # Inline code element for the Role: invariant
+        self.assertIn("Role: <role-slug>", source)
+
+    def test_agents_component_renders_populated_branch_when_agents_present(self):
+        """Regression guard: the non-empty render branch is still present
+        so the populated state isn't accidentally short-circuited."""
+        source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+        # Categories array drives the populated render
+        self.assertIn('"coordinate"', source)
+        self.assertIn('"review"', source)
+        self.assertIn('"build"', source)
+        # The category iteration emits group elements
+        self.assertIn("hero-agent-group", source)
+
+
 import threading  # noqa: E402 (already imported above, but needed in test scope)
 
 if __name__ == "__main__":

@@ -94,6 +94,19 @@ The five stances (apply those called for by tier):
 
 Produce a **primer document**, not a verdict. The council's job is to verify, challenge, and extend the primer — not to rubber-stamp or reverse it.
 
+## Failure Path And Boundary Correctness Patterns (Cross-Reference)
+
+When the reviewed material involves code at trust boundaries, error paths, resource lifecycles, or input edges, route to the **Failure Path And Boundary Correctness** checklist in `seed-221` (code-reviewer). Each pattern is adversarial-probe-ready when phrased "what input or failure mode produces wrong behavior?" — the red-team's native frame:
+
+- **Error handling and failure paths** — applies when the change introduces or modifies `try/except`, error returns, or failure propagation. Adversarial probe: what exception will the `except` clause silently swallow that the implementer didn't expect?
+- **Resource cleanup on every exit** — applies when the change opens files, acquires locks, spawns subprocesses, opens connections, or starts background tasks. Adversarial probe: which failure path leaves a lock held, a subprocess hung, or a file partially written? Does every subprocess have a timeout?
+- **Diagnostic quality** — applies when the change adds logging, error messages, or operator-visible output. Adversarial probe: when this diagnostic fires every cycle, will the operator learn to ignore it? Does the message name the actionable artifact, or just a symptom?
+- **Boundary arithmetic** — applies when the change touches slices, ranges, indexes, "first N" / "last N" operations, or numeric/time arithmetic. Adversarial probe: empty collection, single element, max-size collection, exact boundary, leap second, timezone edge.
+- **Trust-boundary input validation** — applies when the change accepts operator input, external API responses, file contents from elsewhere, or untrusted data. Adversarial probe: what unbounded input — a query, recursion depth, response size, file size — would exhaust a resource? Where does encoding/decoding happen, and what malformed input bypasses it?
+- **Failure-path test coverage** — applies when the change adds new failure modes, error returns, or timeout/cancellation paths. Adversarial probe: which failure mode has no test? When a real system produces a partial result followed by an exception, is that interleaving tested?
+
+Use the pattern names as concrete anchors in `abuse-path-review`, `failure-pressure-test`, and `council-adversarial-primer` outputs. The full pattern descriptions, applies-when scopes, and worked failure modes live in `seed-221`; reference them inline in findings rather than duplicating prose. This routing exists because the same bug class — "code is correct on the success path but produces silent damage at edges" — surfaces from multiple stances: code-reviewer owns the canonical pattern definitions, red-team routes adversarial probes to them.
+
 ### `council-seat`
 
 Participate in Wave Council as a challenger seat alongside specialist reviewers — used when red-team contributes to the Phase 2 seat round rather than the Phase 1 primer (e.g., challenge round, second-pass review). Contribute the strongest adversarial or alternative-path challenge that the functional specialist lanes did not surface. Output must follow the harness core finding record schema (`209-agent-harness-core.prompt.md`) and must name the highest-risk challenge, the strongest alternative, and the consequence of staying the current course.

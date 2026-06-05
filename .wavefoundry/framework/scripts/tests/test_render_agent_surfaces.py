@@ -81,5 +81,87 @@ class RenderAgentSurfacesTests(unittest.TestCase):
             self.assertIn("guru", claude)
 
 
+class AutoGuruRoutingAnchorRegressionTests(unittest.TestCase):
+    """Wave 1p3dk / 1p3hf (intent-based-auto-guru-routing) regression guard.
+
+    The literal failure-mode example ``tell me about the way authentication works``
+    is the load-bearing anchor for the auto-Guru routing examples table in
+    `seed-050` and the rendered `AGENTS.md`. This test asserts the anchor's
+    presence in both surfaces so a future seed edit, render, or refactor that
+    accidentally drops the example fails loudly.
+
+    The brittleness is intentional: this single phrase is the demonstrable
+    failure case that motivated the table's existence. Any change that needs
+    to rephrase the anchor should rephrase it in the same change as updating
+    this test — the coupling enforces the documentation discipline.
+    """
+
+    # The phrase is the semantic anchor; casing is operator-driven (the original
+    # user message was lowercase; rendered docs use sentence case). The test is
+    # case-insensitive — the load-bearing element is the phrase, not the casing.
+    FAILURE_MODE_ANCHOR = "tell me about the way authentication works"
+
+    def _repo_root(self) -> Path:
+        # TESTS_ROOT = .../.wavefoundry/framework/scripts/tests
+        # parents[2] = .wavefoundry; .parent = repo root
+        return TESTS_ROOT.parents[2].parent
+
+    def _assertAnchorIn(self, text: str, surface_label: str, hint: str) -> None:
+        """Case-insensitive contains check. Brittleness is intentional on the
+        phrase itself; casing variation is acceptable."""
+        self.assertIn(
+            self.FAILURE_MODE_ANCHOR.lower(), text.lower(),
+            f"{surface_label} must contain the failure-mode anchor "
+            f"'{self.FAILURE_MODE_ANCHOR}' (case-insensitive) — {hint}",
+        )
+
+    def test_anchor_present_in_seed_050(self) -> None:
+        seed_path = self._repo_root() / ".wavefoundry" / "framework" / "seeds" / "050-agent-entry-surface-bootstrap.prompt.md"
+        self.assertTrue(seed_path.is_file(), f"missing {seed_path}")
+        self._assertAnchorIn(
+            seed_path.read_text(encoding="utf-8"),
+            "seed-050",
+            "see wave 1p3dk / 1p3hf rationale",
+        )
+
+    def test_anchor_present_in_seed_211(self) -> None:
+        seed_path = self._repo_root() / ".wavefoundry" / "framework" / "seeds" / "211-guru.prompt.md"
+        self.assertTrue(seed_path.is_file(), f"missing {seed_path}")
+        self._assertAnchorIn(
+            seed_path.read_text(encoding="utf-8"),
+            "seed-211 (Guru role doc)",
+            "mirror seed-050's failure-mode anchor per the AC-5 mirroring contract",
+        )
+
+    def test_anchor_present_in_rendered_agents_md(self) -> None:
+        agents_md = self._repo_root() / "AGENTS.md"
+        self.assertTrue(agents_md.is_file(), f"missing {agents_md}")
+        self._assertAnchorIn(
+            agents_md.read_text(encoding="utf-8"),
+            "AGENTS.md",
+            "the lead agent reads this surface before routing decisions",
+        )
+
+    def test_anchor_in_examples_table_context(self) -> None:
+        """The anchor must appear inside an examples table marked as
+        anchoring-not-rule. Guards against the table being dropped while the
+        anchor survives in unrelated prose."""
+        agents_md = self._repo_root() / "AGENTS.md"
+        text = agents_md.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        anchor_lower = self.FAILURE_MODE_ANCHOR.lower()
+        anchor_line_idx = next(
+            (i for i, line in enumerate(lines) if anchor_lower in line.lower()),
+            -1,
+        )
+        self.assertGreaterEqual(anchor_line_idx, 0, "anchor missing entirely")
+        window = "\n".join(lines[max(0, anchor_line_idx - 20):anchor_line_idx + 20])
+        self.assertIn("Route to Guru?", window,
+            "anchor must appear within the examples-table context (Route to Guru? column header expected nearby)")
+        self.assertIn("anchoring", window.lower(),
+            "table must be framed as 'anchoring examples for an intent rule, not the rule itself' — "
+            "guards against the table becoming a keyword-match list")
+
+
 if __name__ == "__main__":
     unittest.main()

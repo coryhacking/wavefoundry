@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .context import build_context
 from .constants import AUDIT_DEFAULT_REPORT
-from .core_validators import check_forbidden_root_wrappers, check_prompt_file_extensions, check_prompt_surface_manifest, check_pycache, check_required_files, check_workflow_config
+from .core_validators import check_deprecated_role_references, check_forbidden_root_wrappers, check_prompt_file_extensions, check_prompt_surface_manifest, check_pycache, check_required_files, check_seed_prefix_uniqueness, check_workflow_config, check_workflow_config_legacy_aliases, check_workflow_config_removed_keys
 from .design_system_validators import check_design_system
 from .design_system_governance_validators import check_design_governance
 from .design_system_surface_validators import check_design_surface
@@ -82,8 +82,12 @@ def main() -> int:
     failures.extend(check_forbidden_root_wrappers(root))
     failures.extend(check_prompt_file_extensions(root))
     failures.extend(check_pycache(root))
+    failures.extend(check_seed_prefix_uniqueness(root))
     failures.extend(check_wave_roots(root))
     failures.extend(check_workflow_config(root))
+    warnings.extend(check_workflow_config_legacy_aliases(root))
+    failures.extend(check_workflow_config_removed_keys(root))
+    warnings.extend(check_deprecated_role_references(root))
     failures.extend(check_prompt_surface_manifest(root))
     failures.extend(check_wave_docs(root))
     failures.extend(check_closed_wave_requirements(root))

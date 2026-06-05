@@ -2322,6 +2322,58 @@ def _load_script(name: str) -> Any:
     return mod
 
 
+def _run_post_write_lint(root: Path) -> dict[str, Any]:
+    """Run docs-lint and return a bounded summary for write-tool responses.
+
+    Wave 1p3dk / 1p3dq: every write-side wave MCP tool calls this after its
+    mutations so the response carries the post-write lint state. Agents no
+    longer have to remember to manually invoke ``wave_validate`` between
+    gates. Lint state and tool status are deliberately decoupled — a tool
+    can succeed structurally while the docs gate has issues, and the agent
+    sees both signals at once.
+
+    Returns ``{clean, error_count, warning_count, first_errors}``. The
+    ``first_errors`` list is capped at 5 messages to keep responses bounded;
+    full output is available via ``wave_validate`` for deep dives. On unexpected
+    failure (e.g., lint subprocess crashes), returns ``clean: None`` and an
+    error notice in ``first_errors`` — the integration never breaks the tool.
+    """
+    try:
+        result = run_validate(root)
+        errors = result.get("errors", [])
+        warnings = result.get("warnings", [])
+        return {
+            "clean": bool(result.get("passed")),
+            "error_count": len(errors),
+            "warning_count": len(warnings),
+            "first_errors": errors[:5],
+        }
+    except Exception as exc:  # pragma: no cover — defensive isolation
+        return {
+            "clean": None,
+            "error_count": -1,
+            "warning_count": -1,
+            "first_errors": [f"lint integration error: {type(exc).__name__}: {exc}"],
+        }
+
+
+def _attach_lint_to_response(envelope: dict[str, Any], root: Path, mode_s: str) -> dict[str, Any]:
+    """Add the post-write lint state to a tool response envelope.
+
+    Skip on dry_run (no writes occurred so lint state is unchanged from
+    pre-call). Skip on error envelopes (the tool didn't perform writes
+    successfully so reporting lint state would be misleading). The lint
+    state lands under ``data.lint`` and does NOT change the envelope status.
+    """
+    if mode_s == "dry_run":
+        return envelope
+    if envelope.get("status") == "error":
+        return envelope
+    data = envelope.setdefault("data", {})
+    data["lint"] = _run_post_write_lint(root)
+    return envelope
+
+
 def run_validate(root: Path) -> dict:
     """Run docs_lint and return structured pass/fail.
 
@@ -2331,11 +2383,18 @@ def run_validate(root: Path) -> dict:
     """
     import subprocess
     script = Path(__file__).resolve().parent / "docs_lint.py"
+    # Wave 1p3dk delivery-council finding (red-team): every write-side wave
+    # tool now invokes run_validate via _run_post_write_lint. Without a
+    # subprocess timeout, a hung lint process would freeze the calling tool
+    # indefinitely. 30s is generous (lint typically completes <100ms on this
+    # repo's corpus); the surrounding _run_post_write_lint catches the
+    # TimeoutExpired and reports `clean: None` rather than breaking the tool.
     result = subprocess.run(
         [_preferred_python(), str(script)],
         capture_output=True, text=True,
         cwd=str(root),
         env={**os.environ, "PROJECT_ROOT": str(root)},
+        timeout=30,
     )
     lines = (result.stdout + result.stderr).strip().splitlines()
     errors = [l for l in lines if l.startswith("ERROR:")]
@@ -4235,17 +4294,39 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
         raise ValueError("Wave slug must be a non-empty string.")
     if mode_s not in {"dry_run", "create"}:
         raise ValueError(f"Unsupported mode '{mode}'.")
-    wave_id = _lifecycle_module().build_id("wave", slug_s, legacy=False)
+    # Wave 1p3dk / 1p3ds: dry_run previews the wave_id without burning the
+    # lifecycle slot. A subsequent apply call returns the same id.
+    wave_id = _lifecycle_module().build_id(
+        "wave", slug_s, legacy=False, commit=(mode_s == "create"),
+    )
     wave_dir = root / "docs" / "waves" / wave_id
     wave_md = wave_dir / "wave.md"
     rel_path = str(wave_md.relative_to(root)).replace("\\", "/")
     exists = wave_md.exists()
+    # Wave 1p3dk / 1p3do: co-create a journal stub alongside the wave doc so
+    # the wave's journal-reference lint check passes immediately and operators
+    # don't have to hand-author the 9-section structure.
+    journal_filename = f"{wave_id.replace(' ', '-')}.md"
+    journal_path = root / "docs" / "agents" / "journals" / journal_filename
+    journal_rel_path = str(journal_path.relative_to(root)).replace("\\", "/")
+    journal_exists = journal_path.exists()
     if mode_s == "dry_run":
-        return {"wave_id": wave_id, "path": rel_path, "mode": mode_s, "created": False, "exists": exists}
+        return {
+            "wave_id": wave_id, "path": rel_path, "mode": mode_s,
+            "created": False, "exists": exists,
+            "journal_path": journal_rel_path,
+            "journal_exists": journal_exists,
+        }
     if exists:
-        return {"wave_id": wave_id, "path": rel_path, "mode": mode_s, "created": False, "exists": True}
+        return {
+            "wave_id": wave_id, "path": rel_path, "mode": mode_s,
+            "created": False, "exists": True,
+            "journal_path": journal_rel_path,
+            "journal_exists": journal_exists,
+        }
     wave_dir.mkdir(parents=True, exist_ok=True)
     today_iso = datetime.date.today().isoformat()
+    title = slug_s.replace('-', ' ').title()
     wave_md.write_text(
         (
             "# Wave Record\n\n"
@@ -4253,7 +4334,11 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
             "Status: planned\n"
             f"Last verified: {today_iso}\n\n"
             f"wave-id: `{wave_id}`\n"
-            f"Title: {slug_s.replace('-', ' ').title()}\n\n"
+            f"Title: {title}\n\n"
+            "## Objective\n\n"
+            "<Describe the wave's load-bearing goal in 1–3 sentences — what changes "
+            "in the project state when this wave closes, and why now. This text is "
+            "displayed in the dashboard wave card.>\n\n"
             "## Changes\n\n"
             "## Wave Summary\n\n"
             "<Describe the purpose and scope of this wave in 1–3 sentences.>\n\n"
@@ -4266,7 +4351,85 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
         ),
         encoding="utf-8",
     )
-    return {"wave_id": wave_id, "path": rel_path, "mode": mode_s, "created": True, "exists": False}
+    # Co-create journal stub (1p3do). Idempotent: skip when the file already
+    # exists so operator-customized journals are never overwritten.
+    journal_created = False
+    if not journal_exists:
+        journal_path.parent.mkdir(parents=True, exist_ok=True)
+        journal_path.write_text(
+            _scaffold_wave_journal(wave_id, title, today_iso),
+            encoding="utf-8",
+        )
+        journal_created = True
+    return {
+        "wave_id": wave_id, "path": rel_path, "mode": mode_s,
+        "created": True, "exists": False,
+        "journal_path": journal_rel_path,
+        "journal_created": journal_created,
+        "journal_exists": journal_exists,
+    }
+
+
+def _scaffold_wave_journal(wave_id: str, title: str, today_iso: str) -> str:
+    """Return a lint-clean journal stub for a newly-created wave (1p3do).
+
+    Every section satisfies the docs-lint content requirements with explicit
+    `Pending:` placeholders the operator fills in as the wave progresses.
+    The Salience Triggers section uses critical/high/medium/low keywords;
+    Operating Identity includes role/responsibility; Promotion Evidence
+    references a stable artifact in backticks.
+    """
+    return (
+        f"# Journal - {title}\n\n"
+        "Owner: Engineering\n"
+        "Status: active\n"
+        "Role: wave-coordinator\n"
+        f"Last verified: {today_iso}\n\n"
+        "Actor: wave-coordinator\n"
+        "Schema version: 1.0\n"
+        f"Last distilled: {today_iso}\n\n"
+        f"wave-id: `{wave_id}`\n\n"
+        "## Operating Identity\n\n"
+        f"- **Role:** wave-coordinator for wave `{wave_id}`. **Responsibility:** "
+        "coordinate the wave's admitted changes through prepare → implement → "
+        "review → close per the lifecycle contract.\n\n"
+        "## Salience Triggers\n\n"
+        "- **critical** — operator directives that change wave scope, admitted "
+        "changes, or close authorization\n"
+        "- **high** — review-time findings that block close, dependency changes "
+        "between admitted changes\n"
+        "- **medium** — implementation-time observations about scope drift or "
+        "unexpected blockers\n"
+        "- **low** — routine coordination notes, status updates, lint pass/fail "
+        "signals\n\n"
+        "## Default Stance\n\n"
+        "Maintain the wave's load-bearing invariants throughout implementation. "
+        "Preserve the change-doc contracts admitted at prepare time; surface drift "
+        "from operator immediately rather than silently absorbing scope.\n\n"
+        "## Memory Responsibilities\n\n"
+        "- Track per-change implementation state (gate-open/close pairs, AC "
+        "completion, follow-up findings)\n"
+        "- Record decisions made during implementation that affected scope, "
+        "AC formulation, or test strategy\n\n"
+        "## Active Signals\n\n"
+        f"- Pending: wave `{wave_id}` opened {today_iso}; populate as admitted "
+        "changes move through implementation.\n\n"
+        "## Distillation\n\n"
+        "- Pending: distilled lessons emerge as the wave delivers; promote durable "
+        "findings to `docs/agents/journals/README.md` at close.\n\n"
+        "## Promotion Evidence\n\n"
+        "- Pending: promotion candidates against `docs/agents/journals/README.md` "
+        "emerge as the wave delivers and durable lessons are identified.\n\n"
+        "## Retirement And Supersession\n\n"
+        "- Pending: retirement happens at wave close per the closure contract in "
+        "`docs/agents/journals/README.md`.\n\n"
+        "## Governance\n\n"
+        "- This journal follows the operating-memory contract in "
+        "`docs/agents/journals/README.md`. Critical/high signals may be journaled "
+        "during planning, implementation, review, handoff, reindex, or closure — "
+        "not only at close. Distillation, promotion, and retirement happen at "
+        "close.\n"
+    )
 
 
 def wave_create_wave_response(root: Path, slug: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
@@ -4287,13 +4450,14 @@ def wave_create_wave_response(root: Path, slug: str, mode: str = "dry_run", cach
     diagnostics: list[dict[str, Any]] = []
     if result["exists"] and not result["created"]:
         diagnostics.append(_diagnostic("already_exists", f"Wave already exists at {result['path']}.", recovery_tools=["wave_current"]))
-    return _response(
+    envelope = _response(
         "dry_run" if result["mode"] == "dry_run" else "ok",
         result,
         diagnostics=diagnostics,
         next_tools=["wave_list_waves", "wave_current"],
         usage="wave_current()",
     )
+    return _attach_lint_to_response(envelope, root, result["mode"])
 
 
 def _insert_change_block_into_changes_section(text: str, change_id: str) -> str:
@@ -4452,7 +4616,7 @@ def wave_add_change_response(
     if _doc_check_path.exists():
         _doc_text = _doc_check_path.read_text(encoding="utf-8")
         broken_links = _broken_relative_links_after_relocation(_doc_text)
-    return _response(
+    envelope = _response(
         "dry_run" if mode_s == "dry_run" else "ok",
         {
             "wave_id": wave_id,
@@ -4467,6 +4631,7 @@ def wave_add_change_response(
         next_tools=["wave_current", "wave_add_change", "wave_get_change"],
         usage=f"wave_get_change(change_id={canonical_change_id!r})",
     )
+    return _attach_lint_to_response(envelope, root, mode_s)
 
 
 def wave_remove_change_response(
@@ -4526,7 +4691,7 @@ def wave_remove_change_response(
         if cache:
             cache.invalidate()
         _trigger_background_index_refresh_for_paths(root, [wave_md, location["staged_path"]])
-    return _response(
+    envelope = _response(
         "dry_run" if mode_s == "dry_run" else "ok",
         {
             "wave_id": wave_id,
@@ -4539,6 +4704,7 @@ def wave_remove_change_response(
         next_tools=["wave_current"],
         usage="wave_current()",
     )
+    return _attach_lint_to_response(envelope, root, mode_s)
 
 def _lifecycle_module() -> Any:
     """Return the cached ``lifecycle_id`` module.
@@ -4549,9 +4715,16 @@ def _lifecycle_module() -> Any:
     return _load_script("lifecycle_id")
 
 
-def new_change(root: Path, kind: str, slug: str) -> dict:
-    """Generate a lifecycle ID and scaffold a change doc. Returns path and ID."""
-    change_id = _lifecycle_module().build_id(kind, slug, legacy=False)
+def new_change(root: Path, kind: str, slug: str, change_id: str | None = None) -> dict:
+    """Generate a lifecycle ID and scaffold a change doc. Returns path and ID.
+
+    When ``change_id`` is provided (wave 1p3dk / 1p3ds defect-B fix), reuse it
+    instead of calling ``build_id`` a second time. Without this, callers like
+    ``change_create`` that already generated an id for the response would
+    burn a second lifecycle slot here.
+    """
+    if change_id is None:
+        change_id = _lifecycle_module().build_id(kind, slug, legacy=False)
     plans_dir = root / "docs" / "plans"
     plans_dir.mkdir(parents=True, exist_ok=True)
 
@@ -4581,7 +4754,13 @@ def change_create(root: Path, kind: str, slug: str, mode: str = "create") -> dic
         raise ValueError(f"Unsupported mode '{mode}'.")
     mode = norm_mode
 
-    change_id = _lifecycle_module().build_id(kind, slug, legacy=False)
+    # Wave 1p3dk / 1p3ds: dry_run previews the id without burning the slot.
+    # When mode == "create", reuse the same id when handing off to new_change
+    # so a single change-doc creation consumes exactly one lifecycle prefix
+    # (closes defect B from the field report).
+    change_id = _lifecycle_module().build_id(
+        kind, slug, legacy=False, commit=(mode == "create"),
+    )
     plans_dir = root / "docs" / "plans"
     plans_dir.mkdir(parents=True, exist_ok=True)
     rel_path = str((plans_dir / f"{change_id}.md").relative_to(root)).replace("\\", "/")
@@ -4604,7 +4783,7 @@ def change_create(root: Path, kind: str, slug: str, mode: str = "create") -> dic
             "created": False,
             "exists": True,
         }
-    created = new_change(root, kind, slug)
+    created = new_change(root, kind, slug, change_id=change_id)
     return {
         **created,
         "mode": mode,
@@ -4673,7 +4852,7 @@ def _change_create_response(
         cache.invalidate()
     if result.get("created"):
         _trigger_background_index_refresh_for_paths(root, [result["path"]])
-    return _response(
+    envelope = _response(
         status,
         {
             "change_id": result["id"],
@@ -4688,6 +4867,7 @@ def _change_create_response(
         next_tools=["wave_get_change", "wave_validate"],
         usage=f"wave_get_change(change_id={result['id']!r})",
     )
+    return _attach_lint_to_response(envelope, root, mode_s)
 
 
 _VALID_GATES = {"seed_edit_allowed", "framework_edit_allowed", "design_system_edit_allowed"}
@@ -4858,12 +5038,15 @@ def wave_set_handoff_response(root: Path, content: str, cache: Optional[McpRepoC
     except OSError as exc:
         return _response("error", {"path": "docs/agents/session-handoff.md"}, diagnostics=[_diagnostic("write_error", str(exc))], next_tools=["wave_current"], usage="wave_current()")
     _trigger_background_index_refresh_for_paths(root, ["docs/agents/session-handoff.md"])
-    return _response(
+    envelope = _response(
         "ok",
         {"path": "docs/agents/session-handoff.md", "written": True, "size": len(content)},
         next_tools=["wave_get_handoff", "wave_current"],
         usage="wave_get_handoff()",
     )
+    # wave_set_handoff has no `mode` param — it always writes. Pass "create"
+    # so the lint integration fires.
+    return _attach_lint_to_response(envelope, root, "create")
 
 
 def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
@@ -5439,13 +5622,18 @@ def wave_sync_surfaces_response(root: Path, mode: str = "dry_run", cache: Option
     ]
     if cache and result["passed"]:
         cache.invalidate()
-    return _response(
+    envelope = _response(
         status,
         result,
         diagnostics=diagnostics,
         next_tools=["wave_validate"],
         usage="wave_validate()",
     )
+    # wave_sync_surfaces is a write-side tool (renders host config + native
+    # wrappers); attach lint regardless of mode_s for consistency with other
+    # gated tools.
+    mode_for_lint = "create" if status != "dry_run" else "dry_run"
+    return _attach_lint_to_response(envelope, root, mode_for_lint)
 
 
 def wave_index_build_response(
@@ -6183,7 +6371,14 @@ def wave_upgrade_response(
         )
 
     resp = _response("ok", data, usage=f"wave_upgrade(phase='{phase}')")
-    if phase == "cleanup" and mode == "apply":
+    # Wave 1p3dk / 1p3ho: reload the MCP server's in-process code after the
+    # main upgrade phase or cleanup so subsequent MCP calls (wave_index_health,
+    # code_ask, etc.) use the freshly-extracted server_impl. Without this, the
+    # parent MCP process keeps the old code in memory even though the new
+    # framework files are on disk. Phase `preflight_to_docs_gate` now runs
+    # Phase 4 (index update) inside the subprocess too, so reload here is the
+    # final step that brings the running server in sync with everything else.
+    if mode == "apply" and phase in ("preflight_to_docs_gate", "cleanup"):
         try:
             import server as _srv
             reload_resp = _srv.perform_mcp_reload()
@@ -7245,7 +7440,8 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
             [wave_md, *(_wave_change_doc_path(root, wave_md, change_id) for change_id in change_ids)],
         )
     resp_data = {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired, "required_council_signoffs": required_council_signoffs, "council_brief": council_brief, "council_verdict_present": verdict_present, "council_verdict_valid": verdict_valid}
-    return _response("dry_run" if mode_s == "dry_run" else "ok", resp_data, diagnostics=_ac_advisories if _ac_advisories else None, next_tools=["wave_current"], usage="wave_current()")
+    envelope = _response("dry_run" if mode_s == "dry_run" else "ok", resp_data, diagnostics=_ac_advisories if _ac_advisories else None, next_tools=["wave_current"], usage="wave_current()")
+    return _attach_lint_to_response(envelope, root, mode_s)
 
 
 def wave_pause_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
@@ -7289,7 +7485,7 @@ def wave_pause_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
         if cache:
             cache.invalidate()
         _trigger_background_index_refresh_for_paths(root, [handoff, wave_md])
-    return _response(
+    envelope = _response(
         "dry_run" if mode_s == "dry_run" else "ok",
         {
             "wave_id": wave_id,
@@ -7302,6 +7498,7 @@ def wave_pause_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
         next_tools=["wave_current"],
         usage="wave_current()",
     )
+    return _attach_lint_to_response(envelope, root, mode_s)
 
 
 def _operator_signoff_present(wave_text: str) -> bool:
@@ -7547,12 +7744,13 @@ def wave_implement_response(root: Path, wave_id: str, mode: str = "dry_run", cac
         "journal_watchpoints": watchpoints_text,
         "serialization_points": serialization_points,
     }
-    return _response(
+    envelope = _response(
         "dry_run" if mode_s == "dry_run" else "ok",
         resp_data,
         next_tools=["wave_current", "wave_review"],
         usage="wave_current()",
     )
+    return _attach_lint_to_response(envelope, root, mode_s)
 
 
 def _generate_wave_close_summary(wave_id: str, wave_text: str, wave_md: Path) -> str:
@@ -7818,13 +8016,14 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
             if handoff_rel:
                 refresh_paths.append(handoff)
             _trigger_background_index_refresh_for_paths(root, refresh_paths)
-    return _response(
+    envelope = _response(
         "dry_run" if mode_s == "dry_run" else "ok",
         {"wave_id": wave_id, "mode": mode_s, "updated": updated, "handoff_path": handoff_rel, "wave_summary": wave_summary},
         diagnostics=gate_diagnostics if gate_diagnostics else None,
         next_tools=["wave_current"],
         usage="wave_current()",
     )
+    return _attach_lint_to_response(envelope, root, mode_s)
 
 
 def wave_reopen_response(root: Path, wave_id: str) -> dict[str, Any]:
@@ -7842,7 +8041,10 @@ def wave_reopen_response(root: Path, wave_id: str) -> dict[str, Any]:
     text = re.sub(r"^Completed At:.*\n?", "", text, flags=re.MULTILINE)
     wave_md.write_text(text, encoding="utf-8")
     _trigger_background_index_refresh_for_paths(root, [wave_md])
-    return _response("ok", {"wave_id": wave_id, "status": "active", "updated": True}, next_tools=["wave_current", "wave_review"], usage="wave_current()")
+    envelope = _response("ok", {"wave_id": wave_id, "status": "active", "updated": True}, next_tools=["wave_current", "wave_review"], usage="wave_current()")
+    # wave_reopen has no `mode` param — it always writes. Pass "create" so the
+    # lint integration fires.
+    return _attach_lint_to_response(envelope, root, "create")
 
 
 def _default_template() -> str:
@@ -7978,8 +8180,421 @@ def code_list_files_response(root: Path, glob: str = "") -> dict[str, Any]:
     return _response("ok", {"glob": glob, "count": len(paths), "paths": paths}, next_tools=["code_read", "code_keyword"], usage="code_read(path='...', start_line=1, end_line=50)")
 
 
-def code_read_response(root: Path, path: str, start_line: Optional[int] = None, end_line: Optional[int] = None) -> dict[str, Any]:
-    """Read a file with optional line range, returning line-numbered content."""
+# Wave 1p3dk / 1p3ha: edit-governance gate detection map. Path prefixes that
+# require a specific gate to be open before edits. Surfaced in the
+# `edit_governance` response field so agents see the requirement at read time.
+_EDIT_GOVERNANCE_GATE_MAP = (
+    (".wavefoundry/framework/seeds/", "seed_edit_allowed"),
+    (".wavefoundry/framework/scripts/", "framework_edit_allowed"),
+    (".wavefoundry/framework/dashboard/", "framework_edit_allowed"),
+)
+
+_WAVEFRAMEWORK_MARKER_BEGIN_RE = __import__("re").compile(
+    r"<!--\s*waveframework:([\w:-]+)\s+begin\b"
+)
+_WAVEFRAMEWORK_MARKER_END_RE = __import__("re").compile(r"<!--\s*end\s*-->")
+
+
+def _edit_governance_for_path(root: Path, repo_rel: str) -> Optional[dict[str, Any]]:
+    """Return ``edit_governance`` hint dict when the path matches a gated area,
+    else None. Reads guard-overrides.json via the existing
+    ``_read_guard_overrides`` helper (server_impl.py:4877) for current state.
+
+    Wave 1p3dk / 1p3ha: surfaces the gate requirement at read time so agents
+    don't discover it the hard way via post-edit-hook BLOCKED messages.
+    """
+    matched_gate: Optional[str] = None
+    for prefix, gate_name in _EDIT_GOVERNANCE_GATE_MAP:
+        if repo_rel.startswith(prefix):
+            matched_gate = gate_name
+            break
+    if matched_gate is None:
+        return None
+    try:
+        overrides = _read_guard_overrides(root)
+        gate_state = overrides.get(matched_gate, {})
+        if isinstance(gate_state, dict) and bool(gate_state.get("enabled")):
+            current_state = "open"
+        else:
+            current_state = "closed"
+    except Exception:  # pragma: no cover — defensive
+        current_state = "unknown"
+    return {
+        "requires_gate": matched_gate,
+        "current_state": current_state,
+        "open_with": f"wave_gate_open(gate={matched_gate!r})",
+    }
+
+
+def _marker_regions_in_range(text: str, lo: int, hi: int) -> list[dict[str, Any]]:
+    """Find ``<!-- waveframework:* begin -->...<!-- end -->`` regions that
+    overlap the requested line range [lo, hi] (inclusive, 1-indexed).
+
+    Returns a list of ``{name, start_line, end_line, warning}`` entries.
+    Empty list (not omission) for shape consistency.
+
+    Wave 1p3dk / 1p3ha: renderer-owned regions are rewritten on each
+    ``render_platform_surfaces.py`` invocation; agent edits inside them are
+    lost on the next render. Surfacing the regions at read time prevents
+    wasted edit attempts.
+    """
+    regions: list[dict[str, Any]] = []
+    inside_marker: Optional[tuple[str, int]] = None  # (name, start_line)
+    for line_no, line in enumerate(text.splitlines(), 1):
+        if inside_marker is None:
+            m = _WAVEFRAMEWORK_MARKER_BEGIN_RE.search(line)
+            if m:
+                inside_marker = (m.group(1), line_no)
+        else:
+            if _WAVEFRAMEWORK_MARKER_END_RE.search(line):
+                name, start_line = inside_marker
+                end_line = line_no
+                # Overlap test: [start_line, end_line] intersects [lo, hi]?
+                if start_line <= hi and end_line >= lo:
+                    regions.append({
+                        "name": name,
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "warning": "renderer-owned region; edits will be overwritten on next render_platform_surfaces.py invocation",
+                    })
+                inside_marker = None
+    return regions
+
+
+def _cached_ts_parse(absolute_path: Optional[Path], ts_lang: str, source: str) -> Any:
+    """Wave 1p3dk / 1p3hd: shared tree-sitter parse wrapper consumed by every
+    tree-sitter-using MCP tool (`code_outline`, `code_definition`,
+    `code_references`, `code_callhierarchy`, `code_dependencies`). Uses
+    `tree_sitter_cache.default_cache` so a parse for file X is reused across
+    every tool that touches X in the same session — until the file's mtime
+    advances, at which point the cache invalidates and the next call reparses.
+
+    When ``absolute_path`` is None (caller doesn't have a path — rare, mostly
+    for in-memory sources during tests), falls back to a fresh parse with no
+    caching. When the cache module is unavailable for any reason, also falls
+    back to a fresh parse — the cache is an optimization, never a correctness
+    dependency.
+
+    Graph-index isolation guard: ``graph_indexer.py`` has its own parse
+    pipeline and does NOT use this cache. See `1p3hd` AC-9 / Decision Log.
+    """
+    if absolute_path is None:
+        # No path → can't key the cache → fresh parse
+        try:
+            chunker = _get_chunker_module()
+            return chunker._ts_parse(ts_lang, source)
+        except Exception:
+            return None
+    try:
+        import tree_sitter_cache as _cache_module
+    except ImportError:  # pragma: no cover
+        try:
+            chunker = _get_chunker_module()
+            return chunker._ts_parse(ts_lang, source)
+        except Exception:
+            return None
+
+    def _parse():
+        try:
+            chunker = _get_chunker_module()
+            return chunker._ts_parse(ts_lang, source)
+        except Exception:
+            return None
+
+    try:
+        tree, _was_hit = _cache_module.default_cache.get_or_parse(
+            absolute_path, ts_lang, _parse,
+        )
+        return tree
+    except Exception:  # pragma: no cover
+        return None
+
+
+# Wave 1p3dk / 1p3ha Tier 5: tree-sitter structural enrichment for code_read.
+# File-size budget for tree-sitter parse — beyond this, the parse cost is
+# user-noticeable and `structural` is omitted with a note. Tunable.
+_STRUCTURAL_PARSE_SIZE_BUDGET = 500 * 1024  # 500KB
+
+# Tree-sitter node types we consider "named symbols" for containing_symbol
+# (subset matching the existing outline tier-2 conventions).
+_STRUCTURAL_SYMBOL_NODE_TYPES = frozenset({
+    "function_definition", "function_declaration", "method_definition",
+    "method_declaration", "class_definition", "class_declaration",
+    "interface_declaration", "enum_declaration", "struct_declaration",
+    "impl_item", "trait_item", "type_alias", "type_alias_declaration",
+    "decorated_definition",  # Python decorators wrap function/class
+})
+
+
+def _find_smallest_containing_ts_node(
+    node: Any, start_line: int, end_line: int, candidates: frozenset
+) -> Optional[Any]:
+    """Walk tree-sitter tree to find the smallest node of a named type whose
+    line range fully contains [start_line, end_line] (1-indexed inclusive)."""
+    # tree-sitter start_point/end_point are 0-indexed (row, col)
+    node_start = node.start_point[0] + 1
+    node_end = node.end_point[0] + 1
+    if not (node_start <= start_line and node_end >= end_line):
+        return None
+    best = node if node.type in candidates else None
+    for child in node.children:
+        child_best = _find_smallest_containing_ts_node(child, start_line, end_line, candidates)
+        if child_best is not None:
+            # Child is strictly smaller and also a named symbol — prefer it
+            best = child_best
+    return best
+
+
+def _find_node_at_line(node: Any, line: int) -> Optional[Any]:
+    """Find the deepest non-trivial node that contains ``line`` (1-indexed)."""
+    node_start = node.start_point[0] + 1
+    node_end = node.end_point[0] + 1
+    if not (node_start <= line <= node_end):
+        return None
+    best = node
+    for child in node.children:
+        child_best = _find_node_at_line(child, line)
+        if child_best is not None:
+            best = child_best
+    return best
+
+
+def _ts_node_name(node: Any) -> Optional[str]:
+    """Extract the identifier name from a tree-sitter symbol node, if available."""
+    for child in node.children:
+        if child.type in ("identifier", "name", "type_identifier", "property_identifier"):
+            try:
+                return child.text.decode("utf-8", errors="replace")
+            except (AttributeError, UnicodeDecodeError):
+                return None
+    return None
+
+
+def _structural_python_ast(
+    absolute_path: Path,
+    start_line: int,
+    end_line: int,
+    source: str,
+) -> Optional[dict[str, Any]]:
+    """Python AST path for structural enrichment. Mirrors the tree-sitter
+    path but uses stdlib `ast` since Python doesn't go through tree-sitter
+    in this framework. Shares the cache module."""
+    try:
+        import tree_sitter_cache
+    except ImportError:  # pragma: no cover
+        return None
+
+    def _parse():
+        try:
+            return ast.parse(source)
+        except SyntaxError:
+            return None
+
+    try:
+        tree, _ = tree_sitter_cache.default_cache.get_or_parse(
+            absolute_path, "python", _parse,
+        )
+    except Exception:
+        return None
+    if tree is None:
+        return None
+
+    # Find smallest FunctionDef/AsyncFunctionDef/ClassDef containing the range
+    containing = None
+    containing_size = float("inf")
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            node_end = getattr(node, "end_lineno", None) or node.lineno
+            if node.lineno <= start_line and node_end >= end_line:
+                size = node_end - node.lineno
+                if size < containing_size:
+                    containing = node
+                    containing_size = size
+
+    containing_symbol = None
+    starts_mid = False
+    ends_mid = False
+    suggested_range = None
+    construct_kind_at_start = None
+    construct_kind_at_end = None
+
+    if containing is not None:
+        sym_start = containing.lineno
+        sym_end = getattr(containing, "end_lineno", None) or containing.lineno
+        complete = (start_line <= sym_start and end_line >= sym_end)
+        kind = type(containing).__name__.lower()
+        kind = "class" if "class" in kind else "function"
+        containing_symbol = {
+            "name": containing.name,
+            "kind": kind,
+            "start_line": sym_start,
+            "end_line": sym_end,
+            "complete_in_range": complete,
+        }
+        starts_mid = sym_start < start_line
+        ends_mid = sym_end > end_line
+        if starts_mid or ends_mid:
+            suggested_range = [sym_start, sym_end]
+        if starts_mid:
+            construct_kind_at_start = kind
+        if ends_mid:
+            construct_kind_at_end = kind
+
+    return {
+        "containing_symbol": containing_symbol,
+        "range_analysis": {
+            "starts_mid_construct": starts_mid,
+            "ends_mid_construct": ends_mid,
+            "construct_kind_at_start": construct_kind_at_start,
+            "construct_kind_at_end": construct_kind_at_end,
+            "suggested_clean_range": suggested_range,
+        },
+    }
+
+
+def _structural_for_range(
+    absolute_path: Path,
+    lang: str,
+    start_line: int,
+    end_line: int,
+    source: str,
+    size_bytes: Optional[int],
+) -> Optional[dict[str, Any]]:
+    """Return the structural enrichment block for the requested range, or None
+    when the file is non-code, too large, or tree-sitter parse fails.
+
+    Wave 1p3dk / 1p3ha Tier 5. Uses the shared tree-sitter cache
+    (`tree_sitter_cache.default_cache`) so subsequent calls — and follow-on
+    `1p3hd` consumers (`code_outline`, `code_definition`, etc.) — hit cache
+    on the same `(path, lang)`. Python uses stdlib AST via the same cache.
+    """
+    if size_bytes is not None and size_bytes > _STRUCTURAL_PARSE_SIZE_BUDGET:
+        return {
+            "note": "file_too_large_for_structural_parse",
+            "size_bytes": size_bytes,
+            "budget_bytes": _STRUCTURAL_PARSE_SIZE_BUDGET,
+        }
+    if lang == "python":
+        return _structural_python_ast(absolute_path, start_line, end_line, source)
+    if lang not in _TS_SYMBOL_LANG_MAP:
+        return None
+    ts_lang = _TS_SYMBOL_LANG_MAP[lang]
+
+    try:
+        import tree_sitter_cache
+    except ImportError:  # pragma: no cover — defensive
+        return None
+
+    def _parse():
+        try:
+            chunker = _get_chunker_module()
+            return chunker._ts_parse(ts_lang, source)
+        except Exception:
+            return None
+
+    try:
+        tree, _was_hit = tree_sitter_cache.default_cache.get_or_parse(
+            absolute_path, lang, _parse,
+        )
+    except Exception:
+        return None
+    if tree is None or not hasattr(tree, "root_node"):
+        return None
+
+    # containing_symbol: smallest named symbol fully containing the range
+    containing_node = _find_smallest_containing_ts_node(
+        tree.root_node, start_line, end_line, _STRUCTURAL_SYMBOL_NODE_TYPES,
+    )
+    containing_symbol: Optional[dict[str, Any]] = None
+    if containing_node is not None:
+        symbol_start = containing_node.start_point[0] + 1
+        symbol_end = containing_node.end_point[0] + 1
+        # complete_in_range: range fully covers the symbol (range == symbol or range ⊇ symbol)
+        complete_in_range = (start_line <= symbol_start and end_line >= symbol_end)
+        containing_symbol = {
+            "name": _ts_node_name(containing_node),
+            "kind": containing_node.type,
+            "start_line": symbol_start,
+            "end_line": symbol_end,
+            "complete_in_range": complete_in_range,
+        }
+
+    # range_analysis: do the start/end boundaries split a construct?
+    start_node = _find_node_at_line(tree.root_node, start_line)
+    end_node = _find_node_at_line(tree.root_node, end_line)
+    starts_mid_construct = False
+    ends_mid_construct = False
+    construct_kind_at_start: Optional[str] = None
+    construct_kind_at_end: Optional[str] = None
+    suggested_clean_range: Optional[list[int]] = None
+
+    if containing_node is not None:
+        symbol_start = containing_node.start_point[0] + 1
+        symbol_end = containing_node.end_point[0] + 1
+        starts_mid_construct = symbol_start < start_line
+        ends_mid_construct = symbol_end > end_line
+        if starts_mid_construct or ends_mid_construct:
+            suggested_clean_range = [symbol_start, symbol_end]
+        if starts_mid_construct and start_node is not None:
+            construct_kind_at_start = start_node.type
+        if ends_mid_construct and end_node is not None:
+            construct_kind_at_end = end_node.type
+
+    range_analysis = {
+        "starts_mid_construct": starts_mid_construct,
+        "ends_mid_construct": ends_mid_construct,
+        "construct_kind_at_start": construct_kind_at_start,
+        "construct_kind_at_end": construct_kind_at_end,
+        "suggested_clean_range": suggested_clean_range,
+    }
+
+    return {
+        "containing_symbol": containing_symbol,
+        "range_analysis": range_analysis,
+    }
+
+
+def code_read_response(
+    root: Path,
+    path: str,
+    start_line: Optional[int] = None,
+    end_line: Optional[int] = None,
+    with_line_numbers: bool = True,
+) -> dict[str, Any]:
+    """Read a file with optional line range, returning line-numbered content
+    plus rich metadata that makes the follow-on Read/Edit workflow effortless.
+
+    Wave 1p3dk / 1p3ha comprehensive enrichment:
+
+    - **Internal efficiency:** ``itertools.islice`` over the file iterator for
+      partial reads — only the required lines are read from disk. Full-file
+      reads use ``read_text`` as before.
+    - **Optional line-number prefix:** ``with_line_numbers=False`` returns raw
+      content without the ``"%5d\\t"`` prefix. Default True preserves prior
+      behavior.
+    - **Follow-on Read invocation hint:** ``read_invocation`` carries the exact
+      ``{file_path, offset, limit}`` to pass to the built-in ``Read`` tool to
+      satisfy Edit's read-first precondition with minimal re-read.
+    - **File metadata:** ``absolute_path``, ``mtime``, ``size_bytes`` for
+      staleness detection and paging decisions.
+    - **Edit governance hint:** ``edit_governance`` surfaces required edit
+      gates when the path falls under a gated area (seeds, framework scripts,
+      framework dashboard).
+    - **Marker region detection:** ``marker_regions`` lists
+      ``<!-- waveframework:* begin -->...<!-- end -->`` blocks overlapping
+      the requested range so agents don't waste an Edit inside renderer-owned
+      content.
+    - **``total_lines`` semantics shift:** returned only when the call read
+      the full file or end_line reached EOF. For mid-file partial reads,
+      ``has_more: bool`` is returned instead.
+
+    NOTE: This tool's read does NOT satisfy the harness's Edit/Write
+    "read-first" precondition (the harness tracks Read-tool calls only, not
+    MCP tool calls). Use ``read_invocation`` to call the built-in ``Read`` tool
+    when planning to subsequently edit the same range.
+    """
+    import itertools
+
     resolved = _resolve_repo_path(root, path)
     if resolved is None:
         return _response("error", {"path": path}, diagnostics=[_diagnostic("path_outside_root", f"Path '{path}' is outside the repository root or uses an absolute path. Use a repo-relative path.", recovery_tools=["code_list_files"], recovery_usage="code_list_files()")], next_tools=["code_list_files"], usage="code_list_files()")
@@ -7987,20 +8602,153 @@ def code_read_response(root: Path, path: str, start_line: Optional[int] = None, 
         return _response("error", {"path": path}, diagnostics=[_diagnostic("file_not_found", f"File '{path}' does not exist.", recovery_tools=["code_list_files"], recovery_usage="code_list_files()")], next_tools=["code_list_files"], usage="code_list_files()")
     if not resolved.is_file():
         return _response("error", {"path": path}, diagnostics=[_diagnostic("not_a_file", f"'{path}' is a directory, not a file.", recovery_tools=["code_list_files"], recovery_usage=f"code_list_files(glob='{path}/**')")], next_tools=["code_list_files"], usage="code_list_files()")
-    try:
-        raw = resolved.read_text(encoding="utf-8", errors="replace")
-    except OSError as exc:
-        return _response("error", {"path": path}, diagnostics=[_diagnostic("read_error", f"Could not read '{path}': {exc}")], next_tools=["code_list_files"], usage="code_list_files()")
 
-    lines = raw.splitlines()
-    total = len(lines)
-    lo = max(1, start_line) if start_line is not None else 1
-    hi = min(total, end_line) if end_line is not None else total
-    if lo > hi:
-        return _response("error", {"path": path, "start_line": start_line, "end_line": end_line}, diagnostics=[_diagnostic("invalid_range", f"start_line ({lo}) is greater than end_line ({hi}) for file with {total} lines.")], next_tools=["code_read"], usage=f"code_read(path={path!r})")
-    selected = lines[lo - 1:hi]
-    numbered = "\n".join(f"{i + lo:5d}\t{line}" for i, line in enumerate(selected))
-    return _response("ok", {"path": path, "start_line": lo, "end_line": hi, "total_lines": total, "content": numbered}, next_tools=["code_keyword", "code_definition"], usage=f"code_keyword(query='...', glob='*.py')")
+    # File metadata: collect before parsing so we have it even if parse fails
+    absolute_path = str(resolved.resolve())
+    try:
+        stat = resolved.stat()
+        mtime_iso = datetime.datetime.fromtimestamp(stat.st_mtime, tz=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        size_bytes = stat.st_size
+    except OSError:
+        mtime_iso = None
+        size_bytes = None
+
+    repo_rel = str(resolved.relative_to(root.resolve())).replace("\\", "/") if resolved.is_relative_to(root.resolve()) else path
+
+    is_partial = start_line is not None or end_line is not None
+    selected: list[str]
+    total: Optional[int]
+    has_more: bool
+    raw_for_markers: str = ""
+
+    if is_partial:
+        # Wave 1p3dk / 1p3ha range-aware streaming: only read up to end_line+1
+        # (the +1 detects has_more). For large files this is dramatic — reading
+        # 10 lines of a 15K-line file no longer slurps 15K lines.
+        lo = max(1, start_line) if start_line is not None else 1
+        hi = end_line if end_line is not None else None
+        try:
+            with resolved.open(encoding="utf-8", errors="replace") as f:
+                if hi is None:
+                    # No upper bound: read from lo to end
+                    iter_lines = itertools.islice(f, lo - 1, None)
+                    selected = [line.rstrip("\n") for line in iter_lines]
+                    total = lo + len(selected) - 1 if selected else 0
+                    has_more = False
+                else:
+                    # Bounded: read lo through hi+1 to detect has_more
+                    iter_lines = itertools.islice(f, lo - 1, hi + 1)
+                    raw_selected = [line.rstrip("\n") for line in iter_lines]
+                    has_more = len(raw_selected) > (hi - lo + 1)
+                    selected = raw_selected[:hi - lo + 1]
+                    total = None  # Mid-file partial; total omitted per AC-4
+        except OSError as exc:
+            return _response("error", {"path": path}, diagnostics=[_diagnostic("read_error", f"Could not read '{path}': {exc}")], next_tools=["code_list_files"], usage="code_list_files()")
+        if not selected:
+            # Range was beyond EOF
+            return _response("error", {"path": path, "start_line": start_line, "end_line": end_line}, diagnostics=[_diagnostic("invalid_range", f"start_line ({lo}) is beyond EOF.")], next_tools=["code_read"], usage=f"code_read(path={path!r})")
+        actual_lo = lo
+        actual_hi = lo + len(selected) - 1
+    else:
+        # Full-file read: preserve original behavior, compute total_lines
+        try:
+            raw = resolved.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            return _response("error", {"path": path}, diagnostics=[_diagnostic("read_error", f"Could not read '{path}': {exc}")], next_tools=["code_list_files"], usage="code_list_files()")
+        raw_for_markers = raw
+        all_lines = raw.splitlines()
+        total = len(all_lines)
+        selected = all_lines
+        actual_lo = 1
+        actual_hi = total
+        has_more = False
+
+    if actual_lo > actual_hi:
+        return _response("error", {"path": path, "start_line": start_line, "end_line": end_line}, diagnostics=[_diagnostic("invalid_range", f"start_line ({actual_lo}) is greater than end_line ({actual_hi}).")], next_tools=["code_read"], usage=f"code_read(path={path!r})")
+
+    # Format content: with or without line numbers
+    if with_line_numbers:
+        content = "\n".join(f"{i + actual_lo:5d}\t{line}" for i, line in enumerate(selected))
+    else:
+        content = "\n".join(selected)
+
+    # Build the read_invocation hint — exact Read() call satisfying Edit precondition
+    read_invocation = {
+        "file_path": absolute_path,
+        "offset": actual_lo,
+        "limit": actual_hi - actual_lo + 1,
+        "mtime": mtime_iso,
+        "satisfies_edit_precondition_for_range": True,
+        "note": "code_read does NOT satisfy Edit/Write read-first precondition; pass these to the built-in Read tool before editing",
+    }
+
+    # Edit governance hint (omitted entirely when path is not gated)
+    edit_governance = _edit_governance_for_path(root, repo_rel)
+
+    # Marker region detection
+    # For partial reads we didn't slurp the whole file; do a separate quick pass
+    # to find markers within the returned range. For full reads, reuse raw.
+    if is_partial and raw_for_markers == "":
+        # Quick second pass for marker detection on partial reads.
+        # Acceptable cost: we already have I/O cache warm; marker scan is fast.
+        try:
+            raw_for_markers = resolved.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            raw_for_markers = ""
+    marker_regions = _marker_regions_in_range(raw_for_markers, actual_lo, actual_hi) if raw_for_markers else []
+
+    data: dict[str, Any] = {
+        "path": path,
+        "absolute_path": absolute_path,
+        "start_line": actual_lo,
+        "end_line": actual_hi,
+        "content": content,
+        "read_invocation": read_invocation,
+        "marker_regions": marker_regions,
+    }
+    if total is not None:
+        data["total_lines"] = total
+    else:
+        data["has_more"] = has_more
+    if mtime_iso is not None:
+        data["mtime"] = mtime_iso
+    if size_bytes is not None:
+        data["size_bytes"] = size_bytes
+    if edit_governance is not None:
+        data["edit_governance"] = edit_governance
+
+    # Tier 5: tree-sitter structural enrichment. Omitted for non-code files,
+    # files >500KB, and files where parse fails. Source is whatever we have
+    # in memory (raw_for_markers covers both partial and full reads).
+    if raw_for_markers:
+        lang_for_structural = _EXT_TO_LANG.get(resolved.suffix.lower(), "")
+        if lang_for_structural:
+            structural = _structural_for_range(
+                resolved.resolve(),
+                lang_for_structural,
+                actual_lo,
+                actual_hi,
+                raw_for_markers,
+                size_bytes,
+            )
+            if structural is not None:
+                data["structural"] = structural
+
+    return _response("ok", data, next_tools=["code_keyword", "code_definition"], usage=f"code_keyword(query='...', glob='*.py')")
+
+
+def _apply_keyword_limit(
+    results: list[dict[str, Any]], limit: int,
+) -> tuple[list[dict[str, Any]], bool, int]:
+    """Wave 1p3dk addendum: cap a result list at ``limit`` and report
+    whether truncation occurred. ``limit <= 0`` means no cap (exhaustive).
+
+    Returns ``(capped_results, truncated, total_matches_found)``.
+    """
+    total = len(results)
+    if limit > 0 and total > limit:
+        return results[:limit], True, total
+    return results, False, total
 
 
 def code_keyword_response(
@@ -8008,11 +8756,18 @@ def code_keyword_response(
     query: str = "",
     glob: str = "",
     queries: Optional[list[str]] = None,
+    limit: int = 50,
 ) -> dict[str, Any]:
     """Search repository files for an exact keyword/substring, returning path/line/snippet results.
 
     Pass either *query* (single string) or *queries* (list of strings); supplying both is an error.
     When *queries* is used each result includes ``matched_query`` showing which entry produced it.
+
+    Wave 1p3dk: ``limit`` defaults to 50 (matching ``code_pattern`` / ``code_references``)
+    so unbounded searches against prevalent tokens don't overflow the MCP response
+    token cap. Pass ``limit=0`` for exhaustive results. When the cap fires, the
+    response includes ``truncated: true`` and ``total_matches_found: <int>`` so
+    the agent sees there's more and can refine.
     """
     has_query = bool(query.strip())
     has_queries = queries is not None
@@ -8035,7 +8790,7 @@ def code_keyword_response(
     if has_queries:
         assert queries is not None  # for type checker
         if not queries:
-            return _response("ok", {"queries": queries, "glob": glob, "count": 0, "results": []},
+            return _response("ok", {"queries": queries, "glob": glob, "count": 0, "truncated": False, "total_matches_found": 0, "results": []},
                              next_tools=["code_read"], usage="code_read(path='...', start_line=N, end_line=N+20)")
         try:
             all_files = _walk_repo_for_navigation(root)
@@ -8066,10 +8821,11 @@ def code_keyword_response(
                         if key not in seen:
                             seen.add(key)
                             merged.append({"path": rel, "line": lineno, "snippet": line.rstrip(), "matched_query": q})
-        return _response("ok", {"queries": queries, "glob": glob, "count": len(merged), "results": merged},
+        capped, truncated, total = _apply_keyword_limit(merged, limit)
+        return _response("ok", {"queries": queries, "glob": glob, "count": len(capped), "truncated": truncated, "total_matches_found": total, "results": capped},
                          next_tools=["code_read"], usage="code_read(path='...', start_line=N, end_line=N+20)")
 
-    # --- single-query path (original behaviour) ---
+    # --- single-query path ---
     try:
         all_files = _walk_repo_for_navigation(root)
     except Exception as exc:
@@ -8095,7 +8851,8 @@ def code_keyword_response(
             if query in line:
                 results.append({"path": rel, "line": lineno, "snippet": line.rstrip()})
 
-    return _response("ok", {"query": query, "glob": glob, "count": len(results), "results": results},
+    capped, truncated, total = _apply_keyword_limit(results, limit)
+    return _response("ok", {"query": query, "glob": glob, "count": len(capped), "truncated": truncated, "total_matches_found": total, "results": capped},
                      next_tools=["code_read"], usage="code_read(path='...', start_line=N, end_line=N+20)")
 
 
@@ -8264,8 +9021,9 @@ def code_pattern_response(
     root: Path,
     pattern: str,
     glob: str = "",
-    max_results: int = 50,
+    limit: int = 50,
     ignore_case: bool = False,
+    max_results: Optional[int] = None,
 ) -> dict[str, Any]:
     """Regex pattern search across repository files.
 
@@ -8274,7 +9032,14 @@ def code_pattern_response(
     so large generated files are excluded to prevent latency spikes from
     pathological patterns. Callers using pathological patterns against
     small files bear that risk themselves.
+
+    Wave 1p3dk: ``limit`` is canonical (matches ``code_keyword`` /
+    ``code_references`` convention). ``max_results`` is accepted as a
+    backward-compat alias — when both are passed, ``max_results`` wins
+    (operator-explicit value over the default). Pass ``limit=0`` for no cap.
     """
+    # Back-compat alias resolution: explicit max_results wins over default limit.
+    effective_limit = max_results if max_results is not None else limit
     flags = re.IGNORECASE if ignore_case else 0
     try:
         compiled = re.compile(pattern, flags)
@@ -8306,6 +9071,7 @@ def code_pattern_response(
     matches: list[dict[str, Any]] = []
     total = 0
     truncated = False
+    unlimited = effective_limit <= 0
 
     for p in all_files:
         try:
@@ -8318,7 +9084,7 @@ def code_pattern_response(
         for lineno, line in enumerate(text.splitlines(), 1):
             if compiled.search(line):
                 total += 1
-                if len(matches) < max_results:
+                if unlimited or len(matches) < effective_limit:
                     matches.append({"file": rel, "line": lineno, "text": line.rstrip()})
                 else:
                     truncated = True
@@ -8404,14 +9170,16 @@ def _outline_python(source: str, rel: str) -> dict[str, Any]:
                      next_tools=["code_read"], usage=f"code_read(path='{rel}', start_line=N, end_line=N+20)")
 
 
-def _outline_treesitter(source: str, rel: str, lang: str) -> Optional[dict[str, Any]]:
-    """Tree-sitter outline. Returns None on any failure so caller can fall through to regex."""
-    try:
-        chunker = _get_chunker_module()
-        tree = chunker._ts_parse(_TS_SYMBOL_LANG_MAP[lang], source)
-        if tree is None:
-            return None
-    except Exception:
+def _outline_treesitter(source: str, rel: str, lang: str, absolute_path: Optional[Path] = None) -> Optional[dict[str, Any]]:
+    """Tree-sitter outline. Returns None on any failure so caller can fall through to regex.
+
+    Wave 1p3dk / 1p3hd: ``absolute_path`` is the file's absolute path used as
+    cache key. When None, falls back to a fresh parse. When provided, shares
+    the parsed tree with every other tree-sitter-consuming MCP tool that
+    touches the same file in the same session.
+    """
+    tree = _cached_ts_parse(absolute_path, _TS_SYMBOL_LANG_MAP[lang], source)
+    if tree is None:
         return None
 
     def _entry(node: Any, kind: str) -> Optional[dict[str, Any]]:
@@ -8532,7 +9300,7 @@ def code_outline_response(root: Path, path: str) -> dict[str, Any]:
     if lang == "python":
         return _outline_python(source, rel)
     if lang in _TS_SYMBOL_LANG_MAP:
-        result = _outline_treesitter(source, rel, lang)
+        result = _outline_treesitter(source, rel, lang, absolute_path=resolved.resolve())
         if result is not None:
             return result
     return _outline_regex_tier(source, rel)
@@ -8656,20 +9424,26 @@ def _hover_python(source: str, line: int) -> Optional[dict[str, Any]]:
         return None
 
 
-def _hover_treesitter(source: str, line: int, lang: str) -> Optional[dict[str, Any]]:
-    """Find the symbol enclosing *line* in a tree-sitter-supported source file."""
+def _hover_treesitter(source: str, line: int, lang: str, absolute_path: Optional[Path] = None) -> Optional[dict[str, Any]]:
+    """Find the symbol enclosing *line* in a tree-sitter-supported source file.
+
+    Wave 1p3dk / 1p3hd: ``absolute_path`` keyed into the shared cache so a
+    hover query reuses a parse done earlier in the session by `code_outline`
+    or `code_read`'s structural block.
+    """
     try:
-        outline_resp = _outline_treesitter(source, "<hover>", lang)
+        outline_resp = _outline_treesitter(source, "<hover>", lang, absolute_path=absolute_path)
         if outline_resp is None or outline_resp.get("status") != "ok":
             return None
         symbols = outline_resp["data"]["symbols"]
         sym = _innermost_symbol(symbols, line)
         if sym is None:
             return None
-        # Re-parse to extract raw parameter text
+        # Re-parse to extract raw parameter text. Wave 1p3hd: shared cache —
+        # this typically hits the same parse that `_outline_treesitter` just
+        # made when called from the same `code_hover_response` invocation.
         try:
-            chunker = _get_chunker_module()
-            tree = chunker._ts_parse(_TS_SYMBOL_LANG_MAP[lang], source)
+            tree = _cached_ts_parse(absolute_path, _TS_SYMBOL_LANG_MAP[lang], source)
             if tree is None:
                 return {**sym, "signature": None}
         except Exception:
@@ -8745,7 +9519,7 @@ def code_hover_response(root: Path, path: str, line: int) -> dict[str, Any]:
             symbol = _hover_python(source, line)
         elif lang in _TS_SYMBOL_LANG_MAP:
             parser_used = "tree_sitter"
-            symbol = _hover_treesitter(source, line, lang)
+            symbol = _hover_treesitter(source, line, lang, absolute_path=resolved.resolve())
             if symbol is None:
                 parser_used = "regex"
                 symbol = _hover_regex(source, line)
@@ -9265,7 +10039,10 @@ def _treesitter_references(root: Path, symbol: str, *, restrict_files: frozenset
             continue
         try:
             source = p.read_text(encoding="utf-8", errors="replace")
-            tree = chunker._ts_parse(lang, source)
+            # Wave 1p3hd: shared cache — references queries reuse the parsed
+            # tree if `code_outline` / `code_hover` / `code_read` structural
+            # touched the same file earlier in this session.
+            tree = _cached_ts_parse(p.resolve(), lang, source)
         except Exception:
             continue
         if tree is None:
@@ -11302,10 +12079,10 @@ def _annotate_java_call_sites_with_receiver_type(
     false-positive bias). Refs whose line has no matching method_invocation
     candidate get ``_receiver_type: None``.
     """
-    chunker = _get_chunker_module()
     try:
         source = path.read_text(encoding="utf-8", errors="replace")
-        tree = chunker._ts_parse("java", source)
+        # Wave 1p3hd: shared cache.
+        tree = _cached_ts_parse(path.resolve(), "java", source)
     except Exception:
         return refs
     if tree is None:
@@ -14711,27 +15488,52 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return code_list_files_response(get_handler().root, glob=glob)
 
     @mcp.tool(annotations=_READONLY_TOOL)
-    def code_read(path: str, start_line: Optional[int] = None, end_line: Optional[int] = None, **kwargs: Any) -> dict[str, Any]:
-        """Read a file at a repo-relative path, returning line-numbered content.
+    def code_read(path: str, start_line: Optional[int] = None, end_line: Optional[int] = None, with_line_numbers: bool = True, **kwargs: Any) -> dict[str, Any]:
+        """Read a file with rich metadata for read-then-edit workflows.
+
+        Returns line-numbered content (or raw content when ``with_line_numbers=False``)
+        plus metadata that makes the follow-on Read/Edit workflow effortless:
+
+        - ``absolute_path``: resolved absolute path
+        - ``read_invocation``: exact ``{file_path, offset, limit, mtime}`` to pass to the
+          built-in ``Read`` tool to satisfy Edit's read-first precondition
+        - ``mtime`` (ISO-8601 UTC) and ``size_bytes`` for staleness / paging
+        - ``edit_governance`` (when applicable): required edit gate + current state
+        - ``marker_regions``: ``<!-- waveframework:* begin --> ... <!-- end -->`` blocks
+          overlapping the requested range (renderer-owned; do not edit)
+        - ``total_lines`` (full reads) OR ``has_more`` (mid-file partial reads)
+
+        Wave 1p3dk / 1p3ha: range-aware streaming — for partial reads, only the
+        requested lines (plus one for has_more detection) are read from disk.
+
+        **NOTE:** This tool's read does NOT satisfy the harness's Edit/Write
+        "read-first" precondition. Use ``read_invocation`` to call the built-in
+        ``Read`` tool when planning to subsequently edit the same range.
 
         Rejects absolute paths and paths that escape the repository root.
-        Use code_list_files to discover valid paths.
 
         Args:
-            path: Repo-relative path to the file, e.g. "src/main.py".
-            start_line: First line to include (1-indexed, inclusive). Defaults to 1.
-            end_line: Last line to include (1-indexed, inclusive). Defaults to end of file.
+            path: Repo-relative path, e.g. "src/main.py".
+            start_line: First line (1-indexed, inclusive). Defaults to 1.
+            end_line: Last line (1-indexed, inclusive). Defaults to end of file.
+            with_line_numbers: When True (default), prefix each line with its
+                line number. When False, return raw content.
         """
         bad = _ensure_no_extra_args("code_read", kwargs)
         if bad is not None:
             return bad
-        return code_read_response(get_handler().root, path, start_line=start_line, end_line=end_line)
+        return code_read_response(
+            get_handler().root, path,
+            start_line=start_line, end_line=end_line,
+            with_line_numbers=with_line_numbers,
+        )
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_keyword(
         query: str = "",
         glob: str = "",
         queries: list[str] | None = None,
+        limit: int = 50,
         graph: bool = True,
         graph_limit: int = 5,
         layer: str = "project",
@@ -14756,18 +15558,24 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             query: Exact text to search for (substring match). Omit when using ``queries``.
             glob: Optional glob to restrict the search, e.g. "**/*.py" or "*.md".
             queries: List of exact strings to search for in a single call. Omit when using ``query``.
+            limit: Cap on returned results (default 50; matches ``code_pattern`` / ``code_references``).
+                When the cap fires the response includes ``truncated: true`` and ``total_matches_found``
+                so the caller sees there's more. Pass ``limit=0`` for exhaustive results.
+                Wave 1p3dk addition — prevents response-token-cap overflow on prevalent tokens.
             graph: When True (default), append 1-hop ``graph_neighbors`` for top hits. Pass ``graph=False`` to suppress augmentation when you need the lean response.
             graph_limit: Number of top hits to expand when ``graph=True`` (default 5). Use 0 for no cap.
             layer: Graph layer for ``graph=True`` (default ``project``).
 
         Response fields:
+        - truncated: True when ``limit`` capped the results below the actual match count
+        - total_matches_found: actual total before truncation
         - graph_neighbors: (present unless ``graph=False``) 1-hop structural neighbors of the top hits, sourced from the graph index — file-level imports and symbol-level call relations.
         """
         bad = _ensure_no_extra_args("code_keyword", kwargs)
         if bad is not None:
             return bad
         t_start = time.monotonic()
-        result = code_keyword_response(get_handler().root, query, glob=glob, queries=queries)
+        result = code_keyword_response(get_handler().root, query, glob=glob, queries=queries, limit=limit)
         result = _augment_with_graph_neighbors_if_enabled(
             result, get_handler().root,
             tool_key="code_keyword", graph=graph, graph_limit=graph_limit, layer=layer,
@@ -14816,8 +15624,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def code_pattern(
         pattern: str,
         glob: str = "",
-        max_results: int = 50,
+        limit: int = 50,
         ignore_case: bool = False,
+        max_results: int | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Search repository files using a Python regex pattern.
@@ -14833,20 +15642,26 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Response fields:
         - matches: list of {file, line, text} — file is repo-relative, line is 1-based
         - truncated: true when the result cap was reached before all files were scanned
-        - total_matches_found: actual match count found (may exceed max_results when truncated)
+        - total_matches_found: actual match count found (may exceed limit when truncated)
 
         Args:
             pattern: Python ``re``-compatible regex string.
             glob: Optional glob to restrict search, e.g. "**/*.py" or "src/**".
-            max_results: Maximum number of matches to return (default 50).
+            limit: Maximum number of matches to return (default 50; matches
+                ``code_keyword`` / ``code_references`` convention). Pass ``limit=0``
+                for no cap. Wave 1p3dk: canonical name for the result-cap parameter.
             ignore_case: Apply re.IGNORECASE when True.
+            max_results: **Deprecated alias for ``limit``.** Backward-compat shim
+                — when both are supplied, ``max_results`` wins (operator-explicit
+                value over the default). Prefer ``limit``.
         """
         bad = _ensure_no_extra_args("code_pattern", kwargs)
         if bad is not None:
             return bad
         t_start = time.monotonic()
         return _inject_timing(code_pattern_response(get_handler().root, pattern, glob=glob,
-                                     max_results=max_results, ignore_case=ignore_case), t_start, "code_pattern")
+                                     limit=limit, ignore_case=ignore_case,
+                                     max_results=max_results), t_start, "code_pattern")
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_outline(path: str, **kwargs: Any) -> dict[str, Any]:

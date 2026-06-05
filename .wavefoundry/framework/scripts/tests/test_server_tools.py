@@ -1208,6 +1208,382 @@ class PromptCacheTests(unittest.TestCase):
         self.assertEqual(gp.call_count, 1)
 
 
+class AutoLintAtMcpGatesTests(unittest.TestCase):
+    """Wave 1p3dk / 1p3dq: every write-side wave MCP tool returns a `lint`
+    field in its response describing the post-write docs-lint state. Agents
+    no longer have to manually run `wave_validate` between gate calls."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        lifecycle = self.srv._lifecycle_module()
+        lifecycle._last_assigned_prefix = None
+
+    def tearDown(self):
+        self.tmp.cleanup()
+        lifecycle = self.srv._lifecycle_module()
+        lifecycle._last_assigned_prefix = None
+
+    def test_helper_shape(self):
+        """AC-1: `_run_post_write_lint` returns {clean, error_count,
+        warning_count, first_errors} with `first_errors` capped at 5."""
+        lint = self.srv._run_post_write_lint(self.root)
+        self.assertIn("clean", lint)
+        self.assertIn("error_count", lint)
+        self.assertIn("warning_count", lint)
+        self.assertIn("first_errors", lint)
+        self.assertIsInstance(lint["first_errors"], list)
+        self.assertLessEqual(len(lint["first_errors"]), 5,
+            "first_errors must be capped at 5 per AC-5")
+
+    def test_create_wave_apply_includes_lint(self):
+        """AC-2: wave_create_wave(apply) response carries the lint state."""
+        result = self.srv.wave_create_wave_response(
+            self.root, "lint-test", mode="create",
+        )
+        self.assertIn("lint", result["data"], "apply response must include `lint`")
+        lint = result["data"]["lint"]
+        self.assertIn("clean", lint)
+
+    def test_create_wave_dry_run_omits_lint(self):
+        """AC-3: dry_run responses do NOT include the lint field — no writes
+        occurred so the lint state is unchanged from pre-call."""
+        result = self.srv.wave_create_wave_response(
+            self.root, "dry-test", mode="dry_run",
+        )
+        self.assertNotIn("lint", result["data"],
+            "dry_run response must NOT include `lint`")
+
+    def test_change_create_apply_includes_lint(self):
+        """AC-2 parallel: change-doc creation via `wave_new_*` includes lint."""
+        result = self.srv._change_create_response(
+            self.root, "enh", "lint-included", mode="create",
+        )
+        self.assertIn("lint", result["data"])
+
+    def test_lint_failure_does_not_change_tool_status(self):
+        """AC-4: lint state is decoupled from tool status. A tool can succeed
+        structurally while the docs gate reports failures."""
+        from unittest.mock import patch
+
+        def fake_lint(_root):
+            return {
+                "clean": False, "error_count": 3, "warning_count": 1,
+                "first_errors": ["seeded failure 1", "seeded failure 2", "seeded failure 3"],
+            }
+
+        with patch.object(self.srv, "_run_post_write_lint", side_effect=fake_lint):
+            result = self.srv.wave_create_wave_response(
+                self.root, "fake-fail", mode="create",
+            )
+
+        self.assertEqual(result["status"], "ok",
+            "tool status must remain `ok` even when lint reports failures")
+        self.assertFalse(result["data"]["lint"]["clean"])
+        self.assertEqual(result["data"]["lint"]["error_count"], 3)
+
+    def test_lint_error_count_caps_first_errors_at_5(self):
+        """AC-5: first_errors is capped at 5 to keep response size bounded."""
+        from unittest.mock import patch
+
+        def fake_validate(_root):
+            return {
+                "passed": False,
+                "errors": [f"error {i}" for i in range(20)],
+                "warnings": [],
+            }
+
+        with patch.object(self.srv, "run_validate", side_effect=fake_validate):
+            lint = self.srv._run_post_write_lint(self.root)
+
+        self.assertEqual(lint["error_count"], 20,
+            "error_count must reflect TRUE total, not the capped list")
+        self.assertEqual(len(lint["first_errors"]), 5,
+            "first_errors must be capped at 5")
+
+    def test_lint_helper_isolates_failures(self):
+        """The integration must never break the tool — a lint exception is
+        captured into `first_errors` with `clean: None`."""
+        from unittest.mock import patch
+
+        def bad_validate(_root):
+            raise RuntimeError("simulated lint crash")
+
+        with patch.object(self.srv, "run_validate", side_effect=bad_validate):
+            lint = self.srv._run_post_write_lint(self.root)
+
+        self.assertIsNone(lint["clean"], "crash → clean is None")
+        self.assertEqual(lint["error_count"], -1)
+        self.assertTrue(any("RuntimeError" in e for e in lint["first_errors"]))
+
+    def test_lint_skipped_on_error_envelope(self):
+        """`_attach_lint_to_response` does not add lint to error responses —
+        the tool didn't perform a write, so reporting post-write state is
+        misleading."""
+        envelope = self.srv._response("error", {"sentinel": True})
+        result = self.srv._attach_lint_to_response(envelope, self.root, "create")
+        self.assertNotIn("lint", result["data"])
+
+
+class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
+    """Wave 1p3dk / 1p3do: newly-created waves emerge lint-clean from
+    `wave_create_wave` without operators having to structurally repair the
+    skeleton before filling in content. The skeleton includes `## Objective`,
+    co-creates a journal stub with valid placeholder content for every
+    lint-required section, and the Change-ID lint deferral keeps the wave
+    valid until the first change is admitted."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        lifecycle = self.srv._lifecycle_module()
+        lifecycle._last_assigned_prefix = None
+
+    def tearDown(self):
+        self.tmp.cleanup()
+        lifecycle = self.srv._lifecycle_module()
+        lifecycle._last_assigned_prefix = None
+
+    def _create_wave(self, slug):
+        return self.srv.wave_create_wave_response(
+            self.root, slug, mode="create",
+        )["data"]
+
+    def test_skeleton_includes_objective_section(self):
+        """AC-2: `## Objective` appears between `Title:` and `## Changes`."""
+        result = self._create_wave("alpha-wave")
+        wave_md = self.root / result["path"]
+        text = wave_md.read_text(encoding="utf-8")
+        self.assertIn("## Objective", text)
+        # Order check: Title line precedes ## Objective which precedes ## Changes
+        title_idx = text.find("Title:")
+        obj_idx = text.find("## Objective")
+        changes_idx = text.find("## Changes")
+        self.assertLess(title_idx, obj_idx)
+        self.assertLess(obj_idx, changes_idx)
+
+    def test_co_creates_journal_stub(self):
+        """AC-4: a journal stub appears at docs/agents/journals/<wave-id>.md."""
+        result = self._create_wave("beta-wave")
+        self.assertIn("journal_path", result)
+        journal = self.root / result["journal_path"]
+        self.assertTrue(journal.is_file(), f"expected journal at {journal}")
+        text = journal.read_text(encoding="utf-8")
+        for section in (
+            "## Operating Identity", "## Salience Triggers", "## Default Stance",
+            "## Memory Responsibilities", "## Active Signals", "## Distillation",
+            "## Promotion Evidence", "## Retirement And Supersession",
+            "## Governance",
+        ):
+            self.assertIn(section, text, f"journal missing {section}")
+
+    def test_journal_satisfies_lint_keyword_requirements(self):
+        """AC-5: journal stub satisfies content rules — keyword matches in
+        Salience Triggers, role/responsibility in Operating Identity, stable
+        artifact backtick reference in Promotion Evidence."""
+        result = self._create_wave("gamma-wave")
+        text = (self.root / result["journal_path"]).read_text(encoding="utf-8")
+        self.assertIn("critical", text.lower())
+        self.assertIn("high", text.lower())
+        self.assertIn("medium", text.lower())
+        self.assertIn("low", text.lower())
+        self.assertIn("Role:", text)
+        self.assertIn("Responsibility:", text)
+        # Promotion Evidence references a stable artifact in backticks
+        self.assertIn(
+            "`docs/agents/journals/README.md`", text,
+            "Promotion Evidence must reference a stable artifact in backticks",
+        )
+
+    def test_journal_contains_wave_id_reference_line(self):
+        """AC-6: the journal includes the exact wave-id reference line so
+        the wave's journal-reference check passes immediately."""
+        result = self._create_wave("delta-wave")
+        text = (self.root / result["journal_path"]).read_text(encoding="utf-8")
+        wave_id = result["wave_id"]
+        self.assertIn(f"wave-id: `{wave_id}`", text)
+
+    def test_response_includes_journal_path(self):
+        """AC-7: the response dict reports the journal path so callers know
+        what was co-created."""
+        result = self._create_wave("epsilon-wave")
+        self.assertIn("journal_path", result)
+        self.assertTrue(result["journal_path"].startswith("docs/agents/journals/"))
+        self.assertTrue(result["journal_path"].endswith(".md"))
+        self.assertTrue(result["journal_created"])
+
+    def test_dry_run_reports_journal_path_without_writing(self):
+        """AC-8: dry_run reports the journal path but does not write the file."""
+        result = self.srv.wave_create_wave_response(
+            self.root, "zeta-wave", mode="dry_run",
+        )["data"]
+        self.assertIn("journal_path", result)
+        self.assertFalse((self.root / result["journal_path"]).exists())
+        self.assertFalse((self.root / result["path"]).exists())
+
+    def test_existing_wave_does_not_overwrite_journal(self):
+        """AC-9: idempotency — when `create_wave` is invoked but the wave doc
+        for the computed id already exists on disk, the journal is not
+        touched. Operator customizations to the existing journal survive."""
+        # Pre-create a wave + journal directly so the next create_wave call
+        # hits the exists=True branch deterministically (without depending on
+        # lifecycle-counter assumptions).
+        from unittest.mock import patch
+        target_wave_id = "00abc test-wave"
+        wave_dir = self.root / "docs" / "waves" / target_wave_id
+        wave_dir.mkdir(parents=True)
+        (wave_dir / "wave.md").write_text(
+            "# Wave Record\n\nOwner: Engineering\nStatus: planned\n",
+            encoding="utf-8",
+        )
+        journal_path = (
+            self.root / "docs" / "agents" / "journals"
+            / "00abc-test-wave.md"
+        )
+        journal_path.parent.mkdir(parents=True, exist_ok=True)
+        operator_text = "# Custom Journal\n\nOperator-customized content.\n"
+        journal_path.write_text(operator_text, encoding="utf-8")
+
+        # Pin the generated wave_id to match the pre-created path so the
+        # `if exists` branch in create_wave fires.
+        with patch.object(
+            self.srv._lifecycle_module(), "build_id",
+            return_value=target_wave_id,
+        ):
+            result = self.srv.wave_create_wave_response(
+                self.root, "test-wave", mode="create",
+            )["data"]
+
+        self.assertFalse(result["created"])
+        self.assertTrue(result["exists"])
+        # Journal must remain operator content, untouched.
+        self.assertEqual(
+            journal_path.read_text(encoding="utf-8"), operator_text,
+            "operator-customized journal must not be overwritten when the "
+            "wave already exists (1p3do AC-9)",
+        )
+
+
+class LifecycleIdPreservationTests(unittest.TestCase):
+    """Wave 1p3dk / 1p3ds: dry_run preview must not burn lifecycle ID slots,
+    and a change-doc creation must consume exactly one prefix (defect B in
+    the field report — `change_create` previously called `build_id` twice
+    via `new_change`)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        # Reset the lifecycle counter between tests so each test starts from
+        # the time-based prefix rather than inheriting the previous test's
+        # in-process advancement.
+        lifecycle = self.srv._lifecycle_module()
+        lifecycle._last_assigned_prefix = None
+
+    def tearDown(self):
+        self.tmp.cleanup()
+        lifecycle = self.srv._lifecycle_module()
+        lifecycle._last_assigned_prefix = None
+
+    def test_wave_create_dry_run_does_not_advance_counter(self):
+        """AC-4: dry_run preview followed by apply returns the same wave_id."""
+        lifecycle = self.srv._lifecycle_module()
+        before = lifecycle._last_assigned_prefix
+        previewed = self.srv.wave_create_wave_response(
+            self.root, "preserve-id-wave", mode="dry_run",
+        )
+        after_peek = lifecycle._last_assigned_prefix
+        self.assertEqual(
+            before, after_peek,
+            "dry_run must not advance _last_assigned_prefix",
+        )
+        committed = self.srv.wave_create_wave_response(
+            self.root, "preserve-id-wave", mode="create",
+        )
+        self.assertEqual(
+            previewed["data"]["wave_id"],
+            committed["data"]["wave_id"],
+            "dry_run-then-apply must return the same wave_id (1p3ds AC-4 / AC-10)",
+        )
+
+    def test_change_create_dry_run_does_not_advance_counter(self):
+        """AC-5 parallel: dry_run preview of a change doc does not burn a slot."""
+        lifecycle = self.srv._lifecycle_module()
+        before = lifecycle._last_assigned_prefix
+        previewed = self.srv._change_create_response(
+            self.root, "enh", "preserve-id-change", mode="dry_run",
+        )
+        after = lifecycle._last_assigned_prefix
+        self.assertEqual(before, after, "dry_run change preview must not advance counter")
+        # And a subsequent apply returns the same id
+        committed = self.srv._change_create_response(
+            self.root, "enh", "preserve-id-change", mode="create",
+        )
+        self.assertEqual(
+            previewed["data"]["change_id"],
+            committed["data"]["change_id"],
+        )
+
+    def test_change_create_apply_consumes_exactly_one_prefix(self):
+        """AC-6: defect B fix — a single change-doc creation must advance
+        the counter by exactly one slot, not two. Field evidence: the same
+        slug previously skipped one prefix per `wave_new_*` call."""
+        lifecycle = self.srv._lifecycle_module()
+        # Pin the counter to a known starting point by performing one commit
+        first = self.srv._change_create_response(
+            self.root, "enh", "first-change", mode="create",
+        )
+        first_prefix = lifecycle._last_assigned_prefix
+        second = self.srv._change_create_response(
+            self.root, "enh", "second-change", mode="create",
+        )
+        second_prefix = lifecycle._last_assigned_prefix
+
+        # The two prefixes must be consecutive in base36. Convert and compare.
+        first_n = lifecycle.decode_base36(first_prefix)
+        second_n = lifecycle.decode_base36(second_prefix)
+        self.assertEqual(
+            second_n - first_n, 1,
+            f"change creation must advance counter by 1, got "
+            f"{first_prefix} → {second_prefix} (delta={second_n - first_n}). "
+            f"Defect B regression: change_create + new_change burned two ids per call.",
+        )
+
+    def test_create_wave_apply_consumes_exactly_one_prefix(self):
+        """AC-4 parallel: wave creation must advance the counter by exactly
+        one slot. Mirrors the change-creation test but for `create_wave`."""
+        lifecycle = self.srv._lifecycle_module()
+        self.srv.wave_create_wave_response(
+            self.root, "alpha-wave", mode="create",
+        )
+        first_prefix = lifecycle._last_assigned_prefix
+        self.srv.wave_create_wave_response(
+            self.root, "beta-wave", mode="create",
+        )
+        second_prefix = lifecycle._last_assigned_prefix
+        first_n = lifecycle.decode_base36(first_prefix)
+        second_n = lifecycle.decode_base36(second_prefix)
+        self.assertEqual(
+            second_n - first_n, 1,
+            f"wave creation must advance counter by 1, got "
+            f"{first_prefix} → {second_prefix}.",
+        )
+
+
 class WaveLifecycleMutationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -4235,7 +4611,15 @@ class WavePrepareJournalFormatHintTests(unittest.TestCase):
 
     def test_journal_missing_error_includes_format_hint(self):
         # Create a minimal wave with a planned change but no journal reference
-        wave_id = self.srv.wave_create_wave_response(self.root, "hint-test", mode="create")["data"]["wave_id"]
+        wave_response = self.srv.wave_create_wave_response(self.root, "hint-test", mode="create")["data"]
+        wave_id = wave_response["wave_id"]
+        # Wave 1p3dk / 1p3do: wave_create_wave now co-creates a journal stub.
+        # This test verifies the format-hint behavior when a journal is MISSING
+        # (e.g., operator deleted it). Remove the auto-created stub to restore
+        # the original test scenario.
+        auto_journal = self.root / wave_response["journal_path"]
+        if auto_journal.exists():
+            auto_journal.unlink()
         change_id = self.srv.new_change(self.root, "feat", "needs-journal")["id"]
         self.srv.wave_add_change_response(self.root, wave_id, change_id, mode="create")
         # Patch wave summary and last-verified so prepare has minimal failures
@@ -4317,6 +4701,338 @@ class CodeNavigationPathSafetyTests(unittest.TestCase):
         result = self.srv.code_read_response(self.root, "nonexistent.py")
         self.assertEqual(result["status"], "error")
         self.assertTrue(any(d["code"] == "file_not_found" for d in result["diagnostics"]))
+
+
+class CodeReadEnrichmentTests(unittest.TestCase):
+    """Wave 1p3dk / 1p3ha: comprehensive enrichment of code_read response.
+
+    Covers Tier 1 (range-aware streaming + with_line_numbers), Tier 2
+    (response metadata: absolute_path, mtime, size_bytes, read_invocation,
+    has_more), Tier 3 (edit_governance), Tier 4 (marker_regions). Tier 5
+    (tree-sitter structural) deferred to follow-up — cache module is ready
+    in tree_sitter_cache.py for 1p3hd consumption."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, rel: str, content: str) -> Path:
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    def test_response_includes_absolute_path(self):
+        """AC-7: absolute_path field returns the resolved absolute path."""
+        self._write("foo.py", "line1\nline2\nline3\n")
+        result = self.srv.code_read_response(self.root, "foo.py")
+        self.assertIn("absolute_path", result["data"])
+        self.assertTrue(result["data"]["absolute_path"].endswith("/foo.py"))
+        self.assertTrue(Path(result["data"]["absolute_path"]).is_absolute())
+
+    def test_response_includes_read_invocation_hint(self):
+        """AC-8: read_invocation carries the exact Read() call satisfying Edit precondition."""
+        self._write("foo.py", "\n".join(f"line{i}" for i in range(1, 51)))
+        result = self.srv.code_read_response(self.root, "foo.py", start_line=10, end_line=20)
+        inv = result["data"]["read_invocation"]
+        self.assertEqual(inv["offset"], 10)
+        self.assertEqual(inv["limit"], 11)  # 20 - 10 + 1
+        self.assertTrue(inv["file_path"].endswith("/foo.py"))
+        self.assertTrue(inv["satisfies_edit_precondition_for_range"])
+        self.assertIn("Edit/Write read-first precondition", inv["note"])
+
+    def test_response_includes_mtime_and_size(self):
+        """AC-9: mtime (ISO-8601 UTC) and size_bytes present in response."""
+        self._write("foo.py", "small content\n")
+        result = self.srv.code_read_response(self.root, "foo.py")
+        self.assertIn("mtime", result["data"])
+        self.assertTrue(result["data"]["mtime"].endswith("Z"),
+            f"mtime should be ISO-8601 UTC ending in Z, got {result['data']['mtime']!r}")
+        self.assertIn("size_bytes", result["data"])
+        self.assertGreater(result["data"]["size_bytes"], 0)
+
+    def test_with_line_numbers_false_returns_raw_content(self):
+        """AC-5: with_line_numbers=False omits the %5d\\t prefix."""
+        self._write("foo.py", "alpha\nbeta\ngamma\n")
+        result = self.srv.code_read_response(self.root, "foo.py", with_line_numbers=False)
+        content = result["data"]["content"]
+        self.assertEqual(content, "alpha\nbeta\ngamma")
+        self.assertNotIn("\t", content)
+
+    def test_with_line_numbers_true_preserves_format(self):
+        """AC-6: default with_line_numbers=True preserves the existing prefix format."""
+        self._write("foo.py", "alpha\nbeta\n")
+        result = self.srv.code_read_response(self.root, "foo.py")
+        content = result["data"]["content"]
+        self.assertIn("    1\talpha", content)
+        self.assertIn("    2\tbeta", content)
+
+    def test_partial_read_returns_has_more_not_total_lines(self):
+        """AC-3, AC-4: mid-file partial read returns has_more, omits total_lines."""
+        self._write("foo.py", "\n".join(f"line{i}" for i in range(1, 51)))
+        result = self.srv.code_read_response(self.root, "foo.py", start_line=10, end_line=15)
+        self.assertIn("has_more", result["data"])
+        self.assertTrue(result["data"]["has_more"])
+        self.assertNotIn("total_lines", result["data"])
+
+    def test_full_file_read_returns_total_lines_not_has_more(self):
+        """AC-4: full-file read preserves total_lines (backward compat)."""
+        self._write("foo.py", "\n".join(f"line{i}" for i in range(1, 21)))
+        result = self.srv.code_read_response(self.root, "foo.py")
+        self.assertEqual(result["data"]["total_lines"], 20)
+        self.assertNotIn("has_more", result["data"])
+
+    def test_partial_read_reaching_eof_no_has_more(self):
+        """When the partial read reaches EOF, has_more is False."""
+        self._write("foo.py", "\n".join(f"line{i}" for i in range(1, 11)))
+        result = self.srv.code_read_response(self.root, "foo.py", start_line=5, end_line=20)
+        self.assertFalse(result["data"]["has_more"])
+
+    def test_seed_path_returns_seed_edit_allowed_governance(self):
+        """AC-10: seed paths surface the seed_edit_allowed gate requirement."""
+        self._write(".wavefoundry/framework/seeds/test-seed.prompt.md", "# stub\n")
+        result = self.srv.code_read_response(self.root, ".wavefoundry/framework/seeds/test-seed.prompt.md")
+        gov = result["data"]["edit_governance"]
+        self.assertEqual(gov["requires_gate"], "seed_edit_allowed")
+        self.assertIn(gov["current_state"], ("open", "closed", "unknown"))
+        self.assertIn("wave_gate_open", gov["open_with"])
+
+    def test_framework_scripts_path_returns_framework_edit_allowed_governance(self):
+        """AC-11: framework scripts paths surface framework_edit_allowed."""
+        self._write(".wavefoundry/framework/scripts/helper.py", "# stub\n")
+        result = self.srv.code_read_response(self.root, ".wavefoundry/framework/scripts/helper.py")
+        gov = result["data"]["edit_governance"]
+        self.assertEqual(gov["requires_gate"], "framework_edit_allowed")
+
+    def test_non_gated_path_omits_edit_governance(self):
+        """AC-12: paths under no gated area omit edit_governance entirely."""
+        self._write("docs/contributing/notes.md", "# notes\n")
+        result = self.srv.code_read_response(self.root, "docs/contributing/notes.md")
+        self.assertNotIn("edit_governance", result["data"])
+
+    def test_marker_regions_detected_when_in_range(self):
+        """AC-14: marker_regions returns overlapping waveframework:* blocks."""
+        content = (
+            "line 1\n"
+            "line 2\n"
+            "<!-- waveframework:auto-guru begin -->\n"
+            "marker content 1\n"
+            "marker content 2\n"
+            "<!-- end -->\n"
+            "line 7\n"
+        )
+        self._write("foo.md", content)
+        result = self.srv.code_read_response(self.root, "foo.md")
+        regions = result["data"]["marker_regions"]
+        self.assertEqual(len(regions), 1)
+        self.assertEqual(regions[0]["name"], "auto-guru")
+        self.assertEqual(regions[0]["start_line"], 3)
+        self.assertEqual(regions[0]["end_line"], 6)
+        self.assertIn("renderer-owned", regions[0]["warning"])
+
+    def test_marker_regions_empty_list_when_none(self):
+        """AC-15: marker_regions is empty list (not omitted) when no markers overlap."""
+        self._write("foo.md", "# no markers\nplain content\n")
+        result = self.srv.code_read_response(self.root, "foo.md")
+        self.assertIn("marker_regions", result["data"])
+        self.assertEqual(result["data"]["marker_regions"], [])
+
+    # ----- Tier 5: tree-sitter structural enrichment -----
+
+    def test_structural_omitted_on_markdown(self):
+        """AC-20: non-code files (markdown) get no structural block."""
+        self._write("docs/notes.md", "# heading\n\ntext\n")
+        result = self.srv.code_read_response(self.root, "docs/notes.md")
+        self.assertNotIn("structural", result["data"])
+
+    def test_structural_omitted_on_json(self):
+        """AC-20: non-code files (json) get no structural block."""
+        self._write("config.json", '{"foo": 1}\n')
+        result = self.srv.code_read_response(self.root, "config.json")
+        self.assertNotIn("structural", result["data"])
+
+    def test_structural_returns_note_when_file_too_large(self):
+        """AC-21: code file larger than 500KB → structural with explanatory note."""
+        # Build a >500KB Python file with valid syntax
+        lines = [f"def fn_{i}(): pass" for i in range(40000)]  # ~700KB
+        self._write("big.py", "\n".join(lines))
+        result = self.srv.code_read_response(self.root, "big.py", start_line=1, end_line=10)
+        structural = result["data"].get("structural")
+        self.assertIsNotNone(structural,
+            "oversized file should still produce a structural block with explanatory note, not omission")
+        self.assertEqual(structural.get("note"), "file_too_large_for_structural_parse")
+        self.assertIn("size_bytes", structural)
+        self.assertIn("budget_bytes", structural)
+
+    def test_structural_returns_containing_symbol_for_python_function(self):
+        """AC-16: smallest symbol whose range fully contains the request."""
+        code = (
+            "def outer():\n"        # line 1
+            "    def inner():\n"    # line 2
+            "        return 42\n"   # line 3
+            "    return inner()\n"  # line 4
+            "\n"                    # line 5
+            "class MyClass:\n"      # line 6
+            "    def method(self):\n"  # line 7
+            "        return 1\n"    # line 8
+        )
+        self._write("sample.py", code)
+        # Range fully inside inner() — smallest containing symbol is inner
+        result = self.srv.code_read_response(self.root, "sample.py", start_line=3, end_line=3)
+        structural = result["data"].get("structural")
+        self.assertIsNotNone(structural, "Python file in tree-sitter map should get structural")
+        sym = structural["containing_symbol"]
+        self.assertIsNotNone(sym, "range inside a function should resolve to a containing symbol")
+        # Either inner or outer — both legitimate. Verify it's a function-shaped node.
+        self.assertIn("function", sym["kind"])
+        self.assertIn(sym["name"], ("inner", "outer"))
+
+    def test_structural_complete_in_range_when_range_covers_symbol(self):
+        """AC-17: complete_in_range == True when range equals or supersets the symbol."""
+        code = (
+            "def small():\n"
+            "    return 1\n"
+        )
+        self._write("sample.py", code)
+        # Range covers all of small()
+        result = self.srv.code_read_response(self.root, "sample.py", start_line=1, end_line=2)
+        sym = result["data"]["structural"]["containing_symbol"]
+        self.assertTrue(sym["complete_in_range"])
+
+    def test_structural_starts_mid_construct_when_range_partial(self):
+        """AC-18: starts_mid_construct == True when range begins inside a construct."""
+        code = (
+            "def big_function():\n"       # line 1
+            "    x = 1\n"                  # line 2
+            "    y = 2\n"                  # line 3
+            "    z = 3\n"                  # line 4
+            "    return x + y + z\n"       # line 5
+        )
+        self._write("sample.py", code)
+        # Range 3-4 is mid-function
+        result = self.srv.code_read_response(self.root, "sample.py", start_line=3, end_line=4)
+        structural = result["data"]["structural"]
+        self.assertTrue(structural["range_analysis"]["starts_mid_construct"])
+        self.assertEqual(
+            structural["range_analysis"]["suggested_clean_range"], [1, 5],
+            "suggested_clean_range should be the full function body lines",
+        )
+        sym = structural["containing_symbol"]
+        self.assertFalse(sym["complete_in_range"])
+
+    def test_structural_cache_hit_on_second_read(self):
+        """Cache module integration: reading the same file twice should hit cache."""
+        import tree_sitter_cache
+        tree_sitter_cache.default_cache.clear()
+        code = "def f():\n    return 1\n"
+        self._write("cached.py", code)
+        # First read — miss
+        self.srv.code_read_response(self.root, "cached.py")
+        misses_after_first = tree_sitter_cache.default_cache.stats["misses"]
+        hits_after_first = tree_sitter_cache.default_cache.stats["hits"]
+        # Second read — hit
+        self.srv.code_read_response(self.root, "cached.py")
+        misses_after_second = tree_sitter_cache.default_cache.stats["misses"]
+        hits_after_second = tree_sitter_cache.default_cache.stats["hits"]
+        self.assertEqual(misses_after_second, misses_after_first,
+            "second read should not increment misses")
+        self.assertGreater(hits_after_second, hits_after_first,
+            "second read should increment hits")
+
+
+class CrossToolTreeSitterCacheTests(unittest.TestCase):
+    """Wave 1p3dk / 1p3hd: every tree-sitter-using MCP tool now consumes the
+    shared cache (`tree_sitter_cache.default_cache`). An agent navigation
+    flow that touches the same file across multiple tools parses tree-sitter
+    only once, until the file's mtime advances."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        import tree_sitter_cache
+        tree_sitter_cache.default_cache.clear()
+        self._cache_module = tree_sitter_cache
+
+    def tearDown(self):
+        self.tmp.cleanup()
+        self._cache_module.default_cache.clear()
+
+    def _write(self, rel: str, content: str) -> Path:
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    def test_code_outline_then_code_read_shares_cache(self):
+        """Cross-tool hit: `code_outline` parses, `code_read` structural block
+        reuses the cached parse. Both surfaces touching the same file in the
+        same session parse tree-sitter exactly once.
+
+        Python uses stdlib AST (not tree-sitter), so we exercise this with a
+        JavaScript file — tree-sitter is in the path for `.js`."""
+        self._write("foo.js", "function bar() { return 1; }\n")
+        # First touch: code_outline parses
+        self.srv.code_outline_response(self.root, "foo.js")
+        misses_after_first = self._cache_module.default_cache.stats["misses"]
+        # Second touch: code_read structural — should HIT cache
+        self.srv.code_read_response(self.root, "foo.js")
+        misses_after_second = self._cache_module.default_cache.stats["misses"]
+        hits_after = self._cache_module.default_cache.stats["hits"]
+        self.assertEqual(misses_after_second, misses_after_first,
+            "code_read after code_outline must hit cache, not re-parse")
+        self.assertGreater(hits_after, 0)
+
+    def test_mtime_change_invalidates_across_tools(self):
+        """In-session-edit invalidation works across tools: code_outline parses,
+        file mtime advances, code_read sees the new mtime and re-parses."""
+        import time
+        path = self._write("foo.js", "function v1() { return 1; }\n")
+        self.srv.code_outline_response(self.root, "foo.js")
+        misses_before_edit = self._cache_module.default_cache.stats["misses"]
+        # Advance mtime by editing
+        time.sleep(0.01)
+        path.write_text("function v2() { return 2; }\n", encoding="utf-8")
+        # code_read after the edit must reparse
+        self.srv.code_read_response(self.root, "foo.js")
+        misses_after_edit = self._cache_module.default_cache.stats["misses"]
+        invalidations = self._cache_module.default_cache.stats["invalidations"]
+        self.assertGreater(misses_after_edit, misses_before_edit,
+            "post-edit call must miss (invalidate-then-reparse)")
+        self.assertGreater(invalidations, 0)
+
+
+class GraphIndexIsolationRegressionTests(unittest.TestCase):
+    """Wave 1p3dk / 1p3hd AC-9: graph_indexer.py runs at index-build time
+    with its own parse pipeline and a different invariant (whole-codebase
+    relationship graph). It must NOT consume the MCP tool cache. This
+    regression test guards the architectural boundary that was explicitly
+    scoped out of 1p3hd."""
+
+    def test_graph_indexer_does_not_import_tree_sitter_cache(self):
+        scripts_root = Path(__file__).resolve().parents[1]
+        graph_indexer = scripts_root / "graph_indexer.py"
+        self.assertTrue(graph_indexer.is_file(),
+            f"graph_indexer.py not found at {graph_indexer}")
+        text = graph_indexer.read_text(encoding="utf-8")
+        self.assertNotIn("tree_sitter_cache", text,
+            "graph_indexer.py must NOT import tree_sitter_cache — the graph "
+            "layer has its own parse pipeline and a different lifecycle "
+            "(index-build time, not MCP-tool-call time). 1p3hd AC-9 / Decision "
+            "Log: consolidation with the graph layer is out of scope and would "
+            "be a major architectural change.")
 
 
 class CodeListFilesTests(unittest.TestCase):
@@ -4458,6 +5174,63 @@ class CodeKeywordSearchTests(unittest.TestCase):
         result = self.srv.code_keyword_response(self.root, "ZZZNOMATCHXXX")
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["count"], 0)
+
+    def test_default_limit_caps_at_50_with_truncated_flag(self):
+        """Wave 1p3dk: code_keyword now defaults to limit=50 to prevent
+        response-token-cap overflow on prevalent tokens. When the cap
+        fires, truncated=True and total_matches_found shows the actual
+        total so the agent knows to refine."""
+        # Plant 75 matching lines
+        src = self.root / "src"
+        src.mkdir(exist_ok=True)
+        (src / "many.py").write_text(
+            "\n".join(f"PREVALENT_TOKEN_{i} = {i}" for i in range(75)) + "\n",
+            encoding="utf-8",
+        )
+        result = self.srv.code_keyword_response(self.root, "PREVALENT_TOKEN_")
+        data = result["data"]
+        self.assertEqual(data["count"], 50, "default limit must cap at 50")
+        self.assertTrue(data["truncated"])
+        self.assertEqual(data["total_matches_found"], 75)
+
+    def test_limit_zero_returns_all_matches(self):
+        """limit=0 disables the cap — agents who need exhaustive results pass it explicitly."""
+        src = self.root / "src"
+        src.mkdir(exist_ok=True)
+        (src / "many.py").write_text(
+            "\n".join(f"EXHAUST_TOKEN_{i} = {i}" for i in range(75)) + "\n",
+            encoding="utf-8",
+        )
+        result = self.srv.code_keyword_response(self.root, "EXHAUST_TOKEN_", limit=0)
+        data = result["data"]
+        self.assertEqual(data["count"], 75)
+        self.assertFalse(data["truncated"])
+        self.assertEqual(data["total_matches_found"], 75)
+
+    def test_explicit_limit_below_default(self):
+        """Caller can specify a tighter cap than the default."""
+        src = self.root / "src"
+        src.mkdir(exist_ok=True)
+        (src / "many.py").write_text(
+            "\n".join(f"CAP_TOKEN_{i} = {i}" for i in range(20)) + "\n",
+            encoding="utf-8",
+        )
+        result = self.srv.code_keyword_response(self.root, "CAP_TOKEN_", limit=5)
+        data = result["data"]
+        self.assertEqual(data["count"], 5)
+        self.assertTrue(data["truncated"])
+        self.assertEqual(data["total_matches_found"], 20)
+
+    def test_no_truncation_when_results_below_limit(self):
+        """truncated=False when actual matches ≤ limit (default 50)."""
+        src = self.root / "src"
+        src.mkdir(exist_ok=True)
+        (src / "few.py").write_text("UNIQUE_TOKEN_HERE = 1\n", encoding="utf-8")
+        result = self.srv.code_keyword_response(self.root, "UNIQUE_TOKEN_HERE")
+        data = result["data"]
+        self.assertEqual(data["count"], 1)
+        self.assertFalse(data["truncated"])
+        self.assertEqual(data["total_matches_found"], 1)
 
 
 class CodeDefinitionTests(unittest.TestCase):
@@ -9477,6 +10250,39 @@ class CodePatternTests(unittest.TestCase):
         data = result["data"]
         self.assertFalse(data["truncated"])
         self.assertEqual(data["total_matches_found"], len(data["matches"]))
+
+    def test_limit_kwarg_is_canonical_for_cap(self):
+        """Wave 1p3dk: ``limit`` is the canonical parameter name (matches
+        ``code_keyword`` / ``code_references``). ``max_results`` is accepted
+        as a backward-compat alias but ``limit`` is the going-forward name."""
+        content = "\n".join([f"MATCH_LINE_{i} = {i}" for i in range(20)]) + "\n"
+        self._add("src/many.py", content)
+        result = self._call(r"MATCH_LINE_", limit=5)
+        data = result["data"]
+        self.assertEqual(len(data["matches"]), 5)
+        self.assertTrue(data["truncated"])
+        self.assertGreaterEqual(data["total_matches_found"], 20)
+
+    def test_max_results_explicit_wins_over_limit_default(self):
+        """Back-compat: when caller passes ``max_results`` explicitly,
+        it overrides the ``limit`` default (operator-explicit value over
+        the framework default)."""
+        content = "\n".join([f"X_{i} = {i}" for i in range(20)]) + "\n"
+        self._add("src/many.py", content)
+        # Caller still using old API
+        result = self._call(r"X_", max_results=3)
+        data = result["data"]
+        self.assertEqual(len(data["matches"]), 3)
+        self.assertTrue(data["truncated"])
+
+    def test_limit_zero_returns_all_matches(self):
+        """``limit=0`` disables the cap (matches code_keyword convention)."""
+        content = "\n".join([f"ZED_{i} = {i}" for i in range(20)]) + "\n"
+        self._add("src/many.py", content)
+        result = self._call(r"ZED_", limit=0)
+        data = result["data"]
+        self.assertEqual(len(data["matches"]), 20)
+        self.assertFalse(data["truncated"])
 
     # ------------------------------------------------------------------
     # AC-4: ignore_case flag

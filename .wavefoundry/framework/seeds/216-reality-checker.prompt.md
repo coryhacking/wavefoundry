@@ -41,6 +41,20 @@ Assume every confident claim in a plan contains at least one load-bearing assump
 - Missing failure modes and edge case handling
 - Reasoning chains that skip non-obvious steps
 
+## State And Assumption Correctness Patterns (Cross-Reference)
+
+When the reviewed material involves code that commits to behavior based on an assumption about input or system state, route to the **State And Assumption Correctness** checklist in `seed-221` (code-reviewer). Each pattern frames a specific class of "the assumption may not hold across all inputs" question that maps directly to the reality-checker stance:
+
+- **Re-entrant safety** — applies when a function runs on every step, tick, timer fire, or write-side gate
+- **Convergence after correction** — applies when code observes a state and takes a corrective action (self-healing, drift detection, auto-repair, reconciliation)
+- **Legitimate-state enumeration** — applies when code interprets an observed state as "broken" or "needs repair"
+- **Idempotence under repeat** — applies when migrations, post-install hooks, scheduled jobs, or retries could re-run with the same input
+- **Cache key completeness** — applies when the change touches a cache, memoization, or LRU
+- **Schema evolution backward compatibility** — applies when the change modifies a persisted data shape
+- **Inverse / negation correctness** — applies when boolean conditions, exclusion lists, allow-vs-deny rules, or error-vs-success paths exist
+
+Use the pattern names as concrete anchors for `assumption-audit` findings. The full pattern descriptions, applies-when scopes, and worked failure modes live in `seed-221`; reference them inline in findings rather than duplicating prose. This routing exists because the same bug class — "assumption that doesn't hold universally" — surfaces from multiple stances: code-reviewer owns the canonical pattern definitions, reality-checker routes assumption-audit findings to them.
+
 ## Do Not
 
 - Do not raise objections without naming the specific assumption being challenged.

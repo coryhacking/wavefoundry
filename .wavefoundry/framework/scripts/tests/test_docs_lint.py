@@ -433,6 +433,66 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertIn("wave_council_policy", result.stderr)
         self.assertIn("legacy", result.stderr.lower())
 
+    def test_legacy_alias_emits_deprecation_warning(self) -> None:
+        """Wave 1p3dk follow-up (Solaris field feedback 2026-06-05): the
+        existing `check_workflow_config` alias-tuple back-compat passes
+        silently when only the legacy key is present. `check_workflow_config_legacy_aliases`
+        now emits a warning at lint time so operators see the rename signal
+        without breakage. Legacy key → docs-lint still succeeds (exit 0) but
+        stderr carries a WARNING line naming both keys."""
+        root = self.copy_fixture()
+        config = root / "docs/workflow-config.json"
+        data = json.loads(config.read_text(encoding="utf-8"))
+        data["wave_council_policy"] = data.pop("wave_review")
+        config.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        # Lint still passes (back-compat preserved)
+        self.assertEqual(result.returncode, 0,
+            msg=f"legacy-key path must remain clean — stderr: {result.stderr}")
+        # WARNING must name both the legacy key and the canonical key
+        combined = result.stdout + result.stderr
+        self.assertIn("WARNING", combined,
+            "deprecation must be emitted as a WARNING line")
+        self.assertIn("wave_council_policy", combined,
+            "warning must name the legacy key being used")
+        self.assertIn("wave_review", combined,
+            "warning must name the canonical replacement")
+        self.assertIn("deprecated", combined.lower())
+
+    def test_canonical_key_emits_no_deprecation_warning(self) -> None:
+        """Regression guard: when the canonical `wave_review` key IS present,
+        no deprecation warning fires — the warning is precisely scoped to
+        the legacy-only case."""
+        root = self.copy_fixture()
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0)
+        combined = result.stdout + result.stderr
+        self.assertNotIn("wave_council_policy", combined,
+            "no warning should mention wave_council_policy when canonical "
+            "key is in use")
+
+    def test_legacy_alias_warning_does_not_block_lint(self) -> None:
+        """The warning is informational — it must NOT change the returncode.
+        Legacy-key configs continue to pass; the warning is the discoverability
+        signal the operator can act on at their pace."""
+        root = self.copy_fixture()
+        config = root / "docs/workflow-config.json"
+        data = json.loads(config.read_text(encoding="utf-8"))
+        data["wave_council_policy"] = data.pop("wave_review")
+        config.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0,
+            "deprecation warning must not turn into a blocking error")
+
     def test_ac_priority_placeholder_priority_fails(self) -> None:
         root = self.copy_fixture()
         change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
@@ -1074,6 +1134,372 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertIn("missing stable `wave-id` declaration", result.stderr)
 
 
+class WorkflowConfigLegacyAliasUnitTests(unittest.TestCase):
+    """Direct unit coverage for `check_workflow_config_legacy_aliases`.
+
+    Wave 1p3dk follow-up (Solaris field feedback 2026-06-05): when the runtime
+    accepts both spellings of a renamed config key but only one is canonical,
+    docs-lint must emit a discoverable signal when the legacy spelling is in
+    use. The validator returns a warning per legacy-only alias-tuple entry."""
+
+    def setUp(self) -> None:
+        import sys
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        from wave_lint_lib.core_validators import check_workflow_config_legacy_aliases
+        self._check = check_workflow_config_legacy_aliases
+        self._root = Path(tempfile.mkdtemp(prefix="wave-legacy-alias-"))
+        (self._root / "docs").mkdir()
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self._root)
+
+    def _write_config(self, data: dict) -> None:
+        (self._root / "docs/workflow-config.json").write_text(
+            json.dumps(data, indent=2), encoding="utf-8",
+        )
+
+    def test_no_warning_when_config_missing(self) -> None:
+        self.assertEqual(self._check(self._root), [])
+
+    def test_no_warning_when_canonical_key_present(self) -> None:
+        self._write_config({"wave_review": {}, "wave_implement": {}})
+        self.assertEqual(self._check(self._root), [])
+
+    def test_warning_when_legacy_only_for_council_policy(self) -> None:
+        self._write_config({"wave_council_policy": {}, "wave_implement": {}})
+        warnings = self._check(self._root)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("wave_council_policy", warnings[0])
+        self.assertIn("wave_review", warnings[0])
+
+    def test_warning_when_legacy_only_for_wave_execution(self) -> None:
+        """The legacy alias warning fires for every alias-tuple entry, not
+        just the council-policy one. wave_execution → wave_implement is the
+        other alias-tuple we ship."""
+        self._write_config({"wave_review": {}, "wave_execution": {}})
+        warnings = self._check(self._root)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("wave_execution", warnings[0])
+        self.assertIn("wave_implement", warnings[0])
+
+    def test_two_legacy_aliases_emit_two_warnings(self) -> None:
+        """A config that uses legacy spellings for both alias-tuple entries
+        gets one warning per legacy key — each is independently actionable."""
+        self._write_config({
+            "wave_council_policy": {},
+            "wave_execution": {},
+        })
+        warnings = self._check(self._root)
+        self.assertEqual(len(warnings), 2)
+
+    def test_canonical_wins_when_both_present(self) -> None:
+        """Mixed state: canonical + legacy both present → no warning
+        (canonical is in use; legacy is presumably leftover and the runtime
+        ignores it per the precedence contract)."""
+        self._write_config({
+            "wave_review": {},
+            "wave_council_policy": {},
+        })
+        self.assertEqual(self._check(self._root), [])
+
+    def test_warning_text_names_both_keys_explicitly(self) -> None:
+        self._write_config({"wave_council_policy": {}})
+        warnings = self._check(self._root)
+        self.assertEqual(len(warnings), 1)
+        msg = warnings[0]
+        self.assertTrue(
+            msg.startswith("docs/workflow-config.json:"),
+            f"warning must be scoped to the config file, got: {msg}",
+        )
+        self.assertIn("`wave_council_policy`", msg)
+        self.assertIn("`wave_review`", msg)
+        self.assertIn("deprecated", msg)
+
+
+class WorkflowConfigRemovedKeysUnitTests(unittest.TestCase):
+    """Wave 1p3iv (1p3j7): `check_workflow_config_removed_keys` pairs with
+    `check_workflow_config_legacy_aliases`. Below the removal version, legacy
+    keys produce warnings (informational). At or past the removal version,
+    they produce ERRORS that fail docs-lint. The version source is
+    `.wavefoundry/framework/VERSION`; the removal versions are declared in
+    `canonical-names.json`."""
+
+    def setUp(self) -> None:
+        import sys
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        from wave_lint_lib.core_validators import check_workflow_config_removed_keys
+        self._check = check_workflow_config_removed_keys
+        self._root = Path(tempfile.mkdtemp(prefix="wave-removed-keys-"))
+        (self._root / "docs").mkdir()
+        # Plant the canonical-names manifest with explicit removal versions.
+        framework_dir = self._root / ".wavefoundry/framework"
+        framework_dir.mkdir(parents=True)
+        manifest = {
+            "schema_version": 1,
+            "role_renames": {},
+            "config_key_renames": {
+                "wave_council_policy": {"canonical": "wave_review", "removed_in": "2.0.0"},
+                "wave_execution": {"canonical": "wave_implement", "removed_in": "2.0.0"},
+            },
+        }
+        (framework_dir / "canonical-names.json").write_text(
+            json.dumps(manifest), encoding="utf-8",
+        )
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self._root)
+
+    def _write_version(self, version: str) -> None:
+        (self._root / ".wavefoundry/framework/VERSION").write_text(
+            version, encoding="utf-8",
+        )
+
+    def _write_config(self, data: dict) -> None:
+        (self._root / "docs/workflow-config.json").write_text(
+            json.dumps(data, indent=2), encoding="utf-8",
+        )
+
+    def test_no_error_below_removal_version(self) -> None:
+        """Current 1.5.0, legacy key present, removed_in 2.0.0 → no error
+        (warning path handles below-removal cases)."""
+        self._write_version("1.5.0+abcd")
+        self._write_config({"wave_council_policy": {}})
+        self.assertEqual(self._check(self._root), [])
+
+    def test_error_at_removal_version_exactly(self) -> None:
+        """Current 2.0.0, legacy key present → error fires (the removal version
+        is inclusive — at the version, the legacy spelling is gone)."""
+        self._write_version("2.0.0+abcd")
+        self._write_config({"wave_council_policy": {}})
+        errors = self._check(self._root)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("wave_council_policy", errors[0])
+        self.assertIn("wave_review", errors[0])
+        self.assertIn("2.0.0", errors[0])
+
+    def test_error_past_removal_version(self) -> None:
+        """Current 2.1.0, legacy key present → error fires."""
+        self._write_version("2.1.0+abcd")
+        self._write_config({"wave_council_policy": {}})
+        errors = self._check(self._root)
+        self.assertEqual(len(errors), 1)
+
+    def test_no_error_when_canonical_used(self) -> None:
+        """Current 2.0.0, canonical-only → no error (and no warning either —
+        config is converged)."""
+        self._write_version("2.0.0+abcd")
+        self._write_config({"wave_review": {}})
+        self.assertEqual(self._check(self._root), [])
+
+    def test_no_error_when_workflow_config_missing(self) -> None:
+        self._write_version("2.0.0+abcd")
+        self.assertEqual(self._check(self._root), [])
+
+    def test_no_escalation_when_version_file_missing(self) -> None:
+        """No VERSION file → degraded mode → don't escalate. Operator might
+        be in mid-upgrade, partial-rollout, or development tree."""
+        self._write_config({"wave_council_policy": {}})
+        self.assertEqual(self._check(self._root), [])
+
+    def test_no_escalation_when_version_file_unparseable(self) -> None:
+        """Garbage VERSION → don't escalate (uncertain — don't flip green to red)."""
+        self._write_version("not-a-semver")
+        self._write_config({"wave_council_policy": {}})
+        self.assertEqual(self._check(self._root), [])
+
+    def test_no_error_when_removed_in_is_null_in_manifest(self) -> None:
+        """A legacy key with removed_in: null → never escalates, regardless
+        of current version. Warning lane still applies; error lane stays
+        silent (the rename is open-ended)."""
+        # Overwrite the manifest with null removed_in
+        manifest = {
+            "schema_version": 1,
+            "role_renames": {},
+            "config_key_renames": {
+                "wave_council_policy": {"canonical": "wave_review", "removed_in": None},
+            },
+        }
+        (self._root / ".wavefoundry/framework/canonical-names.json").write_text(
+            json.dumps(manifest), encoding="utf-8",
+        )
+        self._write_version("99.0.0+abcd")
+        self._write_config({"wave_council_policy": {}})
+        self.assertEqual(self._check(self._root), [])
+
+    def test_two_legacy_keys_emit_two_errors(self) -> None:
+        """Both legacy spellings past their removal version → one error each."""
+        self._write_version("2.0.0+abcd")
+        self._write_config({
+            "wave_council_policy": {},
+            "wave_execution": {},
+        })
+        errors = self._check(self._root)
+        self.assertEqual(len(errors), 2)
+
+
+class DeprecatedRoleReferencesTests(unittest.TestCase):
+    """Wave 1p3dk follow-up (Solaris field feedback 2026-06-05):
+    `check_deprecated_role_references` scans hand-authored project docs for
+    references to retired framework role slugs. Same shape as the legacy-alias
+    warning — declarative `RETIRED_ROLE_NAMES` constant + WARNING emission
+    per match, returncode unchanged."""
+
+    def setUp(self) -> None:
+        import sys
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        from wave_lint_lib.core_validators import check_deprecated_role_references
+        self._check = check_deprecated_role_references
+        self._root = Path(tempfile.mkdtemp(prefix="wave-retired-role-"))
+        # Minimal scaffold for paths the check scans
+        (self._root / "docs/prompts").mkdir(parents=True)
+        (self._root / "docs/agents").mkdir()
+        (self._root / "docs/agents/journals").mkdir()
+        (self._root / "docs/contributing").mkdir()
+        (self._root / "docs/references").mkdir()
+        (self._root / "docs/waves").mkdir()
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self._root)
+
+    def _write(self, rel: str, body: str) -> None:
+        path = self._root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+
+    def test_no_warnings_on_empty_repo(self) -> None:
+        """Bare repo with empty scoped dirs → no warnings."""
+        self.assertEqual(self._check(self._root), [])
+
+    def test_no_warnings_when_no_retired_roles_referenced(self) -> None:
+        self._write("AGENTS.md", "# AGENTS\n\nWave Council uses `wave-council` role.\n")
+        self.assertEqual(self._check(self._root), [])
+
+    def test_warning_fires_in_agents_md(self) -> None:
+        self._write(
+            "AGENTS.md",
+            "# AGENTS\n\nThe `council-moderator` coordinates synthesis.\n",
+        )
+        warnings = self._check(self._root)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("AGENTS.md:3", warnings[0])
+        self.assertIn("council-moderator", warnings[0])
+        self.assertIn("wave-council", warnings[0])
+
+    def test_warning_fires_in_prompts_dir(self) -> None:
+        self._write(
+            "docs/prompts/review-wave.prompt.md",
+            "# Review wave\n\nInvoke the `council-moderator` to synthesize.\n",
+        )
+        warnings = self._check(self._root)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("docs/prompts/review-wave.prompt.md", warnings[0])
+
+    def test_warning_fires_for_each_retired_role(self) -> None:
+        """Both council-moderator → wave-council and code-insight-agent → guru
+        fire when their respective tokens appear."""
+        self._write(
+            "AGENTS.md",
+            "# AGENTS\n\nUse `council-moderator` and `code-insight-agent`.\n",
+        )
+        warnings = self._check(self._root)
+        self.assertEqual(len(warnings), 2)
+        joined = "\n".join(warnings)
+        self.assertIn("council-moderator", joined)
+        self.assertIn("wave-council", joined)
+        self.assertIn("code-insight-agent", joined)
+        self.assertIn("guru", joined)
+
+    def test_journals_are_skipped(self) -> None:
+        """docs/agents/journals/** is historical and out of scope."""
+        self._write(
+            "docs/agents/journals/old-incident.md",
+            "Owner: Engineering\nRole: wave-coordinator\n\n"
+            "## Active Signals\n\n- `council-moderator` ran the review.\n",
+        )
+        self.assertEqual(self._check(self._root), [])
+
+    def test_wave_records_are_skipped(self) -> None:
+        """docs/waves/** is historical and out of scope."""
+        self._write(
+            "docs/waves/00xxx some-wave/wave.md",
+            "wave-id: `00xxx some-wave`\n\n"
+            "moderator: council-moderator\n",
+        )
+        self.assertEqual(self._check(self._root), [])
+
+    def test_vendored_framework_is_skipped(self) -> None:
+        """`.wavefoundry/framework/**` is vendored — operators editing it lose
+        their changes on the next upgrade. Out of scope by design."""
+        (self._root / ".wavefoundry/framework/seeds").mkdir(parents=True)
+        self._write(
+            ".wavefoundry/framework/seeds/100-test.prompt.md",
+            "# Test\n\nThe `council-moderator` role does X.\n",
+        )
+        self.assertEqual(self._check(self._root), [])
+
+    def test_marker_regions_are_skipped(self) -> None:
+        """Auto-regenerated marker regions are rewritten on each render — no
+        operator action is meaningful there. The renderer is responsible for
+        keeping marker content current."""
+        self._write(
+            "CLAUDE.md",
+            "# CLAUDE\n"
+            "Above marker.\n"
+            "<!-- waveframework:auto-guru begin -->\n"
+            "Stale text mentioning `council-moderator` here.\n"
+            "<!-- end -->\n"
+            "Below marker.\n",
+        )
+        self.assertEqual(self._check(self._root), [],
+            "matches inside marker regions must be suppressed (1p3dk AC: "
+            "renderer owns marker content)")
+
+    def test_case_insensitive_match(self) -> None:
+        """Per `feedback_case_insensitive_rename_gate`: framework-wide
+        identifier renames need case-insensitive matching."""
+        self._write(
+            "AGENTS.md",
+            "# AGENTS\n\nThe `Council-Moderator` is responsible.\n",
+        )
+        warnings = self._check(self._root)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("AGENTS.md", warnings[0])
+
+    def test_token_boundaries_dont_match_substrings(self) -> None:
+        """Kebab-aware boundaries: a longer compound token containing a retired
+        slug as a substring must NOT match. `wave-council-moderator-foo` is a
+        different token than `council-moderator`."""
+        self._write(
+            "AGENTS.md",
+            "# AGENTS\n\n"
+            "Compound token `wave-council-moderator-foo` is different.\n"
+            "And `council-moderator-extended` is also distinct.\n",
+        )
+        self.assertEqual(self._check(self._root), [])
+
+    def test_changelog_is_not_scanned(self) -> None:
+        """CHANGELOG.md records the rename itself — must not flag own history."""
+        self._write(
+            "CHANGELOG.md",
+            "# Changelog\n\n## 1.4.0\n\n"
+            "- Renamed `council-moderator` → `wave-council`.\n",
+        )
+        self.assertEqual(self._check(self._root), [])
+
+    def test_warning_lists_each_line_separately(self) -> None:
+        """A single file with multiple matches emits one warning per line."""
+        self._write(
+            "AGENTS.md",
+            "# AGENTS\n\n"
+            "Line 3 mentions `council-moderator`.\n"
+            "Line 4 mentions `council-moderator` too.\n",
+        )
+        warnings = self._check(self._root)
+        self.assertEqual(len(warnings), 2)
+        self.assertIn("AGENTS.md:3", warnings[0])
+        self.assertIn("AGENTS.md:4", warnings[1])
+
+
 class CheckPycacheTests(unittest.TestCase):
     """Wave 1p35d (1p35n): `check_pycache` is a documented no-op. Membership of
     `__pycache__` in `LINT_EXCLUDED_TRANSIENT_DIRS` is the contract; lint defers
@@ -1107,32 +1533,32 @@ class CheckPycacheTests(unittest.TestCase):
         list covers every Python-ecosystem cache that gets generated by routine
         tool invocations and would otherwise produce the same recurring blocker
         pattern that retired `check_pycache`. See
-        `docs/references/docs-lint-exclusions.md` for the operator-visible
+        `.wavefoundry/framework/docs/lint-exclusions.md` for the operator-visible
         rationale per pattern."""
         for pattern in (".pytest_cache", ".mypy_cache", ".ruff_cache",
                         ".tox", ".coverage"):
             self.assertIn(
                 pattern, self._exclusion_set,
                 f"{pattern} must be in LINT_EXCLUDED_TRANSIENT_DIRS "
-                "(see docs/references/docs-lint-exclusions.md)",
+                "(see .wavefoundry/framework/docs/lint-exclusions.md)",
             )
 
     def test_exclusion_doc_exists_and_lists_each_pattern(self) -> None:
-        """The operator-visible doc at docs/references/docs-lint-exclusions.md
+        """The operator-visible doc at .wavefoundry/framework/docs/lint-exclusions.md
         must enumerate every pattern in the exclusion set. Drift between the
         Python constant and the operator-facing doc is exactly what the doc
         exists to prevent — enterprise security review reads the doc, not
         the source."""
         # Resolve repo root from the test file location.
         repo_root = SCRIPTS_ROOT.parents[1].parent
-        doc_path = repo_root / "docs" / "references" / "docs-lint-exclusions.md"
+        doc_path = repo_root / ".wavefoundry" / "framework" / "docs" / "lint-exclusions.md"
         self.assertTrue(doc_path.is_file(), f"missing {doc_path}")
         doc_text = doc_path.read_text(encoding="utf-8")
         for pattern in self._exclusion_set:
             self.assertIn(
                 pattern, doc_text,
                 f"{pattern} is in LINT_EXCLUDED_TRANSIENT_DIRS but not in "
-                "docs/references/docs-lint-exclusions.md — security audit drift",
+                ".wavefoundry/framework/docs/lint-exclusions.md — security audit drift",
             )
 
     def test_no_failures_when_pycache_absent(self) -> None:
@@ -1466,6 +1892,205 @@ class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("docs-lint: ok", result.stdout)
+
+
+class ChangeIdDeferralForPlannedWavesTests(unittest.TestCase):
+    """Wave 1p3dk / 1p3do AC-3: a freshly-created `Status: planned` wave with
+    an empty `## Changes` section does NOT emit the `missing stable Change ID
+    declaration` error. The deferral disables the moment Status moves past
+    planned OR the first Change ID appears."""
+
+    def _wave_doc(self, status: str, changes_body: str) -> str:
+        """Build a minimal wave doc with the requested status and Changes body."""
+        return (
+            "# Wave Record\n\n"
+            "Owner: Engineering\n"
+            f"Status: {status}\n"
+            "Last verified: 2026-06-05\n\n"
+            "wave-id: `1p3dk test-deferral`\n"
+            "Title: Test Deferral\n\n"
+            "## Objective\n\n"
+            "Test the deferral behavior.\n\n"
+            "## Changes\n\n"
+            f"{changes_body}"
+            "## Wave Summary\n\n"
+            "Test wave for deferral logic.\n\n"
+            "## Journal Watchpoints\n\n"
+            "- Test watchpoint.\n\n"
+            "## Review Evidence\n\n"
+            "- operator-signoff: pending\n\n"
+            "## Dependencies\n\n"
+            "- None.\n"
+        )
+
+    def _check(self, doc_text: str) -> list[str]:
+        """Invoke the wave validator directly against a synthesized wave doc."""
+        import sys
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        from wave_lint_lib.wave_validators import check_wave_docs
+
+        with tempfile.TemporaryDirectory(prefix="wave-deferral-") as tmp:
+            root = Path(tmp)
+            wave_dir = root / "docs" / "waves" / "1p3dk test-deferral"
+            wave_dir.mkdir(parents=True)
+            (wave_dir / "wave.md").write_text(doc_text, encoding="utf-8")
+            return check_wave_docs(root)
+
+    def test_planned_wave_with_empty_changes_passes(self):
+        """AC-3 happy path: deferral fires when both conditions hold."""
+        failures = self._check(self._wave_doc("planned", ""))
+        change_id_errors = [
+            f for f in failures
+            if "missing stable `Change ID` declaration" in f
+        ]
+        self.assertEqual(
+            change_id_errors, [],
+            f"Change-ID error should be deferred for planned wave with empty "
+            f"Changes; got {change_id_errors}",
+        )
+
+    def test_planned_wave_with_admitted_change_passes(self):
+        """Sanity: a planned wave with a real Change ID also passes (no
+        deferral needed because the rule is satisfied)."""
+        body = (
+            "Change ID: `1p3dm-enh sample`\n"
+            "Change Status: `planned`\n\n"
+        )
+        failures = self._check(self._wave_doc("planned", body))
+        change_id_errors = [
+            f for f in failures
+            if "missing stable `Change ID` declaration" in f
+        ]
+        self.assertEqual(change_id_errors, [])
+
+    def test_active_wave_with_empty_changes_fails(self):
+        """AC-3 negative: deferral does NOT apply once status moves past
+        `planned`. An active wave without changes is still a lint failure."""
+        failures = self._check(self._wave_doc("active", ""))
+        change_id_errors = [
+            f for f in failures
+            if "missing stable `Change ID` declaration" in f
+        ]
+        self.assertNotEqual(
+            change_id_errors, [],
+            "Change-ID error must fire for non-planned waves with empty Changes",
+        )
+
+    def test_closed_wave_with_empty_changes_fails(self):
+        """AC-3 negative: closed waves never benefit from the deferral."""
+        failures = self._check(self._wave_doc("closed", ""))
+        change_id_errors = [
+            f for f in failures
+            if "missing stable `Change ID` declaration" in f
+        ]
+        self.assertNotEqual(change_id_errors, [])
+
+    def test_deferral_is_case_insensitive_on_status(self):
+        """Status comparison must be case-insensitive (matches existing
+        validator helper that casefolds the status value)."""
+        failures = self._check(self._wave_doc("PLANNED", ""))
+        change_id_errors = [
+            f for f in failures
+            if "missing stable `Change ID` declaration" in f
+        ]
+        self.assertEqual(change_id_errors, [])
+
+
+class SeedPrefixUniquenessTests(unittest.TestCase):
+    """Wave 1p3dk / 1p3dm (Solaris field feedback 2026-06-04): the framework
+    seed-prefix convention is converted from a soft naming standard to an
+    enforced unique key. Two seeds sharing the same `NNN-` prefix is now a
+    docs-lint failure with both filenames named explicitly."""
+
+    def setUp(self) -> None:
+        import sys
+
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        from wave_lint_lib.core_validators import check_seed_prefix_uniqueness
+
+        self._check = check_seed_prefix_uniqueness
+        self._root = Path(tempfile.mkdtemp(prefix="wave-check-seed-prefix-"))
+        self._seeds_dir = self._root / ".wavefoundry" / "framework" / "seeds"
+        self._seeds_dir.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self._root)
+
+    def _plant(self, name: str, body: str = "# stub\n") -> Path:
+        path = self._seeds_dir / name
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_no_failures_when_seeds_dir_missing(self) -> None:
+        """No `.wavefoundry/framework/seeds/` dir → no work, no failures.
+        Important for consumer projects that vendor the framework differently."""
+        empty_root = Path(tempfile.mkdtemp(prefix="wave-check-seed-prefix-empty-"))
+        try:
+            self.assertEqual(self._check(empty_root), [])
+        finally:
+            shutil.rmtree(empty_root)
+
+    def test_no_failures_when_all_prefixes_unique(self) -> None:
+        """AC-4: clean state passes — empty failure list."""
+        self._plant("100-foo.prompt.md")
+        self._plant("200-bar.prompt.md")
+        self._plant("237-council-review.prompt.md")
+        self.assertEqual(self._check(self._root), [])
+
+    def test_collision_fails_with_both_filenames(self) -> None:
+        """AC-5: error names both colliding filenames so the operator can
+        immediately identify the offending pair without re-grepping."""
+        self._plant("230-author-spec.prompt.md")
+        self._plant("230-council-review.prompt.md")
+        failures = self._check(self._root)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("230-", failures[0])
+        self.assertIn("230-author-spec.prompt.md", failures[0])
+        self.assertIn("230-council-review.prompt.md", failures[0])
+        self.assertIn("seed prefix collision", failures[0])
+
+    def test_three_way_collision_reports_all_names(self) -> None:
+        """Triple-collision case: all three names appear in the single error."""
+        self._plant("050-alpha.prompt.md")
+        self._plant("050-beta.prompt.md")
+        self._plant("050-gamma.prompt.md")
+        failures = self._check(self._root)
+        self.assertEqual(len(failures), 1)
+        for name in ("050-alpha", "050-beta", "050-gamma"):
+            self.assertIn(name, failures[0])
+
+    def test_non_prefixed_files_ignored(self) -> None:
+        """Files without an `NNN-` prefix (e.g., README.md) are not flagged
+        and do not crash the check."""
+        self._plant("README.md")
+        self._plant("notes.md")
+        self._plant("100-foo.prompt.md")
+        self.assertEqual(self._check(self._root), [])
+
+    def test_repo_self_hosting_state_is_clean(self) -> None:
+        """Regression guard against the 1p3dm rename: this repo's own
+        `.wavefoundry/framework/seeds/` must not regress to a collision state."""
+        repo_root = SCRIPTS_ROOT.parents[1].parent
+        self.assertEqual(self._check(repo_root), [])
+
+
+class SeedPrefixUniquenessCliIntegrationTests(unittest.TestCase):
+    """End-to-end via docs-lint subprocess on the live repo. AC-6:
+    `check_seed_prefix_uniqueness` is auto-invoked in the docs-lint pipeline
+    (no special flag required)."""
+
+    def test_cli_imports_the_check(self) -> None:
+        """The CLI module imports the new check from core_validators —
+        a structural regression guard."""
+        import sys
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        from wave_lint_lib.cli import main  # noqa: F401 — import smoke test
+        import wave_lint_lib.cli as cli_module
+        self.assertTrue(
+            hasattr(cli_module, "check_seed_prefix_uniqueness"),
+            "wave_lint_lib.cli must import check_seed_prefix_uniqueness so the "
+            "docs-lint pipeline auto-runs the prefix check (1p3dm AC-6)",
+        )
 
 
 if __name__ == "__main__":

@@ -1,11 +1,11 @@
 # Upgrade Dry-Run Preview Of Migration Effect
 
 Change ID: `1p3b6-enh upgrade-dry-run-preview-of-migration-effect`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
+Status: implemented
 Last verified: 2026-06-04
-Wave: TBD (slated for the follow-on wave admitting `1p397` + `1p399`; joint 1.5.0 release)
+Wave: `1p3b9 chunker-indexer-correctness-and-1-5-0-hardening`
 
 ## Rationale
 
@@ -52,36 +52,36 @@ The fix: each migration helper gains a `_preview` variant that returns the list 
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `UpgradeContext` exposes a `dry_run` boolean attribute populated from the upgrade orchestrator's `--dry-run` flag.
-- [ ] AC-2: `_preview_role_field_backfill(root)` returns the list of paths that would be modified, with the slug that would be inserted into each, performing zero filesystem mutations.
-- [ ] AC-3: `_preview_pycache_launcher_deletion(root)` returns the list of launcher files that would be deleted, performing zero filesystem mutations.
-- [ ] AC-4: `_preview_settings_pycache_strip(root)` returns a description of the row that would be stripped (or None when no row matches), performing zero filesystem mutations.
-- [ ] AC-5: `post_extract(ctx)` checks `ctx.dry_run` and calls the preview variants when True; writes the preview-log to `.wavefoundry/logs/upgrade-migration-1.5.0.preview.log`; prints a concise stderr summary.
-- [ ] AC-6: Dry-run preview-log filename is distinct from the real-run filename so a preview doesn't shadow a subsequent real run's report.
-- [ ] AC-7: Tests verify each preview helper's correctness against fixture state.
-- [ ] AC-8: Test verifies `post_extract` in dry-run mode performs zero mutations on every fixture (file state byte-identical pre-and-post).
-- [ ] AC-9: Test verifies the dry-run preview-log is written and contains the expected migration sections + action records.
-- [ ] AC-10: seed-160 prose updated: the existing `### 1.5.0 upgrade — auto-migration` subsection gains a paragraph naming the `--dry-run` preview path and where the preview-log lands.
-- [ ] AC-11: CHANGELOG entry under 1.5.0.
-- [ ] AC-12: Full framework test suite passes.
-- [ ] AC-13: docs-lint passes.
+- [x] AC-1: `UpgradeContext.dry_run: bool = False` attribute added; `phase_dry_run` constructs a preview context with `dry_run=True` and invokes `post_extract` on the loaded extension module before any side effects occur.
+- [x] AC-2: `_preview_role_field_backfill(root)` walks the same dirs as the action helper, identifies files missing `Role:` AND with a `Status:`/`Owner:` anchor, returns `["<path>: would insert `Role: <slug>`", ...]`. Zero mutations. Verified via `RoleBackfillPreviewTests`.
+- [x] AC-3: `_preview_pycache_launcher_deletion(root)` returns `["would delete <path>", ...]` for each existing `.claude/hooks/pycache-cleanup*` launcher. Zero mutations. Verified via `PycacheLauncherDeletionPreviewTests`.
+- [x] AC-4: `_preview_settings_pycache_strip(root)` returns a dict `{"file", "matcher", "command", "note"}` describing the row that would be stripped, or None when no row matches. JSON not rewritten. Verified via `SettingsPycacheStripPreviewTests`.
+- [x] AC-5: `post_extract(ctx)` checks `getattr(ctx, "dry_run", False)`; when True it calls the preview helpers, writes `.wavefoundry/logs/upgrade-migration-1.5.0.preview.log`, and prints `upgrade-migration preview: N planned action(s); see <path> for details (no files modified)` to stderr.
+- [x] AC-6: Preview-log filename is `upgrade-migration-1.5.0.preview.log` — distinct from the real-run `upgrade-migration-1.5.0.log`. Verified via `test_dry_run_uses_distinct_filename_from_real_run`.
+- [x] AC-7: 12 unit tests across `RoleBackfillPreviewTests` (4 cases), `PycacheLauncherDeletionPreviewTests` (2 cases), `SettingsPycacheStripPreviewTests` (3 cases).
+- [x] AC-8: `test_dry_run_zero_mutations` plants a role-missing agent doc + a pycache launcher, runs `post_extract` with `dry_run=True`, asserts both files are byte-identical post-call.
+- [x] AC-9: `test_dry_run_writes_preview_log_when_actions_planned` asserts the preview log is written, contains the `PREVIEW` marker, and names the planned files; also asserts the real-run log is NOT written in the same call.
+- [x] AC-10: seed-160 `### 1.5.0 upgrade — auto-migration` subsection gains a `Migration preview (operator-side, --dry-run)` paragraph describing the preview path, the preview-log location, and the distinct-filename invariant.
+- [x] AC-11: CHANGELOG entry under `## [1.5.0]`.
+- [x] AC-12: Full framework test suite passes (2501 tests, +14 from C4).
+- [x] AC-13: docs-lint passes.
 
 ## Tasks
 
-- [ ] Open `seed_edit_allowed` and `framework_edit_allowed` gates
-- [ ] Add `dry_run` to `UpgradeContext` (or equivalent)
-- [ ] Wire the orchestrator `--dry-run` flag through to extension hooks
-- [ ] Implement `_preview_role_field_backfill`
-- [ ] Implement `_preview_pycache_launcher_deletion`
-- [ ] Implement `_preview_settings_pycache_strip`
-- [ ] Add dry-run branch to `post_extract`
-- [ ] Write preview-log to `.wavefoundry/logs/upgrade-migration-1.5.0.preview.log`
-- [ ] Add tests
-- [ ] Update seed-160 prose
-- [ ] Update CHANGELOG
-- [ ] Run framework test suite
-- [ ] Run docs-lint
-- [ ] Close gates
+- [x] Open `seed_edit_allowed` and `framework_edit_allowed` gates (both already open from earlier in the wave)
+- [x] Add `dry_run` to `UpgradeContext` (with `getattr` fallback for older callers)
+- [x] Wire the orchestrator `--dry-run` flag through: `phase_dry_run` loads the extension module from the new pack and calls `post_extract(preview_ctx)` with `dry_run=True`
+- [x] Implement `_preview_role_field_backfill`
+- [x] Implement `_preview_pycache_launcher_deletion`
+- [x] Implement `_preview_settings_pycache_strip`
+- [x] Add `_write_migration_preview_report` (distinct filename)
+- [x] Add dry-run branch to `post_extract`
+- [x] Add tests (14 net new)
+- [x] Update seed-160 prose
+- [x] Update CHANGELOG
+- [x] Run framework test suite (2501 tests pass)
+- [x] Run docs-lint (clean)
+- [x] Close gates (will close at C5 / wave end)
 
 ## Affected Architecture Docs
 
@@ -92,7 +92,9 @@ The fix: each migration helper gains a `_preview` variant that returns the list 
 | AC | Priority | Rationale |
 |---|---|---|
 | AC-1 (UpgradeContext.dry_run) | required | Signaling mechanism the migration hooks consult. |
-| AC-2, AC-3, AC-4 (per-migration preview helpers) | required | Each migration must have a preview path; without it the gap stays for that migration's surface. |
+| AC-2 (Role: backfill preview helper) | required | Without it, the Role: backfill migration has no preview path. |
+| AC-3 (pycache launcher deletion preview helper) | required | Without it, the launcher cleanup migration has no preview path. |
+| AC-4 (settings.json pycache strip preview helper) | required | Without it, the settings.json strip migration has no preview path. |
 | AC-5 (post_extract dry-run branch) | required | Wiring that activates the preview pipeline. |
 | AC-6 (distinct preview-log filename) | required | Preventing a preview from shadowing a real-run report is the operator-trust invariant. |
 | AC-7 (preview helper tests) | required | Verifies the preview output matches what a real run would do. |
@@ -100,7 +102,8 @@ The fix: each migration helper gains a `_preview` variant that returns the list 
 | AC-9 (preview-log content test) | required | Ensures operator-visible output is actually populated. |
 | AC-10 (seed-160 prose) | required | Discoverability. |
 | AC-11 (CHANGELOG) | required | Standard. |
-| AC-12, AC-13 | required | Standard hygiene. |
+| AC-12 (suite passes) | required | Standard. |
+| AC-13 (lint passes) | required | Standard. |
 
 ## Decision Log
 

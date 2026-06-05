@@ -396,6 +396,189 @@ def _compute_seed_diffs(
     return results
 
 
+# ── Framework version transition detection (1p3dk / 1p3ho) ──────────────────
+#
+# Operator-visible logging of any framework version constant change at upgrade
+# time. The indexer's `build_index` auto-escalate handles chunker/walker
+# mismatches via full rebuild; the graph layer rebuilds on first query when
+# `GRAPH_BUILDER_VERSION` advances. This module's job is to surface those
+# transitions in the upgrade log so operators see what changed, then trust the
+# indexer / graph layer to do the right thing on the next call.
+
+_VERSION_CONSTANT_RE_TEMPLATE = (
+    r'^{name}\s*=\s*["\']([^"\']+)["\']'
+)
+
+
+def _read_version_constant(file_path: Path, constant_name: str) -> str:
+    """Read a top-level `CONSTANT = "value"` declaration from a Python file
+    via regex (no import — avoids stale sys.modules / cwd issues during
+    upgrade). Returns empty string when file or constant is missing.
+    """
+    if not file_path.is_file():
+        return ""
+    try:
+        text = file_path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    pattern = _re.compile(
+        _VERSION_CONSTANT_RE_TEMPLATE.format(name=constant_name),
+        _re.MULTILINE,
+    )
+    m = pattern.search(text)
+    return m.group(1) if m else ""
+
+
+# Backwards-compatible name (1p3ho v1 callers; kept for the existing test surface).
+def _snapshot_pre_extract_chunker_versions(root: Path) -> dict[str, str]:
+    """Read the consumer's pre-existing index meta.json and return its
+    chunker_versions mapping. Handles both modern per-layer dict and legacy
+    scalar `chunker_version` key. Empty dict when meta.json absent or unreadable."""
+    meta_path = root / ".wavefoundry" / "index" / "meta.json"
+    if not meta_path.is_file():
+        return {}
+    try:
+        data = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    versions = data.get("chunker_versions")
+    if isinstance(versions, dict):
+        return {k: str(v) for k, v in versions.items() if isinstance(v, (str, int))}
+    legacy = data.get("chunker_version")
+    if isinstance(legacy, (str, int)) and str(legacy).strip():
+        return {"docs": str(legacy), "code": str(legacy)}
+    return {}
+
+
+def _read_chunker_version_from_pack(root: Path) -> str:
+    """Read CHUNKER_VERSION from the extracted pack's chunker.py."""
+    return _read_version_constant(
+        root / ".wavefoundry" / "framework" / "scripts" / "chunker.py",
+        "CHUNKER_VERSION",
+    )
+
+
+def _read_walker_version_from_pack(root: Path) -> str:
+    """Read WALKER_VERSION from the extracted pack's indexer.py."""
+    return _read_version_constant(
+        root / ".wavefoundry" / "framework" / "scripts" / "indexer.py",
+        "WALKER_VERSION",
+    )
+
+
+def _read_graph_builder_version_from_pack(root: Path) -> str:
+    """Read GRAPH_BUILDER_VERSION from the extracted pack's graph_indexer.py."""
+    return _read_version_constant(
+        root / ".wavefoundry" / "framework" / "scripts" / "graph_indexer.py",
+        "GRAPH_BUILDER_VERSION",
+    )
+
+
+def _snapshot_pre_extract_versions(root: Path) -> dict[str, str]:
+    """Snapshot all relevant framework version constants from the consumer's
+    pre-existing index/graph state files. Returns a flat dict with keys
+    `chunker_docs`, `chunker_code`, `walker`, `graph_builder` (any subset
+    when the corresponding state isn't present)."""
+    out: dict[str, str] = {}
+    # Chunker + walker live in .wavefoundry/index/meta.json
+    chunker_versions = _snapshot_pre_extract_chunker_versions(root)
+    if "docs" in chunker_versions:
+        out["chunker_docs"] = chunker_versions["docs"]
+    if "code" in chunker_versions:
+        out["chunker_code"] = chunker_versions["code"]
+    meta_path = root / ".wavefoundry" / "index" / "meta.json"
+    if meta_path.is_file():
+        try:
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
+            walker = data.get("walker_version")
+            if isinstance(walker, (str, int)) and str(walker).strip():
+                out["walker"] = str(walker)
+        except (OSError, ValueError):
+            pass
+    # Graph builder version lives in the framework graph state
+    graph_state = root / ".wavefoundry" / "framework" / "index" / "graph" / "framework-graph-state.json"
+    if graph_state.is_file():
+        try:
+            data = json.loads(graph_state.read_text(encoding="utf-8"))
+            gb = data.get("builder_version")
+            if isinstance(gb, (str, int)) and str(gb).strip():
+                out["graph_builder"] = str(gb)
+        except (OSError, ValueError):
+            pass
+    return out
+
+
+def _detect_chunker_version_bump(
+    pre_extract: dict[str, str], new_version: str,
+) -> tuple[bool, tuple[str, str] | None]:
+    """Backwards-compat helper: returns (bumped, transition) for chunker only.
+    Used by existing 1p3ho v1 tests. New code should use
+    `_detect_version_transitions` which covers all three constants."""
+    if not pre_extract or not new_version:
+        return False, None
+    old_docs = pre_extract.get("docs", "")
+    old_code = pre_extract.get("code", "")
+    diff = (old_docs and old_docs != new_version) or (old_code and old_code != new_version)
+    if not diff:
+        return False, None
+    old_for_display = old_docs or old_code or next(iter(pre_extract.values()), "")
+    return True, (old_for_display, new_version)
+
+
+def _detect_version_transitions(
+    pre_extract: dict[str, str], root: Path,
+) -> list[tuple[str, str, str]]:
+    """Compare pre-extract snapshot against the just-extracted pack's version
+    constants. Returns a list of `(constant_name, old, new)` for each
+    transition detected. Empty list when nothing changed or no baseline."""
+    transitions: list[tuple[str, str, str]] = []
+    if not pre_extract:
+        return transitions
+    # Chunker (per-layer)
+    new_chunker = _read_chunker_version_from_pack(root)
+    if new_chunker:
+        for layer in ("docs", "code"):
+            old = pre_extract.get(f"chunker_{layer}", "")
+            if old and old != new_chunker:
+                transitions.append((f"CHUNKER_VERSION ({layer} index)", old, new_chunker))
+    # Walker
+    new_walker = _read_walker_version_from_pack(root)
+    if new_walker:
+        old = pre_extract.get("walker", "")
+        if old and old != new_walker:
+            transitions.append(("WALKER_VERSION", old, new_walker))
+    # Graph builder
+    new_graph = _read_graph_builder_version_from_pack(root)
+    if new_graph:
+        old = pre_extract.get("graph_builder", "")
+        if old and old != new_graph:
+            transitions.append(("GRAPH_BUILDER_VERSION", old, new_graph))
+    return transitions
+
+
+def _verify_chunker_rebuild_succeeded(root: Path) -> bool:
+    """After Phase 4 ran, verify the docs index reflects the new chunker
+    version. Backwards-compat helper retained for the existing test surface;
+    no longer load-bearing in the upgrade flow (operator's direction: trust
+    the indexer, just log)."""
+    meta_path = root / ".wavefoundry" / "index" / "meta.json"
+    if not meta_path.is_file():
+        return True
+    try:
+        data = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return True
+    stored = data.get("chunker_versions") or {}
+    if not isinstance(stored, dict) or "docs" not in stored:
+        return True
+    new_version = _read_chunker_version_from_pack(root)
+    if not new_version:
+        return True
+    return str(stored.get("docs", "")) == new_version
+
+
 # ── Extension hook model (12r1y) ─────────────────────────────────────────────
 
 class UpgradeContext:
@@ -421,17 +604,34 @@ class UpgradeContext:
         to_version: str | None,
         zip_path: Path | None,
         yes: bool,
+        dry_run: bool = False,
     ) -> None:
         self.root = root
         self.from_version = from_version
         self.to_version = to_version
         self.zip_path = zip_path
         self.yes = yes
+        # Wave 1p3b9 (1p3b6): when True, post_extract migrations call their
+        # `_preview_*` variants (zero filesystem mutations) and write a
+        # preview-log instead of the action log. Propagated from the upgrade
+        # orchestrator's --dry-run flag.
+        self.dry_run = dry_run
+        # Wave 1p3dk / 1p3ho: chunker-version transition tracking. Populated
+        # before extract (pre_extract_chunker_versions) and after extract
+        # (chunker_version_bumped, chunker_version_transition) so Phase 4 can
+        # route to phase_index_rebuild instead of phase_index_update when the
+        # consumer's existing index was built with an older CHUNKER_VERSION.
+        # Closes the Solaris field failure mode where 1.5.0's chunker bump
+        # didn't trigger a rebuild because the auto-escalate in build_index
+        # was silent (no operator-visible decision) and unverified.
+        self.pre_extract_chunker_versions: dict[str, str] = {}
+        self.chunker_version_bumped: bool = False
+        self.chunker_version_transition: tuple[str, str] | None = None
 
     def __repr__(self) -> str:
         return (
             f"UpgradeContext(from={self.from_version!r}, to={self.to_version!r}, "
-            f"root={str(self.root)!r})"
+            f"root={str(self.root)!r}, dry_run={self.dry_run!r})"
         )
 
 
@@ -698,6 +898,40 @@ def phase_dry_run(root: Path) -> int:
             except OSError as exc:
                 _log(f"  (could not read: {exc})")
             _log(f"── End {script_name} ──")
+
+    # Wave 1p3b9 (1p3b6): migration preview. When the new pack's
+    # upgrade_extensions.py defines `post_extract`, call it with
+    # `dry_run=True` so its preview helpers fire without mutating state.
+    # The preview log lands at `.wavefoundry/logs/upgrade-migration-1.5.0.preview.log`
+    # with a distinct filename from the real-run log so a subsequent real
+    # run's report does not shadow it. Operators can review the planned
+    # actions before committing.
+    if zip_path is not None:
+        ext_module = _load_extension_module(zip_path)
+        if ext_module is not None and hasattr(ext_module, "post_extract"):
+            preview_ctx = UpgradeContext(
+                root=root,
+                from_version=from_version,
+                to_version=to_version if to_version != "unknown" else None,
+                zip_path=zip_path,
+                yes=True,
+                dry_run=True,
+            )
+            _log("\n── Migration preview (post_extract, dry_run=True) ──")
+            try:
+                ext_module.post_extract(preview_ctx)
+            except Exception as exc:
+                _log(f"  (preview failed: {exc})")
+            preview_log = root / ".wavefoundry" / "logs" / "upgrade-migration-1.5.0.preview.log"
+            if preview_log.is_file():
+                _log(f"  preview log: {preview_log}")
+                try:
+                    _log(preview_log.read_text(encoding="utf-8").rstrip())
+                except OSError as exc:
+                    _log(f"  (could not read preview log: {exc})")
+            else:
+                _log("  no planned actions (dry-run produced no preview log)")
+            _log("── End migration preview ──")
 
     _log("\n── End Dry Run ──────────────────────────────────────────────────────────")
     _log("No changes were made. Run without --dry-run to execute the upgrade.")
@@ -1191,6 +1425,9 @@ def main(argv: list[str] | None = None) -> int:
             _rb_ctx = UpgradeContext(root, _rb_from, _rb_to, _rb_zip, args.yes)
             _rb_ext = _load_extension_module(_rb_zip)
             _run_hook("pre_index_update", _rb_ctx, _rb_ext)
+            # Wave 1p3dk / 1p3ho: always call phase_index_update — the indexer's
+            # internal auto-escalate handles the chunker/walker bump full-rebuild
+            # case. Trust the indexer; no explicit force-rebuild routing.
             phase_index_update(root)
             _run_hook("post_index_update", _rb_ctx, _rb_ext)
             upgrade_lib.update_upgrade_lock(
@@ -1288,6 +1525,15 @@ def main(argv: list[str] | None = None) -> int:
     _log(f"  Watch:       tail -f {log_path}")
 
     try:
+        # Wave 1p3dk / 1p3ho: snapshot the consumer's pre-existing framework
+        # version constants BEFORE extract so we can log any transitions in
+        # the upgrade output. The transitions themselves are operator-visible
+        # signals; the indexer's `build_index` auto-escalate handles
+        # chunker/walker rebuilds and the graph layer rebuilds on first query
+        # when GRAPH_BUILDER_VERSION advances. We log, then trust.
+        ctx.pre_extract_chunker_versions = _snapshot_pre_extract_chunker_versions(root)
+        _pre_extract_all_versions = _snapshot_pre_extract_versions(root)
+
         # Apply zip if found
         if zip_path:
             _run_hook("pre_extract", ctx, ext_mod)
@@ -1296,6 +1542,30 @@ def main(argv: list[str] | None = None) -> int:
                 zf.extractall(str(root))
             _log(f"  Extracted {zip_path.name}")
             _run_hook("post_extract", ctx, ext_mod)
+
+            # Note any framework version transitions in the upgrade log.
+            # Don't branch on them — Phase 4 always runs phase_index_update at
+            # the end, and the indexer's auto-escalate routes to full rebuild
+            # when needed. The log is the operator-visible signal that the
+            # rebuild will be substantial rather than incremental.
+            _transitions = _detect_version_transitions(_pre_extract_all_versions, root)
+            if _transitions:
+                _log("\n⚠  Framework version transitions detected:")
+                for _name, _old, _new in _transitions:
+                    _log(f"   {_name}: {_old} → {_new}")
+                _log(
+                    "   Phase 4 will run a full re-embed where versions "
+                    "changed (indexer auto-escalate); graph layer rebuilds "
+                    "on its next query."
+                )
+                # Track for compat with v1 tests + post-condition path.
+                _chunker_transition = next(
+                    ((o, n) for nm, o, n in _transitions if nm.startswith("CHUNKER_VERSION")),
+                    None,
+                )
+                if _chunker_transition is not None:
+                    ctx.chunker_version_bumped = True
+                    ctx.chunker_version_transition = _chunker_transition
 
         # Phase 1
         _run_hook("pre_surface_rendering", ctx, ext_mod)
@@ -1319,6 +1589,21 @@ def main(argv: list[str] | None = None) -> int:
         phase_docs_gate(root)
         _run_hook("post_docs_gate", ctx, ext_mod)
 
+        # Phase 4 — Wave 1p3dk / 1p3ho: always run index update at the end of
+        # upgrade so operators don't have to remember a separate
+        # `--update-index` invocation. The indexer's `build_index`
+        # auto-escalate handles both cases (chunker/walker bumped → full
+        # rebuild; otherwise → incremental). Trust the indexer to do whatever
+        # it needs; the version-transition log in Phase 0b already signals to
+        # the operator what to expect.
+        _run_hook("pre_index_update", ctx, ext_mod)
+        phase_index_update(root)
+        _run_hook("post_index_update", ctx, ext_mod)
+        upgrade_lib.update_upgrade_lock(
+            root,
+            index_rebuilt_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        )
+
     except SystemExit:
         # A phase or hook failed — remove lock before exiting.
         # Also clean up the temp manifest in case pruning hadn't reached it yet.
@@ -1331,11 +1616,10 @@ def main(argv: list[str] | None = None) -> int:
         raise
 
     _log(
-        "\n✓ Phases 0–3 complete. Proceed with agent editing pass, then run:\n"
-        "    upgrade-wavefoundry --update-index\n"
+        "\n✓ Phases 0–4 complete. Proceed with agent editing pass, then run:\n"
         "    upgrade-wavefoundry --cleanup\n"
-        "\nOr to update and clean in one step:\n"
-        "    upgrade-wavefoundry --update-index && upgrade-wavefoundry --cleanup"
+        "\n(Re-run upgrade-wavefoundry --update-index manually only if you edit "
+        "additional files post-upgrade and want the index refreshed.)"
     )
     _close_log()
 

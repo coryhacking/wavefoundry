@@ -1679,5 +1679,311 @@ class PlanLanceDeltaRowsTests(unittest.TestCase):
         self.assertTrue(fallback_required)
 
 
+# ---------------------------------------------------------------------------
+# Wave 1p3b9 (1p399): drift detection between file_meta and Lance
+# ---------------------------------------------------------------------------
+
+class LanceDriftDetectionTests(unittest.TestCase):
+    """AC-1, AC-2, AC-7, AC-8: `_detect_lance_drift` returns the file_meta
+    paths that have zero rows in any Lance table — those are "drifted" and
+    must be re-chunked even when file_meta hash matches.
+
+    Tests use mocked Lance access since the surface is set-difference logic;
+    full end-to-end is covered by the incremental-build tests when run with
+    LanceDB available in the tool venv."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_db_with_paths(self, table_to_paths: dict[str, set[str]]):
+        """Build a mock LanceDB-like object whose tables expose the given path
+        sets via `.to_arrow().column("path").to_pylist()`."""
+        from unittest.mock import MagicMock
+        db = MagicMock()
+
+        def open_table(name):
+            paths = list(table_to_paths.get(name, set()))
+            tbl = MagicMock()
+            arrow = MagicMock()
+            col = MagicMock()
+            col.to_pylist.return_value = paths
+            arrow.column.return_value = col
+            tbl.to_arrow.return_value = arrow
+            return tbl
+
+        db.open_table.side_effect = open_table
+        return db
+
+    def _index_dir_with_tables(self, table_names: set[str]) -> Path:
+        """Create the table directory markers `_detect_lance_drift` looks for."""
+        index_dir = self.root / "index"
+        index_dir.mkdir(parents=True, exist_ok=True)
+        for t in table_names:
+            (index_dir / f"{t}.lance").mkdir(exist_ok=True)
+        return index_dir
+
+    def _as_meta(self, paths, chunks_emitted=None):
+        """Build the dict shape `_detect_lance_drift` expects (wave 1p3iw).
+        Empty dict per entry means `chunks_emitted` is absent → falls through
+        to the drift check unchanged (legacy / first-pass behavior).
+        Pass `chunks_emitted=0` (or a mapping) to test the skip behavior."""
+        if chunks_emitted is None:
+            return {p: {} for p in paths}
+        if isinstance(chunks_emitted, dict):
+            return {p: ({"chunks_emitted": chunks_emitted[p]} if p in chunks_emitted else {}) for p in paths}
+        # Scalar — apply to every path
+        return {p: {"chunks_emitted": chunks_emitted} for p in paths}
+
+    def test_returns_empty_when_file_meta_empty(self):
+        result = self.bi._detect_lance_drift(self.root, {}, verbose=False)
+        self.assertEqual(result, set())
+
+    def test_returns_empty_when_no_lance_tables_present(self):
+        # No `.lance` dirs at index_dir → fresh layer, no drift
+        result = self.bi._detect_lance_drift(self.root, self._as_meta({"docs/a.md"}), verbose=False)
+        self.assertEqual(result, set())
+
+    def test_detects_drift_when_path_missing_from_lance(self):
+        """AC-1, AC-2: a path claimed by file_meta but absent from Lance is
+        returned as drifted."""
+        from unittest.mock import patch
+        index_dir = self._index_dir_with_tables({"docs"})
+        db = self._make_db_with_paths({"docs": {"docs/present.md"}})
+        with patch.object(self.bi, "_get_lance_db", return_value=db):
+            result = self.bi._detect_lance_drift(
+                index_dir,
+                self._as_meta({"docs/present.md", "docs/drifted.md"}),
+                verbose=False,
+            )
+        self.assertEqual(result, {"docs/drifted.md"})
+
+    def test_no_drift_when_file_meta_and_lance_agree(self):
+        """AC-5, AC-8 (happy path): when every file_meta path has Lance rows,
+        return empty set; the incremental skip-on-hash-match optimization is
+        preserved unchanged."""
+        from unittest.mock import patch
+        index_dir = self._index_dir_with_tables({"docs", "code"})
+        db = self._make_db_with_paths({
+            "docs": {"docs/a.md", "docs/b.md"},
+            "code": {"src/foo.py"},
+        })
+        with patch.object(self.bi, "_get_lance_db", return_value=db):
+            result = self.bi._detect_lance_drift(
+                index_dir,
+                self._as_meta({"docs/a.md", "docs/b.md", "src/foo.py"}),
+                verbose=False,
+            )
+        self.assertEqual(result, set())
+
+    def test_drift_detection_unions_across_tables(self):
+        """AC-3: a file_meta path counts as "indexed" if it appears in ANY
+        Lance table (docs OR code). A path in both file_meta and either Lance
+        table is not drifted."""
+        from unittest.mock import patch
+        index_dir = self._index_dir_with_tables({"docs", "code"})
+        db = self._make_db_with_paths({
+            "docs": {"docs/a.md"},
+            "code": {"src/foo.py"},
+        })
+        with patch.object(self.bi, "_get_lance_db", return_value=db):
+            result = self.bi._detect_lance_drift(
+                index_dir,
+                self._as_meta({"docs/a.md", "src/foo.py", "docs/missing.md"}),
+                verbose=False,
+            )
+        self.assertEqual(result, {"docs/missing.md"})
+
+    def test_lance_open_failure_returns_empty_set(self):
+        """Defensive: if Lance can't be opened, treat as "no drift detected"
+        rather than spuriously flagging everything. The reaper / build path
+        handles the table-missing case separately."""
+        from unittest.mock import patch
+        index_dir = self._index_dir_with_tables({"docs"})
+        with patch.object(self.bi, "_get_lance_db", side_effect=RuntimeError("simulated")):
+            result = self.bi._detect_lance_drift(
+                index_dir, self._as_meta({"docs/a.md"}), verbose=False,
+            )
+        self.assertEqual(result, set())
+
+    # --- Wave 1p3iw: chunks_emitted skip behavior ---
+
+    def test_excludes_path_with_chunks_emitted_zero(self):
+        """AC-2 (1p3iw): a path with explicit ``chunks_emitted == 0`` in its
+        file_meta entry is excluded from the drift check — the prior run
+        recorded that this file legitimately produces zero chunks, so its
+        absence from Lance is expected, not drift."""
+        from unittest.mock import patch
+        index_dir = self._index_dir_with_tables({"docs"})
+        db = self._make_db_with_paths({"docs": {"docs/present.md"}})
+        file_meta = {
+            "docs/present.md": {},
+            "docs/empty.md": {"chunks_emitted": 0},
+        }
+        with patch.object(self.bi, "_get_lance_db", return_value=db):
+            result = self.bi._detect_lance_drift(index_dir, file_meta, verbose=False)
+        self.assertEqual(result, set())
+
+    def test_includes_path_with_chunks_emitted_field_absent(self):
+        """AC-3 (1p3iw): a path with no ``chunks_emitted`` field (legacy
+        meta.json, or fresh stat-mismatch entry from `_detect_changes`) falls
+        through to the drift check unchanged — one repair attempt learns the
+        true count."""
+        from unittest.mock import patch
+        index_dir = self._index_dir_with_tables({"docs"})
+        db = self._make_db_with_paths({"docs": {"docs/present.md"}})
+        file_meta = {
+            "docs/present.md": {},
+            "docs/legacy-missing.md": {},  # No chunks_emitted field
+        }
+        with patch.object(self.bi, "_get_lance_db", return_value=db):
+            result = self.bi._detect_lance_drift(index_dir, file_meta, verbose=False)
+        self.assertEqual(result, {"docs/legacy-missing.md"})
+
+    def test_includes_path_with_chunks_emitted_positive_but_lance_missing(self):
+        """AC-4 (1p3iw): a path with ``chunks_emitted > 0`` recorded but
+        absent from Lance is real drift — the indexer believed it emitted N
+        chunks last time, Lance has 0 rows for it now. Must converge by
+        re-chunk + re-embed."""
+        from unittest.mock import patch
+        index_dir = self._index_dir_with_tables({"docs"})
+        db = self._make_db_with_paths({"docs": {"docs/present.md"}})
+        file_meta = {
+            "docs/present.md": {"chunks_emitted": 3},
+            "docs/real-drift.md": {"chunks_emitted": 5},
+        }
+        with patch.object(self.bi, "_get_lance_db", return_value=db):
+            result = self.bi._detect_lance_drift(index_dir, file_meta, verbose=False)
+        self.assertEqual(result, {"docs/real-drift.md"})
+
+    def test_thrash_regression_zero_chunk_file_skipped_on_subsequent_updates(self):
+        """AC-7 (1p3iw): the thrash regression — a file with `chunks_emitted=0`
+        is NOT returned as drifted, even when called repeatedly. This is the
+        observable contract that distinguishes the fix from the prior
+        behavior. On pre-fix code: every call returned the path. On post-fix:
+        no call does."""
+        from unittest.mock import patch
+        index_dir = self._index_dir_with_tables({"docs"})
+        db = self._make_db_with_paths({"docs": set()})  # Lance has zero rows
+        file_meta = {"docs/legitimately-empty.md": {"chunks_emitted": 0}}
+        with patch.object(self.bi, "_get_lance_db", return_value=db):
+            r1 = self.bi._detect_lance_drift(index_dir, file_meta, verbose=False)
+            r2 = self.bi._detect_lance_drift(index_dir, file_meta, verbose=False)
+            r3 = self.bi._detect_lance_drift(index_dir, file_meta, verbose=False)
+        self.assertEqual(r1, set())
+        self.assertEqual(r2, set())
+        self.assertEqual(r3, set())
+
+    def test_chunks_for_file_returns_empty_on_empty_input(self):
+        """AC-5 (1p3iw) — data path for the chunks_emitted population: an
+        empty source produces no doc and no code chunks. The build_index
+        loop computes `len(dc) + len(cc) == 0` and persists that as
+        chunks_emitted=0, which the next-update drift check uses to skip."""
+        dc, cc = self.bi._chunks_for_file("docs/empty.md", "")
+        self.assertEqual(dc, [])
+        self.assertEqual(cc, [])
+
+    def test_chunks_for_file_returns_empty_on_marker_region_only_content(self):
+        """AC-5 (1p3jc): renderer-owned marker-region-only files produce no
+        semantic chunks, so chunks_emitted remains 0 and drift detection skips
+        them on subsequent updates."""
+        source = "<!-- waveframework:agent-surface begin -->\nGenerated\n<!-- end -->\n"
+        dc, cc = self.bi._chunks_for_file("src/generated.py", source)
+        self.assertEqual(dc, [])
+        self.assertEqual(cc, [])
+
+    def test_chunks_for_file_returns_nonempty_on_real_content(self):
+        """AC-5 (1p3iw) — the contrapositive: a normal markdown file emits
+        chunks; chunks_emitted would be > 0."""
+        dc, cc = self.bi._chunks_for_file(
+            "docs/sample.md",
+            "# Title\n\nThis is a test paragraph with enough content to chunk.\n",
+        )
+        self.assertGreaterEqual(len(dc) + len(cc), 1)
+
+
+class LanceDriftDetectionScaleTests(unittest.TestCase):
+    """AC-9 / MF-1: drift query latency on enterprise-scale corpora.
+
+    Bounds:
+    - 10K rows → sub-second (1.0s)
+    - 100K rows → < 200ms
+
+    Synthetic test: the bottleneck is the file_meta set-difference against a
+    paths set; the Lance query is mocked. This measures the set-difference
+    half (always cheap) and the Python-level path enumeration (the actual
+    overhead). A real-Lance scale benchmark is out of scope (would require
+    actual LanceDB infrastructure); this test guards against accidental
+    O(N²) regressions in the set-difference + diagnostic-formatting path."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _index_dir_with_tables(self, table_names: set[str]) -> Path:
+        index_dir = self.root / "index"
+        index_dir.mkdir(parents=True, exist_ok=True)
+        for t in table_names:
+            (index_dir / f"{t}.lance").mkdir(exist_ok=True)
+        return index_dir
+
+    def _run_with_n_rows(self, n_rows: int) -> float:
+        """Run a drift-check with `n_rows` Lance paths and a 1% drifted
+        set (≈ n_rows / 100 paths claimed by file_meta but absent from
+        Lance). Returns elapsed seconds."""
+        from unittest.mock import MagicMock, patch
+        import time
+
+        lance_paths = [f"docs/file-{i:07d}.md" for i in range(n_rows)]
+        # file_meta = all Lance paths + a small drift set
+        n_drifted = max(1, n_rows // 100)
+        drifted_paths = [f"docs/drifted-{i:07d}.md" for i in range(n_drifted)]
+        # Wave 1p3iw: drift check now takes the file_meta dict (not just paths).
+        # Empty entry per path → no chunks_emitted field → falls through to
+        # the original drift detection unchanged.
+        file_meta = {p: {} for p in (set(lance_paths) | set(drifted_paths))}
+
+        db = MagicMock()
+        def open_table(name):
+            tbl = MagicMock()
+            arrow = MagicMock()
+            col = MagicMock()
+            col.to_pylist.return_value = lance_paths if name == "docs" else []
+            arrow.column.return_value = col
+            tbl.to_arrow.return_value = arrow
+            return tbl
+        db.open_table.side_effect = open_table
+
+        index_dir = self._index_dir_with_tables({"docs"})
+
+        with patch.object(self.bi, "_get_lance_db", return_value=db):
+            t0 = time.perf_counter()
+            result = self.bi._detect_lance_drift(index_dir, file_meta, verbose=False)
+            elapsed = time.perf_counter() - t0
+        self.assertEqual(len(result), n_drifted)
+        return elapsed
+
+    def test_10k_rows_sub_second(self):
+        """AC-9: 10K Lance rows + ~100 drifted paths → < 1.0 second."""
+        elapsed = self._run_with_n_rows(10_000)
+        self.assertLess(elapsed, 1.0,
+            f"10K-row drift detection took {elapsed:.3f}s (expected < 1.0s)")
+
+    def test_100k_rows_under_200ms(self):
+        """AC-9 / MF-1: 100K Lance rows + ~1000 drifted paths → < 200ms.
+        Enterprise-scale bound for Teton-shape monorepos."""
+        elapsed = self._run_with_n_rows(100_000)
+        self.assertLess(elapsed, 0.2,
+            f"100K-row drift detection took {elapsed:.3f}s (expected < 0.2s)")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -499,6 +499,28 @@ class BuildPackTests(unittest.TestCase):
         self.assertNotIn("scripts/run_tests.py", entries)
         self.assertFalse(any("tests/" in e for e in entries))
 
+    def test_lint_exclusions_doc_ships_in_pack(self):
+        """Wave 1p3b9 (1p3b5): the operator-visible `lint-exclusions.md`
+        reference doc lives under `.wavefoundry/framework/docs/` so it ships
+        in every release pack. Consumers running `Upgrade wave framework`
+        receive the doc; enterprise security review reads it locally.
+        Regression guard against accidental relocation outside the pack tree."""
+        fw = self.tmp / "mini-fw-with-docs"
+        fw.mkdir(parents=True)
+        docs_dir = fw / "docs"
+        docs_dir.mkdir(parents=True)
+        (docs_dir / "lint-exclusions.md").write_text(
+            "# docs-lint Exclusions\n\nTest content.\n", encoding="utf-8"
+        )
+        path = build_pack.build_zip(
+            self.tmp, "1.0.0", "2tm5", framework_dir=fw,
+            write_version=False, update_manifest=False, inject_install_templates=False,
+        )
+        with zipfile.ZipFile(path) as zf:
+            names = zf.namelist()
+        self.assertIn(".wavefoundry/framework/docs/lint-exclusions.md", names)
+
+
 class ManifestRevisionTests(unittest.TestCase):
     """Tests for update_manifest_revision()."""
 

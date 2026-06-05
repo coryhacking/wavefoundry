@@ -1136,6 +1136,85 @@ def _delete_lance_rows_by_ids(table, ids: set[str]) -> None:
         table.delete(f"id IN ({in_clause})")
 
 
+def _detect_lance_drift(
+    db_path: Path,
+    file_meta: dict[str, dict],
+    *,
+    tables: tuple[str, ...] = ("docs", "code"),
+    verbose: bool = False,
+) -> set[str]:
+    """Wave 1p3b9 (1p399) + 1p3iv (1p3iw): return the set of paths in
+    ``file_meta`` that have ZERO rows in any of the configured Lance tables,
+    EXCLUDING paths the indexer previously recorded as legitimately emitting
+    zero chunks.
+
+    These paths are "drifted" — ``meta.json`` claims they're indexed at a
+    known hash, but the Lance chunks table has no rows for them. The
+    incremental indexer's skip-on-hash-match optimization perpetuates the
+    missing state indefinitely until something forces the file's mtime to
+    change. This helper surfaces drifted paths so the caller can force
+    them through the re-chunk + re-embed path.
+
+    Empty-file exclusion (1p3iw): entries with explicit ``chunks_emitted == 0``
+    are skipped — the prior indexing run recorded that this file legitimately
+    produces no chunks (empty file, all-whitespace, marker-region-dominated
+    content). Re-chunking would produce zero chunks again and the next
+    incremental update would flag it again — silent thrash. Entries with
+    ``chunks_emitted`` absent (legacy ``meta.json`` from before this field
+    existed, or a fresh stat-mismatch entry built in ``_detect_changes``)
+    fall through to the drift check unchanged — one repair learns the true
+    count and populates the field; subsequent updates skip silently if it
+    landed at zero.
+
+    Implementation: pulls just the ``path`` column from each Lance table
+    (cheap on large tables — single column read, no vector data fetched),
+    unions the path sets, and returns the file_meta paths absent from the
+    union. Lance's columnar engine makes DISTINCT-on-string near-O(rows)
+    per AC-9 (sub-second on 10K rows, <200ms on 100K rows).
+
+    Returns empty set when:
+    - LanceDB cannot be opened (table missing, db unavailable)
+    - No Lance tables exist yet (fresh layer)
+    - All considered paths have rows in at least one table (happy path)
+    """
+    if not file_meta:
+        return set()
+    # Wave 1p3iw: exclude paths previously recorded as legitimately empty.
+    # Missing ``chunks_emitted`` (legacy entries / fresh stat-mismatch entries)
+    # falls through to the drift check unchanged.
+    file_meta_paths = {
+        path for path, entry in file_meta.items()
+        if not (isinstance(entry, dict) and entry.get("chunks_emitted") == 0)
+    }
+    if not file_meta_paths:
+        return set()
+    if not any((db_path / f"{t}.lance").is_dir() for t in tables):
+        return set()
+    try:
+        db = _get_lance_db(db_path)
+    except Exception as exc:
+        if verbose:
+            print(f"build_index: drift-detect skipped — could not open LanceDB ({exc})", flush=True)
+        return set()
+    lance_paths: set[str] = set()
+    for table_name in tables:
+        if not (db_path / f"{table_name}.lance").is_dir():
+            continue
+        try:
+            table = db.open_table(table_name)
+            # Single-column read; cheap on large tables.
+            path_arrow = table.to_arrow().column("path")
+            lance_paths.update(p for p in path_arrow.to_pylist() if p)
+        except Exception as exc:
+            if verbose:
+                print(
+                    f"build_index: drift-detect {table_name} failed ({exc})",
+                    flush=True,
+                )
+            continue
+    return file_meta_paths - lance_paths
+
+
 def _reap_stranded_lance_rows(
     db_path: Path,
     eligible_paths: set[str],
@@ -2017,6 +2096,37 @@ def _build_index_locked(
     else:
         # Incremental: use stat cache — only read files with changed mtime/size/inode
         current_file_meta, changed_broad, removed_broad = _detect_changes(files_for_meta, root, old_file_meta)
+        # Wave 1p3b9 (1p399): drift detection. Cross-check `file_meta` against
+        # Lance: paths claimed indexed in file_meta but with zero rows in any
+        # Lance table are "drifted" — they need re-chunk + re-embed regardless
+        # of hash match. The historic cause was the chunker mega-chunk bug
+        # (closed by 1p397) that produced zero chunks for some files; the
+        # incremental loop's skip-on-hash-match optimization perpetuated the
+        # missing-rows state forever. This check makes incremental update
+        # self-repairing for ANY future drift source.
+        drifted = _detect_lance_drift(
+            index_dir, current_file_meta, verbose=verbose,
+        )
+        if drifted:
+            # Show the first few paths inline; cap at 5 in the diagnostic to
+            # keep it scannable when drift is widespread.
+            shown = sorted(drifted)[:5]
+            extra = len(drifted) - len(shown)
+            tail = f", +{extra} more" if extra > 0 else ""
+            print(
+                f"build_index: repairing {len(drifted)} drifted file(s): "
+                f"{', '.join(shown)}{tail}",
+                file=sys.stderr,
+                flush=True,
+            )
+            # Add to the changed set so they get re-chunked even though their
+            # file_meta hash still matches. The downstream rebuild path checks
+            # `changed` (not `changed_broad` alone), but `changed_broad` is the
+            # set that flows through to `changed` after the files_rel filter.
+            # Drifted paths are by definition already in `current_file_meta`
+            # (we got them from file_meta), so adding them to changed_broad
+            # is sufficient.
+            changed_broad |= drifted
     # changed: scope to the content-type-filtered walk — don't re-embed files that
     # are outside this run's scope (e.g. framework scripts for a docs-only run).
     # removed: use the broad result directly — a file absent from files_for_meta is
@@ -2128,6 +2238,11 @@ def _build_index_locked(
         if str(f.relative_to(root)).replace("\\", "/") in changed
     ] if not full else files_for_content
 
+    # Wave 1p3iw: record chunks_emitted per file so the NEXT incremental
+    # update's drift check can skip files that legitimately produce zero
+    # chunks. Missing field on a file_meta entry → unknown, included in
+    # drift check (one-shot repair learns the count); explicit 0 → skipped.
+    chunks_emitted_by_file: dict[str, int] = {}
     for file_path in files_to_index:
         rel = str(file_path.relative_to(root)).replace("\\", "/")
         try:
@@ -2135,10 +2250,21 @@ def _build_index_locked(
         except OSError:
             continue
         dc, cc = _chunks_for_file(rel, source_text)
+        chunks_emitted_by_file[rel] = len(dc) + len(cc)
         if build_docs:
             new_doc_chunks.extend(dc)
         if build_code:
             new_code_chunks.extend(cc)
+
+    # Persist chunks_emitted into current_file_meta. The cache-hit path in
+    # _detect_changes preserves prior chunks_emitted for unchanged files;
+    # cache-miss (changed) entries are rebuilt fresh without the field, so
+    # this loop populates it for every file just chunked. After meta.json
+    # writes, the next incremental update's drift check sees the truth.
+    for rel, count in chunks_emitted_by_file.items():
+        entry = current_file_meta.get(rel)
+        if isinstance(entry, dict):
+            entry["chunks_emitted"] = count
 
     # Embed new chunks
     _progress(

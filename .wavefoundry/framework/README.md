@@ -26,7 +26,7 @@ Use these public phrases in a target project's repository:
 - `Close wave`
 - `Finalize feature`
 
-Packaging (maintainer / cross-repo distribution) uses **`Package Wavefoundry`** -> `framework/seeds/240-package-wavefoundry.prompt.md`. From the Wavefoundry repository root, run `python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH`. The script writes `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` to `~/.wavefoundry/dist/` by default, where `<build>` is the rightmost 4 characters of the current lifecycle prefix. It stamps `.wavefoundry/framework/VERSION` to `MAJOR.MINOR.PATCH+<build>` before writing the archive. Every zip entry begins with `.wavefoundry/framework/`, so extracting at a repository root restores the canonical framework source layout. Legacy phrases such as **`Package wave framework`** and **`Package wave context`** remain accepted only as migration aliases.
+Packaging (maintainer / cross-repo distribution) uses **`Package Wavefoundry`** — the wavefoundry-repo-only operator entry lives at `docs/prompts/package-wavefoundry.prompt.md` in the wavefoundry source tree and is intentionally not shipped to consumer projects (consumers run **`Upgrade wave framework`** instead). From the Wavefoundry repository root, run `python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH`. The script writes `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` to `~/.wavefoundry/dist/` by default, where `<build>` is the rightmost 4 characters of the current lifecycle prefix. It stamps `.wavefoundry/framework/VERSION` to `MAJOR.MINOR.PATCH+<build>` before writing the archive. Every zip entry begins with `.wavefoundry/framework/`, so extracting at a repository root restores the canonical framework source layout. Legacy phrases such as **`Package wave framework`** and **`Package wave context`** remain accepted only as migration aliases.
 
 **`Install wave framework`** (legacy: **`Install wave context`**) may be accepted as a convenience alias, but it is not a new primary public command:
 
@@ -107,7 +107,6 @@ This leaves room to insert prompts later without renumbering the whole pack.
 - `210-agent-journal-distillation.prompt.md` — internal helper for journal cleanup and promotion candidates
 - `220-legacy-framework-migration.prompt.md` — internal helper for migrating from legacy non-wave context footprints
 - `230-author-spec.prompt.md` — spec authoring and behavior-contract refresh helper
-- `240-package-wavefoundry.prompt.md` — maintainer packaging entrypoint for Wavefoundry source distributions
 - `250-migrate-existing-wave-project.prompt.md` — explicit migration from legacy vendored framework layout to Wavefoundry layout
 
 ## Cross-Prompt Citations (`seed-NNN` short-name convention)

@@ -2501,9 +2501,16 @@ class PromptChunkerTests(unittest.TestCase):
         long_body = "x " * 1010  # > 2000 chars
         source = f"# Title\n\n## Step 1\n\n{long_body}\n\n### Sub\n\nmore text\n"
         chunks = self._chunks(source, "docs/prompts/implement-wave.prompt.md")
-        # Should be ONE chunk for the ## section, not split at ###
+        # Wave 1p3b9 (1p397): with the per-kind 2000-char cap, this section
+        # exceeds cap and gets line-wrapped via the universal guard. The
+        # H3-suppression contract is preserved: the section is NOT split at
+        # `### Sub` boundaries (no chunk has "Sub" in its section path), but
+        # the universal guard does produce part-N/M derivatives.
         step_chunks = [c for c in chunks if c.section and "Step 1" in c.section]
-        self.assertEqual(len(step_chunks), 1)
+        self.assertGreaterEqual(len(step_chunks), 1)
+        # No H3-derived sub-section names anywhere
+        for c in chunks:
+            self.assertNotIn("Sub", c.section or "")
 
     # -- no fenced code extraction --
 
@@ -2635,6 +2642,160 @@ class CodeSummaryChunkTests(unittest.TestCase):
         chunks = self.chunker.chunk_file("", "src/empty.py")
         summary = [c for c in chunks if c.kind == "code-summary"]
         self.assertEqual(len(summary), 0)
+
+
+class SymbolessCodeFileSummaryTests(unittest.TestCase):
+    """Wave 1p3iv (1p3jc): symbolless-code-file fallback in
+    `_chunk_code_summary`. When a code file has no docstring AND no
+    extractable symbols (re-export __init__.py, TypeScript barrel files,
+    Go single-file packages with no func defs, Rust mod.rs re-exports),
+    a module-level `code` chunk now falls back to the file's top-level non-comment
+    lines so the public surface is semantically searchable. Without this
+    fallback, `code_search` misses re-export files; only `code_keyword`
+    (text-backed) finds them."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _summaries(self, source, path):
+        chunks = self.chunker.chunk_file(source, path)
+        return [c for c in chunks if c.kind == "code-summary"]
+
+    def _module_chunks(self, source, path):
+        chunks = self.chunker.chunk_file(source, path)
+        return [c for c in chunks if c.kind == "code" and c.id.endswith("::__module__")]
+
+    def test_python_reexport_init_gets_module_chunk(self):
+        """The canonical case: `from .x import y; __all__ = ['y']` style
+        re-export __init__.py — no docstring, no defined symbols, but real
+        content. Should emit one code module chunk with the import + __all__."""
+        source = 'from .cli import main\n\n__all__ = ["main"]'
+        modules = self._module_chunks(source, "pkg/__init__.py")
+        self.assertEqual(len(modules), 1)
+        text = modules[0].text
+        self.assertIn("from .cli import main", text)
+        self.assertIn("__all__", text)
+        self.assertEqual(modules[0].section, "__init__")
+        self.assertEqual(modules[0].kind, "code")
+        self.assertEqual(modules[0].id, "pkg/__init__.py::__module__")
+        self.assertEqual(modules[0].language, "python")
+
+    def test_typescript_barrel_index_gets_module_chunk(self):
+        """TS barrel `index.ts`: `export * from "./foo"; export { Bar }
+        from "./bar"`. No top-level func/class declarations to extract;
+        fallback fires."""
+        source = 'export * from "./foo";\nexport { Bar } from "./bar";\n'
+        modules = self._module_chunks(source, "src/index.ts")
+        self.assertEqual(len(modules), 1)
+        text = modules[0].text
+        self.assertIn('export * from "./foo"', text)
+        self.assertIn("Bar", text)
+        self.assertEqual(modules[0].kind, "code")
+        self.assertEqual(modules[0].id, "src/index.ts::__module__")
+        self.assertEqual(modules[0].section, "index")
+        self.assertEqual(modules[0].language, "typescript")
+
+    def test_go_single_file_package_with_imports_gets_module_chunk(self):
+        """A Go file that's just `package x` + a couple imports + maybe a
+        const block — no functions, no methods, no types defined here.
+        Fallback should emit a module chunk."""
+        source = 'package httputil\n\nimport (\n    "fmt"\n    "net/http"\n)\n\nconst DefaultTimeout = "30s"\n'
+        modules = self._module_chunks(source, "pkg/httputil/httputil.go")
+        self.assertEqual(len(modules), 1)
+        text = modules[0].text
+        self.assertIn("package httputil", text)
+        self.assertIn("DefaultTimeout", text)
+
+    def test_rust_mod_reexport_gets_module_chunk(self):
+        """Rust `mod.rs` style re-export: `pub mod x; pub use x::Y;`."""
+        source = "pub mod widget;\npub use widget::Widget;\n"
+        modules = self._module_chunks(source, "src/components/mod.rs")
+        self.assertEqual(len(modules), 1)
+        text = modules[0].text
+        self.assertIn("pub mod widget", text)
+        self.assertIn("pub use widget::Widget", text)
+
+    def test_file_with_symbols_does_not_emit_fallback(self):
+        """Regression: when symbols ARE extractable, the original
+        docstring/symbols summary fires — NOT the fallback. The summary
+        text should NOT contain raw `import` / `export` lines from the
+        fallback path; it should contain the `Symbols: ...` line."""
+        source = 'def foo():\n    return 1\n\ndef bar():\n    return 2\n'
+        summaries = self._summaries(source, "src/util.py")
+        self.assertEqual(len(summaries), 1)
+        self.assertEqual(self._module_chunks(source, "src/util.py"), [])
+        text = summaries[0].text
+        self.assertIn("Symbols:", text)
+
+    def test_file_with_module_docstring_only_uses_docstring_not_fallback(self):
+        """A file with ONLY a docstring (no symbols) still goes through the
+        original path — docstring as summary. Fallback should not fire
+        because docstring satisfies the original branch."""
+        source = '"""Helper functions for billing."""\n'
+        summaries = self._summaries(source, "src/billing/__init__.py")
+        self.assertEqual(len(summaries), 1)
+        self.assertEqual(self._module_chunks(source, "src/billing/__init__.py"), [])
+        text = summaries[0].text
+        self.assertIn("Helper functions for billing", text)
+
+    def test_empty_file_still_no_summary(self):
+        """Compatibility with 1p3iw: truly empty file emits no chunks."""
+        self.assertEqual(self.chunker.chunk_file("", "src/empty.py"), [])
+
+    def test_all_comments_does_not_trigger_fallback_path(self):
+        """A file with only leading comments goes through the EXISTING
+        `_extract_leading_comment` docstring-equivalent path — NOT the new
+        symbolless fallback. The existing summary fires with the comment
+        text as the docstring; the fallback path stays dormant. Regression
+        guard against the fallback firing on top of the existing summary."""
+        source = "# Just a comment\n# Another comment\n\n"
+        # Exactly one summary (from the existing leading-comment path), not zero
+        # (which would mean the existing path broke) and not two (which would
+        # mean both paths fired).
+        summaries = self._summaries(source, "src/comments-only.py")
+        self.assertEqual(len(summaries), 1)
+        self.assertEqual(self._module_chunks(source, "src/comments-only.py"), [])
+        # The summary text should be the comment text, not a non-comment
+        # fallback list. If the fallback fired here, the text would be empty
+        # (no non-comment lines to extract).
+        self.assertIn("Just a comment", summaries[0].text)
+
+    def test_all_whitespace_no_summary(self):
+        """Compatibility with 1p3iw: all-whitespace file emits no chunks."""
+        self.assertEqual(self.chunker.chunk_file("   \n\n\t\n", "src/blank.py"), [])
+
+    def test_fallback_caps_at_max_lines(self):
+        """The fallback caps at _MODULE_SUMMARY_MAX_LINES to avoid emitting
+        massive module chunks from constants-only files."""
+        # 200 import lines, no defined symbols → fallback fires, capped.
+        lines = "\n".join(f"from .x{i} import y{i}" for i in range(200))
+        modules = self._module_chunks(lines, "pkg/__init__.py")
+        self.assertEqual(len(modules), 1)
+        emitted_lines = modules[0].text.splitlines()
+        cap = self.chunker._MODULE_SUMMARY_MAX_LINES
+        self.assertLessEqual(len(emitted_lines), cap)
+
+    def test_fallback_uses_language_appropriate_comment_prefixes(self):
+        """Go uses `//` comments; the fallback should skip those and keep
+        the non-comment content."""
+        source = "package main\n// This is a Go comment to skip\nimport \"fmt\"\nconst X = 1\n"
+        modules = self._module_chunks(source, "src/main.go")
+        self.assertEqual(len(modules), 1)
+        text = modules[0].text
+        self.assertNotIn("This is a Go comment to skip", text)
+        self.assertIn("package main", text)
+        self.assertIn("const X = 1", text)
+
+    def test_marker_region_only_code_file_emits_zero_chunks(self):
+        """AC-5 (1p3jc): generated marker-region-only files are not semantic
+        content and still emit zero chunks."""
+        source = "<!-- waveframework:agent-surface begin -->\nGenerated\n<!-- end -->\n"
+        self.assertEqual(self.chunker.chunk_file(source, "src/generated.py"), [])
+
+    def test_marker_region_only_markdown_file_emits_zero_chunks(self):
+        """AC-5 (1p3jc): marker-region-only markdown remains zero-chunk too."""
+        source = "<!-- waveframework:agent-surface begin -->\nGenerated\n<!-- end -->\n"
+        self.assertEqual(self.chunker.chunk_file(source, "docs/generated.md"), [])
 
 
 class DocSummaryChunkTests(unittest.TestCase):
@@ -2999,6 +3160,304 @@ class JupyterChunkerTests(unittest.TestCase):
         code_chunks = [c for c in chunks if c.kind == "code"]
         self.assertGreater(len(code_chunks), 0)
         self.assertEqual(code_chunks[0].language, "python")
+
+
+# ---------------------------------------------------------------------------
+# Wave 1p3b9 (1p397): universal oversized-chunk guard + markdown structural-
+# unit awareness for H1-only seed/prompt content.
+# ---------------------------------------------------------------------------
+
+class UniversalOversizedChunkGuardTests(unittest.TestCase):
+    """AC-1, AC-2: every dispatch path runs through split_large_chunks at
+    chunk_file end. No chunk emitted by chunk_file exceeds MAX_CHUNK_CHARS."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        scripts_root = Path(__file__).resolve().parents[1]
+        spec = importlib.util.spec_from_file_location("chunker", scripts_root / "chunker.py")
+        cls.chunker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.chunker)
+
+    def test_chunker_version_bumped_to_25(self):
+        """Wave 1p3iv / 1p3jc: CHUNKER_VERSION bumped 24 → 25 because the
+        symbolless-code-file fallback in `_chunk_code_summary` changes the
+        chunker's output shape — re-export `__init__.py`, barrel `index.ts`,
+        single-file Go packages, etc. now emit a `code-summary` chunk where
+        they previously emitted nothing. Consumers need a full reindex so
+        the new summary chunks land in Lance and become searchable via
+        `code_search`. `indexer.build_index` auto-escalates incremental
+        updates to a full rebuild on the version mismatch; the bump is
+        sufficient to drive consumer convergence on next upgrade.
+
+        Prior bumps in this ratchet (preserved as the historical sequence):
+        22 → 23 (wave 1p397): part-N/M labels, paragraph decomposition.
+        23 → 24 (wave 1p3ho): test fixture for chunker-bump detection path.
+        24 → 25 (wave 1p3jc): symbolless-code-file summary fallback."""
+        self.assertEqual(self.chunker.CHUNKER_VERSION, "25")
+
+    def test_split_large_chunks_is_idempotent_on_small_chunks(self):
+        c = self.chunker.Chunk(id="x", path="p", kind="doc", language=None,
+                                lines=(1, 5), section="s", text="short")
+        result = self.chunker.split_large_chunks([c])
+        self.assertEqual(len(result), 1)
+        self.assertIs(result[0], c)
+
+    def test_split_large_chunks_caps_oversized_doc_chunk(self):
+        big = "line\n" * 1500  # > MAX_CHUNK_CHARS (4000)
+        c = self.chunker.Chunk(id="big", path="p", kind="doc", language=None,
+                                lines=(1, 1500), section="Section", text=big)
+        result = self.chunker.split_large_chunks([c])
+        self.assertGreater(len(result), 1)
+        for r in result:
+            self.assertLessEqual(len(r.text), self.chunker.MAX_CHUNK_CHARS)
+
+    def test_split_large_chunks_part_label_suffix(self):
+        big = "line\n" * 1500
+        c = self.chunker.Chunk(id="big", path="p", kind="doc", language=None,
+                                lines=(1, 1500), section="Section", text=big)
+        result = self.chunker.split_large_chunks([c])
+        # Each derived chunk's section has (part N/M) appended
+        for idx, r in enumerate(result, start=1):
+            self.assertIn(f"(part {idx}/{len(result)})", r.section or "")
+            self.assertIn("Section", r.section or "")
+
+    def test_split_large_chunks_no_section_handles_empty(self):
+        """When the parent chunk has no section, derivatives get only
+        the (part N/M) label without a leading separator."""
+        big = "line\n" * 1500
+        c = self.chunker.Chunk(id="big", path="p", kind="doc", language=None,
+                                lines=(1, 1500), section=None, text=big)
+        result = self.chunker.split_large_chunks([c])
+        for r in result:
+            self.assertIsNotNone(r.section)
+            self.assertTrue(r.section.startswith("(part "))
+
+    def test_chunk_file_caps_oversized_plain_text(self):
+        """AC-2: plain-text dispatch path now runs through the universal guard."""
+        big_text = "Some very long paragraph " * 500  # > 4000 chars
+        chunks = self.chunker.chunk_file(big_text, "docs/big.txt")
+        for c in chunks:
+            self.assertLessEqual(len(c.text), self.chunker.MAX_CHUNK_CHARS)
+
+    def test_chunk_file_caps_oversized_yaml(self):
+        """AC-15: YAML dispatch path covered by universal guard."""
+        big_yaml = "key:\n" + ("  - item value here\n" * 800)
+        chunks = self.chunker.chunk_file(big_yaml, "config/big.yaml")
+        for c in chunks:
+            self.assertLessEqual(len(c.text), self.chunker.MAX_CHUNK_CHARS)
+
+    def test_chunk_file_caps_h1_only_seed(self):
+        """AC-10 partial: H1-only seed-040-style body decomposes — and even
+        if the decomposition leaves an over-cap residual, the universal guard
+        catches it. No chunk exceeds MAX_CHUNK_CHARS in any case."""
+        body = "# 040 - Long Intent Doc\n\n"
+        # Long numbered list + trailing prose, > 4000 chars total
+        for i in range(1, 60):
+            body += f"{i}. Task item {i} with some explanatory prose so the line is not trivially short.\n"
+        chunks = self.chunker.chunk_file(body, ".wavefoundry/framework/seeds/040-test.prompt.md")
+        self.assertGreater(len(chunks), 1)  # decomposed
+        for c in chunks:
+            self.assertLessEqual(len(c.text), self.chunker.MAX_CHUNK_CHARS)
+
+
+class MarkdownStructuralUnitDecompositionTests(unittest.TestCase):
+    """AC-3 partial, AC-4 partial, AC-6, AC-7: H1-only seed/prompt body
+    decomposed at paragraph + top-level list-item boundaries before the
+    universal guard fires."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        scripts_root = Path(__file__).resolve().parents[1]
+        spec = importlib.util.spec_from_file_location("chunker", scripts_root / "chunker.py")
+        cls.chunker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.chunker)
+
+    def test_small_h1_only_seed_kept_whole(self):
+        """AC-11 spirit: a small H1-only body emerges as a single chunk."""
+        body = "# Small Seed\n\nShort intent line.\n\n1. First task.\n2. Second task.\n"
+        chunks = self.chunker.chunk_file(body, ".wavefoundry/framework/seeds/099-small.prompt.md")
+        # H1 only, < cap → not decomposed
+        seed_chunks = [c for c in chunks if c.kind == "seed"]
+        self.assertEqual(len(seed_chunks), 1)
+
+    def test_large_h1_only_seed_decomposes_at_list_items(self):
+        """AC-10: seed-040-style 'Intent + Tasks' input decomposes into
+        multiple chunks at top-level numbered-list-item boundaries when the
+        body exceeds MAX_CHUNK_CHARS."""
+        body = "# 040 - Big Intent Doc\n\nIntent: do many things.\n\n"
+        for i in range(1, 80):
+            body += f"{i}. Task item {i} with explanatory prose to push past the cap. " * 3 + "\n"
+        chunks = self.chunker.chunk_file(body, ".wavefoundry/framework/seeds/040-test.prompt.md")
+        seed_chunks = [c for c in chunks if c.kind == "seed"]
+        self.assertGreater(len(seed_chunks), 1)
+        for c in seed_chunks:
+            self.assertLessEqual(len(c.text), self.chunker.MAX_CHUNK_CHARS)
+
+    def test_h2_rich_markdown_unchanged(self):
+        """AC-8: H2-rich markdown is NOT affected by the H1-only decomposition
+        path. Regression guard — the structural-unit awareness must NOT change
+        chunking of files that already have section headers."""
+        body = "# Doc\n\nPreamble.\n\n## Section A\n\nA prose.\n\n## Section B\n\nB prose.\n"
+        chunks = self.chunker.chunk_file(body, "docs/regular.md")
+        # H2-split into doc-summary + preamble + two sections (4 chunks total
+        # in the current chunk_file pipeline; doc-summary is the per-doc head
+        # generated by _chunk_doc_summary).
+        self.assertEqual(len(chunks), 4)
+        # None of them are part-of-N (no oversized splitting fired)
+        for c in chunks:
+            section_text = c.section or ""
+            self.assertNotIn("(part ", section_text)
+
+    def test_non_prompt_h1_only_still_emitted_as_preamble_when_fits(self):
+        """AC-9: generic doc markdown (no kind_override) with H1 only and
+        short body emerges as a single preamble chunk. Project-layer doc
+        index chunk shape preserved."""
+        body = "# Just A Title\n\nShort body.\n"
+        chunks = self.chunker.chunk_file(body, "docs/short.md")
+        doc_chunks = [c for c in chunks if c.kind == "doc"]
+        self.assertEqual(len(doc_chunks), 1)
+
+
+class TableDecompositionTests(unittest.TestCase):
+    """AC-5, AC-13: pipe-table per-row decomposition with header row preserved
+    on every emitted chunk. Real-world target: Decision Log / AC Priority /
+    Risks tables in change docs (committed tables reach 41K chars)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        scripts_root = Path(__file__).resolve().parents[1]
+        spec = importlib.util.spec_from_file_location("chunker", scripts_root / "chunker.py")
+        cls.chunker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.chunker)
+
+    def _big_table(self, rows: int, cells_each: int = 100) -> str:
+        """Build a markdown pipe table with `rows` data rows, each cell ~`cells_each` chars."""
+        cell = "x" * cells_each
+        lines = ["| A | B | C | D |", "|---|---|---|---|"]
+        for i in range(rows):
+            lines.append(f"| {i} | {cell} | {cell} | {cell} |")
+        return "\n".join(lines)
+
+    def test_small_table_kept_whole(self):
+        """AC-12: a small pipe table fits in a single chunk; no decomposition fires."""
+        body = "# Doc\n\n## A Section\n\n" + self._big_table(rows=3, cells_each=20) + "\n"
+        chunks = self.chunker.chunk_file(body, "docs/small-table.md")
+        doc_chunks = [c for c in chunks if c.kind == "doc"]
+        for c in doc_chunks:
+            self.assertNotIn("rows", c.section or "")  # no per-row label
+
+    def test_large_table_decomposes_per_row_with_header_preserved(self):
+        """AC-5, AC-13: a table that exceeds MAX_CHUNK_CHARS decomposes into
+        per-row chunks. Every emitted chunk contains the header + separator
+        rows so column context survives."""
+        body = "# Doc\n\n## Decision Log\n\n" + self._big_table(rows=40, cells_each=80) + "\n"
+        chunks = self.chunker.chunk_file(body, "docs/big-table.md")
+        decision_chunks = [c for c in chunks if "Decision Log" in (c.section or "")]
+        self.assertGreater(len(decision_chunks), 1)
+        for c in decision_chunks:
+            self.assertLessEqual(len(c.text), self.chunker.MAX_CHUNK_CHARS)
+            # Header row must appear in every emitted chunk
+            self.assertIn("| A | B | C | D |", c.text)
+            # Separator row must appear in every emitted chunk
+            self.assertIn("|---|---|---|---|", c.text)
+
+    def test_large_table_section_label_records_row_range(self):
+        """AC-7 (table-decomposition label part): section labels include
+        `(rows N–M of T)` so retrieval surfaces can address coherent row ranges."""
+        body = "# Doc\n\n## Decision Log\n\n" + self._big_table(rows=40, cells_each=80) + "\n"
+        chunks = self.chunker.chunk_file(body, "docs/big-table.md")
+        decision_chunks = [c for c in chunks if "Decision Log" in (c.section or "")]
+        import re
+        for c in decision_chunks:
+            self.assertRegex(c.section or "", r"\(rows \d+–\d+ of 40\)")
+
+    def test_table_with_preamble_and_postlude(self):
+        """When a chunk contains prose BEFORE and AFTER the table, the
+        preamble carries on every emitted chunk and the postlude attaches
+        to the final chunk only."""
+        body = (
+            "# Doc\n\n## Section\n\n"
+            "Some intro prose before the table.\n\n"
+            + self._big_table(rows=40, cells_each=80)
+            + "\n\nSome trailing prose after the table.\n"
+        )
+        chunks = self.chunker.chunk_file(body, "docs/sandwich.md")
+        section_chunks = [c for c in chunks if "Section" in (c.section or "") and "rows" in (c.section or "")]
+        self.assertGreater(len(section_chunks), 1)
+        # Trailing prose appears only in the last emitted chunk
+        with_trailing = [c for c in section_chunks if "trailing prose" in c.text]
+        self.assertEqual(len(with_trailing), 1)
+        # Last decomposed chunk has it
+        self.assertIn("trailing prose", section_chunks[-1].text)
+
+    def test_real_world_41k_decision_log(self):
+        """Regression target: the 1p318 change doc has a 41K-char Decision Log.
+        Verify it decomposes cleanly with every chunk under cap and the
+        majority of decomposed chunks preserve the column header.
+
+        Note: at the per-kind cap (2000 chars for docs), some individual rows
+        in 1p318's Decision Log are themselves > 2000 chars (multi-paragraph
+        Reason cells). Those rows can't fit alongside the header in a single
+        chunk; they fall through to line/char-wrap with `(part N/M)` labels.
+        For those rows, the header is on the lead part chunk and the
+        continuations are the row tail. Most rows fit cleanly with header.
+        """
+        path = Path(__file__).resolve().parents[4] / "docs" / "waves" / "1p31b public-launch-prep" / "1p318-enh public-launch-surface-doc-rewrite.md"
+        if not path.is_file():
+            self.skipTest(f"Reference doc not present at {path}")
+        src = path.read_text()
+        chunks = self.chunker.chunk_file(src, str(path))
+        decision_chunks = [c for c in chunks if "Decision Log" in (c.section or "")]
+        self.assertGreaterEqual(len(decision_chunks), 10,
+            "1p318 Decision Log should decompose into many row-grouped chunks at the 2000-char cap")
+        for c in decision_chunks:
+            self.assertLessEqual(len(c.text), self.chunker.MAX_DOC_CHUNK_CHARS)
+        # Most chunks (>= 70%) preserve the canonical header. The rest are
+        # `(part N/M)` continuations of single oversized rows.
+        header_canonical = "| Date | Decision | Reason | Alternatives |"
+        with_header = sum(1 for c in decision_chunks if header_canonical in c.text)
+        self.assertGreaterEqual(with_header, int(0.7 * len(decision_chunks)),
+            f"≥70% of decomposed chunks should preserve header; got {with_header}/{len(decision_chunks)}")
+
+    def test_line_wrap_preserves_breadcrumb_on_every_part(self):
+        """Wave 1p3b9 (1p397): when an H2 section is line-wrap-decomposed (via
+        the universal guard's `_line_wrap_chunk`), the markdown chunker's
+        injected breadcrumb (``Doc Title > Section`` on the first line +
+        blank-line separator) MUST be prepended to every emitted part. Without
+        this, parts 2/3/N would orphan their bullet text from the section
+        context."""
+        # Build a long H2 section as a bullet list that exceeds the cap
+        section_body = "\n".join(f"- bullet {i} with extra prose to push past the cap." for i in range(60))
+        body = f"# Doc Title\n\n## Long Section\n\n{section_body}\n"
+        chunks = self.chunker.chunk_file(body, "docs/long-section.md")
+        section_chunks = [c for c in chunks if "Long Section" in (c.section or "")]
+        # Should decompose into ≥2 parts at the 2000-char cap
+        self.assertGreaterEqual(len(section_chunks), 2)
+        # Every part includes the breadcrumb as its first non-empty content
+        for c in section_chunks:
+            first_line = c.text.split("\n", 1)[0]
+            self.assertIn("Long Section", first_line)
+            # Body content (a bullet) comes after the blank line, not the
+            # first line — the first line is the breadcrumb, not content.
+            self.assertFalse(first_line.lstrip().startswith("-"),
+                f"first line should be breadcrumb, not content: {first_line!r}")
+
+    def test_no_false_positive_on_prose_with_pipes(self):
+        """Prose containing pipe characters (e.g., `| pipe | here |`) but
+        without a separator row must NOT trigger table decomposition."""
+        # Long prose containing pipe-looking lines but no separator row
+        body = (
+            "# Doc\n\n## Discussion\n\n"
+            + "Sample prose discussing `command | option | other` syntax.\n" * 80
+        )
+        chunks = self.chunker.chunk_file(body, "docs/pipes.md")
+        # The section is over-cap and falls through to line-wrap, NOT table decomp
+        section_chunks = [c for c in chunks if "Discussion" in (c.section or "")]
+        for c in section_chunks:
+            self.assertNotIn("rows", c.section or "")  # no per-row label
 
 
 if __name__ == "__main__":

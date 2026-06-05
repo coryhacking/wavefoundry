@@ -1,3 +1,6 @@
 [mcp_servers.wavefoundry]
 command = ".wavefoundry/bin/mcp-server"
 args = []
+
+[mcp_servers.wavefoundry.tools.wave_close]
+approval_mode = "approve"

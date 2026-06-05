@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-02
+Last verified: 2026-06-05
 
 Shortcut: **`Package Wavefoundry`** | Legacy: **`Package wave framework`** / **`Package wave context`**
 
@@ -36,13 +36,16 @@ python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH
 python3 -B .wavefoundry/framework/scripts/run_tests.py
 ```
 
-4. **Update `.wavefoundry/CHANGELOG.md`** — operator-visible release history at the project-level path. Sections are organized **by version, not by build**. Two cases:
-   - **Semver bumps** (e.g., `1.2.0` → `1.2.1`): prepend a new section. Header `## MAJOR.MINOR.PATCH — YYYY-MM-DD`. Cohesive narrative prose covering the headline change, upgrade action required (`GRAPH_BUILDER_VERSION` bumps, MCP server restart needs), per-change summaries, breaking changes or deprecations with migration guidance, and a one-line wave id reference at the end. Mirror the prior section's shape.
-   - **Semver unchanged, only build changes** (e.g., re-packaging `1.2.1` with a fresh build): **rewrite the existing section** as cohesive narrative covering the most important points across all builds of the version. Do NOT append a delta-style "build XXX added Y" log. Do NOT add a per-build subsection.
+4. **Update root `CHANGELOG.md`** — the canonical release history. The wavefoundry repo's root `CHANGELOG.md` is the single source of truth; `build_pack.py` copies it into the pack zip at `.wavefoundry/CHANGELOG.md` so consumer projects receive an in-tree changelog on every upgrade (offline-readable, MCP-indexable, no GitHub fetch required). The wavefoundry repo does NOT carry `.wavefoundry/CHANGELOG.md` — root is the only place release history is maintained.
 
-   **Quality criteria:** operator impact (not chronology), no build numbers anywhere in the file (build numbers live in git history, `VERSION`, and dist zip filename), required-action callouts explicit, NOT Keep-a-Changelog category format. `build_pack.py` emits a non-fatal diagnostic when a section looks chronological or references build numbers — bypass with `--skip-changelog-diagnostic` only when the warning is a known false positive.
+   **Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).** Each release uses `## [MAJOR.MINOR.PATCH]` (date filled in at release time) with `### Added / Changed / Deprecated / Removed / Fixed / Security` subsections. Bullets are git-commit-message-style — terse, operator-impact-focused, not chronological. Two cases:
 
-   **Do not skip this step** — `CHANGELOG.md` is the only release surface that travels with the package.
+   - **Semver bumps** (e.g., `1.2.0` → `1.2.1`): prepend a new `## [MAJOR.MINOR.PATCH]` section; group bullets under the appropriate subsection.
+   - **Semver unchanged, only build changes** (re-packaging a release with a fresh build): append bullets to the current open section under the appropriate subsection. No build numbers in the file — `+XXXX` lives in git history, the `VERSION` file, and the dist zip filename, not the changelog.
+
+   **Quality criteria:** operator impact (not chronology); required-action callouts surfaced as standalone bullets (cache invalidation, `GRAPH_BUILDER_VERSION` bumps, MCP server restart needs, breaking changes with migration guidance); each bullet ends with the owning wave/change for traceability (e.g., "Wave 1p3dk / 1p3ho.").
+
+   **Do not skip this step** — `CHANGELOG.md` is the only release surface that travels with the package and the only place an offline consumer can read what just changed.
 5. Ensure `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches the packaged revision unless you intentionally use `--skip-manifest-check`.
 6. Run the packaging command once. It stamps `.wavefoundry/framework/VERSION`, updates `.wavefoundry/framework/index/` by default, compacts the LanceDB tables, and creates the zip.
 7. Review the produced zip name and stamped `VERSION` for consistency. Spot-check that `CHANGELOG.md` is in the zip (`unzip -l <zip> | grep CHANGELOG`) and that the latest section matches the version just stamped.
@@ -67,7 +70,6 @@ wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
 - `--skip-framework-index`: skip updating and compacting `.wavefoundry/framework/index/` (emergency use only).
 - `--skip-manifest-check`: skip the `framework_revision` consistency check.
 - `--skip-docs-gate`: skip the docs-gardener / docs-lint pre-flight gate.
-- `--skip-changelog-diagnostic`: skip the chronological-section diagnostic on `.wavefoundry/CHANGELOG.md` (use only for known false positives).
 - `--verbose` / `-v`: print index build progress.
 
 ## Upgrade Path Coverage

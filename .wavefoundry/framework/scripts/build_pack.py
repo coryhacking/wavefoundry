@@ -321,68 +321,6 @@ def update_manifest_revision(repo_root: Path, full_version: str) -> None:
     manifest_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
-def check_changelog_format(repo_root: Path) -> None:
-    """Diagnostic: warn when a CHANGELOG.md version section looks chronological.
-
-    `.wavefoundry/CHANGELOG.md` is structured by semver version, not by build.
-    This check scans each `## MAJOR.MINOR.PATCH` section and warns when its
-    body contains the chronological-log smell:
-
-    - more than two `build` occurrences (case-insensitive), suggesting a
-      "build XXX added Y" delta log style, OR
-    - any `+XXXX` build-number reference inside the body.
-
-    Build numbers belong in git history, the VERSION file, and the dist zip
-    filename — not in the changelog. Warnings are non-fatal; the operator can
-    bypass with --skip-changelog-diagnostic when the warning is a known false
-    positive. Missing CHANGELOG.md is also non-fatal (the file is optional).
-    """
-    changelog_path = repo_root / ".wavefoundry" / "CHANGELOG.md"
-    if not changelog_path.exists():
-        return
-
-    text = changelog_path.read_text(encoding="utf-8")
-    # Split on `## ` headings at line start. The first split is the header/intro
-    # block before any version section; subsequent splits are version sections.
-    sections = re.split(r"(?m)^## ", text)
-    section_re = re.compile(r"^(\d+\.\d+\.\d+)\b")
-    build_token_re = re.compile(r"\bbuild\b", re.IGNORECASE)
-    build_number_re = re.compile(r"\+[A-Za-z0-9]{4}\b")
-    warnings: list[str] = []
-    for section in sections[1:]:
-        header_match = section_re.match(section)
-        if not header_match:
-            continue
-        version = header_match.group(1)
-        body = section[header_match.end():]
-        build_word_count = len(build_token_re.findall(body))
-        build_number_hits = build_number_re.findall(body)
-        if build_number_hits:
-            warnings.append(
-                f"  {version}: contains {len(build_number_hits)} build-number "
-                f"reference(s) ({', '.join(sorted(set(build_number_hits))[:3])}"
-                f"{'…' if len(set(build_number_hits)) > 3 else ''}) — build "
-                "numbers do not belong in CHANGELOG.md."
-            )
-        elif build_word_count > 2:
-            warnings.append(
-                f"  {version}: contains {build_word_count} \"build\" occurrences "
-                "— section may be drifting toward chronological log style."
-            )
-    if warnings:
-        print(
-            "warning: CHANGELOG.md format diagnostic flagged section(s):",
-            file=sys.stderr,
-        )
-        for w in warnings:
-            print(w, file=sys.stderr)
-        print(
-            "  Rewrite the flagged section(s) as cohesive narrative prose "
-            "per seed 240. Use --skip-changelog-diagnostic to bypass.",
-            file=sys.stderr,
-        )
-
-
 def check_docs_gate(repo_root: Path) -> None:
     """Run docs-gardener and docs-lint as a pre-packaging gate.
 
@@ -786,14 +724,17 @@ def build_zip(
     if wavefoundry_readme.exists() and not any(a == readme_arcname for _, a in entries):
         entries.append((wavefoundry_readme, readme_arcname))
 
-    # Include .wavefoundry/CHANGELOG.md (operator-facing release history) if it
-    # exists. Like README.md, this file sits at the project level (outside the
-    # framework dir) and is added explicitly. It is the only release surface
-    # that travels with the package.
-    wavefoundry_changelog = fw.parent / "CHANGELOG.md"
+    # Source CHANGELOG.md from the wavefoundry repo root (the canonical single
+    # source of truth) and place it into the pack zip at .wavefoundry/CHANGELOG.md.
+    # Consumers receive the file at .wavefoundry/CHANGELOG.md on every upgrade —
+    # they read it but never edit it; the wavefoundry repo's root CHANGELOG.md is
+    # the only place release history is maintained. The wavefoundry repo itself
+    # carries no .wavefoundry/CHANGELOG.md, so there is no duplication in git.
+    # Wave 1p3i6 supersedes wave 131at's vendored-canonical design.
+    root_changelog = repo_root / "CHANGELOG.md"
     changelog_arcname = ".wavefoundry/CHANGELOG.md"
-    if wavefoundry_changelog.exists() and not any(a == changelog_arcname for _, a in entries):
-        entries.append((wavefoundry_changelog, changelog_arcname))
+    if root_changelog.exists() and not any(a == changelog_arcname for _, a in entries):
+        entries.append((root_changelog, changelog_arcname))
 
     # Top-level entry doc sits OUTSIDE .wavefoundry/ so the unzipped folder
     # has a visible file at the root. Without it, macOS Finder shows the
@@ -907,14 +848,6 @@ def main():
         action="store_true",
         help="Skip the docs-gardener / docs-lint pre-flight gate.",
     )
-    parser.add_argument(
-        "--skip-changelog-diagnostic",
-        action="store_true",
-        help=(
-            "Skip the chronological-section diagnostic on .wavefoundry/CHANGELOG.md. "
-            "Use only when the warning is a known false positive."
-        ),
-    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Print index build progress")
     parser.add_argument(
         "--release",
@@ -1024,10 +957,6 @@ def main():
     # Pre-flight: docs gate (gardener + lint).
     if not args.skip_docs_gate:
         check_docs_gate(repo_root)
-
-    # Pre-flight: changelog format diagnostic (non-fatal).
-    if not args.skip_changelog_diagnostic:
-        check_changelog_format(repo_root)
 
     # Pre-flight: same-semver collision warning (wave 131bt 131ht). When packs at
     # the same MAJOR.MINOR.PATCH already exist in the dist dir, surface the existing

@@ -130,12 +130,33 @@ Add this section to `AGENTS.md` after **Start Here** (or immediately before **Pu
 
 Operators do **not** need to say **Guru** or **Ask codebase** for questions about how this repository's **code** or **documentation** works.
 
-When a message is primarily about **understanding, locating, or explaining** source code or project docs — including architecture, specs, and content under `docs/` — and is **not** a wave lifecycle shortcut from `docs/prompts/index.md` (**Plan feature**, **Implement wave**, **Close wave**, etc.), adopt the **Guru** workflow:
+**Pre-flight question — ask this before responding to any user message:** *does answering this require reading code or documentation to understand what's there?* If yes, route to Guru. Surface forms vary infinitely ("how does X work", "tell me about X", "walk me through X", "I want to understand X", "where is X", "describe the Y flow"); intent does not. Apply the intent check on every message, not just messages that obviously match a phrase pattern.
+
+When the answer is yes (or when the message is primarily about **understanding, locating, or explaining** source code or project docs — including architecture, specs, and content under `docs/`) and is **not** a wave lifecycle shortcut from `docs/prompts/index.md` (**Plan feature**, **Implement wave**, **Close wave**, etc.), adopt the **Guru** workflow:
 
 1. Read and follow `docs/agents/guru.md` (question classification, retrieval loop, mechanism completeness, citations).
 2. When MCP is available, use `code_ask(question)` for cross-cutting code questions and `docs_search` for documentation-heavy questions per Guru's classification table.
 3. Complete Pass 3 validation (`code_outline`, targeted `code_read`, `code_keyword` as needed) before synthesizing — do not answer from memory or from the `code_ask` `answer` field alone.
 4. When MCP is unavailable, follow Guru's **When MCP is Not Available** fallbacks in `docs/agents/guru.md`.
+
+**Examples — anchoring the boundary (these are examples, NOT a keyword list to match against; the rule is the pre-flight question above):**
+
+| Example user question | Route to Guru? | Reason |
+| --- | --- | --- |
+| "How does authentication work?" | Yes | Explicit how-question; answer comes from reading auth code. |
+| "Tell me about the way authentication works" | Yes | Semantic intent = "how does it work"; surface form doesn't match keyword patterns but the answer still comes from reading auth code. |
+| "Walk me through the request flow" | Yes | Code investigation; answer comes from reading routing/middleware code. |
+| "I want to understand session management" | Yes | Code investigation; answer comes from reading session code. |
+| "What's the structure of the API layer?" | Yes | Architecture question; answer comes from reading code + docs. |
+| "Where is the rate limiter defined?" | Yes | Code-location question; answer comes from code search. |
+| "Explain how config loading works" | Yes | Explanation question; answer comes from reading config code. |
+| "Describe the data flow from request to response" | Yes | Flow question; answer comes from reading code. |
+| "Rename `getUserId` to `resolveUserId`" | No | Operational; the agent does the rename, no code-understanding required to answer. |
+| "Delete the old session config" | No | Operational. |
+| "Run the test suite" | No | Operational. |
+| "What's the value of `MAX_RETRIES` in this file?" | No | Trivial lookup; targeted read suffices, no investigation needed. |
+
+**Retrieval-intent backstop — late-detect signal:** if you find yourself about to call `code_search`, `code_keyword`, `code_read`, `code_definition`, `code_outline`, `code_callhierarchy`, `code_references`, or `code_pattern` in service of a user question, **stop**. That retrieval IS Guru's job. Route to Guru instead of doing the retrieval yourself. The tool reach-for catches misses the pre-flight skipped.
 
 Explicit shortcut **Guru** remains available in `docs/prompts/index.md` when the operator wants to name the mode.
 ```
@@ -247,6 +268,8 @@ Preserve the personal-override carve-out (the framework tree can be tracked, but
 Seeded **`AGENTS.md`**, **`CLAUDE.md`**, thin pointers, and **`docs/prompts/*`** must instruct **agents** to prefer MCP **`wave_validate`** (docs lint results), **`wave_garden`** (metadata gardening; follow the tool `mode` contract), and **`wave_audit`** (combined wave + validation + index readout) over shelling out to **`.wavefoundry/bin/docs-lint`** / **`.wavefoundry/bin/docs-gardener`**. Treat the **bin** launchers as **CLI / hook / CI** fallbacks when MCP is not attached. Hooks below **cannot** call MCP and therefore still invoke **`.wavefoundry/bin/docs-lint`** — that does not change MCP-first agent guidance.
 
 This MCP-first principle extends beyond docs validation to **all wave and plan state queries**: before reaching for `ls`, `grep`, or filesystem tools to answer any question about wave state, plans, or change docs, agents must check the MCP tool list first. `wave_list_plans` (pending changes not yet admitted to a wave), `wave_list_waves`, `wave_current`, and `wave_get_change` return structured answers directly. Seeded `AGENTS.md` must include this guidance in its MCP or docs-gate section.
+
+The same principle applies to **literal-identifier and cross-surface text sweeps across docs, config, and prompts** — not only source-code navigation. `code_keyword` and `code_pattern` index every repository file (markdown, JSON, TOML, config, prompts), and `docs_search` covers documentation; reach for them before `grep`/`rg` when reconciling renamed identifiers across docs + config (role renames, config-key renames during upgrade — the highest-drift-risk sweeps). Shell text search remains correct for operations the index cannot answer: git inspection (`git status`/`diff`/`log`), exact byte-level file-state checks, and key-presence verification in config files. Record a `Gapfill:` note when shell was used for a sweep MCP could have answered, per the implementer rule below.
 
 ### Shared hook purposes (apply on every host per its pre/post capability)
 
@@ -378,7 +401,7 @@ Authoritative per-role seed pointers:
 - `seed-225` — red-team (universal challenger + Wave Council Phase 1 primer)
 - `seed-236` — archetype-council (operator-invoked Archetype Council)
 
-**The three councils MUST always be surfaced as specialist agents under `docs/agents/specialists/`:**
+**The three councils are always surfaced as specialist agents.** Canonical fresh-install location is `docs/agents/specialists/` (shown below); established repos with a flat `docs/agents/` layout may keep their existing location — `docs-lint` accepts either. The presence of all three role docs is load-bearing for council invocation; the directory they live in is a convention, not an enforced contract:
 
 - `red-team.md` — read `seed-225` in full
 - `wave-council.md` — read `seed-215` in full

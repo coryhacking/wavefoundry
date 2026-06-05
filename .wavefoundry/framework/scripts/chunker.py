@@ -187,12 +187,42 @@ def _ts_collapse_body(text: str, max_lines: int = 150) -> str:
     return "\n".join(lines[:max_lines])
 
 
-CHUNKER_VERSION = "22"
+# Wave 1p3dk / 1p3ho validation: bumped 23 → 24 to exercise the upgrade-time
+# chunker-bump detection path in production. No chunker algorithm change; the
+# bump itself is the test fixture. After this pack ships, consumer upgrades
+# should observe: (a) `⚠  Chunker version changed: 23 → 24. Forcing full
+# index rebuild on next --update-index.` in the upgrade log during extract,
+# (b) `phase_index_rebuild` (full) running on `--update-index` instead of
+# `phase_index_update` (incremental), (c) post-condition verification confirming
+# the new version in `.wavefoundry/index/meta.json` after rebuild.
+CHUNKER_VERSION = "25"
 
 # Lines per window and overlap for the line-window fallback chunker.
 WINDOW_SIZE = 120
 WINDOW_OVERLAP = 10
-MAX_CODE_CHUNK_CHARS = 4000
+
+# Wave 1p3b9 (1p397): per-kind chunk-size caps calibrated to the actual
+# embedder (BGE family, 512-token input cap). Empirically measured against
+# the cached tokenizer:
+#   - Python source: ~3.07 chars/token → 500 tokens ≈ 1535 chars
+#   - English/markdown prose: ~3.62-4.17 chars/token → 500 tokens ≈ 1800-2100 chars
+#   - Markdown pipe tables: ~4.38 chars/token → 500 tokens ≈ 2190 chars
+#
+# Code is denser per token than prose, so code chunks need a tighter cap to
+# stay under the embedder's input cap and avoid silent truncation. Previous
+# value was 4000 for both — code chunks lost ~62% to truncation and prose
+# chunks lost ~45%. Dropping to per-kind caps keeps every byte addressable.
+MAX_CODE_CHUNK_CHARS = 1500   # was 4000; matches BGE token budget for code
+MAX_DOC_CHUNK_CHARS = 2000    # everything else (doc / seed / prompt / plain / yaml / json / etc.)
+# Default for `split_large_chunks(max_chars=...)` legacy callers — equal to
+# the doc cap. The runtime per-kind selection happens inside the function.
+MAX_CHUNK_CHARS = MAX_DOC_CHUNK_CHARS
+
+
+def _max_chars_for_chunk(chunk: "Chunk") -> int:
+    """Per-kind cap selector. Code chunks get the tighter limit; everything
+    else (doc, seed, prompt, doc-summary, plain text, etc.) gets the larger."""
+    return MAX_CODE_CHUNK_CHARS if chunk.kind == "code" else MAX_DOC_CHUNK_CHARS
 
 # Minimum chunk size for structured chunkers.  Sub-minimum chunks are merged
 # into their predecessor.  Imports chunks are exempt.  Reused by tree-sitter
@@ -475,55 +505,355 @@ def chunk_python(source: str, path: str) -> list[Chunk]:
     return _merge_small_chunks(chunks)
 
 
-def split_large_code_chunks(chunks: list[Chunk], max_chars: int = MAX_CODE_CHUNK_CHARS) -> list[Chunk]:
-    """Split oversized code chunks into smaller line-window chunks."""
+# Wave 1p3b9 (1p397): regex for a markdown pipe-table separator row, e.g.
+# `|---|---|---|` or `| --- | :--- | ---: |`. Detection of this line within
+# a run of pipe-prefixed lines is the load-bearing signal that the run is
+# a real table (not just prose containing pipe characters).
+_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|[\s\-:|]+\|\s*$")
+
+
+def _is_pipe_table_line(line: str) -> bool:
+    """True for lines that start AND end with `|` (ignoring trailing whitespace)
+    AND contain at least one interior `|`. The shape that markdown pipe tables
+    use for header, separator, and data rows."""
+    s = line.rstrip()
+    return s.startswith("|") and s.endswith("|") and s.count("|") >= 2
+
+
+def _find_oversized_table(text: str, max_chars: int) -> Optional[tuple[int, int, int]]:
+    """Find a pipe table in `text` that exceeds `max_chars` (header + body).
+
+    Returns ``(start_line_idx, separator_line_idx, end_line_idx)`` where
+    `start_line_idx` is the header row's index in the line list,
+    `separator_line_idx` is the `|---|---|` row index, and `end_line_idx` is
+    the line index just past the table's last data row. Returns None when
+    no such table exists in `text`.
+
+    A real markdown pipe table is: header row + separator row + 1+ data
+    rows. Detection requires at least 3 consecutive `_is_pipe_table_line`
+    lines AND one of them is the separator. The total table-region size
+    must exceed `max_chars` to qualify as "oversized."
+    """
+    lines = text.splitlines()
+    n = len(lines)
+    i = 0
+    while i < n:
+        if not _is_pipe_table_line(lines[i]):
+            i += 1
+            continue
+        # Walk the run of pipe-table lines
+        run_start = i
+        while i < n and _is_pipe_table_line(lines[i]):
+            i += 1
+        run_end = i  # exclusive
+        run_lines = lines[run_start:run_end]
+        if len(run_lines) < 3:
+            continue
+        # Find the separator row within the run (expected at index 1)
+        sep_idx_in_run = None
+        for j, line in enumerate(run_lines):
+            if _TABLE_SEPARATOR_RE.match(line):
+                sep_idx_in_run = j
+                break
+        if sep_idx_in_run is None or sep_idx_in_run >= len(run_lines) - 1:
+            continue  # no separator, or no data rows after it
+        # Size check
+        table_text = "\n".join(run_lines)
+        if len(table_text) <= max_chars:
+            continue
+        return (run_start, run_start + sep_idx_in_run, run_end)
+    return None
+
+
+def _decompose_oversized_table_chunk(chunk: "Chunk", max_chars: int) -> Optional[list["Chunk"]]:
+    """Decompose a chunk whose dominant oversized content is a markdown pipe
+    table. Returns None if no oversized table is found; otherwise returns the
+    list of decomposed chunks.
+
+    Each emitted chunk contains:
+    1. The chunk-level prelude (any lines BEFORE the table — typically the
+       section breadcrumb / H2 title block).
+    2. The table's header row + separator row (preserved on every emitted
+       chunk so column context survives decomposition).
+    3. A greedy group of data rows that, combined with the prelude + header,
+       stays under `max_chars`.
+    4. Any chunk-level postlude (lines AFTER the table) is appended to the
+       FINAL emitted chunk only; subsequent tables in the same chunk are
+       beyond this helper's scope and fall through to line-wrap.
+
+    Section labels get `(rows N–M of T)` suffix so retrieval surfaces can
+    address coherent row ranges.
+    """
+    table_loc = _find_oversized_table(chunk.text, max_chars)
+    if table_loc is None:
+        return None
+    table_start, sep_idx, table_end = table_loc
+    lines = chunk.text.splitlines()
+    prelude = lines[:table_start]
+    header_lines = lines[table_start:sep_idx + 1]  # header row + separator
+    data_rows = lines[sep_idx + 1:table_end]
+    postlude = lines[table_end:]
+
+    # Compute the per-emit fixed-text size: prelude + header preamble + 2 newlines
+    prelude_text = "\n".join(prelude).rstrip()
+    header_text = "\n".join(header_lines)
+    fixed_text = (prelude_text + "\n\n" if prelude_text else "") + header_text + "\n"
+    fixed_size = len(fixed_text)
+    if fixed_size >= max_chars:
+        # Header alone already over-cap — fall through to line-wrap. This
+        # shouldn't happen for real tables (header rows are short) but
+        # guards against pathological input.
+        return None
+
+    # Greedy row grouping
+    groups: list[list[str]] = []
+    current: list[str] = []
+    current_size = fixed_size
+    for row in data_rows:
+        row_len = len(row) + 1  # +1 for newline
+        if current and current_size + row_len > max_chars:
+            groups.append(current)
+            current = []
+            current_size = fixed_size
+        current.append(row)
+        current_size += row_len
+    if current:
+        groups.append(current)
+    if not groups:
+        return None
+
+    total_rows = len(data_rows)
+    base_section = chunk.section or ""
+    base_line_start, _ = chunk.lines
+    table_start_line = base_line_start + table_start  # 1-based source line of header
+    prelude_line_offset = base_line_start
+
+    result: list[Chunk] = []
+    rows_emitted = 0
+    last_idx = len(groups) - 1
+    for g_idx, group in enumerate(groups):
+        group_start_row = rows_emitted + 1
+        group_end_row = rows_emitted + len(group)
+        rows_emitted = group_end_row
+        parts = []
+        if prelude_text:
+            parts.append(prelude_text)
+        parts.append(header_text)
+        parts.append("\n".join(group))
+        # Append postlude to the last group only
+        if g_idx == last_idx and postlude:
+            postlude_text = "\n".join(postlude).rstrip()
+            if postlude_text:
+                parts.append(postlude_text)
+        text = "\n\n".join(parts) if prelude_text else "\n".join(parts)
+        # Actually we need header attached to rows with single newline, not double
+        text_parts: list[str] = []
+        if prelude_text:
+            text_parts.append(prelude_text + "\n\n")
+        text_parts.append(header_text + "\n")
+        text_parts.append("\n".join(group))
+        if g_idx == last_idx and postlude:
+            postlude_text = "\n".join(postlude).rstrip()
+            if postlude_text:
+                text_parts.append("\n\n" + postlude_text)
+        emitted_text = "".join(text_parts)
+        suffix = f"rows {group_start_row}–{group_end_row} of {total_rows}"
+        section = f"{base_section} ({suffix})" if base_section else f"({suffix})"
+        result.append(Chunk(
+            id=f"{chunk.id}:rows{group_start_row}-{group_end_row}",
+            path=chunk.path,
+            kind=chunk.kind,
+            language=chunk.language,
+            lines=(table_start_line, table_start_line + len(group) + len(header_lines) - 1),
+            section=section,
+            text=emitted_text,
+        ))
+    return result
+
+
+# Wave 1p3b9 (1p397): line prefixes that mean "this line is content, NOT a
+# breadcrumb preamble." Used by `_extract_breadcrumb_preamble` to detect
+# whether the chunk's leading line is the markdown chunker's injected section
+# breadcrumb (e.g., `Doc Title > Section Heading`) vs. real content.
+_BREADCRUMB_NON_CONTENT_PREFIXES = ("-", "*", "+", "|", "#", "```", ">", "\t")
+_NUMBERED_LIST_RE = re.compile(r"^\s*\d+\.\s+")
+
+
+def _extract_breadcrumb_preamble(lines: list[str]) -> tuple[list[str], int]:
+    """If the chunk's leading line(s) look like a breadcrumb preamble (a
+    non-content line followed by a blank line), return them and the offset
+    past the blank. Otherwise return ``([], 0)``.
+
+    The markdown chunker injects breadcrumbs as ``Doc Title > Section`` on
+    its own line followed by a blank line and then the section body. When
+    we line-wrap an oversized section, every emitted part should retain
+    that breadcrumb so the retrieval consumer sees the section context.
+    """
+    if len(lines) < 2:
+        return [], 0
+    first = lines[0]
+    second = lines[1]
+    if not first.strip() or second.strip() != "":
+        return [], 0
+    stripped = first.lstrip()
+    if stripped.startswith(_BREADCRUMB_NON_CONTENT_PREFIXES):
+        return [], 0
+    if _NUMBERED_LIST_RE.match(first):
+        return [], 0
+    return [first, ""], 2
+
+
+def _line_wrap_chunk(chunk: Chunk, cap: int) -> list[Chunk]:
+    """Line-window split a single oversized chunk into windows ≤ ``cap``.
+
+    Falls back to character-window splitting on lines that themselves
+    exceed ``cap``. Each derived chunk gets a ``(part N/M)`` section
+    suffix.
+
+    Wave 1p3b9 (1p397): when the chunk's leading line is a breadcrumb
+    preamble (the markdown chunker's injected ``Doc Title > Section`` line
+    followed by a blank), that preamble is preserved on every emitted
+    part so retrieval consumers see the section context in every chunk
+    body, not just the lead part.
+    """
+    start_line, _ = chunk.lines
+    lines = chunk.text.splitlines()
+    if not lines:
+        return []
+
+    # Detect breadcrumb preamble BEFORE char-windowing so we can size the
+    # body cap correctly (every emitted chunk = preamble + \n + body slice).
+    preamble_lines, body_offset = _extract_breadcrumb_preamble(lines)
+    body_lines_raw = lines[body_offset:]
+    preamble_text = "\n".join(preamble_lines)
+    preamble_size = len(preamble_text) + (1 if preamble_text else 0)
+    # Leave room in each window for the preamble. If the preamble is so
+    # large that the effective body cap drops below half the cap, skip the
+    # preamble entirely — better than emitting almost-empty body windows.
+    body_cap = cap - preamble_size
+    if body_cap < cap // 2:
+        preamble_lines = []
+        preamble_text = ""
+        preamble_size = 0
+        body_cap = cap
+        body_lines_raw = lines
+        body_offset = 0
+
+    if not body_lines_raw:
+        # The whole chunk was preamble — nothing to split, return as-is.
+        return [chunk]
+
+    # Char-window split any line that itself exceeds body_cap, so no single
+    # line exceeds the body budget.
+    body_lines: list[str] = []
+    for line in body_lines_raw:
+        if len(line) <= body_cap:
+            body_lines.append(line)
+            continue
+        for i in range(0, len(line), body_cap):
+            body_lines.append(line[i:i + body_cap])
+
+    windows: list[tuple[int, int, list[str]]] = []
+    window_lines: list[str] = []
+    window_start = start_line + body_offset
+    current_len = 0
+    for offset, line in enumerate(body_lines):
+        line_len = len(line) + 1
+        if window_lines and current_len + line_len > body_cap:
+            window_end = window_start + len(window_lines) - 1
+            windows.append((window_start, window_end, window_lines))
+            window_lines = []
+            window_start = start_line + body_offset + offset
+            current_len = 0
+        window_lines.append(line)
+        current_len += line_len
+    if window_lines:
+        window_end = window_start + len(window_lines) - 1
+        windows.append((window_start, window_end, window_lines))
+
+    out: list[Chunk] = []
+    total = len(windows)
+    base_section = chunk.section or ""
+    for idx, (ws, we, wl) in enumerate(windows, start=1):
+        section = f"{base_section} (part {idx}/{total})" if base_section else f"(part {idx}/{total})"
+        body_text = "\n".join(wl)
+        if preamble_text:
+            text = preamble_text + "\n" + body_text
+        else:
+            text = body_text
+        out.append(Chunk(
+            id=f"{chunk.id}:L{ws}-L{we}",
+            path=chunk.path,
+            kind=chunk.kind,
+            language=chunk.language,
+            lines=(ws, we),
+            section=section,
+            text=text,
+        ))
+    return out
+
+
+def split_large_chunks(chunks: list[Chunk], max_chars: Optional[int] = None) -> list[Chunk]:
+    """Split oversized chunks of any kind into smaller line-window chunks.
+
+    Wave 1p3b9 (1p397): generalized from the previous `split_large_code_chunks`
+    by dropping the `kind != "code"` early-skip. Now serves as the universal
+    last-resort guard applied at the `chunk_file` dispatcher level — every
+    chunk emitted by any chunker passes through, regardless of kind (doc,
+    seed, prompt, code, plain text, etc.).
+
+    When ``max_chars`` is None (the default for new callers), each chunk's
+    cap is selected per its kind via ``_max_chars_for_chunk``: code chunks
+    use ``MAX_CODE_CHUNK_CHARS`` (1500) to match the BGE embedder's token
+    budget for denser tokenization; non-code chunks use ``MAX_DOC_CHUNK_CHARS``
+    (2000). When ``max_chars`` is given explicitly (legacy callers), that
+    value applies to every chunk.
+
+    Decomposition priority:
+    1. If the chunk contains an oversized markdown pipe table (header +
+       separator + many rows), decompose per-row with the header preserved
+       on each emitted chunk via `_decompose_oversized_table_chunk`. This
+       preserves column context which is the load-bearing retrieval-quality
+       property for Decision Log / AC Priority / Risks tables in change docs.
+    2. Otherwise, line-window split with character-window fallback for
+       single-line oversized content. Each derived chunk's `section` field
+       gets a ` (part N/M)` suffix.
+
+    Chunks already at or under their cap pass through unchanged.
+    """
     result: list[Chunk] = []
     for chunk in chunks:
-        if chunk.kind != "code" or len(chunk.text) <= max_chars:
+        cap = max_chars if max_chars is not None else _max_chars_for_chunk(chunk)
+        if len(chunk.text) <= cap:
             result.append(chunk)
             continue
 
-        start_line, _ = chunk.lines
-        lines = chunk.text.splitlines()
-        if not lines:
+        # Wave 1p3b9 (1p397): table-aware decomposition before line-wrap.
+        # Preserves column context — load-bearing for Decision Log / AC
+        # Priority / Risks tables in change docs (real-world tables reach
+        # 41K chars in committed change docs).
+        table_chunks = _decompose_oversized_table_chunk(chunk, cap)
+        if table_chunks is not None:
+            # Each emitted table chunk may itself still be over-cap (e.g., a
+            # single data row + header > cap on very wide tables under a low
+            # cap). Fall through to line/char-wrap for those residuals —
+            # don't recurse into `split_large_chunks`, which would re-enter
+            # the table path and infinite-loop.
+            for tc in table_chunks:
+                if len(tc.text) <= cap:
+                    result.append(tc)
+                else:
+                    result.extend(_line_wrap_chunk(tc, cap))
             continue
 
-        window_lines: list[str] = []
-        window_start = start_line
-        current_len = 0
-
-        for offset, line in enumerate(lines):
-            line_len = len(line) + 1
-            if window_lines and current_len + line_len > max_chars:
-                window_end = window_start + len(window_lines) - 1
-                result.append(Chunk(
-                    id=f"{chunk.id}:L{window_start}-L{window_end}",
-                    path=chunk.path,
-                    kind=chunk.kind,
-                    language=chunk.language,
-                    lines=(window_start, window_end),
-                    section=chunk.section,
-                    text="\n".join(window_lines),
-                ))
-                window_lines = []
-                window_start = start_line + offset
-                current_len = 0
-            window_lines.append(line)
-            current_len += line_len
-
-        if window_lines:
-            window_end = window_start + len(window_lines) - 1
-            result.append(Chunk(
-                id=f"{chunk.id}:L{window_start}-L{window_end}",
-                path=chunk.path,
-                kind=chunk.kind,
-                language=chunk.language,
-                lines=(window_start, window_end),
-                section=chunk.section,
-                text="\n".join(window_lines),
-            ))
+        result.extend(_line_wrap_chunk(chunk, cap))
 
     return result
+
+
+# Backward-compat alias for any external caller still referencing the old
+# code-only name. Internal callers should use `split_large_chunks` directly.
+split_large_code_chunks = split_large_chunks
 
 
 # ---------------------------------------------------------------------------
@@ -659,6 +989,142 @@ def _split_h3_sections(
     return chunks
 
 
+# Wave 1p3b9 (1p397): regex for top-level list-item starts. Matches both
+# numbered (`1.`, `2.`, etc.) and bullet (`-`, `*`, `+`) lists at column 0
+# (top-level only — nested list items are indented and stay with their
+# parent). Used by `_decompose_oversized_markdown_body` to detect list
+# structure for per-item decomposition.
+_TOP_LEVEL_LIST_ITEM_RE = re.compile(r"^(?:\d+\.|[-*+])\s+", re.MULTILINE)
+
+
+def _decompose_oversized_markdown_body(
+    body: str,
+    start_line: int,
+    path: str,
+    kind: str,
+    slug: str,
+    max_chars: int = MAX_CHUNK_CHARS,
+) -> list[Chunk]:
+    """Decompose an oversized markdown body into chunks ≤ max_chars.
+
+    Wave 1p3b9 (1p397): used when a primary section's body exceeds
+    ``MAX_CHUNK_CHARS`` (typically H1-only seed/prompt files like
+    seed-040 with long numbered task lists). Walks top-level blocks
+    (blank-line-separated paragraphs / lists) and groups them greedily
+    into chunks up to the cap.
+
+    When a single block (typically an entire numbered list) itself
+    exceeds the cap, it is decomposed at top-level list-item boundaries
+    so each emitted chunk contains a coherent set of items, not an
+    arbitrary hard-wrap of the middle of an item.
+
+    Anything still over-cap after this pass (e.g., a single list item
+    that is itself a 10K-char code block) falls through to the universal
+    ``split_large_chunks`` guard at ``chunk_file``.
+
+    Each emitted chunk's ``section`` derives from the first paragraph or
+    list-item text (truncated to 80 chars) so retrieval surfaces have a
+    meaningful breadcrumb.
+    """
+    if not body.strip():
+        return []
+
+    # Split body into top-level blocks at blank-line boundaries
+    blocks: list[tuple[int, str]] = []  # (start_line_offset, block_text)
+    current_block_lines: list[str] = []
+    current_block_start_offset = 0
+    line_offset = 0
+    for line in body.splitlines():
+        if line.strip() == "":
+            if current_block_lines:
+                blocks.append((current_block_start_offset, "\n".join(current_block_lines)))
+                current_block_lines = []
+            line_offset += 1
+            continue
+        if not current_block_lines:
+            current_block_start_offset = line_offset
+        current_block_lines.append(line)
+        line_offset += 1
+    if current_block_lines:
+        blocks.append((current_block_start_offset, "\n".join(current_block_lines)))
+
+    if not blocks:
+        return []
+
+    # Pre-pass: any block that is itself oversized AND is a top-level list
+    # gets decomposed into per-list-item sub-blocks. Other oversized blocks
+    # (long single paragraphs, code blocks) stay as one block for now and
+    # rely on the universal guard.
+    expanded_blocks: list[tuple[int, str]] = []
+    for offset, block_text in blocks:
+        if len(block_text) <= max_chars:
+            expanded_blocks.append((offset, block_text))
+            continue
+        # Is this a top-level list? Check first line.
+        first_line = block_text.split("\n", 1)[0]
+        if not _TOP_LEVEL_LIST_ITEM_RE.match(first_line):
+            expanded_blocks.append((offset, block_text))
+            continue
+        # Decompose at top-level list-item boundaries. Nested children
+        # (lines starting with whitespace) stay with their parent item.
+        item_lines: list[str] = []
+        item_start_offset = offset
+        sub_offset = 0
+        for line in block_text.splitlines():
+            if item_lines and _TOP_LEVEL_LIST_ITEM_RE.match(line):
+                expanded_blocks.append((item_start_offset, "\n".join(item_lines)))
+                item_lines = []
+                item_start_offset = offset + sub_offset
+            item_lines.append(line)
+            sub_offset += 1
+        if item_lines:
+            expanded_blocks.append((item_start_offset, "\n".join(item_lines)))
+
+    # Walker: group blocks greedily into chunks ≤ max_chars.
+    chunks: list[Chunk] = []
+    current_text_parts: list[str] = []
+    current_first_block_text: Optional[str] = None
+    current_start_offset: int = 0
+    current_len = 0
+
+    def _flush() -> None:
+        if not current_text_parts:
+            return
+        text = "\n\n".join(current_text_parts).strip()
+        if not text:
+            return
+        section_hint = (current_first_block_text or text).split("\n", 1)[0].strip()
+        # Strip leading list-item marker for cleaner section labels
+        section_hint = re.sub(r"^(?:\d+\.|[-*+])\s+", "", section_hint)
+        section = section_hint[:80].strip() or None
+        sl = start_line + current_start_offset
+        el = sl + text.count("\n")
+        chunks.append(Chunk(
+            id=f"{path}#{slug}@L{sl}",
+            path=path,
+            kind=kind,
+            language=None,
+            lines=(sl, el),
+            section=section,
+            text=text,
+        ))
+
+    for offset, block_text in expanded_blocks:
+        block_len = len(block_text) + 2  # +2 for the blank-line separator
+        if current_text_parts and current_len + block_len > max_chars:
+            _flush()
+            current_text_parts = []
+            current_first_block_text = None
+            current_len = 0
+        if not current_text_parts:
+            current_start_offset = offset
+            current_first_block_text = block_text
+        current_text_parts.append(block_text)
+        current_len += block_len
+    _flush()
+    return chunks
+
+
 def chunk_markdown(
     source: str,
     path: str,
@@ -728,15 +1194,26 @@ def chunk_markdown(
             if suppress_code_extraction:
                 prose = body.strip()
                 if prose:
-                    chunks.append(Chunk(
-                        id=f"{path}#{slug}",
-                        path=path,
-                        kind=default_kind,
-                        language=None,
-                        lines=(start_line, section_end),
-                        section=None,
-                        text=prose,
-                    ))
+                    # Wave 1p3b9 (1p397): when an H1-only seed/prompt body
+                    # exceeds the cap, decompose at paragraph + list-item
+                    # boundaries before falling through to the universal
+                    # guard. Acute case: seed-040 / seed-060 / etc. with
+                    # long "Intent + numbered Tasks" structure and no H2s.
+                    if (default_kind in ("seed", "prompt")
+                            and len(prose) > MAX_CHUNK_CHARS):
+                        chunks.extend(_decompose_oversized_markdown_body(
+                            prose, start_line, path, default_kind, slug,
+                        ))
+                    else:
+                        chunks.append(Chunk(
+                            id=f"{path}#{slug}",
+                            path=path,
+                            kind=default_kind,
+                            language=None,
+                            lines=(start_line, section_end),
+                            section=None,
+                            text=prose,
+                        ))
             else:
                 code_chunks, code_spans = _extract_fenced_code(
                     body, start_line, None, slug, path, default_kind
@@ -750,6 +1227,12 @@ def chunk_markdown(
                     prose = prose[:start_pos] + prose[end_pos:]
                 prose = prose.strip()
                 if prose:
+                    if (default_kind in ("seed", "prompt")
+                            and len(prose) > MAX_CHUNK_CHARS):
+                        chunks.extend(_decompose_oversized_markdown_body(
+                            prose, start_line, path, default_kind, slug,
+                        ))
+                        continue
                     chunks.append(Chunk(
                         id=f"{path}#{slug}",
                         path=path,
@@ -3935,8 +4418,26 @@ def _extract_leading_comment(source: str) -> Optional[str]:
     return "\n".join(comment_lines) if comment_lines else None
 
 
-def _chunk_code_summary(source: str, path: str, language: str) -> Optional[Chunk]:
-    """Emit one kind='code-summary' chunk per source file: module docstring + top-level symbols."""
+def _chunk_code_summary(
+    source: str,
+    path: str,
+    language: str,
+    *,
+    allow_module_fallback: bool = True,
+) -> Optional[Chunk]:
+    """Emit one kind='code-summary' chunk per source file: module docstring +
+    top-level symbols.
+
+    Wave 1p3iv (1p3jc): when neither a docstring nor extractable symbols are
+    found but the file has non-comment content (re-export `__init__.py`,
+    TypeScript barrel `index.ts`, Go single-file packages, Rust `mod.rs`,
+    etc.), fall back to emitting the top-level non-comment lines so the
+    package's public surface is semantically searchable. Without this
+    fallback, `code_search` misses re-export files entirely; today only
+    `code_keyword` (text-backed) finds them. Language-agnostic — works for
+    any code file because the fallback only fires when language-specific
+    symbol extraction yields nothing.
+    """
     if not source.strip():
         return None
     if language == "python":
@@ -3944,14 +4445,30 @@ def _chunk_code_summary(source: str, path: str, language: str) -> Optional[Chunk
     else:
         docstring = _extract_leading_comment(source)
     symbols = _extract_code_symbols(source, language)
-    if not docstring and not symbols:
-        return None
-    parts = []
-    if docstring:
-        parts.append(docstring)
-    if symbols:
-        parts.append("Symbols: " + ", ".join(symbols))
-    text = "\n".join(parts)
+    if docstring or symbols:
+        parts = []
+        if docstring:
+            parts.append(docstring)
+        if symbols:
+            parts.append("Symbols: " + ", ".join(symbols))
+        text = "\n".join(parts)
+    else:
+        # Wave 1p3iv (1p3jc): symbolless-code-file fallback.
+        if not allow_module_fallback:
+            return None
+        fallback = _extract_module_content_lines(source, language)
+        if not fallback:
+            return None
+        total_lines = source.count("\n") + 1
+        return Chunk(
+            id=f"{path}::__module__",
+            path=path,
+            kind="code",
+            language=language,
+            lines=(1, total_lines),
+            section=_file_stem(path),
+            text=fallback,
+        )
     total_lines = source.count("\n") + 1
     return Chunk(
         id=f"{path}#summary",
@@ -3962,6 +4479,95 @@ def _chunk_code_summary(source: str, path: str, language: str) -> Optional[Chunk
         section="summary",
         text=text,
     )
+
+
+# Wave 1p3iv (1p3jc): per-language comment-line prefixes. Used by the
+# symbolless-code-file fallback in `_chunk_code_summary` to skip comment
+# lines when building a module-summary text body. Unknown languages get a
+# permissive default that covers the most common shells.
+_MODULE_SUMMARY_COMMENT_PREFIXES = {
+    "python": ("#",),
+    "bash": ("#",),
+    "shell": ("#",),
+    "ruby": ("#",),
+    "perl": ("#",),
+    "yaml": ("#",),
+    "toml": ("#",),
+    "hcl": ("#",),
+    "javascript": ("//", "/*", "*"),
+    "typescript": ("//", "/*", "*"),
+    "go": ("//", "/*", "*"),
+    "rust": ("//", "/*", "*"),
+    "java": ("//", "/*", "*"),
+    "kotlin": ("//", "/*", "*"),
+    "swift": ("//", "/*", "*"),
+    "scala": ("//", "/*", "*"),
+    "csharp": ("//", "/*", "*"),
+    "c": ("//", "/*", "*"),
+    "cpp": ("//", "/*", "*"),
+    "objc": ("//", "/*", "*"),
+    "php": ("//", "#", "/*", "*"),
+    "sql": ("--", "/*", "*"),
+    "html": ("<!--",),
+    "xml": ("<!--",),
+}
+
+_MODULE_SUMMARY_MAX_LINES = 50
+
+
+def _extract_module_content_lines(source: str, language: str) -> Optional[str]:
+    """Return non-blank, non-comment top-level lines from ``source`` (up to
+    ``_MODULE_SUMMARY_MAX_LINES``) for use as a fallback summary body when
+    no docstring or symbols are extractable.
+
+    Wave 1p3iv (1p3jc): gives `code_search` a foothold on re-export files,
+    barrel files, single-file packages, and module-level constant
+    declarations that would otherwise be invisible to semantic search.
+    """
+    prefixes = _MODULE_SUMMARY_COMMENT_PREFIXES.get(
+        language, ("//", "#", "--", "/*", "<!--")
+    )
+    out: list[str] = []
+    for line in source.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if any(stripped.startswith(p) for p in prefixes):
+            continue
+        out.append(stripped)
+        if len(out) >= _MODULE_SUMMARY_MAX_LINES:
+            break
+    if not out:
+        return None
+    return "\n".join(out)
+
+
+_WAVEFRAMEWORK_MARKER_BEGIN_RE = re.compile(
+    r"<!--\s*waveframework:[\w:-]+\s+begin\s*-->"
+)
+_WAVEFRAMEWORK_MARKER_END_RE = re.compile(r"<!--\s*end\s*-->")
+
+
+def _strip_waveframework_marker_regions(source: str) -> str:
+    """Return source with generated Wave Framework marker regions removed.
+
+    Used only as a zero-content guard before dispatch: if a file contains
+    nothing outside generated marker regions, it should emit zero semantic
+    chunks. Files with hand-authored content outside the markers continue
+    through the normal chunking path unchanged.
+    """
+    lines: list[str] = []
+    inside_marker = False
+    for line in source.splitlines():
+        if not inside_marker and _WAVEFRAMEWORK_MARKER_BEGIN_RE.search(line):
+            inside_marker = True
+            continue
+        if inside_marker:
+            if _WAVEFRAMEWORK_MARKER_END_RE.search(line):
+                inside_marker = False
+            continue
+        lines.append(line)
+    return "\n".join(lines)
 
 
 _FIRST_SECTION_OPENING_MAX = 150
@@ -4157,7 +4763,24 @@ def chunk_jupyter(source: str, path: str) -> list[Chunk]:
 
 
 def chunk_file(source: str, path: str) -> list[Chunk]:
-    """Dispatch to the appropriate chunker based on file path and extension."""
+    """Dispatch to the appropriate chunker; then apply the universal oversized-chunk guard.
+
+    Wave 1p3b9 (1p397): the universal guard at the end ensures every emitted
+    chunk is ≤ ``MAX_CHUNK_CHARS`` regardless of which dispatch branch
+    produced it. Code branches already apply ``split_large_code_chunks``
+    per-branch; the universal pass here is idempotent on those (chunks
+    already at or under the cap pass through unchanged). The load-bearing
+    case is non-code dispatch paths (markdown / doc / seed / prompt / plain
+    text / YAML / JSON / TOML / HTML / XML) that previously emitted unbounded
+    chunks the embedder would silently truncate.
+    """
+    if source.strip() and not _strip_waveframework_marker_regions(source).strip():
+        return []
+    return split_large_chunks(_chunk_file_dispatch(source, path))
+
+
+def _chunk_file_dispatch(source: str, path: str) -> list[Chunk]:
+    """The original chunk-by-extension dispatch logic. See ``chunk_file``."""
     normalized = _normalize_path(path)
     suffix = PurePosixPath(normalized).suffix.lower()
 
@@ -4183,9 +4806,17 @@ def chunk_file(source: str, path: str) -> list[Chunk]:
 
     if suffix in PYTHON_EXTENSIONS:
         chunks = split_large_code_chunks(chunk_python(source, normalized))
-        summary = _chunk_code_summary(source, normalized, "python")
+        summary = _chunk_code_summary(
+            source, normalized, "python", allow_module_fallback=False
+        )
         if summary:
             chunks = [summary] + chunks
+        else:
+            module_chunk = _chunk_code_summary(
+                source, normalized, "python", allow_module_fallback=True
+            )
+            if module_chunk:
+                chunks = [module_chunk]
         return chunks
 
     if suffix in MARKDOWN_EXTENSIONS:
@@ -4211,8 +4842,15 @@ def chunk_file(source: str, path: str) -> list[Chunk]:
 
     # For all code language paths below, prepend a code-summary chunk when extractable.
     def _with_summary(chunks: list[Chunk], language: str) -> list[Chunk]:
-        s = _chunk_code_summary(source, normalized, language)
-        return ([s] + chunks) if s else chunks
+        s = _chunk_code_summary(
+            source, normalized, language, allow_module_fallback=False
+        )
+        if s:
+            return [s] + chunks
+        module_chunk = _chunk_code_summary(
+            source, normalized, language, allow_module_fallback=True
+        )
+        return [module_chunk] if module_chunk else chunks
 
     if suffix in JAVA_EXTENSIONS:
         ts_result = chunk_java_treesitter(source, normalized)

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-03
+Last verified: 2026-06-05
 
 Shortcut: **`Upgrade wave framework`** | Legacy: **`Upgrade Wavefoundry`** / **`Upgrade wave context`**
 
@@ -81,7 +81,7 @@ python3 .wavefoundry/framework/scripts/render_agent_surfaces.py
 1. **Tier 1 — `AGENTS.md`** (manual merge when sections missing; renderer does not replace these):
    - `## Codebase and documentation questions (auto-Guru)`
    - `### Agent platform routing` (all hosts; tier 1–2 for Junie, Air, Windsurf, Copilot, Warp)
-2. **Guru role** — ensure `docs/agents/guru.md` exists (`Role: guru`); migrate from legacy `code-insight-agent` paths when present; update `docs/prompts/index.md` **Guru** row
+2. **Guru role** — ensure `docs/agents/guru.md` exists (`Role: guru`); update `docs/prompts/index.md` **Guru** row
 3. **Re-run renderer** after tier-1 backfill if those sections were just added
 4. **Tier 2–3 — generated files** (do not hand-edit `waveframework:auto-guru` marker regions):
    - `.cursor/rules/auto-guru.mdc`, `.claude/agents/guru.md`, `.codex/skills/auto-guru/SKILL.md`

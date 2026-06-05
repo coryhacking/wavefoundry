@@ -747,10 +747,25 @@ def check_wave_docs(root: Path) -> list[str]:
                 failures.append(f"{rel}: ready or active wave records must use `Change ID` / `Change Status`, not `Item ID` / `Item Status`")
             if forward_wave and "## Changes" not in text:
                 failures.append(f"{rel}: ready or active wave records must include `## Changes`")
+            # Wave 1p3dk / 1p3do: a freshly-created `planned` wave has no
+            # admitted changes yet. Defer the Change-ID requirement when both
+            # (a) Status: planned AND (b) ## Changes section exists but is
+            # empty of records. The deferral disables the moment status moves
+            # past planned OR the first change is admitted — full enforcement
+            # resumes.
+            wave_status = (_metadata_value(text, "Status") or "").casefold().strip()
+            empty_changes_planned_wave = (
+                wave_status == "planned"
+                and "## Changes" in text
+                and not change_records
+                and not legacy_item_records
+            )
             if not forward_wave and not change_records and not legacy_item_records:
-                failures.append(f"{rel}: missing stable `Change ID` declaration")
+                if not empty_changes_planned_wave:
+                    failures.append(f"{rel}: missing stable `Change ID` declaration")
             if forward_wave and not change_records:
-                failures.append(f"{rel}: missing stable `Change ID` declaration")
+                if not empty_changes_planned_wave:
+                    failures.append(f"{rel}: missing stable `Change ID` declaration")
 
         if is_wave_record:
             for record in work_records:

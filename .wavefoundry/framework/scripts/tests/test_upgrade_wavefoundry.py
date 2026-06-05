@@ -970,6 +970,35 @@ class RoleBackfillMigrationTests(unittest.TestCase):
         # Verify the journal file was not modified
         self.assertNotIn("Role:", path.read_text(encoding="utf-8"))
 
+    def test_F6_recursive_walk_finds_nested_layout(self):
+        """Wave 1p3b9 (1p3b7 F6): the migration walks docs/agents/ recursively
+        so enterprise nested layouts (e.g., `docs/agents/teams/<team>/<role>.md`)
+        are covered. Previously the migration walked three fixed subdirs and
+        missed deeper nesting."""
+        nested = self.root / "docs" / "agents" / "teams" / "auth-team"
+        nested.mkdir(parents=True)
+        (nested / "code-reviewer.md").write_text(
+            "Owner: Engineering\nStatus: active\nCategory: review\n", encoding="utf-8"
+        )
+        modified = self.ext._backfill_role_field_on_agent_docs(self.root)
+        self.assertEqual(modified, ["docs/agents/teams/auth-team/code-reviewer.md"])
+        # File was rewritten with Role: line
+        text = (nested / "code-reviewer.md").read_text(encoding="utf-8")
+        self.assertIn("Role: code-reviewer", text)
+
+    def test_F6_journals_skipped_at_any_depth(self):
+        """Wave 1p3b9 (1p3b7 F6): the `journals` skip applies at any depth in
+        the agents tree. A team's journal doc deep in the tree must NOT get
+        a Role: insertion."""
+        deep_journal = self.root / "docs" / "agents" / "teams" / "auth" / "journals" / "note.md"
+        deep_journal.parent.mkdir(parents=True)
+        original = "Owner: x\nStatus: active\n## Captures\n"
+        deep_journal.write_text(original, encoding="utf-8")
+        modified = self.ext._backfill_role_field_on_agent_docs(self.root)
+        self.assertEqual(modified, [])
+        # File unchanged
+        self.assertEqual(deep_journal.read_text(encoding="utf-8"), original)
+
     def test_walks_specialists_and_personas_subdirs(self):
         self._write(
             "docs/agents/specialists/red-team.md",
@@ -1087,7 +1116,8 @@ class SettingsJsonPycacheRowStripTests(unittest.TestCase):
             },
         })
         result = self.ext._strip_pycache_row_from_claude_settings(self.root)
-        self.assertEqual(result, ".claude/settings.json")
+        # Wave 1p3b9 (1p3b7 F4): function now returns list of paths modified.
+        self.assertEqual(result, [".claude/settings.json"])
         data = self._read()
         post = data["hooks"]["PostToolUse"]
         self.assertEqual(len(post), 1)
@@ -1104,7 +1134,7 @@ class SettingsJsonPycacheRowStripTests(unittest.TestCase):
             ]},
         })
         result = self.ext._strip_pycache_row_from_claude_settings(self.root)
-        self.assertEqual(result, ".claude/settings.json")
+        self.assertEqual(result, [".claude/settings.json"])
         self.assertEqual(self._read()["hooks"]["PostToolUse"], [])
 
     def test_preserves_operator_custom_bash_hook(self):
@@ -1118,13 +1148,13 @@ class SettingsJsonPycacheRowStripTests(unittest.TestCase):
             ]},
         })
         result = self.ext._strip_pycache_row_from_claude_settings(self.root)
-        self.assertEqual(result, ".claude/settings.json")
+        self.assertEqual(result, [".claude/settings.json"])
         post = self._read()["hooks"]["PostToolUse"]
         self.assertEqual(len(post), 1)
         self.assertIn("audit-log", post[0]["hooks"][0]["command"])
 
     def test_noop_when_no_pycache_row(self):
-        """AC-9: when no pycache row present, no file rewrite, return None."""
+        """AC-9: when no pycache row present, no file rewrite, return empty list."""
         self._write({
             "hooks": {"PostToolUse": [
                 {"matcher": "Edit|Write",
@@ -1133,20 +1163,20 @@ class SettingsJsonPycacheRowStripTests(unittest.TestCase):
         })
         before = self.settings_path.read_text(encoding="utf-8")
         result = self.ext._strip_pycache_row_from_claude_settings(self.root)
-        self.assertIsNone(result)
+        self.assertEqual(result, [])
         self.assertEqual(self.settings_path.read_text(encoding="utf-8"), before)
 
-    def test_missing_settings_file_returns_none(self):
+    def test_missing_settings_file_returns_empty_list(self):
         # setUp creates the parent dir but never writes settings.json
         self.assertFalse(self.settings_path.exists())
-        self.assertIsNone(self.ext._strip_pycache_row_from_claude_settings(self.root))
+        self.assertEqual(self.ext._strip_pycache_row_from_claude_settings(self.root), [])
 
-    def test_malformed_settings_returns_none(self):
+    def test_malformed_settings_returns_empty_list(self):
         self.settings_path.write_text("{not valid json", encoding="utf-8")
-        self.assertIsNone(self.ext._strip_pycache_row_from_claude_settings(self.root))
+        self.assertEqual(self.ext._strip_pycache_row_from_claude_settings(self.root), [])
 
     def test_idempotent_second_run_is_noop(self):
-        """AC-13: after first strip, second call returns None and doesn't rewrite."""
+        """AC-13: after first strip, second call returns empty list and doesn't rewrite."""
         self._write({
             "hooks": {"PostToolUse": [
                 {"matcher": "Bash",
@@ -1154,9 +1184,318 @@ class SettingsJsonPycacheRowStripTests(unittest.TestCase):
             ]},
         })
         first = self.ext._strip_pycache_row_from_claude_settings(self.root)
-        self.assertEqual(first, ".claude/settings.json")
+        self.assertEqual(first, [".claude/settings.json"])
         second = self.ext._strip_pycache_row_from_claude_settings(self.root)
-        self.assertIsNone(second)
+        self.assertEqual(second, [])
+
+    def test_F4_strips_from_settings_local_json_too(self):
+        """Wave 1p3b9 (1p3b7 F4): personal-override settings.local.json gets
+        stripped alongside the committed settings.json. Enterprise consumers
+        with shared local-overrides don't leave the orphan row behind."""
+        self._write({
+            "hooks": {"PostToolUse": [
+                {"matcher": "Bash",
+                 "hooks": [{"type": "command", "command": ".claude/hooks/pycache-cleanup"}]},
+            ]},
+        })
+        local_path = self.root / ".claude" / "settings.local.json"
+        local_path.write_text(
+            json.dumps({"hooks": {"PostToolUse": [
+                {"matcher": "Bash",
+                 "hooks": [{"type": "command",
+                            "command": ".claude/hooks/pycache-cleanup"}]},
+            ]}}, indent=2),
+            encoding="utf-8",
+        )
+        result = self.ext._strip_pycache_row_from_claude_settings(self.root)
+        self.assertEqual(sorted(result), [
+            ".claude/settings.json",
+            ".claude/settings.local.json",
+        ])
+        # Both files have the row removed
+        for rel in (".claude/settings.json", ".claude/settings.local.json"):
+            data = json.loads((self.root / rel).read_text(encoding="utf-8"))
+            self.assertEqual(data["hooks"]["PostToolUse"], [])
+
+    def test_F4_settings_local_only(self):
+        """Only settings.local.json has the row; settings.json absent.
+        Strip operates on whichever file exists and has the row."""
+        local_path = self.root / ".claude" / "settings.local.json"
+        local_path.write_text(
+            json.dumps({"hooks": {"PostToolUse": [
+                {"matcher": "Bash",
+                 "hooks": [{"type": "command",
+                            "command": ".claude/hooks/pycache-cleanup"}]},
+            ]}}, indent=2),
+            encoding="utf-8",
+        )
+        result = self.ext._strip_pycache_row_from_claude_settings(self.root)
+        self.assertEqual(result, [".claude/settings.local.json"])
+
+
+class ConvergenceMigrationTests(unittest.TestCase):
+    """Wave 1p3iv (1p3j7): convergence half — `post_extract` always runs the
+    legacy-config-key rewrite (no version gate), driven by the canonical-names
+    manifest. Tests cover the rewrite helpers in isolation; integration with
+    `post_extract` is verified by `PostExtractHookOrchestrationTests`."""
+
+    def setUp(self):
+        self.ext = _load_upgrade_extensions()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+        (self.root / "docs").mkdir()
+        (self.root / ".wavefoundry" / "framework").mkdir(parents=True)
+        # Plant a minimal canonical-names manifest in the test repo so the
+        # rewrite helpers can resolve aliases against it.
+        manifest = {
+            "schema_version": 1,
+            "role_renames": {},
+            "config_key_renames": {
+                "wave_council_policy": {
+                    "canonical": "wave_review", "removed_in": "2.0.0",
+                },
+                "wave_execution": {
+                    "canonical": "wave_implement", "removed_in": "2.0.0",
+                },
+            },
+        }
+        (self.root / ".wavefoundry/framework/canonical-names.json").write_text(
+            json.dumps(manifest), encoding="utf-8",
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_config(self, data):
+        (self.root / "docs/workflow-config.json").write_text(
+            json.dumps(data, indent=2) + "\n", encoding="utf-8",
+        )
+
+    def _read_config(self):
+        return json.loads((self.root / "docs/workflow-config.json").read_text(encoding="utf-8"))
+
+    def test_rewrite_renames_legacy_to_canonical(self):
+        """Legacy-only key → renamed in-place; performed tuple carries
+        action='rename' and dropped_value=None."""
+        self._write_config({"wave_council_policy": {"enabled": True}, "other": 1})
+        performed = self.ext._rewrite_legacy_config_keys(self.root)
+        self.assertEqual(
+            performed,
+            [("wave_council_policy", "wave_review", "rename", None)],
+        )
+        result = self._read_config()
+        self.assertIn("wave_review", result)
+        self.assertNotIn("wave_council_policy", result)
+        self.assertEqual(result["wave_review"], {"enabled": True})
+        # Other keys preserved
+        self.assertEqual(result["other"], 1)
+
+    def test_rewrite_drops_legacy_when_canonical_already_present(self):
+        """Both legacy AND canonical → canonical wins (operator-explicit),
+        legacy entry is dropped; the dropped value is captured in the
+        returned tuple so operators can recover it from the log."""
+        self._write_config({
+            "wave_review": {"enabled": True, "explicit": True},
+            "wave_council_policy": {"enabled": False},
+        })
+        performed = self.ext._rewrite_legacy_config_keys(self.root)
+        # Action discriminator distinguishes drop from rename, and the dropped
+        # value is captured for log fidelity (1p3iv post-review fix).
+        self.assertEqual(
+            performed,
+            [(
+                "wave_council_policy",
+                "wave_review",
+                "drop",
+                {"enabled": False},
+            )],
+        )
+        result = self._read_config()
+        self.assertNotIn("wave_council_policy", result)
+        self.assertEqual(result["wave_review"], {"enabled": True, "explicit": True})
+
+    def test_rewrite_is_noop_when_canonical_only(self):
+        """No legacy keys present → no work; performed list is empty."""
+        self._write_config({"wave_review": {"enabled": True}})
+        performed = self.ext._rewrite_legacy_config_keys(self.root)
+        self.assertEqual(performed, [])
+        # File untouched (still contains canonical only)
+        self.assertEqual(self._read_config(), {"wave_review": {"enabled": True}})
+
+    def test_rewrite_handles_multiple_legacy_keys_in_one_pass(self):
+        """Both legacy spellings present → both renamed in one call."""
+        self._write_config({
+            "wave_council_policy": {"a": 1},
+            "wave_execution": {"b": 2},
+        })
+        performed = self.ext._rewrite_legacy_config_keys(self.root)
+        legacies = {item[0] for item in performed}
+        self.assertEqual(legacies, {"wave_council_policy", "wave_execution"})
+        actions = {item[2] for item in performed}
+        self.assertEqual(actions, {"rename"})
+        result = self._read_config()
+        self.assertIn("wave_review", result)
+        self.assertIn("wave_implement", result)
+
+    def test_rewrite_is_idempotent(self):
+        """Running the rewrite twice yields no work on the second invocation."""
+        self._write_config({"wave_council_policy": {"enabled": True}})
+        first = self.ext._rewrite_legacy_config_keys(self.root)
+        second = self.ext._rewrite_legacy_config_keys(self.root)
+        self.assertEqual(
+            first,
+            [("wave_council_policy", "wave_review", "rename", None)],
+        )
+        self.assertEqual(second, [])
+
+    def test_rewrite_captures_dropped_value_for_complex_legacy_state(self):
+        """When the legacy entry holds a non-trivial dict, the dropped value
+        is captured in full so the log line can render it as JSON."""
+        legacy_value = {
+            "enabled": False,
+            "policy": {"required_for_all_waves": True},
+            "fixed_seats": ["red-team"],
+        }
+        self._write_config({
+            "wave_review": {"enabled": True},
+            "wave_council_policy": legacy_value,
+        })
+        performed = self.ext._rewrite_legacy_config_keys(self.root)
+        self.assertEqual(len(performed), 1)
+        _legacy, _canonical, action, dropped_value = performed[0]
+        self.assertEqual(action, "drop")
+        self.assertEqual(dropped_value, legacy_value)
+
+    # --- Report file writers (1p3iv post-review fix #2) ---
+
+    def test_real_run_writes_convergence_log_file(self):
+        """Real-run with renames performed → writes
+        upgrade-convergence-migration.log with a record per performed item."""
+        self._write_config({"wave_council_policy": {"enabled": True}})
+
+        class _Ctx:
+            pass
+        ctx = _Ctx()
+        ctx.root = self.root
+        ctx.dry_run = False
+        ctx.from_version = "1.5.0+abcd"
+        ctx.to_version = "1.5.0+efgh"
+        ctx.zip_path = None
+        ctx.yes = True
+
+        self.ext._run_convergence_migration(ctx)
+
+        log_path = self.root / ".wavefoundry/logs/upgrade-convergence-migration.log"
+        self.assertTrue(log_path.exists())
+        body = log_path.read_text(encoding="utf-8")
+        self.assertIn("REAL RUN", body)
+        self.assertIn("renamed `wave_council_policy` → `wave_review`", body)
+
+    def test_real_run_log_records_dropped_value_for_drop_case(self):
+        """Real-run with a drop → log records the dropped value as JSON so
+        operators can recover from the file alone."""
+        self._write_config({
+            "wave_review": {"enabled": True},
+            "wave_council_policy": {"enabled": False, "marker": "operator-set"},
+        })
+
+        class _Ctx:
+            pass
+        ctx = _Ctx()
+        ctx.root = self.root
+        ctx.dry_run = False
+        ctx.from_version = "1.5.0+abcd"
+        ctx.to_version = "1.5.0+efgh"
+        ctx.zip_path = None
+        ctx.yes = True
+
+        self.ext._run_convergence_migration(ctx)
+
+        log_path = self.root / ".wavefoundry/logs/upgrade-convergence-migration.log"
+        body = log_path.read_text(encoding="utf-8")
+        self.assertIn("dropped legacy `wave_council_policy`", body)
+        # The dropped value (a JSON dict) appears in the log so the operator
+        # can recover it without consulting git history.
+        self.assertIn('"marker": "operator-set"', body)
+
+    def test_dry_run_writes_convergence_preview_log_file(self):
+        """Dry-run with planned actions → writes
+        upgrade-convergence-migration.preview.log (parity with the 1.4 → 1.5
+        migration preview report shape)."""
+        self._write_config({"wave_council_policy": {"enabled": True}})
+
+        class _Ctx:
+            pass
+        ctx = _Ctx()
+        ctx.root = self.root
+        ctx.dry_run = True
+        ctx.from_version = "1.5.0+abcd"
+        ctx.to_version = "1.5.0+efgh"
+        ctx.zip_path = None
+        ctx.yes = True
+
+        self.ext._run_convergence_migration(ctx)
+
+        preview_path = self.root / ".wavefoundry/logs/upgrade-convergence-migration.preview.log"
+        self.assertTrue(preview_path.exists())
+        body = preview_path.read_text(encoding="utf-8")
+        self.assertIn("PREVIEW", body)
+        self.assertIn("would rename `wave_council_policy` → `wave_review`", body)
+        # File on disk is untouched
+        self.assertEqual(
+            self._read_config(),
+            {"wave_council_policy": {"enabled": True}},
+        )
+
+    def test_no_log_files_when_no_renames_apply(self):
+        """No legacy keys → no log files written (silent no-op)."""
+        self._write_config({"wave_review": {"enabled": True}})
+
+        class _Ctx:
+            pass
+        ctx = _Ctx()
+        ctx.root = self.root
+        ctx.dry_run = False
+        ctx.from_version = "1.5.0+abcd"
+        ctx.to_version = "1.5.0+efgh"
+        ctx.zip_path = None
+        ctx.yes = True
+
+        self.ext._run_convergence_migration(ctx)
+
+        self.assertFalse((self.root / ".wavefoundry/logs/upgrade-convergence-migration.log").exists())
+        self.assertFalse((self.root / ".wavefoundry/logs/upgrade-convergence-migration.preview.log").exists())
+
+    def test_rewrite_is_noop_when_workflow_config_missing(self):
+        """No workflow-config.json → no error, empty result."""
+        self.assertEqual(self.ext._rewrite_legacy_config_keys(self.root), [])
+
+    def test_rewrite_is_noop_when_workflow_config_malformed(self):
+        """Malformed JSON → no error, empty result (degraded mode)."""
+        (self.root / "docs/workflow-config.json").write_text("{not valid", encoding="utf-8")
+        self.assertEqual(self.ext._rewrite_legacy_config_keys(self.root), [])
+
+    def test_preview_plans_renames_without_touching_disk(self):
+        """Preview returns the planned-action strings; file is unchanged."""
+        self._write_config({"wave_council_policy": {"enabled": True}})
+        before = (self.root / "docs/workflow-config.json").read_text(encoding="utf-8")
+        planned = self.ext._preview_legacy_config_key_rewrite(self.root)
+        after = (self.root / "docs/workflow-config.json").read_text(encoding="utf-8")
+        self.assertEqual(after, before)
+        self.assertEqual(len(planned), 1)
+        self.assertIn("wave_council_policy", planned[0])
+        self.assertIn("wave_review", planned[0])
+
+    def test_preview_distinguishes_rename_vs_drop_when_both_present(self):
+        """When both legacy and canonical exist, preview wording reflects the
+        drop-legacy outcome (not a rename)."""
+        self._write_config({
+            "wave_review": {"explicit": True},
+            "wave_council_policy": {"legacy": True},
+        })
+        planned = self.ext._preview_legacy_config_key_rewrite(self.root)
+        self.assertEqual(len(planned), 1)
+        self.assertIn("drop legacy", planned[0])
 
 
 class PostExtractHookOrchestrationTests(unittest.TestCase):
@@ -1269,6 +1608,471 @@ class PostExtractHookOrchestrationTests(unittest.TestCase):
         self.assertIn("ERROR", report)
         self.assertIn("synthetic failure", report)
         self.assertIn("pycache-cleanup.py", report)
+
+
+# ---------------------------------------------------------------------------
+# Wave 1p3b9 (1p3b6): migration preview helpers + post_extract dry-run branch
+# ---------------------------------------------------------------------------
+
+
+class RoleBackfillPreviewTests(unittest.TestCase):
+    """AC-2: `_preview_role_field_backfill` reports planned actions without
+    mutating files."""
+
+    def setUp(self):
+        self.ext = _load_upgrade_extensions()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+        (self.root / "docs" / "agents").mkdir(parents=True)
+        (self.root / "docs" / "agents" / "specialists").mkdir(parents=True)
+        (self.root / "docs" / "agents" / "journals").mkdir(parents=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_returns_empty_when_no_agent_docs(self):
+        self.assertEqual(self.ext._preview_role_field_backfill(self.root), [])
+
+    def test_reports_planned_role_insertion_without_mutating(self):
+        path = self.root / "docs" / "agents" / "code-reviewer.md"
+        original = (
+            "# Code Reviewer\n\n"
+            "Owner: Engineering\n"
+            "Status: active\n"
+            "Category: review\n\n## Identity\n\nReviews.\n"
+        )
+        path.write_text(original, encoding="utf-8")
+        planned = self.ext._preview_role_field_backfill(self.root)
+        self.assertEqual(len(planned), 1)
+        self.assertIn("code-reviewer.md", planned[0])
+        self.assertIn("Role: code-reviewer", planned[0])
+        # File content unchanged
+        self.assertEqual(path.read_text(encoding="utf-8"), original)
+
+    def test_already_present_role_not_planned(self):
+        path = self.root / "docs" / "agents" / "existing.md"
+        path.write_text(
+            "Owner: Engineering\nStatus: active\nRole: existing\nCategory: review\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self.ext._preview_role_field_backfill(self.root), [])
+
+    def test_journals_subdir_not_walked(self):
+        path = self.root / "docs" / "agents" / "journals" / "wave-coordinator.md"
+        path.write_text("Owner: x\nStatus: active\n", encoding="utf-8")
+        self.assertEqual(self.ext._preview_role_field_backfill(self.root), [])
+
+
+class PycacheLauncherDeletionPreviewTests(unittest.TestCase):
+    """AC-3: `_preview_pycache_launcher_deletion` reports planned deletes
+    without removing files."""
+
+    def setUp(self):
+        self.ext = _load_upgrade_extensions()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+        (self.root / ".claude" / "hooks").mkdir(parents=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_returns_empty_when_no_launchers(self):
+        self.assertEqual(self.ext._preview_pycache_launcher_deletion(self.root), [])
+
+    def test_reports_planned_deletes_without_mutating(self):
+        for name in ("pycache-cleanup", "pycache-cleanup.py", "pycache-cleanup.cmd"):
+            (self.root / ".claude" / "hooks" / name).write_text("legacy\n", encoding="utf-8")
+        planned = self.ext._preview_pycache_launcher_deletion(self.root)
+        self.assertEqual(len(planned), 3)
+        for name in ("pycache-cleanup", "pycache-cleanup.py", "pycache-cleanup.cmd"):
+            self.assertTrue((self.root / ".claude" / "hooks" / name).exists())
+
+
+class SettingsPycacheStripPreviewTests(unittest.TestCase):
+    """AC-4: `_preview_settings_pycache_strip` describes the row that would
+    be stripped without rewriting the JSON."""
+
+    def setUp(self):
+        self.ext = _load_upgrade_extensions()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+        self.settings_path = self.root / ".claude" / "settings.json"
+        self.settings_path.parent.mkdir(parents=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_returns_none_when_no_settings_file(self):
+        self.assertIsNone(self.ext._preview_settings_pycache_strip(self.root))
+
+    def test_returns_none_when_no_pycache_row(self):
+        self.settings_path.write_text(
+            json.dumps({"hooks": {"PostToolUse": [
+                {"matcher": "Edit|Write",
+                 "hooks": [{"type": "command", "command": ".claude/hooks/post-edit"}]},
+            ]}}, indent=2),
+            encoding="utf-8",
+        )
+        original = self.settings_path.read_text(encoding="utf-8")
+        self.assertIsNone(self.ext._preview_settings_pycache_strip(self.root))
+        # File unchanged
+        self.assertEqual(self.settings_path.read_text(encoding="utf-8"), original)
+
+    def test_describes_planned_strip_without_mutating(self):
+        body = {"hooks": {"PostToolUse": [
+            {"matcher": "Bash",
+             "hooks": [{"type": "command", "command": ".claude/hooks/pycache-cleanup"}]},
+        ]}}
+        self.settings_path.write_text(json.dumps(body, indent=2), encoding="utf-8")
+        original = self.settings_path.read_text(encoding="utf-8")
+        result = self.ext._preview_settings_pycache_strip(self.root)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["matcher"], "Bash")
+        self.assertIn("pycache-cleanup", result["command"])
+        self.assertEqual(result["file"], ".claude/settings.json")
+        # File unchanged
+        self.assertEqual(self.settings_path.read_text(encoding="utf-8"), original)
+
+
+class PostExtractDryRunBranchTests(unittest.TestCase):
+    """AC-1, AC-5, AC-6, AC-8, AC-9: post_extract's dry-run branch produces
+    a preview-log to a distinct filename and performs zero mutations."""
+
+    def setUp(self):
+        self.ext = _load_upgrade_extensions()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _ctx(self, from_version="1.4.1+p347", dry_run=False):
+        class _Ctx:
+            pass
+        ctx = _Ctx()
+        ctx.root = self.root
+        ctx.from_version = from_version
+        ctx.to_version = "1.5.0"
+        ctx.zip_path = None
+        ctx.yes = True
+        ctx.dry_run = dry_run
+        return ctx
+
+    def _preview_log(self) -> Path:
+        return self.root / ".wavefoundry" / "logs" / "upgrade-migration-1.5.0.preview.log"
+
+    def _real_log(self) -> Path:
+        return self.root / ".wavefoundry" / "logs" / "upgrade-migration-1.5.0.log"
+
+    def test_dry_run_uses_distinct_filename_from_real_run(self):
+        """AC-6: preview log filename must differ from real-run log so a
+        subsequent real run doesn't shadow the preview."""
+        self.assertNotEqual(self._preview_log().name, self._real_log().name)
+
+    def test_dry_run_writes_preview_log_when_actions_planned(self):
+        """AC-5, AC-9: with planned actions present, dry-run writes the
+        preview log AND does not write the real-run log."""
+        (self.root / "docs" / "agents").mkdir(parents=True)
+        (self.root / "docs" / "agents" / "code-reviewer.md").write_text(
+            "Owner: x\nStatus: active\nCategory: review\n", encoding="utf-8",
+        )
+        self.ext.post_extract(self._ctx(dry_run=True))
+        self.assertTrue(self._preview_log().exists())
+        self.assertFalse(self._real_log().exists())
+        text = self._preview_log().read_text(encoding="utf-8")
+        self.assertIn("PREVIEW", text)
+        self.assertIn("code-reviewer", text)
+
+    def test_dry_run_zero_mutations(self):
+        """AC-8: dry-run never touches the consumer files."""
+        (self.root / "docs" / "agents").mkdir(parents=True)
+        agent_path = self.root / "docs" / "agents" / "code-reviewer.md"
+        agent_path.write_text(
+            "Owner: x\nStatus: active\nCategory: review\n", encoding="utf-8",
+        )
+        (self.root / ".claude" / "hooks").mkdir(parents=True)
+        launcher_path = self.root / ".claude" / "hooks" / "pycache-cleanup.py"
+        launcher_path.write_text("legacy\n", encoding="utf-8")
+        agent_before = agent_path.read_text(encoding="utf-8")
+        launcher_before = launcher_path.read_text(encoding="utf-8")
+        self.ext.post_extract(self._ctx(dry_run=True))
+        # No mutations to either file
+        self.assertEqual(agent_path.read_text(encoding="utf-8"), agent_before)
+        self.assertEqual(launcher_path.read_text(encoding="utf-8"), launcher_before)
+
+    def test_dry_run_with_no_planned_actions_writes_no_preview_log(self):
+        """When the consumer state has nothing to migrate, no preview log
+        is written (parallels the real-run behavior)."""
+        self.ext.post_extract(self._ctx(dry_run=True))
+        self.assertFalse(self._preview_log().exists())
+
+    def test_dry_run_respects_version_gate(self):
+        """Same version-gate behavior as the real run: if from_version is
+        already at the cutoff, neither preview nor real-run path fires."""
+        (self.root / "docs" / "agents").mkdir(parents=True)
+        (self.root / "docs" / "agents" / "code-reviewer.md").write_text(
+            "Owner: x\nStatus: active\nCategory: review\n", encoding="utf-8",
+        )
+        self.ext.post_extract(self._ctx(from_version="1.5.0", dry_run=True))
+        self.assertFalse(self._preview_log().exists())
+
+
+class ChunkerVersionBumpDetectionTests(unittest.TestCase):
+    """Wave 1p3dk / 1p3ho: chunker-version-aware upgrade routing.
+
+    Closes the Solaris failure mode where 1.5.0's CHUNKER_VERSION bump didn't
+    trigger a project-index rebuild because `indexer.build_index`'s internal
+    auto-escalate was silent (no operator-visible decision log) and the
+    upgrade reported success without verifying the rebuild ran."""
+
+    def setUp(self) -> None:
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        # Stand up the directory structure used by the helpers
+        (self.root / ".wavefoundry" / "index").mkdir(parents=True)
+        (self.root / ".wavefoundry" / "framework" / "scripts").mkdir(parents=True)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _write_meta(self, content: dict) -> None:
+        (self.root / ".wavefoundry" / "index" / "meta.json").write_text(
+            json.dumps(content), encoding="utf-8",
+        )
+
+    def _write_chunker(self, version: str) -> None:
+        (self.root / ".wavefoundry" / "framework" / "scripts" / "chunker.py").write_text(
+            f'# stub chunker\nCHUNKER_VERSION = "{version}"\nMAX_DOC_CHUNK_CHARS = 2000\n',
+            encoding="utf-8",
+        )
+
+    def test_snapshot_reads_per_layer_dict(self) -> None:
+        """AC-2: pre-extract snapshot reads `chunker_versions` per-layer dict."""
+        self._write_meta({"chunker_versions": {"docs": "22", "code": "22"}})
+        snap = self.mod._snapshot_pre_extract_chunker_versions(self.root)
+        self.assertEqual(snap, {"docs": "22", "code": "22"})
+
+    def test_snapshot_falls_back_to_legacy_scalar(self) -> None:
+        """AC-13: legacy `chunker_version` scalar key is mapped to per-layer dict."""
+        self._write_meta({"chunker_version": "21"})
+        snap = self.mod._snapshot_pre_extract_chunker_versions(self.root)
+        self.assertEqual(snap, {"docs": "21", "code": "21"})
+
+    def test_snapshot_empty_when_meta_absent(self) -> None:
+        """Fresh install with no prior meta.json → empty snapshot, no bump detection."""
+        snap = self.mod._snapshot_pre_extract_chunker_versions(self.root)
+        self.assertEqual(snap, {})
+
+    def test_read_chunker_version_from_pack(self) -> None:
+        """AC-3: post-extract version read via regex (no Python import)."""
+        self._write_chunker("23")
+        self.assertEqual(self.mod._read_chunker_version_from_pack(self.root), "23")
+
+    def test_read_chunker_version_empty_when_chunker_missing(self) -> None:
+        """Defensive: missing chunker.py → empty string → no bump detection."""
+        self.assertEqual(self.mod._read_chunker_version_from_pack(self.root), "")
+
+    def test_detect_bump_when_versions_differ(self) -> None:
+        """AC-4: bump detected when old != new and both are non-empty."""
+        bumped, transition = self.mod._detect_chunker_version_bump(
+            {"docs": "22", "code": "22"}, "23",
+        )
+        self.assertTrue(bumped)
+        self.assertEqual(transition, ("22", "23"))
+
+    def test_no_bump_when_versions_match(self) -> None:
+        """AC-12: bump NOT detected when old == new (regression guard for the
+        unchanged path — incremental update path stays default when no bump)."""
+        bumped, transition = self.mod._detect_chunker_version_bump(
+            {"docs": "23", "code": "23"}, "23",
+        )
+        self.assertFalse(bumped)
+        self.assertIsNone(transition)
+
+    def test_no_bump_on_fresh_install(self) -> None:
+        """AC-9: empty pre-extract dict → no bump (no comparison baseline)."""
+        bumped, transition = self.mod._detect_chunker_version_bump({}, "23")
+        self.assertFalse(bumped)
+        self.assertIsNone(transition)
+
+    def test_no_bump_when_new_version_unreadable(self) -> None:
+        """Defensive: empty new version (chunker.py couldn't be read) → no bump."""
+        bumped, transition = self.mod._detect_chunker_version_bump(
+            {"docs": "22", "code": "22"}, "",
+        )
+        self.assertFalse(bumped)
+        self.assertIsNone(transition)
+
+    def test_legacy_scalar_bump_detected(self) -> None:
+        """AC-13: legacy `chunker_version` scalar correctly triggers bump detection
+        when the new version differs."""
+        self._write_meta({"chunker_version": "20"})
+        snap = self.mod._snapshot_pre_extract_chunker_versions(self.root)
+        bumped, transition = self.mod._detect_chunker_version_bump(snap, "23")
+        self.assertTrue(bumped)
+        self.assertEqual(transition, ("20", "23"))
+
+    def test_verify_succeeds_when_meta_matches_new_version(self) -> None:
+        """AC-7: post-rebuild verification confirms the new chunker version is
+        recorded in the index meta.json."""
+        self._write_chunker("23")
+        self._write_meta({"chunker_versions": {"docs": "23", "code": "23"}})
+        self.assertTrue(self.mod._verify_chunker_rebuild_succeeded(self.root))
+
+    def test_verify_fails_when_meta_still_stale(self) -> None:
+        """AC-8: post-rebuild verification detects stale meta.json — the
+        rebuild failed silently and the upgrade must surface this as a
+        fail-loud actionable error."""
+        self._write_chunker("23")
+        self._write_meta({"chunker_versions": {"docs": "22", "code": "22"}})
+        self.assertFalse(self.mod._verify_chunker_rebuild_succeeded(self.root))
+
+    def test_verify_conservative_when_no_meta(self) -> None:
+        """When meta.json doesn't exist post-rebuild, verification returns True
+        (don't block the upgrade on a verification-tooling failure)."""
+        self._write_chunker("23")
+        # No meta.json at all
+        self.assertTrue(self.mod._verify_chunker_rebuild_succeeded(self.root))
+
+
+class MultiVersionTransitionDetectionTests(unittest.TestCase):
+    """Wave 1p3dk / 1p3ho v2: detect chunker + walker + graph_builder
+    transitions and log them. The indexer's auto-escalate handles the
+    rebuild; the upgrade flow just surfaces the transitions for operator
+    visibility."""
+
+    def setUp(self) -> None:
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / ".wavefoundry" / "index").mkdir(parents=True)
+        (self.root / ".wavefoundry" / "framework" / "scripts").mkdir(parents=True)
+        (self.root / ".wavefoundry" / "framework" / "index" / "graph").mkdir(parents=True)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _write_pack(self, chunker: str, walker: str, graph_builder: str) -> None:
+        """Plant version constants in the extracted-pack location."""
+        scripts = self.root / ".wavefoundry" / "framework" / "scripts"
+        (scripts / "chunker.py").write_text(
+            f'CHUNKER_VERSION = "{chunker}"\n', encoding="utf-8",
+        )
+        (scripts / "indexer.py").write_text(
+            f'WALKER_VERSION = "{walker}"\n', encoding="utf-8",
+        )
+        (scripts / "graph_indexer.py").write_text(
+            f'GRAPH_BUILDER_VERSION = "{graph_builder}"\n', encoding="utf-8",
+        )
+
+    def _write_meta(self, content: dict) -> None:
+        (self.root / ".wavefoundry" / "index" / "meta.json").write_text(
+            json.dumps(content), encoding="utf-8",
+        )
+
+    def _write_graph_state(self, content: dict) -> None:
+        (self.root / ".wavefoundry" / "framework" / "index" / "graph" / "framework-graph-state.json").write_text(
+            json.dumps(content), encoding="utf-8",
+        )
+
+    def test_read_walker_version(self) -> None:
+        self._write_pack("24", "6", "23")
+        self.assertEqual(self.mod._read_walker_version_from_pack(self.root), "6")
+
+    def test_read_graph_builder_version(self) -> None:
+        self._write_pack("24", "6", "24")
+        self.assertEqual(self.mod._read_graph_builder_version_from_pack(self.root), "24")
+
+    def test_snapshot_collects_all_version_constants(self) -> None:
+        self._write_meta({
+            "chunker_versions": {"docs": "22", "code": "22"},
+            "walker_version": "4",
+        })
+        self._write_graph_state({"builder_version": "22"})
+        snap = self.mod._snapshot_pre_extract_versions(self.root)
+        self.assertEqual(snap["chunker_docs"], "22")
+        self.assertEqual(snap["chunker_code"], "22")
+        self.assertEqual(snap["walker"], "4")
+        self.assertEqual(snap["graph_builder"], "22")
+
+    def test_detect_chunker_transition(self) -> None:
+        self._write_meta({
+            "chunker_versions": {"docs": "22", "code": "22"},
+            "walker_version": "5",
+        })
+        self._write_graph_state({"builder_version": "23"})
+        self._write_pack("24", "5", "23")
+        snap = self.mod._snapshot_pre_extract_versions(self.root)
+        transitions = self.mod._detect_version_transitions(snap, self.root)
+        # Two chunker transitions (docs + code), no walker, no graph
+        names = [name for name, _, _ in transitions]
+        self.assertTrue(any("CHUNKER_VERSION (docs index)" in n for n in names))
+        self.assertTrue(any("CHUNKER_VERSION (code index)" in n for n in names))
+        self.assertFalse(any("WALKER" in n for n in names))
+        self.assertFalse(any("GRAPH" in n for n in names))
+
+    def test_detect_walker_transition(self) -> None:
+        self._write_meta({
+            "chunker_versions": {"docs": "24", "code": "24"},
+            "walker_version": "4",
+        })
+        self._write_graph_state({"builder_version": "23"})
+        self._write_pack("24", "5", "23")
+        snap = self.mod._snapshot_pre_extract_versions(self.root)
+        transitions = self.mod._detect_version_transitions(snap, self.root)
+        names = [name for name, _, _ in transitions]
+        self.assertTrue(any("WALKER_VERSION" in n for n in names))
+        for name, old, new in transitions:
+            if "WALKER" in name:
+                self.assertEqual((old, new), ("4", "5"))
+
+    def test_detect_graph_builder_transition(self) -> None:
+        self._write_meta({
+            "chunker_versions": {"docs": "24", "code": "24"},
+            "walker_version": "5",
+        })
+        self._write_graph_state({"builder_version": "22"})
+        self._write_pack("24", "5", "23")
+        snap = self.mod._snapshot_pre_extract_versions(self.root)
+        transitions = self.mod._detect_version_transitions(snap, self.root)
+        names = [name for name, _, _ in transitions]
+        self.assertTrue(any("GRAPH_BUILDER_VERSION" in n for n in names))
+
+    def test_no_transitions_when_everything_matches(self) -> None:
+        self._write_meta({
+            "chunker_versions": {"docs": "24", "code": "24"},
+            "walker_version": "5",
+        })
+        self._write_graph_state({"builder_version": "23"})
+        self._write_pack("24", "5", "23")
+        snap = self.mod._snapshot_pre_extract_versions(self.root)
+        transitions = self.mod._detect_version_transitions(snap, self.root)
+        self.assertEqual(transitions, [])
+
+    def test_no_transitions_on_fresh_install(self) -> None:
+        """No pre-existing meta or graph state → no transitions detected."""
+        self._write_pack("24", "5", "23")
+        snap = self.mod._snapshot_pre_extract_versions(self.root)
+        transitions = self.mod._detect_version_transitions(snap, self.root)
+        self.assertEqual(transitions, [])
+
+
+class UpgradeContextChunkerFieldsTests(unittest.TestCase):
+    """AC-1: UpgradeContext gains the three chunker-version transition fields."""
+
+    def setUp(self) -> None:
+        self.mod = load_upgrade_module()
+
+    def test_default_chunker_fields_preserve_existing_behavior(self) -> None:
+        ctx = self.mod.UpgradeContext(
+            root=Path("/tmp/fake"),
+            from_version=None, to_version=None,
+            zip_path=None, yes=False,
+        )
+        self.assertEqual(ctx.pre_extract_chunker_versions, {})
+        self.assertFalse(ctx.chunker_version_bumped)
+        self.assertIsNone(ctx.chunker_version_transition)
 
 
 if __name__ == "__main__":

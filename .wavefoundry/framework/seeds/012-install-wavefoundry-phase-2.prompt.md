@@ -40,7 +40,7 @@ Call `wave_install_audit` after marking 2.2 done.
 
 **Critical requirement:** Every generated role doc MUST include `Role: <role-name>` in its frontmatter. The dashboard classifies agents by this field; a doc without `Role:` is invisible. Per the lint rule introduced in wave 1p35d (1p35l), missing `Role:` fails docs-lint, which `wave_install_audit` will surface.
 
-**The three councils MUST always be surfaced as specialist agents, regardless of project archetype:**
+**The three councils are always surfaced as specialist agents, regardless of project archetype.** Canonical fresh-install location is `docs/agents/specialists/` (shown in the examples below). Established repos with a flat `docs/agents/` layout may keep their existing location — `docs-lint` accepts either, and `platform-mapping.md` records the actual paths in either case. The presence of the three role docs is load-bearing for council invocation; their location is a convention, not an enforced contract:
 
 - `docs/agents/specialists/red-team.md` — multi-perspective adversarial challenge surface; read **seed-225** in full to incorporate its modes, stances, and operating identity (do not generate a thin generic version).
 - `docs/agents/specialists/wave-council.md` — Wave Council protocol coordinator (framework-default council); read **seed-215** in full to incorporate the protocol, fixed seats, rotating-seat policy, synthesis rubric.
@@ -60,7 +60,7 @@ For richer per-role content on the other roles, consult the authoritative per-ro
 
 **Reading authoritative seeds is the difference between shipping a generic-template role doc and shipping a doc that conveys the role's actual depth.** A thin archetype-council.md that says "stance-based council for prose review" misses the framework's intent. Pull from seed-236; preserve the protocol details, the swap-in list, and the broader scope statement.
 
-**Expected artifact:** `docs/agents/<role>.md` for each enabled role, each with `Role:` frontmatter. The three council role docs MUST be present under `docs/agents/specialists/` regardless of project archetype.
+**Expected artifact:** `docs/agents/<role>.md` for each enabled role, each with `Role:` frontmatter. The three council role docs are present in the fresh-install layout under `docs/agents/specialists/`; established repos may keep a flat `docs/agents/` layout. `docs-lint` accepts either location — the presence of the three role docs is what's load-bearing, not the directory they live in.
 
 ### 2.5 — Map architecture (seed-060)
 

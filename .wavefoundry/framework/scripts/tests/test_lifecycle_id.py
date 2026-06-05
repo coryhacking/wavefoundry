@@ -337,5 +337,130 @@ class BorrowFromFutureTests(unittest.TestCase):
         self.assertEqual(p2, "0b2w7")
 
 
+class PeekWithoutConsumeTests(unittest.TestCase):
+    """Wave 1p3dk / 1p3ds: ``commit=False`` previews the next prefix without
+    advancing the in-process counter. ``dry_run`` MCP tool paths use this so
+    a preview followed by an apply call returns the same id rather than
+    skipping one."""
+
+    def setUp(self) -> None:
+        self.mod = _load_module()
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.repo_root = Path(self.temp_dir.name)
+        (self.repo_root / "docs" / "plans").mkdir(parents=True)
+        (self.repo_root / "docs" / "waves").mkdir()
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def _policy(self):
+        return (self.mod.DEFAULT_EPOCH_UTC, 0)
+
+    def test_peek_returns_a_prefix(self) -> None:
+        """AC-1: ``commit=False`` returns the same prefix value as ``commit=True``
+        would have at the same point in time, but does not mutate state."""
+        mod = self.mod
+        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0b2w6'
+        prefix = mod.next_available_prefix(
+            ts, policy=self._policy(), repo_root=self.repo_root, commit=False,
+        )
+        self.assertEqual(prefix, "0b2w6")
+
+    def test_peek_does_not_advance_counter(self) -> None:
+        """AC-2: two consecutive ``commit=False`` calls return the same prefix
+        — the second is not pushed past the first."""
+        mod = self.mod
+        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0b2w6'
+        p1 = mod.next_available_prefix(
+            ts, policy=self._policy(), repo_root=self.repo_root, commit=False,
+        )
+        p2 = mod.next_available_prefix(
+            ts, policy=self._policy(), repo_root=self.repo_root, commit=False,
+        )
+        self.assertEqual(p1, p2, "peek must be idempotent")
+        self.assertEqual(p2, "0b2w6")
+
+    def test_peek_then_commit_returns_same_prefix(self) -> None:
+        """AC-3: peek followed by commit returns the prefix the peek previewed.
+        Only the commit advances state."""
+        mod = self.mod
+        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0b2w6'
+        previewed = mod.next_available_prefix(
+            ts, policy=self._policy(), repo_root=self.repo_root, commit=False,
+        )
+        committed = mod.next_available_prefix(
+            ts, policy=self._policy(), repo_root=self.repo_root, commit=True,
+        )
+        self.assertEqual(previewed, committed)
+
+    def test_commit_advances_subsequent_calls(self) -> None:
+        """After a commit, a fresh peek sees the advanced counter."""
+        mod = self.mod
+        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0b2w6'
+        committed = mod.next_available_prefix(
+            ts, policy=self._policy(), repo_root=self.repo_root, commit=True,
+        )
+        self.assertEqual(committed, "0b2w6")
+        next_peek = mod.next_available_prefix(
+            ts, policy=self._policy(), repo_root=self.repo_root, commit=False,
+        )
+        self.assertEqual(next_peek, "0b2w7")
+
+    def test_backward_compatible_default_is_commit(self) -> None:
+        """AC-8: callers that omit ``commit`` see the prior behavior — the
+        prefix is consumed exactly as before."""
+        mod = self.mod
+        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0b2w6'
+        p1 = mod.next_available_prefix(
+            ts, policy=self._policy(), repo_root=self.repo_root,
+        )
+        p2 = mod.next_available_prefix(
+            ts, policy=self._policy(), repo_root=self.repo_root,
+        )
+        self.assertEqual(p1, "0b2w6")
+        self.assertEqual(p2, "0b2w7")  # advanced — default commits
+
+    def test_peek_respects_filesystem_claims(self) -> None:
+        """AC-9: when a concurrent process plants a file at the peeked prefix,
+        peek still returns a *valid* free prefix — the filesystem scan
+        prevents handing out a colliding id."""
+        mod = self.mod
+        # Plant a file claiming the natural prefix
+        (self.repo_root / "docs" / "plans" / "0b2w6-enh planted.md").touch()
+        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)
+        prefix = mod.next_available_prefix(
+            ts, policy=self._policy(), repo_root=self.repo_root, commit=False,
+        )
+        self.assertEqual(prefix, "0b2w7", "must skip externally-claimed prefix")
+
+    def test_build_id_propagates_commit_flag(self) -> None:
+        """``build_id`` exposes the same ``commit`` parameter so callers don't
+        have to drop down to ``next_available_prefix`` to peek."""
+        mod = self.mod
+        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)
+        peeked = mod.build_id(
+            "enh", "test-slug", legacy=False,
+            timestamp=ts, policy=self._policy(), repo_root=self.repo_root,
+            commit=False,
+        )
+        committed = mod.build_id(
+            "enh", "test-slug", legacy=False,
+            timestamp=ts, policy=self._policy(), repo_root=self.repo_root,
+            commit=True,
+        )
+        # Both should produce the same id since peek did not advance state.
+        self.assertEqual(peeked, committed)
+        self.assertTrue(peeked.startswith("0b2w6-enh"))
+
+    def test_build_id_legacy_bypasses_commit_logic(self) -> None:
+        """``legacy=True`` returns the reserved baseline prefix `00000`
+        regardless of ``commit`` — the lifecycle counter is not consulted."""
+        mod = self.mod
+        result = mod.build_id(
+            "wave", "legacy-slug", legacy=True, commit=False,
+        )
+        self.assertTrue(result.startswith("00000 "))
+
+
 if __name__ == "__main__":
     unittest.main()

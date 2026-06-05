@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "comment": "Single source of truth for framework-shipped renames. Each rename entry is keyed by the LEGACY name; the value carries the canonical replacement and an optional removed_in semver. docs-lint, renderers, and the upgrade migrator derive alias resolution from this file. See .wavefoundry/framework/scripts/wave_lint_lib/canonical_names.py for the loader.",
+  "role_renames": {
+    "council-moderator": {
+      "canonical": "wave-council",
+      "removed_in": null
+    },
+    "code-insight-agent": {
+      "canonical": "guru",
+      "removed_in": null
+    }
+  },
+  "config_key_renames": {
+    "wave_execution": {
+      "canonical": "wave_implement",
+      "removed_in": "2.0.0"
+    },
+    "wave_council_policy": {
+      "canonical": "wave_review",
+      "removed_in": "2.0.0"
+    }
+  }
+}

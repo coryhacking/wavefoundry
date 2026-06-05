@@ -53,7 +53,7 @@ Three hard prerequisites. Do not run any install command until all three resolve
 
 2. **A supported host OS** — macOS, Linux, or Windows via WSL2.
 
-3. **An MCP-aware agent host** — one of: Claude Code, Cursor, Codex, Junie, GitHub Copilot, Windsurf, Air, or Warp. See [Host support](#host-support) for which hosts get a renderer.
+3. **An MCP-aware agent host.** **Claude Code** or **Codex CLI** is recommended for first install — both auto-load MCP from on-disk config (`.mcp.json` / `.codex/config.toml`), so the install flow runs with no manual UI step. **Cursor**, **Junie**, **GitHub Copilot**, **Windsurf**, **Air**, and **Warp** also attach via their own MCP surfaces — see [Host support](#host-support).
 
 ---
 
@@ -65,11 +65,11 @@ Two operator steps, one MCP restart, ~3 minutes if Python is ready. **The agent 
 
 ### Install walkthrough
 
+The install runs in **two phases** with an MCP host restart between them. Both phases are agent-driven — the only operator actions are dropping the zip, typing the install phrase, and restarting your host when the agent asks.
+
 **(a) Drop the release zip at your repo root**
 
-Go to [Releases](https://github.com/coryhacking/wavefoundry/releases) and download the asset attached to the **latest stable release** — the one tagged `vMAJOR.MINOR.PATCH` (no `-rc`, `-beta`, or `-alpha` suffix). Drop the zip — still zipped, do not extract — at the root of your target repository.
-
-*Disqualifying patterns:* pre-release tags (`-rc`, `-beta`, `-alpha`); branch-zip downloads from `Code → Download ZIP`; assets not attached to a published Release.
+Go to [Releases](https://github.com/coryhacking/wavefoundry/releases) and download the asset attached to the **latest release**. Drop the zip — still zipped, do not extract — at the root of your target repository.
 
 **(b) Type this shortcut phrase as a chat message to your AI agent:**
 
@@ -79,33 +79,44 @@ Install Wavefoundry
 
 This is a **chat message** to your AI agent, not a shell command. The agent must already be open in your repository (the repo set as the working directory) and connected to a supported AI host:
 
-- **Claude Code** — Anthropic's CLI/Desktop/IDE agent
-- **Cursor**, **Codex**, **Junie**, **GitHub Copilot**, **Windsurf**, **Air**, **Warp** — see [Host support](#host-support) for the per-host registration step
-
-That's the only operator-typed command.
+- **Recommended for first install:** **Claude Code** or **Codex CLI** — both auto-load MCP from on-disk config, so the install runs with no manual UI step.
+- **Also supported:** **Cursor**, **Junie**, **GitHub Copilot**, **Windsurf**, **Air**, **Warp** — see [Host support](#host-support) for the per-host attachment.
 
 ---
 
-#### What the agent does next
+#### Phase 1 — Bootstrap the harness (no MCP yet)
 
-The agent runs each of the steps below in sequence and reports the operator-visible signal as it completes. You don't run these yourself — they're listed so you can confirm each step worked.
+The Wavefoundry MCP server is what Phase 1 installs, so this phase runs from your agent's general capabilities alone — no `wave_*` MCP tools are called yet. The agent:
 
-- **(c) Unpacks the release zip.** Expected signal: agent confirms `.wavefoundry/`, `docs/`, and `.mcp.json` are present at your repo root.
-- **(d) Bootstraps the tool venv and semantic index** — runs `python3 .wavefoundry/framework/scripts/setup_wavefoundry.py`. Expected signal: final output reports the index-ready summary line (chunks indexed and per-layer counts). The shared tool venv at `~/.wavefoundry/venv` (override with `$WAVEFOUNDRY_TOOL_VENV`) keeps Wavefoundry's dependencies separate from your project's Python.
+- **Unpacks the release zip.** Signal: `.wavefoundry/`, `docs/`, and `.mcp.json` appear at your repo root.
+- **Sets the lifecycle epoch** in `docs/workflow-config.json` (defaults to your project's first git commit date).
+- **Runs `setup_wavefoundry.py`** — the orchestrator that creates the shared tool venv at `~/.wavefoundry/venv/`, installs dependencies, builds the framework + project semantic indexes, writes `.wavefoundry/bin/` launchers and your host's MCP config, and dry-runs the MCP server to catch startup failures before you restart. Signal: orchestrator exits 0; final summary line reports index-ready.
+- **Stops and tells you to restart your MCP host.** This is the explicit Phase 1 → Phase 2 hand-off; don't try to continue in the current agent session.
 
-  > **Note on dependency install.** `setup_wavefoundry.py` uses [`uv`](https://github.com/astral-sh/uv) when available with a **21-day package-age guard** (`--exclude-newer`) — a supply-chain safeguard that rejects packages published in the last 21 days. If `uv` is not present it is bootstrapped automatically; if that fails, `pip` is used with a warning.
-
-- **(e) Registers the MCP server with your host.** For **Claude Code**, **Cursor**, and **Junie** the agent runs `render_platform_surfaces.py --platform <your-host>` and writes the host-specific config. For **Codex**, the committed `.codex/config.toml` is already in place — the agent confirms it. For **Copilot**, **Windsurf**, **Air**, and **Warp**, the agent prints the stdio entry to paste into your host's MCP settings (see [Host support](#host-support)). Expected signal: the agent reports the host registration complete and tells you the next operator action.
-
----
-
-#### Restart your MCP host
-
-Your MCP host needs to restart to pick up the new server. Quit and relaunch, or use your host's MCP reload command. Expected signal: the `wavefoundry` server appears in your host's MCP server list.
+> **Note on dependency install.** `setup_wavefoundry.py` uses [`uv`](https://github.com/astral-sh/uv) when available with a **21-day package-age guard** (`--exclude-newer`) — a supply-chain safeguard that rejects packages published in the last 21 days. If `uv` is not present it is bootstrapped automatically; if that fails, `pip` is used with a warning.
 
 ---
 
-- **(f) Verifies the install.** Once your host reconnects, ask the agent to run `wave_index_health()` and `wave_audit()`. Expected signals: `wave_index_health()` returns `semantic_ready: true`; `wave_audit()` returns `ready: true`. If either is false, the response includes a `next_tools` field naming the recovery action.
+#### → Restart your MCP host, then resume
+
+Quit and relaunch your agent, or use your host's MCP reload command. After restart, the `wavefoundry` MCP server appears in your host's MCP server list and the agent can call `wave_*` tools.
+
+**To resume, type `Install Wavefoundry` again.** The install shortcut is state-aware: when `.wavefoundry/install-log.md` already exists, the agent continues from the first unchecked row (which is Phase 2 row 2.1, `wave_install_audit(phase=1)`). No separate "start Phase 2" phrase is needed.
+
+---
+
+#### Phase 2 — Project discovery (MCP-driven)
+
+With the MCP server reachable, the agent walks through `.wavefoundry/install-log.md` row-by-row, calling `wave_install_audit` between rows to enforce lint-as-you-go (lint errors and missing artifacts block advancement). Phase 2 bootstraps project-specific artifacts tailored to your repo — this is where Wavefoundry stops looking like a generic install and starts looking like *your* repo's framework. The agent:
+
+- **Audits Phase 1 artifacts** (`wave_install_audit(phase=1)`) — recovers if any are missing.
+- **Profiles your repo** — `docs/repo-profile.json` (archetype, traits, applicable factors), `docs/repo-index.md`.
+- **Bootstraps the canonical `docs/` structure** — `architecture/`, `contributing/`, `plans/`, `references/`, `prompts/`, `waves/`, `agents/`.
+- **Generates per-role agent docs** — `docs/agents/<role>.md` per enabled role, including the three council specialists (`wave-council`, `red-team`, `archetype-council`) loaded from their authoritative seeds.
+- **Maps your architecture** — `docs/ARCHITECTURE.md` plus `current-state.md`, `domain-map.md`, `layering-rules.md`, `cross-cutting-concerns.md`, `data-and-control-flow.md`, `testing-architecture.md`.
+- **Establishes posture** — `QUALITY_SCORE.md`, `RELIABILITY.md`, `SECURITY.md`, `PERFORMANCE.md` (when applicable).
+- **Wires the docs gate**, **generates the prompt surface**, **bootstraps wave artifacts**, **synthesizes personas**, **bootstraps per-role journals**, and **registers drift expectations**.
+- **Confirms complete.** Final `wave_install_audit()` returns `{status: "complete"}`. The agent delivers an operator summary covering what was seeded, the workflow, commands, roles, and the docs gate.
 
 ---
 
@@ -151,10 +162,7 @@ What each `docs/` subdirectory carries — the agent reads these to ground its w
 | Path | What it is |
 |---|---|
 | `~/.wavefoundry/venv/` | Shared tool venv (dependencies — LanceDB, ONNX, etc.) |
-| `~/.wavefoundry/dist/` | Packaged distribution zips (only when you run `Package Wavefoundry`) |
-| `~/.cache/huggingface/` | Embedding model weights, fetched on first index build, cached thereafter |
-
-Override the venv location with `$WAVEFOUNDRY_TOOL_VENV`.
+| `~/.wavefoundry/cache/fastembed/` | Embedding + reranker model weights (FastEmbed-quantized ONNX), fetched from Hugging Face on first index build, cached thereafter |
 
 ### Network footprint
 
@@ -283,9 +291,9 @@ Any MCP-aware host can attach to the local Wavefoundry server. For some hosts, `
 | Host | What to do |
 |---|---|
 | **Claude Code** | `render_platform_surfaces.py --platform claude` |
+| **Codex CLI** | The committed `.codex/config.toml` loads on project trust |
 | **Cursor** | `render_platform_surfaces.py --platform cursor` |
 | **Junie** | `render_platform_surfaces.py --platform junie` |
-| **Codex** | The committed `.codex/config.toml` loads on project trust |
 | **GitHub Copilot · Windsurf · Air · Warp** | Paste the stdio entry from [`docs/prompts/install-wavefoundry.prompt.md`](docs/prompts/install-wavefoundry.prompt.md) into your host's MCP settings |
 
 ---

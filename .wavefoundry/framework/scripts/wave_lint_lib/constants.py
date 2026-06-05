@@ -42,9 +42,26 @@ WAVE_REQUIRED_PATHS = (
 # This generalization supports the seed-prose rename `wave_execution` → `wave_implement`
 # without breaking consumer configs that still use the legacy key; future renames can
 # be added the same way without touching the validator logic.
-WORKFLOW_REQUIRED_KEYS = (
-    ("wave_implement", "wave_execution"),
-    ("wave_review", "wave_council_policy"),
+#
+# **Convention (wave 1p3dk):** the **first element** of each tuple is the canonical
+# name; subsequent elements are deprecated legacy aliases accepted for back-compat.
+# `check_workflow_config_legacy_aliases` in `core_validators.py` emits a docs-lint
+# WARNING when a config satisfies an alias-tuple via a legacy spelling so operators
+# see a discoverable migration signal at the gate. The framework runtime continues
+# to accept both spellings indefinitely; convergence to a single name requires the
+# canonical-names manifest (deferred to a follow-on wave).
+# Wave 1p3iv (1p3j6): canonical alias data for the renamable required keys
+# (`wave_implement`, `wave_review`) is derived from `canonical-names.json` at
+# module-load time. Required keys without renames stay as plain strings.
+# Required keys WITH renames in the manifest become alias tuples whose first
+# element is the canonical name (per the 1p3dk convention) and whose subsequent
+# elements are the legacy spellings sorted ascending.
+#
+# If the manifest is absent or malformed, the loader returns an empty alias map;
+# the renamable canonical keys then become plain strings (no aliases known).
+# This degrades the legacy-spelling WARNING — but `docs-lint` remains operational.
+_REQUIRED_KEYS_WITH_POSSIBLE_ALIASES = ("wave_implement", "wave_review")
+_REQUIRED_KEYS_WITHOUT_ALIASES = (
     "agent_memory",
     "project_persona_generation",
     "prompt_generation",
@@ -52,11 +69,63 @@ WORKFLOW_REQUIRED_KEYS = (
     "persona_review_policy",
 )
 
+
+def _build_workflow_required_keys() -> tuple:
+    # Local import keeps the module loader self-contained and avoids surprising
+    # circular-import behavior at framework cold-start.
+    from . import canonical_names
+
+    alias_to_canonical = canonical_names.config_key_alias_to_canonical(
+        canonical_names.framework_repo_root()
+    )
+    canonical_to_aliases = canonical_names.canonical_to_aliases(alias_to_canonical)
+
+    entries: list = []
+    for canonical in _REQUIRED_KEYS_WITH_POSSIBLE_ALIASES:
+        aliases = canonical_to_aliases.get(canonical, [])
+        if aliases:
+            entries.append((canonical, *aliases))
+        else:
+            entries.append(canonical)
+    entries.extend(_REQUIRED_KEYS_WITHOUT_ALIASES)
+    return tuple(entries)
+
+
+WORKFLOW_REQUIRED_KEYS = _build_workflow_required_keys()
+
 MANIFEST_REQUIRED_KEYS = (
     "schema_version",
     "seed_framework_source",
     "framework_revision",
 )
+
+# Wave 1p3dk follow-up (Solaris field feedback 2026-06-05): when the framework
+# renames a role, hand-authored project docs that mirror the role name in prose
+# (AGENTS.md, docs/prompts/*.md, etc.) silently retain the old name across an
+# upgrade — render scripts only touch generated marker regions. This map
+# declares every retired role slug and its canonical replacement.
+# `check_deprecated_role_references` emits a docs-lint WARNING when a scanned
+# doc still references a retired slug, so operators see the migration signal
+# at the gate that they actually trust.
+#
+# Maintenance contract: every framework-shipped role rename adds an entry
+# here. Same shape as `WORKFLOW_REQUIRED_KEYS` alias tuples — declarative
+# rather than dynamic upgrade-time detection.
+# Wave 1p3iv (1p3j6): retired role mapping is now derived from the canonical
+# names manifest (`.wavefoundry/framework/canonical-names.json`). The hardcoded
+# dict that lived here is gone — the manifest is the single source of truth.
+# The public name `RETIRED_ROLE_NAMES` is preserved so external imports (test
+# files, validators) keep working. Manifest absent → empty map → no warnings;
+# `docs-lint` stays operational.
+def _build_retired_role_names() -> dict[str, str]:
+    from . import canonical_names
+
+    return canonical_names.role_alias_to_canonical(
+        canonical_names.framework_repo_root()
+    )
+
+
+RETIRED_ROLE_NAMES = _build_retired_role_names()
 
 MANIFEST_REQUIRED_GENERATED_ARTIFACTS = (
     "docs/prompts/prompt-surface-manifest.json",

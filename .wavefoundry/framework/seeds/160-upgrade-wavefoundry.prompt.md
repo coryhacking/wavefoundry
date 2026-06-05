@@ -32,7 +32,7 @@ Operator mental model — how framework updates actually work:
  - A running MCP process will not automatically pick up upgraded server code or regenerated host config.
 4. **Update indexes after restart** (`wave_upgrade(phase="update_index")`).
  - Normal upgrades: incremental update — only re-embeds files that changed. The indexer auto-escalates to a full rebuild when chunker or model versions changed.
- - `CHUNKER_VERSION` or schema shifts: a full rebuild is required — see step 11 for the manual path.
+ - `CHUNKER_VERSION` or schema shifts: a full rebuild is required — see step 10 for the manual path.
 
 Do not describe upgrade as a manual unzip-only workflow. Do not describe packaging as part of the target-repo upgrade path. Do not imply that unpack success alone completes the framework update.
 
@@ -46,9 +46,7 @@ Execution flow:
  ```
  - **Unpack:** `unzip -o <selected-zip> -d .` (repository root as the current working directory) so archive entries land under `.wavefoundry/framework/` per the packaging layout.
  - **Regenerate hooks and agent surfaces immediately** after a successful unpack so tracked launcher surfaces match the new pack: `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` (includes `render_agent_surfaces.py` for auto-Guru tier 2–3 files). See **Agent surfaces and auto-Guru upgrade (agent procedure)** below.
- - **Prune pack-removed files** so orphans from prior packs do not shadow or duplicate current-pack code. `unzip -o` overlays files but never removes paths that vanished from the pack. Run `prune_framework.py` — it automatically handles both cases:
- - **If `/tmp/wf-manifest-old.txt` exists** (upgraded from a MANIFEST-aware pack): diffs old vs new and deletes only pack-delivered files that were removed. User-created files are never touched.
- - **If `/tmp/wf-manifest-old.txt` does not exist** (upgrading from a pre-MANIFEST pack, i.e. any pack before `2026-05-02e`): automatically applies the built-in legacy removal list covering all files dropped across packs `2026-04-29a` through `2026-05-02d`.
+ - **Prune pack-removed files** so orphans from prior packs do not shadow or duplicate current-pack code. `unzip -o` overlays files but never removes paths that vanished from the pack. Run `prune_framework.py` — it diffs the saved old MANIFEST against the newly-extracted MANIFEST and deletes only pack-delivered files that were removed. User-created files are never touched.
  ```bash
  python3 .wavefoundry/framework/scripts/prune_framework.py --old-manifest /tmp/wf-manifest-old.txt
  ```
@@ -76,6 +74,8 @@ The migrations:
 **Migration report:** when at least one migration performs work, a consolidated report is written to `.wavefoundry/logs/upgrade-migration-1.5.0.log`. The report names each migration and lists the files modified. When no migration performed work, no report is written.
 
 **Defensive isolation:** an exception in one migration is captured to the report (with the migration name and traceback) and does not abort the other migrations.
+
+**Migration preview (operator-side, `--dry-run`):** before committing to the real upgrade, run `upgrade-wavefoundry --dry-run` (or `wave_upgrade(mode='dry_run')`). When the new pack defines `post_extract`, the dry-run path invokes it with `ctx.dry_run=True`, which calls the migration's preview helpers (`_preview_*`) instead of the action helpers. Zero filesystem mutations are performed. The preview output lands at `.wavefoundry/logs/upgrade-migration-1.5.0.preview.log` — a **distinct filename** from the real-run log so a subsequent real run does NOT shadow the preview. The preview log enumerates exactly which files would be modified, which launchers would be deleted, and which `settings.json` row would be stripped. Operators reviewing the preview can compare side-by-side with the real-run log produced by the actual upgrade. Added in wave `1p3b9` / `1p3b6`.
 
 **Post-upgrade verification (operator):** review `.wavefoundry/logs/upgrade-migration-1.5.0.log` if it exists, confirm each modified file looks correct (`git diff` is the audit tool), and re-run `wave_audit` to confirm lint and dashboard surfaces are clean. The framework's `prepare_council` / `delivery_council` paths exercise the same surfaces; passing through them is the cross-check.
 
@@ -114,7 +114,7 @@ The migrations:
  - `AGENTS.md` so **Codebase and documentation questions (auto-Guru)** and **Agent platform routing** match `seed-050`; run `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` (includes `render_agent_surfaces.py`) when `docs/agents/guru.md` exists to refresh tier-2 marker blocks and tier-3 native surfaces
  - tracked platform hook/config surfaces via `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` so generated hook entrypoints stay aligned with the current framework contract
  - repo-local prompt docs
-   - `docs/agents/guru.md` — Guru role doc (`seed-211`); backfill when missing. **Migration note:** prior versions of `seed-211` generated the agent at `docs/prompts/agents/code-insight-agent.prompt.md` or `docs/agents/code-insight-agent.md`. During upgrade, if `docs/agents/code-insight-agent.md` exists and `docs/agents/guru.md` does not, relocate it: copy content to `docs/agents/guru.md` (adding `Role: guru` to the metadata header), then delete `docs/agents/code-insight-agent.md` and update references in `AGENTS.md`, `docs/architecture/`, and `docs/prompts/index.md`. Migrate `docs/agents/journals/code-insight-agent.md` to `docs/agents/journals/guru.md` when present. Ensure `docs/agents/guru.md` has `Role:` so it appears in the dashboard Agents panel.
+   - `docs/agents/guru.md` — Guru role doc (`seed-211`); backfill when missing. Ensure it carries `Role: guru` so it appears in the dashboard Agents panel.
  - `docs/prompts/agents/` prompt bodies when the repository keeps checked-in project-context/planning helper prompts; backfill missing specialist agent bodies introduced in `seed-212` through `seed-214` when not present:
  - `docs/prompts/agents/performance-reviewer.prompt.md` (`performance-reviewer` lane — `seed-212`)
    - `docs/prompts/agents/security-reviewer.prompt.md` (`security-reviewer` lane — `seed-213`)
@@ -161,11 +161,11 @@ The migrations:
    - `docs/agents/code-reviewer.md` — verify the review rubric includes a truth-hierarchy note (document is coordination layer, not authority); backfill when absent.
    - `docs/prompts/review-wave.prompt.md` — verify an **AC and Task Verification Truth Hierarchy** section exists defining the three-layer truth stack (code/tests → review evidence → documentation); backfill when absent.
  - `docs/prompts/upgrade-wavefoundry.prompt.md` and `docs/prompts/agents/upgrade-wavefoundry.md` when the seed pack’s upgrade contract changes
- - **`.wavefoundry/bin/docs-lint`**, **`.wavefoundry/bin/docs-gardener`**, and any legacy **`./package-wave-framework`** repo-root wrapper so they point to the **current** script filenames under `.wavefoundry/framework/scripts/` or are retired when packaging is not supported in a target repository. These **bin** launchers (and any repo-root packaging helper) are **not** overwritten blindly by pack unpack, so reconcile them explicitly during upgrade. Required invocations for packs at `2026-04-22a` and later in this repository:
- - `.wavefoundry/bin/docs-lint` must invoke `scripts/docs_lint.py` (underscore) — the retired `scripts/docs-lint.py` path must not be referenced
- - `.wavefoundry/bin/docs-gardener` must invoke `scripts/docs_gardener.py` (underscore) — the retired `scripts/docs-gardener.py` path must not be referenced
+ - **`.wavefoundry/bin/docs-lint`**, **`.wavefoundry/bin/docs-gardener`**, and any legacy **`./package-wave-framework`** repo-root wrapper so they point to the **current** script filenames under `.wavefoundry/framework/scripts/` or are retired when packaging is not supported in a target repository. These **bin** launchers (and any repo-root packaging helper) are **not** overwritten blindly by pack unpack, so reconcile them explicitly during upgrade. Required invocations:
+ - `.wavefoundry/bin/docs-lint` must invoke `scripts/docs_lint.py`
+ - `.wavefoundry/bin/docs-gardener` must invoke `scripts/docs_gardener.py`
  - `.wavefoundry/bin/wave-dashboard` must exist when `scripts/dashboard_server.py` is present in the pack; if missing, create it per `seed-152` task 2
- - `./package-wave-framework`, when intentionally retained in a source repository, must invoke `scripts/build_pack.py` — the retired `scripts/build_zip.py` path must not be referenced
+ - `./package-wave-framework`, when intentionally retained in a source repository, must invoke `scripts/build_pack.py`
 
  Launcher filenames under **`.wavefoundry/bin/`** remain hyphenated for conventional CLI ergonomics; only the Python module filenames moved to snake_case.
  - `docs/contributing/build-and-verification.md` — ensure a **Git commits** subsection (operator-owned policy, aligned with `050` and **Git commits** in `AGENTS.md`) exists whenever that file is refreshed; backfill when missing or when `050` changed. Ensure a **Wave framework pack upgrade verification** section exists and matches `seed-040` task 17 (ordered checklist: root zip or manual tree update → **Upgrade wave framework** → docs gate (**agents with MCP:** **`wave_garden`** then **`wave_validate`**; **operators / CI / no MCP:** **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`**) → diff/commit; cross-links to `docs/prompts/upgrade-wavefoundry.prompt.md` and `docs/prompts/package-wavefoundry.prompt.md` when applicable; step-0 exclusions and product-build N/A note). Note that the framework test suite (`scripts/tests/`, `scripts/run_tests.py`) is a development-only artifact **not included in the distribution pack** — downstream repos must not reference it in upgrade verification steps. Backfill when the repo vendors the pack but the section is missing or stale.
@@ -184,44 +184,8 @@ The migrations:
  3. **Coexistence rule** — extraction must never rewrite `docs/design-system/design-language.md` or `docs/design-system/index.md` body content. Extraction may only: (a) append a cross-link row to `index.md` listing new extraction artifacts with status `generated`, when that row does not already exist; (b) add a "See extracted contract" pointer at the top of `design-language.md` when that pointer does not already exist. Both operations are idempotent.
  4. **Rollback path** (document in gap log, not automatic) — if the operator needs a clean re-extraction: (a) move the existing `docs/design-system/<subtree>` to a timestamped backup at `docs/design-system/.backup/<ISO-date>/`; (b) regenerate using the seed contract; (c) diff against the backup for review. Record a `meta`-category `gaps.md` entry when a backup is created. Never auto-delete operator artifacts without the backup step.
  - `.gitignore` scoping when broad ignore rules would hide framework-managed files
-9. **Prompt file extension migration (`.md` → `.prompt.md`):** Runnable prompt files must use the `.prompt.md` extension (wave 12cv4 convention — see `008-framework-map.md` **Prompt file naming convention**). Do **not** skip this step without running the detection command first.
-
- **Detect files that need renaming** (run this first — do not assume the migration is already done):
- ```bash
- find docs/prompts -maxdepth 2 -name "*.md" \
- ! -name "index.md" ! -name "README.md" ! -name "*.prompt.md" \
- | sort
- ```
- If the command prints nothing, the migration is already complete — skip to step 10.
-
- If files are listed, migrate each one using this loop (handles both git-tracked and untracked files):
- ```bash
- while IFS= read -r src; do
- dst="${src%.md}.prompt.md"
- git ls-files --error-unmatch "$src" 2>/dev/null \
- && git mv "$src" "$dst" \
- || mv "$src" "$dst"
- done < <(find docs/prompts -maxdepth 2 -name "*.md" \
- ! -name "index.md" ! -name "README.md" ! -name "*.prompt.md")
- ```
- `git mv` is used when the file is git-tracked; plain `mv` is used when it is untracked. If both commands fail for a file, the final verification step will catch it.
-
- **After renaming**, update all references to the old filenames in:
- - `AGENTS.md` shortcut table
- - `docs/prompts/index.md` command table and any path references
- - `docs/prompts/agents/README.md` contents table
- - `docs/prompts/prompt-surface-manifest.json` `doc` fields
- - any cross-references within prompt files themselves
-
- **Verify** — re-run the detection command and confirm it prints nothing:
- ```bash
- find docs/prompts -maxdepth 2 -name "*.md" \
- ! -name "index.md" ! -name "README.md" ! -name "*.prompt.md" \
- | sort
- ```
-
-10. Retire or rewrite stale local prompt/docs references that still point at legacy framework names or obsolete helper surfaces after replacement artifacts are in place. **Delete fully-superseded prompt files** rather than leaving tombstone files with "RETIRED" notices — a tombstone that is no longer needed as a migration alias only adds noise and confusion. A prompt file should be deleted when: (a) a replacement file exists at the canonical path, (b) no live references to the old file remain in AGENTS.md, docs/prompts/index.md, or prompt-surface-manifest.json, and (c) the migration window is over. Remove the corresponding entry from `docs/prompts/index.md` legacy aliases section when deleting tombstones. Also remove any empty legacy workspace directories (`docs/exec-plans/`, `docs/product-specs/`, `docs/gaps/`, `docs/performance/`, `docs/generated/`) that may have been left as shells by the init or a prior upgrade run.
-11. **Full index rebuild after `CHUNKER_VERSION` bump:** If the pack upgrade changed `CHUNKER_VERSION` (visible in `.wavefoundry/framework/scripts/chunker.py`), a full index rebuild is required (the `update_index` phase handles this automatically, but you can also trigger it manually). `wave_index_health` will emit a `chunker_version_mismatch` advisory when the index was built with an older version. Use the docs-first approach so MCP is available immediately:
+9. Retire or rewrite stale local prompt/docs references that still point at legacy framework names or obsolete helper surfaces after replacement artifacts are in place. **Delete fully-superseded prompt files** rather than leaving tombstone files with "RETIRED" notices — a tombstone that is no longer needed as a migration alias only adds noise and confusion. A prompt file should be deleted when: (a) a replacement file exists at the canonical path, (b) no live references to the old file remain in AGENTS.md, docs/prompts/index.md, or prompt-surface-manifest.json, and (c) the migration window is over. Remove the corresponding entry from `docs/prompts/index.md` legacy aliases section when deleting tombstones. Also remove any empty legacy workspace directories (`docs/exec-plans/`, `docs/product-specs/`, `docs/gaps/`, `docs/performance/`, `docs/generated/`) that may have been left as shells by the init or a prior upgrade run.
+10. **Full index rebuild after `CHUNKER_VERSION` bump:** If the pack upgrade changed `CHUNKER_VERSION` (visible in `.wavefoundry/framework/scripts/chunker.py`), a full index rebuild is required (the `update_index` phase handles this automatically, but you can also trigger it manually). `wave_index_health` will emit a `chunker_version_mismatch` advisory when the index was built with an older version. Use the docs-first approach so MCP is available immediately:
  ```bash
  # Phase 1: docs index — unblocks MCP immediately (~2.5 min)
  python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full
@@ -231,9 +195,9 @@ The migrations:
  If either setup command fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path: in agent-driven sessions, ask the operator for permission to rerun the same setup command with network access or host escalation enabled. Do not replace this with a separate manual model-download step.
  Call `wave_index_health()` after phase 1 to confirm MCP is ready. See `docs/contributing/build-and-verification.md` **Upgrade rebuild requirement** for full details.
 
-12. Re-run the docs gate (**MCP:** **`wave_garden`** then **`wave_validate`** when attached; **CLI:** **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`**).
+11. Re-run the docs gate (**MCP:** **`wave_garden`** then **`wave_validate`** when attached; **CLI:** **`.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`**).
 
-13. **Reload/restart MCP and update indexes:** After the docs gate passes, reload the MCP server so the upgraded server code and any newly rendered hook/config surfaces take effect. Use the MCP call first:
+12. **Reload/restart MCP and update indexes:** After the docs gate passes, reload the MCP server so the upgraded server code and any newly rendered hook/config surfaces take effect. Use the MCP call first:
  ```
  wave_mcp_reload()
  ```
@@ -251,7 +215,7 @@ The migrations:
  ```
  wave_dashboard_restart()
  ```
- (If the dashboard was not running, skip this step — do not start it uninstructed.) Then run `wave_index_build(content="docs", mode="update")` for the project layer. The framework index is shipped inside the pack and should not be rebuilt during an ordinary upgrade; only reindex the framework layer when the pack itself invalidated it or you are intentionally reindexing the Wavefoundry source repo. If `CHUNKER_VERSION` changed, a full rebuild is required instead — see step 11. **Semantic vs graph index callout (wave 1316n):** `wave_index_build` with `content="docs"`, `content="code"`, or `content="all"` rebuilds the semantic embedding indexes only — **the graph layer is NOT touched**. When the upgrade pack bumps `GRAPH_BUILDER_VERSION` (visible in `.wavefoundry/framework/scripts/graph_indexer.py`), running `wave_index_build(content="graph")` is the eager path. **Wave 131bt (131e2) safety net:** if you skip the eager rebuild, the FIRST graph query after upgrade (`code_callhierarchy`, `code_impact`, `code_graph_path`, `wave_graph_report`, `code_graph_community`) detects the version mismatch and synchronously rebuilds the graph in-process before returning — ~10–30 s once per upgrade. The response carries a `graph_auto_rebuilt` structured diagnostic with `from_builder_version`, `to_builder_version`, and `rebuild_duration_ms` so the rebuild is observable. The build response also includes `graph_rebuilt: false` and a clarifying notice when the call did not touch the graph; `wave_index_health` surfaces `graph.<layer>.last_built_at` per layer for explicit freshness checks. Eager rebuild remains preferred for predictability; auto-rebuild covers the agent-driven case where no operator runs the explicit step.
+ (If the dashboard was not running, skip this step — do not start it uninstructed.) Then run `wave_index_build(content="docs", mode="update")` for the project layer. The framework index is shipped inside the pack and should not be rebuilt during an ordinary upgrade; only reindex the framework layer when the pack itself invalidated it or you are intentionally reindexing the Wavefoundry source repo. If `CHUNKER_VERSION` changed, a full rebuild is required instead — see step 10. **Semantic vs graph index callout (wave 1316n):** `wave_index_build` with `content="docs"`, `content="code"`, or `content="all"` rebuilds the semantic embedding indexes only — **the graph layer is NOT touched**. When the upgrade pack bumps `GRAPH_BUILDER_VERSION` (visible in `.wavefoundry/framework/scripts/graph_indexer.py`), running `wave_index_build(content="graph")` is the eager path. **Wave 131bt (131e2) safety net:** if you skip the eager rebuild, the FIRST graph query after upgrade (`code_callhierarchy`, `code_impact`, `code_graph_path`, `wave_graph_report`, `code_graph_community`) detects the version mismatch and synchronously rebuilds the graph in-process before returning — ~10–30 s once per upgrade. The response carries a `graph_auto_rebuilt` structured diagnostic with `from_builder_version`, `to_builder_version`, and `rebuild_duration_ms` so the rebuild is observable. The build response also includes `graph_rebuilt: false` and a clarifying notice when the call did not touch the graph; `wave_index_health` surfaces `graph.<layer>.last_built_at` per layer for explicit freshness checks. Eager rebuild remains preferred for predictability; auto-rebuild covers the agent-driven case where no operator runs the explicit step.
 
 14. **Operating-memory upgrade reconciliation:** When `seed-006`, `seed-050`, `seed-120`, `seed-130`, `seed-140`, `seed-160`, `seed-170`, `seed-180`, `seed-190`, `seed-200`, or `seed-210` changed the journal/role/persona memory contract, upgrade existing projects using this checklist: When `seed-006`, `seed-050`, `seed-120`, `seed-130`, `seed-140`, `seed-160`, `seed-170`, `seed-180`, `seed-190`, `seed-200`, or `seed-210` changed the journal/role/persona memory contract, upgrade existing projects using this checklist:
  - Preserve operator standing directives, active cautions, security/release-sensitive notes, and evidence refs unless explicitly superseded with evidence.
@@ -373,7 +337,6 @@ Agents performing **Upgrade wave framework** in a target repository must apply *
    - Reconcile when missing or when `050` changed in the pack
 4. **Ensure Guru role doc exists** (`seed-211`):
    - Target: `docs/agents/guru.md` with `Role: guru` in metadata
-   - Migrate from `docs/agents/code-insight-agent.md` / `docs/agents/journals/code-insight-agent.md` when present (see step 8 guru bullet)
    - Update `docs/prompts/index.md` **Guru** row and legacy aliases
 5. **Regenerate tier 2–3 agent routing** (required when `docs/agents/guru.md` exists):
    ```bash
@@ -437,7 +400,7 @@ Validation areas that should be checked explicitly:
 - `AGENTS.md` contains **Implementation guard (product code)** when `docs/repo-profile.json` / `docs/repo-index.md` indicates shipped product code, per `seed-050`; backfill the section and thin-pointer startup lines when missing but the project is not documentation-only
 - `AGENTS.md` contains **Codebase and documentation questions (auto-Guru)** and **Agent platform routing** per `seed-050`; backfill when missing or when `050` changed
 - `AGENTS.md` is compact: scan for planning sections that predate the current implementation (dot-notation API calls, milestone lists, MVP definition-of-done blocks) and for inline MCP tool-detail prose that belongs in `docs/specs/mcp-tool-surface.md`; remove stale planning sections outright and replace inline tool-detail blocks with a one-line pointer to the spec; target file length ≤ 320 lines after compaction
-- `docs/agents/guru.md` exists when the project uses Guru (`seed-211`); CIA/code-insight paths migrated when legacy files were present
+- `docs/agents/guru.md` exists when the project uses Guru (`seed-211`)
 - `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` ran during upgrade (hooks + MCP + bin launchers + `render_agent_surfaces.py`)
 - when `docs/agents/guru.md` exists: `.codex/skills/auto-guru/SKILL.md` present; `.cursor/rules/auto-guru.mdc` when `.cursor/` exists; `.claude/agents/guru.md` when `.claude/` exists; tier-2 `waveframework:auto-guru` marker blocks on `CLAUDE.md` and each enabled thin pointer (`project-context.mdc`, `.junie/guidelines.md`, `WARP.md`, `.github/copilot-instructions.md`) with no duplicate unmarked bullets outside markers
 - `docs/agents/platform-mapping.md` documents auto-Guru tier 1–3 routing when present in the repo
