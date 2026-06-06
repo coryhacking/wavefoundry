@@ -52,12 +52,18 @@ Otherwise, Phase 1 is skipped; Phase 2 stances pick up the primer's adversarial-
 
 ### Phase 2 — Seats In Isolation
 
-Each archetype runs in isolation, applying its stance against the artifact. Each produces:
+Each archetype runs in isolation, applying its stance against the artifact, in this exact sequence:
 
-- **Stance applied** — name the axis the seat exercises
+**Step 1 — Declare axis (before reading the artifact).** State the axis you will apply before reading the artifact. Do not read the artifact yet. Format: `Axis: [axis name] — [one sentence describing what this axis looks for]` (e.g. `Axis: logical precision — looks for claims that cannot be tested or falsified`). This commits the lens before the artifact's framing can shape it.
+
+**Step 2 — Apply axis against artifact.** Now read the artifact through the declared lens and produce:
+
+- **Stance applied** — name the axis the seat exercises (must match the Step 1 declaration)
 - **Findings** — what the stance surfaces (must-fix / recommended / advisory)
 - **Distinct contribution** — what this stance found that the others would not have caught
 - **Verdict** — `ready` / `ready pending fixes` / `not ready`
+
+**Step 3 — Null-finding declaration.** If no findings surface under the declared axis, state **"No findings under [axis name]"** with a one-line explanation of what was checked. Silence is not a valid seat output.
 
 ### Phase 3 — Synthesis
 
@@ -71,6 +77,14 @@ Each archetype runs in isolation, applying its stance against the artifact. Each
 - **Strongest challenge surviving review** — the challenge that did not collapse into a fixable finding
 - **Strongest alternative not taken** — the path the artifact did not take, worked out enough to be actionable
 - Verdict: **PASS** (no must-fixes), **PASS WITH IN-SESSION FIXES** (must-fixes applied during the review), **NOT READY** (must-fixes routed to a follow-on or back-to-author pass)
+
+**Recommendations verdict with red-team closing reconciliation.** Produce a single `### Recommendations Verdict` table that combines the initial verdict for each finding with the red-team's adversarial challenge and final status — all in one list. Do not produce two separate sections. The red-team challenges each row in place: (1) is `fix now` correctly scoped; (2) is `defer` genuine or a punt; (3) is `accept` appropriate or lazy; (4) are there new findings the seats missed. New findings from the red-team are added as rows. The final table is the single authoritative output. Note: in sequential execution the moderator has full context of all findings — the table's value is visibility and accountability, not structural enforcement of honest verdicts.
+
+| Finding | Verdict | Rationale | Red-team |
+|---|---|---|---|
+| [finding ID or short name] | fix now / defer / accept | [one line] | [challenge + held / updated / new] |
+
+**Falsification check.** As the penultimate step before finalizing the verdict: state the working verdict in one sentence, name the strongest argument against it sourced from any seat output or the red-team closing pass, and state why that argument does not change the conclusion. If the argument does change the conclusion, revise the verdict before finalizing. Record this under a `### Falsification Check` heading in the synthesis output.
 
 ---
 
@@ -205,10 +219,21 @@ Every moderator synthesis must include:
 - `axes_covered`: which orthogonal axes were actually exercised; overlap flagged
 - `must_fix_aggregate`: deduplicated must-fix list with finding IDs preserved
 - `advisory_aggregate`: deduplicated advisory list
+- `recommendations_verdict_table`: single table combining initial verdict and red-team closing reconciliation for every advisory and recommended finding — `fix now` / `defer` / `accept`, rationale, red-team challenge and final status. Never leave advisories unverdicted or unchallenged.
 - `strongest_axis`: which seat's findings bound the most must-fixes
 - `strongest_challenge_surviving`: the challenge that did not collapse into a fixable finding
 - `strongest_alternative_not_taken`: the path the artifact did not take
 - `verdict`: `PASS` / `PASS WITH IN-SESSION FIXES` / `NOT READY`
+
+## Output Verbosity
+
+Present council output at summary level — seat step details stay internal; the operator sees seat summaries, the recommendations verdict table, and the falsification check. Do not narrate every step of every seat.
+
+**Seat summaries:** One short paragraph per seat — axis declared, findings summary, verdict. Steps 1–3 are execution structure, not output structure.
+
+**Recommendations verdict table:** Always shown in full — this is the primary operator-facing output.
+
+**Falsification check:** Condense when the verdict is a clean PASS with no must-fix findings: one line stating the working verdict, the strongest counter-argument in a phrase, and "does not change verdict." Show in full when the verdict is PASS WITH IN-SESSION FIXES or NOT READY, or when must-fix findings are present.
 
 ---
 

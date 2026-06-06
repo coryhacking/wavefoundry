@@ -31,16 +31,35 @@ Run in this order:
 
 2. **Phase 1 — Red-team adversarial primer.** Run `red-team` in `council-adversarial-primer` mode in isolation at the declared depth. Add the primer output — including `strongest_challenge`, `best_alternative`, `thinking_stances_applied`, and `primer_questions` — to the briefing packet. Every subsequent seat receives it.
 
-3. **Phase 2 — Fixed seats.** Run each fixed seat in isolation. Each seat receives the standard briefing packet plus the Phase 1 primer and must:
-   - Explicitly address the red-team's `strongest_challenge`
-   - Answer the `primer_questions` from their lane's perspective
-   - Contribute lane-specific findings independent of the primer
+3. **Phase 2 — Fixed seats.** Run each fixed seat in isolation, in this exact sequence:
 
-4. **Rotating fifth seat.** Runs after the fixed seats with full briefing including primer. Primary job: surface the strongest alternative the wave did not take.
+   **Step 1 — Pre-primer read (artifact only).** Read the briefing packet artifact. Do not read the Phase 1 primer yet. (In sequential execution, true isolation from the primer is not possible once it is in context — this step is an auditability discipline: form your best-faith independent read before the primer shapes it.) Form and state your initial read in one sentence: `Pre-primer read: [one sentence].`
+
+   **Step 2 — Engage the primer.** Now read the Phase 1 primer. State whether it confirmed, extended, or changed your initial read, and what specifically shifted. The one-sentence explanation is **required** regardless of state — do not record the label alone: `Primer effect: [confirmed / extended / changed — required: one sentence on what shifted or was unchanged / not applicable — primer skipped at lightweight tier, one sentence on what the seat would have flagged if a primer had run].`
+
+   **Step 3 — Address primer output.** Explicitly address the red-team's `strongest_challenge` and answer the `primer_questions` from your lane's perspective.
+
+   **Step 4 — Lane findings.** Contribute lane-specific findings independent of the primer.
+
+   **Step 5 — Null-finding declaration.** If your lane has no findings, state **"No findings in my lane"** with a one-line description of what was checked and why nothing surfaced. Silence is not a valid seat output.
+
+4. **Rotating fifth seat.** Runs after the fixed seats with full briefing including primer. Primary job: surface the strongest alternative the wave did not take. If no credible alternative exists, state why explicitly — "we considered X and Y; neither is stronger because..." is valid output; silence is not.
 
 5. **Challenge round** (at most one). Trigger when the `seat_agreement_aggregate` (see Output Shape) is `split`, or when `max_severity` is `high`/`critical` and seats disagree on whether it blocks. Red-team may participate in `council-seat` mode here if a second adversarial pass is warranted.
 
 6. **Synthesis.** Run the **first synthesis pass on anonymized seat outputs**: strip seat/role identity (label them `Seat 1..N` in randomized order) and weigh each finding on its own merit and evidence before re-attaching identity. This reduces authority-anchoring across seats. The red-team primer stays attributed (it is shared by design). After merit-weighting, re-attach seat identities and synthesize across primer + all seat outputs; the primer is first-class evidence — note where seats confirmed, extended, or credibly rebutted it.
+
+   **Correlated-finding flag.** When two or more seats surface the same finding in a sequential council run, flag it as potentially correlated: *"Seats A and B both surfaced finding X; treat as one signal, not independent confirmation, given sequential execution."* Do not count same-finding from multiple sequential seats as stronger independent evidence.
+
+   **Pre-primer read quality check.** Review the pre-primer reads across all seats. Topical overlap alone is not a contamination signal — all seats read the same artifact, so shared concerns are expected. Flag contamination when two or more seats' pre-primer reads use verbatim phrase echo or exact primer framing before having engaged the primer: *"Seats A and B pre-primer reads echo the primer's exact framing of [X]; treat as one signal, not independent priors."* A genuine independent read will differ in emphasis or angle from the primer even when it reaches the same conclusion.
+
+   **Recommendations verdict with red-team closing reconciliation.** Produce a single `### Recommendations Verdict` table that combines the initial verdict for each finding with the red-team's adversarial challenge and final status — all in one list. Do not produce two separate sections. The red-team challenges each row in place: (1) is `fix now` correctly scoped or too narrow/broad; (2) is `defer` genuine or a punt; (3) is `accept` appropriate or lazy; (4) are there new findings the seats missed. If the red-team produces a new finding mid-reconciliation, add it as a new row. The final table is the single authoritative output — one row per finding, verdict already reconciled. Note: in sequential execution the moderator has full context of all findings — the table's value is visibility and accountability, not structural enforcement of honest verdicts.
+
+   | Finding | Verdict | Rationale | Red-team |
+   |---|---|---|---|
+   | [finding ID or short name] | fix now / defer / accept | [one line] | [challenge + held / updated / new] |
+
+   **Falsification check.** As the penultimate step before finalizing the verdict: state the working verdict in one sentence, name the strongest argument against it sourced from any seat output, the primer, or the red-team closing pass, and state why that argument does not change the conclusion. If the argument does change the conclusion, revise the verdict before finalizing. Record this under a `### Falsification Check` heading in the synthesis output.
 
    **Two-tier identity handling (non-waiver guard).** Anonymization governs only the convergence/agreement assessment. A finding that carries blocking authority from a required specialist lane **retains its lane attribution and blocking status at all times** — anonymization must never be used to merit-weight a blocking required-lane finding below blocking. When in doubt, treat the finding as attributed and blocking.
 
@@ -86,8 +105,19 @@ A good wave-council output contains:
 - material disagreements and how they were resolved or left unresolved
 - `strongest_alternative`: the best alternative design, implementation, or approach surfaced by any seat — with explicit "this would be better because..." reasoning. If no alternative is stronger than the current path, say why.
 - `improvements_recommended`: concrete changes the council recommends to make the work better, regardless of verdict. A passing wave should still leave with actionable improvements.
+- `recommendations_verdict_table`: single table combining initial verdict and red-team closing reconciliation for every advisory and recommended finding — `fix now` / `defer` / `accept`, rationale, red-team challenge and final status. Never leave advisories unverdicted or unchallenged.
 - explicit action items, deferrals, or blockers
 - deduplicated findings from multiple seats: findings with the same `finding_id` (per `209-agent-harness-core.prompt.md`) are merged before synthesis; do not report the same finding twice from different seats
+
+## Output Verbosity
+
+Present council output at summary level — seat step details stay internal; the operator sees seat summaries, the recommendations verdict table, and the falsification check. Do not narrate every step of every seat.
+
+**Seat summaries:** One short paragraph per seat — pre-primer read (one sentence), primer effect (one sentence), findings summary. Steps 1–5 are execution structure, not output structure.
+
+**Recommendations verdict table:** Always shown in full — this is the primary operator-facing output.
+
+**Falsification check:** Condense when the verdict is a clean PASS with no must-fix findings: one line stating the working verdict, the strongest counter-argument in a phrase, and "does not change verdict." Show in full — working verdict, strongest argument, and full reasoning — when the verdict is PASS WITH IN-SESSION FIXES or NOT READY, or when must-fix findings are present.
 
 ## Assumption Tracking
 

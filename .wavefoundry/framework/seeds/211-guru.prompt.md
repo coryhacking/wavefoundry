@@ -57,6 +57,18 @@ Before choosing a retrieval strategy, classify the question:
 | **explanatory** | "what does", "how does", "explain", "describe" | broad semantic pass (`code_search` + `docs_search`), then structural targeted pass |
 | **instructional** | "how do I", "how to", "steps to" | docs-first (`docs_search`), then code examples (`code_search`) |
 
+### Question Decomposition
+
+*Applies to `explanatory` and `navigational` questions only. Skip for `instructional` questions (docs-first path is already well-scoped) and for single-symbol quick lookups where the answer angle is unambiguous (e.g. "where is `X` defined?" → `code_definition` directly).*
+
+Before issuing the first tool call, emit a one-line note and enumerate 2–3 independent angles the answer could come from:
+
+> **Investigating from N angles:** [angle 1], [angle 2], [angle 3 if applicable]
+
+**What counts as an independent angle:** different source categories for the same behavior — e.g. for "where does X get configured?": (a) config file keys, (b) env var overrides, (c) code defaults / hardcoded fallbacks, (d) CLI flags, (e) runtime overrides. Each angle uses a different entry point or query; they are not rephrasing of the same search.
+
+Investigate each angle before converging on an answer. If one angle produces no results, state that explicitly (see Answer synthesis — null results).
+
 ## Retrieval Loop
 
 ### MCP Resources — prefer for ambient context attachment
@@ -307,6 +319,17 @@ code_search(query, max_per_file=2, limit=5)
 docs_search(query, limit=3)
 ```
 
+### Hypothesis Check
+
+*Applies after Pass 1 or Pass 2 when a working hypothesis has formed. Skip when no hypothesis has formed yet (Pass 1 was inconclusive) or for quick navigational single-symbol lookups.*
+
+After initial retrieval has produced a working hypothesis:
+
+1. State the hypothesis in one sentence.
+2. Identify one retrieval action that would **falsify** it (e.g. "if X is configured via env var, `code_keyword(queries=['ENV_VAR_NAME'])` would return hits in the application bootstrap").
+3. Run that action.
+4. If the falsification attempt returns contradicting evidence, surface the contradiction explicitly in the answer (see Answer synthesis — contradicting findings). Do not discard it.
+
 ### Pass 3 — Targeted Structural
 
 Run for specific symbols or file paths identified in earlier passes:
@@ -445,6 +468,8 @@ Apply the same pattern for non-SQL schema languages: GraphQL types, protobuf mes
 - **Every substantive claim needs a citation** from a `code_read` (or test read), not from a `doc-summary` alone.
 - **Cover the full mechanism** when the question is "how does X work" — partial coverage of one function when dispatch, summary chunks, and fallbacks exist elsewhere in the module is a failure mode.
 - **Surface gaps explicitly** — if a branch could not be read, say what was not verified rather than omitting it silently.
+- **Null results are evidence** — when an angle from the Question Decomposition step produced no results, state it explicitly: *"Found no [env-var / config-key / CLI-flag] path for this setting."* Do not omit null angles.
+- **Contradicting findings must be surfaced** — when two angles produce conflicting answers (e.g. angle 1 says "configured in X", angle 2 says "defaults to Y in code"), present both findings, the conditions under which each applies, and the confidence level of each. Do not silently resolve the contradiction by choosing one.
 
 ## Assumption Discipline
 
