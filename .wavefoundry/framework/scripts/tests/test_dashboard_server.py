@@ -348,8 +348,8 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertIn('const acMetrics = acProgressStats(scopeChanges);', source)
         self.assertIn('const allInWaves = snapshot.changes?.in_waves || [];', source)
         self.assertIn('const progressChanges = scopeChanges || allInWaves;', source)
-        # Wave 1p31b (1p32k): the AC total now excludes `[~]` deferred items from the denominator.
-        self.assertIn('const acTotal = allCountedChanges.reduce((s, c) => s + visibleAcItems(c).filter(a => !a.deferred).length, 0);', source)
+        # Wave 1p458 (1p45a): the AC denominator now INCLUDES `[~]` deferred items.
+        self.assertIn('const acTotal = allCountedChanges.reduce((s, c) => s + visibleAcItems(c).length, 0);', source)
 
     def test_no_active_wave_dialog_titles_use_pending_copy(self):
         root = Path(self.tmp.name) / "pending-dialogs"
@@ -702,12 +702,16 @@ Wave: `12x test-wave`
         self.assertEqual(snapshot["metrics"]["tasks"]["total"], 0)
 
         source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
-        # Wave 1p31b (1p32k): ProgressRow signature extended with `deferred` to surface `[~]` counts.
-        progress_row_src = source.split("function ProgressRow({ label, done, total, variant, deferred }) {", 1)[1].split(
+        # Wave 1p458 (1p45a): ProgressRow no longer takes a `deferred` arg; the `· N deferred`
+        # suffix is gone (deferred read as outstanding while open, fold into done once closed).
+        progress_row_src = source.split("function ProgressRow({ label, done, total, variant }) {", 1)[1].split(
             "function ProgressCard({ snapshot, scopeChanges }) {", 1
         )[0]
-        self.assertIn('h(ProgressRow, { label: "ACs",   done: acDone,    total: acTotal,    variant: "acs",   deferred: acDeferred })', source)
-        self.assertIn('h(ProgressRow, { label: "Tasks", done: tasksDone, total: tasksTotal, variant: "tasks", deferred: tasksDeferred })', source)
+        self.assertIn('h(ProgressRow, { label: "ACs",   done: acDone,    total: acTotal,    variant: "acs" })', source)
+        self.assertIn('h(ProgressRow, { label: "Tasks", done: tasksDone, total: tasksTotal, variant: "tasks" })', source)
+        self.assertNotIn('deferred: acDeferred', source)
+        self.assertNotIn('deferred: tasksDeferred', source)
+        self.assertNotIn('progress-row-deferred', progress_row_src)
         self.assertNotIn('acTotal    ? h(ProgressRow', source)
         self.assertNotIn('tasksTotal ? h(ProgressRow', source)
         self.assertNotIn('if (!total) return null;', progress_row_src)
@@ -741,26 +745,29 @@ Wave: `12x test-wave`
         self.assertTrue(items[2]["deferred"], msg="`[~]` must set deferred=True")
 
     def test_parse_tasks_recognizes_tilde_marker(self):
-        """Wave 1p31b (1p32k): `[~]` tasks parse with deferred=True and done=False;
-        the in-scope `total` excludes deferred tasks."""
+        """Wave 1p458 (1p45a): `[~]` tasks parse with deferred=True and done=False; the
+        `total` now INCLUDES deferred (they read as outstanding while open), while
+        `completed` stays `[x]`-only."""
         tasks_section = (
             "- [x] Implement feature.\n"
             "- [ ] Write docs.\n"
             "- [~] Bench against synthetic fixture\n"
         )
         result = self.lib._parse_tasks(tasks_section, "planned")
-        self.assertEqual(result["total"], 2, msg="in-scope total excludes the `[~]` task")
-        self.assertEqual(result["completed"], 1)
-        self.assertEqual(result["open"], 1)
+        self.assertEqual(result["total"], 3, msg="total now includes the `[~]` task (open: outstanding)")
+        self.assertEqual(result["completed"], 1, msg="completed stays `[x]`-only")
+        self.assertEqual(result["open"], 2, msg="the `[~]` task reads as open while the wave is open")
         self.assertEqual(result["deferred"], 1)
         # Item-level: the third task must be flagged deferred and not done.
         self.assertEqual(len(result["items"]), 3)
         self.assertTrue(result["items"][2]["deferred"])
         self.assertFalse(result["items"][2]["done"])
 
-    def test_deferred_acs_excluded_from_progress_denominator(self):
-        """Wave 1p31b (1p32k): a change with 2 `[x]` and 2 `[~]` of 4 ACs reports
-        100% complete (2/2), not 50% (2/4). The deferred count surfaces separately."""
+    def test_completed_counts_are_x_only_deferred_counts_bucket_them(self):
+        """Wave 1p458 (1p45a): `_completed_ac_counts` counts only `[x]` ACs (the open-wave
+        reading — deferred read as outstanding), while `_deferred_ac_counts` buckets `[~]`
+        ACs by priority for the detail-dialog marker. The denominator inclusion and the
+        closed-wave fold are covered by the snapshot / ProgressCard tests."""
         ac_section = (
             "- [x] AC-1: First.\n"
             "- [x] AC-2: Second.\n"
@@ -783,6 +790,112 @@ Wave: `12x test-wave`
         self.assertNotIn("AC-3", [k for k in completed.keys() if completed[k] > 0])
         self.assertEqual(deferred["required"], 1, msg="AC-3 surfaces in required-priority deferred count")
         self.assertEqual(deferred["important"], 1, msg="AC-4 surfaces in important-priority deferred count")
+
+    def test_deferred_items_count_in_denominator_but_not_done_while_open(self):
+        """Wave 1p458 (1p45a) AC-2/AC-5: for an OPEN wave, `[~]` deferred ACs/tasks sit in
+        the denominator but do not count as done (they read as outstanding); `not-this-scope`
+        items — including a `[~]` not-this-scope AC — stay fully excluded."""
+        wave_dir = self.root / "docs" / "waves" / "12x test-wave"
+        _write(
+            wave_dir / "12x1-enh sample-dashboard.md",
+            """# Sample Dashboard Change
+
+Change ID: `12x1-enh sample-dashboard`
+Change Status: `active`
+Owner: Engineering
+Wave: `12x test-wave`
+
+## Acceptance Criteria
+
+- [x] AC-1: first done
+- [x] AC-2: second done
+- [~] AC-3: deferred required *Deferred per operator. See Decision Log.*
+- [~] AC-4: deferred important
+- [~] AC-5: deferred and out of scope
+- [ ] AC-6: pending and out of scope
+
+## AC Priority
+
+| AC | Priority | Rationale |
+| -- | -------- | --------- |
+| AC-1 | required | core |
+| AC-2 | required | core |
+| AC-3 | required | was core, deferred |
+| AC-4 | important | deferred |
+| AC-5 | not-this-scope | out of scope |
+| AC-6 | not-this-scope | out of scope |
+
+## Tasks
+
+- [x] task one
+- [ ] task two
+- [~] task three
+""",
+        )
+
+        snapshot = self.lib.collect_dashboard_snapshot(self.root)
+        acs = snapshot["metrics"]["acs"]
+        tasks = snapshot["metrics"]["tasks"]
+
+        # ACs: visible = AC-1..AC-4 (the two not-this-scope ACs, incl the `[~]` one, are excluded).
+        self.assertEqual(acs["total"], 4, msg="deferred AC-3/AC-4 are in the denominator; not-this-scope excluded")
+        self.assertEqual(acs["done"], 2, msg="only `[x]` ACs count as done while the wave is open")
+        self.assertEqual(acs["pending"], 2, msg="the two deferred ACs read as outstanding while open")
+        self.assertEqual(acs["deferred"], 2, msg="deferred count retained as informational")
+        # Tasks: deferred task three is in the denominator, not in done, while open.
+        self.assertEqual(tasks["total"], 3)
+        self.assertEqual(tasks["done"], 1)
+        self.assertEqual(tasks["pending"], 2)
+
+        change = snapshot["changes"]["in_waves"][0]
+        self.assertEqual(change["tasks_total"], 3)
+        self.assertEqual(change["tasks_completed"], 1)
+        self.assertEqual(change["tasks_deferred"], 1)
+
+    def test_progress_builder_and_card_fold_deferred_into_done_once_closed(self):
+        """Wave 1p458 (1p45a) AC-1: deferred items fold into done only once the wave is
+        closed. Asserted on source: the backend builder and frontend ProgressCard keep
+        deferred in the denominator and count every in-scope item as done for closed waves,
+        while the open branch counts only `[x]`/done items."""
+        py = DASHBOARD_LIB_PATH.read_text(encoding="utf-8")
+        # Backend: denominator includes deferred; closed branch folds all in-scope into done.
+        self.assertIn("ac_total += len(items)", py)
+        self.assertIn("ac_done += len(items)", py)
+        self.assertIn('ac_done += sum(1 for item in items if item.get("done"))', py)
+        self.assertNotIn('in_scope = [item for item in items if not item.get("deferred")]', py)
+
+        source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+        # Frontend ProgressCard: denominator includes deferred; closed folds, open counts done.
+        self.assertIn("const inScope = visibleAcItems(c);", source)
+        self.assertIn("closedWaveIds.has(c.wave_id) ? inScope.length : inScope.filter(a => a.done).length", source)
+        self.assertNotIn("visibleAcItems(c).filter(a => !a.deferred)", source)
+
+    def test_deferred_suffix_removed_from_progress_bars(self):
+        """Wave 1p458 (1p45a) AC-3: the `· N deferred` suffix and its CSS rule are gone."""
+        source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+        css = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.css").read_text(encoding="utf-8")
+        self.assertNotIn("progress-row-deferred", source)
+        self.assertNotIn("progress-row-deferred", css)
+
+    def test_activity_timeline_change_id_renders_dash_break_parts(self):
+        """Wave 1p459: the Activity timeline change-id renders via renderChangeIdParts so it
+        wraps only after dashes (the kind/slug space is non-breaking), scoped via
+        `.timeline .wave-change-id`; the metric-dialog id rendering is unchanged."""
+        source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+        css = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.css").read_text(encoding="utf-8")
+        # Helper exists and does dash-split + <wbr> + nbsp-protected space.
+        self.assertIn("function renderChangeIdParts(id) {", source)
+        self.assertIn('safe.split("-").flatMap', source)
+        self.assertIn('part.replace(/ /g, "\\u00a0")', source)
+        # Activity timeline span uses the helper.
+        self.assertIn("...renderChangeIdParts(item.change_id)", source)
+        # Regression guard: metric-dialog card headers still render the raw change_id (nowrap).
+        self.assertIn('h("span", { className: "wave-change-id" }, c.change_id)', source)
+        # Scoped wrap rule for the timeline.
+        self.assertIn(".timeline .wave-change-id {", css)
+        timeline_rule = css.split(".timeline .wave-change-id {", 1)[1].split("}", 1)[0]
+        self.assertIn("white-space: normal;", timeline_rule)
+        self.assertIn("overflow-wrap: break-word;", timeline_rule)
 
     def test_snapshot_includes_git_key_as_dict(self):
         snapshot = self.lib.collect_dashboard_snapshot(self.root, skip_git=True)
@@ -1944,9 +2057,9 @@ class GitStatsParsingTests(unittest.TestCase):
             ("rev-parse", "--short", "HEAD"): "abc1234",
             ("log", "-1", "--format=%s"): "fix: something",
             ("log", "-1", "--format=%cd", "--date=short"): "2026-05-09",
-            ("status", "--porcelain"): " M src/foo.py\n M src/bar.py\n",
+            ("status", "--porcelain", "--untracked-files=all", "-z"): " M src/foo.py\0 M src/bar.py\0",
             ("diff", "HEAD", "--shortstat"): " 3 files changed, 42 insertions(+), 7 deletions(-)\n",
-            ("ls-files", "--others", "--exclude-standard"): "",
+            ("ls-files", "--others", "--exclude-standard", "-z"): "",
             ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): "",
         }
         result = self._run_with_mock(outputs)
@@ -1961,9 +2074,9 @@ class GitStatsParsingTests(unittest.TestCase):
             ("rev-parse", "--short", "HEAD"): "abc1234",
             ("log", "-1", "--format=%s"): "feat: add thing",
             ("log", "-1", "--format=%cd", "--date=short"): "2026-05-09",
-            ("status", "--porcelain"): "",
+            ("status", "--porcelain", "--untracked-files=all", "-z"): "",
             ("diff", "HEAD", "--shortstat"): "",
-            ("ls-files", "--others", "--exclude-standard"): "",
+            ("ls-files", "--others", "--exclude-standard", "-z"): "",
             ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): "origin/feature",
             ("rev-list", "--count", "--left-right", "origin/feature...HEAD"): "2\t5",
         }
@@ -1980,13 +2093,141 @@ class GitStatsParsingTests(unittest.TestCase):
             ("rev-parse", "--short", "HEAD"): "abc1234",
             ("log", "-1", "--format=%s"): "chore: add image",
             ("log", "-1", "--format=%cd", "--date=short"): "2026-05-09",
-            ("status", "--porcelain"): "?? image.png\n",
+            ("status", "--porcelain", "--untracked-files=all", "-z"): "?? image.png\0",
             ("diff", "HEAD", "--shortstat"): "",
-            ("ls-files", "--others", "--exclude-standard"): "image.png\n",
+            ("ls-files", "--others", "--exclude-standard", "-z"): "image.png\0",
             ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): "",
         }
         result = self._run_with_mock(outputs)
         self.assertEqual(result["lines_added"], 0)
+
+
+class GitUntrackedDirAccountingTests(unittest.TestCase):
+    """1p466: the "Files" tile count, the changed-files dialog list, and the
+    added-line total must reconcile for fully-untracked directories — including
+    non-ASCII and spaced filenames — and a tracked rename must still parse.
+
+    Uses a real git repo so the actual ``git status --untracked-files=all -z``
+    output format is exercised end to end; a mock cannot validate NUL parsing or
+    on-disk path resolution (the defect a bare ``-uall`` would have introduced).
+    """
+
+    def setUp(self):
+        self.lib, _ = load_dashboard_modules()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self._git("init")
+        self._git("config", "user.email", "t@t.t")
+        self._git("config", "user.name", "t")
+        self._git("config", "commit.gpgsign", "false")
+        self._git("config", "diff.renames", "true")  # deterministic rename detection
+        # tracked baseline: a file to rename, a file to modify
+        _write(self.root / "orig.txt", "a\nb\nc\n")
+        _write(self.root / "mod.txt", "one\ntwo\n")
+        self._git("add", "-A")
+        self._git("commit", "-m", "init")
+        # tracked rename (pure, 0 lines) + tracked modification (+1 line)
+        self._git("mv", "orig.txt", "renamed.txt")
+        _write(self.root / "mod.txt", "one\ntwo\nthree\n")
+        # fully-untracked directory, known line counts, incl. spaced + non-ASCII names
+        d = self.root / "untracked_dir"
+        _write(d / "plain.txt", "x\ny\n")       # 2 newlines
+        _write(d / "with space.txt", "q\n")      # 1 newline
+        _write(d / "café.txt", "é\n")            # 1 newline, non-ASCII name
+        self.untracked_added = 4                 # 2 + 1 + 1
+        self.tracked_added = 1                   # mod.txt +1; pure rename contributes 0
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _git(self, *args):
+        import subprocess
+        subprocess.run(["git", *args], cwd=self.root, check=True,
+                       capture_output=True, text=True)
+
+    def test_untracked_dir_files_reconcile_with_known_totals(self):
+        stats = self.lib.collect_git_stats(self.root)
+        listed = self.lib.list_git_changed_files(self.root)
+        paths = {e["path"] for e in listed}
+
+        # AC-1: each untracked file is listed individually, resolves on disk, and
+        # produces a non-empty diff (not a collapsed dir, not a broken/empty row).
+        for name in ("untracked_dir/plain.txt", "untracked_dir/with space.txt", "untracked_dir/café.txt"):
+            self.assertIn(name, paths, f"{name!r} missing from dialog list")
+            self.assertTrue((self.root / name).exists(), f"{name!r} does not resolve on disk")
+            diff, code = self.lib.get_file_diff(self.root, name)
+            self.assertEqual(code, 200, f"{name!r} diff status was {code}")
+            self.assertTrue(diff.strip(), f"{name!r} produced an empty diff")
+
+        # Tracked rename: new path listed, old path absent (prior behaviour); modify listed.
+        self.assertIn("renamed.txt", paths)
+        self.assertNotIn("orig.txt", paths)
+        self.assertIn("mod.txt", paths)
+
+        # AC-2: tile file count == dialog list length (below the 500-row cap).
+        self.assertEqual(stats["files_changed"], len(listed))
+
+        # AC-3 (absolute, not just tile==dialog): untracked contribution is exactly
+        # its known total; the dialog per-file sum equals the tile total; the tile
+        # total is the known absolute (untracked 4 + tracked 1 = 5).
+        untracked_sum = sum(e.get("lines_added", 0) for e in listed if e["path"].startswith("untracked_dir/"))
+        self.assertEqual(untracked_sum, self.untracked_added)
+        dialog_sum = sum(e.get("lines_added", 0) for e in listed)
+        self.assertEqual(stats["lines_added"], dialog_sum)
+        self.assertEqual(stats["lines_added"], self.untracked_added + self.tracked_added)
+
+
+class GitStatsZStripSafetyTests(unittest.TestCase):
+    """1p466 regression: `collect_git_stats` must NOT `.strip()` the NUL-delimited
+    `-z` git output. Leading whitespace is significant — an unstaged-modify record
+    begins with a space XY code (" M path"), and an untracked filename may begin
+    with a space — so a global strip corrupts the first token and diverges the tile
+    from the dialog. Real git repo exercises the actual `-z` byte stream.
+    """
+
+    def setUp(self):
+        self.lib, _ = load_dashboard_modules()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self._git("init")
+        self._git("config", "user.email", "t@t.t")
+        self._git("config", "user.name", "t")
+        self._git("config", "commit.gpgsign", "false")
+        _write(self.root / "a", "1\n")          # short (1-char) tracked filename
+        _write(self.root / "keep.txt", "k\n")
+        self._git("add", "-A")
+        self._git("commit", "-m", "init")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _git(self, *args):
+        import subprocess
+        subprocess.run(["git", *args], cwd=self.root, check=True,
+                       capture_output=True, text=True)
+
+    def test_unstaged_modify_short_name_first_record_is_counted(self):
+        # The only status record is " M a"; a global strip would yield "M a" (3 chars),
+        # tripping the <4 floor and dropping it → files_changed undercounts to 0.
+        _write(self.root / "a", "1\n2\n")
+        stats = self.lib.collect_git_stats(self.root)
+        listed = self.lib.list_git_changed_files(self.root)
+        self.assertIn("a", {e["path"] for e in listed})
+        self.assertEqual(stats["files_changed"], len(listed))
+        self.assertEqual(stats["files_changed"], 1)
+
+    def test_leading_space_untracked_filename_lines_counted(self):
+        # An untracked filename beginning with a space is the first `ls-files -z`
+        # token; a global strip drops the leading space → read_bytes() fails → its
+        # lines vanish from the tile total while the dialog (unstripped) counts them.
+        _write(self.root / " lead.txt", "x\ny\n")  # 2 lines, leading-space name
+        stats = self.lib.collect_git_stats(self.root)
+        listed = self.lib.list_git_changed_files(self.root)
+        self.assertIn(" lead.txt", {e["path"] for e in listed})
+        self.assertEqual(stats["files_changed"], len(listed))
+        dialog_added = sum(e.get("lines_added", 0) for e in listed)
+        self.assertEqual(stats["lines_added"], dialog_added)
+        self.assertEqual(stats["lines_added"], 2)
 
 
 class IndexBuilderTests(unittest.TestCase):

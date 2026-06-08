@@ -6513,14 +6513,17 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         target_md = self.root / "docs" / "waves" / target_wave / "wave.md"
         self.assertIn("Status: planned", target_md.read_text(encoding="utf-8"))
 
-    def test_wave_prepare_guards_when_another_wave_active_dry_run(self):
+    def test_wave_prepare_dry_run_not_guarded_by_other_open_wave(self):
+        """Wave 1p45l (AC-6): dry_run is read-only and never takes the single-OPEN slot —
+        it is not blocked when another wave is OPEN."""
         self._make_wave_with_change("active-two", status="active")
         target_wave, _ = self._make_wave_with_change("planned-two", status="planned")
-        result = self.srv.wave_prepare_response(self.root, target_wave, mode="dry_run")
-        self.assertEqual(result["status"], "error")
-        self.assertEqual(result["data"]["mode"], "dry_run")
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_prepare_response(self.root, target_wave, mode="dry_run")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
-        self.assertIn("another_wave_active", codes)
+        self.assertNotIn("another_wave_active", codes)
+        self.assertEqual(result["data"]["mode"], "dry_run")
 
     def test_wave_prepare_self_reprepare_allowed(self):
         wave_id, _ = self._make_wave_with_change("self-prep", status="active")
@@ -6537,8 +6540,11 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         self.assertIn("active_wave_id", result["data"])
         self.assertIn("active_wave_path", result["data"])
         self.assertEqual(result["data"]["active_wave_id"], active_wave)
-        # Recovery usage points at wave_pause
-        self.assertIn("wave_pause", result.get("usage", ""))
+        # Recovery now offers `ready` — ready the target without opening it (wave 1p45l)
+        self.assertIn("mode='ready'", result.get("usage", ""))
+        recovery_tools = [t for d in result.get("diagnostics", []) if d.get("code") == "another_wave_active" for t in d.get("recovery_tools", [])]
+        self.assertIn("wave_prepare", recovery_tools)
+        self.assertIn("wave_pause", recovery_tools)
 
     def test_wave_prepare_after_pause_succeeds(self):
         active_wave, _ = self._make_wave_with_change("ctx-switch-active", status="active")
@@ -6567,6 +6573,62 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         self.assertNotIn("another_wave_active", codes)
         wave_md = self.root / "docs" / "waves" / paused_wave / "wave.md"
         self.assertIn("Status: active", wave_md.read_text(encoding="utf-8"))
+
+    def test_wave_prepare_ready_succeeds_while_other_wave_open_and_stays_planned(self):
+        """Wave 1p45l (AC-1/AC-2): `ready` runs full readiness WITHOUT activating — it
+        succeeds while another wave is OPEN and leaves the target `planned` (readied)."""
+        self._make_wave_with_change("ready-active", status="active")
+        target_wave, _ = self._make_wave_with_change("ready-target", status="planned")
+        self._add_council_verdict(target_wave)
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_prepare_response(self.root, target_wave, mode="ready")
+        codes = [d.get("code") for d in result.get("diagnostics", [])]
+        self.assertNotIn("another_wave_active", codes)
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"].get("readied"))
+        target_md = self.root / "docs" / "waves" / target_wave / "wave.md"
+        self.assertIn("Status: planned", target_md.read_text(encoding="utf-8"))
+
+    def test_wave_implement_opens_readied_planned_wave(self):
+        """Wave 1p45l (AC-3): wave_implement accepts a readied `planned` wave and, when no
+        other wave is OPEN, transitions it to `implementing`."""
+        target_wave, _ = self._make_wave_with_change("impl-readied", status="planned")
+        self._add_council_verdict(target_wave)
+        result = self.srv.wave_implement_response(self.root, target_wave, mode="create")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["status_transition"], {"from": "planned", "to": "implementing"})
+        wave_md = self.root / "docs" / "waves" / target_wave / "wave.md"
+        self.assertIn("Status: implementing", wave_md.read_text(encoding="utf-8"))
+
+    def test_wave_implement_guarded_when_another_wave_open(self):
+        """Wave 1p45l (AC-4): the single-OPEN guard now lives at the activation step —
+        wave_implement blocks with another_wave_active when another wave is OPEN, leaving the
+        target unopened."""
+        self._make_wave_with_change("impl-active", status="active")
+        target_wave, _ = self._make_wave_with_change("impl-target", status="planned")
+        self._add_council_verdict(target_wave)
+        result = self.srv.wave_implement_response(self.root, target_wave, mode="create")
+        self.assertEqual(result["status"], "error")
+        self.assertIn("another_wave_active", [d.get("code") for d in result.get("diagnostics", [])])
+        target_md = self.root / "docs" / "waves" / target_wave / "wave.md"
+        self.assertIn("Status: planned", target_md.read_text(encoding="utf-8"))
+
+    def test_wave_reopen_guarded_when_another_wave_open(self):
+        """Wave 1p45l (AC-9): wave_reopen runs the single-OPEN guard — it blocks when another
+        wave is OPEN (closing the pre-existing unguarded-reopen hole) and succeeds once the
+        slot is free."""
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            self._make_wave_with_change("reopen-active", status="active")
+            closed_wave, _ = self._make_wave_with_change("reopen-target", status="closed")
+            blocked = self.srv.wave_reopen_response(self.root, closed_wave)
+            self.assertEqual(blocked["status"], "error")
+            self.assertIn("another_wave_active", [d.get("code") for d in blocked.get("diagnostics", [])])
+            # Free the slot, then reopen succeeds (closed -> active).
+            self.srv.wave_pause_response(self.root, blocked["data"]["active_wave_id"], mode="create")
+            ok = self.srv.wave_reopen_response(self.root, closed_wave)
+        self.assertEqual(ok["status"], "ok")
+        self.assertIn("Status: active", (self.root / "docs" / "waves" / closed_wave / "wave.md").read_text(encoding="utf-8"))
 
     def test_wave_prepare_aggregates_active_wave_and_lint_diagnostics(self):
         """AC-6: when another wave is active AND lint fails, both diagnostics appear."""
@@ -8586,6 +8648,39 @@ class SeverityTriageTests(unittest.TestCase):
             result = self.srv.wave_review_response(self.root, "1200a test-wave")
         self.assertEqual(result["data"]["max_severity"], "low")
         self.assertFalse(any(d["code"] == "high_severity_finding" for d in result.get("diagnostics", [])))
+
+    def test_substring_severity_words_do_not_false_trigger(self):
+        """Wave 1p45s (AC-1): severity words embedded in larger words must NOT register —
+        ordinary review prose like "highest-salience"/"below"/"allow"/"lower"/"criticality"
+        yields no finding."""
+        self._make_wave_with_evidence([
+            "- operator-signoff: approved",
+            "- wave-council-delivery: approved — rotating-seat [highest-salience surface]; "
+            "flow below the allow threshold; lower risk; criticality assessed",
+        ])
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertEqual(result["data"]["max_severity"], "none")
+        self.assertFalse(any(d["code"] == "high_severity_finding" for d in result.get("diagnostics", [])))
+
+    def test_standalone_severity_word_wins_over_substring_noise(self):
+        """Wave 1p45s (AC-2): a genuine standalone severity word is still detected even
+        alongside substring noise like "highest-salience"."""
+        self._make_wave_with_evidence([
+            "- operator-signoff: approved",
+            "- security-review: needs-revision — highest-salience surface, but a high severity bug",
+        ])
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            result = self.srv.wave_review_response(self.root, "1200a test-wave")
+        self.assertEqual(result["data"]["max_severity"], "high")
+
+    def test_max_severity_matches_whole_words_only(self):
+        """Wave 1p45s (AC-1/AC-3): unit-level — substring noise yields none; a standalone
+        severity word is detected regardless of position in the line."""
+        noise = "## Review Evidence\n\n- note: highest-salience, flow below, allow, lower, criticality"
+        self.assertEqual(self.srv._max_severity_from_evidence(noise), "none")
+        genuine = "## Review Evidence\n\n- security: high severity confirmed"
+        self.assertEqual(self.srv._max_severity_from_evidence(genuine), "high")
 
 
 class WaveCouncilPolicyTests(unittest.TestCase):
@@ -16602,3 +16697,199 @@ class SeedGetCoverageTest(unittest.TestCase):
             if chunk is None or not chunk.get("text"):
                 misses.append(f"{num_prefix} -> {stem}")
         self.assertEqual(misses, [], f"seeds not reachable via seed_get: {misses}")
+
+
+# ---------------------------------------------------------------------------
+# Wave close secrets gate (wave 1p3rm / 1p3rp)
+# ---------------------------------------------------------------------------
+
+_WAVE_CLOSE_READY_TEXT = (
+    "# Wave Record\n"
+    "wave-id: `{wave_id}`\n"
+    "Status: active\n\n"
+    "## Changes\n\n"
+    "Change ID: `{wave_id}-feat sample`\n"
+    "Change Status: `complete`\n\n"
+    "## Review Evidence\n\n"
+    "- operator-signoff: approved\n"
+)
+
+_MOCK_PASS = {"passed": True, "errors": [], "warnings": [], "output": ""}
+_MOCK_GARDEN_PASS = {"passed": True, "files_updated": 0, "updated": [], "output": ""}
+
+
+class WaveCloseSecretsGateTests(unittest.TestCase):
+    """AC-1..AC-10 for 1p3rp (wave_close secrets gate)."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = Path(tempfile.mkdtemp())
+        self.root = _make_repo(self.tmp)
+        self.wave_id = "1200b secrets-gate-test"
+        wave_dir = self.root / "docs" / "waves" / self.wave_id
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        (wave_dir / "wave.md").write_text(
+            _WAVE_CLOSE_READY_TEXT.format(wave_id=self.wave_id),
+            encoding="utf-8",
+        )
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write_exceptions(self, entries: list) -> None:
+        path = self.root / "docs" / "scan-findings.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+
+    def _close(self, mode: str = "dry_run") -> dict:
+        with patch.object(self.srv, "run_garden", return_value=_MOCK_GARDEN_PASS):
+            with patch.object(self.srv, "run_validate", return_value=_MOCK_PASS):
+                return self.srv.wave_close_response(self.root, self.wave_id, mode=mode)
+
+    def _diagnostic_codes(self, result: dict) -> set[str]:
+        return {d["code"] for d in result.get("diagnostics", [])}
+
+    def test_no_exceptions_file_passes_gate(self):
+        # AC-1: absent file passes silently
+        result = self._close()
+        codes = self._diagnostic_codes(result)
+        self.assertNotIn("secrets_gate_pending", codes)
+        self.assertNotIn("secrets_gate_confirmed_secret", codes)
+
+    def test_empty_exceptions_file_passes_gate(self):
+        self._write_exceptions([])
+        result = self._close()
+        codes = self._diagnostic_codes(result)
+        self.assertNotIn("secrets_gate_pending", codes)
+        self.assertNotIn("secrets_gate_confirmed_secret", codes)
+
+    def test_pending_entry_hard_blocks(self):
+        # AC-2: pending hard-block
+        self._write_exceptions([{
+            "id": "exc-001", "file": "config.py", "line": 1,
+            "rule_id": "test-rule", "matched_text": "sk_l****5678",
+            "status": "pending", "override_reason": "",
+            "acknowledged_for_wave": "", "confirmations": [],
+        }])
+        result = self._close()
+        self.assertEqual(result["status"], "error")
+        self.assertIn("secrets_gate_pending", self._diagnostic_codes(result))
+
+    def test_pending_hard_block_lists_entry_details(self):
+        self._write_exceptions([{
+            "id": "exc-001", "file": "config.py", "line": 5,
+            "rule_id": "stripe-key", "matched_text": "sk_l****5678",
+            "status": "pending", "override_reason": "",
+            "acknowledged_for_wave": "", "confirmations": [],
+        }])
+        result = self._close()
+        msg = next(d["message"] for d in result["diagnostics"] if d["code"] == "secrets_gate_pending")
+        self.assertIn("config.py", msg)
+        self.assertIn("stripe-key", msg)
+
+    def test_confirmed_secret_without_ack_soft_blocks(self):
+        # AC-3: soft-block when acknowledged_for_wave doesn't match
+        self._write_exceptions([{
+            "id": "exc-002", "file": "secret.py", "line": 3,
+            "rule_id": "aws-key", "matched_text": "AKIA****WXYZ",
+            "status": "confirmed-secret", "override_reason": "rotating next sprint",
+            "acknowledged_for_wave": "", "confirmations": [],
+        }])
+        result = self._close()
+        self.assertEqual(result["status"], "error")
+        self.assertIn("secrets_gate_confirmed_secret", self._diagnostic_codes(result))
+
+    def test_confirmed_secret_with_matching_ack_passes(self):
+        # AC-4 + AC-6: acknowledged for this wave passes
+        self._write_exceptions([{
+            "id": "exc-002", "file": "secret.py", "line": 3,
+            "rule_id": "aws-key", "matched_text": "AKIA****WXYZ",
+            "status": "confirmed-secret", "override_reason": "rotating next sprint",
+            "acknowledged_for_wave": self.wave_id, "confirmations": [],
+        }])
+        result = self._close()
+        codes = self._diagnostic_codes(result)
+        self.assertNotIn("secrets_gate_confirmed_secret", codes)
+
+    def test_confirmed_secret_with_different_wave_ack_still_blocks(self):
+        # AC-5: acknowledged for a different wave still blocks
+        self._write_exceptions([{
+            "id": "exc-002", "file": "secret.py", "line": 3,
+            "rule_id": "aws-key", "matched_text": "AKIA****WXYZ",
+            "status": "confirmed-secret", "override_reason": "rotating",
+            "acknowledged_for_wave": "1100z some-other-wave", "confirmations": [],
+        }])
+        result = self._close()
+        self.assertIn("secrets_gate_confirmed_secret", self._diagnostic_codes(result))
+
+    def test_confirmed_secret_no_override_reason_still_blocks(self):
+        # AC-7: no override_reason still soft-blocks (gate notes the absence)
+        self._write_exceptions([{
+            "id": "exc-003", "file": "app.py", "line": 10,
+            "rule_id": "github-token", "matched_text": "ghp_****ABCD",
+            "status": "confirmed-secret", "override_reason": "",
+            "acknowledged_for_wave": "", "confirmations": [],
+        }])
+        result = self._close()
+        self.assertIn("secrets_gate_confirmed_secret", self._diagnostic_codes(result))
+        msg = next(d["message"] for d in result["diagnostics"] if d["code"] == "secrets_gate_confirmed_secret")
+        self.assertIn("override_reason", msg)
+
+    def test_gate_does_not_run_after_mutations(self):
+        # AC-8: gate blocks before mutations; wave.md stays unchanged on block
+        self._write_exceptions([{
+            "id": "exc-001", "file": "x.py", "line": 1,
+            "rule_id": "r", "matched_text": "****",
+            "status": "pending", "override_reason": "",
+            "acknowledged_for_wave": "", "confirmations": [],
+        }])
+        wave_md = self.root / "docs" / "waves" / self.wave_id / "wave.md"
+        before = wave_md.read_text(encoding="utf-8")
+        self._close(mode="create")
+        after = wave_md.read_text(encoding="utf-8")
+        self.assertEqual(before, after, "wave.md was mutated despite gate block")
+
+    def test_false_positive_status_does_not_trigger_gate(self):
+        # false-positive entries are not a gate concern
+        self._write_exceptions([{
+            "id": "exc-004", "file": "test_x.py", "line": 2,
+            "rule_id": "stripe-key", "matched_text": "sk_l****test",
+            "status": "false-positive", "override_reason": "",
+            "acknowledged_for_wave": "",
+            "confirmations": [
+                {"git_user_name": "A", "git_user_email": "a@x.com",
+                 "verdict": "false-positive", "reason": "fixture",
+                 "confirmed_at": "2026-06-06T10:00:00Z"},
+                {"git_user_name": "B", "git_user_email": "b@x.com",
+                 "verdict": "false-positive", "reason": "fixture",
+                 "confirmed_at": "2026-06-06T11:00:00Z"},
+            ],
+        }])
+        result = self._close()
+        codes = self._diagnostic_codes(result)
+        self.assertNotIn("secrets_gate_pending", codes)
+        self.assertNotIn("secrets_gate_confirmed_secret", codes)
+
+    def test_suspected_secret_without_ack_soft_blocks(self):
+        # suspected-secret without acknowledgment is treated same as confirmed-secret
+        self._write_exceptions([{
+            "id": "exc-005", "file": "auth.py", "line": 7,
+            "rule_id": "github-token", "matched_text": "ghp_****ABCD",
+            "status": "suspected-secret", "override_reason": "",
+            "acknowledged_for_wave": "", "confirmations": [],
+        }])
+        result = self._close()
+        self.assertEqual(result["status"], "error")
+        self.assertIn("secrets_gate_confirmed_secret", self._diagnostic_codes(result))
+
+    def test_suspected_secret_with_matching_ack_passes(self):
+        # suspected-secret acknowledged for this wave passes
+        self._write_exceptions([{
+            "id": "exc-005", "file": "auth.py", "line": 7,
+            "rule_id": "github-token", "matched_text": "ghp_****ABCD",
+            "status": "suspected-secret", "override_reason": "reviewed: env-var pattern",
+            "acknowledged_for_wave": self.wave_id, "confirmations": [],
+        }])
+        result = self._close()
+        self.assertNotIn("secrets_gate_confirmed_secret", self._diagnostic_codes(result))

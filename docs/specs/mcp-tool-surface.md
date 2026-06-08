@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-31
+Last verified: 2026-06-08
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -294,14 +294,26 @@ change remains active outside the wave.
 - Must reject duplicate staged + wave copies rather than silently picking one.
 - On successful apply/create writes, requests a background docs-index refresh without relying on editor hooks.
 
-`wave_prepare(wave_id: str, mode: str = "dry_run")`
+`wave_prepare(wave_id: str, mode: str = "dry_run")` — modes: `dry_run` / `ready` / `create`
 
 - Validates that every admitted change doc is wave-owned.
 - Repairs staged-only admitted docs by moving them into `docs/waves/<wave-id>/`
-during apply/create mode.
+during `ready`/`create` (readiness mutations); `dry_run` is read-only.
 - Must reject duplicate staged + wave copies and report whether repairs were needed.
-- Requires admitted changes and passing docs validation before reporting a clean readiness verdict.
-- On apply/create, requests a background docs-index refresh for the wave record and admitted change docs after repair/status updates complete.
+- Requires admitted changes, passing docs validation, and the prepare-phase Wave Council verdict before reporting a clean readiness verdict.
+- **Readiness vs activation (wave 1p45l):** `ready` records full readiness WITHOUT activating — the wave stays `planned` ("readied"), with no single-OPEN guard, so any number of waves can be readied while one is OPEN. `create` additionally runs the single-OPEN guard and flips `planned`→`active` (prepare-and-open). `dry_run` never takes the slot.
+- The single-OPEN invariant (at most one wave `active`/`implementing`) is enforced only at activation transitions — `wave_implement`, `wave_reopen`, and `wave_prepare(create)` — not at readiness.
+- On `ready`/`create`, requests a background docs-index refresh for the wave record and admitted change docs after repair/status updates complete.
+
+`wave_implement(wave_id: str, mode: str = "dry_run")`
+
+- Opens an `active` wave (legacy prepare-and-open) or a readied `planned` wave (wave 1p45l) for implementation; re-validates the prepare-phase council verdict and required lane reviews.
+- Runs the single-OPEN guard at activation: blocks with `another_wave_active` when another wave is already `active`/`implementing`; otherwise transitions the wave to `implementing`.
+
+`wave_reopen(wave_id: str)`
+
+- Reopens a `closed` or `paused` wave back to `active`.
+- Runs the single-OPEN guard (wave 1p45l): blocks with `another_wave_active` when another wave is already OPEN.
 
 `wave_pause(wave_id: str, mode: str = "dry_run")`
 
@@ -392,6 +404,16 @@ not rely on `status` to signal index absence.
 - Recovery: rerun `python3 .wavefoundry/framework/scripts/setup_index.py --root .`
 for the project layer, or rerun the framework-targeted `indexer.py` command if a framework-layer rebuild fails because dependencies or cached models are not ready.
 
+`wave_scan_secrets(mode: str = "incremental")`
+
+- Scans project files for hardcoded secrets, API keys, and credentials using the merged ruleset from `.wavefoundry/scan-rules.toml` (framework Gitleaks-based rules) and `docs/scan-rules.toml` (project overrides and additions).
+- `mode="incremental"` (default): scans git-changed files only (`git diff --name-only HEAD`). **Auto-escalates to a full scan when either TOML rules file changed since the last scan** (SHA-256 hash stored in `.wavefoundry/index/scan/scan-state.json`); no manual intervention needed after a framework upgrade or project rule edit.
+- `mode="full"`: scans all git-tracked files regardless of change state. Use after initial install or when you want a baseline across the whole repo.
+- Findings are written to and read from `docs/scan-findings.json`. New matches with no existing entry are auto-appended with `status: "pending"`. Existing entries keep their status and confirmation history.
+- Response includes `mode`, `effective_mode` (reflects auto-escalation), `rules_hash_changed`, `escalated_to_full`, `clean` (boolean), `elapsed_s`, `total_findings`, `by_status` (count per status value), `failures_total`, and `failures` (first 20 lint-blocking entries).
+- Runs in a subprocess so `ProcessPoolExecutor` workers and the multiprocessing `resource_tracker` exit with the scan process rather than accumulating in the MCP server. Falls back to an in-process serial scan when the subprocess path is unavailable.
+- **`wave_close` gate:** `wave_close` hard-blocks on any `pending` entry. `wave_close` soft-blocks on any `suspected-secret` or `confirmed-secret` entry whose `acknowledged_for_wave` field does not match the current wave ID. Run the security reviewer (`seed-213`) to resolve entries; re-run `wave_close` after resolution.
+
 ### Audit
 
 `wave_audit(wave_id: str = "")`
@@ -427,7 +449,7 @@ is enforced; structured diagnostics are returned for rejected paths.
 - `code_callhierarchy` — direct callers and callees for a symbol with call-site line numbers and snippets; depth is always 1; requires a built graph index; `direction` selects `"incoming"` (callers), `"outgoing"` (callees), or `"both"` (default); prefer over `code_references` for structural caller/callee questions
 - `code_callgraph` — call-tree traversal to arbitrary depth; `depth` (default 1) and `direction` control scope; edges include `line` when the call site was located; `include_tests` (default `False`) filters test-path nodes and their edges, symmetric with `code_impact`; use for depth > 1 or when raw graph edges are more useful than the incoming/outgoing framing of `code_callhierarchy`
 - `code_impact` — upstream caller/importer blast-radius analysis; two modes: `symbol=` for graph-backed transitive caller traversal (`max_hops`, `relations`); `path=` for heuristic reverse-import scan; use before modifying a shared symbol to enumerate all affected callers and files
-- `wave_graph_report` — structural whole-graph summary; sections: `fan_in` (most-called symbols by in-degree), `fan_out` (most-calling symbols), `chokepoints` (high fan-out nodes ≥ threshold), `orphan_docs` (doc nodes with no `doc_references_code` edges), `cross_layer` (project/framework boundary edges, union layer only); use for codebase orientation and hotspot identification
+- `wave_graph_report` — structural whole-graph summary; sections: `fan_in` (most-called symbols by in-degree), `fan_out` (most-calling symbols), `chokepoints` (high fan-out nodes ≥ threshold), `orphan_docs` (doc nodes with no `doc_references_code` edges), `cross_layer` (project/framework boundary edges, union layer only), `communities` (top communities by node_count with `community_id`/`label`/`hub_node_id`/`hub_label`), `betweenness` (bridge nodes by centrality; skipped on graphs > 10k nodes; carries `betweenness_computed` / `betweenness_dominated_by_generated`); use for codebase orientation and hotspot identification
 
 ## MCP Resources
 

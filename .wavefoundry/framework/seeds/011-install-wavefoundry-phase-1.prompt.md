@@ -25,7 +25,43 @@ Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
 
 **Action:**
 
-- Determine the project's lifecycle epoch. Default: the date of the project's first git commit; fallback if no git history: today minus 4 years.
+- Determine `inception_date` using this priority order:
+
+  1. **Git history (preferred):** `git log --reverse --format="%aI" | head -1` — use the date portion of the output if non-empty.
+  2. **Oldest file mtime (no git history, files present):** run:
+     ```
+     python3 -c "
+     import datetime
+     from pathlib import Path
+     mtimes = [p.stat().st_mtime for p in Path('.').rglob('*')
+               if p.is_file() and '.git' not in p.parts]
+     if mtimes:
+         print(datetime.date.fromtimestamp(min(mtimes)).isoformat())
+     else:
+         print(datetime.date.today().isoformat())
+     "
+     ```
+  3. **No files:** use today's date.
+
+- Generate a randomized offset: `python3 -c "import random; print(random.randint(-365, 180))"` — this is a signed integer number of days.
+
+- Compute `epoch_date` using the inception date string (YYYY-MM-DD) and offset from the previous steps:
+  ```
+  python3 -c "
+  import datetime
+  inception = datetime.date.fromisoformat('INCEPTION_DATE')
+  try:
+      base = inception.replace(year=inception.year - 5)
+  except ValueError:
+      base = inception.replace(year=inception.year - 5, day=28)  # Feb 29 → Feb 28
+  epoch = base + datetime.timedelta(days=OFFSET_DAYS)
+  print(epoch.isoformat())
+  "
+  ```
+  Substitute `INCEPTION_DATE` and `OFFSET_DAYS` with the values from the previous steps. The result will fall between `inception_date − 6 years` and `inception_date − approximately 4 years 6 months`.
+
+- **Write the epoch immediately.** Do not re-run the formula — the epoch is a one-time decision. Writing it now avoids any re-derivation producing a different value.
+
 - Edit `docs/workflow-config.json` (create if missing) to include:
 
 ```json

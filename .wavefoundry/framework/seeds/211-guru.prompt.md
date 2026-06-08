@@ -173,6 +173,8 @@ When you see one of these suffixes in a retrieval result: the chunk is one slice
 
 When a section is `[]` AND `<section>_candidates_total: 0`, the graph genuinely has nothing. When `[]` AND `_candidates_total > 0`, the filter threshold removed everything — adjust `sections` parameters or investigate whether the threshold matches your project shape.
 
+**Betweenness reliability (wave 130rj):** when the report carries `betweenness_dominated_by_generated: true`, more than half the top betweenness nodes are machine-generated code (javacc/ANTLR/protobuf parsers, Lombok/Spring-CGLIB proxies) — the metric is dominated by generated structure and is unreliable for architectural analysis. Re-run with `exclude_generated=true` (or `collapse_generated_files=true`) and prefer `fan_in`/`fan_out` for hotspot identification rather than trusting the betweenness section.
+
 **Verification trigger (when to follow up before trusting the fan_in/fan_out figure):**
 
 > Treat the entry as suspect when

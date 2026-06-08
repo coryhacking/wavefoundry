@@ -156,13 +156,13 @@ function computeProgress(changes) {
 }
 
 function waveStats(waveChanges) {
-  // Wave 1p31b (1p32k): `[~]` (intentionally-deferred) items are excluded from progress
-  // denominators and surfaced separately. The backend already returns `tasks_total` with
-  // deferreds excluded; we additionally aggregate `tasks_deferred` and `ac_deferred_counts`.
-  const tasksTotal    = waveChanges.reduce((s, c) => s + (Number(c.tasks_total) || 0), 0);
-  const tasksDone     = waveChanges.reduce((s, c) => s + (Number(c.tasks_completed) || 0), 0);
-  const tasksDeferred = waveChanges.reduce((s, c) => s + (Number(c.tasks_deferred) || 0), 0);
-  const acTotals = {}, acDone = {}, acDeferred = {};
+  // Wave 1p458 (1p45a): `[~]` deferred items stay in the denominator and read as outstanding
+  // while the wave is open (this card renders active waves only). `tasks_total` and
+  // `ac_priority_counts` include deferred; `tasks_completed` / `ac_completed_counts` are
+  // `[x]`-only, so deferred items count toward the total but not toward done.
+  const tasksTotal = waveChanges.reduce((s, c) => s + (Number(c.tasks_total) || 0), 0);
+  const tasksDone  = waveChanges.reduce((s, c) => s + (Number(c.tasks_completed) || 0), 0);
+  const acTotals = {}, acDone = {};
   for (const c of waveChanges) {
     for (const [k, v] of Object.entries(c.ac_priority_counts || {})) {
       acTotals[k] = (acTotals[k] || 0) + v;
@@ -170,11 +170,8 @@ function waveStats(waveChanges) {
     for (const [k, v] of Object.entries(c.ac_completed_counts || {})) {
       acDone[k] = (acDone[k] || 0) + v;
     }
-    for (const [k, v] of Object.entries(c.ac_deferred_counts || {})) {
-      acDeferred[k] = (acDeferred[k] || 0) + v;
-    }
   }
-  return { tasksTotal, tasksDone, tasksDeferred, acTotals, acDone, acDeferred };
+  return { tasksTotal, tasksDone, acTotals, acDone };
 }
 
 function visibleAcItems(change) {
@@ -182,22 +179,18 @@ function visibleAcItems(change) {
 }
 
 function acProgressStats(changes) {
-  // Wave 1p31b (1p32k): exclude `[~]` (deferred) items from the denominator; surface
-  // `deferred` separately so the UI can render a distinct badge without affecting progress %.
+  // Wave 1p458 (1p45a): count every visible (non-`not-this-scope`) AC in the denominator,
+  // including `[~]` deferred items. Deferred items have done=false, so while the wave is
+  // open they read as outstanding; the closed-wave fold lives in ProgressCard.
   let total = 0;
   let done = 0;
-  let deferred = 0;
   for (const change of changes || []) {
     for (const ac of visibleAcItems(change)) {
-      if (ac.deferred) {
-        deferred += 1;
-        continue;
-      }
       total += 1;
       if (ac.done) done += 1;
     }
   }
-  return { total, done, deferred, pending: Math.max(0, total - done) };
+  return { total, done, pending: Math.max(0, total - done) };
 }
 
 function stripScopePrefix(scope) {
@@ -446,10 +439,9 @@ function Header({ snapshot, dark, onToggleDark }) {
   );
 }
 
-function ProgressRow({ label, done, total, variant, deferred }) {
+function ProgressRow({ label, done, total, variant }) {
   const safeTotal = Number(total) || 0;
   const safeDone = Number(done) || 0;
-  const safeDeferred = Number(deferred) || 0;
   const pct = safeTotal > 0 ? Math.round((safeDone / safeTotal) * 100) : 0;
   const complete = safeTotal > 0 && safeDone >= safeTotal;
   const cls = ["progress-row", variant && `progress-row--${variant}`, complete && "progress-row--complete"]
@@ -468,14 +460,7 @@ function ProgressRow({ label, done, total, variant, deferred }) {
         h("div", { className: "progress-bar-fill", style: { width: `${pct}%` } }),
       ),
     ),
-    h("div", { className: "progress-row-fraction" },
-      `${safeDone}/${safeTotal}`,
-      // Wave 1p31b (1p32k): surface intentionally-deferred count next to the fraction so
-      // operators see them as a category without affecting the progress bar.
-      safeDeferred > 0
-        ? h("span", { className: "progress-row-deferred", title: `${safeDeferred} intentionally deferred` }, ` · ${safeDeferred} deferred`)
-        : null,
-    ),
+    h("div", { className: "progress-row-fraction" }, `${safeDone}/${safeTotal}`),
   );
 }
 
@@ -502,20 +487,19 @@ function ProgressCard({ snapshot, scopeChanges }) {
   const closedInWaves = allInWaves.filter(c => closedWaveIds.has(c.wave_id));
   const allCountedChanges = [...openProgressChanges, ...closedInWaves];
 
-  // Wave 1p31b (1p32k): exclude `[~]` deferred items from totals and surface them as a
-  // separate count. The backend's `tasks_total` already excludes `tasks_deferred`; for ACs
-  // we filter on the item-level `deferred` flag.
+  // Wave 1p458 (1p45a): `[~]` deferred items stay IN the denominator. For a closed wave every
+  // in-scope item (incl deferred) counts as done; for an open wave only `[x]`/done items
+  // count, so deferred items read as outstanding until the wave is closed. The separate
+  // "· N deferred" tally is gone (the per-item `~` detail marker is retained).
   const tasksTotal = allCountedChanges.reduce((s, c) => s + (Number(c.tasks_total) || 0), 0);
   const tasksDone  = allCountedChanges.reduce((s, c) =>
     s + (closedWaveIds.has(c.wave_id) ? (Number(c.tasks_total) || 0) : (Number(c.tasks_completed) || 0)), 0);
-  const tasksDeferred = allCountedChanges.reduce((s, c) => s + (Number(c.tasks_deferred) || 0), 0);
 
-  const acTotal = allCountedChanges.reduce((s, c) => s + visibleAcItems(c).filter(a => !a.deferred).length, 0);
+  const acTotal = allCountedChanges.reduce((s, c) => s + visibleAcItems(c).length, 0);
   const acDone  = allCountedChanges.reduce((s, c) => {
-    const inScope = visibleAcItems(c).filter(a => !a.deferred);
+    const inScope = visibleAcItems(c);
     return s + (closedWaveIds.has(c.wave_id) ? inScope.length : inScope.filter(a => a.done).length);
   }, 0);
-  const acDeferred = allCountedChanges.reduce((s, c) => s + visibleAcItems(c).filter(a => a.deferred).length, 0);
 
   return h("article", { className: "progress-card" },
     h("div", { className: "progress-header" },
@@ -524,8 +508,8 @@ function ProgressCard({ snapshot, scopeChanges }) {
     h("div", { className: "progress-rows" },
       h(ProgressRow, { label: "Waves",   done: closedWaves, total: totalWaves,   variant: "waves" }),
       h(ProgressRow, { label: "Changes", done: changesDone, total: changesTotal, variant: "changes" }),
-      h(ProgressRow, { label: "ACs",   done: acDone,    total: acTotal,    variant: "acs",   deferred: acDeferred }),
-      h(ProgressRow, { label: "Tasks", done: tasksDone, total: tasksTotal, variant: "tasks", deferred: tasksDeferred }),
+      h(ProgressRow, { label: "ACs",   done: acDone,    total: acTotal,    variant: "acs" }),
+      h(ProgressRow, { label: "Tasks", done: tasksDone, total: tasksTotal, variant: "tasks" }),
     ),
   );
 }
@@ -4154,6 +4138,19 @@ function ChangesTable({ changes, title, onChangeClick }) {
   );
 }
 
+// Render a change ID so it wraps only after dashes, never at the kind/slug space.
+// Mirrors the table view's dash-split <wbr> approach (dashboard.js ~4133); the Activity
+// timeline span is not inside a <td>, so it also needs the scoped `.timeline .wave-change-id`
+// wrap rule in dashboard.css.
+function renderChangeIdParts(id) {
+  const safe = String(id == null ? "" : id);
+  return safe.split("-").flatMap((part, i) => {
+    // Protect the kind/slug space (e.g. "...bug recent-...") from becoming a break point.
+    const text = part.replace(/ /g, "\u00a0");
+    return i === 0 ? [text] : ["-", h("wbr", { key: i }), text];
+  });
+}
+
 function Activity({ activity, onChangeClick }) {
   const all    = activity?.recent_progress || [];
   const today  = todayLocalDate();
@@ -4185,7 +4182,7 @@ function Activity({ activity, onChangeClick }) {
               onKeyDown: clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleClick(); } } : undefined,
               "aria-label": clickable ? `Open change ${item.change_id}` : undefined,
             },
-              h("span", { className: "wave-change-id", style: { display: "block", marginBottom: "2px", fontSize: "0.85rem" } }, item.change_id),
+              h("span", { className: "wave-change-id", style: { display: "block", marginBottom: "2px", fontSize: "0.85rem" } }, ...renderChangeIdParts(item.change_id)),
               item.title ? h("div", { className: "wave-change-title", style: { marginBottom: "var(--space-1)" } }, item.title) : null,
               h("div", null, ...renderMarkdownish(item.update || "")),
               item.evidence ? h("div", { className: "muted" }, ...renderMarkdownish(item.evidence)) : null,

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-01
+Last verified: 2026-06-08
 
 ## Security Posture
 
@@ -18,6 +18,7 @@ Wavefoundry is local developer tooling with no network exposure in current scrip
 | Guard-overrides file gitignored | `.wavefoundry/guard-overrides.json` is never committed; approval state stays local                               |
 | Distribution zip gitignored     | `wavefoundry-*.zip` is never committed; distribution is local-only                                               |
 | No secrets in seeds or scripts  | Framework scripts and seed prompts contain no credentials, API keys, or PII                                      |
+| Hardcoded secrets detection     | `wave_scan_secrets` MCP tool and `docs-lint` check scans project files against a merged Gitleaks-based TOML ruleset (`.wavefoundry/scan-rules.toml` + `docs/scan-rules.toml`). Findings land in `docs/scan-findings.json` with a pending → false-positive / confirmed-secret lifecycle requiring multi-user confirmation. `wave_close` hard-blocks on `pending` entries and soft-blocks on unresolved `confirmed-secret` entries. |
 
 
 ## Future Security Concerns (MCP Server)

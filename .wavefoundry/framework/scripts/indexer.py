@@ -1716,6 +1716,7 @@ def _is_docs_kind(kind: str) -> bool:
 _chunker_mod = None
 _graph_indexer_mod = None
 _graph_cluster_mod = None
+_secrets_scanner_mod = None
 
 def _get_chunker():
     global _chunker_mod
@@ -1754,6 +1755,21 @@ def _get_graph_cluster():
         spec.loader.exec_module(mod)
         _graph_cluster_mod = mod
     return _graph_cluster_mod
+
+
+def _get_secrets_scanner():
+    global _secrets_scanner_mod
+    if _secrets_scanner_mod is None:
+        import importlib.util
+        scan_secrets_path = Path(__file__).resolve().parent / "scan_secrets.py"
+        if not scan_secrets_path.exists():
+            return None
+        spec = importlib.util.spec_from_file_location("scan_secrets", scan_secrets_path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["scan_secrets"] = mod
+        spec.loader.exec_module(mod)
+        _secrets_scanner_mod = mod
+    return _secrets_scanner_mod
 
 
 def _build_graph_artifacts(
@@ -1817,6 +1833,33 @@ def _build_graph_artifacts(
         flush=True,
     )
     return {"graph_payload": graph_payload, "cluster_payload": cluster_payload}
+
+
+def _build_secrets_artifacts(
+    *,
+    root: Path,
+    index_dir: Path,
+    changed: set[str],
+    removed: set[str],
+    full: bool = False,
+    verbose: bool = False,
+) -> dict:
+    scanner = _get_secrets_scanner()
+    if scanner is None:
+        return {}
+    scan_dir = index_dir / "scan"
+    try:
+        return scanner.update_secrets_scan(
+            root=root,
+            scan_dir=scan_dir,
+            changed=changed,
+            removed=removed,
+            full=full,
+            verbose=verbose,
+        )
+    except Exception as exc:
+        print(f"build_index: secrets scan failed: {exc}", file=sys.stderr)
+        return {"error": str(exc)}
 
 
 def _chunks_for_file(rel_path: str, content: str) -> tuple[list[dict], list[dict]]:
@@ -2325,11 +2368,17 @@ def _build_index_locked(
         # it just exposed the hazard. The docs/code writes stay in the
         # threadpool because they're I/O-bound on LanceDB and threads are
         # the correct tool for that workload.
-        pool_workers = (1 if build_docs else 0) + (1 if build_code else 0)
+        # Secrets scan runs as a threadpool future (project layer only).
+        # Uses ThreadPoolExecutor internally for file-read parallelism — safe from
+        # any thread context (no ProcessPoolExecutor, no macOS spawn hazards).
+        _run_secrets = graph_layer == "project"
+        pool_workers = (1 if build_docs else 0) + (1 if build_code else 0) + (1 if _run_secrets else 0)
         _docs_elapsed: list[float] = []
         _code_elapsed: list[float] = []
-        # Use a nullcontext when there's no docs/code work so we don't
-        # construct an empty pool just to immediately tear it down.
+        _secrets_elapsed: list[float] = []
+        # pool_workers >= 1 whenever _run_secrets is True so ThreadPoolExecutor
+        # is always constructed — nullcontext path only applies to graph-only
+        # framework-layer runs where _run_secrets is False.
         if pool_workers > 0:
             _pool_cm = ThreadPoolExecutor(max_workers=pool_workers, thread_name_prefix="wavefoundry-index")
         else:
@@ -2341,6 +2390,7 @@ def _build_index_locked(
                 layers = ", ".join(filter(None, [
                     "docs" if build_docs else "",
                     "code" if build_code else "",
+                    "secrets" if _run_secrets else "",
                     "graph",
                 ]))
                 print(f"build_index: {layers} running concurrently ({graph_layer} layer)", flush=True)
@@ -2406,11 +2456,35 @@ def _build_index_locked(
                         _lance_incremental_write(_db_path, _stale, [], None, _code_chunks, _code_emb, False, True, _verbose)
                         _elapsed.append(time.monotonic() - _t0)
                     futures.append(executor.submit(_write_code_incr))
+            # Secrets scan runs as a future (project layer) — concurrent with graph.
+            # Uses ThreadPoolExecutor internally for file-read parallelism so it is
+            # safe to submit from here (no ProcessPoolExecutor spawn inside).
+            if _run_secrets:
+                def _write_secrets(
+                    _root=root,
+                    _index_dir=index_dir,
+                    _changed=changed_broad,
+                    _removed=removed_broad,
+                    _full=full,
+                    _verbose=verbose,
+                    _elapsed=_secrets_elapsed,
+                ) -> None:
+                    _t0 = time.monotonic()
+                    _build_secrets_artifacts(
+                        root=_root,
+                        index_dir=_index_dir,
+                        changed=_changed,
+                        removed=_removed,
+                        full=_full,
+                        verbose=_verbose,
+                    )
+                    _elapsed.append(time.monotonic() - _t0)
+                futures.append(executor.submit(_write_secrets))
             # Wave 1p2q3 (1p2wd post-ship 1.3.22 / Bug 4 part 2): graph
             # extraction runs synchronously on the main thread, concurrently
-            # with the in-flight docs/code futures above. This is the load-
-            # bearing fix for Teton's hang — see the long comment at the top
-            # of this try-block.
+            # with the in-flight docs/code/secrets futures above. This is the
+            # load-bearing fix for Teton's hang — see the long comment at the
+            # top of this try-block.
             _build_graph_artifacts(
                 root=root,
                 index_dir=index_dir,

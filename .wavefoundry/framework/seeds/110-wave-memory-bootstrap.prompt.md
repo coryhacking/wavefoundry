@@ -132,11 +132,15 @@ Recommended wave-event anchors when meaningful:
 
 Wave status model:
 
-- `planned`
-- `active`
+- `planned` — admitted, not yet open. A `planned` wave with a recorded prepare-phase council verdict (+ required lane signoffs) is **"readied"**: fully prepared, awaiting opening. Readiness adds no separate status value (wave 1p45l).
+- `active` — OPEN: prepared-and-opened; implementation may begin.
+- `implementing` — OPEN: implementation in progress.
 - `blocked`
-- `completed`
+- `paused` — was OPEN, parked; resume via `wave_prepare(mode='create')`.
+- `completed` / `closed`
 - `superseded`
+
+Only one wave may be **OPEN** (`active`/`implementing`) at a time; this single-OPEN invariant is enforced at the activation transitions (`wave_implement` / `wave_reopen` / `wave_prepare(mode='create')`), not at readiness.
 
 Recommended change status model:
 
@@ -153,7 +157,7 @@ Recommended change status model:
 
 Guardrails:
 
-- Only one wave should normally be `active` for a given feature thread unless evidence from the repository justifies overlap.
+- Only one wave may be **OPEN** (`active`/`implementing`) for a given feature thread at a time — the hard single-OPEN rule, enforced at the activation transitions. Any number of waves may be planned and readied in parallel; readiness never takes the slot.
 - Parallelism is allowed inside a wave only after its shared assumptions and interfaces are stable enough.
 - Keep the artifact contract stable enough that later prompts, scripts, and agents can recover wave state, decisions, and carry-forward intent without requiring identical prose layout.
 - Do not split a change into a new `Change ID` merely because the wave ended; carry unfinished work forward by default and split only when the remaining work is materially different.

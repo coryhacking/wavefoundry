@@ -34,6 +34,44 @@ Call `wave_install_audit` after marking 2.2 done.
 
 **Expected artifact:** `docs/README.md` exists and the listed directories are present.
 
+### 2.3a — Set secrets-scan confirmation threshold in `docs/scan-rules.toml`
+
+**Action:**
+
+- Count unique committer emails in the last 24 months:
+  ```bash
+  git log --format="%ae" --since="2 years ago" | sort -u | wc -l
+  ```
+  If the command fails (no git repository, no commits, or git not installed), treat the count as **0**. If the command succeeds but returns **0** (no commits in the last 24 months), fall back to all-time history:
+  ```bash
+  git log --format="%ae" | sort -u | wc -l
+  ```
+  If the all-time fallback also returns 0 or fails, treat the count as **0**.
+
+- Map the count to a threshold:
+  | Committer count | `false_positive_confirmations_required` |
+  |---|---|
+  | 0–1 | 1 |
+  | 2–6 | 2 |
+  | 7+ | 3 |
+
+- Check whether `docs/scan-rules.toml` already contains `false_positive_confirmations_required`. If it does, **skip** — never overwrite an operator-set value. Log: "scan-rules threshold: already set, skipping."
+
+- If absent, create `docs/scan-rules.toml` with this content (substituting the computed N):
+  ```toml
+  # wavefoundry project scan rules
+  # false_positive_confirmations_required: auto-detected from git committer count (last 24 months) at install.
+  # Override this value if your team size has changed, then delete this comment.
+  # Add project-specific [[rules]] entries below to extend the framework default ruleset.
+
+  [policy]
+  false_positive_confirmations_required = N
+  ```
+
+- Log: "scan-rules threshold: detected N committer(s) → false_positive_confirmations_required = M"
+
+**Expected artifact:** `docs/scan-rules.toml` exists and contains a `[policy]` section with `false_positive_confirmations_required`.
+
 ### 2.4 — Generate per-role agent docs (seed-050)
 
 **Action:** Read `seed-050` and execute. Generate `docs/agents/<role>.md` for each role in `enabled_agent_roles` (workflow-config.json). For applicable factors, generate `docs/agents/factor-<nn>-<name>.md`.

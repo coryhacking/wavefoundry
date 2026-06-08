@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-03
+Last verified: 2026-06-08
 
 ## What Wavefoundry Is
 
@@ -14,7 +14,7 @@ As a project, Wavefoundry is the canonical repository for the Wave Framework and
 
 1. **The Wave Framework seed pack** — numbered seed prompts (001–214+) and reference docs packaged into dated `.zip` distributions and installed into target repositories.
 2. **Framework scripts** — CLI tools for lifecycle ID generation, docs linting, docs gardening, platform surface rendering, packaging, test running, index building, and local dashboard serving.
-3. **Local MCP server** — a local-only stdio server exposing 47 structured tools for wave lifecycle management, semantic search, code navigation, audit, and feedback harness operation.
+3. **Local MCP server** — a local-only stdio server exposing structured tools for wave lifecycle management, semantic search, code navigation, secrets scanning, audit, and feedback harness operation.
 4. **Local dashboard surface** — a loopback-only operational dashboard served from `.wavefoundry/framework/dashboard/` by `.wavefoundry/framework/scripts/dashboard_server.py`.
 
 For a full conceptual overview see `docs/references/wavefoundry-overview.md`.
@@ -48,8 +48,8 @@ Wavefoundry uses the Wave Framework lifecycle for its own development:
 
 1. **Plan feature** — author a consolidated change doc at `docs/plans/`.
 2. **Create wave / Add change to wave** — admit the change and make it wave-owned under `docs/waves/<wave-id>/`.
-3. **Prepare wave** — confirm readiness and repair any admitted-doc placement drift.
-4. **Implement wave / Implement feature** — execute the admitted changes.
+3. **Prepare wave** — confirm readiness (docs, AC priority, council verdict) and repair any admitted-doc placement drift. This **readies** the wave (it stays `planned`); `wave_prepare(mode='ready')` readies without opening, so any number of waves can be readied in parallel.
+4. **Implement wave / Implement feature** — **open** a readied wave (the single-OPEN activation step) and execute the admitted changes. Only one wave may be OPEN (`active`/`implementing`) at a time; the guard fires here, not at readiness.
 5. **Review wave** — code review, QA, architecture review, and Wave Council delivery synthesis as required by policy and change type.
 6. **Close wave / Finalize feature** — record closure, distill journals, promote memory, clear handoff.
 

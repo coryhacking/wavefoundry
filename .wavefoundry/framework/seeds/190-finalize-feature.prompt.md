@@ -70,6 +70,7 @@ Promotion destinations may include:
 
 Commonly missed closure work to check explicitly:
 
+- **`docs/scan-findings.json` not checked before close**: `wave_close` hard-blocks on any `pending` entry and soft-blocks on any unresolved `suspected-secret` or `confirmed-secret` entry. Before invoking `wave_close`, read `docs/scan-findings.json` and resolve all actionable entries using the security reviewer (seed-213). If the file is absent or has no actionable entries, proceed normally.
 - `docs/references/project-context-memory.md` left empty or unchanged despite the change surfacing reusable workflow guidance
 - **code review** missing, generic, or treated as optional when the wave changed non-trivial product logic — especially when per-key state or repeated-invocation paths were involved
 - **`qa-reviewer` missing** on a **bug** or product defect wave when `docs/workflow-config.json` `review_policies.require_qa_reviewer_for_bug_fixes` is true — record retrospective QA or obtain an explicit waiver in the wave/change doc

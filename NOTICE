@@ -6,3 +6,10 @@ Wavefoundry project (https://github.com/coryhacking/wavefoundry).
 
 Licensed under the Apache License, Version 2.0. See LICENSE for the full
 license text.
+
+---
+
+This product includes the betterleaks secrets-detection ruleset.
+  Source:    https://github.com/betterleaks/betterleaks
+  Copyright: Copyright (c) 2026 Zachary Rice
+  License:   MIT (https://github.com/betterleaks/betterleaks/blob/main/LICENSE)

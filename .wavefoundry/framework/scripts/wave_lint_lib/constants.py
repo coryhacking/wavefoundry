@@ -254,6 +254,11 @@ ALLOWED_CHANGE_STATUS_TRANSITIONS = {
 
 AUDIT_DEFAULT_REPORT = "docs/reports/wave-migration-audit.md"
 
+SCAN_RULES_FRAMEWORK_PATH = ".wavefoundry/framework/scan-rules.toml"
+SCAN_RULES_PROJECT_PATH = "docs/scan-rules.toml"
+SCAN_FINDINGS_PATH = "docs/scan-findings.json"
+SCAN_ALLOWLIST_PATH = ".wavefoundry/framework/scan-allowlist"
+
 SLUG_PATTERN = r"[a-z0-9][a-z0-9-]*"
 LEGACY_SLUG_PATTERN = r"legacy[a-z0-9-]*"
 LIFECYCLE_PREFIX_PATTERN = r"(?:[0-9a-z]{5}|00000)"

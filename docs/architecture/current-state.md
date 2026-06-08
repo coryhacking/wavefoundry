@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-31
+Last verified: 2026-06-08
 
 ## Runtime Topology
 
@@ -33,7 +33,7 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
               │       └── .wavefoundry/index/ (read: *.npy, *.json)
               ├── wave_current / wave_list_waves / wave_list_plans / wave_get_change / wave_get_prompt
               │       └── docs/waves/ (read), docs/plans/ (read), docs/prompts/ (read)
-              │       [wave_current: returns data.waves[] of all non-closed waves (active→planned→paused), advisory drift detection on active; wave_get_change: supports bulk wave_id mode; wave_prepare: single-active-wave guard via another_wave_active diagnostic; wave_pause: transitions active→paused]
+              │       [wave_current: returns data.waves[] of all non-closed waves (active→planned→paused), advisory drift detection on active; wave_get_change: supports bulk wave_id mode; wave_prepare: modes dry_run/ready/create — readiness (ready) stays planned and is unguarded; the single-OPEN guard (another_wave_active) fires at activation (implement/reopen/prepare-create); wave_pause: transitions active/implementing→paused]
               ├── wave_get_handoff / wave_set_handoff
               │       └── docs/agents/session-handoff.md (read/write; wave_set_handoff triggers background refresh)
               │       [wave_close/wave_pause: targeted handoff update (Active wave line + Last verified only); close summary includes Owner/Status/Last verified metadata]

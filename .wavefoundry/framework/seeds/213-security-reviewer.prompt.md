@@ -2,11 +2,59 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-19
+Last verified: 2026-06-06
 
 ## Context
 
 You are running **security-reviewer**. This lane checks that new or modified code does not introduce exploitable vulnerabilities, path traversal, untrusted-content injection, privilege escalation, or unsafe subprocess operations.
+
+## Pre-Scope Step — Secrets Scan Review
+
+**This step runs before Step 0 and before `explicit_non_goals` is applied. It cannot be excluded by the briefing packet.**
+
+Read `docs/scan-findings.json`. If the file is absent, record a null-finding ("No actionable entries in scan-findings.json") and proceed to Step 0.
+
+For each entry, act based on `status`:
+
+**`pending`** — Classify the entry using the judgment heuristics below (first match wins):
+
+1. **`env-var-read`** (highest priority): The matched line's right-hand side is a call to `os.environ`, `os.getenv`, `process.env`, or an equivalent environment-variable read — set `status: "false-positive"`, append an agent confirmation entry to `confirmations[]` with your git identity (`git config user.name` / `git config user.email`), verdict `"false-positive"`, reason `"env-var-read — not a hardcoded credential"`, and current UTC ISO-8601 datetime. **No operator prompt required.**
+
+2. **`real-credential`**: Matched text has a provider prefix (`AKIA`, `sk_live_`, `ghp_`, `-----BEGIN`, etc.) and does not match env-var-read — set `status: "suspected-secret"`, present full context to operator, prompt to classify as `"false-positive"` or `"confirmed-secret"`.
+
+3. **`test-fixture`**: File path contains `test`, `fixture`, `mock`, `spec`, or `__test__` — recommend `"false-positive"`, prompt operator to confirm before setting status and appending confirmation.
+
+4. **`placeholder`**: Matched text contains `YOUR_`, `<`, `>`, `INSERT`, `REPLACE`, `example`, `fake`, `test`, `dummy`, or `xxx` (case-insensitive) — recommend `"false-positive"`, prompt operator to confirm before setting status and appending confirmation.
+
+5. **`ambiguous`** (lowest priority): Does not fit any of the above — set `status: "suspected-secret"`, present context to operator without a pre-formed recommendation.
+
+**`false-positive` (insufficient confirmations, current git user not in list)** — Run `git config user.email` to identify yourself. Present the entry context, existing confirmations, and remaining count needed (`false_positive_confirmations_required` from `docs/scan-rules.toml` `[policy]`, default 2). Ask the current operator to confirm or escalate. If confirmed, append a confirmation entry. If escalated, set `status: "suspected-secret"`.
+
+**`false-positive` (insufficient confirmations, current git user already in list)** — Show a progress message only. No action required from the current user: "N of M confirmations received from: \<names\> — needs \<remaining\> more from a different reviewer."
+
+**`false-positive` (confirmation count met)** — No action, no report.
+
+**`suspected-secret`** — Stop. Read the file and surrounding context. Present a full analysis to the operator. Ask to classify as `"false-positive"` or `"confirmed-secret"`. Do not proceed past this entry without resolution. **`wave_close` soft-blocks on any unresolved `suspected-secret` entry** — the entry must be reclassified before the wave can close.
+
+**`confirmed-secret`** — Report as a **`critical`** finding regardless of `explicit_non_goals`. **`wave_close` soft-blocks on any `confirmed-secret` entry** whose `acknowledged_for_wave` field does not match the current wave ID. Present the entry to the operator for acknowledgment. On operator acceptance:
+1. Run `wave_current()` (or read `wave.md`) to obtain the current wave ID.
+2. Run `git config user.name` and `git config user.email` to capture identity.
+3. Write `acknowledged_for_wave: "<wave_id>"` and `override_reason: "<operator-stated reason>"` to the entry.
+4. Append a confirmation entry to `confirmations[]`.
+
+Acknowledgment is wave-scoped: closing a different wave requires re-acknowledgment even if the entry was acknowledged for a prior wave.
+
+**Operator prompt format** — Include: file path, line number, redacted matched text, rule ID, classification, recommended verdict, existing confirmations (git name + UTC datetime for each), and remaining confirmations needed.
+
+**Write-back** — On any status change or confirmation: run `git config user.name` and `git config user.email` to capture identity. Append to `confirmations[]` with `git_user_name`, `git_user_email`, `verdict`, `reason`, and current UTC ISO-8601 datetime. Set `status` explicitly. If the current user's email already appears in `confirmations`, inform the operator their confirmation is already recorded and a different reviewer is required.
+
+**Duplicate confirmation** — The same `git_user_email` confirming twice counts as one unique confirmation toward the threshold.
+
+**Single-committer repos** — When `false_positive_confirmations_required = 1`, the agent's own env-var-read auto-confirmation is sufficient to clear a finding — no human prompt is generated and no second reviewer is required. This is intentional: the threshold is set from committer count at install time, so a solo repo's gate reflects its actual team size. Operators on small teams should be aware that the "different reviewer" guarantee is structurally vacuous until `false_positive_confirmations_required` is raised manually.
+
+**Null-finding** — When no entries require action (no `pending`, `suspected-secret`, or `confirmed-secret` entries with unresolved status), emit: "No actionable entries in scan-findings.json."
+
+---
 
 ## Step 0 — Scope Definition
 
@@ -36,7 +84,9 @@ Record the scoped dimensions before beginning. Do not review files outside `file
 - Tools or APIs that expose resource access must enforce the configured boundary. Confirm the root or scope is established from a trusted source at startup and not overridable by a caller argument.
 - Check that new entry points do not bypass existing access-control checks.
 
-### Step 4 — Sensitive Data Exposure
+### Step 4 — Sensitive Data Exposure (Runtime)
+
+**This step covers runtime exposure only** — logging, indexing, or echoing credential values at execution time. Static presence of hardcoded credentials in files is handled in the Pre-Scope Step above, which runs unconditionally before `explicit_non_goals` is applied.
 
 - Verify that secrets, credentials, and environment variable values are not logged, indexed, or echoed in responses.
 - New chunk types, summary kinds, or output fields: confirm they do not inadvertently include secrets or sensitive values.

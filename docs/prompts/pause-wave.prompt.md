@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-19
+Last verified: 2026-06-08
 
 Shortcut: **`Pause wave`**
 
 ## Purpose
 
-Park current session state and transition the wave to `paused` when work must be interrupted. Enables safe resumption in a new session and frees the active slot so another wave can be prepared.
+Park current session state and transition the wave to `paused` when work must be interrupted. Enables safe resumption in a new session and frees the OPEN slot so another wave can be **opened** (wave 1p45l). Planning, admitting, and fully **readying** other waves needs no pause — only opening (activating) one does.
 
 ## Steps
 
@@ -34,13 +34,13 @@ Park current session state and transition the wave to `paused` when work must be
 
 | Current status | After `wave_pause(mode='create')` | Handoff written? | Diagnostic                      |
 | -------------- | --------------------------------- | ---------------- | ------------------------------- |
-| `active`       | `paused`                          | yes              | none                            |
+| `active` / `implementing` | `paused`               | yes              | none                            |
 | `paused`       | `paused` (no-op)                  | yes              | none                            |
 | `planned` / other | unchanged                      | yes              | `pause_on_non_active_wave` (advisory) |
 
 ## Resume Instructions
 
-At next session start, read `docs/agents/session-handoff.md` and the wave record at `docs/waves/<wave-id>/wave.md` before taking any action. To transition the paused wave back to `active`, run `wave_prepare(wave_id=..., mode='create')` on it. The single-active-wave guard in `wave_prepare` will block this if any other wave is currently `active`; pause that one first.
+At next session start, read `docs/agents/session-handoff.md` and the wave record at `docs/waves/<wave-id>/wave.md` before taking any action. To transition the paused wave back to `active`, run `wave_prepare(wave_id=..., mode='create')` on it (resume is an activation). The single-OPEN guard will block this if any other wave is currently OPEN (`active`/`implementing`); pause that one first.
 
 ## Paused Waves in `wave_current`
 

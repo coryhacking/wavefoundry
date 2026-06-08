@@ -14,12 +14,12 @@ build/
 # Wavefoundry local approval state (never commit)
 .wavefoundry/guard-overrides.json
 
-# Wavefoundry dashboard runtime state (host-local: pid, port, url — never commit)
+# Wavefoundry runtime state files (host-local — never commit)
 .wavefoundry/dashboard-server.json
+.wavefoundry/upgrade-in-progress.json
 
 # Wavefoundry runtime lock files (host-local process/test locks — never commit)
-.wavefoundry/*.lock
-.wavefoundry/framework/*.lock
+.wavefoundry/**/*.lock
 
 # Wavefoundry runtime logs — all logs consolidated here (upgrade, index build, dashboard)
 .wavefoundry/logs/

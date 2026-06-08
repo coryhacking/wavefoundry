@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-26
+Last verified: 2026-06-08
 
 ## Verification Commands
 
@@ -107,6 +107,8 @@ Same checks whether you run **`wave_validate`** / **`wave_garden`** over MCP or 
 - Wave and journal root directories exist
 
 `.wavefoundry/bin/docs-gardener` refreshes stale metadata timestamps.
+
+**Secrets scanning** is also part of the docs gate. `docs-lint` runs `wave_lint_lib/secrets_validators.py` against the merged ruleset (`.wavefoundry/scan-rules.toml` + `docs/scan-rules.toml`) and fails on any `pending` or unconfirmed finding in `docs/scan-findings.json`. For an on-demand scan use `wave_scan_secrets(mode="full")` (MCP) — incremental mode auto-escalates to full when either TOML file changed since the last scan. The `wave_close` secrets gate enforces resolution before a wave can close: pending entries hard-block; `suspected-secret` and `confirmed-secret` entries require per-wave operator acknowledgment via the security reviewer (`seed-213`).
 
 Both launchers live under `.wavefoundry/bin/` and delegate to `.wavefoundry/framework/scripts/`. This repository does not ship repo-root `./docs-lint` or `./docs-gardener` shims. **Agents should use MCP `wave_validate` and `wave_garden` first**; reserve **`.wavefoundry/bin/docs-lint`** / **`.wavefoundry/bin/docs-gardener`** for hooks, CI, and hosts without MCP.
 

@@ -144,9 +144,11 @@ Applies to all repository code: framework scripts, seed prompts, test files, bui
 
 1. A consolidated change document exists at `docs/plans/<change-id>.md` or `docs/waves/<wave-id>/<change-id>.md`.
 2. The change is admitted into a wave via **Create wave** / **Add change to wave**.
-3. The wave has a successful **Prepare wave** / **Ready wave** pass as the immediately preceding lifecycle step. A successful prepare requires `wave-council-readiness` to be recorded — `wave_prepare` returns `status: "ready_for_council_review"` when technical checks pass but the council review has not yet been run. Run the council review immediately when you see that status, then call `wave_prepare(mode='create')` again.
+3. The wave is **readied** — a successful **Prepare wave** / **Ready wave** pass with `wave-council-readiness` recorded. A successful prepare requires that signoff: `wave_prepare` returns `status: "ready_for_council_review"` when technical checks pass but the council review has not yet been run; run the review immediately, then call `wave_prepare` again (`mode='ready'` to ready-without-opening, or `mode='create'` to prepare-and-open).
 
 If any step is missing, stop and route back to **Plan feature**, **Create wave**, **Add change to wave**, or **Prepare wave**.
+
+**READY vs OPEN (wave 1p45l):** readiness (plan → admit → ready) does **not** take the single-OPEN slot — any number of waves may be readied in parallel. Only **one** wave may be OPEN (`active`/`implementing`) at a time; that guard fires at the **activation** step (`Implement wave` / `wave_reopen` / `wave_prepare(mode='create')`). Readying other waves never displaces the currently OPEN wave.
 
 **Out of scope for this gate:**
 

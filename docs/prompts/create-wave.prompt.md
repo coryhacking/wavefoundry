@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-04
+Last verified: 2026-06-08
 
 Shortcut: **`Create wave`**
 
@@ -21,7 +21,7 @@ Create a wave record at `docs/waves/<wave-id>/wave.md`. The wave is the coordina
    - `Review checkpoints`, `Journal refs`, `Journal Watchpoints`
    - `Completion criteria`, `Handoff or next-wave notes`
    - `Wave Summary` placeholder: *(Populated at closure.)*
-3. Only one wave should normally be `active` per `change-id` at a time.
+3. Only one wave may be **OPEN** (`active`/`implementing`) per `change-id` at a time — enforced at the activation step (wave 1p45l). Creating, admitting, and **readying** additional waves needs no pause; only opening one is single-gated.
 
 ## Wave Identity Rules
 

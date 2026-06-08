@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-03
+Last verified: 2026-06-08
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
@@ -16,10 +16,10 @@ Confirm wave readiness before implementation begins. The stage gate: implementat
 2. Confirm each change doc is complete: Rationale, Requirements, Scope, Acceptance Criteria, Affected architecture docs.
 3. Select required review lanes for each admitted change (see `docs/contributing/agent-team-workflow.md`).
 4. Confirm `qa-reviewer` is included for any bug fix (`review_policies.require_qa_reviewer_for_bug_fixes: true`).
-5. When `wave_review.enabled` is true, run the Wave Council readiness pass in two phases: first, the `wave-council` declares a **primer depth tier** (`lightweight` / `standard` / `full`) based on trust boundaries touched, files in scope, and change type — this sets how many stances and `primer_questions` Phase 1 produces; (1) `red-team` runs the adversarial primer (`council-adversarial-primer` mode) first in isolation at the declared depth — strongest challenge, best alternative, and `primer_questions`; (2) fixed seats each receive the standard briefing plus the primer output and must address `strongest_challenge` and `primer_questions` before producing their own findings; a rotating fifth seat finds the strongest alternative path the wave did not take; `wave-council` synthesizes all outputs; record `wave-council-readiness` in `## Review Evidence` and the narrative verdict in `## Review checkpoints`. The recorded verdict must be a structured `prepare-council` line with `moderator`, `primer-depth`, `seats`, `rotating-seat`, `strongest-challenge`, and `strongest-alternative` fields. **`wave_prepare` signals this step with `status: "ready_for_council_review"` — run the review immediately when you see that status, then call `wave_prepare(mode='create')` again to complete prepare.**
+5. When `wave_review.enabled` is true, run the Wave Council readiness pass in two phases: first, the `wave-council` declares a **primer depth tier** (`lightweight` / `standard` / `full`) based on trust boundaries touched, files in scope, and change type — this sets how many stances and `primer_questions` Phase 1 produces; (1) `red-team` runs the adversarial primer (`council-adversarial-primer` mode) first in isolation at the declared depth — strongest challenge, best alternative, and `primer_questions`; (2) fixed seats each receive the standard briefing plus the primer output and must address `strongest_challenge` and `primer_questions` before producing their own findings; a rotating fifth seat finds the strongest alternative path the wave did not take; `wave-council` synthesizes all outputs; record `wave-council-readiness` in `## Review Evidence` and the narrative verdict in `## Review checkpoints`. The recorded verdict must be a structured `prepare-council` line with `moderator`, `primer-depth`, `seats`, `rotating-seat`, `strongest-challenge`, and `strongest-alternative` fields. **`wave_prepare` signals this step with `status: "ready_for_council_review"` — run the review immediately when you see that status, then call `wave_prepare` again (mode `ready` to ready-without-opening, or `create` to prepare-and-open) to complete prepare.**
 6. **AC priority check:** categorize each admitted change's ACs as required / important / nice-to-have / not-this-scope; record in `## AC priority` on the change doc; interrogate required and important ACs until each classification is explicitly justified. ACs admitted with the `[~]` marker (intentionally not met from the outset) are unusual but accepted — they must already carry an inline status note explaining the deferral, and the `## AC priority` row must still record their priority. See `.wavefoundry/framework/seeds/170-plan-feature.prompt.md` *"AC and task checkbox states — the `[~]` marker"* for the canonical convention. Note the close-time hard gate: silent `[ ]` items block `wave_close`, so prepare-time AC tracking habits matter.
 7. Record product-owner acknowledgment for product-impacting waves (feature changes shifting product behavior/UX/acceptance).
-8. Update wave record status to `Status: active`.
+8. Record the readiness verdict; the wave stays **readied** (`Status: planned`). Readiness no longer flips the wave to `active` (wave 1p45l) — opening it is a separate, single-OPEN-gated step. Complete readiness with `wave_prepare(mode='ready')` (readies without opening — works while another wave is OPEN) or `wave_prepare(mode='create')` (prepare-and-open in one step, the common single-wave flow).
 
 ## Readiness Verdict
 
@@ -33,16 +33,21 @@ Record a readiness verdict in the wave record `## Review checkpoints` (e.g., `Pr
 
 A clean readiness verdict confirms the wave is **admissible**. It does not replace the **pre-implementation review gate**, which is the mandatory first phase of `Implement wave`. The lifecycle sequence is: `Prepare wave` (readiness) → **pre-implementation review gate** (first phase of `Implement wave`) → first code edit.
 
-## Single-Active-Wave Rule
+## Single-OPEN-Wave Rule
 
-Only one wave may be `active` at a time. `wave_prepare` enforces this: when another wave is already `active`, it returns an `another_wave_active` error diagnostic with `wave_pause` as the recovery tool. To context-switch between waves:
+Only one wave may be **OPEN** (`active` or `implementing`) at a time — but any number of waves may be **planned, admitted, and fully readied** in parallel. Readiness never takes the OPEN slot (wave 1p45l).
 
-1. `wave_pause(wave_id='<current-active>', mode='create')` — transitions the current active wave from `active` to `paused` and records a session-handoff entry.
-2. `wave_prepare(wave_id='<target>', mode='create')` — promotes the target wave to `active`. Works for `planned → active` (normal prepare) and `paused → active` (resume).
+- `wave_prepare(mode='ready')` records full readiness and leaves the wave **readied** (`Status: planned`); it is **not** blocked while another wave is OPEN. Ready as many waves as you like.
+- The single-OPEN guard fires only at **activation** — `wave_implement` (open a readied wave), `wave_reopen`, and `wave_prepare(mode='create')` (prepare-and-open). When another wave is already OPEN, these return an `another_wave_active` diagnostic; recover by **pausing** the open wave, or by **readying** the target instead (`mode='ready'`) without opening it.
 
-**Resume semantics:** a paused wave is resumed by re-running `wave_prepare` on it. The single-active-wave guard still applies — resume is blocked if any other wave is currently `active`.
+To open a second wave while one is OPEN, free the slot first:
 
-The `wave_current` tool returns `data.waves[]` with all non-closed waves: active first (0 or 1), then planned, then paused. Each entry's `next_action` tells you what to do: `implement_wave` (active), `prepare_wave` (planned), or `resume_wave` (paused). The `resume_wave` label is a hint; the underlying transition is still `wave_prepare` on the paused wave.
+1. `wave_pause(wave_id='<current-open>', mode='create')` — transitions the OPEN wave to `paused` and records a session-handoff entry. (Readying another wave needs no pause.)
+2. Open the target: `wave_implement(wave_id='<readied-target>', mode='create')` for a readied `planned` wave, or `wave_prepare(wave_id='<target>', mode='create')` to prepare-and-open in one step.
+
+**Resume semantics:** a paused wave is resumed by `wave_prepare(mode='create')` (paused → active) — an activation, so the single-OPEN guard applies; pause any other OPEN wave first.
+
+The `wave_current` tool returns `data.waves[]` with all non-closed waves: OPEN first (active/implementing), then planned, then paused. Each entry's `next_action`: `implement_wave` (active), `prepare_wave` (planned — readies it; open later), or `resume_wave` (paused).
 
 ## Wavefoundry-Specific Review Lane Selection
 

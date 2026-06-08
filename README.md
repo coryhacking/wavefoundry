@@ -27,6 +27,8 @@ Anything that's going to live for a while can benefit.
 
 All exposed as MCP tools — `docs_search`, `code_search`, `code_ask`, `code_callhierarchy`, `code_impact`, `code_references`, `code_graph_community`, `wave_graph_report`, and others. They work before any wave runs. The agent stops inventing functions that don't exist and starts answering "where do we handle X?" from your actual code.
 
+**Built-in secrets detection.** The framework scans your project for hardcoded credentials, API keys, and tokens on every wave using a [Gitleaks](https://github.com/gitleaks/gitleaks)-based TOML ruleset (MIT licensed, community maintained). Findings land in `docs/scan-findings.json` with a lifecycle — `pending` → `false-positive` (requires multi-reviewer confirmation) or `confirmed-secret` (requires per-wave operator acknowledgment). `Close wave` refuses until every finding is resolved. Call `wave_scan_secrets` for an on-demand scan at any time; incremental mode automatically escalates to a full scan when the ruleset changes.
+
 ---
 
 ## Design principles
@@ -208,7 +210,7 @@ Agent: Running readiness checks…
        Wave status: active. Pre-implementation review gate next.
 ```
 
-`Prepare wave` is a real gate. Docs-lint must pass. Every admitted change doc must be complete. AC priority must be recorded. When configured, a structured council review must record `wave-council-readiness`. Only then does status flip to `active`. The wave cannot enter implementation without it.
+`Prepare wave` is a real gate. Docs-lint must pass. Every admitted change doc must be complete. AC priority must be recorded. When configured, a structured council review must record `wave-council-readiness`. Only then is the wave **readied** — it stays `planned`; a separate, single-OPEN-gated step (`Implement wave`) opens it to `active`/`implementing`. Any number of waves can be planned and readied in parallel; only one may be OPEN at a time.
 
 ### 3. Implement, review, close
 
@@ -272,7 +274,7 @@ A *change doc* is the structured planning artifact for one unit of work: Rationa
 
 ### Feedback sensors
 
-Two kinds: **computational sensors** (linters, validators, gate scripts that block when checks fail) and **inferential sensor lanes** (LLM-based code-review, architecture-review, security-review, qa-review, etc., recorded as structured evidence on the wave).
+Two kinds: **computational sensors** (linters, validators, gate scripts that block when checks fail) and **inferential sensor lanes** (LLM-based code-review, architecture-review, security-review, qa-review, etc., recorded as structured evidence on the wave). Secrets detection is a built-in computational sensor — it scans for hardcoded credentials on every wave and blocks close until every finding is classified.
 
 **Closest analogue:** CI pipelines combined with PR review assignments. **Key difference:** sensors record their findings as structured evidence on the wave doc itself, and `wave_close` blocks until required-lane signoffs are present.
 
@@ -341,16 +343,7 @@ All planning artifacts (change docs, wave records) are Markdown in your `docs/` 
 
 Local-only operation. No network calls at runtime to Wavefoundry-controlled endpoints. No service, no account, no telemetry. Embedding model weights fetched from Hugging Face on first index build, cached locally. Dependencies installed via `uv` with a supply-chain age guard during install and upgrade. Audited file-write surface — Wavefoundry never edits files outside the paths shown in [What got installed](#what-got-installed).
 
----
-
-## Non-goals
-
-Wavefoundry is not:
-
-- A replacement for human code review
-- A CI/CD system (it integrates *into* your existing CI; it does not run builds itself)
-- A cloud service or hosted product
-- A multi-tenant collaboration platform
+Credential scanning is built in: the framework checks every project file against a community Gitleaks ruleset and blocks wave closure until findings are classified. Your `docs/scan-rules.toml` extends or overrides the framework defaults for project-specific needs.
 
 ---
 
@@ -372,7 +365,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute.
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) — local-first means no service to attack, but the supply-chain surface (`uv`, dependency install) is still real.
+See [SECURITY.md](SECURITY.md) — local-first means no service to attack, but the supply-chain surface (`uv`, dependency install) is still real. Wavefoundry also scans your project files for hardcoded credentials using a built-in Gitleaks-based ruleset; findings are tracked in `docs/scan-findings.json` and must be resolved before a wave can close.
 
 ## License
 

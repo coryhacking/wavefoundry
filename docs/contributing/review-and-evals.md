@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-03
+Last verified: 2026-06-08
 
 ## Review Lane Summary
 
@@ -42,6 +42,8 @@ Before implementation begins, the wave-coordinator confirms:
 8. Chronology reconciled: `Status: completed`, `Completed at:` date, all change statuses finalized
 
 **Closure is blocked until all eight items above are explicitly recorded in the wave record.**
+
+**Secrets gate (enforced by `wave_close`):** Before calling `wave_close`, check `docs/scan-findings.json`. Any `pending` entry hard-blocks close — run the security reviewer (`seed-213`) to classify it. Any `suspected-secret` or `confirmed-secret` entry soft-blocks close until the security reviewer presents it to the operator and writes `acknowledged_for_wave: "<wave_id>"` to the entry. Acknowledgment is wave-scoped: a different wave requires re-acknowledgment. If the file is absent or has no actionable entries, the gate passes automatically.
 
 ## Wave Council
 

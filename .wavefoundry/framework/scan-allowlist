@@ -1,0 +1,2 @@
+# wavefoundry framework scan allowlist
+# Format: <sha256>:<rel_path>:<rule_id>:<line_hash>

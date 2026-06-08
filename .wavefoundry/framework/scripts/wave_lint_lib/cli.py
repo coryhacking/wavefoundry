@@ -13,6 +13,7 @@ from .design_system_surface_validators import check_design_surface
 from .helpers import iter_linkable_docs, iter_markdown_docs, write_if_changed
 from .link_validators import check_markdown_links
 from .metadata_validators import check_metadata
+from .secrets_validators import check_hardcoded_secrets
 from .wave_validators import (
     check_closed_wave_requirements,
     check_cross_artifact_consistency,
@@ -39,6 +40,11 @@ def parse_args() -> argparse.Namespace:
         "--migration-audit-path",
         default=AUDIT_DEFAULT_REPORT,
         help="Project-root-relative output path for the optional migration audit report",
+    )
+    parser.add_argument(
+        "--scan-all",
+        action="store_true",
+        help="Scan all repo files for secrets (default: wave-touched files only)",
     )
     return parser.parse_args()
 
@@ -78,6 +84,7 @@ def main() -> int:
         print("docs/: missing repository docs root", file=sys.stderr)
         return 1
 
+    failures.extend(check_hardcoded_secrets(root, scan_all=args.scan_all))
     failures.extend(check_required_files(root))
     failures.extend(check_forbidden_root_wrappers(root))
     failures.extend(check_prompt_file_extensions(root))

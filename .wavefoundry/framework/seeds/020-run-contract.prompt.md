@@ -73,7 +73,7 @@ If memory conflicts with current evidence from the repository, favor that eviden
 
 - Waves are the unit of coordinated execution and knowledge transfer for non-trivial work.
 - A wave may contain multiple features, feature slices, reviews, docs, or integration items when their assumptions and dependencies are compatible.
-- Only one wave should normally be `active` per `change-id` at a time.
+- Only one wave may be **OPEN** (`active`/`implementing`) per `change-id` at a time — the hard single-OPEN rule, enforced at activation (`wave_implement` / `wave_reopen` / `wave_prepare(mode='create')`). Any number of waves may be planned and **readied** (`wave_prepare(mode='ready')`, `Status: planned`) in parallel; readiness never takes the slot.
 - The wave coordinator owns wave activation, execution order, role assignment, conflict avoidance, and wave completion.
 - Wave artifacts should distinguish completed work, deferred work, moved work, retried work, and failed assumptions clearly enough for later agents to resume safely.
 

@@ -18,6 +18,13 @@ from typing import Any, Callable, Iterable, Literal, Optional
 
 sys.dont_write_bytecode = True
 
+# Evict wave_lint_lib submodules so that lazy imports inside tool handlers
+# (e.g. wave_scan_secrets_response) always pick up the current code on disk
+# after a wave_mcp_reload (importlib.reload of this module re-runs this block).
+for _wll_key in list(sys.modules):
+    if _wll_key.startswith("wave_lint_lib"):
+        del sys.modules[_wll_key]
+
 FASTEMBED_CACHE_DEFAULT = Path.home() / ".wavefoundry" / "cache" / "fastembed"
 if not os.environ.get("FASTEMBED_CACHE_PATH"):
     os.environ["FASTEMBED_CACHE_PATH"] = str(FASTEMBED_CACHE_DEFAULT)
@@ -6487,6 +6494,109 @@ def wave_run_sensors_response(root: Path) -> dict[str, Any]:
     )
 
 
+def wave_scan_secrets_response(root: Path, mode: str = "incremental") -> dict[str, Any]:
+    """Run the secrets scanner and return a structured findings summary.
+
+    mode: "incremental" uses git-changed files; "full" scans all tracked files.
+    New findings are appended to docs/scan-findings.json as status 'pending'.
+
+    Runs in a subprocess (matching the graph indexer architecture) so that
+    ProcessPoolExecutor workers and the multiprocessing resource_tracker belong
+    to the child process and exit when it does — the MCP server never acquires
+    a resource_tracker of its own.
+    """
+    import sys as _sys
+    scripts_dir = Path(__file__).resolve().parent
+    if str(scripts_dir) not in _sys.path:
+        _sys.path.insert(0, str(scripts_dir))
+
+    try:
+        from wave_lint_lib.constants import SCAN_FINDINGS_PATH
+    except ImportError as exc:
+        return _response(
+            "error",
+            {"error": f"secrets scanner not available: {exc}"},
+            diagnostics=[_diagnostic("import_error", str(exc))],
+        )
+
+    import time as _time, subprocess as _subp, json as _json
+
+    scan_script = scripts_dir / "run_secrets_scan.py"
+    _t0 = _time.monotonic()
+    failures: list[str] = []
+
+    try:
+        proc = _subp.run(
+            [_preferred_python(), str(scan_script), "--root", str(root), "--mode", mode],
+            capture_output=True, text=True, timeout=300, cwd=str(root),
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stderr.strip() or f"exit {proc.returncode}")
+        _out = _json.loads(proc.stdout)
+        failures = _out.get("failures", [])
+        rules_hash_changed = _out.get("rules_hash_changed", False)
+        escalated_to_full = _out.get("escalated_to_full", False)
+    except Exception as _exc:
+        # Subprocess unavailable or failed — fall back to in-process serial scan.
+        rules_hash_changed = False
+        escalated_to_full = False
+        try:
+            from wave_lint_lib.secrets_validators import check_hardcoded_secrets
+            failures = check_hardcoded_secrets(root, scan_all=(mode == "full"), max_workers=1)
+        except Exception:
+            return _response(
+                "error",
+                {"error": f"secrets scan failed: {_exc}"},
+                diagnostics=[_diagnostic("scan_error", str(_exc))],
+            )
+
+    elapsed_s = round(_time.monotonic() - _t0, 3)
+
+    import json as _json
+    findings_path = root / SCAN_FINDINGS_PATH
+    findings: list[dict] = []
+    if findings_path.exists():
+        try:
+            data = _json.loads(findings_path.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                findings = data
+        except Exception:
+            pass
+
+    by_status: dict[str, int] = {}
+    for entry in findings:
+        s = entry.get("status", "unknown")
+        by_status[s] = by_status.get(s, 0) + 1
+
+    all_ok = len(failures) == 0
+    return _response(
+        "ok" if all_ok else "error",
+        {
+            "mode": mode,
+            "effective_mode": "full" if (mode == "full" or escalated_to_full) else mode,
+            "rules_hash_changed": rules_hash_changed,
+            "escalated_to_full": escalated_to_full,
+            "clean": all_ok,
+            "elapsed_s": elapsed_s,
+            "total_findings": len(findings),
+            "by_status": by_status,
+            "failures_total": len(failures),
+            "failures": failures[:20] if failures else [],
+            "findings_file": SCAN_FINDINGS_PATH,
+        },
+        diagnostics=[
+            _diagnostic(
+                "secrets_scan_failures",
+                f"{len(failures)} secrets check failure(s) — review {SCAN_FINDINGS_PATH}",
+                recovery_tools=["wave_scan_secrets"],
+                recovery_usage="wave_scan_secrets(mode='full')",
+            )
+        ] if failures else [],
+        next_tools=["wave_audit"] if all_ok else ["wave_scan_secrets"],
+        usage="wave_audit()" if all_ok else "wave_scan_secrets(mode='full')",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Audit helpers: commit governance, harnessability, harness coverage, coherence
 # ---------------------------------------------------------------------------
@@ -7194,8 +7304,16 @@ def _build_prepare_council_brief(wave_id: str, wave_text: str, change_ids: list[
 
 def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
-    if mode_s not in {"dry_run", "create"}:
-        return _response("error", {"wave_id": wave_id, "mode": mode}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'.")], next_tools=["wave_help"], usage="wave_help()")
+    if mode_s not in {"dry_run", "ready", "create"}:
+        return _response("error", {"wave_id": wave_id, "mode": mode}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'. Valid modes: dry_run, ready, create.")], next_tools=["wave_help"], usage="wave_help()")
+    # Wave 1p45l: decouple readiness from activation.
+    #   dry_run  — read-only validation, no guard, no writes.
+    #   ready    — full readiness (relocate + garden + lint + council verdict) recorded WITHOUT
+    #              activating: no single-OPEN guard, status stays `planned` ("readied"). Lets any
+    #              number of waves be readied while one is OPEN.
+    #   create   — readiness PLUS the single-OPEN guard PLUS the `planned`->`active` flip (prepare-and-open).
+    _activating = mode_s == "create"
+    _mutating = mode_s in ("create", "ready")
     wave_md = _find_wave_md(root, wave_id)
     if wave_md is None:
         return _response("error", {"wave_id": wave_id, "mode": mode_s}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wave_list_waves"], recovery_usage="wave_list_waves()")], next_tools=["wave_list_waves"], usage="wave_list_waves()")
@@ -7225,7 +7343,7 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
             change_path = location["wave_path"]
         elif location["staged_exists"]:
             repairs_needed += 1
-            if mode_s == "create":
+            if _mutating:
                 try:
                     _move_change_doc(location["staged_path"], location["wave_path"])
                 except OSError as exc:
@@ -7298,7 +7416,7 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
                         recovery_usage=f"wave_get_change(change_id={admitted_change!r})",
                     )
                 )
-    # Garden and lint only run on create — dry-run must stay read-only.
+    # Garden + lint run on create/ready (readiness mutations); dry-run stays read-only.
     required_council_signoffs = _required_wave_council_signoffs(root, "prepare")
     if required_council_signoffs:
         missing_council = [
@@ -7320,7 +7438,7 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
             )
     garden_passed = True
     lint_passed = True
-    if mode_s == "create":
+    if _mutating:
         garden_result = run_garden(root)
         garden_passed = garden_result["passed"]
         if not garden_passed:
@@ -7329,10 +7447,12 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
     lint_passed = lint_result["passed"]
     if not lint_passed:
         diagnostics.extend(_diagnostic("docs_lint_error", err, recovery_tools=["wave_validate"]) for err in lint_result["errors"])
-    # Single-active-wave guard: block prepare when another wave is already active.
-    # Keyed on "is any other wave active?" — self-transitions (active→active or paused→active
-    # on the target wave) are not blocked by this check.
-    other_active = _find_other_active_wave(root, wave_md, cache=cache)
+    # Wave 1p45l: the single-OPEN guard runs ONLY on the activating path (`create`). `ready`
+    # and `dry_run` never take the slot, so any number of waves can be readied while one is
+    # OPEN. The same guard also lives at the other activation transitions (wave_implement,
+    # wave_reopen). Keyed on "is any OTHER wave OPEN (active/implementing)?" — self-transitions
+    # on the target wave are not blocked.
+    other_active = _find_other_active_wave(root, wave_md, cache=cache) if _activating else None
     guard_data: dict[str, Any] = {}
     if other_active is not None:
         guard_data = {
@@ -7342,17 +7462,18 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
         diagnostics.append(
             _diagnostic(
                 "another_wave_active",
-                f"Wave {other_active['wave_id']!r} is already active. Pause it before preparing {wave_id!r}.",
-                recovery_tools=["wave_pause", "wave_current"],
-                recovery_usage=f"wave_pause(wave_id={other_active['wave_id']!r}, mode='create')",
+                f"Wave {other_active['wave_id']!r} is already OPEN (active/implementing). Pause it first, "
+                f"or run wave_prepare(wave_id={wave_id!r}, mode='ready') to ready {wave_id!r} without opening it.",
+                recovery_tools=["wave_prepare", "wave_pause", "wave_current"],
+                recovery_usage=f"wave_prepare(wave_id={wave_id!r}, mode='ready')",
             )
         )
     if diagnostics:
         error_data = {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "repairs_needed": repairs_needed, "repaired": repaired}
         error_data["required_council_signoffs"] = required_council_signoffs
         error_data.update(guard_data)
-        next_tools_list = ["wave_pause", "wave_current"] if other_active is not None else ["wave_validate", "wave_current"]
-        usage_hint = f"wave_pause(wave_id={other_active['wave_id']!r}, mode='create')" if other_active is not None else "wave_validate()"
+        next_tools_list = ["wave_prepare", "wave_pause", "wave_current"] if other_active is not None else ["wave_validate", "wave_current"]
+        usage_hint = f"wave_prepare(wave_id={wave_id!r}, mode='ready')" if other_active is not None else "wave_validate()"
         return _response("error", error_data, diagnostics=diagnostics, next_tools=next_tools_list, usage=usage_hint)
     # Prepare-phase Wave Council review — final step of wave_prepare (12sp5).
     # Always generate the council brief; block create-mode completion until verdict is recorded.
@@ -7366,7 +7487,7 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
             "record the verdict in ## Review Checkpoints with a structured 'prepare-council' line, "
             "then call wave_prepare(mode='create') to complete prepare."
         )
-        if mode_s == "create":
+        if _mutating:
             return _response(
                 "ready_for_council_review",
                 {"wave_id": wave_id, "mode": mode_s, "council_brief": council_brief},
@@ -7375,9 +7496,9 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
                     "Technical checks passed. Ready to run prepare-phase Wave Council review. "
                     "Run each council seat in isolation against the admitted change docs, "
                     "record the verdict in ## Review Checkpoints with a structured 'prepare-council' line, "
-                    "then call wave_prepare(mode='create') again to complete prepare.",
+                    f"then call wave_prepare(mode={mode_s!r}) again to complete this step.",
                     recovery_tools=["wave_prepare"],
-                    recovery_usage="wave_prepare(mode='create')",
+                    recovery_usage=f"wave_prepare(mode={mode_s!r})",
                 )],
                 next_tools=["wave_prepare"],
                 usage=council_usage,
@@ -7439,7 +7560,7 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
             root,
             [wave_md, *(_wave_change_doc_path(root, wave_md, change_id) for change_id in change_ids)],
         )
-    resp_data = {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired, "required_council_signoffs": required_council_signoffs, "council_brief": council_brief, "council_verdict_present": verdict_present, "council_verdict_valid": verdict_valid}
+    resp_data = {"wave_id": wave_id, "mode": mode_s, "readied": mode_s == "ready", "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired, "required_council_signoffs": required_council_signoffs, "council_brief": council_brief, "council_verdict_present": verdict_present, "council_verdict_valid": verdict_valid}
     envelope = _response("dry_run" if mode_s == "dry_run" else "ok", resp_data, diagnostics=_ac_advisories if _ac_advisories else None, next_tools=["wave_current"], usage="wave_current()")
     return _attach_lint_to_response(envelope, root, mode_s)
 
@@ -7507,21 +7628,31 @@ def _operator_signoff_present(wave_text: str) -> bool:
 
 
 _SEVERITY_ORDER = ["none", "low", "medium", "high", "critical"]
+# Wave 1p45s: match severity levels as whole words, not substrings. A bare ``sev in line``
+# test fires on ordinary prose ("highest-salience" -> high, "below"/"allow"/"flow" -> low,
+# "criticality" -> critical), producing phantom close-time findings. ``\b`` word boundaries
+# match genuine standalone severity words while ignoring severity strings embedded inside
+# larger words. ("none" is the rank-0 default and is intentionally not matched.)
+_SEVERITY_WORD_RE = re.compile(r"\b(" + "|".join(s for s in _SEVERITY_ORDER if s != "none") + r")\b")
 
 
 def _max_severity_from_evidence(wave_text: str) -> str:
-    """Scan Review Evidence signoff lines for severity annotations; return highest found."""
+    """Scan Review Evidence signoff lines for severity annotations; return the highest found.
+
+    Severity words are matched as whole tokens (wave 1p45s) so substrings inside larger
+    words (e.g. "high" in "highest") do not register. Position-independent: a standalone
+    severity word ranks the same wherever it appears in the line.
+    """
     evidence = _combined_review_evidence(wave_text)
     max_rank = 0
     for raw in evidence.splitlines():
         line = raw.strip().lower()
         if not line or line.startswith("#") or "<" in line:
             continue
-        for sev in _SEVERITY_ORDER:
-            if sev in line and line.index(sev) > 0:
-                rank = _SEVERITY_ORDER.index(sev)
-                if rank > max_rank:
-                    max_rank = rank
+        for word in _SEVERITY_WORD_RE.findall(line):
+            rank = _SEVERITY_ORDER.index(word)
+            if rank > max_rank:
+                max_rank = rank
     return _SEVERITY_ORDER[max_rank]
 
 
@@ -7624,11 +7755,13 @@ def wave_implement_response(root: Path, wave_id: str, mode: str = "dry_run", cac
     """Gate and context builder for starting wave implementation (12sqb).
 
     Checks:
-    1. Wave is active (not already implementing, not planned/paused/closed).
+    1. Wave is OPEN-able — `active` (legacy prepare-and-open) or a readied `planned`
+       wave (wave 1p45l); not already implementing, not paused/closed/blocked.
     2. Automated prepare-phase Wave Council verdict is recorded (12sp5).
     3. All required prepare-phase lane reviews are recorded in ## Prepare Review Evidence.
+    4. Single-OPEN guard (wave 1p45l): no OTHER wave is already active/implementing.
 
-    On create: transitions wave status to 'implementing'.
+    On create: runs the single-OPEN guard, then transitions wave status to 'implementing'.
     Returns ordered change list, Journal Watchpoints, and serialization points.
     """
     mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
@@ -7645,13 +7778,15 @@ def wave_implement_response(root: Path, wave_id: str, mode: str = "dry_run", cac
 
     if current_status == "implementing":
         return _response("ok", {"wave_id": wave_id, "mode": mode_s, "status": "implementing", "already_implementing": True}, next_tools=["wave_current", "wave_review"], usage="wave_current()")
-    if current_status != "active":
+    # Wave 1p45l: implement opens an `active` wave (legacy prepare-and-open) OR a readied
+    # `planned` wave. A non-readied `planned` wave still fails the council/lane gates below.
+    if current_status not in ("active", "planned"):
         return _response(
             "error",
             {"wave_id": wave_id, "mode": mode_s, "status": current_status},
-            diagnostics=[_diagnostic("wave_not_active", f"wave_implement requires an active wave; '{wave_id}' has status '{current_status}'.", recovery_tools=["wave_prepare", "wave_current"], recovery_usage=f"wave_prepare(wave_id={wave_id!r}, mode='dry_run')")],
+            diagnostics=[_diagnostic("wave_not_active", f"wave_implement requires an `active` or readied `planned` wave; '{wave_id}' has status '{current_status}'. Prepare it (`wave_prepare(mode='ready')`), or resume it if paused.", recovery_tools=["wave_prepare", "wave_current"], recovery_usage=f"wave_prepare(wave_id={wave_id!r}, mode='ready')")],
             next_tools=["wave_prepare", "wave_current"],
-            usage=f"wave_prepare(wave_id={wave_id!r}, mode='dry_run')",
+            usage=f"wave_prepare(wave_id={wave_id!r}, mode='ready')",
         )
 
     diagnostics: list[dict[str, Any]] = []
@@ -7693,6 +7828,20 @@ def wave_implement_response(root: Path, wave_id: str, mode: str = "dry_run", cac
             ))
     else:
         missing_lanes = []
+
+    # Gate 3 (wave 1p45l): single-OPEN guard — at most one wave may be OPEN (active/implementing).
+    # This is the relocated single-OPEN enforcement point; readiness paths (prepare ready/dry_run)
+    # no longer guard. `_find_other_active_wave` excludes the target wave, so opening a wave that
+    # is already `active` (legacy flow) is not blocked by itself.
+    other_open = _find_other_active_wave(root, wave_md, cache=cache)
+    if other_open is not None:
+        diagnostics.append(_diagnostic(
+            "another_wave_active",
+            f"Wave {other_open['wave_id']!r} is already OPEN (active/implementing); only one wave may be OPEN at a time. "
+            f"Pause it before opening {wave_id!r}.",
+            recovery_tools=["wave_pause", "wave_current"],
+            recovery_usage=f"wave_pause(wave_id={other_open['wave_id']!r}, mode='create')",
+        ))
 
     if diagnostics:
         return _response("error", {"wave_id": wave_id, "mode": mode_s}, diagnostics=diagnostics, next_tools=["wave_review", "wave_current"], usage=f"wave_review(wave_id={wave_id!r}, phase='prepare')")
@@ -7739,7 +7888,7 @@ def wave_implement_response(root: Path, wave_id: str, mode: str = "dry_run", cac
     resp_data = {
         "wave_id": wave_id,
         "mode": mode_s,
-        "status_transition": {"from": "active", "to": "implementing"} if mode_s == "create" else {"from": "active", "to": "active (dry_run)"},
+        "status_transition": {"from": current_status, "to": "implementing"} if mode_s == "create" else {"from": current_status, "to": f"{current_status} (dry_run)"},
         "ordered_changes": ordered_changes,
         "journal_watchpoints": watchpoints_text,
         "serialization_points": serialization_points,
@@ -7751,6 +7900,86 @@ def wave_implement_response(root: Path, wave_id: str, mode: str = "dry_run", cac
         usage="wave_current()",
     )
     return _attach_lint_to_response(envelope, root, mode_s)
+
+
+def _load_scan_findings(root: Path) -> list[dict]:
+    path = root / "docs" / "scan-findings.json"
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _check_secrets_gate(root: Path, canonical_wave_id: str) -> list[dict]:
+    """Return diagnostic dicts for the wave_close secrets gate.
+
+    Hard-block: any entry with status 'pending'.
+    Soft-block: any 'confirmed-secret' or 'suspected-secret' entry without
+    acknowledged_for_wave matching the wave ID.
+    """
+    diagnostics: list[dict] = []
+    exceptions = _load_scan_findings(root)
+    if not exceptions:
+        return diagnostics
+
+    pending = [e for e in exceptions if e.get("status") == "pending"]
+    if pending:
+        lines = "\n".join(
+            f"  [{e.get('id', '?')}] {e.get('file', '?')}:{e.get('line', '?')}  rule: {e.get('rule_id', '?')}"
+            for e in pending
+        )
+        diagnostics.append(_diagnostic(
+            "secrets_gate_pending",
+            (
+                f"SECRETS GATE — {len(pending)} pending finding(s) must be resolved before close:\n\n"
+                f"{lines}\n\n"
+                "To proceed: run the security reviewer (seed-213), which will classify each "
+                "pending entry as 'false-positive', 'suspected-secret', or 'confirmed-secret'. "
+                "Then re-run wave_close."
+            ),
+            recovery_tools=["wave_review"],
+            recovery_usage=f"wave_review(wave_id={canonical_wave_id!r})",
+        ))
+
+    unacknowledged = [
+        e for e in exceptions
+        if e.get("status") in ("confirmed-secret", "suspected-secret")
+        and e.get("acknowledged_for_wave", "") != canonical_wave_id
+    ]
+    if unacknowledged:
+        lines_parts = []
+        for e in unacknowledged:
+            status = e.get("status", "?")
+            override = e.get("override_reason", "") or "(none)"
+            has_override = bool(e.get("override_reason", "").strip())
+            line = (
+                f"  [{e.get('id', '?')}] {e.get('file', '?')}:{e.get('line', '?')}  rule: {e.get('rule_id', '?')}  status: {status}\n"
+                f"  Matched: {e.get('matched_text', '?')}\n"
+                f"  Override reason: {override}"
+            )
+            if not has_override:
+                line += " ← add an override_reason before acknowledging"
+            lines_parts.append(line)
+        body = "\n\n".join(lines_parts)
+        diagnostics.append(_diagnostic(
+            "secrets_gate_confirmed_secret",
+            (
+                f"SECRETS GATE — {len(unacknowledged)} unresolved secret finding(s) require acknowledgment "
+                f"for wave {canonical_wave_id}:\n\n"
+                f"{body}\n\n"
+                "To proceed: run the security reviewer, which will present each entry for "
+                "operator acceptance. The security reviewer will write "
+                f"acknowledged_for_wave: \"{canonical_wave_id}\" to docs/scan-findings.json "
+                "for each entry the operator accepts. Then re-run wave_close."
+            ),
+            recovery_tools=["wave_review"],
+            recovery_usage=f"wave_review(wave_id={canonical_wave_id!r})",
+        ))
+
+    return diagnostics
 
 
 def _generate_wave_close_summary(wave_id: str, wave_text: str, wave_md: Path) -> str:
@@ -7961,6 +8190,11 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
             )
     if not lint_result["passed"]:
         diagnostics.extend([_diagnostic("docs_lint_error", err, recovery_tools=["wave_validate"]) for err in lint_result["errors"]])
+    # Wave 1p3rm (1p3rp): secrets gate — pending entries hard-block; confirmed-secret entries
+    # soft-block until acknowledged by the security reviewer for this specific wave.
+    canonical_wave_id_m = _WAVE_ID_PATTERN.search(text)
+    canonical_wave_id = canonical_wave_id_m.group(1) if canonical_wave_id_m else wave_id
+    diagnostics.extend(_check_secrets_gate(root, canonical_wave_id))
     # Wave 1p31b (1p32k): close-time hard gate — every AC and task across admitted changes
     # must be `[x]` (done) or `[~]` (intentionally deferred). Silent `[ ]` items block close.
     silent_unchecked = _collect_silent_unchecked_items_for_close(wave_md, text)
@@ -8035,6 +8269,24 @@ def wave_reopen_response(root: Path, wave_id: str) -> dict[str, Any]:
     current_status = status_match.group(1).lower() if status_match else ""
     if current_status not in ("closed", "paused"):
         return _response("error", {"wave_id": wave_id, "current_status": current_status}, diagnostics=[_diagnostic("wave_not_closed", f"Wave '{wave_id}' has status '{current_status}' — only closed or paused waves can be reopened.", recovery_tools=["wave_current"], recovery_usage="wave_current()")], next_tools=["wave_current"], usage="wave_current()")
+    # Wave 1p45l: reopening transitions the wave to `active` (OPEN), so it runs the single-OPEN
+    # guard — at most one wave may be OPEN (active/implementing) at a time. (Previously unguarded:
+    # a latent two-active-wave hole.)
+    other_open = _find_other_active_wave(root, wave_md)
+    if other_open is not None:
+        return _response(
+            "error",
+            {"wave_id": wave_id, "current_status": current_status, "active_wave_id": other_open["wave_id"]},
+            diagnostics=[_diagnostic(
+                "another_wave_active",
+                f"Wave {other_open['wave_id']!r} is already OPEN (active/implementing); only one wave may be OPEN at a time. "
+                f"Pause it before reopening {wave_id!r}.",
+                recovery_tools=["wave_pause", "wave_current"],
+                recovery_usage=f"wave_pause(wave_id={other_open['wave_id']!r}, mode='create')",
+            )],
+            next_tools=["wave_pause", "wave_current"],
+            usage=f"wave_pause(wave_id={other_open['wave_id']!r}, mode='create')",
+        )
     # Set status back to active
     text = text[:status_match.start(1)] + "active" + text[status_match.end(1):]
     # Remove any "Completed At: ..." line stamped by wave_close
@@ -14908,13 +15160,24 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_prepare(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
-        """Transactional prepare check: validates docs and confirms wave has admitted changes.
+        """Transactional prepare check: validates docs, runs the prepare-phase council gate, and (mode-dependent) readies or opens the wave.
 
         Call after all changes are admitted and docs validation passes — this is the required stage gate before implementation begins.
 
+        Modes (wave 1p45l — readiness is decoupled from activation):
+          - "dry_run" (default): read-only validation; never takes the single-OPEN slot.
+          - "ready": full readiness (relocate + garden + lint + council verdict) recorded WITHOUT
+            activating — the wave stays ``planned`` ("readied"). No single-OPEN guard, so any number
+            of waves can be readied while one is OPEN. Open it later with wave_implement.
+          - "create": readiness PLUS the single-OPEN guard PLUS the ``planned``->``active`` flip
+            (prepare-and-open, the common single-wave flow).
+
+        Only one wave may be OPEN (active/implementing) at a time; that guard is enforced at the
+        activation step (wave_implement / wave_reopen / prepare create), not at readiness.
+
         Args:
             wave_id: Wave ID or unique prefix.
-            mode: Either "dry_run" (validate only) or "create" (write Prepared checkpoint).
+            mode: "dry_run", "ready", or "create" (alias "apply").
         """
         bad = _ensure_no_extra_args("wave_prepare", kwargs)
         if bad is not None:
@@ -14989,6 +15252,20 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     @mcp.tool(annotations=_DESTRUCTIVE_TOOL)
     def wave_close(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Dry-run or close a wave after validation passes.
+
+        Secrets gate (wave 1p3rm): Before close mutations are written, wave_close reads
+        docs/scan-findings.json and enforces two gates:
+          - HARD BLOCK: any entry with status 'pending' blocks close with no override.
+            Run the security reviewer (seed-213) to classify pending entries first.
+          - SOFT BLOCK: any entry with status 'suspected-secret' (unresolved) or
+            'confirmed-secret' whose acknowledged_for_wave field does not match the current
+            wave ID blocks close. Run the security reviewer (seed-213) to resolve
+            suspected-secret entries (reclassify as false-positive or confirmed-secret) and
+            to present confirmed-secret entries to the operator for per-wave acknowledgment.
+            Upon acceptance, the reviewer writes acknowledged_for_wave: "<wave_id>" and
+            override_reason to docs/scan-findings.json. Then re-run wave_close.
+            Acknowledgment is wave-scoped: a different wave requires re-acknowledgment even
+            if the entry was acknowledged for a prior wave.
 
         Args:
             wave_id: Wave ID or unique prefix.
@@ -15444,6 +15721,28 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         return wave_run_sensors_response(get_handler().root)
+
+    @mcp.tool(annotations=_MUTATING_TOOL)
+    def wave_scan_secrets(mode: str = "incremental", **kwargs: Any) -> dict[str, Any]:
+        """Scan the repository for hardcoded secrets using the betterleaks ruleset.
+
+        New findings are appended to docs/scan-findings.json with status 'pending'.
+        Existing findings are checked and stale/drifted entries are reconciled.
+        scan-findings.json can be regenerated at any time by running mode='full'.
+
+        Args:
+            mode: "incremental" (git-changed files only, default) or "full" (all tracked files).
+        """
+        bad = _ensure_no_extra_args("wave_scan_secrets", kwargs)
+        if bad is not None:
+            return bad
+        if mode not in ("incremental", "full"):
+            return _response(
+                "error",
+                {"tool": "wave_scan_secrets", "error": "mode must be 'incremental' or 'full'"},
+                diagnostics=[_diagnostic("invalid_arg", "mode must be 'incremental' or 'full'")],
+            )
+        return wave_scan_secrets_response(get_handler().root, mode=mode)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wave_garden(mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:

@@ -1,0 +1,19 @@
+# Project-level scan-rules overrides.
+# Merged on top of .wavefoundry/framework/scan-rules.toml at scan time.
+# Add disabled_rules, project-specific rules, or extra allowlist entries here.
+
+[policy]
+false_positive_confirmations_required = 1
+
+[allowlist]
+description = "project-level path exclusions"
+paths = [
+    # Test directories and test files
+    '''(?:^|/)tests?/''',
+    '''(?:^|/)__tests__/''',
+    '''(?:^|/)test_[^/]+\.py$''',
+    '''(?:^|/)[^/]+_test\.py$''',
+    '''(?:^|/)spec(?:s)?/''',
+    '''(?:^|/)[^/]+\.spec\.[jt]sx?$''',
+    '''(?:^|/)[^/]+\.test\.[jt]sx?$''',
+]

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-03
+Last verified: 2026-06-08
 
 Shortcut: **`Implement wave`**
 
@@ -12,7 +12,9 @@ Coordinator-managed implementation and review loop for all admitted changes in a
 
 ## Pre-condition
 
-**Prepare wave** must have passed cleanly as the immediately preceding lifecycle step. If not, run **Prepare wave** first.
+The wave must be **readied** — **Prepare wave** has passed cleanly (council verdict + required lane reviews recorded). If not, run **Prepare wave** first.
+
+`Implement wave` is the **activation** step (wave 1p45l): it opens a readied `planned` wave (or a legacy `active` wave) and is where the **single-OPEN** invariant is enforced. `wave_implement` runs the single-OPEN guard and blocks with `another_wave_active` if another wave is already OPEN (`active`/`implementing`) — pause that wave first. Readying this wave never took the OPEN slot; opening it here does.
 
 ## Execution Model (ReAct Loop)
 

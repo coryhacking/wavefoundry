@@ -152,6 +152,13 @@ def perform_mcp_reload() -> dict[str, Any]:
                 server_impl._diagnostic("handler_close_warning", f"Old handler close raised: {exc}")
             )
         server_impl._script_cache.clear()
+        # Evict wave_lint_lib submodules so lazy imports in server_impl
+        # (e.g. wave_scan_secrets_response) pick up the freshly-edited code
+        # rather than the cached pre-reload module objects.
+        import sys as _sys
+        for _key in list(_sys.modules):
+            if _key.startswith("wave_lint_lib"):
+                del _sys.modules[_key]
         server_impl = importlib.reload(server_impl)
         server_impl.set_server_runner_version(SERVER_RUNNER_VERSION)
         try:

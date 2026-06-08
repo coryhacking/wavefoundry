@@ -639,6 +639,14 @@ td .wave-change-id {
   overflow-wrap: break-word;
 }
 
+/* Wave 1p459: the Activity timeline change-id is not inside a <td>, so it would inherit
+   the base `nowrap` and force the panel wider. Let it wrap — breaking only at the <wbr>
+   after each dash; renderChangeIdParts renders the kind/slug space non-breaking. */
+.timeline .wave-change-id {
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
 .wave-change-title {
   font-weight: 600;
   color: var(--ink);
@@ -848,13 +856,6 @@ td .wave-change-id {
   background: rgba(107, 122, 168, 0.15);
   color: #6B7AA8;
   border: 1px solid rgba(107, 122, 168, 0.3);
-}
-
-/* Wave 1p31b (1p32k): the small "· N deferred" suffix next to a progress fraction. Keeps
-   the count discoverable without competing with the primary done/total. */
-.progress-row-deferred {
-  color: var(--muted);
-  font-size: 0.85em;
 }
 
 .metric-dialog-ac-text {

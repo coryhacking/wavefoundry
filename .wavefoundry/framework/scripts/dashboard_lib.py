@@ -464,9 +464,9 @@ def _parse_tasks(tasks_section: str, change_status: str) -> dict[str, Any]:
     deferred = 0
     for match in _TASK_RE.finditer(tasks_section):
         mark = (match.group("mark") or "").strip().lower()
-        # Wave 1p31b (1p32k): `[~]` = intentionally deferred. Neither done nor pending;
-        # excluded from the progress denominator so a fully-met change with `[~]` tasks
-        # does not render as incomplete.
+        # Wave 1p31b (1p32k): `[~]` = intentionally deferred. Wave 1p458 (1p45a): deferred
+        # tasks stay in the denominator and read as outstanding while the wave is open;
+        # they fold into done only once the wave is closed (see the progress builder).
         is_deferred = mark == "~"
         done = (mark == "x") if mark else _is_terminal_change_status(change_status)
         if is_deferred:
@@ -478,11 +478,13 @@ def _parse_tasks(tasks_section: str, change_status: str) -> dict[str, Any]:
             "done": done,
             "deferred": is_deferred,
         })
-    in_scope_total = len(tasks) - deferred
+    # `completed` is `[x]`-only (the open-wave reading); `deferred` is tracked for the
+    # detail-dialog marker but no longer subtracted from `total`.
+    total = len(tasks)
     return {
-        "total": in_scope_total,
+        "total": total,
         "completed": completed,
-        "open": max(0, in_scope_total - completed),
+        "open": max(0, total - completed),
         "deferred": deferred,
         "items": tasks,
     }
@@ -622,16 +624,18 @@ def _wave_only_metric_counts(
     ac_deferred = 0
     for c in current_wave_changes:
         items = _visible_ac_items(c)
-        # Wave 1p31b (1p32k): `[~]` ACs are excluded from the progress denominator and
-        # surfaced as a separate count so the dashboard doesn't render a fully-met
-        # change with `[~]` ACs as incomplete.
-        in_scope = [item for item in items if not item.get("deferred")]
-        ac_deferred += len(items) - len(in_scope)
-        ac_total += len(in_scope)
+        # Wave 1p458 (1p45a): `[~]` deferred ACs stay IN the denominator. While the wave is
+        # open they read as outstanding (not done); once the wave is closed every in-scope
+        # item — including deferred — counts as done. `ac_deferred` is retained as an
+        # informational count for the detail-dialog marker, not subtracted from totals.
+        # (`_visible_ac_items` already drops `not-this-scope`, so a `[~]` not-this-scope AC
+        # is excluded from both total and done.)
+        ac_deferred += sum(1 for item in items if item.get("deferred"))
+        ac_total += len(items)
         if c.get("wave_id") in closed_wave_ids:
-            ac_done += len(in_scope)
+            ac_done += len(items)
         else:
-            ac_done += sum(1 for item in in_scope if item.get("done"))
+            ac_done += sum(1 for item in items if item.get("done"))
 
     return {
         "changes": {
@@ -815,11 +819,26 @@ def collect_waves(root: Path) -> list[dict[str, Any]]:
     return result
 
 
-def _parse_porcelain_path(raw: str) -> str:
-    raw = raw.strip()
-    if raw.startswith('"') and raw.endswith('"'):
-        raw = raw[1:-1]
-    return raw.split(" -> ")[-1].strip().strip('"')
+def _iter_porcelain_z(raw: str):
+    """Yield ``(xy, path)`` for each record in ``git status --porcelain -z`` output.
+
+    In ``-z`` mode paths are emitted raw and unquoted (no C-octal escaping, no
+    surrounding quotes), so non-ASCII / spaced names resolve on disk directly.
+    A rename/copy entry emits the destination path in the ``XY`` record followed
+    by a separate NUL-terminated origin-path token; the origin token is consumed
+    here (not yielded), matching the prior behaviour of reporting the new path.
+    """
+    tokens = raw.split("\0")
+    i, n = 0, len(tokens)
+    while i < n:
+        tok = tokens[i]
+        i += 1
+        if len(tok) < 4:  # empty trailing token, or malformed record
+            continue
+        xy, path = tok[:2], tok[3:]
+        if ("R" in xy or "C" in xy) and i < n:
+            i += 1  # consume the rename/copy origin-path token
+        yield xy, path
 
 
 def list_git_changed_files(root: Path, since: date | None = None, limit: int = 500) -> list[dict[str, str]]:
@@ -840,11 +859,10 @@ def list_git_changed_files(root: Path, since: date | None = None, limit: int = 5
 
     # Collect uncommitted files from git status
     seen: dict[str, str] = {}  # path → status, uncommitted takes precedence
-    for line in run("status", "--porcelain").splitlines():
-        if len(line) < 4:
-            continue
-        xy = line[:2]
-        rel = _parse_porcelain_path(line[3:])
+    for xy, rel in _iter_porcelain_z(run("status", "--porcelain", "--untracked-files=all", "-z")):
+        # --untracked-files=all expands fully-untracked dirs into individual files;
+        # -z gives raw, unquoted paths. The trailing-slash skip remains a harmless
+        # guard for entries git still reports as dirs (e.g. nested worktrees).
         if not rel or rel.endswith("/"):
             continue
         if "D" in xy:
@@ -1238,6 +1256,20 @@ def collect_git_stats(root: Path) -> dict[str, Any]:
         except Exception:
             return ""
 
+    def run_raw(*args: str) -> str:
+        # NUL-delimited (-z) output must NOT be stripped: leading whitespace is
+        # significant — an unstaged-change record begins with a space in its XY code
+        # (" M path"), and a filename may itself begin/end with whitespace. Stripping
+        # the whole blob corrupts the first/last token (and can drop a short first
+        # record below the 4-char floor). Mirror list_git_changed_files's raw read.
+        try:
+            r = subprocess.run(
+                ["git", *args], cwd=root, capture_output=True, text=True, timeout=5
+            )
+            return r.stdout if r.returncode == 0 else ""
+        except Exception:
+            return ""
+
     branch = run("rev-parse", "--abbrev-ref", "HEAD")
     if branch == "HEAD":
         branch = run("rev-parse", "--short", "HEAD")
@@ -1246,9 +1278,15 @@ def collect_git_stats(root: Path) -> dict[str, Any]:
     commit_msg  = run("log", "-1", "--format=%s")
     commit_date = run("log", "-1", "--format=%cd", "--date=short")
 
-    # File count: all modified/deleted/untracked files (porcelain is authoritative)
-    status_out = run("status", "--porcelain")
-    files_changed = len([l for l in status_out.splitlines() if l.strip()]) if status_out else 0
+    # File count: all modified/deleted/untracked files, enumerated individually.
+    # --untracked-files=all expands fully-untracked dirs (default porcelain collapses
+    # them to one "?? dir/" line) and -z gives raw paths + structural rename handling,
+    # matching list_git_changed_files so the tile count equals the dialog list length
+    # (below the dialog's 500-row cap).
+    status_out = run_raw("status", "--porcelain", "--untracked-files=all", "-z")
+    files_changed = sum(
+        1 for _xy, rel in _iter_porcelain_z(status_out) if rel and not rel.endswith("/")
+    )
 
     # Line stats: tracked file changes vs HEAD (staged + unstaged)
     shortstat = run("diff", "HEAD", "--shortstat")
@@ -1259,10 +1297,11 @@ def collect_git_stats(root: Path) -> dict[str, Any]:
         if m := re.search(r"(\d+) deletion", shortstat):
             lines_removed = int(m.group(1))
 
-    # Add lines from untracked files (git diff HEAD omits these entirely)
-    untracked = run("ls-files", "--others", "--exclude-standard")
-    for rel in (untracked.splitlines() if untracked else []):
-        rel = rel.strip()
+    # Add lines from untracked files (git diff HEAD omits these entirely).
+    # -z yields raw, unquoted, NUL-delimited paths so non-ASCII / spaced names
+    # resolve on disk (a bare line-based listing would octal-escape them).
+    untracked = run_raw("ls-files", "--others", "--exclude-standard", "-z")
+    for rel in (untracked.split("\0") if untracked else []):
         if not rel or rel.endswith("/"):  # skip directory entries (e.g. nested worktrees)
             continue
         try:
