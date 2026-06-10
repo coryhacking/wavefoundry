@@ -224,10 +224,11 @@ once envelope migration is complete.
 - Resolves a framework seed by name or partial slug.
 - Returns canonical seed content and labels it as trusted framework content.
 
-`code_ask(question: str)`
+`code_ask(question: str, rerank: str = "agent")`
 
 - Natural-language codebase Q&A entry point for cited answers that may span docs and code.
 - Use when you want an explanation, ownership trace, or “where should I look next?” guidance rather than an exact token match.
+- **No LLM synthesis happens in the tool — the calling agent synthesizes from the citations.** In the default `rerank="agent"` mode the tool does NOT pre-rank for you: it skips the cross-encoder and the RRF cross-source merge and returns **labeled, deduped, full-chunk per-index candidates** (each citation carries `source`/`sources` + the full chunk text, with a per-index coverage floor so no modality is starved) for you to fuse, rank, and synthesize, then `code_read` the winners. This is faster (no ~30s local cross-encoder, no parallel-query contention) and gives you full-context candidates. `rerank="local"` runs the cross-encoder + RRF (eval baseline / determinism / offline). The `rerank_mode` response field reports which path ran (`agent` | `local` | `rrf_fallback`); prefer it over the back-compat `reranked` bool.
 - Returns citations plus retrieval metadata; treat the `answer` field as a navigation pointer and validate from the cited chunks.
 - Citation `score` is the pre-partition reranker score. `final_rank` is the post-partition output order. If `partition_applied` is true, some citations were intentionally moved behind non-demoted evidence.
 - Demoted citations carry `demoted: true` and `partition_reason` (`seed`, `feedback`, or `journal/report`-style path). This preserves the relevance signal without hiding the policy decision.

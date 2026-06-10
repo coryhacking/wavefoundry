@@ -195,7 +195,7 @@ def _ts_collapse_body(text: str, max_lines: int = 150) -> str:
 # (b) `phase_index_rebuild` (full) running on `--update-index` instead of
 # `phase_index_update` (incremental), (c) post-condition verification confirming
 # the new version in `.wavefoundry/index/meta.json` after rebuild.
-CHUNKER_VERSION = "25"
+CHUNKER_VERSION = "26"  # 1p4mf: module/class-level constants emitted as chunks (kind="code", breadcrumb-prefixed text, merge-excluded via " [const]" section marker)
 
 # Lines per window and overlap for the line-window fallback chunker.
 WINDOW_SIZE = 120
@@ -425,6 +425,53 @@ def _file_stem(path: str) -> str:
     return PurePosixPath(path).stem
 
 
+# Wave 1p4mf: module/class-level constant chunking. Constants are emitted as kind="code"
+# (constants ARE code — searchable everywhere, no new-kind routing/filter surprises). To
+# stop _merge_small_chunks from silently folding a 1-line constant chunk into a neighbour
+# (CHUNK_MIN_LINES=2), the constant's `section` carries a marker suffix the merge excludes
+# (mirrors the existing "> imports" exclusion); the marker is kept OUT of the embedded
+# `text`, which gets the clean breadcrumb prefix. Casing IS the only Python constant signal.
+_CONST_SECTION_SUFFIX = " [const]"
+_CONST_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+
+def _is_const_name(name: str) -> bool:
+    """UPPER_SNAKE constant name, excluding single-letter TypeVars (T, K, V)."""
+    return bool(_CONST_NAME_RE.match(name)) and (len(name) >= 2 or "_" in name)
+
+
+def _is_final_annotation(ann: Optional[ast.AST]) -> bool:
+    """True when an AnnAssign annotation is ``typing.Final`` / ``Final[...]`` (casing-independent constant override)."""
+    if ann is None:
+        return False
+    if isinstance(ann, ast.Subscript):
+        ann = ann.value
+    if isinstance(ann, ast.Name):
+        return ann.id == "Final"
+    if isinstance(ann, ast.Attribute):
+        return ann.attr == "Final"
+    return False
+
+
+def _is_enum_class(node: ast.ClassDef) -> bool:
+    """Heuristic: the class inherits an Enum/Flag base — its members stay together in the class chunk, not split."""
+    for base in node.bases:
+        name = base.id if isinstance(base, ast.Name) else getattr(base, "attr", "")
+        if name and ("Enum" in name or "Flag" in name):
+            return True
+    return False
+
+
+def _leading_comment_start(lineno: int, source_lines: list[str]) -> int:
+    """Extend a statement's start line upward over a contiguous leading ``#`` comment block."""
+    start = lineno
+    i = lineno - 2  # 0-indexed line directly above the statement
+    while i >= 0 and source_lines[i].strip().startswith("#"):
+        start = i + 1
+        i -= 1
+    return start
+
+
 def chunk_python(source: str, path: str) -> list[Chunk]:
     """Chunk a Python source file into function, class, method, and docstring chunks."""
     path = _normalize_path(path)
@@ -452,6 +499,44 @@ def chunk_python(source: str, path: str) -> list[Chunk]:
             section=None,
             text=module_doc.strip(),
         ))
+
+    def _emit_constants(body: list, owner: Optional[str]) -> None:
+        # Wave 1p4mf: one chunk per module/class-level named constant (per-identifier for
+        # multi-target). owner=None → module-level; owner=ClassName → class-level. Scope is
+        # the discriminator: only DIRECT children of Module / a (non-Enum) ClassDef body are
+        # passed here, so function-locals and ``if TYPE_CHECKING:`` bodies are never reached.
+        for stmt in body:
+            if isinstance(stmt, ast.Assign):
+                names: list[str] = []
+                for tgt in stmt.targets:
+                    if isinstance(tgt, ast.Name):
+                        names.append(tgt.id)
+                    elif isinstance(tgt, (ast.Tuple, ast.List)):
+                        names.extend(e.id for e in tgt.elts if isinstance(e, ast.Name))
+                is_final = False
+            elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None and isinstance(stmt.target, ast.Name):
+                names = [stmt.target.id]
+                is_final = _is_final_annotation(stmt.annotation)
+            else:
+                continue
+            for name in names:
+                if not (_is_const_name(name) or is_final):
+                    continue
+                qname = f"{owner}.{name}" if owner else name
+                start = _leading_comment_start(stmt.lineno, source_lines)
+                _, end = _node_line_range(stmt, source_lines)
+                decl = "\n".join(source_lines[start - 1:end])
+                breadcrumb = f"{stem} > {qname}"
+                chunks.append(Chunk(
+                    id=f"{path}::{qname}",
+                    path=path,
+                    kind="code",
+                    language="python",
+                    lines=(start, end),
+                    # marker suffix → excluded from _merge_small_chunks; clean breadcrumb in text
+                    section=f"{breadcrumb}{_CONST_SECTION_SUFFIX}",
+                    text=f"{breadcrumb}\n\n{decl}",
+                ))
 
     def _visit(node: ast.AST, parent_name: Optional[str] = None) -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -495,12 +580,19 @@ def chunk_python(source: str, path: str) -> list[Chunk]:
             if isinstance(node, ast.ClassDef):
                 for child in ast.iter_child_nodes(node):
                     _visit(child, parent_name=qname)
+                # Wave 1p4mf: class-level constants — but NOT enum members (an Enum's
+                # members stay together in the class chunk; do not split them out).
+                if not _is_enum_class(node):
+                    _emit_constants(node.body, qname)
         else:
             for child in ast.iter_child_nodes(node):
                 _visit(child, parent_name=parent_name)
 
     for node in ast.iter_child_nodes(tree):
         _visit(node)
+
+    # Wave 1p4mf: module-level constants (direct children of the module only).
+    _emit_constants(tree.body, None)
 
     return _merge_small_chunks(chunks)
 
@@ -1641,15 +1733,20 @@ def _merge_small_chunks(chunks: list[Chunk], scoped: bool = False) -> list[Chunk
     result: list[Chunk] = []
     for chunk in chunks:
         is_imports = chunk.section is not None and chunk.section.endswith("> imports")
+        # Wave 1p4mf: constant chunks carry a marker suffix and are excluded from merging
+        # (a 1-line constant must keep its own id, never fold into a neighbour) — both as a
+        # merge SOURCE (the predicate below) and as a merge TARGET (the finder here).
+        is_const = chunk.section is not None and chunk.section.endswith(_CONST_SECTION_SUFFIX)
         is_doc = chunk.kind == "doc"
         line_count = chunk.lines[1] - chunk.lines[0] + 1
 
-        # Find last code chunk in result as merge target (skip imports chunks)
+        # Find last code chunk in result as merge target (skip imports + constant chunks)
         last_code_idx = next(
             (
                 idx for idx in range(len(result) - 1, -1, -1)
                 if result[idx].kind == "code"
                 and not (result[idx].section is not None and result[idx].section.endswith("> imports"))
+                and not (result[idx].section is not None and result[idx].section.endswith(_CONST_SECTION_SUFFIX))
             ),
             None,
         )
@@ -1664,6 +1761,7 @@ def _merge_small_chunks(chunks: list[Chunk], scoped: bool = False) -> list[Chunk
 
         if (
             not is_imports
+            and not is_const
             and not is_doc
             and chunk.kind == "code"
             and line_count < CHUNK_MIN_LINES

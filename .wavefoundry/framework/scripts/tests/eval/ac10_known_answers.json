@@ -1,0 +1,24 @@
+{
+  "_about": "Wave 1p4hi AC-10 / 1p4mf AC-6 known-answer recall harness. Committed gate artifact (was previously transient in workflows). Run with run_recall_eval.py against the LOCAL project index. constant_value_queries validate that 1p4mf's constant chunks make a constant's VALUE retrievable; symbol_recall_queries are the dilution baseline (their answers must not regress when constant chunks are added). baseline_rank values were captured at CHUNKER_VERSION=25 (pre-1p4mf) via workflow wf_0e43fa6a-7ae + /tmp/ac10_budget_sweep.py; null = not measured pre-1p4mf (the chunk did not exist).",
+  "pass_bar": {
+    "constant_rank_max": 5,
+    "symbol_rank_max": 8,
+    "dilution_tolerance": 3
+  },
+  "_match_note": "answer_any holds DECLARATION-distinctive strings (the value literal, or the full `NAME = value` assignment) — NOT the bare constant name, so a usage site that merely references the name cannot satisfy the match. A hit means the constant's declaration/value was retrieved.",
+  "constant_value_queries": [
+    {"query": "what cross-encoder reranker model does local mode use?", "answer_any": ["bge-reranker-base"], "baseline_rank": null},
+    {"query": "what embedding model does wavefoundry use for code search?", "answer_any": ["bge-small-en-v1.5"], "baseline_rank": null},
+    {"query": "what is the agent-mode text budget for code_ask candidates?", "answer_any": ["AGENT_TEXT_BUDGET_CHARS = 16000"], "baseline_rank": null},
+    {"query": "what is the relevance drop-off ratio for agent-mode candidate selection?", "answer_any": ["AGENT_RELEVANCE_DROPOFF = 0.85"], "baseline_rank": null},
+    {"query": "what is the per-index coverage floor for agent-mode candidates?", "answer_any": ["AGENT_PER_INDEX_FLOOR_K = 3"], "baseline_rank": null}
+  ],
+  "symbol_recall_queries": [
+    {"query": "where is search_combined defined?", "answer_any": ["search_combined"], "baseline_rank": 1},
+    {"query": "how does code_ask agent mode decide how many candidates to return?", "answer_any": ["_agent_candidate_select"], "baseline_rank": 3},
+    {"query": "what does code_risk_score compute?", "answer_any": ["code_risk_score"], "baseline_rank": 1},
+    {"query": "how is docs-lint run automatically after editing files under docs/?", "answer_any": ["docs_lint"], "baseline_rank": 1},
+    {"query": "what does _demote_doc_results do and when does it run?", "answer_any": ["_demote_doc_results"], "baseline_rank": 1},
+    {"query": "how does RRF merge the docs and code candidate lists?", "answer_any": ["_rrf_merge"], "baseline_rank": 1}
+  ]
+}

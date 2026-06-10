@@ -3179,22 +3179,21 @@ class UniversalOversizedChunkGuardTests(unittest.TestCase):
         cls.chunker = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.chunker)
 
-    def test_chunker_version_bumped_to_25(self):
-        """Wave 1p3iv / 1p3jc: CHUNKER_VERSION bumped 24 → 25 because the
-        symbolless-code-file fallback in `_chunk_code_summary` changes the
-        chunker's output shape — re-export `__init__.py`, barrel `index.ts`,
-        single-file Go packages, etc. now emit a `code-summary` chunk where
-        they previously emitted nothing. Consumers need a full reindex so
-        the new summary chunks land in Lance and become searchable via
-        `code_search`. `indexer.build_index` auto-escalates incremental
-        updates to a full rebuild on the version mismatch; the bump is
-        sufficient to drive consumer convergence on next upgrade.
+    def test_chunker_version_bumped_to_26(self):
+        """Wave 1p4mf: CHUNKER_VERSION bumped 25 → 26 because module/class-level
+        constants are now emitted as their own `kind="code"` chunks (breadcrumb-
+        prefixed text, merge-excluded via a `" [const]"` section marker) — a constant
+        like `RERANKER_MODEL = "..."` previously lived in NO chunk and is now
+        retrievable by `code_ask`. The output shape changes (new constant chunks),
+        so consumers need a full reindex. `indexer.build_index` auto-escalates
+        incremental updates to a full rebuild on the version mismatch.
 
         Prior bumps in this ratchet (preserved as the historical sequence):
         22 → 23 (wave 1p397): part-N/M labels, paragraph decomposition.
         23 → 24 (wave 1p3ho): test fixture for chunker-bump detection path.
-        24 → 25 (wave 1p3jc): symbolless-code-file summary fallback."""
-        self.assertEqual(self.chunker.CHUNKER_VERSION, "25")
+        24 → 25 (wave 1p3jc): symbolless-code-file summary fallback.
+        25 → 26 (wave 1p4mf): module/class-level constant chunks."""
+        self.assertEqual(self.chunker.CHUNKER_VERSION, "26")
 
     def test_split_large_chunks_is_idempotent_on_small_chunks(self):
         c = self.chunker.Chunk(id="x", path="p", kind="doc", language=None,
@@ -3458,6 +3457,71 @@ class TableDecompositionTests(unittest.TestCase):
         section_chunks = [c for c in chunks if "Discussion" in (c.section or "")]
         for c in section_chunks:
             self.assertNotIn("rows", c.section or "")  # no per-row label
+
+
+class ConstantChunkTests(unittest.TestCase):
+    """Wave 1p4mf: module/class-level constant chunking (Python)."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _consts(self, source, path="mod.py"):
+        chunks = self.chunker.chunk_python(source, path)
+        return {c.id: c for c in chunks if c.section and c.section.endswith(" [const]")}
+
+    def test_module_constant_chunked_with_value_and_breadcrumb(self):
+        """AC-1: a module-level UPPER_SNAKE constant becomes a kind=code chunk whose text
+        carries the breadcrumb prefix AND the value (the RERANKER_MODEL motivating case)."""
+        consts = self._consts('RERANKER_MODEL = "BAAI/bge-reranker-base"\n')
+        self.assertIn("mod.py::RERANKER_MODEL", consts)
+        c = consts["mod.py::RERANKER_MODEL"]
+        self.assertEqual(c.kind, "code")
+        self.assertTrue(c.text.startswith("mod > RERANKER_MODEL\n\n"))
+        self.assertIn('"BAAI/bge-reranker-base"', c.text)
+
+    def test_class_constant_chunked_qualified(self):
+        """AC-1: a class-body constant is chunked as Type.NAME."""
+        self.assertIn("mod.py::Config.MAX_SIZE", self._consts("class Config:\n    MAX_SIZE = 100\n"))
+
+    def test_final_override_includes_lowercase(self):
+        """AC-2: an any-cased name annotated Final is a constant (casing override)."""
+        self.assertIn("mod.py::default_config", self._consts("from typing import Final\ndefault_config: Final = {}\n"))
+
+    def test_excludes_locals_lowercase_singlechar_dunder_typechecking(self):
+        """AC-2: scope + casing exclusions — none of these are chunked as constants."""
+        src = (
+            "from typing import TYPE_CHECKING\n"
+            "api_url = 1\n"            # lowercase
+            "T = 1\n"                  # single-letter TypeVar
+            "__all__ = []\n"           # dunder
+            "if TYPE_CHECKING:\n    GUARDED = 1\n"   # inside an If — not a direct module child
+            "def f():\n    LOCAL_CONST = 9\n"        # function-local
+        )
+        consts = self._consts(src)
+        for bad in ("api_url", "T", "__all__", "GUARDED", "LOCAL_CONST"):
+            self.assertNotIn(f"mod.py::{bad}", consts, bad)
+
+    def test_enum_members_not_split(self):
+        """AC-2: Enum members stay together in the class chunk — not emitted as constants."""
+        src = "import enum\nclass Color(enum.Enum):\n    RED = 1\n    GREEN = 2\n"
+        self.assertEqual(self._consts(src), {})  # no per-member constant chunks
+        self.assertIn("mod.py::Color", {c.id for c in self.chunker.chunk_python(src, "mod.py")})
+
+    def test_adjacent_constants_each_survive_merge(self):
+        """AC-3 (the trap): >=3 adjacent 1-line constants each survive with their OWN id —
+        kind=code, but merge-excluded via the section marker, so none are folded away."""
+        consts = self._consts("A_ONE = 1\nB_TWO = 2\nC_THREE = 3\n")
+        self.assertEqual(set(consts), {"mod.py::A_ONE", "mod.py::B_TWO", "mod.py::C_THREE"})
+
+    def test_constant_after_function_survives(self):
+        """AC-3: a 1-line constant declared AFTER a function is not folded into it."""
+        self.assertIn("mod.py::AFTER_FUNC", self._consts("def helper():\n    return 1\n\nAFTER_FUNC = 42\n"))
+
+    def test_multi_target_per_identifier(self):
+        """AC: per-identifier for multi-target assigns."""
+        consts = self._consts("A_X = B_Y = 5\n")
+        self.assertIn("mod.py::A_X", consts)
+        self.assertIn("mod.py::B_Y", consts)
 
 
 if __name__ == "__main__":

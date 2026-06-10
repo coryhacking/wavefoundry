@@ -150,6 +150,35 @@ DEFINITION_BOOST_CANDIDATES = 5   # maximum candidates injected per rule per que
 MAX_SYMBOLS_EXTRACTED = 5         # maximum symbol names extracted from first-hop citations
 MAX_SECOND_HOP_CANDIDATES = 10    # maximum total candidates injected via second hop
 
+# Wave 1p4hj: agent-mode (the default `rerank` value) candidate selection. The host
+# agent — code_ask's only consumer, which already synthesizes — fuses labeled,
+# deduped, per-index candidates itself, so agent-mode skips BOTH the cross-encoder
+# and the RRF cross-source merge. These are tunable; 1p4hj AC-10 calibrates them.
+AGENT_TEXT_BUDGET_CHARS = 16000    # PRIMARY ceiling: cumulative full-chunk text (≈ chars÷4 tokens). "Don't over-feed the agent" — count adapts to chunk size (many small chunks fit; few large ones fit). Set from the 1p4hj AC-10 sweep: recall + answer-rank saturate ≤8000c on focused queries (24000 was over-provisioned); 16000 keeps headroom for diffuse/synthesis queries pending cross-project validation.
+AGENT_CANDIDATE_MAX = 40           # loose COUNT backstop — guards pathological "hundreds of tiny chunks"; rarely the binding limit (the text budget + drop-off bind first)
+AGENT_PER_INDEX_FLOOR_K = 3        # per-index coverage floor — each source contributes ≥K, regardless of cross-source ranking (anti-starvation minimum)
+AGENT_RELEVANCE_DROPOFF = 0.85     # quality cutoff: fill stops past the top cluster — keep candidates with weighted score ≥ ratio×top (floor exempt). The "enough to answer, no noise" knob. Calibrated by 1p4hj AC-10.
+# Agent-mode confidence calibration (bge-small cosine): on-topic queries top ≥ ~0.75, off-topic
+# top ≤ ~0.70 (measured on/off-topic separation). Only applied to agent-mode cosine scores — the
+# cross-encoder (local) + RRF + keyword/exact (top≈0) paths use other scales and stay count-based.
+# Thin margin → tunable, calibrated by 1p4hj AC-10.
+CONF_AGENT_HIGH_SCORE = 0.72       # agent-mode top cosine ≥ this (with ≥2 citations) → "high"
+CONF_AGENT_LOW_SCORE = 0.65        # agent-mode top cosine < this → "low" (flat/weak band — likely no real answer)
+
+# Wave 1p4lr: candidate-side constant-definition rank boost. A short constant-declaration
+# chunk (the 1p4mf " [const]" marker) whose declared-name tokens ALL appear in the query is
+# the answer to a "what value/model/flag is X" question but under-ranks on raw cosine; boost
+# its score so it ranks into the returned set. Applied BEFORE the drop-off, but the cutoff is
+# computed from UN-boosted scores so the boost never raises the bar for other candidates.
+_CONST_SECTION_SUFFIX = " [const]"   # mirrors chunker.py (1p4mf)
+CONST_DEFINITION_BOOST = 1.3         # multiplier; calibrated by the 1p4hj AC-10 recall eval
+_QUERY_STOPWORDS = frozenset(
+    # function words only — NOT domain words (mode/local/value/default/model stay as content
+    # terms, else a constant like DEFAULT_TIMEOUT would never match a "default timeout" query)
+    "a an the of to in on at for is are be do does did what which who whom where when how why "
+    "this that it its with and or as has have had can could should would will use used uses".split()
+)
+
 # Tree-sitter node types used during symbol extraction
 _TS_CALL_TYPES = frozenset({
     "call", "call_expression", "method_invocation",
@@ -867,6 +896,130 @@ class WaveIndex:
         sorted_ids = sorted(scores, key=lambda cid: scores[cid], reverse=True)
         return [chunks_by_id[cid] for cid in sorted_ids[:top_n]]
 
+    def _agent_candidate_select(self, source_lists: dict[str, list[dict]], top_n: int, floor_k: int, weights: Optional[dict[str, float]] = None, text_budget: Optional[int] = None) -> list[dict]:
+        """Wave 1p4hj agent-mode: labeled, deduped, per-index candidate selection.
+
+        NO cross-encoder, NO RRF cross-source merge — the host agent fuses+ranks.
+        Each source contributes its top ``floor_k`` (the per-index coverage floor,
+        so a single modality can never be starved); the remaining space is then
+        filled by **relevance across all sources** (best-of-rest by score) — NOT a
+        forced per-source balance, which would be no better than concatenating
+        ``code_search`` + ``docs_search``.
+
+        The returned **count is variable**, governed by three limits (none a fixed N):
+        (1) the **relevance drop-off** (``AGENT_RELEVANCE_DROPOFF``×top) — stop once a
+        candidate is no longer in the top cluster (*enough to answer, no noise*);
+        (2) the **text budget** (``text_budget`` chars of full-chunk text, ≈ tokens×4)
+        — the *don't-over-feed-the-agent* ceiling, so the count adapts to chunk SIZE
+        (many small chunks fit; few large ones fit — packed greedily by relevance);
+        (3) a loose **count backstop** (``top_n``) for pathological tiny-chunk cases.
+        Cross-source
+        duplicates collapse to one representative but **preserve the multi-source
+        signal** — the candidate keeps the set of ``sources`` it appeared in and its
+        best per-source rank — so the agent can weigh cross-source agreement the way
+        RRF's fusion rewarded it. Returns candidates tagged with ``source`` (primary)
+        and ``sources`` (the set); ordering is advisory only (the agent re-ranks).
+        """
+        def _key(c: dict):
+            return (c.get("path", ""), tuple(c.get("lines") or []))
+
+        def _wscore_base(c: dict) -> float:
+            # Un-boosted weighted cosine. Docs + code share the bge-small model → scores are
+            # comparable across sources; apply the per-source weight (RRF's navigational tilt).
+            return (c.get("score") or 0.0) * ((weights or {}).get(c.get("source"), 1.0))
+
+        def _wscore(c: dict) -> float:
+            # Fill-order / final-sort score: un-boosted weighted cosine × the 1p4lr
+            # constant-definition boost (1.0 when absent). The drop-off CUTOFF is computed
+            # from _wscore_base (un-boosted) so a boosted declaration ranks high WITHOUT
+            # raising the relevance bar for any other candidate.
+            return _wscore_base(c) * (c.get("_boost") or 1.0)
+
+        # Merge: per-key representative + the set of sources it appeared in + best rank.
+        merged: dict[tuple, dict] = {}
+        for src, lst in source_lists.items():
+            for rank, c in enumerate(lst):
+                if not c.get("path"):
+                    continue
+                k = _key(c)
+                rec = merged.get(k)
+                if rec is None:
+                    rep = dict(c)
+                    rep["source"] = src
+                    rep["sources"] = [src]
+                    rep["_best_rank"] = rank
+                    merged[k] = rep
+                else:
+                    if src not in rec["sources"]:
+                        rec["sources"].append(src)
+                    if rank < rec.get("_best_rank", rank):
+                        rec["_best_rank"] = rank
+                    if (c.get("score") or 0.0) > (rec.get("score") or 0.0):
+                        rec["score"] = c.get("score")
+                        if c.get("text"):
+                            rec["text"] = c.get("text")
+
+        selected: list[tuple] = []
+        seen: set[tuple] = set()
+        # Per-index floor — guarantee each source's top floor_k, regardless of cross-source rank.
+        for src, lst in source_lists.items():
+            cnt = 0
+            for c in lst:
+                if cnt >= floor_k:
+                    break
+                if not c.get("path"):
+                    continue
+                k = _key(c)
+                if k in seen:
+                    continue
+                seen.add(k)
+                selected.append(k)
+                cnt += 1
+        # Fill the remaining budget by RELEVANCE across ALL sources (best-of-rest) —
+        # NOT a forced per-source balance. The floor already prevents starvation, so the
+        # rest are simply the highest-scoring candidates regardless of source: a code-heavy
+        # question returns mostly code (docs floor preserved), a docs-heavy one mostly docs.
+        # (A forced balance would be no better than concatenating code_search + docs_search.)
+        #
+        # Fill governed by relevance drop-off + text budget + a loose count backstop — the
+        # count is an OUTCOME of relevance and chunk size, never a fixed N:
+        #   - drop-off: stop once a candidate falls below AGENT_RELEVANCE_DROPOFF×top (real
+        #     distributions are a strong cluster + flat tail — past the gap is noise + tokens).
+        #   - text budget: skip a candidate that won't fit the remaining char budget and keep
+        #     trying smaller relevant ones (greedy pack by relevance) — so many small chunks
+        #     fit while few large chunks do, both measured by context size not count.
+        #   - count backstop: top_n only guards pathological "hundreds of tiny chunks".
+        # The floor is already selected (and counted against the budget) — anti-starvation wins
+        # even if the floor alone is near/over budget.
+        def _chars(c: dict) -> int:
+            return len(c.get("text") or "")
+        used = sum(_chars(merged[k]) for k in selected if k in merged)
+        # 1p4lr: cutoff from the UN-boosted top, so a boosted constant declaration ranks into
+        # the set without raising the drop-off bar for (and re-trimming) other candidates.
+        top_w = max((_wscore_base(rec) for rec in merged.values()), default=0.0)
+        cutoff = AGENT_RELEVANCE_DROPOFF * top_w
+        rest = sorted(
+            (rec for k, rec in merged.items() if k not in seen),
+            key=_wscore,
+            reverse=True,
+        )
+        for rec in rest:
+            if len(selected) >= top_n:
+                break
+            if _wscore(rec) < cutoff:
+                break
+            if text_budget is not None and used + _chars(rec) > text_budget:
+                continue
+            k = _key(rec)
+            seen.add(k)
+            selected.append(k)
+            used += _chars(rec)
+        # Return best-first (advisory — the agent re-ranks; the response text-budget cap
+        # trims the lowest-scoring tail). The floor is guaranteed present by the selection.
+        out = [merged[k] for k in selected if k in merged]
+        out.sort(key=_wscore, reverse=True)
+        return out
+
     def _indexer_constant(self, name: str) -> str:
         mod = _load_script("indexer")
         return getattr(mod, name)
@@ -1012,7 +1165,7 @@ class WaveIndex:
             return results, True
         return results[:top_n], False
 
-    def search_combined(self, query: str, top_n: int = 7, question_type: str = "") -> tuple[list[dict], bool, int, int, list[str], list[str], str]:
+    def search_combined(self, query: str, top_n: int = 7, question_type: str = "", rerank: str = "agent") -> tuple[list[dict], bool, int, int, list[str], list[str], str]:
         """Combined semantic search across docs and code indexes.
 
         Returns ``(results, reranked, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method)``.
@@ -1062,6 +1215,16 @@ class WaveIndex:
                             if r.get("path")
                         ]
                         if kw_candidates:
+                            # Wave 1p4hj: agent-mode honors the exact-first artifact pass too —
+                            # return the keyword candidates labeled by source, full chunk, WITHOUT
+                            # the cross-encoder (this early-return path otherwise bypassed agent-mode
+                            # and ran the ~30s reranker on artifact-anchored questions).
+                            if rerank == "agent":
+                                for _c in kw_candidates:
+                                    _p = _c.get("path", "")
+                                    _c["source"] = "docs" if (_p.startswith("docs/") or "/docs/" in _p or _p.endswith(".md")) else "code"
+                                    _c["sources"] = [_c["source"]]
+                                return _partition_tests(kw_candidates[:max(top_n, AGENT_CANDIDATE_MAX)]), False, 0, 0, ["artifact_anchored"], [], "none"
                             t_exact = time.monotonic()
                             reranker = self._get_reranker()
                             if reranker is not None:
@@ -1162,9 +1325,57 @@ class WaveIndex:
 
         # --- Rerank / RRF phase (timed) ---
         t_rerank = time.monotonic()
-        reranker = self._get_reranker()
         second_hop_symbols: list[str] = []
         symbol_extraction_method: str = "none"
+        # Wave 1p4hj: agent-mode (the default) — skip the cross-encoder AND the RRF
+        # cross-source merge; return labeled, deduped per-index candidates (per-index
+        # floor + balanced cross-index allocation, multi-source agreement preserved).
+        # The host agent fuses+ranks. Two-hop expansion stays a "local"-mode feature
+        # here (AC-9); `1p4hu` generalizes it to graph edges for agent-mode.
+        if rerank == "agent":
+            # Apply the explanatory doc-type relevance prior BEFORE selection. This is a
+            # validated signal (code > narrative docs for "how does X work" — wave
+            # journals/plans/seeds over-retrieve on semantic similarity), NOT context-blind
+            # noise: keep it, but apply it up front so the per-index floor + relevance
+            # drop-off operate on the ADJUSTED relevance. The demoted narrative-doc tail
+            # then falls below the cutoff and is trimmed (variable count), rather than being
+            # selected on raw cosine and padded in. (Navigational uses the code weight in
+            # the selection's _wscore instead; the two question types are exclusive.)
+            if question_type == "explanatory":
+                all_candidates, _ = _demote_doc_results(all_candidates, question_type)
+            # Wave 1p4lr: candidate-side constant-definition boost. A constant-declaration
+            # chunk (1p4mf " [const]") whose name tokens all appear in the query gets a bounded
+            # score multiplier so a short "what value/model/flag is X" answer ranks into the
+            # returned set. Stored as `_boost`; the selection applies it to the fill ORDER but
+            # computes the drop-off cutoff from UN-boosted scores so it never re-trims others.
+            _q_terms = _query_content_terms(query)
+            for _c in all_candidates:
+                _b = _const_definition_boost(_q_terms, _c)
+                if _b != 1.0:
+                    _c["_boost"] = _b
+            _docs_src = [c for c in all_candidates if str(c.get("kind", "")) in ("doc", "doc-summary", "seed")]
+            _code_src = [c for c in all_candidates if str(c.get("kind", "")) not in ("doc", "doc-summary", "seed")]
+            # Wave 1p4hj: bring forward RRF's navigational tilt — boost code for
+            # navigational questions (same encoding model for both indexes → cosine
+            # scores are comparable, so the weight applies cleanly to the fill order).
+            _agent_weights = (
+                {"code": RRF_NAVIGATIONAL_CODE_WEIGHT, "docs": RRF_NAVIGATIONAL_DOCS_WEIGHT}
+                if question_type == "navigational" else None
+            )
+            results = self._agent_candidate_select(
+                {"docs": _docs_src, "code": _code_src},
+                max(top_n, AGENT_CANDIDATE_MAX),
+                AGENT_PER_INDEX_FLOOR_K,
+                weights=_agent_weights,
+                text_budget=AGENT_TEXT_BUDGET_CHARS,
+            )
+            if question_type == "explanatory":
+                results = _partition_infra(results)
+            for r in results:
+                r.pop("_sym_injected", None)
+            rerank_ms = round((time.monotonic() - t_rerank) * 1000)
+            return results, False, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method
+        reranker = self._get_reranker()
         if reranker is not None:
             try:
                 results = self._rerank(query, all_candidates, top_n)
@@ -14331,21 +14542,81 @@ def _classify_question(question: str) -> str:
     return "explanatory"
 
 
-def _heuristic_confidence(citations: list[dict]) -> str:
-    if len(citations) >= 2:
-        return "high"
-    if len(citations) == 1:
+def _heuristic_confidence(citations: list[dict], rerank: str = "agent") -> str:
+    """Coarse confidence for the response.
+
+    Count alone is misleading: a flat low-score off-topic query still returns many
+    candidates (bge-small gives everything a ~0.6-0.7 cosine), which count-only would
+    call "high". So for **agent-mode cosine** scores we gate "high" on a genuinely
+    relevant top score and flag a clearly-weak band "low". The cross-encoder (local),
+    RRF fallback, and keyword/exact-match (top≈0) paths use different score scales and
+    are reliable on their own → they stay count-based. Still coarse — the per-citation
+    scores carry the fine signal; this is a quick summary, not a precise certainty.
+    """
+    if not citations:
+        return "low"
+    n = len(citations)
+    top = max((c.get("score") or 0.0) for c in citations)
+    # Relevance gate only where the scale is bge-small cosine AND a real score exists
+    # (top>0; the keyword/exact path scores 0 and is a strong signal on its own).
+    if rerank == "agent" and top > 0.0:
+        if n >= 2 and top >= CONF_AGENT_HIGH_SCORE:
+            return "high"
+        if top < CONF_AGENT_LOW_SCORE:
+            return "low"
         return "medium"
-    return "low"
+    return "high" if n >= 2 else "medium"
 
 
-def code_ask_response(index: "WaveIndex", root: Path, question: str) -> dict[str, Any]:
-    """Mechanical routing: broad retrieval pass → targeted pass → assemble structured response."""
+def _tokenize_identifier(name: str) -> list[str]:
+    """Split an identifier on snake_case + camelCase + acronym + digit boundaries, lowercased.
+    `RERANKER_MODEL` → [reranker, model]; `MaxRetries` → [max, retries]; `apiURL` → [api, url]."""
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name)      # camelCase → camel Case
+    s = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", s)      # HTTPServer → HTTP Server
+    s = s.replace("_", " ")
+    return [t.lower() for t in re.findall(r"[A-Za-z0-9]+", s)]
+
+
+def _query_content_terms(query: str) -> set[str]:
+    """Query tokens (len > 1) minus function-word stopwords."""
+    return {t for t in (w.lower() for w in re.findall(r"[A-Za-z0-9]+", query))
+            if len(t) > 1 and t not in _QUERY_STOPWORDS}
+
+
+def _const_definition_boost(query_terms: set[str], candidate: dict) -> float:
+    """Wave 1p4lr: CONST_DEFINITION_BOOST when the candidate is a constant-declaration chunk
+    (1p4mf's `" [const]"` section marker) whose declared-name tokens (≥2 — to avoid over-boosting
+    single common words) ALL appear in the query; else 1.0. The bounded multiplier lifts a short
+    constant chunk into the returned set for a "what value/model/flag is X" query, without
+    re-imposing any casing rule (the camel/snake tokenizer is casing-agnostic)."""
+    if not str(candidate.get("section") or "").endswith(_CONST_SECTION_SUFFIX):
+        return 1.0
+    cid = str(candidate.get("id") or candidate.get("path") or "")
+    name = cid.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
+    name_tokens = [t for t in _tokenize_identifier(name) if len(t) > 1]
+    if len(name_tokens) < 2:
+        return 1.0
+    return CONST_DEFINITION_BOOST if all(t in query_terms for t in name_tokens) else 1.0
+
+
+def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str = "agent") -> dict[str, Any]:
+    """Mechanical routing: broad retrieval pass → targeted pass → assemble structured response.
+
+    Wave 1p4hj: ``rerank`` selects the candidate pipeline. ``"agent"`` (default) skips
+    the cross-encoder AND the RRF cross-source merge and returns labeled, deduped,
+    full-chunk per-index candidates for the calling agent to fuse+rank+synthesize.
+    ``"local"`` keeps the cross-encoder + RRF path (eval baseline / determinism / offline).
+    """
     t_start = time.monotonic()
 
     question = question.strip()
     if not question:
         return _response("error", {"question": question}, diagnostics=[_diagnostic("invalid_arguments", "question must be a non-empty string.")], next_tools=[], usage="")
+
+    # Wave 1p4hj: validate the rerank mode (AC-1).
+    rerank = (rerank or "agent").strip().lower()
+    if rerank not in ("agent", "local"):
+        return _response("error", {"question": question, "rerank": rerank}, diagnostics=[_diagnostic("invalid_arguments", "rerank must be 'agent' (default) or 'local'.")], next_tools=["code_ask"], usage="code_ask(question='...', rerank='agent')")
 
     question_type = _classify_question(question)
     gaps: list[str] = []
@@ -14371,7 +14642,7 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str) -> dict[str
     symbol_extraction_method: str = "none"
     try:
         combined_results, combined_reranked, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method = index.search_combined(
-            question, top_n=7, question_type=question_type
+            question, top_n=7, question_type=question_type, rerank=rerank
         )
         # Detect whether the scaffolding-layer partition fired (explanatory questions only)
         if question_type == "explanatory" and combined_reranked and combined_results:
@@ -14388,20 +14659,44 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str) -> dict[str
         path = r.get("path", "")
         lines = r.get("lines") or []
         line_range = f":{lines[0]}-{lines[1]}" if len(lines) == 2 else ""
-        return {
+        # Wave 1p4hj: agent-mode returns the FULL chunk text (reranker parity — the
+        # unit the cross-encoder ranks on, not a 300-char sliver) plus the multi-source
+        # label; "local" mode keeps the 300-char excerpt.
+        full = r.get("text") or ""
+        cit = {
             "ref": f"{path}{line_range}",
             "path": path,
             "lines": lines,
-            "excerpt": (r.get("text") or "")[:300],
+            "excerpt": full if rerank == "agent" else full[:300],
             "score": r.get("score"),
             "kind": r.get("kind"),
         }
+        if rerank == "agent":
+            cit["source"] = r.get("source")
+            if r.get("sources"):
+                cit["sources"] = r.get("sources")
+        return cit
 
     broad_hits = combined_results
-    broad_hits, demotion_count = _demote_doc_results(broad_hits, question_type)
+    if rerank == "agent":
+        # Agent-mode already applied the doc-type demotion PRE-selection (so the relevance
+        # drop-off could trim the demoted narrative tail) — don't double-apply here; just
+        # report how many of the returned candidates carry the demotion weight.
+        demotion_count = (
+            sum(1 for r in broad_hits
+                if _doc_demotion_weight(r.get("path", ""), str(r.get("kind") or "").strip().lower()) < 1.0)
+            if question_type == "explanatory" else 0
+        )
+    else:
+        broad_hits, demotion_count = _demote_doc_results(broad_hits, question_type)
     partition_applied = bool(demotion_count)
     citations = []
     for final_rank, r in enumerate(broad_hits, start=1):
+        # Wave 1p4hj: agent-mode's text budget (AGENT_TEXT_BUDGET_CHARS) is enforced
+        # inside the candidate selection (_agent_candidate_select), which packs by
+        # relevance within the budget AND honors the per-index floor — so there's no
+        # post-hoc tail-trim to do here (a response-side trim would re-cut the floor
+        # when the floor itself is near budget). Just build the citations.
         citation = _to_citation(r)
         citation["final_rank"] = final_rank
         citations.append(citation)
@@ -14432,7 +14727,7 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str) -> dict[str
     for final_rank, citation in enumerate(citations, start=1):
         citation["final_rank"] = final_rank
 
-    confidence = _heuristic_confidence(citations)
+    confidence = _heuristic_confidence(citations, rerank)
 
     # Assemble answer text from top citations
     if citations:
@@ -14455,6 +14750,10 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str) -> dict[str
         "gaps": gaps,
         "index_freshness": index_freshness,
         "reranked": combined_reranked,
+        # Wave 1p4hj: distinct mode field — "agent" (default; skipped cross-encoder +
+        # RRF, the agent fuses), "local" (cross-encoder ran), or "rrf_fallback"
+        # (cross-encoder unavailable, RRF order). NOT an overloaded `reranked: false`.
+        "rerank_mode": ("agent" if rerank == "agent" else ("local" if combined_reranked else "rrf_fallback")),
         "partition_applied": partition_applied,
         "demotion_count": demotion_count,
         "total_ms": total_ms,
@@ -15066,7 +15365,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         ), t_start, "wave_graph_report")
 
     @mcp.tool(annotations=_READONLY_TOOL)
-    def code_ask(question: str, **kwargs: Any) -> dict[str, Any]:
+    def code_ask(question: str, rerank: str = "agent", **kwargs: Any) -> dict[str, Any]:
         """Ask a natural-language question about the codebase and receive a grounded, cited answer.
 
         Prefer when: the question spans multiple files or layers ("how does X work end-to-end?",
@@ -15082,9 +15381,18 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           directly from citations.
         - citations: List of {ref, path, lines, excerpt, score, kind}. kind="keyword" means the semantic
           pass was thin and keyword fallback fired — results are still relevant but ranked by term overlap,
-          not vector similarity.
-        - reranked: true means cross-encoder reranking ran and ranking is high-quality; false means RRF
-          fallback fired (index or model unavailable) and ranking is slightly lower quality.
+          not vector similarity. In the default `rerank="agent"` mode each citation also carries `source`
+          (the index it came from: "docs"/"code") and, when it surfaced from more than one index, `sources`
+          (the set — cross-source agreement); `excerpt` is the FULL chunk text (not a 300-char truncation),
+          so YOU do the final ranking from full context. The candidate set is NOT pre-ranked for you beyond
+          a coverage floor + budget — fuse and rank it yourself, then `code_read` the winners.
+        - rerank_mode: "agent" (default — no cross-encoder, no RRF cross-source merge; labeled, deduped,
+          full-chunk per-index candidates for you to fuse) | "local" (cross-encoder ran) | "rrf_fallback"
+          (cross-encoder unavailable, RRF order). Pass rerank="local" only for the eval baseline /
+          determinism / offline; "agent" is faster (no ~30s cross-encoder, no parallel-query contention)
+          and gives you full-context candidates to rank.
+        - reranked: true means the cross-encoder ran (rerank_mode="local"); false in agent and rrf_fallback
+          modes. Prefer `rerank_mode` — `reranked` is retained for back-compat.
         - confidence: "high" (2+ citations), "medium" (1 citation), "low" (no evidence). Retrieval signal
           only — not an answer-quality signal. Evaluate citations by path and content, not confidence alone;
           high confidence with wrong-layer citations (e.g. infrastructure scaffolding for an explanatory
@@ -15121,11 +15429,15 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Args:
             question: Natural-language question about the codebase, e.g. "where does billing handle failed payments?"
+            rerank: "agent" (default) returns labeled, deduped, full-chunk per-index candidates for you to
+                fuse+rank+synthesize — no cross-encoder, no RRF cross-source merge (faster; no ~30s reranker,
+                no parallel-query contention). "local" runs the cross-encoder + RRF (eval baseline /
+                determinism / offline). See the rerank_mode response field.
         """
         bad = _ensure_no_extra_args("code_ask", kwargs)
         if bad is not None:
             return bad
-        return code_ask_response(get_handler().index, get_handler().root, question)
+        return code_ask_response(get_handler().index, get_handler().root, question, rerank=rerank)
 
     # --- Wave inspection ---
 

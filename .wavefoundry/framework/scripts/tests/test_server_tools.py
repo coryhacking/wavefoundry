@@ -7894,6 +7894,33 @@ class CodeAskTests(unittest.TestCase):
         self.assertEqual(result["data"]["confidence"], "low")
         self.assertTrue(len(result["data"]["gaps"]) > 0)
 
+    def test_confidence_agent_mode_offtopic_band_not_high(self):
+        """1p4hj: agent-mode confidence is score-aware — a flat low-cosine off-topic result
+        (top ~0.66, below CONF_AGENT_HIGH_SCORE) is NOT 'high' despite multiple citations."""
+        index = self._make_index(code_results=[self._fake_code_chunk("src/a.py", score=0.66), self._fake_code_chunk("src/b.py", score=0.66)])
+        result = self.srv.code_ask_response(index, self.root, "kubernetes ingress blue green deploy?")
+        self.assertEqual(result["data"]["confidence"], "medium")
+
+    def test_confidence_agent_mode_weak_band_low(self):
+        """1p4hj: agent-mode top cosine below CONF_AGENT_LOW_SCORE → 'low' (flat/weak band, no real answer)."""
+        index = self._make_index(code_results=[self._fake_code_chunk("src/a.py", score=0.60), self._fake_code_chunk("src/b.py", score=0.58)])
+        result = self.srv.code_ask_response(index, self.root, "best sourdough bread recipe?")
+        self.assertEqual(result["data"]["confidence"], "low")
+
+    def test_confidence_agent_mode_keyword_path_count_based(self):
+        """1p4hj: the keyword/exact path scores 0 (a STRONG signal, not weak) — confidence stays
+        count-based there, not forced 'low' by the agent cosine gate."""
+        index = self._make_index(code_results=[self._fake_code_chunk("src/a.py", score=0.0), self._fake_code_chunk("src/b.py", score=0.0)])
+        result = self.srv.code_ask_response(index, self.root, "what generates +2vr8?")
+        self.assertEqual(result["data"]["confidence"], "high")
+
+    def test_confidence_local_mode_count_based(self):
+        """1p4hj: local (cross-encoder) scores are a different scale — confidence stays count-based
+        in local mode, NOT gated by the agent cosine thresholds."""
+        index = self._make_index(code_results=[self._fake_code_chunk("src/a.py", score=0.66), self._fake_code_chunk("src/b.py", score=0.66)])
+        result = self.srv.code_ask_response(index, self.root, "billing?", rerank="local")
+        self.assertEqual(result["data"]["confidence"], "high")
+
     def test_citations_have_ref_and_path(self):
         index = self._make_index(code_results=[self._fake_code_chunk()])
         result = self.srv.code_ask_response(index, self.root, "billing?")
@@ -7907,7 +7934,10 @@ class CodeAskTests(unittest.TestCase):
             {"path": "docs/agents/journals/cia-feedback-2026-05-14.md", "kind": "doc", "lines": [1, 4], "text": "feedback about tenant creation", "score": 0.99},
             self._fake_code_chunk("src/tenants.ts", score=0.95),
         ])
-        result = self.srv.code_ask_response(index, self.root, "How does a new tenant get created?")
+        # rerank="local": this asserts the post-selection demotion in code_ask_response
+        # (mocks search_combined, so it can't exercise agent-mode's PRE-selection demotion,
+        # which lives inside search_combined and is verified on the real index instead).
+        result = self.srv.code_ask_response(index, self.root, "How does a new tenant get created?", rerank="local")
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"]["partition_applied"])
         self.assertEqual(result["data"]["demotion_count"], 1)
@@ -7934,7 +7964,9 @@ class CodeAskTests(unittest.TestCase):
             [],
             "none",
         )
-        result = self.srv.code_ask_response(index, self.root, "How does HTTP request filtering work?")
+        # rerank="local": post-selection demotion path (mocks search_combined, so agent-mode's
+        # pre-selection demotion isn't exercised here — that's verified on the real index).
+        result = self.srv.code_ask_response(index, self.root, "How does HTTP request filtering work?", rerank="local")
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"]["partition_applied"])
         self.assertEqual(result["data"]["demotion_count"], 1)
@@ -9130,7 +9162,7 @@ class RerankerTests(unittest.TestCase):
         idx = self._make_index_with_docs(docs, code_chunks=code)
         mock_reranker = self._make_mock_reranker(6)
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
-            results, reranked, vector_ms, rerank_ms, _, _, _ = idx.search_combined("query", top_n=5)
+            results, reranked, vector_ms, rerank_ms, _, _, _ = idx.search_combined("query", top_n=5, rerank="local")
         self.assertTrue(reranked)
         self.assertLessEqual(len(results), 5)
         self.assertIsInstance(vector_ms, int)
@@ -9142,7 +9174,7 @@ class RerankerTests(unittest.TestCase):
         code = [self._fake_code_chunk(f"c{i}") for i in range(3)]
         idx = self._make_index_with_docs(docs, code_chunks=code)
         with patch.object(idx, "_get_reranker", return_value=None):
-            results, reranked, vector_ms, rerank_ms, _, _, _ = idx.search_combined("query", top_n=5)
+            results, reranked, vector_ms, rerank_ms, _, _, _ = idx.search_combined("query", top_n=5, rerank="local")
         self.assertFalse(reranked)
         self.assertLessEqual(len(results), 5)
         self.assertIsInstance(vector_ms, int)
@@ -9155,7 +9187,7 @@ class RerankerTests(unittest.TestCase):
         idx = self._make_index_with_docs(docs, code_chunks=code)
         mock_reranker = self._make_mock_reranker(10)
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
-            results, _, _vms, _rms, _, _, _ = idx.search_combined("query", top_n=3)
+            results, _, _vms, _rms, _, _, _ = idx.search_combined("query", top_n=3, rerank="local")
         self.assertLessEqual(len(results), 3)
 
     def test_code_ask_response_includes_reranked_field(self):
@@ -9173,6 +9205,237 @@ class RerankerTests(unittest.TestCase):
         self.assertIn("vector_ms", data)
         self.assertIn("rerank_ms", data)
         self.assertGreaterEqual(data["total_ms"], data["vector_ms"] + data["rerank_ms"])
+
+    # --- Wave 1p4hj: agent-mode (default) candidate pipeline ---
+
+    def test_code_ask_rerank_invalid_value_errors(self):
+        """1p4hj AC-1: an invalid rerank value errors naming the valid set."""
+        index = MagicMock()
+        index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            result = self.srv.code_ask_response(index, root, "q", rerank="bogus")
+        self.assertEqual(result["status"], "error")
+        self.assertIn("agent", str(result.get("diagnostics", "")).lower())
+
+    def test_code_ask_rerank_defaults_to_agent(self):
+        """1p4hj AC-1: default rerank is 'agent' — search_combined receives rerank='agent'."""
+        index = MagicMock()
+        index.search_combined.return_value = ([], False, 0, 0, [], [], "none")
+        index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            self.srv.code_ask_response(index, root, "q")  # no rerank arg
+        _, kwargs = index.search_combined.call_args
+        self.assertEqual(kwargs.get("rerank"), "agent")
+
+    def test_agent_mode_does_not_call_reranker(self):
+        """1p4hj AC-2: agent-mode invokes neither the cross-encoder nor the RRF order."""
+        docs = [self._fake_doc_chunk(f"d{i}") for i in range(3)]
+        code = [self._fake_code_chunk(f"c{i}") for i in range(3)]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        mock_reranker = self._make_mock_reranker(6)
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            results, reranked, _, _, _, _, _ = idx.search_combined("query", top_n=5, rerank="agent")
+        mock_reranker.rerank.assert_not_called()
+        self.assertFalse(reranked)
+        self.assertTrue(results, "agent-mode must still return candidates")
+
+    def test_agent_mode_artifact_anchored_skips_reranker_and_labels(self):
+        """1p4hj AC-2 (regression): the artifact-anchored exact-first early-return honors
+        agent-mode — it returns the keyword candidates labeled by source WITHOUT the
+        cross-encoder. This path previously bypassed agent-mode and ran the ~30s reranker
+        (smoke test caught rerank_ms=18327 + source=null on an artifact-anchored query)."""
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")], code_chunks=[self._fake_code_chunk("src/a.py")])
+        fake_kw_resp = {
+            "status": "ok",
+            "data": {"results": [
+                {"path": "scripts/lifecycle_id.py", "line": 106, "snippet": "def build_prefix("},
+                {"path": "docs/specs/mcp-tool-surface.md", "line": 12, "snippet": "build_prefix format"},
+            ]},
+        }
+        mock_reranker = self._make_mock_reranker(2)
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
+                results, reranked, _, _, definition_boosted, _, _ = idx.search_combined(
+                    "how does build_prefix generate the +2vr8 format?",
+                    top_n=5, question_type="artifact_anchored", rerank="agent",
+                )
+        mock_reranker.rerank.assert_not_called()
+        self.assertFalse(reranked)
+        self.assertIn("artifact_anchored", definition_boosted)
+        by_path = {r.get("path"): r.get("source") for r in results}
+        self.assertEqual(by_path.get("scripts/lifecycle_id.py"), "code")
+        self.assertEqual(by_path.get("docs/specs/mcp-tool-surface.md"), "docs", "doc-path keyword hits must be labeled source='docs'")
+
+    def test_agent_mode_full_text_and_source_label_no_vectors(self):
+        """1p4hj AC-3: agent-mode citations carry the FULL chunk text (not the 300-char
+        excerpt) + a source label, and never a vector field."""
+        long_text = "x" * 800
+        docs = [self._fake_doc_chunk("d0", text=long_text)]
+        code = [self._fake_code_chunk("c0", text="def foo(): pass")]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        result = self.srv.code_ask_response(idx, idx.root, "query")  # default agent
+        cits = result["data"]["citations"]
+        self.assertTrue(cits)
+        doc_cit = next((c for c in cits if str(c.get("path", "")).startswith("docs/")), None)
+        self.assertIsNotNone(doc_cit, f"expected a docs citation; got {[c.get('path') for c in cits]}")
+        self.assertGreater(len(doc_cit["excerpt"]), 300, "agent-mode must return full chunk text, not a 300-char excerpt")
+        self.assertIn("source", doc_cit)
+        for c in cits:
+            self.assertNotIn("vector", c)
+        self.assertEqual(result["data"]["rerank_mode"], "agent")
+
+    def test_agent_mode_per_index_floor_no_starved_modality(self):
+        """1p4hj AC-4: each source contributes its top-K floor even when the other index dominates."""
+        docs = [self._fake_doc_chunk(f"d{i}") for i in range(2)]
+        code = [self._fake_code_chunk(f"c{i}") for i in range(10)]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        results = idx._agent_candidate_select({"docs": docs, "code": code}, top_n=8, floor_k=2)
+        sources = [r.get("source") for r in results]
+        self.assertGreaterEqual(sources.count("docs"), 2, "docs floor must survive code dominance")
+        self.assertGreaterEqual(sources.count("code"), 2)
+
+    def test_agent_mode_fill_is_relevance_ordered_not_forced_balance(self):
+        """1p4hj AC-4: beyond the anti-starvation floor, the fill is by RELEVANCE across
+        sources — NOT a forced per-source balance (which would be no better than gluing
+        code_search + docs_search together). A code-dominant-relevance query returns
+        mostly code, with the docs floor preserved."""
+        docs = [{"path": f"docs/d{i}.md", "kind": "doc", "lines": [1, 5], "text": "d", "score": 0.2} for i in range(8)]
+        code = [{"path": f"src/c{i}.py", "kind": "code", "lines": [1, 10], "text": "c", "score": 0.9} for i in range(10)]
+        idx = self._make_index_with_docs([self._fake_doc_chunk("x")], code_chunks=[self._fake_code_chunk("y")])
+        results = idx._agent_candidate_select({"docs": docs, "code": code}, top_n=10, floor_k=2)
+        sources = [r.get("source") for r in results]
+        self.assertGreaterEqual(sources.count("docs"), 2, "docs floor preserved (anti-starvation)")
+        self.assertGreater(sources.count("code"), sources.count("docs"),
+                           "high-relevance code must dominate beyond the floor — not a forced 50/50 split")
+
+    def test_agent_mode_navigational_weight_boosts_code(self):
+        """1p4hj AC-4: the navigational question-type tilt (brought forward from RRF's
+        code weight) boosts code in the fill — at EQUAL raw scores, code leads."""
+        docs = [{"path": f"docs/d{i}.md", "kind": "doc", "lines": [1, 5], "text": "d", "score": 0.7} for i in range(8)]
+        code = [{"path": f"src/c{i}.py", "kind": "code", "lines": [1, 10], "text": "c", "score": 0.7} for i in range(8)]
+        idx = self._make_index_with_docs([self._fake_doc_chunk("x")], code_chunks=[self._fake_code_chunk("y")])
+        weights = {"code": self.srv.RRF_NAVIGATIONAL_CODE_WEIGHT, "docs": self.srv.RRF_NAVIGATIONAL_DOCS_WEIGHT}
+        results = idx._agent_candidate_select({"docs": docs, "code": code}, top_n=8, floor_k=2, weights=weights)
+        sources = [r.get("source") for r in results]
+        self.assertGreater(sources.count("code"), sources.count("docs"),
+                           "navigational weight must boost code beyond the floor at equal raw scores")
+
+    def test_agent_mode_relevance_dropoff_trims_flat_tail(self):
+        """1p4hj AC-4: the fill stops at the relevance drop-off — a strong cluster
+        followed by a flat low-relevance tail returns ~the cluster (well under top_n),
+        not a padded top_n. Mirrors real score distributions (sharp elbow after the
+        top few, then a flat tail), so we don't pay tokens for noise."""
+        strong = [{"path": f"src/s{i}.py", "kind": "code", "lines": [i, i + 5], "text": "s", "score": 0.84 - i * 0.01} for i in range(4)]
+        tail = [{"path": f"src/t{i}.py", "kind": "code", "lines": [i, i + 5], "text": "t", "score": 0.61} for i in range(16)]
+        docs = [{"path": f"docs/d{i}.md", "kind": "doc", "lines": [i, i + 3], "text": "d", "score": 0.5} for i in range(5)]
+        idx = self._make_index_with_docs([self._fake_doc_chunk("x")], code_chunks=[self._fake_code_chunk("y")])
+        results = idx._agent_candidate_select({"docs": docs, "code": strong + tail}, top_n=20, floor_k=3)
+        # top=0.84 → cutoff=0.85*0.84=0.714; the 0.61 tail + 0.5 docs fall below it, so only
+        # the 4-strong code cluster clears the fill (floor still guarantees 3 docs + 3 code).
+        self.assertLess(len(results), 20, "must not pad to top_n past the relevance drop-off")
+        code_above = [r for r in results if r.get("source") == "code" and (r.get("score") or 0) >= 0.7]
+        self.assertEqual(len(code_above), 4, "the 4-strong code cluster is kept")
+        self.assertGreaterEqual(sum(1 for r in results if r.get("source") == "docs"), 3, "docs floor still honored below the cutoff")
+
+    def test_agent_mode_count_driven_by_text_budget_not_fixed_n(self):
+        """1p4hj AC-4: the count is governed by the TEXT budget (context size), not a fixed
+        N. Same budget → many SMALL chunks fit (well past the old cap of 20); few LARGE chunks
+        fit. This is what 'don't pollute the agent, yet give it enough' actually measures."""
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d")], code_chunks=[self._fake_code_chunk("c")])
+        small = [{"path": f"src/s{i}.py", "kind": "code", "lines": [i, i + 2], "text": "x" * 200, "score": 0.8} for i in range(40)]
+        res_small = idx._agent_candidate_select({"code": small}, top_n=40, floor_k=2, text_budget=4000)
+        self.assertGreater(len(res_small), 15, "small chunks → many fit the budget (count not pinned at a fixed N)")
+        self.assertLessEqual(sum(len(r.get("text") or "") for r in res_small), 4000 + 200, "cumulative text stays within ~budget")
+        large = [{"path": f"src/l{i}.py", "kind": "code", "lines": [i, i + 2], "text": "y" * 1000, "score": 0.8} for i in range(40)]
+        res_large = idx._agent_candidate_select({"code": large}, top_n=40, floor_k=2, text_budget=4000)
+        self.assertLess(len(res_large), len(res_small), "large chunks → fewer fit the SAME budget")
+        self.assertLessEqual(sum(len(r.get("text") or "") for r in res_large), 4000 + 1000, "cumulative text stays within ~budget")
+
+    def test_lr_tokenize_identifier_snake_camel_acronym(self):
+        """1p4lr: the identifier tokenizer splits snake/camel/acronym boundaries (casing-agnostic)."""
+        t = self.srv._tokenize_identifier
+        self.assertEqual(t("RERANKER_MODEL"), ["reranker", "model"])
+        self.assertEqual(t("MaxRetries"), ["max", "retries"])
+        self.assertEqual(t("apiURL"), ["api", "url"])
+
+    def test_lr_const_boost_fires_on_marker_and_full_name_match(self):
+        """1p4lr: boost fires only on a " [const]" chunk whose name tokens ALL appear in the query."""
+        srv = self.srv
+        cand = {"id": "indexer.py::RERANKER_MODEL", "section": "indexer > RERANKER_MODEL [const]"}
+        qt = srv._query_content_terms("what cross-encoder reranker model does local mode use?")
+        self.assertEqual(srv._const_definition_boost(qt, cand), srv.CONST_DEFINITION_BOOST)
+
+    def test_lr_const_boost_skips_non_declaration_and_strict_misses(self):
+        """1p4lr: no boost for a non-constant (no marker), a partial name match, or a single-token name."""
+        srv = self.srv
+        # non-declaration (a function chunk — no marker)
+        fn = {"id": "server_impl.py::search_combined", "section": "server_impl > search_combined"}
+        self.assertEqual(srv._const_definition_boost(srv._query_content_terms("where is search_combined"), fn), 1.0)
+        # partial overlap: query has 'reranker' but not 'model'
+        c1 = {"id": "x::RERANKER_MODEL", "section": "x > RERANKER_MODEL [const]"}
+        self.assertEqual(srv._const_definition_boost(srv._query_content_terms("which reranker"), c1), 1.0)
+        # single-token name (the over-boost guard)
+        c2 = {"id": "x::PORT", "section": "x > PORT [const]"}
+        self.assertEqual(srv._const_definition_boost(srv._query_content_terms("what is the port"), c2), 1.0)
+
+    def test_lr_boost_lifts_declaration_without_re_trimming_others(self):
+        """1p4lr: a boosted constant ranks UP, but the drop-off cutoff (from the UN-boosted top) is
+        unchanged — so EXACTLY the same other candidates are selected (the council's top_w must-fix)."""
+        srv = self.srv
+        code = [{"path": f"{x}.py", "kind": "code", "lines": [1, 1], "text": x, "score": s}
+                for x, s in [("a", 0.82), ("b", 0.78), ("c", 0.76), ("d", 0.72), ("e", 0.68)]]
+        const = {"path": "k.py", "kind": "code", "lines": [1, 1], "text": "k", "score": 0.74,
+                 "id": "k.py::RERANKER_MODEL", "section": "k > RERANKER_MODEL [const]"}
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d")], code_chunks=[self._fake_code_chunk("c")])
+        base = idx._agent_candidate_select({"code": [dict(c) for c in code] + [dict(const)]}, top_n=20, floor_k=1)
+        cb = dict(const); cb["_boost"] = srv.CONST_DEFINITION_BOOST
+        boosted = idx._agent_candidate_select({"code": [dict(c) for c in code] + [cb]}, top_n=20, floor_k=1)
+        self.assertEqual(boosted[0]["path"], "k.py")  # the boosted constant ranks first
+        self.assertEqual({r["path"] for r in base}, {r["path"] for r in boosted})  # same set selected
+        self.assertNotIn("e.py", {r["path"] for r in boosted})  # 0.68 < cutoff in BOTH (not re-trimmed)
+
+    def test_agent_mode_dedup_preserves_multi_source(self):
+        """1p4hj AC-5: a cross-source duplicate survives once with BOTH sources recorded
+        (RRF's cross-source-agreement signal is preserved, not collapsed to one)."""
+        shared = {"path": "shared.py", "kind": "code", "lines": [1, 5], "text": "shared", "score": 0.8}
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")], code_chunks=[self._fake_code_chunk("c0")])
+        results = idx._agent_candidate_select({"docs": [dict(shared)], "code": [dict(shared)]}, top_n=5, floor_k=1)
+        keys = [(r["path"], tuple(r["lines"])) for r in results]
+        self.assertEqual(keys.count(("shared.py", (1, 5))), 1, "cross-source duplicate must survive exactly once")
+        rec = next(r for r in results if r["path"] == "shared.py")
+        self.assertEqual(set(rec.get("sources", [])), {"docs", "code"}, "multi-source signal must be preserved")
+
+    def test_agent_mode_distinct_same_path_not_collapsed(self):
+        """1p4hj AC-5: legitimately-distinct chunks (same path, different line ranges) are NOT collapsed."""
+        a = {"path": "m.py", "kind": "code", "lines": [1, 5], "text": "a", "score": 0.9}
+        b = {"path": "m.py", "kind": "code", "lines": [40, 60], "text": "b", "score": 0.8}
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")], code_chunks=[self._fake_code_chunk("c0")])
+        results = idx._agent_candidate_select({"code": [a, b]}, top_n=5, floor_k=2)
+        self.assertEqual(len(results), 2, "distinct line ranges must both survive")
+
+    def test_agent_mode_empty_sources_graceful(self):
+        """1p4hj AC-6: agent-mode handles empty/degenerate candidate sets."""
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")])
+        self.assertEqual(idx._agent_candidate_select({"docs": [], "code": []}, top_n=5, floor_k=3), [])
+
+    def test_code_ask_rerank_mode_field_values(self):
+        """1p4hj AC-7: rerank_mode is the distinct path label — agent / local / rrf_fallback,
+        NOT an overloaded `reranked: false`."""
+        index = MagicMock()
+        index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            index.search_combined.return_value = ([], False, 0, 0, [], [], "none")
+            self.assertEqual(self.srv.code_ask_response(index, root, "q", rerank="agent")["data"]["rerank_mode"], "agent")
+            index.search_combined.return_value = ([], True, 0, 0, [], [], "none")
+            self.assertEqual(self.srv.code_ask_response(index, root, "q", rerank="local")["data"]["rerank_mode"], "local")
+            index.search_combined.return_value = ([], False, 0, 0, [], [], "none")
+            self.assertEqual(self.srv.code_ask_response(index, root, "q", rerank="local")["data"]["rerank_mode"], "rrf_fallback")
 
     # --- _get_reranker caching ---
 
@@ -9227,7 +9490,7 @@ class RerankerTests(unittest.TestCase):
                     results, reranked, vector_ms, _, definition_boosted, _, _ = idx.search_combined(
                         "how does build_prefix generate the +2vr8 format?",
                         top_n=5,
-                        question_type="artifact_anchored",
+                        question_type="artifact_anchored", rerank="local",
                     )
         self.assertTrue(reranked, "exact pass with reranker should return reranked=True")
         self.assertEqual(vector_ms, 0, "exact pass skips vector fetch; vector_ms must be 0")
@@ -9309,7 +9572,7 @@ class RerankerTests(unittest.TestCase):
                     results, _, _, _, _, _, _ = idx.search_combined(
                         "how does build_prefix generate the +2vr8 format?",
                         top_n=5,
-                        question_type="artifact_anchored",
+                        question_type="artifact_anchored", rerank="local",
                     )
         paths = [r["path"] for r in results]
         impl_idx = paths.index("scripts/lifecycle_id.py")
@@ -9401,7 +9664,7 @@ class RerankerTests(unittest.TestCase):
         mock_reranker.rerank.return_value = [0.9, 0.8, 0.5]
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
             with patch.object(idx, "_rerank", return_value=[infra_chunk, biz_chunk]):
-                results, reranked, _, _, _, _, _ = idx.search_combined("how does billing work", top_n=5, question_type="explanatory")
+                results, reranked, _, _, _, _, _ = idx.search_combined("how does billing work", top_n=5, question_type="explanatory", rerank="local")
         self.assertTrue(reranked)
         # The business logic file must appear before the infra file
         paths = [r.get("path", "") for r in results]
@@ -9619,7 +9882,7 @@ class RerankerTests(unittest.TestCase):
         fake_kw_resp = {"status": "ok", "data": {"results": sql_hits}}
         with patch.object(idx, "_get_reranker", return_value=None):
             with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
-                results, _, _, _, _, _, _ = idx.search_combined("how does the sql schema work", top_n=3)
+                results, _, _, _, _, _, _ = idx.search_combined("how does the sql schema work", top_n=3, rerank="local")
         self.assertLessEqual(len(results), 3)
 
     def test_definition_boost_second_rule_addition_requires_no_logic_change(self):
@@ -9820,7 +10083,7 @@ class RerankerTests(unittest.TestCase):
                 mock_rerank.side_effect = [first_rerank_result, first_rerank_result + second_hop_result]
                 with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
                     results, reranked, _, _, _, second_hop_symbols, symbol_extraction_method = idx.search_combined(
-                        "how does billing charge a customer", top_n=5, question_type="explanatory"
+                        "how does billing charge a customer", top_n=5, question_type="explanatory", rerank="local"
                     )
         self.assertTrue(second_hop_symbols, "expected second_hop_symbols to be non-empty")
         self.assertIn(symbol_extraction_method, ("ast", "regex", "regex_fallback"),
@@ -9883,7 +10146,7 @@ class RerankerTests(unittest.TestCase):
                 mock_rerank.side_effect = [[existing_result], [existing_result]]
                 with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
                     idx.search_combined(
-                        "how does billing charge", top_n=5, question_type="explanatory"
+                        "how does billing charge", top_n=5, question_type="explanatory", rerank="local"
                     )
         # If deduplication worked, the second rerank should not have been called
         # (no new candidates after dedup → second_hop_candidates is empty)
@@ -9932,7 +10195,7 @@ class RerankerTests(unittest.TestCase):
             with patch.object(idx, "_rerank", return_value=ts_result):
                 with patch(f"{self.srv.__name__}._get_chunker_module", side_effect=Exception("no grammar")):
                     _, _, _, _, _, _symbols, method = idx.search_combined(
-                        "how does billing charge", top_n=5, question_type="explanatory"
+                        "how does billing charge", top_n=5, question_type="explanatory", rerank="local"
                     )
         self.assertEqual(method, "regex_fallback",
                          "TS-eligible citation with tree-sitter unavailable must report method='regex_fallback'")
@@ -9952,7 +10215,7 @@ class RerankerTests(unittest.TestCase):
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
             with patch.object(idx, "_rerank", return_value=py_result):
                 _, _, _, _, _, _symbols, method = idx.search_combined(
-                    "how does auth work", top_n=5, question_type="explanatory"
+                    "how does auth work", top_n=5, question_type="explanatory", rerank="local"
                 )
         self.assertEqual(method, "ast",
                          "Python citation with function calls must report method='ast'")
