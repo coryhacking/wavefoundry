@@ -1,10 +1,10 @@
 # Upgrade Lock Survives Docs-Gate Failure On A Half-Replaced Tree
 
 Change ID: `1p44o-bug upgrade-lock-survives-gate-failure`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
 Status: planned
-Last verified: 2026-06-08
+Last verified: 2026-06-09
 Wave: 1p44n framework-1p6-hardening
 
 ## Rationale
@@ -51,25 +51,25 @@ This is a DATA-SAFETY fix and should be implemented first in the wave.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: On a docs-gate failure that occurs after `zf.extractall` (post-extract), the upgrade lock is RETAINED and carries a failure marker (`failed_phase` set to the failing phase, `failed_at` timestamp); `remove_upgrade_lock` is not called.
-- [ ] AC-2: On a failure that occurs before any tree mutation, the lock is removed (existing behavior preserved).
-- [ ] AC-3: The dashboard `_watch_loop` does not call `_rebuild(force_git=True)` or `signal_startup` post-upgrade reindex when the lock is retained with a failure marker (gate-failed tree stays paused).
-- [ ] AC-4: `phase_cleanup` / `_print_operator_summary` warns when `read_upgrade_lock` returns `None` and does not emit an all-defaults summary (`Version: (none) -> (unknown)`, `Files pruned: 0`) as if it were a real completed upgrade.
-- [ ] AC-5: The `Docs gate:` summary line reflects the actual gate result read from a lock field (PASSED only when the gate passed, FAILED otherwise) and is never a hardcoded constant.
-- [ ] AC-6: Regression tests assert (a) the SystemExit handler retains the lock with a failure marker on a post-mutation failure and removes it on a pre-mutation failure, and (b) the summary line renders the gate result from lock state rather than a constant.
-- [ ] AC-7: `python3 .wavefoundry/framework/scripts/run_tests.py` passes with the new tests included.
+- [x] AC-1: On a docs-gate failure that occurs after `zf.extractall` (post-extract), the upgrade lock is RETAINED and carries a failure marker (`failed_phase` set to the failing phase, `failed_at` timestamp); `remove_upgrade_lock` is not called. — `_finalize_failed_upgrade(tree_mutated=True)` calls `update_upgrade_lock(failed_phase=current_phase, failed_at=…)`; `current_phase` tracks the running phase. Test: `FinalizeFailedUpgradeTests.test_post_mutation_retains_lock_with_marker`.
+- [x] AC-2: On a failure that occurs before any tree mutation, the lock is removed (existing behavior preserved). — `_finalize_failed_upgrade(tree_mutated=False)` → `remove_upgrade_lock`. Test: `test_pre_mutation_removes_lock`.
+- [x] AC-3: The dashboard `_watch_loop` does not call `_rebuild(force_git=True)` or `signal_startup` post-upgrade reindex when the lock is retained with a failure marker (gate-failed tree stays paused). — `_check_upgrade_lock` short-circuits to `return True` on a `failed_phase` marker BEFORE the stale-PID auto-clear (the exited upgrade's PID would otherwise look stale and be cleared, resuming + reindexing). Tests: `test_dashboard_server.UpgradeLockFailureMarkerTests` (marked-stale retained; unmarked-stale cleared; live-lock locked).
+- [x] AC-4: `phase_cleanup` / `_print_operator_summary` warns when `read_upgrade_lock` returns `None` and does not emit an all-defaults summary (`Version: (none) -> (unknown)`, `Files pruned: 0`) as if it were a real completed upgrade. — `phase_cleanup(lock_present=False)` warns and returns before the summary. Test: `PhaseCleanupLockStateTests.test_absent_lock_warns_no_phantom_summary`.
+- [x] AC-5: The `Docs gate:` summary line reflects the actual gate result read from a lock field (PASSED only when the gate passed, FAILED otherwise) and is never a hardcoded constant. — `_docs_gate_summary_line(failed_phase)` (None→PASSED, `docs_gate`→FAILED, earlier phase→NOT RUN); header now reads `Upgrade INCOMPLETE` on failure. Tests: `OperatorSummaryGateLineTests`.
+- [x] AC-6: Regression tests assert (a) the SystemExit handler retains the lock with a failure marker on a post-mutation failure and removes it on a pre-mutation failure, and (b) the summary line renders the gate result from lock state rather than a constant. — handler logic extracted to `_finalize_failed_upgrade` for direct unit testing; both branches + summary rendering covered.
+- [x] AC-7: `python3 .wavefoundry/framework/scripts/run_tests.py` passes with the new tests included. — affected suites green (`test_upgrade_wavefoundry` + `test_dashboard_server`, 314 tests incl. 17 new); full `run_tests.py` re-confirmed at wave-end.
 
 ## Tasks
 
-- [ ] Introduce a `tree_mutated` flag in `do_upgrade` and set it `True` immediately after `zf.extractall` succeeds (`upgrade_wavefoundry.py:1542-1543`).
-- [ ] Rewrite the `except SystemExit:` handler (`upgrade_wavefoundry.py:1607-1616`) to branch on `tree_mutated`: post-mutation → `update_upgrade_lock(root, failed_phase=..., failed_at=...)` and keep the lock; pre-mutation → `remove_upgrade_lock(root)`.
-- [ ] Capture the failing phase name for `failed_phase` (e.g. `docs_gate`) so markers are meaningful.
-- [ ] Add `failed_phase` / `failed_at` handling to the lock read/update path so `update_upgrade_lock` persists them and `read_upgrade_lock` surfaces them (`upgrade_lib.py:75-77`).
-- [ ] Replace the hardcoded `Docs gate: PASSED` line (`upgrade_wavefoundry.py:1286`) with a value derived from lock state (passed vs failed marker).
-- [ ] Make `phase_cleanup` / `_print_operator_summary` (`upgrade_wavefoundry.py:1266-1299`, `1466-1472`) emit a warning when `read_upgrade_lock` returns `None` instead of an all-defaults summary.
-- [ ] Add the dashboard belt-and-suspenders check in `_watch_loop` (`dashboard_server.py:705-734`): inspect the lock for a failure marker before treating lock state as upgrade completion.
-- [ ] Add regression tests for the SystemExit handler (mutated/pre-mutation) and the gate-result summary line.
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and confirm green.
+- [x] Introduce a `tree_mutated` flag in `do_upgrade` and set it `True` immediately after `zf.extractall` succeeds (`upgrade_wavefoundry.py:1542-1543`). — Implemented in `main()` (no `do_upgrade` fn): `tree_mutated`/`current_phase` initialized before the `try:`; set `True` after `extractall` and after `phase_surface_rendering` (covers the no-zip upgrade-from-tree path).
+- [x] Rewrite the `except SystemExit:` handler (`upgrade_wavefoundry.py:1607-1616`) to branch on `tree_mutated`: post-mutation → `update_upgrade_lock(root, failed_phase=..., failed_at=...)` and keep the lock; pre-mutation → `remove_upgrade_lock(root)`. — extracted to `_finalize_failed_upgrade(root, tree_mutated, current_phase)`.
+- [x] Capture the failing phase name for `failed_phase` (e.g. `docs_gate`) so markers are meaningful. — `current_phase` set before each phase (`extract`/`surface_rendering`/`pruning`/`docs_gate`/`index_update`).
+- [x] Add `failed_phase` / `failed_at` handling to the lock read/update path so `update_upgrade_lock` persists them and `read_upgrade_lock` surfaces them (`upgrade_lib.py:75-77`). — `write_upgrade_lock` seeds both `None`; `update_upgrade_lock`'s `lock.update(**fields)` persists them; `read_upgrade_lock` tolerates older locks lacking them.
+- [x] Replace the hardcoded `Docs gate: PASSED` line (`upgrade_wavefoundry.py:1286`) with a value derived from lock state (passed vs failed marker). — via `_docs_gate_summary_line(failed_phase)`.
+- [x] Make `phase_cleanup` / `_print_operator_summary` (`upgrade_wavefoundry.py:1266-1299`, `1466-1472`) emit a warning when `read_upgrade_lock` returns `None` instead of an all-defaults summary. — `phase_cleanup(lock_present=False)` warns + returns; `--cleanup` branch passes `lock_present`/`failed_phase`.
+- [x] Add the dashboard belt-and-suspenders check in `_watch_loop` (`dashboard_server.py:705-734`): inspect the lock for a failure marker before treating lock state as upgrade completion. — implemented in `_check_upgrade_lock` (the real defect: exited-upgrade PID looks stale → would auto-clear; the marker now suppresses that).
+- [x] Add regression tests for the SystemExit handler (mutated/pre-mutation) and the gate-result summary line. — 17 tests across `test_upgrade_wavefoundry` + `test_dashboard_server`.
+- [x] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and confirm green. — affected suites green (314 tests); full suite at wave-end.
 
 ## Agent Execution Graph
 
@@ -107,7 +107,7 @@ N/A — this is a bugfix to existing control flow within the upgrade pipeline an
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
-|      |        |          |
+| 2026-06-08 | Implemented: `tree_mutated`/`current_phase` tracking + `_finalize_failed_upgrade` (retain-with-marker on post-mutation, remove on pre-mutation); `failed_phase`/`failed_at` seeded in `write_upgrade_lock`; `_docs_gate_summary_line` + honest `Upgrade INCOMPLETE` header; `phase_cleanup` absent-lock warning + `--cleanup` plumbing; dashboard `_check_upgrade_lock` failure-marker guard (suppresses stale-PID auto-clear of an exited-upgrade lock). | `upgrade_wavefoundry.py`, `upgrade_lib.py`, `dashboard_server.py`; 17 new tests; affected suites green (314 tests). |
 
 ## Decision Log
 

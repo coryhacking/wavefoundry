@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -8,6 +10,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -236,6 +239,65 @@ class BorrowFromFutureTests(unittest.TestCase):
         ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)
         prefix = mod.next_available_prefix(ts, policy=self._policy(), repo_root=None)
         self.assertEqual(prefix, "0b2w6")
+
+    def test_borrow_skips_taken_adr(self) -> None:  # 1p45b AC-1
+        adr = self.repo_root / "docs" / "architecture" / "decisions"
+        adr.mkdir(parents=True)
+        (adr / "0b2w6-adr-something.md").touch()
+        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0b2w6'
+        prefix = self.mod.next_available_prefix(ts, policy=self._policy(), repo_root=self.repo_root)
+        self.assertEqual(prefix, "0b2w7")  # ADR stem is in the dedup set
+
+    def test_existing_prefixes_union_of_plans_waves_adrs(self) -> None:  # 1p45b AC-5
+        (self.repo_root / "docs" / "plans" / "aaaaa-enh p.md").touch()
+        (self.repo_root / "docs" / "waves" / "bbbbb w").mkdir()
+        adr = self.repo_root / "docs" / "architecture" / "decisions"
+        adr.mkdir(parents=True)
+        (adr / "ccccc-adr-x.md").touch()
+        found = self.mod._existing_prefixes(self.repo_root)
+        self.assertTrue({"aaaaa", "bbbbb", "ccccc"} <= found)
+
+    def test_peek_then_commit_return_same_stem(self) -> None:  # 1p45b AC-3
+        (self.repo_root / "docs" / "plans" / "0b2w6-enh taken.md").touch()
+        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)
+        kw = dict(legacy=False, timestamp=ts, repo_root=self.repo_root, policy=self._policy())
+        peek = self.mod.build_id("enhancement", "x", commit=False, **kw)
+        commit = self.mod.build_id("enhancement", "x", commit=True, **kw)
+        self.assertEqual(peek, commit)
+        self.assertTrue(peek.startswith("0b2w7-"))  # both skip the taken 0b2w6
+
+    def test_unsupplied_repo_root_uses_discover_fallback(self) -> None:  # 1p45b AC-4
+        (self.repo_root / "docs" / "plans" / "0b2w6-enh taken.md").touch()
+        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)
+        with patch.object(self.mod, "discover_repo_root", return_value=self.repo_root):
+            prefix = self.mod.next_available_prefix(ts, policy=self._policy())  # repo_root unsupplied
+        self.assertEqual(prefix, "0b2w7")  # discovered repo deduped (no silent empty-set)
+
+    def test_explicit_none_repo_root_still_no_scan(self) -> None:  # 1p45b AC-4 (preserve opt-out)
+        (self.repo_root / "docs" / "plans" / "0b2w6-enh taken.md").touch()
+        ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)
+        # Even though discover would find the repo, an explicit None opts out.
+        with patch.object(self.mod, "discover_repo_root", return_value=self.repo_root):
+            prefix = self.mod.next_available_prefix(ts, policy=self._policy(), repo_root=None)
+        self.assertEqual(prefix, "0b2w6")  # no scan → natural prefix
+
+    def test_cli_reminder_on_stderr_stdout_is_bare_id(self) -> None:  # 1p45b AC-7
+        out, err = io.StringIO(), io.StringIO()
+        with patch.object(self.mod, "discover_repo_root", return_value=self.repo_root), \
+             contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = self.mod.main(["--kind", "change", "--slug", "demo"])
+        self.assertEqual(rc, 0)
+        self.assertNotIn("MCP", out.getvalue())          # stdout is ID-only
+        self.assertIn("-change demo", out.getvalue().strip())
+        self.assertIn("wave_new_", err.getvalue())        # reminder on stderr
+
+    def test_cli_prefix_only_no_reminder(self) -> None:  # 1p45b decision (prefix-only exempt)
+        err = io.StringIO()
+        with patch.object(self.mod, "discover_repo_root", return_value=self.repo_root), \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            rc = self.mod.main(["--prefix-only"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(err.getvalue(), "")  # no reminder for the prefix utility
 
     def test_borrow_skips_taken_change_doc_in_plans(self) -> None:
         mod = self.mod

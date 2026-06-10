@@ -2,12 +2,13 @@
 """Version comparison check for upgrade pre-flight.
 
 Compares the pack VERSION (installed in .wavefoundry/framework/VERSION) against
-the installed framework_revision recorded in .wavefoundry/framework/MANIFEST.
+the installed framework_revision read from docs/prompts/prompt-surface-manifest.json
+(falling back to .wavefoundry/framework/VERSION). See _read_installed_revision.
 
 Exit codes:
     0 — pack is newer or the same as installed (safe to proceed with upgrade)
     1 — pack is OLDER than installed (downgrade detected — abort)
-    2 — cannot determine (missing VERSION or MANIFEST, or malformed values)
+    2 — cannot determine (missing VERSION / manifest, or malformed values)
 
 Output (stdout):
     Pack: 1.2.0+12tm5  Installed: 1.0.0+12abc  → upgrade
@@ -61,15 +62,26 @@ def _read_pack_version(root: Path) -> str | None:
 
 
 def _read_installed_revision(root: Path) -> str | None:
-    """Read framework_revision from MANIFEST."""
-    p = root / ".wavefoundry" / "framework" / "MANIFEST"
-    if not p.exists():
-        return None
+    """Read the installed framework revision string, or None (wave 1p44p).
+
+    Canonical single source for installed-revision resolution: `framework_revision`
+    from the JSON `docs/prompts/prompt-surface-manifest.json`, falling back to the
+    plain `.wavefoundry/framework/VERSION` file. The previous implementation ran
+    json.loads() on `.wavefoundry/framework/MANIFEST` — a newline-delimited path
+    LIST, not JSON — so it always raised and returned None, silently disabling the
+    upgrade downgrade guard."""
+    manifest = root / "docs" / "prompts" / "prompt-surface-manifest.json"
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-        val = data.get("framework_revision", "")
-        return str(val).strip() or None
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        rev = str(data.get("framework_revision", "")).strip()
+        if rev:
+            return rev
     except (OSError, json.JSONDecodeError):
+        pass
+    version = root / ".wavefoundry" / "framework" / "VERSION"
+    try:
+        return version.read_text(encoding="utf-8").strip() or None
+    except OSError:
         return None
 
 

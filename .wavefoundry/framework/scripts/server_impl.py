@@ -4304,7 +4304,7 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
     # Wave 1p3dk / 1p3ds: dry_run previews the wave_id without burning the
     # lifecycle slot. A subsequent apply call returns the same id.
     wave_id = _lifecycle_module().build_id(
-        "wave", slug_s, legacy=False, commit=(mode_s == "create"),
+        "wave", slug_s, legacy=False, commit=(mode_s == "create"), repo_root=root,
     )
     wave_dir = root / "docs" / "waves" / wave_id
     wave_md = wave_dir / "wave.md"
@@ -4731,7 +4731,9 @@ def new_change(root: Path, kind: str, slug: str, change_id: str | None = None) -
     burn a second lifecycle slot here.
     """
     if change_id is None:
-        change_id = _lifecycle_module().build_id(kind, slug, legacy=False)
+        # Wave 1p45b — pass repo_root so the on-disk dedup scan runs (else a
+        # duplicate stem can be minted; observed: 1p44w handed out twice).
+        change_id = _lifecycle_module().build_id(kind, slug, legacy=False, repo_root=root)
     plans_dir = root / "docs" / "plans"
     plans_dir.mkdir(parents=True, exist_ok=True)
 
@@ -4766,7 +4768,7 @@ def change_create(root: Path, kind: str, slug: str, mode: str = "create") -> dic
     # so a single change-doc creation consumes exactly one lifecycle prefix
     # (closes defect B from the field report).
     change_id = _lifecycle_module().build_id(
-        kind, slug, legacy=False, commit=(mode == "create"),
+        kind, slug, legacy=False, commit=(mode == "create"), repo_root=root,
     )
     plans_dir = root / "docs" / "plans"
     plans_dir.mkdir(parents=True, exist_ok=True)
@@ -6289,6 +6291,10 @@ def wave_upgrade_response(
           Use when update_index is insufficient (e.g. index corruption, or
           a chunker bump that the auto-escalation did not catch).
       "cleanup" — phase 5: remove upgrade lock + print operator summary.
+      "resume_after_gate" — re-run ONLY docs-gardener + docs-lint against the
+          already-extracted tree (no extract/render/prune), to recover from a
+          docs-gate failure. Requires a retained lock with failed_phase ==
+          "docs_gate" (wave 1p44o/1p44r); exits non-zero if the gate fails again.
     """
     valid_modes = ("apply", "dry_run")
     if mode not in valid_modes:
@@ -6298,7 +6304,7 @@ def wave_upgrade_response(
             diagnostics=[_diagnostic("invalid_mode", f"Unknown mode {mode!r}. Valid: {valid_modes}")],
         )
 
-    valid_phases = ("preflight_to_docs_gate", "update_index", "rebuild_index", "cleanup")
+    valid_phases = ("preflight_to_docs_gate", "update_index", "rebuild_index", "cleanup", "resume_after_gate")
     if mode == "apply" and phase not in valid_phases:
         return _response(
             "error",
@@ -6335,6 +6341,8 @@ def wave_upgrade_response(
             cmd.append("--rebuild-index")
         elif phase == "cleanup":
             cmd.append("--cleanup")
+        elif phase == "resume_after_gate":
+            cmd.append("--resume-after-gate")  # wave 1p44r — re-run only the docs gate
         # phase == "preflight_to_docs_gate": --yes only (default run)
 
     import subprocess as _subprocess
@@ -12000,6 +12008,17 @@ def _load_graph_query():
 # each confidence tier, grouped by the source language. Operators can flag a
 # coverage gap at a glance (e.g. `{typescript: {receiver_resolved: 0,
 # extracted: 3892}}` means the TS receiver-type resolver isn't engaging).
+#
+# IMPORTANT: these tiers are EXTRACTION-TIME confidence, NOT cross-file
+# resolution outcomes. `receiver_resolved` counts edges whose receiver TYPE was
+# determined at graph-build — even when the call's target stays `external::`
+# (type known, but not bound to a project node). A target rebind
+# (`external::Foo.bar` → a project node) does NOT move an edge between tiers, so
+# a cross-file resolution improvement that rebinds targets leaves these AGGREGATE
+# counts flat while per-symbol incoming-edge counts (`code_impact` on the now-
+# bound node) rise — the two views are orthogonal, not inconsistent. To gauge
+# cross-file resolution SUCCESS, count `receiver_resolved` edges whose target is
+# a project node (not `external::`), not this tier total.
 
 _ATTR_LANG_BY_EXTENSION: dict[str, str] = {
     ".py": "python",
@@ -12041,7 +12060,13 @@ def _compute_attribution_counts_by_language(edges: Any, index: Any) -> dict[str,
     """Return `{language: {receiver_resolved, construction_resolved, extracted}}`
     over the supplied edges. Edges without a known confidence tier or a
     resolvable source-language are skipped silently — the diagnostic only
-    surfaces confident attribution data."""
+    surfaces confident attribution data.
+
+    NOTE: buckets are extraction-time confidence tiers, not resolution outcomes —
+    a `receiver_resolved` edge may still target `external::` (receiver type known,
+    target not bound to a project node). See the module comment above the
+    `_ATTR_*` tables for why a cross-file resolution gain leaves these aggregate
+    counts flat (it rebinds targets within the same tier)."""
     counts: dict[str, dict[str, int]] = {}
     if not edges:
         return counts
@@ -12655,6 +12680,10 @@ def _code_impact_graph_response(
     max_results: int = 50,
     include_tests: bool = False,
 ) -> dict[str, Any]:
+    # Wave 1p4eq (1p4es hardening): clamp negative max_results to 0. A negative
+    # value would otherwise hit Python's drop-last-N slice semantics
+    # (`edges[:-1]` returns all-but-one) rather than an empty/capped result.
+    max_results = max(0, max_results)
     gq = _load_graph_query()
     try:
         layer_value = _graph_layer_value(layer)
@@ -12710,11 +12739,24 @@ def _code_impact_graph_response(
     # Recompute affected_files after test filter
     affected_files = sorted({str(a.get("source_file") or "") for a in affected_enriched if a.get("source_file")})
     impact_edges = impact.get("edges") or []
+    # Wave 1p4es: bound the edges array by max_results. On a high-fan-in symbol
+    # (Teton field report: rethrowError, 754 edges) the UNBOUNDED array blew the
+    # MCP token cap (~227K chars) even though max_results capped `affected` — the
+    # edges list was the size driver. The full list still feeds the attribution
+    # counts (accurate); the response carries at most max_results edges plus
+    # edges_total so the caller knows the real count (re-query with a higher
+    # max_results, or use code_callgraph for the full edge set).
+    edges_total = len(impact_edges)
+    edges_truncated = edges_total > max_results
+    response_edges = impact_edges[:max_results]
     return _attach_auto_rebuild_diag(
         _response(
             "ok",
             {
                 "symbol": symbol,
+                # Wave 1p4es: documented response field that was never emitted →
+                # came back null (Teton). At the OK path the symbol is resolved.
+                "resolved": True,
                 "node_id": impact.get("node_id"),
                 "layer": layer_value,
                 "method": "graph",
@@ -12723,8 +12765,9 @@ def _code_impact_graph_response(
                 "include_tests": include_tests,
                 "affected": affected_enriched[:max_results],
                 "affected_files": affected_files,
-                "edges": impact_edges,
-                "truncated": truncated,
+                "edges": response_edges,
+                "edges_total": edges_total,
+                "truncated": truncated or edges_truncated,
                 "total_found": len(affected_enriched),
                 # Wave 1p2q3 (1p2q9 B): per-language attribution-confidence counts.
                 "attribution_counts_by_language": _compute_attribution_counts_by_language(impact_edges, index),
@@ -12767,6 +12810,77 @@ def code_impact_response(
             usage="code_impact(path='src/module.py')",
         )
     return _code_impact_heuristic_response(root, path, max_results)
+
+
+def code_risk_score_response(
+    root: Path,
+    scope: str = "",
+    *,
+    top: int = 20,
+    max_hops: int = 3,
+    candidate_cap: int = 200,
+    layer: str = "project",
+    include_tests: bool = False,
+) -> dict[str, Any]:
+    """Rank in-scope symbols by composite change-risk (blast-radius × degree) — wave 1p41o."""
+    if not scope.strip():
+        return _response(
+            "error",
+            {"scope": scope},
+            diagnostics=[_diagnostic("invalid_arguments", "Provide scope= (a file path, directory prefix, or glob) to rank.")],
+            next_tools=["code_risk_score"],
+            usage="code_risk_score(scope='src/module.py')",
+        )
+    gq = _load_graph_query()
+    try:
+        layer_value = _graph_layer_value(layer)
+    except ValueError as exc:
+        return _response(
+            "error",
+            {"scope": scope},
+            diagnostics=[_diagnostic("invalid_arguments", str(exc))],
+            next_tools=["wave_help"],
+            usage="code_risk_score(scope='src/', layer='project')",
+        )
+    index = gq.GraphQueryIndex.from_root(root, layer=layer_value)
+    if not index.present:
+        return _response(
+            "error",
+            {"scope": scope, "layer": layer_value},
+            diagnostics=[gq.graph_not_ready_diagnostic(layer_value)],
+            next_tools=["wave_index_build"],
+            usage="wave_index_build(content='graph', mode='create')",
+        )
+    result = index.risk_score(
+        scope.strip(),
+        max_hops=max(1, max_hops),
+        top=top,
+        candidate_cap=candidate_cap,
+        is_test_path=None if include_tests else _is_test_path,
+    )
+    if result.get("over_candidate_cap"):
+        return _response(
+            "error",
+            {**result, "include_tests": include_tests},
+            diagnostics=[_diagnostic(
+                "scope_too_large",
+                f"{result.get('candidate_count')} candidate symbols in scope exceeds the cap "
+                f"({result.get('candidate_cap')}); narrow scope= to a file or subdirectory so the "
+                f"per-symbol blast-radius BFS stays bounded.",
+            )],
+            next_tools=["code_risk_score", "code_list_files"],
+            usage="code_risk_score(scope='src/submodule/')",
+        )
+    next_tools = ["code_impact", "code_read"] if result.get("results") else ["code_list_files", "code_outline"]
+    return _attach_auto_rebuild_diag(
+        _response(
+            "ok",
+            {**result, "layer": layer_value, "include_tests": include_tests},
+            next_tools=next_tools,
+            usage="code_impact(symbol='path::symbol') to size a single symbol's blast radius",
+        ),
+        index,
+    )
 
 
 def code_callgraph_response(
@@ -14667,7 +14781,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           the affected node (wave 1316r) — useful for grouping cross-cutting changes by
           community. Test callers excluded by default.
         - affected_files: sorted list of unique files containing affected nodes
-        - edges: traversed edges. Each edge carries a ``confidence`` field:
+        - edges: traversed edges, CAPPED at max_results (see edges_total for the
+          full count; attribution counts are computed over the full set). Each
+          edge carries a ``confidence`` field:
           ``RECEIVER_RESOLVED`` (type-resolved at graph-builder; high confidence),
           ``CONSTRUCTION_RESOLVED`` (construction-call routed to the class node;
           peer to RECEIVER_RESOLVED in deterministic-attribution rank), or
@@ -14675,6 +14791,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           analysis, filter to ``RECEIVER_RESOLVED`` + ``CONSTRUCTION_RESOLVED``
           edges only; for ``EXTRACTED`` edges that look load-bearing, corroborate
           with ``code_references``.
+        - edges_total: full count of traversed edges before the max_results cap
+          (re-query with a higher max_results, or use code_callgraph, for all)
+        - truncated: true when affected nodes or edges were capped at max_results
         - include_tests: whether test-path nodes were included
         - suggestions: near-match candidates when the symbol is not found in the graph
 
@@ -14709,6 +14828,62 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             relations=relations,
             include_tests=include_tests,
         ), t_start, "code_impact")
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def code_risk_score(
+        scope: str = "",
+        top: int = 20,
+        max_hops: int = 3,
+        layer: str = "project",
+        include_tests: bool = False,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Rank the symbols in a scope by how risky they are to *change* — a composite of blast-radius × call-degree.
+
+        Prefer when: before a cross-cutting change or refactor, to prioritize WHICH symbols in a
+        module/directory to touch most carefully. This RANKS MANY symbols across a scope in one call;
+        contrast ``code_impact``, which sizes ONE symbol's blast radius. The score is structural
+        (graph-derived) — it is **not** git-commit-history churn.
+
+        Score (v1): ``risk = affected_file_count * log1p(fan_in)`` — blast radius (how many files
+        break if this symbol changes) times log-dampened incoming call-degree (so hubs don't
+        dominate). ``fan_out`` (what the symbol itself calls) is surfaced separately, NOT multiplied
+        in. The raw components are returned per symbol so the score is transparent and re-weightable.
+
+        Read it as a **relative rank within the queried scope**, not an absolute or
+        cross-module-comparable magnitude. Signal is strongest on broad scopes (a directory) where
+        blast radius varies; on a single small module with uniform blast radius it can track ``fan_in``.
+
+        Response fields:
+        - scope, layer, top, max_hops, candidate_count, candidate_cap, include_tests
+        - score_formula: the composite formula string
+        - score_components: names of the raw inputs (``affected_file_count``, ``fan_in``, ``fan_out``)
+        - results: list ranked DESC by ``risk``, each with ``node_id``, ``label``, ``source_file``,
+          ``kind``, ``affected_file_count``, ``fan_in``, ``fan_out``, ``risk``, ``hop`` (worst-case
+          blast-radius hop distance)
+        - over_candidate_cap: true (with empty ``results``) when the scope has more than
+          ``candidate_cap`` definitions — narrow ``scope=`` and retry
+
+        Args:
+            scope: Repo-relative file path, directory prefix, or glob (``*``/``?``/``[]``) to rank over.
+            top: Max ranked symbols returned (default 20).
+            max_hops: Blast-radius traversal depth passed to impact (default 3).
+            layer: Graph layer (default ``project``). Omit unless querying framework or union.
+            include_tests: When False (default), test-path nodes are excluded from the blast radius
+                (symmetric with code_impact's filter).
+        """
+        bad = _ensure_no_extra_args("code_risk_score", kwargs)
+        if bad is not None:
+            return bad
+        t_start = time.monotonic()
+        return _inject_timing(code_risk_score_response(
+            get_handler().root,
+            scope,
+            top=top,
+            max_hops=max_hops,
+            layer=layer,
+            include_tests=include_tests,
+        ), t_start, "code_risk_score")
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_callgraph(
@@ -15627,6 +15802,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 corruption or a manual forced refresh.
               - ``"cleanup"`` — phase 5: remove the upgrade lock file and print the
                 operator summary. Call after ``update_index`` or ``rebuild_index``.
+              - ``"resume_after_gate"`` — re-run ONLY docs-gardener + docs-lint
+                against the already-extracted tree (no extract/render/prune) to
+                recover from a docs-gate failure. Requires a retained lock with
+                ``failed_phase == "docs_gate"``; exits non-zero if the gate fails
+                again, zero when it passes (wave 1p44r).
 
         Response fields:
           - ``exit_code``: 0 = success, 1 = docs gate failed, 2 = surface rendering

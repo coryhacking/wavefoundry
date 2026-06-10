@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-08
+Last verified: 2026-06-09
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -410,9 +410,19 @@ for the project layer, or rerun the framework-targeted `indexer.py` command if a
 - `mode="incremental"` (default): scans git-changed files only (`git diff --name-only HEAD`). **Auto-escalates to a full scan when either TOML rules file changed since the last scan** (SHA-256 hash stored in `.wavefoundry/index/scan/scan-state.json`); no manual intervention needed after a framework upgrade or project rule edit.
 - `mode="full"`: scans all git-tracked files regardless of change state. Use after initial install or when you want a baseline across the whole repo.
 - Findings are written to and read from `docs/scan-findings.json`. New matches with no existing entry are auto-appended with `status: "pending"`. Existing entries keep their status and confirmation history.
+- **Confirmation expiry:** `false-positive` confirmations are time-bounded — each counts only while its `confirmed_at` is within `confirmation_valid_days` (`[policy]`, default 365; `0` disables) of the scan's now (per-confirmation clock). Expired confirmations are ignored for the count but left in `confirmations[]`; re-verification appends a new dated entry. The effective threshold also clamps down to the count of confirmable (recent, non-bot) reviewers, and a non-empty `override_reason` dismisses a false positive.
 - Response includes `mode`, `effective_mode` (reflects auto-escalation), `rules_hash_changed`, `escalated_to_full`, `clean` (boolean), `elapsed_s`, `total_findings`, `by_status` (count per status value), `failures_total`, and `failures` (first 20 lint-blocking entries).
 - Runs in a subprocess so `ProcessPoolExecutor` workers and the multiprocessing `resource_tracker` exit with the scan process rather than accumulating in the MCP server. Falls back to an in-process serial scan when the subprocess path is unavailable.
 - **`wave_close` gate:** `wave_close` hard-blocks on any `pending` entry. `wave_close` soft-blocks on any `suspected-secret` or `confirmed-secret` entry whose `acknowledged_for_wave` field does not match the current wave ID. Run the security reviewer (`seed-213`) to resolve entries; re-run `wave_close` after resolution.
+
+`wave_upgrade(phase: str = "preflight_to_docs_gate")`
+
+- Drives the framework upgrade flow phase-by-phase (subprocess over `upgrade_wavefoundry.py`). Valid phases:
+  - `preflight_to_docs_gate` *(default)* — phases 0–3: pre-flight, extract, surface render, prune, docs gate. Extract is **idempotent** — a re-run on a tree already at `to_version` skips the re-extract (wave 1p44r).
+  - `update_index` / `rebuild_index` — phase 4: incremental vs full semantic index refresh.
+  - `cleanup` — phase 5: remove the upgrade lock and print the operator summary.
+  - `resume_after_gate` — re-run ONLY docs-gardener + docs-lint against the already-extracted tree (no extract/render/prune) to recover from a docs-gate failure. Requires a **retained lock** with `failed_phase == "docs_gate"` (wave 1p44o/1p44r); exits non-zero if the gate fails again, zero (and clears the failure marker) when it passes.
+- A post-mutation failure RETAINS the lock with a `failed_phase` marker so the dashboard stays paused and the half-replaced tree is not reindexed (wave 1p44o); `resume_after_gate` then recovers without a destructive full re-extract.
 
 ### Audit
 
@@ -448,7 +458,8 @@ is enforced; structured diagnostics are returned for rejected paths.
 - `code_hover` — return the symbol (function, class, or method) enclosing a given line number; returns `{name, kind, signature, docstring, start_line, end_line}` and `parser_used`; faster than `code_outline` when the line is already known
 - `code_callhierarchy` — direct callers and callees for a symbol with call-site line numbers and snippets; depth is always 1; requires a built graph index; `direction` selects `"incoming"` (callers), `"outgoing"` (callees), or `"both"` (default); prefer over `code_references` for structural caller/callee questions
 - `code_callgraph` — call-tree traversal to arbitrary depth; `depth` (default 1) and `direction` control scope; edges include `line` when the call site was located; `include_tests` (default `False`) filters test-path nodes and their edges, symmetric with `code_impact`; use for depth > 1 or when raw graph edges are more useful than the incoming/outgoing framing of `code_callhierarchy`
-- `code_impact` — upstream caller/importer blast-radius analysis; two modes: `symbol=` for graph-backed transitive caller traversal (`max_hops`, `relations`); `path=` for heuristic reverse-import scan; use before modifying a shared symbol to enumerate all affected callers and files
+- `code_impact` — upstream caller/importer blast-radius analysis; two modes: `symbol=` for graph-backed transitive caller traversal (`max_hops`, `relations`); `path=` for heuristic reverse-import scan; use before modifying a shared symbol to enumerate all affected callers and files. Graph mode returns `resolved` (bool — symbol found in the graph), with `affected` and `edges` capped at `max_results`, `edges_total` reporting the true pre-cap edge count (attribution counts are computed over the full set), and `truncated` true when either list was capped
+- `code_risk_score` — ranks the `function`/`method` symbols in a `scope=` (path, directory, or glob) by composite change-risk `risk = affected_file_count * log1p(fan_in)` (blast radius × log-dampened incoming call-degree); `fan_out` is surfaced as an independent `score_component`, not folded into `risk`; response carries `score_formula` + `score_components` so the score is transparent; `top` (default 20) caps output and `>200` candidates returns `over_candidate_cap`; **ranks many** symbols across a scope (vs `code_impact`, which sizes **one**); use before a cross-cutting change/refactor to prioritize which symbols to touch carefully. Structural (graph-derived), not git-commit churn; `risk` is a relative rank within the queried scope, not a cross-scope absolute
 - `wave_graph_report` — structural whole-graph summary; sections: `fan_in` (most-called symbols by in-degree), `fan_out` (most-calling symbols), `chokepoints` (high fan-out nodes ≥ threshold), `orphan_docs` (doc nodes with no `doc_references_code` edges), `cross_layer` (project/framework boundary edges, union layer only), `communities` (top communities by node_count with `community_id`/`label`/`hub_node_id`/`hub_label`), `betweenness` (bridge nodes by centrality; skipped on graphs > 10k nodes; carries `betweenness_computed` / `betweenness_dominated_by_generated`); use for codebase orientation and hotspot identification
 
 ## MCP Resources
@@ -533,6 +544,7 @@ Use this table to select the right tool for a query type.
 | Find direct callers and callees of a symbol with exact line numbers | `code_callhierarchy` | Graph-backed structural caller/callee lookup; prefer over `code_references` when the question is purely structural |
 | Trace the call tree beyond one hop | `code_callgraph` | Depth-controlled traversal with line numbers on edges; use for depth > 1 or raw graph edge access |
 | Find all upstream callers of a symbol transitively | `code_impact` | Blast-radius analysis before modifying a shared symbol |
+| Rank which symbols in a scope are riskiest to change | `code_risk_score` | Composite blast-radius × degree ranking across a `scope=`; prioritize symbols before a cross-cutting change (vs `code_impact`, which sizes one symbol) |
 | Orient to structural hotspots across the whole codebase | `wave_graph_report` | Whole-graph fan_in/fan_out/chokepoint summary; run once per investigation |
 | Look up the symbol enclosing a specific line number | `code_hover` | Faster than `code_outline` when the line is already known |
 | Find an exact token, import path, or string literal | `code_keyword` | Deterministic exhaustive substring search |

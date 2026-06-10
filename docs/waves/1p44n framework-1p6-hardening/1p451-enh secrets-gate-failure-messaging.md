@@ -1,10 +1,10 @@
 # Secrets Gate Failure Messaging Clarity
 
 Change ID: `1p451-enh secrets-gate-failure-messaging`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
 Status: planned
-Last verified: 2026-06-08
+Last verified: 2026-06-09
 Wave: 1p44n framework-1p6-hardening
 
 ## Rationale
@@ -38,20 +38,20 @@ Neither message references `docs/scan-rules.toml`, the `false_positive_confirmat
 
 ## Acceptance Criteria
 
-- [ ] AC-1: The already-confirmed branch message (`secrets_validators.py:641-645`) names `docs/scan-rules.toml` and the `false_positive_confirmations_required` key, states the threshold is operator-tunable and auto-detected from committer count at install.
-- [ ] AC-2: The unconfirmed branch message (`secrets_validators.py:647-653`) names `docs/scan-rules.toml` and the `false_positive_confirmations_required` key, states the threshold is operator-tunable and install-derived.
-- [ ] AC-3: Both messages describe the actual escape/override path introduced by `1p44y` and no longer instruct an impossible action (no "needs N more from a different reviewer" guidance that a lone maintainer cannot satisfy).
-- [ ] AC-4: A regression test asserts the content of both rewritten branch messages, including the policy file name, the policy key, and the tunability statement.
-- [ ] AC-5: This change is sequenced after `1p44y` and uses the override path semantics `1p44y` defines, with no conflicting edits to the shared `secrets_validators.py:641-653` region.
+- [x] AC-1: The already-confirmed branch message names `docs/scan-rules.toml` and the `false_positive_confirmations_required` key, states the threshold is operator-tunable and auto-detected from committer count at install. — shared `_policy_hint` references `SCAN_RULES_PROJECT_PATH`. Test: `test_false_positive_below_threshold_user_already_in_list`.
+- [x] AC-2: The unconfirmed branch message names `docs/scan-rules.toml` and the `false_positive_confirmations_required` key, states the threshold is operator-tunable and install-derived. — same `_policy_hint`. Test: `test_false_positive_below_threshold_user_not_in_list`.
+- [x] AC-3: Both messages describe the actual escape/override path introduced by `1p44y` and no longer instruct an impossible action. — the hint lists "another reviewer's confirmation / lower the threshold / set an `override_reason`"; `more from a different reviewer` removed (asserted absent).
+- [x] AC-4: A regression test asserts the content of both rewritten branch messages, including the policy file name, the policy key, and the tunability statement. — the two existing branch tests updated to assert the new content.
+- [x] AC-5: This change is sequenced after `1p44y` and uses the override path semantics `1p44y` defines, with no conflicting edits to the shared region. — `1p44y` (control flow) then `1p451` (message strings) on the same branch, no clobber.
 
 ## Tasks
 
-- [ ] Confirm `1p44y` has landed and review the override/escape path it introduces for the false-positive gate.
-- [ ] Rewrite the already-confirmed branch message at `secrets_validators.py:641-645`.
-- [ ] Rewrite the unconfirmed branch message at `secrets_validators.py:647-653`.
-- [ ] Reference the policy path via `SCAN_RULES_PROJECT_PATH` / `docs/scan-rules.toml` and the `false_positive_confirmations_required` key in both messages.
-- [ ] Add or extend a test asserting both rewritten message strings.
-- [ ] Run the framework test suite and the secrets validator tests.
+- [x] Confirm `1p44y` has landed and review the override/escape path it introduces for the false-positive gate.
+- [x] Rewrite the already-confirmed branch message.
+- [x] Rewrite the unconfirmed branch message.
+- [x] Reference the policy path via `SCAN_RULES_PROJECT_PATH` / `docs/scan-rules.toml` and the `false_positive_confirmations_required` key in both messages. — via the shared `_policy_hint`.
+- [x] Add or extend a test asserting both rewritten message strings. — the two existing branch tests updated.
+- [x] Run the framework test suite and the secrets validator tests. — 11 false-positive-branch tests green; full suite at wave-end.
 
 ## Agent Execution Graph
 
@@ -87,7 +87,7 @@ N/A — message-string change confined to a single validator module with no boun
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
-|      |        |          |
+| 2026-06-08 | Rewrote both false-positive failure messages via a shared `_policy_hint` (names `docs/scan-rules.toml` + `false_positive_confirmations_required`, states tunable/install-derived, lists the 1p44y override/escape paths); removed "needs N more from a different reviewer". Updated the two existing branch tests. | `secrets_validators.py`; `TestExceptionStatus` (updated). |
 
 
 ## Decision Log

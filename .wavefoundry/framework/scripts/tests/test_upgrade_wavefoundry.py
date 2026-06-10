@@ -1,6 +1,7 @@
 """Tests for upgrade_wavefoundry.py — _compute_seed_diffs (12r1b) and extension hooks (12r1y)."""
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import io
 import json
@@ -710,6 +711,461 @@ class UpdateUpgradeLockTests(unittest.TestCase):
         self.lib.update_upgrade_lock(self.root, index_rebuilt_at="2026-05-19T14:00:00+00:00")
         lock = self.lib.read_upgrade_lock(self.root)
         self.assertTrue(bool(lock.get("index_rebuilt_at")))
+
+
+class FailureMarkerLockTests(unittest.TestCase):
+    """Wave 1p44o — failed_phase/failed_at persistence in the upgrade lock."""
+
+    def setUp(self):
+        self.lib = _load_upgrade_lib()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / ".wavefoundry").mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_failure_markers_seeded_none(self):
+        """write_upgrade_lock seeds failed_phase/failed_at None for schema clarity."""
+        self.lib.write_upgrade_lock(self.root, None, "2026-05-19a")
+        lock = self.lib.read_upgrade_lock(self.root)
+        self.assertIsNone(lock["failed_phase"])
+        self.assertIsNone(lock["failed_at"])
+
+    def test_failure_markers_persist_via_update(self):
+        self.lib.write_upgrade_lock(self.root, "2026-05-10a", "2026-05-19a")
+        self.lib.update_upgrade_lock(
+            self.root, failed_phase="docs_gate", failed_at="2026-06-08T00:00:00+00:00"
+        )
+        lock = self.lib.read_upgrade_lock(self.root)
+        self.assertEqual(lock["failed_phase"], "docs_gate")
+        self.assertEqual(lock["failed_at"], "2026-06-08T00:00:00+00:00")
+        # Pre-existing fields preserved.
+        self.assertEqual(lock["from_version"], "2026-05-10a")
+
+    def test_old_lock_without_markers_still_parses(self):
+        """read_upgrade_lock tolerates older locks lacking the new fields."""
+        lock_path = self.lib.upgrade_lock_path(self.root)
+        lock_path.write_text(
+            json.dumps({"from_version": "a", "to_version": "b", "pid": 123}),
+            encoding="utf-8",
+        )
+        lock = self.lib.read_upgrade_lock(self.root)
+        self.assertIsNone(lock.get("failed_phase"))
+
+
+class FinalizeFailedUpgradeTests(unittest.TestCase):
+    """Wave 1p44o — the except SystemExit handler's data-safety decision.
+
+    Post-mutation failure RETAINS the lock with a marker; pre-mutation failure
+    removes it. Tested via the extracted ``_finalize_failed_upgrade`` helper.
+    """
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.lib = _load_upgrade_lib()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / ".wavefoundry").mkdir()
+        # A lock exists (it is written at upgrade start, before the try body).
+        self.lib.write_upgrade_lock(self.root, "2026-05-10a", "2026-05-19a")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_post_mutation_retains_lock_with_marker(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.mod._finalize_failed_upgrade(
+                self.root, tree_mutated=True, current_phase="docs_gate"
+            )
+        lock = self.lib.read_upgrade_lock(self.root)
+        self.assertIsNotNone(lock, "lock must be RETAINED on a post-mutation failure")
+        self.assertEqual(lock["failed_phase"], "docs_gate")
+        self.assertTrue(lock["failed_at"], "failed_at timestamp must be stamped")
+
+    def test_pre_mutation_removes_lock(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.mod._finalize_failed_upgrade(
+                self.root, tree_mutated=False, current_phase="extract"
+            )
+        lock = self.lib.read_upgrade_lock(self.root)
+        self.assertIsNone(lock, "lock must be removed on a pre-mutation failure")
+
+
+class OperatorSummaryGateLineTests(unittest.TestCase):
+    """Wave 1p44o — Docs gate summary line derives from lock state (AC-5)."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+
+    def _capture_summary(self, **kwargs):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.mod._print_operator_summary(
+                from_version="2026-05-10a",
+                to_version="2026-05-19a",
+                zip_path=None,
+                pruned_count=3,
+                ran_index_rebuild=True,
+                **kwargs,
+            )
+        return buf.getvalue()
+
+    def test_gate_line_passed_when_no_failure(self):
+        self.assertEqual(self.mod._docs_gate_summary_line(None), "PASSED")
+
+    def test_gate_line_failed_when_docs_gate_failed(self):
+        self.assertEqual(self.mod._docs_gate_summary_line("docs_gate"), "FAILED")
+
+    def test_gate_line_not_run_for_earlier_phase(self):
+        line = self.mod._docs_gate_summary_line("surface_rendering")
+        self.assertIn("NOT RUN", line)
+        self.assertIn("surface_rendering", line)
+
+    def test_summary_passed_state(self):
+        out = self._capture_summary(failed_phase=None)
+        self.assertIn("Upgrade complete", out)
+        self.assertIn("Docs gate:", out)
+        self.assertIn("PASSED", out)
+        self.assertNotIn("FAILED", out)
+
+    def test_summary_failed_state_not_hardcoded(self):
+        out = self._capture_summary(failed_phase="docs_gate")
+        self.assertIn("Docs gate:", out)
+        self.assertIn("FAILED", out)
+        # The header must not falsely claim success on a failed upgrade.
+        self.assertNotIn("Upgrade complete", out)
+        self.assertIn("Upgrade INCOMPLETE", out)
+
+    def test_summary_default_failed_phase_is_passed(self):
+        """Back-compat: omitting failed_phase renders PASSED (success cleanup)."""
+        out = self._capture_summary()
+        self.assertIn("PASSED", out)
+
+    def test_next_steps_defers_to_seed_160(self):  # wave 1p454
+        out = self._capture_summary()
+        self.assertIn("See seed-160 for the full editing-pass sequence", out)  # AC-1
+        self.assertIn("seed-160 step 0 / Reconcile journals", out)             # AC-2
+        self.assertNotIn("step 0e", out)                                        # AC-2
+        self.assertIn("docs/scan-findings.json", out)                           # AC-3
+        self.assertIn("seed-213", out)                                          # AC-3
+        # secrets-resolution ordered BEFORE the docs-gate re-run (AC-3)
+        self.assertLess(out.index("scan-findings.json"), out.index("Docs gate re-run"))
+        # does NOT enumerate seed-160 step-8 backfills verbatim (AC-4)
+        self.assertNotIn("lifecycle_id_policy", out)
+        self.assertNotIn(".gitignore runtime contract", out)
+
+
+class PhaseCleanupLockStateTests(unittest.TestCase):
+    """Wave 1p44o — phase_cleanup warns on absent lock (AC-4); reflects failed state."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.lib = _load_upgrade_lib()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / ".wavefoundry").mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _capture_cleanup(self, **kwargs):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.mod.phase_cleanup(
+                root=self.root,
+                from_version=None,
+                to_version=None,
+                zip_path=None,
+                pruned_count=0,
+                ran_index_rebuild=False,
+                **kwargs,
+            )
+        return buf.getvalue()
+
+    def test_absent_lock_warns_no_phantom_summary(self):
+        out = self._capture_cleanup(failed_phase=None, lock_present=False)
+        self.assertIn("No upgrade lock found", out)
+        # No all-defaults "Upgrade complete" summary masquerading as a real upgrade.
+        self.assertNotIn("Upgrade complete", out)
+        self.assertNotIn("Version:", out)
+
+    def test_present_lock_prints_summary(self):
+        self.lib.write_upgrade_lock(self.root, "2026-05-10a", "2026-05-19a")
+        out = self._capture_cleanup(failed_phase=None, lock_present=True)
+        self.assertIn("Upgrade complete", out)
+        self.assertIn("Docs gate:", out)
+        self.assertIn("PASSED", out)
+
+    def test_failed_lock_marks_incomplete(self):
+        self.lib.write_upgrade_lock(self.root, "2026-05-10a", "2026-05-19a")
+        self.lib.update_upgrade_lock(self.root, failed_phase="docs_gate")
+        out = self._capture_cleanup(failed_phase="docs_gate", lock_present=True)
+        self.assertIn("Upgrade INCOMPLETE", out)
+        self.assertIn("FAILED", out)
+        self.assertIn("failure marker", out)
+
+
+class ReadInstalledRevisionDelegationTests(unittest.TestCase):
+    """Wave 1p44p — upgrade_wavefoundry._read_installed_revision routes through the
+    single canonical resolver in check_version (no MANIFEST json.loads)."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_delegates_to_manifest_revision(self):
+        p = self.root / "docs" / "prompts" / "prompt-surface-manifest.json"
+        p.parent.mkdir(parents=True)
+        p.write_text(json.dumps({"framework_revision": "1.6.0+xyz"}), encoding="utf-8")
+        self.assertEqual(self.mod._read_installed_revision(self.root), "1.6.0+xyz")
+
+    def test_returns_none_when_unresolvable(self):
+        self.assertIsNone(self.mod._read_installed_revision(self.root))
+
+
+class MaterializeSecretsPolicyTests(unittest.TestCase):
+    """Wave 1p44z — pre-gate secrets-policy materialization (committer count →
+    threshold; create only when absent; never overwrite operator values)."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _init_git(self, emails):
+        import subprocess as _sp
+        _sp.run(["git", "init", "-q"], cwd=self.root, check=True)
+        for i, email in enumerate(emails):
+            (self.root / f"c{i}.txt").write_text(str(i), encoding="utf-8")
+            _sp.run(["git", "add", "."], cwd=self.root, check=True)
+            _sp.run(
+                ["git", "-c", f"user.email={email}", "-c", f"user.name=A{i}",
+                 "-c", "commit.gpgsign=false", "commit", "-q", "-m", f"c{i}"],
+                cwd=self.root, check=True,
+            )
+
+    def _policy(self) -> Path:
+        return self.root / "docs" / "scan-rules.toml"
+
+    def test_threshold_mapping(self):  # AC-3
+        m = self.mod._committer_threshold
+        self.assertEqual([m(0), m(1)], [1, 1])
+        self.assertEqual([m(2), m(6)], [2, 2])
+        self.assertEqual([m(7), m(99)], [3, 3])
+
+    def test_single_committer_threshold_one(self):  # AC-2 / AC-3
+        self._init_git(["solo@example.com"])
+        msg = self.mod.materialize_secrets_policy(self.root)
+        self.assertTrue(self._policy().exists())
+        self.assertIn("false_positive_confirmations_required = 1", self._policy().read_text())
+        self.assertIn("committer", msg)  # observable status (AC-6 surfaces this in the upgrade log)
+
+    def test_small_team_threshold_two(self):  # AC-3
+        self._init_git(["a@x.com", "b@x.com", "c@x.com"])
+        self.mod.materialize_secrets_policy(self.root)
+        self.assertIn("false_positive_confirmations_required = 2", self._policy().read_text())
+
+    def test_existing_file_not_overwritten(self):  # AC-3 / AC-5
+        self._policy().parent.mkdir(parents=True)
+        self._policy().write_text(
+            "[policy]\nfalse_positive_confirmations_required = 5\n", encoding="utf-8"
+        )
+        msg = self.mod.materialize_secrets_policy(self.root)
+        self.assertIn("already present", msg)
+        self.assertIn("= 5", self._policy().read_text())  # operator value preserved
+
+    def test_no_git_repo_defaults_to_one(self):  # AC-2 (fresh / no history)
+        msg = self.mod.materialize_secrets_policy(self.root)
+        self.assertTrue(self._policy().exists())
+        self.assertIn("false_positive_confirmations_required = 1", self._policy().read_text())
+        self.assertEqual(self.mod._count_committers(self.root), 0)
+
+    def test_materialize_emits_confirmation_valid_days(self):  # 1p457 follow-up
+        # The expiry window must be written into the project file (not left as an
+        # invisible implicit default), with the operator-facing tunability hint.
+        self.mod.materialize_secrets_policy(self.root)
+        text = self._policy().read_text()
+        self.assertIn("confirmation_valid_days = 365", text)
+        self.assertIn("set 0 to disable", text)
+
+
+class StampManifestRevisionTests(unittest.TestCase):
+    """Wave 1p44p follow-up — `_stamp_manifest_revision` writes framework/VERSION into
+    `docs/prompts/prompt-surface-manifest.json` `framework_revision` after upgrade so
+    the installed-revision marker tracks the pack instead of freezing at the
+    pre-upgrade value (never creates the manifest; never clobbers other keys)."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _set_version(self, v):
+        p = self.root / ".wavefoundry" / "framework" / "VERSION"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(v + "\n", encoding="utf-8")
+
+    def _manifest(self) -> Path:
+        return self.root / "docs" / "prompts" / "prompt-surface-manifest.json"
+
+    def _write_manifest(self, data):
+        self._manifest().parent.mkdir(parents=True, exist_ok=True)
+        self._manifest().write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+    def test_stamps_stale_revision(self):
+        self._set_version("1.6.0+p49k")
+        self._write_manifest({"framework_revision": "1.5.1+p3qj", "other": 1})
+        self.assertTrue(self.mod._stamp_manifest_revision(self.root))
+        self.assertEqual(
+            json.loads(self._manifest().read_text())["framework_revision"], "1.6.0+p49k")
+
+    def test_preserves_other_keys(self):
+        self._set_version("1.6.0+p49k")
+        self._write_manifest({"framework_revision": "1.5.1+p3qj", "surfaces": ["a", "b"], "n": 3})
+        self.mod._stamp_manifest_revision(self.root)
+        data = json.loads(self._manifest().read_text())
+        self.assertEqual(data["surfaces"], ["a", "b"])
+        self.assertEqual(data["n"], 3)
+
+    def test_noop_when_already_current(self):
+        self._set_version("1.6.0+p49k")
+        self._write_manifest({"framework_revision": "1.6.0+p49k"})
+        self.assertFalse(self.mod._stamp_manifest_revision(self.root))
+
+    def test_noop_when_manifest_absent(self):
+        self._set_version("1.6.0+p49k")
+        self.assertFalse(self.mod._stamp_manifest_revision(self.root))
+        self.assertFalse(self._manifest().exists())  # never created
+
+    def test_noop_when_version_absent(self):
+        self._write_manifest({"framework_revision": "1.5.1+p3qj"})
+        self.assertFalse(self.mod._stamp_manifest_revision(self.root))
+        self.assertEqual(
+            json.loads(self._manifest().read_text())["framework_revision"], "1.5.1+p3qj")
+
+    def test_noop_when_manifest_unparseable(self):
+        self._set_version("1.6.0+p49k")
+        self._manifest().parent.mkdir(parents=True, exist_ok=True)
+        self._manifest().write_text("{ not json", encoding="utf-8")
+        self.assertFalse(self.mod._stamp_manifest_revision(self.root))
+
+
+class ResumeAfterGateTests(unittest.TestCase):
+    """Wave 1p44r — resume_after_gate re-runs only the docs gate against the
+    retained-lock tree; extract is idempotent when the tree is already at target."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.lib = _load_upgrade_lib()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / ".wavefoundry").mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _resume(self):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return self.mod.main(["--resume-after-gate", "--root", str(self.root)])
+
+    def _failed_gate_lock(self):
+        self.lib.write_upgrade_lock(self.root, "1.5.0", "1.6.0")
+        self.lib.update_upgrade_lock(self.root, failed_phase="docs_gate", failed_at="t")
+
+    # AC-2 / AC-6b — extract idempotence decision.
+    def test_tree_already_at_target(self):
+        (self.root / "framework").mkdir()
+        (self.root / ".wavefoundry" / "framework").mkdir(parents=True)
+        (self.root / ".wavefoundry" / "framework" / "VERSION").write_text("1.6.0\n", encoding="utf-8")
+        self.assertTrue(self.mod._tree_already_at(self.root, "1.6.0"))
+        self.assertFalse(self.mod._tree_already_at(self.root, "1.7.0"))
+        self.assertFalse(self.mod._tree_already_at(self.root, "unknown"))
+        self.assertFalse(self.mod._tree_already_at(self.root, None))
+
+    def test_tree_already_at_no_version_file(self):
+        self.assertFalse(self.mod._tree_already_at(self.root, "1.6.0"))
+
+    # AC-6a / AC-5 — resume runs the gate (no re-extract) and exits 0 on pass.
+    def test_resume_runs_gate_and_clears_marker_on_pass(self):
+        self._failed_gate_lock()
+        called = []
+        with patch.object(self.mod, "phase_docs_gate", lambda r: called.append(r)):
+            rc = self._resume()
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(called), 1)  # only the gate ran
+        self.assertIsNone(self.lib.read_upgrade_lock(self.root).get("failed_phase"))
+
+    # AC-5 — non-zero exit on repeated gate failure; marker retained.
+    def test_resume_nonzero_on_repeated_failure(self):
+        self._failed_gate_lock()
+        def _fail(_root):
+            raise SystemExit(1)
+        with patch.object(self.mod, "phase_docs_gate", _fail):
+            with self.assertRaises(SystemExit) as cm:
+                self._resume()
+        self.assertEqual(cm.exception.code, 1)
+        self.assertEqual(self.lib.read_upgrade_lock(self.root).get("failed_phase"), "docs_gate")
+
+    # AC-3 — refuse to resume when the prior failure was NOT the docs gate.
+    def test_resume_refuses_non_gate_failure(self):
+        self.lib.write_upgrade_lock(self.root, "1.5.0", "1.6.0")
+        self.lib.update_upgrade_lock(self.root, failed_phase="extract", failed_at="t")
+        called = []
+        with patch.object(self.mod, "phase_docs_gate", lambda r: called.append(r)):
+            rc = self._resume()
+        self.assertEqual(rc, 1)
+        self.assertEqual(called, [])  # gate must NOT run
+
+    def test_resume_refuses_when_no_lock(self):
+        self.assertEqual(self._resume(), 1)
+
+
+class PhasePruningCountTests(unittest.TestCase):
+    """Wave 1p44q — phase_pruning reads the pruned count from prune_framework.py's
+    stderr summary, not the old (always-zero) stdout substring heuristic."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _prune(self, stderr, stdout="", returncode=0):
+        from types import SimpleNamespace
+        fake = SimpleNamespace(stdout=stdout, stderr=stderr, returncode=returncode)
+        with patch.object(self.mod.subprocess, "run", return_value=fake), \
+             contextlib.redirect_stdout(io.StringIO()):
+            return self.mod.phase_pruning(self.root)
+
+    def test_deleted_count_parsed(self):
+        self.assertEqual(self._prune("prune: deleted 7 item(s)\n"), 7)
+
+    def test_dry_run_would_delete_count_parsed(self):
+        self.assertEqual(self._prune("prune: would delete 3 item(s)\n"), 3)
+
+    def test_nothing_to_remove_is_zero(self):
+        self.assertEqual(self._prune("prune: nothing to remove\n"), 0)
+
+    def test_old_stdout_heuristic_no_longer_used(self):
+        # Per-file stdout lines say "deleted:", never "removed"/"pruned"; the count
+        # must come from the stderr summary, so absent-stderr → 0 (not a stdout scan).
+        self.assertEqual(self._prune("", stdout="deleted: a\ndeleted: b\n"), 0)
+
+    def test_nonzero_exit_returns_zero(self):
+        self.assertEqual(self._prune("prune: deleted 5 item(s)\n", returncode=1), 0)
 
 
 class PreferredPythonTests(unittest.TestCase):

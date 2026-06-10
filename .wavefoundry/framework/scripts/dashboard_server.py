@@ -642,6 +642,14 @@ class SnapshotStore:
             lock = _ulib.read_upgrade_lock(self._root)
             if lock is None:
                 return False
+            # Wave 1p44o — DATA SAFETY: a post-mutation upgrade failure RETAINS the
+            # lock with a failure marker so the half-replaced tree stays paused. The
+            # upgrade process has already exited, so its PID is gone and the lock
+            # would otherwise look "stale" below — auto-clearing it would resume the
+            # watcher and force-reindex a gate-failed tree. Treat a failure-marked
+            # lock as a live pause and do NOT clear it.
+            if isinstance(lock, dict) and lock.get("failed_phase"):
+                return True
             # Stale lock (crashed upgrade, PID gone) — auto-clear and treat as not locked.
             if _ulib.is_lock_stale(self._root):
                 _dashboard_log(

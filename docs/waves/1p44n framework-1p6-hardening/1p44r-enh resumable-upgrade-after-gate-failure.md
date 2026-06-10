@@ -1,10 +1,10 @@
 # Resumable Upgrade After Docs-Gate Failure
 
 Change ID: `1p44r-enh resumable-upgrade-after-gate-failure`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
 Status: planned
-Last verified: 2026-06-08
+Last verified: 2026-06-09
 Wave: 1p44n framework-1p6-hardening
 
 ## Rationale
@@ -79,46 +79,46 @@ idempotence guard on extract, making recovery destructive and slow.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: A new `resume_after_gate` phase re-runs docs-gardener + docs-lint
+- [x] AC-1: A new `resume_after_gate` phase re-runs docs-gardener + docs-lint
   against the already-extracted tree and performs NO extract, surface render, or
   prune.
-- [ ] AC-2: The zip-application block in `upgrade_wavefoundry.py` is skipped
+- [x] AC-2: The zip-application block in `upgrade_wavefoundry.py` is skipped
   (idempotent) when on-disk `framework/VERSION` already equals `to_version`; a
   re-run of `preflight_to_docs_gate` on an at-target tree does not re-extract.
-- [ ] AC-3: The resume phase reads the `failed_phase` marker from the retained
+- [x] AC-3: The resume phase reads the `failed_phase` marker from the retained
   upgrade lock and only proceeds when the prior failure was the docs gate.
-- [ ] AC-4: `resume_after_gate` is present in `valid_phases`, mapped to the
+- [x] AC-4: `resume_after_gate` is present in `valid_phases`, mapped to the
   correct CLI flag, and documented in the `wave_upgrade` docstring; the MCP tool
   rejects unknown phases as before.
-- [ ] AC-5: The resume phase exits non-zero on a repeated gate failure and zero
+- [x] AC-5: The resume phase exits non-zero on a repeated gate failure and zero
   when the gate passes, matching existing gate exit-code semantics.
-- [ ] AC-6 (regression/unit): Unit tests cover (a) the resume phase running the
+- [x] AC-6 (regression/unit): Unit tests cover (a) the resume phase running the
   gate without re-extracting, (b) extract idempotence when the tree already
   equals `to_version`, and (c) reading `failed_phase` from the lock.
-- [ ] AC-7 (MCP wrapper-layer): An MCP wrapper-layer test exercises
+- [x] AC-7 (MCP wrapper-layer): An MCP wrapper-layer test exercises
   `wave_upgrade(phase="resume_after_gate")`, asserting phase validation and the
   correct flag mapping into the upgrade command.
-- [ ] AC-8: `docs/specs/mcp-tool-surface.md` documents the new `wave_upgrade`
+- [x] AC-8: `docs/specs/mcp-tool-surface.md` documents the new `wave_upgrade`
   phase.
 
 ## Tasks
 
-- [ ] Add an extract-idempotence guard around the zip-application block
+- [x] Add an extract-idempotence guard around the zip-application block
   (`upgrade_wavefoundry.py:1538-1543`): skip extract when on-disk
   `framework/VERSION` already equals `to_version`.
-- [ ] Implement the `resume_after_gate` code path in `upgrade_wavefoundry.py`
+- [x] Implement the `resume_after_gate` code path in `upgrade_wavefoundry.py`
   that runs only docs-gardener + docs-lint (no extract/surface/prune).
-- [ ] Read the `failed_phase` marker from the retained lock (1p44o) and gate the
+- [x] Read the `failed_phase` marker from the retained lock (1p44o) and gate the
   resume on it being the docs gate.
-- [ ] Add a CLI flag (e.g. `--resume-after-gate`) and wire it to the new path.
-- [ ] Add `resume_after_gate` to `valid_phases` (`server_impl.py:6301`) and the
+- [x] Add a CLI flag (e.g. `--resume-after-gate`) and wire it to the new path.
+- [x] Add `resume_after_gate` to `valid_phases` (`server_impl.py:6301`) and the
   phase→flag mapping (`server_impl.py:6331-6338`).
-- [ ] Update the `wave_upgrade` docstring (`server_impl.py:15539-15561`) to
+- [x] Update the `wave_upgrade` docstring (`server_impl.py:15539-15561`) to
   describe the new phase and its place in the resume sequence.
-- [ ] Add unit tests for the resume phase, extract idempotence, and lock-marker
+- [x] Add unit tests for the resume phase, extract idempotence, and lock-marker
   read.
-- [ ] Add an MCP wrapper-layer test for `phase="resume_after_gate"`.
-- [ ] Update `docs/specs/mcp-tool-surface.md` with the new phase.
+- [x] Add an MCP wrapper-layer test for `phase="resume_after_gate"`.
+- [x] Update `docs/specs/mcp-tool-surface.md` with the new phase.
 
 ## Agent Execution Graph
 
@@ -166,7 +166,7 @@ and its MCP wrapper.
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
-|      |        |          |
+| 2026-06-08 | Added `resume_after_gate` (re-runs ONLY docs-gardener+docs-lint vs the retained-lock tree; reads `failed_phase=='docs_gate'`; exits non-zero on repeat failure, 0 + clears marker on pass) + `--resume-after-gate` CLI; extract idempotence via `_tree_already_at`; server_impl valid_phases + phase→flag + docstrings; mcp-tool-surface.md wave_upgrade entry. | upgrade_wavefoundry.py, server_impl.py, mcp-tool-surface.md; ResumeAfterGateTests (6) + test_resume_after_gate_phase_passes_flag. |
 
 
 ## Decision Log

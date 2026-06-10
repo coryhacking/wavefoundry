@@ -971,6 +971,436 @@ class CrossFileResolutionTests(unittest.TestCase):
         ]
         self.assertTrue(bar_edges, f"Expected Worker.bar → Helper.process; got {[(e.get('source'), e.get('target')) for e in calls]}")
 
+    # ---- 1p470: Python sibling-loader return-type inference ----
+    # The wavefoundry lazy-loader idiom `gq = _load_graph_query()` (→
+    # `_load_script("graph_query")`) previously emitted NO edge for
+    # `gq.GraphQueryIndex.from_root()` because `gq` had no known type. v24
+    # infers the loaded module so the cross-file edge is produced.
+
+    def test_python_lazy_loader_module_var_three_level(self):
+        """`gq = _load_graph_query(); gq.GraphQueryIndex.from_root()` resolves
+        to the graph_query module's class method (3-level attribute chain)."""
+        payload = self._build({
+            "graph_query.py": (
+                "class GraphQueryIndex:\n"
+                "    @classmethod\n"
+                "    def from_root(cls, root, layer='project'):\n"
+                "        return cls()\n"
+            ),
+            "server_impl.py": (
+                "def _load_script(name):\n    return None\n\n\n"
+                "def _load_graph_query():\n    return _load_script('graph_query')\n\n\n"
+                "def handler():\n"
+                "    gq = _load_graph_query()\n"
+                "    return gq.GraphQueryIndex.from_root(None, layer='project')\n"
+            ),
+        })
+        calls = self._calls_edges(payload)
+        targets = [e["target"] for e in calls if e.get("source", "").endswith("::handler")]
+        self.assertIn("graph_query.py::GraphQueryIndex.from_root", targets,
+                      f"lazy-loader 3-level chain must resolve; got {targets}")
+
+    def test_python_lazy_loader_module_var_two_level(self):
+        """`gq = _load_graph_query(); gq.module_func()` resolves to the module
+        function (2-level), and the inline `_load_graph_query().module_func()`
+        form resolves identically."""
+        payload = self._build({
+            "graph_query.py": "def graph_not_ready_diagnostic():\n    return {}\n",
+            "server_impl.py": (
+                "def _load_script(name):\n    return None\n\n\n"
+                "def _load_graph_query():\n    return _load_script('graph_query')\n\n\n"
+                "def via_var():\n"
+                "    gq = _load_graph_query()\n"
+                "    return gq.graph_not_ready_diagnostic()\n\n\n"
+                "def via_inline():\n"
+                "    return _load_graph_query().graph_not_ready_diagnostic()\n"
+            ),
+        })
+        calls = self._calls_edges(payload)
+        for who in ("::via_var", "::via_inline"):
+            targets = [e["target"] for e in calls if e.get("source", "").endswith(who)]
+            self.assertIn("graph_query.py::graph_not_ready_diagnostic", targets,
+                          f"{who} must resolve module func; got {targets}")
+
+    def test_python_lazy_loader_direct_load_script(self):
+        """Direct `gc = _load_script('graph_cluster'); gc.func()` resolves
+        without a wrapper function."""
+        payload = self._build({
+            "graph_cluster.py": "def build_clusters():\n    return []\n",
+            "server_impl.py": (
+                "def _load_script(name):\n    return None\n\n\n"
+                "def handler():\n"
+                "    gc = _load_script('graph_cluster')\n"
+                "    return gc.build_clusters()\n"
+            ),
+        })
+        calls = self._calls_edges(payload)
+        targets = [e["target"] for e in calls if e.get("source", "").endswith("::handler")]
+        self.assertIn("graph_cluster.py::build_clusters", targets,
+                      f"direct _load_script var must resolve; got {targets}")
+
+    # ---- 1p470: ambiguous cross-file import disambiguation ----
+    # When a receiver's simple name maps to MULTIPLE same-named project
+    # candidates, the source file's `imports` edge picks the right one.
+
+    def test_python_ambiguous_import_disambiguates(self):
+        """Two `User` classes in different packages; `app` importing
+        `pkg_a.models.User` must resolve `u.save()` to pkg_a's, not pkg_b's."""
+        payload = self._build({
+            "pkg_a/models.py": "class User:\n    def save(self):\n        return 1\n",
+            "pkg_b/models.py": "class User:\n    def save(self):\n        return 2\n",
+            "app.py": "from pkg_a.models import User\n\n\ndef handler():\n    u: User = User()\n    return u.save()\n",
+        })
+        calls = self._calls_edges(payload)
+        save_targets = [
+            e["target"] for e in calls
+            if e.get("source", "").endswith("::handler") and "save" in str(e.get("target", ""))
+        ]
+        self.assertIn("pkg_a/models.py::User.save", save_targets,
+                      f"must disambiguate to imported pkg_a; got {save_targets}")
+        self.assertNotIn("pkg_b/models.py::User.save", save_targets,
+                         "must NOT resolve to the non-imported pkg_b twin")
+
+    def test_java_ambiguous_import_disambiguates(self):
+        """Two `Helper` classes in different packages; `App` importing
+        `com.foo.Helper` must resolve `h.process()` to com.foo's, not com.bar's."""
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available in test env")
+        payload = self._build({
+            "com/foo/Helper.java": "package com.foo;\npublic class Helper {\n    public void process() {}\n}\n",
+            "com/bar/Helper.java": "package com.bar;\npublic class Helper {\n    public void process() {}\n}\n",
+            "com/app/App.java": "package com.app;\nimport com.foo.Helper;\npublic class App {\n    void run() {\n        Helper h = new Helper();\n        h.process();\n    }\n}\n",
+        })
+        calls = self._calls_edges(payload)
+        proc_targets = [
+            e["target"] for e in calls
+            if "App.run" in str(e.get("source", "")) and "process" in str(e.get("target", ""))
+        ]
+        self.assertIn("com/foo/Helper.java::Helper.process", proc_targets,
+                      f"must disambiguate to imported com.foo; got {proc_targets}")
+        self.assertNotIn("com/bar/Helper.java::Helper.process", proc_targets,
+                         "must NOT resolve to the non-imported com.bar twin")
+
+    def test_ambiguous_without_import_stays_external(self):
+        """Safety: an ambiguous receiver with NO disambiguating import must
+        stay external — the disambiguation never guesses."""
+        payload = self._build({
+            "pkg_a/models.py": "class User:\n    def save(self):\n        return 1\n",
+            "pkg_b/models.py": "class User:\n    def save(self):\n        return 2\n",
+            # No import of User — references it bare (ambiguous, unresolvable).
+            "app.py": "def handler():\n    u: User = make()\n    return u.save()\n",
+        })
+        calls = self._calls_edges(payload)
+        save_targets = [
+            e["target"] for e in calls
+            if e.get("source", "").endswith("::handler") and "save" in str(e.get("target", ""))
+        ]
+        # Must not have bound to either project node (ambiguous, no import).
+        self.assertNotIn("pkg_a/models.py::User.save", save_targets)
+        self.assertNotIn("pkg_b/models.py::User.save", save_targets)
+
+    def test_collapsed_class_node_does_not_suppress_resolution(self):
+        """1p4ef: two namespace-less C# classes both basename-merge (collapse to the
+        file-id node, no `::`). Before the fix, the collapsed nodes leaked the prior
+        iteration's `qualified` into the dotted-form `qualified_index` build, injecting
+        a phantom candidate that inflated `Service.Process` to ambiguous (`len>1`) and
+        the unique cross-file call was suppressed to `external::`. The fix binds
+        `qualified = simple` for collapsed nodes so the phantom never appears.
+        Verified bug-sensitive: without the fix this resolves to `external::Service.Process`."""
+        try:
+            import tree_sitter_c_sharp  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_c_sharp not available in test env")
+        payload = self._build({
+            "Service.cs": "public class Service { public void Process() {} }\n",
+            "Worker.cs": "public class Worker { void Run() { Service s = new Service(); s.Process(); } }\n",
+        })
+        calls = self._calls_edges(payload)
+        targets = [
+            e["target"] for e in calls
+            if "Worker.Run" in str(e.get("source", "")) and "Process" in str(e.get("target", ""))
+        ]
+        self.assertIn("Service.cs::Service.Process", targets,
+                      f"collapsed-class phantom must not suppress the unique cross-file call; got {targets}")
+        self.assertNotIn("external::Service.Process", targets)
+
+    def test_java_same_package_ambiguous_receiver_disambiguates(self):
+        """1p4er: two `JreCompat` classes in different packages both define
+        `canAccess`; a SAME-PACKAGE caller (no import — Java makes same-package
+        types visible without one) resolves `jc.canAccess()` to its own-package
+        twin, NOT the cross-package twin (the Aceiss field miss). The 1p470 import
+        disambiguation can't fire (no import edge); the same-directory fallback does."""
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available in test env")
+        payload = self._build({
+            "el/javax/JreCompat.java": "package el.javax;\npublic class JreCompat { public boolean canAccess() { return true; } }\n",
+            "el/apache/util/JreCompat.java": "package el.apache.util;\npublic class JreCompat { public boolean canAccess() { return false; } }\n",
+            "el/javax/Caller.java": "package el.javax;\npublic class Caller { JreCompat jc; void run() { jc.canAccess(); } }\n",
+        })
+        calls = self._calls_edges(payload)
+        targets = [e["target"] for e in calls
+                   if "Caller.run" in str(e.get("source", "")) and "canAccess" in str(e.get("target", ""))]
+        self.assertIn("el/javax/JreCompat.java::JreCompat.canAccess", targets,
+                      f"same-package twin must resolve; got {targets}")
+        self.assertNotIn("el/apache/util/JreCompat.java::JreCompat.canAccess", targets)
+
+    def test_same_package_fallback_no_colocated_candidate_stays_external(self):
+        """1p4er safety: an ambiguous receiver with NO import AND no twin in the
+        caller's own directory stays external — the fallback never guesses across
+        directories (resolution order: explicit import > same package > nothing)."""
+        try:
+            import tree_sitter_java  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_java not available in test env")
+        payload = self._build({
+            "el/javax/JreCompat.java": "package el.javax;\npublic class JreCompat { public boolean canAccess() { return true; } }\n",
+            "el/apache/util/JreCompat.java": "package el.apache.util;\npublic class JreCompat { public boolean canAccess() { return false; } }\n",
+            "el/other/Caller.java": "package el.other;\npublic class Caller { JreCompat jc; void run() { jc.canAccess(); } }\n",
+        })
+        calls = self._calls_edges(payload)
+        targets = [e["target"] for e in calls
+                   if "Caller.run" in str(e.get("source", "")) and "canAccess" in str(e.get("target", ""))]
+        self.assertNotIn("el/javax/JreCompat.java::JreCompat.canAccess", targets)
+        self.assertNotIn("el/apache/util/JreCompat.java::JreCompat.canAccess", targets)
+
+    def test_go_cross_package_method_resolves(self):
+        """1p4et: Go methods now key as `Type.method` (was bare `method`) and
+        `var h foo.Helper` qualified-type receivers infer their type, so a
+        cross-package method call resolves at RECEIVER_RESOLVED."""
+        try:
+            import tree_sitter_go  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_go not available in test env")
+        payload = self._build({
+            "foo/helper.go": "package foo\ntype Helper struct{}\nfunc (h Helper) Process() int { return 1 }\n",
+            "app/app.go": "package app\nimport \"x/foo\"\nfunc Run() { var h foo.Helper; h.Process() }\n",
+        })
+        calls = self._calls_edges(payload)
+        run = [e for e in calls if "::Run" in str(e.get("source", "")) and "Process" in str(e.get("target", ""))]
+        self.assertTrue(
+            any(e["target"] == "foo/helper.go::Helper.Process" for e in run),
+            f"cross-package Go method must resolve to Helper.Process; got {[(e['target'], e.get('confidence')) for e in run]}")
+
+    def test_go_same_method_name_types_do_not_collide(self):
+        """1p4et: two Go types with a same-named method register as distinct
+        `Type.method` nodes instead of colliding to one bare-`method` id."""
+        try:
+            import tree_sitter_go  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_go not available in test env")
+        payload = self._build({
+            "m/codec.go": "package m\ntype Reader struct{}\nfunc (r Reader) Encode() int { return 1 }\ntype Writer struct{}\nfunc (w Writer) Encode() int { return 2 }\n",
+        })
+        ids = {n["id"] for n in payload["nodes"] if "Encode" in n["id"]}
+        self.assertIn("m/codec.go::Reader.Encode", ids)
+        self.assertIn("m/codec.go::Writer.Encode", ids)
+
+    def test_rust_associated_fn_and_let_binding_resolve(self):
+        """1p4eu: `Bar::build()` (associated fn, scoped_identifier callee) and
+        `let x = Bar{}; x.process()` (struct-literal binding inference) both
+        resolve cross-file to the project method nodes (RECEIVER_RESOLVED)."""
+        try:
+            import tree_sitter_rust  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_rust not available in test env")
+        payload = self._build({
+            "crate/a.rs": "pub struct Bar {}\nimpl Bar {\n  pub fn build() -> i32 { 1 }\n  pub fn process(&self) -> i32 { 2 }\n}\n",
+            "crate/b.rs": "use crate::a::Bar;\npub fn caller() {\n  let _ = Bar::build();\n  let x = Bar{};\n  let _ = x.process();\n}\n",
+        })
+        targets = {e["target"] for e in self._calls_edges(payload) if "caller" in str(e.get("source", ""))}
+        self.assertIn("crate/a.rs::Bar.build", targets, f"associated fn must resolve; got {targets}")
+        self.assertIn("crate/a.rs::Bar.process", targets, f"let-bound receiver must resolve; got {targets}")
+
+    def test_rust_module_function_call_stays_external(self):
+        """1p4eu faithfulness: a lowercase-module scoped call `io::stdin()` must
+        NOT be mis-keyed as a type method — the PascalCase guard leaves it
+        external (never a wrong project edge)."""
+        try:
+            import tree_sitter_rust  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_rust not available in test env")
+        payload = self._build({
+            "crate/b.rs": "pub fn caller() { let _ = io::stdin(); }\n",
+        })
+        targets = [e["target"] for e in self._calls_edges(payload)
+                   if "caller" in str(e.get("source", "")) and "stdin" in str(e.get("target", ""))]
+        self.assertFalse(any(not str(t).startswith("external::") for t in targets),
+                         f"lowercase module fn must stay external; got {targets}")
+
+    def test_rust_generic_receiver_stays_external(self):
+        """1p4eu AC-6 fail-safe: a method call on a generic receiver whose type
+        cannot be statically resolved to a single named type (`fn caller<T: Runner>(t: T)
+        { t.run() }`) must stay external — never bind a same-named project method
+        (`Thing.run`) by simple-name guesswork."""
+        try:
+            import tree_sitter_rust  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_rust not available in test env")
+        payload = self._build({
+            "crate/a.rs": "pub struct Thing {}\nimpl Thing { pub fn run(&self) -> i32 { 1 } }\n",
+            "crate/b.rs": "pub trait Runner { fn run(&self) -> i32; }\npub fn caller<T: Runner>(t: T) -> i32 { t.run() }\n",
+        })
+        targets = [e["target"] for e in self._calls_edges(payload)
+                   if "caller" in str(e.get("source", "")) and "run" in str(e.get("target", ""))]
+        self.assertTrue(all(str(t).startswith("external::") for t in targets),
+                        f"generic/unresolvable receiver must stay external; got {targets}")
+
+    def test_rust_use_import_extractor_clean_no_keyword_noise(self):
+        """1p4eu AC-5: Rust `use` declarations produce clean dotted import edges
+        (final segment = the imported type name, `imports_by_file`-consumable),
+        with the `::` path normalized to dots and an `as` alias's target keeping
+        the REAL type name — and NO `use`/`pub`/`fn`/`as` keyword-noise or lossy
+        `::`-path edge."""
+        try:
+            import tree_sitter_rust  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_rust not available in test env")
+        payload = self._build({
+            "crate/b.rs": "use crate::services::Helper;\nuse super::util::{Reader, Writer as W};\npub fn caller() {}\n",
+        })
+        imports = {e["target"] for e in payload["edges"]
+                   if e.get("relation") == "imports" and "b.rs" in str(e.get("source", ""))}
+        self.assertIn("external::crate.services.Helper", imports, f"got {imports}")
+        self.assertIn("external::super.util.Reader", imports, f"got {imports}")
+        self.assertIn("external::super.util.Writer", imports, f"got {imports}")  # alias's REAL type
+        for junk in ("external::use", "external::pub", "external::fn", "external::as",
+                     "external::crate::services::Helper", "external::caller"):
+            self.assertNotIn(junk, imports, f"keyword/lossy noise leaked: {junk} in {imports}")
+
+    def test_kotlin_aliased_import_no_bare_alias_node(self):
+        """1p4eu: a Kotlin aliased import `import X as W` emits the real type's
+        edge and registers the alias in import_aliases, but NOT a redundant
+        cosmetic `external::W` node — and no `import`/`as`/`package` keyword noise."""
+        try:
+            import tree_sitter_kotlin  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_kotlin not available in test env")
+        payload = self._build({
+            "app/Caller.kt": "package app\nimport com.foo.Helper\nimport com.bar.util.Writer as W\nfun run() {}\n",
+        })
+        imports = {e["target"] for e in payload["edges"]
+                   if e.get("relation") == "imports" and "Caller.kt" in str(e.get("source", ""))}
+        self.assertIn("external::com.foo.Helper", imports, f"got {imports}")
+        self.assertIn("external::com.bar.util.Writer", imports, f"alias's real type must be emitted; got {imports}")
+        self.assertNotIn("external::W", imports, f"redundant bare-alias node leaked: {imports}")
+        for junk in ("external::import", "external::as", "external::package", "external::fun"):
+            self.assertNotIn(junk, imports, f"keyword noise leaked: {junk} in {imports}")
+
+    def test_csharp_namespace_membership_disambiguates(self):
+        """1p4ev: two `Service` classes in different namespaces; the call resolves
+        to the twin in the `using`-imported namespace — and FLIPS when the `using`
+        changes, proving it is import-driven and never binds the wrong twin
+        (the security-reviewer faithfulness property). The namespace is derived
+        from the node qname (`Namespace.Class.method`)."""
+        try:
+            import tree_sitter_c_sharp  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_c_sharp not available in test env")
+        twins = {
+            "svc/Service.cs": "namespace Acme.Services {\n  public class Service { public void Process() {} }\n}\n",
+            "oth/Service.cs": "namespace Acme.Other {\n  public class Service { public void Process() {} }\n}\n",
+        }
+
+        def resolve(using_ns):
+            files = dict(twins)
+            files["app/App.cs"] = (
+                f"using {using_ns};\nnamespace Acme.App {{\n"
+                "  public class App { Service svc; void Run() { svc.Process(); } }\n}\n"
+            )
+            payload = self._build(files)
+            return [e["target"] for e in self._calls_edges(payload)
+                    if "App.Run" in str(e.get("source", "")) and "Process" in str(e.get("target", ""))]
+
+        self.assertIn("svc/Service.cs::Acme.Services.Service.Process", resolve("Acme.Services"))
+        self.assertIn("oth/Service.cs::Acme.Other.Service.Process", resolve("Acme.Other"))
+        # The flip is the faithfulness proof — it never blindly binds one twin.
+        self.assertNotIn("oth/Service.cs::Acme.Other.Service.Process", resolve("Acme.Services"))
+        self.assertNotIn("svc/Service.cs::Acme.Services.Service.Process", resolve("Acme.Other"))
+
+    def test_csharp_nested_class_caller_binds_own_namespace_not_sibling(self):
+        """1p4eq faithfulness: a caller inside a NESTED class must resolve to the
+        twin in its FILE's declared namespace, never to a sibling twin whose
+        namespace coincides with the nested class path. The caller's namespace is
+        derived from its file's declared namespace nodes (nesting-proof), not by
+        string-stripping a fixed two qname segments (which mis-derived
+        `Acme.Web.Outer` for a caller whose real namespace is `Acme.Web`)."""
+        try:
+            import tree_sitter_c_sharp  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_c_sharp not available in test env")
+        payload = self._build({
+            "a/Service.cs": "namespace Acme.Web {\n  public class Service { public void Process(){} }\n}\n",
+            "b/Service.cs": "namespace Acme.Web.Outer {\n  public class Service { public void Process(){} }\n}\n",
+            "app/App.cs": (
+                "namespace Acme.Web {\n  public class Outer {\n"
+                "    public class App { Service svc; void Run(){ svc.Process(); } }\n  }\n}\n"
+            ),
+        })
+        targets = {e["target"] for e in self._calls_edges(payload)
+                   if "App.Run" in str(e.get("source", "")) and "Process" in str(e.get("target", ""))}
+        # Same namespace (Acme.Web) — the correct twin.
+        self.assertIn("a/Service.cs::Acme.Web.Service.Process", targets, f"got {targets}")
+        # The sibling twin (Acme.Web.Outer) coincides with the nested-class path
+        # and MUST NOT be bound — the old fixed-strip derivation bound it.
+        self.assertNotIn("b/Service.cs::Acme.Web.Outer.Service.Process", targets, f"got {targets}")
+
+    def test_go_qualified_receiver_binds_named_package_not_colocated_twin(self):
+        """1p4eq faithfulness: `var h foo.Helper; h.Process()` must bind the twin
+        in package `foo` even when the CALLER is co-located with a different
+        same-named twin (package `bar`). The package qualifier is authoritative;
+        the 1p4er same-directory fallback must not override an explicit
+        cross-package type (the wrong RECEIVER_RESOLVED edge the verification
+        caught — dropping the package collapsed both twins to `Helper.Process`)."""
+        try:
+            import tree_sitter_go  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_go not available in test env")
+        payload = self._build({
+            "foo/helper.go": "package foo\ntype Helper struct{}\nfunc (h Helper) Process() int { return 1 }\n",
+            "bar/helper.go": "package bar\ntype Helper struct{}\nfunc (h Helper) Process() int { return 2 }\n",
+            "bar/app.go": "package bar\nimport \"x/foo\"\nfunc Run() { var h foo.Helper; h.Process() }\n",
+        })
+        targets = {e["target"] for e in self._calls_edges(payload)
+                   if "::Run" in str(e.get("source", "")) and "Process" in str(e.get("target", ""))}
+        self.assertIn("foo/helper.go::Helper.Process", targets, f"must bind named package foo; got {targets}")
+        self.assertNotIn("bar/helper.go::Helper.Process", targets, f"must NOT bind co-located bar twin; got {targets}")
+
+    def test_go_qualified_receiver_unknown_package_stays_external(self):
+        """1p4eq faithfulness: `var h foo.Helper` where the project has NO package
+        `foo` (foo is a third-party import) must stay external — never bind a
+        project `Helper` that lives in a differently-named package."""
+        try:
+            import tree_sitter_go  # noqa: F401
+        except ImportError:
+            self.skipTest("tree_sitter_go not available in test env")
+        payload = self._build({
+            "x/helper.go": "package x\ntype Helper struct{}\nfunc (h Helper) Process() int { return 1 }\n",
+            "y/app.go": "package y\nimport \"ext/foo\"\nfunc Run() { var h foo.Helper; h.Process() }\n",
+        })
+        targets = [e["target"] for e in self._calls_edges(payload)
+                   if "::Run" in str(e.get("source", "")) and "Process" in str(e.get("target", ""))]
+        self.assertTrue(all(str(t).startswith("external::") for t in targets),
+                        f"unknown package qualifier must stay external; got {targets}")
+
+    def test_python_same_dir_unimported_receiver_stays_external(self):
+        """1p4eq regression fix: the 1p4er same-directory fallback is gated to
+        Java/Kotlin/Go (same-dir ⇒ same-package visibility). Python requires an
+        EXPLICIT import for a sibling symbol, so a co-located same-name twin used
+        without an import must stay external — same-directory confers nothing."""
+        payload = self._build({
+            "pkg_a/models.py": "class User:\n    def save(self): return 1\n",
+            "pkg_b/models.py": "class User:\n    def save(self): return 2\n",
+            "pkg_a/app.py": "def handler():\n    u: User = make()\n    return u.save()\n",
+        })
+        targets = [e["target"] for e in self._calls_edges(payload)
+                   if "handler" in str(e.get("source", "")) and "save" in str(e.get("target", ""))]
+        self.assertTrue(all(str(t).startswith("external::") for t in targets),
+                        f"Python same-dir unimported receiver must stay external; got {targets}")
+
 
 class SwiftClassModuleMergeTests(unittest.TestCase):
     """1316l: Swift class/module merge at index time.

@@ -5,7 +5,7 @@ import json
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +17,7 @@ except ImportError:
     except ImportError:
         tomllib = None  # type: ignore[assignment]
 
-from .cel_filter import eval_filter
+from .cel_filter import eval_filter, _jwt_exp_claim
 from .constants import SCAN_ALLOWLIST_PATH, SCAN_FINDINGS_PATH, SCAN_RULES_FRAMEWORK_PATH, SCAN_RULES_PROJECT_PATH
 
 _INLINE_SUPPRESS_RE = re.compile(r"#\s*wavefoundry-ignore:\s*secrets(.*)")
@@ -165,6 +165,140 @@ def _get_all_files(root: Path) -> list[Path]:
     return paths
 
 
+# ---------------------------------------------------------------------------
+# Wave 1p4d1 — RE2 → Python `re` regex compatibility shim.
+#
+# The ruleset is Gitleaks-schema (Go's RE2 engine). A subset of patterns use RE2
+# syntax that Python's `re` rejects, so they fail re.compile and the rule silently
+# never runs. Rather than rewrite the .toml (which would re-break on the next
+# Gitleaks import), translate at load — but ONLY when the original fails to compile,
+# so already-valid patterns are untouched. Two RE2-isms appear in the ruleset:
+#   1. an inline `(?i)` flag placed mid-pattern (RE2: scoped to the enclosing group;
+#      Python: only valid at position 0) → relocate to a SCOPED group `(?i:…)` that
+#      spans from the flag to the enclosing group's close, preserving the exact flag
+#      scope (a case-sensitive token prefix before the flag stays case-sensitive);
+#   2. the `\z` end-of-text anchor → Python's `\Z`.
+# ---------------------------------------------------------------------------
+
+_BARE_INLINE_FLAG_RE = re.compile(r"\(\?([aiLmsux]+)\)")
+
+
+def _is_escaped(s: str, idx: int) -> bool:
+    """True if the char at idx is escaped by an odd run of preceding backslashes."""
+    bs = 0
+    j = idx - 1
+    while j >= 0 and s[j] == "\\":
+        bs += 1
+        j -= 1
+    return bs % 2 == 1
+
+
+def _in_char_class(s: str, idx: int) -> bool:
+    """True if idx falls inside an unescaped [...] character class."""
+    in_class = False
+    i = 0
+    while i < idx:
+        c = s[i]
+        if c == "\\":
+            i += 2
+            continue
+        if in_class:
+            if c == "]":
+                in_class = False
+        elif c == "[":
+            in_class = True
+        i += 1
+    return in_class
+
+
+def _enclosing_group_close(pat: str, pos: int) -> int:
+    """Index where a scoped flag opened at ``pos`` must close: the first of (a) the
+    ``)`` that closes the group ENCLOSING ``pos``, or (b) an alternation bar ``|`` at
+    the same group depth, or (c) ``len(pat)`` at the top level. Stopping at a same-depth
+    ``|`` is essential — a scoped ``(?…:…)`` group must not span across an alternation
+    bar, or it swallows the ``|`` and restructures the alternation (wave 1p4d1: the
+    ``curl-auth-header`` ``"…"|'…'`` case, where wrapping past the ``|`` killed the
+    single-quote branch). RE2 inline flags are zero-width directives, so each branch's
+    own ``(?i)`` independently makes that branch case-insensitive. Skips escaped chars
+    and ``[...]`` character classes so their parens/brackets/bars don't miscount."""
+    depth = 0
+    i = pos
+    n = len(pat)
+    in_class = False
+    while i < n:
+        c = pat[i]
+        if c == "\\":
+            i += 2
+            continue
+        if in_class:
+            if c == "]":
+                in_class = False
+            i += 1
+            continue
+        if c == "[":
+            in_class = True
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            if depth == 0:
+                return i
+            depth -= 1
+        elif c == "|" and depth == 0:
+            return i
+        i += 1
+    return n
+
+
+def _scope_inline_flags(pat: str) -> str:
+    """Rewrite each bare mid-pattern ``(?flags)`` to a scoped ``(?flags:…)`` spanning
+    to the enclosing group's close — faithful to RE2's group-scoped flag semantics."""
+    guard = 0
+    while True:
+        guard += 1
+        if guard > 200:  # pathological — bail out unchanged rather than loop
+            return pat
+        m = None
+        for cand in _BARE_INLINE_FLAG_RE.finditer(pat):
+            if _is_escaped(pat, cand.start()) or _in_char_class(pat, cand.start()):
+                continue
+            m = cand
+            break
+        if m is None:
+            return pat
+        close = _enclosing_group_close(pat, m.end())
+        pat = pat[: m.start()] + f"(?{m.group(1)}:" + pat[m.end() : close] + ")" + pat[close:]
+
+
+def _translate_end_anchor(pat: str) -> str:
+    """RE2 ``\\z`` (end of text) → Python ``\\Z`` (end of string), honoring escapes
+    and character classes so a literal ``z`` is never touched."""
+    out: list[str] = []
+    i = 0
+    n = len(pat)
+    in_class = False
+    while i < n:
+        c = pat[i]
+        if c == "\\" and i + 1 < n:
+            nxt = pat[i + 1]
+            out.append("\\Z" if (nxt == "z" and not in_class) else "\\" + nxt)
+            i += 2
+            continue
+        if c == "[":
+            in_class = True
+        elif c == "]":
+            in_class = False
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _re2_to_re(pattern: str) -> str:
+    """Translate RE2-only constructs to Python ``re`` equivalents (wave 1p4d1).
+    Faithful and minimal — only relocates inline flags to scoped groups and maps
+    ``\\z``→``\\Z``. Caller applies it ONLY when the original fails to compile."""
+    return _scope_inline_flags(_translate_end_anchor(pattern))
+
+
 def get_scan_files(root: Path, scan_all: bool = False) -> list[Path]:
     if scan_all:
         return _get_all_files(root)
@@ -193,9 +327,19 @@ def _path_matches_allowlist(rel_path: str, allowlist_paths: list[str]) -> bool:
 # ---------------------------------------------------------------------------
 
 def redact(text: str) -> str:
-    if len(text) <= 8:
+    # Wave 1p44x — length-scaled reveal window with a hard ~40% exposure cap so
+    # short secrets stop leaking the fixed 4+4 (8-char) window into the committed
+    # findings ledger. The full 4+4 reveal is reached only at length >= 20; the
+    # cap (floor(0.4*n) characters revealed in total) tightens it further for the
+    # shortest values. Long-secret output is unchanged where the cap permits.
+    n = len(text)
+    if n <= 8:
         return "****"
-    return f"{text[:4]}****{text[-4:]}"
+    target = 4 if n >= 20 else (3 if n >= 17 else 2)
+    w = min(target, (n * 2 // 5) // 2)  # (n*2//5) == floor(0.4*n); //2 per side
+    if w <= 0:
+        return "****"
+    return f"{text[:w]}****{text[-w:]}"
 
 
 # ---------------------------------------------------------------------------
@@ -381,21 +525,132 @@ def _sweep_stale_exceptions(exceptions: list[dict], rel_path: str, lines: list[s
     return bool(to_remove)
 
 
+def _sweep_suppressed_pending(
+    exceptions: list[dict], rel_path: str, matched_ids: set[str]
+) -> bool:
+    """Wave 1p4a2 — on a FULL scan, drop ``pending`` entries for ``rel_path`` whose
+    source line still exists (they survived ``_sweep_stale_exceptions``, so a
+    ``line_hash`` is present) but which the CURRENT ruleset did NOT reproduce as a hit
+    this scan (``id`` absent from ``matched_ids``) — i.e. a rule/allowlist change has
+    since suppressed them, leaving a phantom that keeps blocking ``wave_close``.
+
+    Strictly ``pending``-only: operator classifications (``false-positive``,
+    ``suspected-secret``, ``confirmed-secret``) and legacy entries without a
+    ``line_hash`` are never touched. Returns True if any entries were removed. The
+    caller gates this to full scans (``scan_all=True``) so an incremental run — which
+    re-evaluates only changed files — never prunes an untouched file's entries.
+    """
+    to_remove = [
+        e for e in exceptions
+        if e.get("file") == rel_path
+        and e.get("status", "pending") == "pending"
+        and e.get("line_hash")
+        and e.get("id") not in matched_ids
+    ]
+    for e in to_remove:
+        exceptions.remove(e)
+    return bool(to_remove)
+
+
 # ---------------------------------------------------------------------------
 # Confirmation count logic
 # ---------------------------------------------------------------------------
 
-def _unique_confirmation_count(entry: dict) -> tuple[int, list[str]]:
-    """Return (unique_email_count, list_of_confirmer_names)."""
+def _parse_confirmed_at(value: Any) -> datetime | None:
+    """Parse a confirmation's ISO-8601 ``confirmed_at`` to a tz-aware UTC datetime,
+    or None if missing/empty/unparseable (wave 1p457). Trailing ``Z`` is accepted;
+    a naive timestamp is assumed UTC."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    s = value.strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+def _unique_confirmation_count(
+    entry: dict, as_of: datetime | None = None, valid_days: int = 0,
+) -> tuple[int, list[str]]:
+    """Return (unique_email_count, list_of_confirmer_names).
+
+    Wave 1p457 — when ``valid_days`` > 0, a confirmation counts only if its
+    ``confirmed_at`` parses AND is no older than ``valid_days`` relative to
+    ``as_of`` (default: now). Stale/unparseable confirmations are dropped from the
+    count (fail-closed) but are NOT removed from ``confirmations[]`` — history is
+    preserved. ``valid_days`` falsy → no expiry (legacy behavior). The
+    ``(count, names)`` return shape is unchanged (1p44y reads it)."""
+    cutoff: datetime | None = None
+    if valid_days and valid_days > 0:
+        ref = as_of or datetime.now(timezone.utc)
+        cutoff = ref - timedelta(days=valid_days)
     seen_emails: set[str] = set()
     names: list[str] = []
     for c in entry.get("confirmations", []):
         email = c.get("git_user_email", "")
-        if email and email not in seen_emails:
-            seen_emails.add(email)
-            name = c.get("git_user_name", email)
-            names.append(name)
+        if not email or email in seen_emails:
+            continue
+        if cutoff is not None:
+            ts = _parse_confirmed_at(c.get("confirmed_at", ""))
+            if ts is None or ts < cutoff:
+                continue  # expired or unparseable — fail-closed
+        seen_emails.add(email)
+        names.append(c.get("git_user_name", email))
     return len(seen_emails), names
+
+
+def _expired_confirmation_count(
+    entry: dict, as_of: datetime | None, valid_days: int,
+) -> int:
+    """Count unique confirmer emails whose confirmations are ALL expired/unparseable
+    (wave 1p457). Used only for the gate-failure message detail; 0 when expiry off."""
+    if not valid_days or valid_days <= 0:
+        return 0
+    ref = as_of or datetime.now(timezone.utc)
+    cutoff = ref - timedelta(days=valid_days)
+    fresh: set[str] = set()
+    stale: set[str] = set()
+    for c in entry.get("confirmations", []):
+        email = c.get("git_user_email", "")
+        if not email:
+            continue
+        ts = _parse_confirmed_at(c.get("confirmed_at", ""))
+        (fresh if (ts is not None and ts >= cutoff) else stale).add(email)
+    return len(stale - fresh)
+
+
+# Wave 1p44y — bot / no-reply author addresses that must not count as confirmable
+# reviewers (they inflate the install-derived confirmation threshold but can never
+# actually confirm a finding).
+_BOT_EMAIL_RE = re.compile(r"(?:noreply|no-reply|\[bot\]|\+bot@|@bots?\.)", re.IGNORECASE)
+
+
+def _confirmable_reviewer_emails(root: Path, days: int = 365) -> set[str]:
+    """Return recent, non-bot committer/author emails — the reviewers who could
+    plausibly confirm a false positive (wave 1p44y).
+
+    Used to clamp the required-confirmation threshold DOWN (never up) so a lone
+    active maintainer is not deadlocked by a threshold inflated by bots/inactive
+    co-authors. Returns an empty set when git history is unavailable (then the
+    caller leaves the policy threshold unchanged and relies on override_reason)."""
+    try:
+        result = subprocess.run(
+            ["git", "log", f"--since={days} days ago", "--format=%ae%n%ce"],
+            cwd=root, capture_output=True, text=True, check=False,
+        )
+    except Exception:
+        return set()
+    if result.returncode != 0:
+        return set()
+    emails: set[str] = set()
+    for line in result.stdout.splitlines():
+        email = line.strip().lower()
+        if email and not _BOT_EMAIL_RE.search(email):
+            emails.add(email)
+    return emails
 
 
 # ---------------------------------------------------------------------------
@@ -405,11 +660,54 @@ def _unique_confirmation_count(entry: dict) -> tuple[int, list[str]]:
 # Minimum file count before the parallel scan path is engaged.
 _PARALLEL_SCAN_THRESHOLD = 50
 
+# ── Wave 1p44s — scan_file_raw input guards ──────────────────────────────────
+# Real credential tokens are short and live in normal-length lines of text files,
+# so these generous caps skip the pathological inputs (multi-MB minified lines,
+# oversized generated assets, binary blobs) that pin a worker and drive full-scan
+# wall-clock time, WITHOUT weakening detection on in-bounds files. Framework-owned
+# and tunable here in one place.
+#
+# Per-line length cap (characters). Generous on purpose: the longest real
+# single-line secrets (an RSA-4096 PEM is ~3.2 KB, long JWTs a few KB) stay well
+# under this, while multi-MB minified/generated lines are skipped.
+MAX_LINE_BYTES = 32 * 1024
+# Per-file size cap (bytes). Files above this are generated/data artifacts, not
+# hand-authored source carrying a hidden credential.
+MAX_FILE_BYTES = 5 * 1024 * 1024
+# Bytes sniffed from the file head for NUL-byte binary detection.
+BINARY_SNIFF_BYTES = 8192
+
+# ── Wave 1p44s (AC-9) — skip visibility ──────────────────────────────────────
+# Files skipped by the size/binary guards must be SURFACED, never silent, so a
+# real secret in a skipped file leaves a trace. Two channels:
+#   1. A per-skip stderr line (the authoritative, process-safe record — emitted
+#      from whichever process does the skip, so parallel-worker skips are visible).
+#   2. An in-process list (serial path + tests) for a queryable count/paths;
+#      reset at the start of each check_hardcoded_secrets run so it stays bounded.
+_SCANNER_SKIPS: list[dict] = []
+
+
+def _record_scan_skip(rel: str, reason: str, detail: str) -> None:
+    """Record and surface a guard skip (wave 1p44s AC-9)."""
+    _SCANNER_SKIPS.append({"file": rel, "reason": reason, "detail": detail})
+    try:
+        print(
+            f"secrets-scan: SKIPPED {rel} ({reason}: {detail}) "
+            f"— NOT scanned for secrets",
+            file=sys.stderr, flush=True,
+        )
+    except Exception:
+        pass
+
+
 # Module-level globals populated by _worker_init_secrets_scanner in spawned
 # worker processes. Always None in the parent process.
 _WORKER_COMPILED_RULES: list | None = None
 _WORKER_GLOBAL_ALLOWLIST_PATHS: list[str] | None = None
 _WORKER_FRAMEWORK_ALLOWLIST: set[str] | None = None
+_WORKER_POLICY: dict | None = None  # wave 1p44w — policy flags for rule filters
+_WORKER_GLOBAL_REGEXES: list | None = None     # wave 1p456 — global value-filter
+_WORKER_GLOBAL_STOPWORDS: list | None = None   # wave 1p456 — global value-filter
 
 
 def _worker_init_secrets_scanner(
@@ -417,6 +715,9 @@ def _worker_init_secrets_scanner(
     raw_rules: list,
     global_allowlist_paths: list,
     framework_allowlist_list: list,
+    policy: dict | None = None,
+    global_regexes: list | None = None,
+    global_stopwords: list | None = None,
 ) -> None:
     """ProcessPoolExecutor initializer for parallel secrets-scan workers.
 
@@ -429,6 +730,7 @@ def _worker_init_secrets_scanner(
     framework_allowlist_list: framework allowlist entries as a list (set serialized for pickle).
     """
     global _WORKER_COMPILED_RULES, _WORKER_GLOBAL_ALLOWLIST_PATHS, _WORKER_FRAMEWORK_ALLOWLIST
+    global _WORKER_POLICY, _WORKER_GLOBAL_REGEXES, _WORKER_GLOBAL_STOPWORDS
     import sys as _sys, re as _re
     if scripts_dir not in _sys.path:
         _sys.path.insert(0, scripts_dir)
@@ -442,6 +744,9 @@ def _worker_init_secrets_scanner(
     _WORKER_COMPILED_RULES = compiled
     _WORKER_GLOBAL_ALLOWLIST_PATHS = global_allowlist_paths
     _WORKER_FRAMEWORK_ALLOWLIST = set(framework_allowlist_list)
+    _WORKER_POLICY = policy
+    _WORKER_GLOBAL_REGEXES = global_regexes
+    _WORKER_GLOBAL_STOPWORDS = global_stopwords
     # ppid watchdog — same pattern as graph_indexer: daemon thread polls
     # os.getppid() and exits if the parent dies to avoid orphan workers on macOS.
     try:
@@ -481,6 +786,9 @@ def _scan_file_secrets_worker(args: tuple) -> tuple:
         _WORKER_COMPILED_RULES,
         _WORKER_GLOBAL_ALLOWLIST_PATHS,
         _WORKER_FRAMEWORK_ALLOWLIST,
+        _WORKER_POLICY,
+        _WORKER_GLOBAL_REGEXES,
+        _WORKER_GLOBAL_STOPWORDS,
     )
 
 
@@ -489,12 +797,59 @@ def _scan_file_secrets_batch_worker(batch_args: list) -> list:
     return [_scan_file_secrets_worker(args) for args in batch_args]
 
 
+# Wave 1p44v — leading inline-comment tokens by file extension. Best-effort
+# triage signal only (in_comment): a commented-out secret is still a leak, so the
+# flag is recorded for the reviewer and never auto-suppresses. Unknown extensions
+# default to not-a-comment; no block-comment parsing.
+_LINE_COMMENT_TOKENS: dict[str, tuple[str, ...]] = {
+    ".py": ("#",), ".rb": ("#",), ".sh": ("#",), ".bash": ("#",), ".zsh": ("#",),
+    ".yaml": ("#",), ".yml": ("#",), ".toml": ("#",), ".cfg": ("#",), ".conf": ("#",),
+    ".ini": ("#", ";"), ".pl": ("#",), ".pm": ("#",), ".r": ("#",), ".tf": ("#",),
+    ".js": ("//",), ".jsx": ("//",), ".ts": ("//",), ".tsx": ("//",), ".mjs": ("//",),
+    ".cjs": ("//",), ".java": ("//",), ".c": ("//",), ".h": ("//",), ".cpp": ("//",),
+    ".hpp": ("//",), ".cc": ("//",), ".cs": ("//",), ".go": ("//",), ".rs": ("//",),
+    ".swift": ("//",), ".kt": ("//",), ".kts": ("//",), ".scala": ("//",),
+    ".php": ("//", "#"), ".sql": ("--",), ".lua": ("--",), ".hs": ("--",),
+    ".clj": (";",), ".lisp": (";",), ".el": (";",),
+}
+
+
+def _line_is_comment(rel: str, line: str) -> bool:
+    """Return True if *line* begins with the leading comment token for *rel*'s
+    extension (wave 1p44v). Unknown extensions → False; flag only, never suppress."""
+    tokens = _LINE_COMMENT_TOKENS.get(Path(rel).suffix.lower())
+    if not tokens:
+        return False
+    stripped = line.lstrip()
+    return any(stripped.startswith(tok) for tok in tokens)
+
+
+def _format_jwt_exp(secret: str) -> str | None:
+    """Wave 1p44w — if *secret* is a decodable JWT with an `exp` claim, return a
+    human-readable UTC expiry (suffixed ``(EXPIRED)`` when past), else None.
+
+    Surfacing only — the reviewer sees expiry context; suppression stays
+    policy-gated in the rule filter. Fail-safe: never raises."""
+    exp = _jwt_exp_claim(secret)
+    if exp is None:
+        return None
+    try:
+        when = datetime.fromtimestamp(exp, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+    stamp = when.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return f"{stamp} (EXPIRED)" if when < datetime.now(timezone.utc) else stamp
+
+
 def scan_file_raw(
     file_path: Path,
     rel: str,
     compiled_rules: list,
     global_allowlist_paths: list[str],
     framework_allowlist: set[str],
+    policy: dict | None = None,
+    global_regexes: list[str] | None = None,
+    global_stopwords: list[str] | None = None,
 ) -> tuple[list[str], str | None, list[dict]]:
     """Scan a single file for raw rule hits. Thread-safe — no shared mutations.
 
@@ -506,6 +861,24 @@ def scan_file_raw(
     """
     if _path_matches_allowlist(rel, global_allowlist_paths):
         return [], None, []
+    # Wave 1p44s — input guards BEFORE reading the file. Each returns the same
+    # ([], None, []) shape as a clean skip so phase-2 short-circuits without a
+    # stale-exception sweep (AC-5). Size/binary skips are surfaced (AC-9).
+    try:
+        size = file_path.stat().st_size
+    except OSError:
+        return [], None, []  # vanished mid-scan (stat race) — treat as a clean skip
+    if size > MAX_FILE_BYTES:
+        _record_scan_skip(rel, "file too large", f"{size} bytes > {MAX_FILE_BYTES} cap")
+        return [], None, []
+    try:
+        if b"\x00" in file_path.read_bytes()[:BINARY_SNIFF_BYTES]:
+            _record_scan_skip(
+                rel, "binary file", f"NUL byte in first {BINARY_SNIFF_BYTES} bytes"
+            )
+            return [], None, []
+    except OSError:
+        return [], None, []  # disappeared between stat and read — clean skip
     try:
         content = file_path.read_text(encoding="utf-8", errors="replace")
     except Exception:
@@ -514,7 +887,17 @@ def scan_file_raw(
     lines = content.splitlines()
     content_lower = content.lower()
     file_sha256 = _sha256_file(file_path) if framework_allowlist else None
+    # Wave 1p44w — policy flag a rule filter can read via attributes. Default off
+    # ("") so an expired JWT still SURFACES; an opt-in policy enables suppression.
+    _jwt_suppress = "1" if policy and policy.get("suppress_expired_jwts") else ""
     hits: list[dict] = []
+    # Wave 1p44v — per-secret dedup. line_no → spans already recorded on that
+    # line. When a later rule matches the SAME secret (an overlapping span on the
+    # same line) we skip it, so one secret yields one finding instead of one per
+    # matching rule. Keyed on position (not redacted_match) so two distinct
+    # secrets that redact identically stay separate (AC-2); the first-matching
+    # rule in ruleset order wins, making the result deterministic (AC-6).
+    _kept_spans: dict[int, list[tuple[int, int]]] = {}
 
     for rule_id, keywords, pattern, al_paths, al_regexes, cel_filter_expr in compiled_rules:
         if keywords and not any(kw in content_lower for kw in keywords):
@@ -522,12 +905,21 @@ def scan_file_raw(
         if _path_matches_allowlist(rel, al_paths):
             continue
         for line_no, line in enumerate(lines, start=1):
+            # Wave 1p44s — skip pathological over-long lines (minified bundles,
+            # generated lockfiles) before handing them to the rule regex. Real
+            # credential tokens are short, so a > MAX_LINE_BYTES line cannot hide a
+            # detectable secret; the threshold is generous to protect long config.
+            if len(line) > MAX_LINE_BYTES:
+                continue
             m = pattern.search(line)
             if not m:
                 continue
             matched_text = m.group(0)
             secret = m.group(1) if m.lastindex and m.lastindex >= 1 else matched_text
-            if cel_filter_expr and eval_filter(cel_filter_expr, secret, matched_text, rel, line_no):
+            if cel_filter_expr and eval_filter(
+                cel_filter_expr, secret, matched_text, rel, line,
+                attrs={"suppress_expired_jwts": _jwt_suppress},
+            ):
                 continue
             skip = False
             for al_regex in al_regexes:
@@ -539,12 +931,46 @@ def scan_file_raw(
                     pass
             if skip:
                 continue
+            # Wave 1p456 — global [allowlist] value-filter. Composes AFTER the
+            # per-rule CEL filter and per-rule allowlist: a match surviving those
+            # is still dropped if its VALUE is global structural noise (the WHOLE
+            # value matches a global regex) or contains a global stopword.
+            # Uses re.fullmatch (whole-value semantics) NOT re.search, so a real
+            # secret that merely CONTAINS structural-noise text (e.g. a high-entropy
+            # value containing the substring "false") is NOT over-suppressed — this
+            # also defends against an un-anchored allowlist regex (delivery review,
+            # wave 1p44n: the shipped `^true|false|null$` parses as three branches,
+            # two of them unanchored).
+            if global_regexes or global_stopwords:
+                g_skip = False
+                for g_regex in (global_regexes or ()):
+                    try:
+                        if re.fullmatch(g_regex, secret):
+                            g_skip = True
+                            break
+                    except re.error:
+                        pass
+                if not g_skip and global_stopwords:
+                    _sl = secret.lower()
+                    for sw in global_stopwords:
+                        if isinstance(sw, str) and sw.lower() in _sl:
+                            g_skip = True
+                            break
+                if g_skip:
+                    continue
             suppressed, suppress_error = check_inline_suppression(line)
             if suppressed and not suppress_error:
                 continue  # valid suppression with reason — skip entirely
+            # Wave 1p44v — dedup: if an earlier rule already recorded an
+            # overlapping span on this line, it is the same secret → skip.
+            start, end = m.start(), m.end()
+            spans = _kept_spans.setdefault(line_no, [])
+            if any(start < e0 and s0 < end for (s0, e0) in spans):
+                continue
+            spans.append((start, end))
             redacted_match = redact(matched_text)
             redacted_line = (line[:m.start()] + redacted_match + line[m.end():]).strip()
-            hits.append({
+            hit = {
                 "rule_id": rule_id,
                 "line_no": line_no,
                 "matched_text": matched_text,
@@ -552,8 +978,15 @@ def scan_file_raw(
                 "redacted_line": redacted_line,
                 "line_hash": _hash_line(line),
                 "context_hash": _hash_context(lines, line_no),
+                "in_comment": _line_is_comment(rel, line),  # wave 1p44v — triage flag
                 "suppress_error": suppress_error,  # None → normal hit; str → lint error
-            })
+            }
+            # Wave 1p44w — surface JWT expiry for reviewer triage (only set when the
+            # secret decodes as a JWT carrying an exp claim; never for other rules).
+            _exp_date = _format_jwt_exp(secret)
+            if _exp_date:
+                hit["exp_date"] = _exp_date
+            hits.append(hit)
 
     return lines, file_sha256, hits
 
@@ -567,11 +1000,17 @@ def _match_hits_for_file(
     framework_allowlist: set[str],
     required_confirmations: int,
     current_email: str,
+    confirmation_valid_days: int = 0,
+    as_of: datetime | None = None,
+    prune_suppressed: bool = False,
 ) -> tuple[list[str], bool]:
     """Serial exception matching for one file's pre-scanned hits.
 
     Returns (failures, exceptions_changed).
     Mutates exceptions in place (appending new entries, updating line drift).
+
+    prune_suppressed: wave 1p4a2 — when True (full scan), drop ``pending`` entries the
+        current ruleset no longer produces (line present, but not a hit this scan).
     """
     failures: list[str] = []
     exceptions_changed = False
@@ -608,9 +1047,15 @@ def _match_hits_for_file(
                 "context_hash": hit["context_hash"],
                 "rule_id": rule_id,
                 "matched_text": hit["redacted_line"],
+                "in_comment": hit.get("in_comment", False),  # wave 1p44v — triage context
                 "status": "pending",
             }
+            if hit.get("exp_date"):
+                new_entry["exp_date"] = hit["exp_date"]  # wave 1p44w — JWT expiry context
             exceptions.append(new_entry)
+            # Wave 1p4a2 — a freshly-created entry IS a current hit; register it in
+            # matched_ids so the full-scan suppressed-pending sweep never prunes it.
+            matched_ids.add(new_entry["id"])
             exceptions_changed = True
             failures.append(
                 f"{rel}:{line_no}: [secrets] new match for rule '{rule_id}' "
@@ -629,27 +1074,53 @@ def _match_hits_for_file(
             )
 
         elif status == "false-positive":
-            count, names = _unique_confirmation_count(existing)
+            # Wave 1p44y — operator override: a non-empty override_reason dismisses
+            # the finding (parity with the confirmed/suspected-secret dismissal in
+            # server_impl._check_secrets_gate), even below the confirmation count.
+            if existing.get("override_reason", "").strip():
+                continue  # operator-dismissed false positive
+            count, names = _unique_confirmation_count(
+                existing, as_of, confirmation_valid_days
+            )
             if count >= required_confirmations:
                 pass  # suppressed
             else:
                 names_str = ", ".join(names) if names else "(none)"
-                needed = required_confirmations - count
+                # Wave 1p451 — both messages name the policy file + key, state the
+                # threshold is operator-tunable and install-derived (committer count),
+                # and point to the real escape paths (1p44y): another reviewer's
+                # confirmation, lowering the threshold, or an override_reason. They no
+                # longer instruct the impossible "needs N more from a different reviewer".
+                _policy_hint = (
+                    f"The threshold is `false_positive_confirmations_required` in "
+                    f"{SCAN_RULES_PROJECT_PATH} (auto-detected from committer count at "
+                    f"install, operator-tunable). To clear: add a confirmation from another "
+                    f"reviewer, lower the threshold in {SCAN_RULES_PROJECT_PATH}, or set an "
+                    f"`override_reason` on this finding in {SCAN_FINDINGS_PATH} to dismiss it."
+                )
+                # Wave 1p457 — when the re-open is caused by EXPIRED confirmations,
+                # say so distinctly (separate from the never-confirmed wording).
+                _expired = _expired_confirmation_count(
+                    existing, as_of, confirmation_valid_days
+                )
+                _expiry_note = (
+                    f" {_expired} prior confirmation(s) EXPIRED (older than "
+                    f"{confirmation_valid_days} days); re-verification with a fresh dated "
+                    f"confirmation is required."
+                ) if _expired else ""
                 if current_email and current_email in {
                     c.get("git_user_email", "") for c in existing.get("confirmations", [])
                 }:
                     failures.append(
-                        f"{rel}:{line_no}: [secrets] rule '{rule_id}' — "
-                        f"{count} of {required_confirmations} confirmations received "
-                        f"from: {names_str} — needs {needed} more from a different reviewer"
+                        f"{rel}:{line_no}: [secrets] rule '{rule_id}' — false positive has "
+                        f"{count} of {required_confirmations} confirmations (from: {names_str}). "
+                        f"You have already confirmed.{_expiry_note} {_policy_hint}"
                     )
                 else:
                     failures.append(
-                        f"{rel}:{line_no}: [secrets] rule '{rule_id}' — "
-                        f"unconfirmed false positive — {count} of {required_confirmations} "
-                        f"confirmations. You are not yet on the list. "
-                        f"Please review and confirm or escalate. "
-                        f"(confirmed by: {names_str})"
+                        f"{rel}:{line_no}: [secrets] rule '{rule_id}' — unconfirmed false "
+                        f"positive: {count} of {required_confirmations} confirmations "
+                        f"(confirmed by: {names_str}).{_expiry_note} {_policy_hint}"
                     )
 
         elif status == "suspected-secret":
@@ -670,6 +1141,12 @@ def _match_hits_for_file(
     if lines and _sweep_stale_exceptions(exceptions, rel, lines):
         exceptions_changed = True
 
+    # Wave 1p4a2 — full-scan only: drop pending entries whose line still exists but
+    # which the current ruleset no longer produces as a hit (now suppressed). Gated
+    # to full scans by the caller so an incremental run never prunes an untouched file.
+    if prune_suppressed and lines and _sweep_suppressed_pending(exceptions, rel, matched_ids):
+        exceptions_changed = True
+
     return failures, exceptions_changed
 
 
@@ -678,6 +1155,7 @@ def check_hardcoded_secrets(
     scan_all: bool = False,
     files: list[Path] | None = None,
     max_workers: int = 1,
+    as_of: datetime | None = None,
 ) -> list[str]:
     """Scan tracked/changed files for secrets matching the merged ruleset.
 
@@ -690,6 +1168,11 @@ def check_hardcoded_secrets(
            start method + initializer pattern). Exception matching (phase 2) is always
            serial. Falls back to serial scan on any spawn/IPC error.
     """
+    # Wave 1p44s (AC-9) — reset the in-process skip ledger for this scan run so
+    # its count/paths reflect only the current scan (serial path; parallel-worker
+    # skips surface via the per-skip stderr line emitted in the worker process).
+    _SCANNER_SKIPS.clear()
+
     rules, policy, load_errors = load_merged_ruleset(root)
     if load_errors:
         return load_errors
@@ -697,14 +1180,28 @@ def check_hardcoded_secrets(
         return []
 
     required_confirmations: int = int(policy.get("false_positive_confirmations_required", 2))
+    # Wave 1p457 — max age (days) of a false-positive confirmation; non-positive /
+    # absent → 0 = no expiry (opt-out). `as_of` is the scan's reference "now"
+    # (injectable by tests for deterministic age math).
+    confirmation_valid_days: int = max(0, int(policy.get("confirmation_valid_days", 365)))
+    scan_as_of: datetime = as_of or datetime.now(timezone.utc)
     global_allowlist_paths: list[str] = []
+    # Wave 1p456 — the global [allowlist] value-filter (regexes + stopwords) was
+    # authored but loaded nowhere; load it here so structural-noise values
+    # ($VAR, {{template}}, %FMT%, /Users/…, stopword substrings) are suppressed
+    # fleet-wide across every rule, not just per-rule allowlists.
+    global_regexes: list[str] = []
+    global_stopwords: list[str] = []
 
     fw_path = root / SCAN_RULES_FRAMEWORK_PATH
     try:
         if _require_tomllib() and fw_path.exists():
             with open(fw_path, "rb") as f:
                 fw_raw = tomllib.load(f)
-            global_allowlist_paths = list(fw_raw.get("allowlist", {}).get("paths", []))
+            fw_allow = fw_raw.get("allowlist", {})
+            global_allowlist_paths = list(fw_allow.get("paths", []))
+            global_regexes = list(fw_allow.get("regexes", []))
+            global_stopwords = list(fw_allow.get("stopwords", []))
     except Exception:
         pass
 
@@ -713,7 +1210,10 @@ def check_hardcoded_secrets(
         if _require_tomllib() and proj_path.exists():
             with open(proj_path, "rb") as f:
                 proj_raw = tomllib.load(f)
-            global_allowlist_paths += list(proj_raw.get("allowlist", {}).get("paths", []))
+            proj_allow = proj_raw.get("allowlist", {})
+            global_allowlist_paths += list(proj_allow.get("paths", []))
+            global_regexes += list(proj_allow.get("regexes", []))
+            global_stopwords += list(proj_allow.get("stopwords", []))
     except Exception:
         pass
 
@@ -737,9 +1237,28 @@ def check_hardcoded_secrets(
     current_email = get_current_git_user_email(root)
     framework_allowlist = load_framework_scan_allowlist(root)
 
+    # Wave 1p44y — clamp the false-positive confirmation threshold DOWN to the
+    # count of currently-confirmable (recent, non-bot) reviewers, so a single
+    # active maintainer is never blocked by a threshold inflated by bots/inactive
+    # co-authors. Never raises the policy value (floor 1). Computed once, and only
+    # when a false-positive entry actually exists (avoids a git call otherwise).
+    effective_confirmations = required_confirmations
+    if required_confirmations > 1 and any(
+        e.get("status") == "false-positive" for e in exceptions
+    ):
+        confirmable = _confirmable_reviewer_emails(root)
+        if confirmable:
+            effective_confirmations = min(required_confirmations, max(1, len(confirmable)))
+
     # Pre-compile all rule patterns once — compiling per-file is the dominant cost.
     CompiledRule = tuple  # (rule_id, keywords, pattern, al_paths, al_regexes, cel_filter)
     compiled_rules: list[CompiledRule] = []
+    # Wave 1p4a2 — track regex-compile failures. A rule that fails to compile is
+    # silently dropped, so the scan runs with a DEGRADED ruleset; on a full scan the
+    # 1p4a2 suppressed-pending prune must then fail CLOSED (skip pruning), because a
+    # missing hit may be the broken rule, not a legitimate suppression — pruning a
+    # pending entry that the broken rule would have caught is a fail-OPEN miss.
+    rules_degraded = False
     for rule in rules:
         rule_id = rule.get("id", "")
         pattern_str = rule.get("regex", "")
@@ -748,7 +1267,16 @@ def check_hardcoded_secrets(
         try:
             pattern = re.compile(pattern_str)
         except re.error:
-            continue
+            # Wave 1p4d1 — the pattern is RE2-schema; retry via the Python-compat
+            # translation before giving up. Only a genuinely-malformed regex (not an
+            # RE2-ism the shim handles) still fails, which correctly degrades the scan
+            # (1p4a2 fail-closed). The shim runs ONLY on this failure path, so the 253
+            # already-valid patterns are compiled once and never translated.
+            try:
+                pattern = re.compile(_re2_to_re(pattern_str))
+            except re.error:
+                rules_degraded = True
+                continue
         keywords = [kw.lower() for kw in rule.get("keywords", [])]
         al_paths_r: list[str] = []
         al_regexes_r: list[str] = []
@@ -778,7 +1306,10 @@ def check_hardcoded_secrets(
 
     def _serial_scan() -> list:
         return [
-            scan_file_raw(fp, rel, compiled_rules, global_allowlist_paths, framework_allowlist)
+            scan_file_raw(
+                fp, rel, compiled_rules, global_allowlist_paths, framework_allowlist,
+                policy, global_regexes, global_stopwords,
+            )
             for fp, rel in file_scan_list
         ]
 
@@ -805,7 +1336,10 @@ def check_hardcoded_secrets(
                 max_workers=max_workers,
                 mp_context=_mp_ctx,
                 initializer=_worker_init_secrets_scanner,
-                initargs=(_scripts_dir, _raw_rules, global_allowlist_paths, _fw_list),
+                initargs=(
+                    _scripts_dir, _raw_rules, global_allowlist_paths, _fw_list,
+                    policy, global_regexes, global_stopwords,
+                ),
             ) as _pool:
                 _batch_results = list(_pool.map(_scan_file_secrets_batch_worker, _batches))
             scan_results = [r for batch in _batch_results for r in batch]
@@ -824,7 +1358,11 @@ def check_hardcoded_secrets(
         file_failures, file_changed = _match_hits_for_file(
             rel, lines, file_sha256, hits,
             exceptions, framework_allowlist,
-            required_confirmations, current_email,
+            effective_confirmations, current_email,
+            confirmation_valid_days, scan_as_of,
+            # Wave 1p4a2 — fail closed: never prune on a degraded ruleset (a rule
+            # failed to compile), only on a clean full scan.
+            prune_suppressed=scan_all and not rules_degraded,
         )
         failures.extend(file_failures)
         if file_changed:

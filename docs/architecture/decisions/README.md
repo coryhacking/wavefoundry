@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-23
+Last verified: 2026-06-09
 
 Architecture Decision Records (ADRs) capture significant design decisions made for Wavefoundry.
 
 ## Naming Convention
 
-Files use the pattern `<id>-adr <slug>.md` — a lifecycle ID (same base-36 system as wave and change IDs), hyphen, `adr`, space, kebab-case slug. Example: `12dzj-adr embedding-model-and-format.md`. Generate a new ID with `.wavefoundry/bin/lifecycle-id` (or the `lifecycle_id.py` script).
+Files use the pattern `<id>-adr <slug>.md` — a lifecycle ID (same base-36 system as wave and change IDs), hyphen, `adr`, space, kebab-case slug. Example: `12dzj-adr embedding-model-and-format.md`. Generate a new ID with the MCP `wave_new_change` tool (preferred — it dedupes against existing IDs, including ADR stems); CLI fallback when MCP is unavailable: `.wavefoundry/bin/lifecycle-id` (or the `lifecycle_id.py` script).
 
 ## When to Create an ADR
 

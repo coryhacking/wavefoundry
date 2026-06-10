@@ -47,7 +47,7 @@ Before implementation begins, the wave-coordinator confirms:
 
 ## Wave Council
 
-The framework ships `wave_review.enabled: true` by default (formerly `wave_council_policy`) so the council surface is available without operator action. When `required_for_all_waves: true` (operator opt-in for enforcement), Wavefoundry requires a universal two-phase council pass for every wave:
+The framework ships `wave_review.enabled: true` by default so the council surface is available without operator action. When `required_for_all_waves: true` (operator opt-in for enforcement), Wavefoundry requires a universal two-phase council pass for every wave:
 
 - `wave-council-readiness` before implementation
 - `wave-council-delivery` before closure

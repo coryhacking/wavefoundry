@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-08
+Last verified: 2026-06-09
 
 ## Primary Control Paths
 
 ### Path 1: Lifecycle ID Generation
 
-1. Operator runs `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>`
+1. Operator mints an ID via the MCP `wave_create_wave` / `wave_new_<kind>` tools (preferred — they dedupe against on-disk IDs), or, when MCP is unavailable, the CLI `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>`
 2. Script reads `docs/workflow-config.json` for `lifecycle_id_policy.epoch_utc` and `hour_offset`
 3. Computes hours since epoch → Crockford Base32 → `0xxxx` prefix ID
 4. Prints ID to stdout for operator to use in wave or change documents

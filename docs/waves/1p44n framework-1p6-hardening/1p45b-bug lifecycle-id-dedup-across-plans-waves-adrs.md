@@ -1,10 +1,10 @@
 # Lifecycle ID Minting Must Dedup Across Plans, Waves, And ADRs
 
 Change ID: `1p45b-bug lifecycle-id-dedup-across-plans-waves-adrs`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
 Status: planned
-Last verified: 2026-06-08
+Last verified: 2026-06-09
 Wave: 1p44n framework-1p6-hardening
 
 ## Rationale
@@ -48,26 +48,26 @@ The fix is both halves: pass `repo_root` at the MCP call sites so dedup actually
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `_existing_prefixes(repo_root)` includes prefixes parsed from `docs/architecture/decisions/*.md`; an ID matching an existing ADR stem is skipped by `next_available_prefix`.
-- [ ] AC-2: `create_wave` and `new_change` pass `repo_root` so that, given an existing on-disk stem at the current time bucket, the minted wave/change ID is the next available stem — NOT a duplicate. (Regression for the observed `1p44w` collision.)
-- [ ] AC-3: A `dry_run`/peek mint and the subsequent `create` mint return the same next-available, collision-free stem (dedup applied on both paths).
-- [ ] AC-4: When `repo_root` is not supplied, the lifecycle layer falls back to `discover_repo_root()` and still dedupes (no silent empty-set path) when a repo root is discoverable.
-- [ ] AC-5: The dedup set is the union of plans + wave-dir names + in-wave change docs + ADRs; a collision against any one of those locations is avoided.
-- [ ] AC-6: Unit + server tests cover AC-1..AC-5; `python3 .wavefoundry/framework/scripts/run_tests.py` is green.
-- [ ] AC-7: Invoking `lifecycle_id.py` directly as a CLI prints a reminder on **stderr** to prefer the MCP minting tools (`wave_new_<kind>` / `wave_create_wave`) when the MCP server is available; **stdout** remains the bare minted ID (machine-parseable, no reminder text). A test asserts the reminder is on stderr and stdout is ID-only.
-- [ ] AC-8: The Plan-feature guidance (`170-plan-feature` seed + prompt) and any other surface naming the `lifecycle_id.py` CLI mint command state that the MCP tools (`wave_new_<kind>` / `wave_create_wave`) are preferred and the CLI is a fallback when the MCP server is unavailable; the fallback instruction is retained (not removed). docs-lint passes.
+- [x] AC-1: `_existing_prefixes(repo_root)` includes prefixes parsed from `docs/architecture/decisions/*.md`; an ID matching an existing ADR stem is skipped by `next_available_prefix`.
+- [x] AC-2: `create_wave` and `new_change` pass `repo_root` so that, given an existing on-disk stem at the current time bucket, the minted wave/change ID is the next available stem — NOT a duplicate. (Regression for the observed `1p44w` collision.)
+- [x] AC-3: A `dry_run`/peek mint and the subsequent `create` mint return the same next-available, collision-free stem (dedup applied on both paths).
+- [x] AC-4: When `repo_root` is not supplied, the lifecycle layer falls back to `discover_repo_root()` and still dedupes (no silent empty-set path) when a repo root is discoverable.
+- [x] AC-5: The dedup set is the union of plans + wave-dir names + in-wave change docs + ADRs; a collision against any one of those locations is avoided.
+- [x] AC-6: Unit + server tests cover AC-1..AC-5; `python3 .wavefoundry/framework/scripts/run_tests.py` is green.
+- [x] AC-7: Invoking `lifecycle_id.py` directly as a CLI prints a reminder on **stderr** to prefer the MCP minting tools (`wave_new_<kind>` / `wave_create_wave`) when the MCP server is available; **stdout** remains the bare minted ID (machine-parseable, no reminder text). A test asserts the reminder is on stderr and stdout is ID-only.
+- [x] AC-8: The Plan-feature guidance (`170-plan-feature` seed + prompt) and any other surface naming the `lifecycle_id.py` CLI mint command state that the MCP tools (`wave_new_<kind>` / `wave_create_wave`) are preferred and the CLI is a fallback when the MCP server is unavailable; the fallback instruction is retained (not removed). docs-lint passes.
 
 ## Tasks
 
-- [ ] Extend `_existing_prefixes` (`lifecycle_id.py:170-189`) to glob `docs/architecture/decisions/*.md` and add matching prefixes.
-- [ ] Add a `discover_repo_root()` fallback when `repo_root is None` in `next_available_prefix` (or `build_id`) so dedup is consulted by default (AC-4).
-- [ ] Pass `repo_root=root` into `build_id` at `server_impl.py:4306` (create_wave), `:4734`, and `:4768` (new_change).
-- [ ] Add unit tests: ADR-stem collision avoidance; plans/waves/ADRs union; dry_run↔create consistency.
-- [ ] Add server-level tests: `new_change` / `create_wave` skip an existing stem at a fixed time bucket.
-- [ ] Note the pre-existing `12tm5` duplicate ADR as a follow-up (renumber out of scope here).
-- [ ] Print an MCP-first reminder to stderr from the `lifecycle_id.py` CLI entrypoint (the `__main__`/argparse path, ~`:311`) after minting; keep stdout the bare ID. Test the stderr reminder + clean stdout (AC-7).
-- [ ] Reinforce MCP-first in the doc surfaces that present the CLI fallback — the Plan-feature seed (`170-plan-feature.prompt.md`) + its prompt, plus any other CLI-mint mention (grep `lifecycle_id.py` across `docs/` and seeds) — preferring `wave_new_*` / `wave_create_wave`, keeping the fallback (AC-8).
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py`; run `.wavefoundry/bin/docs-lint` on this plan.
+- [x] Extend `_existing_prefixes` (`lifecycle_id.py:170-189`) to glob `docs/architecture/decisions/*.md` and add matching prefixes.
+- [x] Add a `discover_repo_root()` fallback when `repo_root is None` in `next_available_prefix` (or `build_id`) so dedup is consulted by default (AC-4).
+- [x] Pass `repo_root=root` into `build_id` at `server_impl.py:4306` (create_wave), `:4734`, and `:4768` (new_change).
+- [x] Add unit tests: ADR-stem collision avoidance; plans/waves/ADRs union; dry_run↔create consistency.
+- [x] Add server-level tests: `new_change` / `create_wave` skip an existing stem at a fixed time bucket.
+- [x] Note the pre-existing `12tm5` duplicate ADR as a follow-up (renumber out of scope here).
+- [x] Print an MCP-first reminder to stderr from the `lifecycle_id.py` CLI entrypoint (the `__main__`/argparse path, ~`:311`) after minting; keep stdout the bare ID. Test the stderr reminder + clean stdout (AC-7).
+- [x] Reinforce MCP-first in the doc surfaces that present the CLI fallback — the Plan-feature seed (`170-plan-feature.prompt.md`) + its prompt, plus any other CLI-mint mention (grep `lifecycle_id.py` across `docs/` and seeds) — preferring `wave_new_*` / `wave_create_wave`, keeping the fallback (AC-8).
+- [x] Run `python3 .wavefoundry/framework/scripts/run_tests.py`; run `.wavefoundry/bin/docs-lint` on this plan.
 
 ## Agent Execution Graph
 
@@ -110,7 +110,7 @@ N/A — a correctness fix to the lifecycle ID-minting dedup set and its call-sit
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
-|      |        |          |
+| 2026-06-08 | `_existing_prefixes` now scans ADRs (docs/architecture/decisions/*.md); `_UNSET` sentinel → `discover_repo_root()` fallback when repo_root unsupplied (explicit None preserved); 3 server_impl build_id sites pass `repo_root=root`; CLI prints an MCP-first reminder to STDERR (stdout = bare ID; --prefix-only exempt); MCP-first framing added across active mint surfaces. Pre-existing duplicate `12tm5` ADRs are a renumber follow-up (out of scope). | lifecycle_id.py, server_impl.py, seed-170 + 7 doc surfaces; lifecycle (7) + server plumbing (2) tests; suite 2901 green. |
 
 
 ## Decision Log

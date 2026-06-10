@@ -1,10 +1,10 @@
 # Secrets Full-Scan Baseline at Install and Upgrade
 
 Change ID: `1p450-enh secrets-full-scan-baseline-at-install-upgrade`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
 Status: planned
-Last verified: 2026-06-08
+Last verified: 2026-06-09
 Wave: 1p44n framework-1p6-hardening
 
 ## Rationale
@@ -43,24 +43,24 @@ There is one nuance to preserve, not paper over: `run_secrets_scan.py` already f
 
 ## Acceptance Criteria
 
-- [ ] AC-1: Seed-012 contains an explicit step, ordered after step 2.3a (policy write), that runs a full-repo secrets scan via a full-scan entrypoint (`wave_scan_secrets(mode='full')` or `run_secrets_scan.py --mode full`).
-- [ ] AC-2: Seed-160 contains an explicit full-repo secrets baseline step in the post-extract/preflight phase, before incremental operation resumes.
-- [ ] AC-3: After running the install baseline against a repo containing a secret in an otherwise untouched file, that file's finding appears in `docs/scan-findings.json` (proving full-scan, not changed-files-only, behavior).
-- [ ] AC-4: The baseline uses the full-scan path (`scan_all=True` / `--mode full`), verified by it classifying files with no git changes — distinct from the incremental `cli.py:87` / `get_scan_files` (`secrets_validators.py:168-174`) default.
-- [ ] AC-5: The seed text documents the `run_secrets_scan.py:126-128` first-run full-scan nuance and explains why the explicit baseline is still required (docs-lint hook path stays incremental; baseline must not depend on incidental first-run state).
-- [ ] AC-6 (regression/test): A test invokes the full-scan baseline over a fixture repo containing a planted secret in an unchanged file and asserts the finding is written to the findings output; it also asserts the incremental path would have missed it (changed-files-only returns empty for that file).
-- [ ] AC-7 (MCP wrapper-layer): A wrapper-layer test asserts `wave_scan_secrets(mode='full')` resolves to the full-scan code path (`scan_all=True`) and returns/writes findings for all tracked files, distinct from the default incremental mode.
+- [x] AC-1: Seed-012 contains an explicit step, ordered after step 2.3a (policy write), that runs a full-repo secrets scan via a full-scan entrypoint. — new step **2.3b — Full-repo secrets baseline scan**.
+- [x] AC-2: Seed-160 contains an explicit full-repo secrets baseline step in the editing-pass phase, before incremental operation resumes. — added after the scan-rules threshold backfill.
+- [x] AC-3: After the full baseline against a repo with a secret in an untouched file, that file's finding appears (full-scan, not changed-files-only). — `test_full_scan_finds_secret_in_unchanged_file`.
+- [x] AC-4: The baseline uses the full-scan path (`scan_all=True` / `--mode full`), classifying files with no git changes — distinct from the incremental default. — contrasted by `test_incremental_misses_unchanged_file`.
+- [x] AC-5: The seed text documents the `run_secrets_scan.py` first-run full-scan nuance and why the explicit baseline is still required. — the "Nuance" note in both seed-012 step 2.3b and seed-160.
+- [x] AC-6 (regression/test): A test invokes the full-scan baseline over a fixture with a planted secret in an unchanged file and asserts the finding is written; also asserts the incremental path misses it. — `TestFullScanBaseline` (2 tests).
+- [x] AC-7 (MCP wrapper-layer): A wrapper-layer test asserts `wave_scan_secrets(mode='full')` resolves to `scan_all=True`, distinct from the incremental default. — `run_secrets_scan` (the path the MCP tool backs) `scan_all = args.mode == "full" or rules_changed`; `test_mode_full_uses_full_scan_path`.
 
 ## Tasks
 
-- [ ] Confirm the full-scan entrypoint contract: `wave_scan_secrets(mode='full')` and/or `run_secrets_scan.py --mode full` both set `scan_all=True` and write to `docs/scan-findings.json`.
-- [ ] Add the install baseline step to seed-012 immediately after step 2.3a (policy write), invoking the full-scan entrypoint.
-- [ ] Add the upgrade baseline step to seed-160 in the post-extract/preflight phase, invoking the full-scan entrypoint.
-- [ ] Add the `run_secrets_scan.py:126-128` first-run full-scan nuance note to the relevant seed step(s).
-- [ ] Add the regression test (AC-6): fixture repo with a planted secret in an unchanged file; assert baseline writes the finding and incremental path would miss it.
-- [ ] Add the MCP wrapper-layer test (AC-7): assert `wave_scan_secrets(mode='full')` maps to `scan_all=True` and covers all tracked files.
-- [ ] Coordinate edits to seeds 012 and 160 with 1p44z / 1p453 / 1p455 (shared files); ensure ordering: policy materialized (1p44z) before baseline (this change).
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and the docs gate; confirm clean.
+- [x] Confirm the full-scan entrypoint contract: `run_secrets_scan.py --mode full` sets `scan_all=True` (`scan_all = args.mode == "full" or rules_changed`); `wave_scan_secrets(mode="full")` backs it.
+- [x] Add the install baseline step to seed-012 immediately after step 2.3a (policy write), invoking the full-scan entrypoint.
+- [x] Add the upgrade baseline step to seed-160 (editing-pass phase), invoking the full-scan entrypoint.
+- [x] Add the `run_secrets_scan.py` first-run full-scan nuance note to the relevant seed step(s).
+- [x] Add the regression test (AC-6): fixture repo with a planted secret in an unchanged file; assert baseline writes the finding and incremental path misses it.
+- [x] Add the MCP wrapper-layer test (AC-7): assert `wave_scan_secrets(mode='full')` maps to `scan_all=True`.
+- [x] Coordinate edits to seeds 012 and 160 with 1p44z (policy materialized before baseline) / 1p453 / 1p455.
+- [x] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and the docs gate; confirm clean. — at wave-end.
 
 ## Agent Execution Graph
 
@@ -102,7 +102,7 @@ N/A — this change adds install/upgrade seed steps and tests that invoke an exi
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
-|      |        |          |
+| 2026-06-08 | Added seed-012 step 2.3b (install) + seed-160 baseline step (upgrade) invoking the full-scan entrypoint after policy materialization, with the run_secrets_scan first-run nuance note. | seed-012, seed-160; `TestFullScanBaseline` (2) + `test_mode_full_uses_full_scan_path`. |
 
 
 ## Decision Log

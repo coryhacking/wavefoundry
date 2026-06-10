@@ -3,7 +3,8 @@
 Supports the subset of CEL used by betterleaks:
   - Logical: ||, &&, !
   - Comparison: <=, >=, <, >, ==, !=
-  - Functions: entropy(), failsTokenEfficiency(), matchesAny(), containsAny()
+  - Functions: entropy(), failsTokenEfficiency(), matchesAny(), containsAny(),
+    jwtExpired(), jwtExp()
   - Member/index access: finding["secret"], attributes[?"path"].orValue("")
   - Literals: raw/triple-quoted strings, numbers, booleans, arrays
 
@@ -12,8 +13,11 @@ be suppressed (mirrors betterleaks semantics: filter = "exclude this match").
 """
 from __future__ import annotations
 
+import base64
+import json
 import math
 import re
+import time
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -63,11 +67,47 @@ def _contains_any(s: str, substrings: list) -> bool:
     return False
 
 
+def _jwt_exp_claim(token: Any) -> int | None:
+    """Return a JWT's payload `exp` claim as an int epoch, or None (wave 1p44w).
+
+    Fail-safe by contract: wrong segment count, non-base64url payload, invalid
+    JSON, a non-dict payload, or a missing/non-numeric `exp` all return None and
+    NEVER raise — the scan gate must not crash on malformed real-world tokens.
+    """
+    if not isinstance(token, str):
+        return None
+    parts = token.split(".")
+    if len(parts) < 2:
+        return None
+    seg = parts[1]
+    try:
+        padded = seg + "=" * (-len(seg) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    exp = payload.get("exp")
+    # bool is an int subclass — exclude it explicitly.
+    if isinstance(exp, bool) or not isinstance(exp, (int, float)):
+        return None
+    return int(exp)
+
+
+def _jwt_expired(token: Any) -> bool:
+    """True iff *token* is a JWT whose `exp` is in the past (fail-safe → False)."""
+    exp = _jwt_exp_claim(token)
+    return exp is not None and exp < time.time()
+
+
 _FUNCTIONS: dict[str, Any] = {
     "entropy": _entropy,
     "failsTokenEfficiency": _fails_token_efficiency,
     "matchesAny": _matches_any,
     "containsAny": _contains_any,
+    # Wave 1p44w — JWT expiry awareness (fail-safe; never raises).
+    "jwtExpired": _jwt_expired,
+    "jwtExp": lambda t: (_jwt_exp_claim(t) or 0),
 }
 
 
@@ -480,7 +520,14 @@ def compile_filter(expr: str) -> Any:
     return _AST_CACHE[expr]
 
 
-def eval_filter(expr: str, secret: str, match: str, path: str, line: int = 0) -> bool:
+def eval_filter(
+    expr: str,
+    secret: str,
+    match: str,
+    path: str,
+    line: str = "",
+    attrs: dict | None = None,
+) -> bool:
     """Evaluate a CEL filter expression against a scanner finding.
 
     Returns True when the finding is a false positive and should be suppressed.
@@ -490,7 +537,10 @@ def eval_filter(expr: str, secret: str, match: str, path: str, line: int = 0) ->
         secret: Captured secret value — regex capture group 1 (finding["secret"]).
         match:  Full regex match — group 0 (finding["match"]).
         path:   Relative file path (attributes["path"]).
-        line:   1-indexed line number (finding["line"]).
+        line:   the full source line text (finding["line"]) — betterleaks semantic,
+                used by line-shape value-exclusion clauses (matchesAny(finding["line"], …)).
+        attrs:  Optional extra ``attributes`` entries merged over ``{"path": path}``
+                — e.g. policy flags a rule filter can read (wave 1p44w).
     """
     if not expr:
         return False
@@ -498,6 +548,8 @@ def eval_filter(expr: str, secret: str, match: str, path: str, line: int = 0) ->
         ast = compile_filter(expr)
         finding = {"secret": secret, "match": match, "line": str(line)}
         attributes = {"path": path}
+        if attrs:
+            attributes.update(attrs)
         return bool(_eval(ast, finding, attributes))
     except Exception:
         return False  # evaluation error → don't suppress

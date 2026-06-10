@@ -34,7 +34,11 @@ Call `wave_install_audit` after marking 2.2 done.
 
 **Expected artifact:** `docs/README.md` exists and the listed directories are present.
 
+> **Provision the install-log-format reference (once):** if `docs/references/install-log-format.md` does not already exist, copy it from the shipped framework template `.wavefoundry/framework/docs/references/install-log-format.md` (verbatim — do not author a thin version). It is the canonical install-log row format + the trustworthy-`[x]`-marker invariant that `seed-011` and `seed-010` reference; the upgrade flow (`seed-160`) refreshes it from the same template.
+
 ### 2.3a — Set secrets-scan confirmation threshold in `docs/scan-rules.toml`
+
+> **Provision the findings-format reference (once):** if `docs/references/scan-findings-format.md` does not already exist, copy it from the shipped framework template `.wavefoundry/framework/docs/references/scan-findings-format.md` (verbatim — do not author a thin version). It documents the `docs/scan-findings.json` schema, the `pending → false-positive / suspected-secret / confirmed-secret` lifecycle, and the `[policy] false_positive_confirmations_required` contract this step sets; the upgrade flow (`seed-160`) refreshes it from the same template.
 
 **Action:**
 
@@ -55,22 +59,38 @@ Call `wave_install_audit` after marking 2.2 done.
   | 2–6 | 2 |
   | 7+ | 3 |
 
-- Check whether `docs/scan-rules.toml` already contains `false_positive_confirmations_required`. If it does, **skip** — never overwrite an operator-set value. Log: "scan-rules threshold: already set, skipping."
+- Check whether `docs/scan-rules.toml` already contains a `[policy]` block. If `false_positive_confirmations_required` is already set, **skip** it — never overwrite an operator-set value. If an existing `[policy]` block lacks `confirmation_valid_days`, **add** `confirmation_valid_days = 365` (with the comment from the template below); never overwrite an existing value. Log: "scan-rules threshold: already set, skipping."
 
 - If absent, create `docs/scan-rules.toml` with this content (substituting the computed N):
   ```toml
   # wavefoundry project scan rules
   # false_positive_confirmations_required: auto-detected from git committer count (last 24 months) at install.
   # Override this value if your team size has changed, then delete this comment.
+  # confirmation_valid_days: a false-positive confirmation counts only while it is this many days old (default 365; set 0 to disable expiry).
+  #   Solo maintainers (single committer) may set 0 — yearly re-confirmation is a no-op when you are the only reviewer who can re-confirm.
   # Add project-specific [[rules]] entries below to extend the framework default ruleset.
 
   [policy]
   false_positive_confirmations_required = N
+  confirmation_valid_days = 365
   ```
 
 - Log: "scan-rules threshold: detected N committer(s) → false_positive_confirmations_required = M"
 
-**Expected artifact:** `docs/scan-rules.toml` exists and contains a `[policy]` section with `false_positive_confirmations_required`.
+**Expected artifact:** `docs/scan-rules.toml` exists and contains a `[policy]` section with `false_positive_confirmations_required` and `confirmation_valid_days`.
+
+### 2.3b — Full-repo secrets baseline scan (wave 1p450)
+
+**Action:** Immediately after the policy is written (step 2.3a), run ONE full-repo secrets baseline scan so every tracked file — not just changed ones — is classified into `docs/scan-findings.json` in a single up-front triage pass:
+
+- With the Wavefoundry MCP attached: `wave_scan_secrets(mode="full")`.
+- CLI fallback: `python3 .wavefoundry/framework/scripts/run_secrets_scan.py --mode full`.
+
+Use the **full** entrypoint (`scan_all=True`), NOT the incremental docs-lint hook path — the incremental path scans only git-changed files (`get_scan_files`), so secrets living in untouched files would otherwise stay unclassified and dribble out across later waves. Run this once at install; it is not re-run on every operation.
+
+> Nuance (`run_secrets_scan.py` first-run full-scan): the MCP subprocess path auto-escalates to a full scan on its FIRST run (no prior `scan-state.json`), but the docs-lint hook path stays incremental. This explicit baseline is belt-and-suspenders — a guaranteed full scan that must not depend on incidental first-run state.
+
+**Expected artifact:** `docs/scan-findings.json` contains the consolidated baseline findings (or is absent/empty when the repo is clean); each finding awaits the security-reviewer triage (seed-213).
 
 ### 2.4 — Generate per-role agent docs (seed-050)
 

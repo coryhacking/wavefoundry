@@ -1,10 +1,10 @@
 # Time-Bounded False-Positive Confirmations (Yearly Re-Verification)
 
 Change ID: `1p457-enh false-positive-confirmation-expiry`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
 Status: planned
-Last verified: 2026-06-08
+Last verified: 2026-06-09
 Wave: 1p44n framework-1p6-hardening
 
 ## Rationale
@@ -50,29 +50,29 @@ This is the natural follow-on to the gate's existing distinct-reviewer logic: th
 
 ## Acceptance Criteria
 
-- [ ] AC-1: With `confirmation_valid_days = 365`, a `false-positive` finding whose only confirmations are all older than 365 days (by `confirmed_at`) is NOT suppressed — it fails the gate and re-prompts for confirmation.
-- [ ] AC-2: A finding with a mix of fresh and expired confirmations counts only the fresh ones toward `false_positive_confirmations_required`; if the fresh count is below threshold it fails, if at/above it is suppressed.
-- [ ] AC-3: A confirmation with a missing/empty/unparseable `confirmed_at` does not count (treated as expired), and the finding behaves as if that confirmation were absent.
-- [ ] AC-4: Expired confirmations remain present in `confirmations[]` after a scan (no mutation/pruning); only their contribution to the count changes.
-- [ ] AC-5: `confirmation_valid_days` is read from merged policy — a project-level `docs/scan-rules.toml` override changes the window, and `0`/absent/non-positive disables expiry (confirmations never age out, matching pre-change behavior).
-- [ ] AC-6: When a finding re-opens due to expiry, its gate-failure message distinctly indicates expired confirmations / re-verification needed, separate from the "not yet on the list" and "needs N more from a different reviewer" messages.
-- [ ] AC-7: `_unique_confirmation_count` still returns `(count, names)`; existing callers and the `1p44y` edits compile against the unchanged signature.
-- [ ] AC-8: Regression — the existing `test_secrets_validators.py` fixtures (dated `2026-06-06`, within a 365-day window of the test's reference time) still pass, and `python3 .wavefoundry/framework/scripts/run_tests.py` is green.
-- [ ] AC-9: New tests cover AC-1 through AC-5 with an injected fixed "as-of" time (no reliance on real wall-clock), plus the policy-merge override path.
-- [ ] AC-10: Seed-213 documents the expiry rule, age display in the operator prompt, and the append-new-entry-on-re-confirm contract.
+- [x] AC-1: With `confirmation_valid_days = 365`, a `false-positive` finding whose only confirmations are all older than 365 days is NOT suppressed — it fails the gate and re-prompts. — `test_all_expired_not_suppressed`.
+- [x] AC-2: A finding with a mix of fresh and expired confirmations counts only the fresh ones; below threshold fails, at/above suppressed. — `test_mixed_fresh_and_expired_counts_fresh_only`, `test_two_fresh_confirmations_suppress`.
+- [x] AC-3: A confirmation with a missing/empty/unparseable `confirmed_at` does not count (treated as expired). — `_parse_confirmed_at` returns None → dropped. `test_unparseable_confirmed_at_not_counted`.
+- [x] AC-4: Expired confirmations remain present in `confirmations[]` after a scan (no mutation/pruning); only their count contribution changes. — `test_expired_confirmations_left_in_place`.
+- [x] AC-5: `confirmation_valid_days` read from merged policy — project override changes the window; `0`/absent/non-positive disables expiry. — `max(0, int(policy.get("confirmation_valid_days", 365)))`. `test_project_override_window`, `test_zero_days_disables_expiry`.
+- [x] AC-6: When a finding re-opens due to expiry, its gate-failure message distinctly indicates expired confirmations / re-verification needed. — `_expired_confirmation_count` + `_expiry_note` ("N prior confirmation(s) EXPIRED…"). `test_expiry_message_is_distinct`.
+- [x] AC-7: `_unique_confirmation_count` still returns `(count, names)`. — new params are keyword-optional; `test_unique_confirmation_count_arity_preserved` + `1p44y` tests still green.
+- [x] AC-8: Regression — existing `test_secrets_validators.py` fixtures still pass and `run_tests.py` is green. — full suite 2863 green; `_run_check` now defaults to a fixed `_FIXED_AS_OF` so the dated fixtures are wall-clock-independent.
+- [x] AC-9: New tests cover AC-1..AC-5 with an injected fixed "as-of" time plus the policy-merge override. — `TestConfirmationExpiry` (9 tests).
+- [x] AC-10: Seed-213 documents the expiry rule, age display in the operator prompt, and the append-new-entry-on-re-confirm contract. — added; SECURITY.md + mcp-tool-surface.md also note time-bounded confirmations.
 
 ## Tasks
 
-- [ ] Add `confirmation_valid_days = 365` to `.wavefoundry/framework/scan-rules.toml` `[policy]` with a header comment explaining yearly re-verification and the `0 = no expiry` opt-out.
-- [ ] In `check_hardcoded_secrets` (`secrets_validators.py:676+`), read `confirmation_valid_days` from merged `policy` (next to `:699`) and capture an `as_of = datetime.now(timezone.utc)` reference; thread both through `_match_hits_for_file`.
-- [ ] Extend `_match_hits_for_file` signature (`:561-570`) to accept `confirmation_valid_days` and `as_of`, passing them into the count call on the false-positive branch (`:631-653`).
-- [ ] Add age filtering inside `_unique_confirmation_count` (`:388-398`): parse `confirmed_at` (ISO-8601, trailing `Z` → `+00:00`), skip entries that fail to parse or exceed the window; preserve the `(count, names)` return. Accept `as_of`/`valid_days` as parameters (defaulting to no-expiry when `valid_days` is falsy).
-- [ ] Add a small `_expired_confirmation_count(entry, as_of, valid_days)` helper for the message detail only.
-- [ ] Update the false-positive failure-message strings to surface expired-confirmation count; reconcile wording with `1p451` and `1p44y` (shared strings).
-- [ ] Update seed-213 (`.wavefoundry/framework/seeds/213-security-reviewer.prompt.md:31-53`): expiry rule, per-confirmation age in the operator prompt, append-new-dated-entry on re-confirm.
-- [ ] Note time-bounded confirmations in `docs/SECURITY.md` and `docs/specs/mcp-tool-surface.md`.
-- [ ] Add unit tests (AC-1..AC-5, AC-9) with an injected reference time; add policy-plumbing coverage in `test_scan_secrets.py`.
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py`; run `.wavefoundry/bin/docs-lint` on this plan.
+- [x] Add `confirmation_valid_days = 365` to `.wavefoundry/framework/scan-rules.toml` `[policy]` with a header comment explaining yearly re-verification and the `0 = no expiry` opt-out.
+- [x] In `check_hardcoded_secrets` (`secrets_validators.py:676+`), read `confirmation_valid_days` from merged `policy` (next to `:699`) and capture an `as_of = datetime.now(timezone.utc)` reference; thread both through `_match_hits_for_file`.
+- [x] Extend `_match_hits_for_file` signature (`:561-570`) to accept `confirmation_valid_days` and `as_of`, passing them into the count call on the false-positive branch (`:631-653`).
+- [x] Add age filtering inside `_unique_confirmation_count` (`:388-398`): parse `confirmed_at` (ISO-8601, trailing `Z` → `+00:00`), skip entries that fail to parse or exceed the window; preserve the `(count, names)` return. Accept `as_of`/`valid_days` as parameters (defaulting to no-expiry when `valid_days` is falsy).
+- [x] Add a small `_expired_confirmation_count(entry, as_of, valid_days)` helper for the message detail only.
+- [x] Update the false-positive failure-message strings to surface expired-confirmation count; reconcile wording with `1p451` and `1p44y` (shared strings).
+- [x] Update seed-213 (`.wavefoundry/framework/seeds/213-security-reviewer.prompt.md:31-53`): expiry rule, per-confirmation age in the operator prompt, append-new-dated-entry on re-confirm.
+- [x] Note time-bounded confirmations in `docs/SECURITY.md` and `docs/specs/mcp-tool-surface.md`.
+- [x] Add unit tests (AC-1..AC-5, AC-9) with an injected reference time; add policy-plumbing coverage in `test_scan_secrets.py`.
+- [x] Run `python3 .wavefoundry/framework/scripts/run_tests.py`; run `.wavefoundry/bin/docs-lint` on this plan.
 
 ## Agent Execution Graph
 
@@ -119,7 +119,9 @@ N/A — the change is confined to the secrets-gate validator module (`secrets_va
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
-|      |        |          |
+| 2026-06-08 | DELIVERY-REVIEW NOTE: the readiness 'confirmation_valid_days policy-merge test' lives in TestConfirmationExpiry (test_project_override_window / test_zero_days_disables_expiry), not test_scan_secrets.py — AC-5/AC-9 fully covered with deterministic injected as_of. | — |
+| 2026-06-08 | Added `confirmation_valid_days` (`[policy]`, default 365); `_parse_confirmed_at` + age-filtering in `_unique_confirmation_count` (arity preserved) + `_expired_confirmation_count`; threaded `confirmation_valid_days`/`as_of` through `check_hardcoded_secrets`→`_match_hits_for_file`; distinct EXPIRED message note. seed-213 + SECURITY.md + mcp-tool-surface.md documented expiry. Readiness fixes applied: `_run_check` defaults to a fixed `as_of` (all FP-branch tests deterministic); seed-213 names `confirmed_at` + append-on-re-confirm; policy-merge override tests added. | `secrets_validators.py`, `scan-rules.toml`, seed-213, SECURITY.md, mcp-tool-surface.md; `TestConfirmationExpiry` (9 tests); full suite 2863 green. |
+| 2026-06-08 | **FIELD-NAME ROOT CAUSE + OPERATOR DECISION (field test).** Real-project p49k testing showed every prior false-positive confirmation silently "expired": 1p457 renamed the confirmation timestamp field `datetime` → `confirmed_at` (writer seed-213 + reader + doc + tests), but the one project that had scanned under the never-distributed p3zo build still held `datetime`-keyed confirmations the new reader couldn't see (fail-closed → expired). Root-caused via git (HEAD `_unique_confirmation_count(entry)` read no timestamp; `confirmed_at` exists only in this uncommitted wave). Operator confirmed only that single local project used `datetime` and migrated it to `confirmed_at`, so **no back-compat is carried** — reader reads `confirmed_at` only (clean canonical). Kept the prevention: seed-213 now names the field `confirmed_at` explicitly at both write sites — the prior "ISO-8601 datetime" phrasing with no field name is what led the old prompt to write the `datetime` key. | `secrets_validators.py` reads `confirmed_at` only; seed-213 write sites name `confirmed_at`; full suite **2905 green**; docs-lint ok. |
 
 
 ## Decision Log

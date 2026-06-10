@@ -60,6 +60,13 @@ def write_upgrade_lock(
         "pid": os.getpid(),
         "zip_path": str(zip_path) if zip_path is not None else None,
         "pruned_count": None,  # updated after phase 2 via update_upgrade_lock
+        # Failure markers (wave 1p44o) — seeded None and populated via
+        # update_upgrade_lock when a post-mutation upgrade phase fails, so the
+        # lock is RETAINED on a half-replaced tree rather than torn down. A
+        # non-null failed_phase signals downstreams (dashboard watcher,
+        # --cleanup/resume) that the tree is in a known-failed state.
+        "failed_phase": None,
+        "failed_at": None,
     }
     p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return p

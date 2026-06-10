@@ -281,13 +281,58 @@ def _read_pack_version(root: Path) -> str | None:
         return None
 
 
+def _tree_already_at(root: Path, to_version: str | None) -> bool:
+    """Wave 1p44r — True when the on-disk framework already equals *to_version*, so
+    re-extracting the pack would be a redundant (and destructive) no-op. False for
+    an unknown/None target so a genuine upgrade is never skipped."""
+    if to_version in (None, "unknown"):
+        return False
+    return _read_pack_version(root) == to_version
+
+
 def _read_installed_revision(root: Path) -> str | None:
-    p = root / ".wavefoundry" / "framework" / "MANIFEST"
+    """Installed framework revision — delegates to the single canonical resolver in
+    check_version (wave 1p44p), so there is exactly one place that resolves the
+    installed revision (`framework_revision` from prompt-surface-manifest.json,
+    falling back to framework/VERSION). The old MANIFEST `json.loads` path (which
+    always raised → None, disabling the downgrade guard) is removed."""
+    from check_version import _read_installed_revision as _resolve
+    return _resolve(root)
+
+
+def _stamp_manifest_revision(root: Path) -> bool:
+    """Wave 1p44p follow-up — stamp the just-installed framework version into
+    ``docs/prompts/prompt-surface-manifest.json``'s ``framework_revision`` after the
+    tree is extracted and surfaces are rendered.
+
+    The pack ships ``framework/VERSION`` but NOT the consumer's manifest, and only
+    the self-host packager (``build_pack.update_manifest_revision``) ever wrote this
+    field — so on a consumer upgrade ``VERSION`` advances while ``framework_revision``
+    stays frozen at the pre-upgrade value, leaving the downgrade guard / seed-160
+    step-3 version check reading a stale revision. Stamping here makes the field
+    authoritative again and self-heals an already-stale consumer on its next upgrade.
+
+    Read-modify-write preserves every other manifest key (matches build_pack's
+    ``indent=2`` + trailing-newline format). No-op — returns False — when VERSION is
+    unreadable or the manifest is absent/unparseable; never CREATES the manifest."""
+    version = _read_pack_version(root)
+    if not version:
+        return False
+    manifest = root / "docs" / "prompts" / "prompt-surface-manifest.json"
+    if not manifest.is_file():
+        return False
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-        return str(data.get("framework_revision", "")).strip() or None
-    except (OSError, json.JSONDecodeError):
-        return None
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(data, dict) or data.get("framework_revision") == version:
+        return False
+    data["framework_revision"] = version
+    try:
+        manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        return False
+    return True
 
 
 def _read_zip_version(zip_path: Path) -> str | None:
@@ -1119,9 +1164,16 @@ def phase_pruning(root: Path) -> int:
     if result.returncode != 0:
         _log(f"  Pruning exited {result.returncode} — continuing (non-fatal).")
         return 0
-    # Count pruned lines heuristically
-    pruned = sum(1 for line in result.stdout.splitlines() if "removed" in line.lower() or "pruned" in line.lower())
-    _log(f"  Pruning complete.")
+    # Wave 1p44q — read the authoritative count from prune_framework.py's stderr
+    # summary ("prune: deleted N item(s)" / "prune: would delete N item(s)").
+    # The old heuristic scanned stdout for "removed"/"pruned", but the per-file
+    # stdout lines say "deleted:" / "[dry-run] would delete:" — neither substring —
+    # so the count was structurally always 0.
+    pruned = 0
+    m = _re.search(r"prune:\s+(?:would delete|deleted)\s+(\d+)\s+item", result.stderr or "")
+    if m:
+        pruned = int(m.group(1))
+    _log(f"  Pruning complete — {pruned} item(s) pruned.")
     return pruned
 
 
@@ -1247,12 +1299,30 @@ def phase_cleanup(
     zip_path: Path | None,
     pruned_count: int,
     ran_index_rebuild: bool,
+    failed_phase: str | None = None,
+    lock_present: bool = True,
 ) -> None:
     import upgrade_lib
 
     _log("\n── Phase 5: Cleanup ──")
+    if not lock_present:
+        # Wave 1p44o — there is no upgrade lock to clean up. Do NOT print an
+        # all-defaults "Upgrade complete" summary (Version: (none) → (unknown),
+        # Files pruned: 0) as if a real upgrade had happened; that misleads the
+        # operator into thinking a phantom upgrade completed.
+        _log("  ⚠  No upgrade lock found — nothing to clean up.")
+        _log("     The upgrade may not have run, or cleanup already completed.")
+        return
+
     upgrade_lib.remove_upgrade_lock(root)
-    _log("  Upgrade lock removed — dashboard will trigger post-upgrade reindex.")
+    if failed_phase:
+        _log(
+            f"  Upgrade lock removed — it carried a failure marker (phase: "
+            f"{failed_phase}); the tree may be half-replaced. Re-run the upgrade "
+            "to restore a clean state."
+        )
+    else:
+        _log("  Upgrade lock removed — dashboard will trigger post-upgrade reindex.")
 
     _print_operator_summary(
         from_version=from_version,
@@ -1260,7 +1330,25 @@ def phase_cleanup(
         zip_path=zip_path,
         pruned_count=pruned_count,
         ran_index_rebuild=ran_index_rebuild,
+        failed_phase=failed_phase,
     )
+
+
+def _docs_gate_summary_line(failed_phase: str | None) -> str:
+    """Render the 'Docs gate:' summary value from real lock state (wave 1p44o).
+
+    Replaces a previously hardcoded ``PASSED`` constant. ``failed_phase`` is the
+    failure marker read from the upgrade lock:
+
+    - ``None``       → the upgrade reached cleanup without a recorded failure → PASSED.
+    - ``"docs_gate"`` → the docs gate itself failed → FAILED.
+    - any other phase → the upgrade failed before the docs gate ran → NOT RUN.
+    """
+    if failed_phase is None:
+        return "PASSED"
+    if failed_phase == "docs_gate":
+        return "FAILED"
+    return f"NOT RUN (upgrade failed at phase: {failed_phase})"
 
 
 def _print_operator_summary(
@@ -1269,11 +1357,15 @@ def _print_operator_summary(
     zip_path: Path | None,
     pruned_count: int,
     ran_index_rebuild: bool,
+    failed_phase: str | None = None,
 ) -> None:
     from_str = from_version or "(none)"
     to_str = to_version or "(unknown)"
     _log("")
-    _log("Upgrade complete")
+    if failed_phase:
+        _log(f"Upgrade INCOMPLETE — failed during phase: {failed_phase}")
+    else:
+        _log("Upgrade complete")
     _log("=" * 40)
     _log(f"Version:            {from_str} → {to_str}")
     if zip_path:
@@ -1283,7 +1375,7 @@ def _print_operator_summary(
         _log("Zip applied:        none (upgraded from current tree)")
     _log("Surfaces rendered:  hooks, MCP config, bin launchers, agent surfaces")
     _log(f"Files pruned:       {pruned_count}")
-    _log("Docs gate:          PASSED")
+    _log(f"Docs gate:          {_docs_gate_summary_line(failed_phase)}")
     if ran_index_rebuild:
         _log("Index update:       docs layer complete, code layer running in background")
     else:
@@ -1291,14 +1383,121 @@ def _print_operator_summary(
     _log("Dashboard:          lock removed; auto-reindex will trigger on lock removal")
     _log("MCP reload: call wave_mcp_reload() (or wave_upgrade cleanup) to load upgraded server code in-process")
     _log("")
+    # Wave 1p454 — defer to seed-160 as the authoritative editing-pass checklist
+    # (do NOT enumerate its step-8 backfills here — they drift); fix the journal
+    # label; prepend a secrets-resolution step before the docs-gate re-run.
     _log("Next steps for agent editing pass:")
+    _log("  See seed-160 for the full editing-pass sequence; key steps:")
     _log("  1. Drift detection (seed-160 step 6)")
-    _log("  2. Journal reconciliation (seed-160 step 0e)")
+    _log("  2. Journal reconciliation (seed-160 step 0 / Reconcile journals)")
     _log("  3. Spec gaps via seed-230 (seed-160 step 4 / 160 step 8)")
-    _log("  4. Docs gate re-run after edits (wave_garden → wave_validate, or bin/docs-lint)")
-    _log("  5. Index update: upgrade-wavefoundry --update-index")
-    _log("  6. Cleanup lock after rebuild: upgrade-wavefoundry --cleanup")
+    _log("  4. Resolve any docs/scan-findings.json entries via seed-213 (security reviewer) before re-running the docs gate")
+    _log("  5. Docs gate re-run after edits (wave_garden → wave_validate, or bin/docs-lint)")
+    _log("  6. Index update: upgrade-wavefoundry --update-index")
+    _log("  7. Cleanup lock after rebuild: upgrade-wavefoundry --cleanup")
     _log("")
+
+
+def _finalize_failed_upgrade(root: Path, tree_mutated: bool, current_phase: str) -> None:
+    """Decide the upgrade lock's fate when an in-progress upgrade phase fails.
+
+    Wave 1p44o data-safety contract:
+
+    - ``tree_mutated`` True  → the tree is half-replaced (zip extracted and/or
+      surfaces rendered/pruned). RETAIN the lock and stamp it with a failure
+      marker (``failed_phase`` / ``failed_at``) so the dashboard watcher stays
+      paused and ``--cleanup`` / resume can read the real state. Do NOT remove it.
+    - ``tree_mutated`` False → failure happened before any tree mutation; remove
+      the lock so a clean retry isn't blocked (pre-1p44o behavior preserved).
+
+    Extracted from the ``except SystemExit:`` handler so the data-safety decision
+    is unit-testable in isolation.
+    """
+    import upgrade_lib
+
+    if tree_mutated:
+        upgrade_lib.update_upgrade_lock(
+            root,
+            failed_phase=current_phase,
+            failed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        )
+        _err(
+            f"Upgrade failed during phase '{current_phase}' after the tree was "
+            "modified. The upgrade lock has been RETAINED with a failure marker "
+            "so the dashboard stays paused and the half-replaced tree is not "
+            "reindexed. Inspect .wavefoundry/upgrade-in-progress.json, resolve "
+            "the failure, then re-run the upgrade or run --cleanup to acknowledge."
+        )
+    else:
+        upgrade_lib.remove_upgrade_lock(root)
+
+
+# ── Wave 1p44z — secrets policy materialization (pre-gate) ────────────────────
+
+def _count_committers(root: Path) -> int:
+    """Count unique committer emails (last 24 months; all-time fallback when the
+    windowed count is 0). Returns 0 on any git failure (no repo / no git)."""
+    def _count(extra: list[str]) -> int:
+        try:
+            r = subprocess.run(
+                ["git", "log", "--format=%ae", *extra],
+                cwd=str(root), capture_output=True, text=True, check=False,
+            )
+        except Exception:
+            return 0
+        if r.returncode != 0:
+            return 0
+        return len({e.strip() for e in r.stdout.splitlines() if e.strip()})
+
+    n = _count(["--since=2 years ago"])
+    return n if n else _count([])
+
+
+def _committer_threshold(n: int) -> int:
+    """Map committer count to false_positive_confirmations_required (0–1→1, 2–6→2, 7+→3)."""
+    if n <= 1:
+        return 1
+    return 2 if n <= 6 else 3
+
+
+def materialize_secrets_policy(root: Path) -> str:
+    """Wave 1p44z — ensure the project's committer-derived secrets policy is in
+    effect BEFORE the first upgrade docs gate, so a fresh project is never blocked
+    by the framework default (`false_positive_confirmations_required = 2`).
+
+    Creates ``docs/scan-rules.toml`` with a ``[policy]`` threshold mapped from the
+    committer count ONLY when the file is absent; it never overwrites an existing
+    file or value (operator settings win). Returns an operator-visible status line.
+    """
+    proj = root / "docs" / "scan-rules.toml"
+    if proj.exists():
+        return "scan-rules policy: docs/scan-rules.toml already present — left unchanged."
+    n = _count_committers(root)
+    threshold = _committer_threshold(n)
+    content = (
+        "# wavefoundry project scan rules\n"
+        "# false_positive_confirmations_required: auto-detected from git committer "
+        "count (last 24 months) at upgrade.\n"
+        "# Override this value if your team size has changed, then delete this comment.\n"
+        "# confirmation_valid_days: a false-positive confirmation counts only while it is "
+        "this many days old (default 365; set 0 to disable expiry).\n"
+        "#   Solo maintainers (single committer) may set 0 — yearly re-confirmation is a "
+        "no-op when you are the only reviewer who can re-confirm.\n"
+        "# Add project-specific [[rules]] entries below to extend the framework default ruleset.\n"
+        "\n[policy]\n"
+        f"false_positive_confirmations_required = {threshold}\n"
+        "confirmation_valid_days = 365\n"
+    )
+    try:
+        proj.parent.mkdir(parents=True, exist_ok=True)
+        proj.write_text(content, encoding="utf-8")
+    except OSError as exc:
+        return f"scan-rules policy: could not materialize docs/scan-rules.toml: {exc}"
+    return (
+        f"scan-rules policy: detected {n} committer(s) → "
+        f"false_positive_confirmations_required = {threshold} "
+        "(materialized docs/scan-rules.toml before the gate)."
+    )
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -1335,6 +1534,16 @@ def main(argv: list[str] | None = None) -> int:
         "--cleanup",
         action="store_true",
         help="Run phase 5 (cleanup) only — removes the upgrade lock and prints summary",
+    )
+    parser.add_argument(
+        "--resume-after-gate",
+        action="store_true",
+        dest="resume_after_gate",
+        help=(
+            "Resume a docs-gate-failed upgrade: re-run ONLY docs-gardener + docs-lint "
+            "against the already-extracted tree (no extract/render/prune). Requires a "
+            "retained lock whose failed_phase is 'docs_gate' (wave 1p44r)."
+        ),
     )
     parser.add_argument(
         "--dry-run", "-n",
@@ -1464,12 +1673,16 @@ def main(argv: list[str] | None = None) -> int:
         _open_log(root, mode="a")
         try:
             lock = upgrade_lib.read_upgrade_lock(root)
+            # Wave 1p44o — distinguish "no lock" (warn, don't print a phantom
+            # summary) from a real or failed lock, and surface the failure phase.
+            _cl_present = lock is not None
             _cl_from = lock.get("from_version") if lock else None
             _cl_to = lock.get("to_version") if lock else None
             _cl_zip = _zip_from_lock(lock)
             _cl_pruned = (lock.get("pruned_count") or 0) if lock else 0
             # True when --rebuild-index already ran and recorded its completion.
             _cl_rebuilt = bool(lock.get("index_rebuilt_at")) if lock else False
+            _cl_failed = lock.get("failed_phase") if lock else None
             _cl_ctx = UpgradeContext(root, _cl_from, _cl_to, _cl_zip, args.yes)
             _cl_ext = _load_extension_module(_cl_zip)
             _run_hook("pre_cleanup", _cl_ctx, _cl_ext)
@@ -1480,8 +1693,54 @@ def main(argv: list[str] | None = None) -> int:
                 zip_path=_cl_zip,
                 pruned_count=_cl_pruned,
                 ran_index_rebuild=_cl_rebuilt,
+                failed_phase=_cl_failed,
+                lock_present=_cl_present,
             )
             _run_hook("post_cleanup", _cl_ctx, _cl_ext)
+        finally:
+            _close_log()
+        return 0
+
+    # ── Standalone --resume-after-gate (wave 1p44r) ────────────────────────
+    if getattr(args, "resume_after_gate", False):
+        _open_log(root, mode="a")
+        try:
+            lock = upgrade_lib.read_upgrade_lock(root)
+            if lock is None:
+                _err("No upgrade lock found — nothing to resume.")
+                return 1
+            failed_phase = lock.get("failed_phase") if isinstance(lock, dict) else None
+            if failed_phase != "docs_gate":
+                _err(
+                    "Resume-after-gate requires a retained lock whose failed_phase is "
+                    f"'docs_gate'; found failed_phase={failed_phase!r}. Resolve the "
+                    "upgrade manually or re-run the full upgrade."
+                )
+                return 1
+            _log("\n── Resume: re-running docs gate against the already-extracted tree ──")
+            try:
+                # Re-run ONLY docs-gardener + docs-lint; no extract/render/prune.
+                phase_docs_gate(root)
+            except SystemExit:
+                # Refresh failed_at so the retained lock reflects the LATEST
+                # attempt (forensics); failed_phase stays 'docs_gate' (delivery
+                # review nit).
+                upgrade_lib.update_upgrade_lock(
+                    root, failed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                )
+                _err(
+                    "Docs gate still failing — lock retained (failed_phase=docs_gate); "
+                    "resolve the findings and run --resume-after-gate again."
+                )
+                _close_log()
+                raise  # propagate sys.exit(1) — non-zero exit on repeated failure
+            # Gate passed — clear the failure marker so downstreams (dashboard,
+            # --cleanup) see a clean (non-failed) lock again.
+            upgrade_lib.update_upgrade_lock(root, failed_phase=None, failed_at=None)
+            _log(
+                "  Docs gate PASSED on resume — failure marker cleared. Run "
+                "--update-index then --cleanup to finish the upgrade."
+            )
         finally:
             _close_log()
         return 0
@@ -1524,6 +1783,14 @@ def main(argv: list[str] | None = None) -> int:
     _log(f"  Upgrade log: {log_path}")
     _log(f"  Watch:       tail -f {log_path}")
 
+    # Wave 1p44o — data-safety: track whether the tree has been mutated (zip
+    # extracted / surfaces rendered / files pruned) and which phase is running,
+    # so the except SystemExit handler can RETAIN the lock with a failure marker
+    # on a post-mutation failure instead of tearing the guard down on a
+    # half-replaced tree.
+    tree_mutated = False
+    current_phase = "init"
+
     try:
         # Wave 1p3dk / 1p3ho: snapshot the consumer's pre-existing framework
         # version constants BEFORE extract so we can log any transitions in
@@ -1536,11 +1803,24 @@ def main(argv: list[str] | None = None) -> int:
 
         # Apply zip if found
         if zip_path:
+            current_phase = "extract"
             _run_hook("pre_extract", ctx, ext_mod)
-            _log(f"\n── Phase 0b: Applying zip {zip_path.name} ──")
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                zf.extractall(str(root))
-            _log(f"  Extracted {zip_path.name}")
+            # Wave 1p44r — extract idempotence: if the on-disk framework already
+            # equals to_version, do NOT destructively re-extract (e.g. when retrying
+            # preflight_to_docs_gate after a docs-gate failure on an at-target tree).
+            if _tree_already_at(root, to_version):
+                _log(
+                    f"\n── Phase 0b: Tree already at {to_version} — "
+                    "skipping re-extract (idempotent) ──"
+                )
+            else:
+                _log(f"\n── Phase 0b: Applying zip {zip_path.name} ──")
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    zf.extractall(str(root))
+                # Tree is now half-replaced — from here a failure must RETAIN the
+                # lock (wave 1p44o) rather than remove it.
+                tree_mutated = True
+                _log(f"  Extracted {zip_path.name}")
             _run_hook("post_extract", ctx, ext_mod)
 
             # Note any framework version transitions in the upgrade log.
@@ -1568,11 +1848,22 @@ def main(argv: list[str] | None = None) -> int:
                     ctx.chunker_version_transition = _chunker_transition
 
         # Phase 1
+        current_phase = "surface_rendering"
         _run_hook("pre_surface_rendering", ctx, ext_mod)
         phase_surface_rendering(root)
+        # Surface rendering mutates the tree even when no zip was applied
+        # (upgrade-from-current-tree path) — mark mutated here too.
+        tree_mutated = True
         _run_hook("post_surface_rendering", ctx, ext_mod)
 
+        # Wave 1p44p follow-up — stamp framework_revision now that VERSION is
+        # extracted and the manifest is rendered, so the installed-revision marker
+        # tracks the pack instead of freezing at the pre-upgrade value.
+        if _stamp_manifest_revision(root):
+            _log(f"  Installed revision: stamped framework_revision = {_read_pack_version(root)}")
+
         # Phase 2
+        current_phase = "pruning"
         _run_hook("pre_pruning", ctx, ext_mod)
         pruned_count = phase_pruning(root)
         # Old MANIFEST was only needed for pruning — remove it now.
@@ -1584,7 +1875,15 @@ def main(argv: list[str] | None = None) -> int:
         upgrade_lib.update_upgrade_lock(root, pruned_count=pruned_count)
         _run_hook("post_pruning", ctx, ext_mod)
 
+        # Phase 2b — Wave 1p44z: materialize the committer-derived secrets policy
+        # BEFORE the first docs gate (which runs the secrets scan), so a fresh
+        # project is never blocked by the framework-default confirmation threshold.
+        current_phase = "policy_materialization"
+        _log("\n── Phase 2b: Secrets policy ──")
+        _log(f"  {materialize_secrets_policy(root)}")
+
         # Phase 3
+        current_phase = "docs_gate"
         _run_hook("pre_docs_gate", ctx, ext_mod)
         phase_docs_gate(root)
         _run_hook("post_docs_gate", ctx, ext_mod)
@@ -1596,6 +1895,7 @@ def main(argv: list[str] | None = None) -> int:
         # rebuild; otherwise → incremental). Trust the indexer to do whatever
         # it needs; the version-transition log in Phase 0b already signals to
         # the operator what to expect.
+        current_phase = "index_update"
         _run_hook("pre_index_update", ctx, ext_mod)
         phase_index_update(root)
         _run_hook("post_index_update", ctx, ext_mod)
@@ -1605,13 +1905,16 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     except SystemExit:
-        # A phase or hook failed — remove lock before exiting.
-        # Also clean up the temp manifest in case pruning hadn't reached it yet.
+        # A phase or hook failed (phase_docs_gate raises sys.exit(1) on a docs
+        # gate failure; hooks may sys.exit too). Clean up the temp manifest in
+        # case pruning hadn't reached it yet.
         try:
             OLD_MANIFEST_TMP.unlink(missing_ok=True)
         except OSError:
             pass
-        upgrade_lib.remove_upgrade_lock(root)
+        # Wave 1p44o — retain the lock with a failure marker on a post-mutation
+        # failure (half-replaced tree); remove it only on a pre-mutation failure.
+        _finalize_failed_upgrade(root, tree_mutated, current_phase)
         _close_log()
         raise
 

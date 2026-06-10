@@ -186,14 +186,28 @@ def _existing_prefixes(repo_root: Path) -> set[str]:
             m = _PREFIX_RE.match(p.stem)
             if m:
                 prefixes.add(m.group(1))
+    # Wave 1p45b — also dedup against ADR stems so a new mint never collides with
+    # an existing architecture-decision record.
+    adr_dir = repo_root / "docs" / "architecture" / "decisions"
+    if adr_dir.is_dir():
+        for p in adr_dir.glob("*.md"):
+            m = _PREFIX_RE.match(p.stem)
+            if m:
+                prefixes.add(m.group(1))
     return prefixes
+
+
+# Wave 1p45b — sentinel distinguishing "repo_root not supplied" (→ fall back to
+# discover_repo_root() and dedup by default) from an EXPLICIT None (→ no on-disk
+# scan, the pre-existing opt-out behavior tests rely on).
+_UNSET = object()
 
 
 def next_available_prefix(
     timestamp: datetime | None = None,
     *,
     policy: tuple[datetime, int] | None = None,
-    repo_root: Path | None = None,
+    repo_root: Path | None = _UNSET,  # type: ignore[assignment]
     commit: bool = True,
 ) -> str:
     """Return the next available lifecycle prefix.
@@ -207,6 +221,10 @@ def next_available_prefix(
     """
     global _last_assigned_prefix
     base = build_prefix(timestamp, policy=policy)
+    # Wave 1p45b — when repo_root is not supplied, dedup against the discovered
+    # repo by default; an EXPLICIT None opts out of the on-disk scan (empty set).
+    if repo_root is _UNSET:
+        repo_root = discover_repo_root()
     existing = _existing_prefixes(repo_root) if repo_root is not None else set()
 
     # Start from the greater of the time-based prefix and one past the last
@@ -243,7 +261,7 @@ def build_id(
     *,
     legacy: bool,
     timestamp: datetime | None = None,
-    repo_root: Path | None = None,
+    repo_root: Path | None = _UNSET,  # type: ignore[assignment]
     policy: tuple[datetime, int] | None = None,
     commit: bool = True,
 ) -> str:
@@ -310,10 +328,20 @@ def main(argv: list[str] | None = None) -> int:
         timestamp = build_timestamp(args.unix_seconds)
         repo_root = discover_repo_root()
         if args.prefix_only:
+            # --prefix-only is a low-level prefix utility, not a full ID mint, so
+            # it does NOT emit the MCP-first reminder (wave 1p45b decision).
             print(build_prefix(timestamp))
             return 0
 
+        # stdout stays the bare minted ID (machine-parseable); the MCP-first
+        # nudge goes to stderr so it never pollutes a `$(...)` capture (wave 1p45b).
         print(build_id(args.kind, args.slug, legacy=args.legacy, timestamp=timestamp, repo_root=repo_root))
+        print(
+            "lifecycle_id: note — when the Wavefoundry MCP server is available, prefer the "
+            "MCP minting tools (wave_new_<kind> / wave_create_wave); they dedupe against "
+            "on-disk IDs. This CLI is the offline fallback.",
+            file=sys.stderr,
+        )
         return 0
     except ValueError as error:
         print(f"lifecycle_id: error: {error}", file=sys.stderr)

@@ -1,10 +1,10 @@
 # Secrets Finding Dedup and Comment Context
 
 Change ID: `1p44v-enh secrets-finding-dedup-and-comment-context`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
 Status: planned
-Last verified: 2026-06-08
+Last verified: 2026-06-09
 Wave: 1p44n framework-1p6-hardening
 
 ## Rationale
@@ -41,22 +41,22 @@ Separately, the module contains no comment-token logic anywhere, so a secret com
 
 ## Acceptance Criteria
 
-- [ ] AC-1: A single line matched by 2+ rules (e.g. `aws-secret-access-key` and `generic-api-key`) yields exactly one finding / one pending exception, not one per rule.
-- [ ] AC-2: The dedup key is collision-safe — based on `line_hash` (plus matched span), so two distinct secrets that happen to redact to the same `redacted_match` are NOT merged into one finding.
-- [ ] AC-3: Each hit and its resulting exception entry carries an `in_comment` boolean derived from per-extension leading-comment-token detection.
-- [ ] AC-4: A secret on a comment line is still reported as a finding with `in_comment=true`; it is NOT auto-suppressed.
-- [ ] AC-5: Regression/test coverage exists for (a) a double-rule line producing exactly one finding and (b) a commented secret line flagged but not suppressed; the framework test suite (`run_tests.py`) passes.
-- [ ] AC-6: Repeated scans of an unchanged file produce identical deduplicated findings (deterministic rule attribution and `in_comment` flag).
+- [x] AC-1: A single line matched by 2+ rules (e.g. `aws-secret-access-key` and `generic-api-key`) yields exactly one finding / one pending exception, not one per rule. — span-overlap dedup in `scan_file_raw`; `test_two_rules_same_secret_one_finding`.
+- [x] AC-2: The dedup key is collision-safe — based on `line_hash` (plus matched span), so two distinct secrets that happen to redact to the same `redacted_match` are NOT merged into one finding. — dedup keys on `(line_no, span)`, never on `redacted_match`; `test_distinct_secrets_same_redaction_not_merged` (two distinct 8-char secrets both → `****`, kept separate).
+- [x] AC-3: Each hit and its resulting exception entry carries an `in_comment` boolean derived from per-extension leading-comment-token detection. — `_line_is_comment` + `_LINE_COMMENT_TOKENS`; hit gets `in_comment`, propagated into `new_entry`. Tests: `test_comment_secret_flagged_not_suppressed`, `test_exception_entry_carries_in_comment`.
+- [x] AC-4: A secret on a comment line is still reported as a finding with `in_comment=true`; it is NOT auto-suppressed. — flag is metadata only; the hit still fires.
+- [x] AC-5: Regression/test coverage exists for (a) a double-rule line producing exactly one finding and (b) a commented secret line flagged but not suppressed; the framework test suite (`run_tests.py`) passes. — `TestFindingDedupAndComment` (7 tests); scanner suites green (87); full suite at wave-end.
+- [x] AC-6: Repeated scans of an unchanged file produce identical deduplicated findings (deterministic rule attribution and `in_comment` flag). — first-matching rule (ruleset order) wins; `test_dedup_is_deterministic_across_runs`.
 
 ## Tasks
 
-- [ ] Read `scan_file_raw` (492-558) and `_match_hits_for_file` (561-619) to confirm the hit/exception shapes that must be preserved.
-- [ ] Add a helper that maps a file extension to its leading line-comment token(s) and returns whether a given line is a comment (`in_comment`).
-- [ ] In `scan_file_raw`, accumulate hits into a per-`(line_hash, matched-span)` map so multiple rule matches on the same secret collapse to one hit; preserve a stable rule_id attribution.
-- [ ] Record `in_comment` on each surviving hit dict (alongside `line_hash`, `context_hash`).
-- [ ] Propagate `in_comment` into the exception entry created in `_match_hits_for_file` (603-619) without changing suppression behavior.
-- [ ] Add tests in `tests/test_secrets_validators.py` for the double-rule line and the commented-secret line.
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and fix any regressions.
+- [x] Read `scan_file_raw` (492-558) and `_match_hits_for_file` (561-619) to confirm the hit/exception shapes that must be preserved.
+- [x] Add a helper that maps a file extension to its leading line-comment token(s) and returns whether a given line is a comment (`in_comment`). — `_LINE_COMMENT_TOKENS` + `_line_is_comment`.
+- [x] In `scan_file_raw`, accumulate hits into a per-`(line_hash, matched-span)` map so multiple rule matches on the same secret collapse to one hit; preserve a stable rule_id attribution. — implemented as `_kept_spans` (line_no → spans) with overlap-skip; first-rule attribution.
+- [x] Record `in_comment` on each surviving hit dict (alongside `line_hash`, `context_hash`).
+- [x] Propagate `in_comment` into the exception entry created in `_match_hits_for_file` (603-619) without changing suppression behavior.
+- [x] Add tests in `tests/test_secrets_validators.py` for the double-rule line and the commented-secret line.
+- [x] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and fix any regressions. — scanner suites green; full suite at wave-end.
 
 ## Agent Execution Graph
 
@@ -95,7 +95,7 @@ N/A — the change is confined to the `secrets_validators` module's scanning log
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
-|      |        |          |
+| 2026-06-08 | `scan_file_raw` per-secret dedup via `_kept_spans` (line_no→span overlap; first-rule wins, deterministic); `_line_is_comment`/`_LINE_COMMENT_TOKENS` set `in_comment` on each hit, propagated into the exception `new_entry` (flag-only, never suppresses). | `secrets_validators.py`; `TestFindingDedupAndComment` (7 tests); scanner suites green (87). |
 
 
 ## Decision Log

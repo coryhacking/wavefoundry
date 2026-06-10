@@ -1,10 +1,10 @@
 # Route Secrets-Finding Resolution From Upgrade Docs Gate
 
 Change ID: `1p453-doc seed-160-secrets-resolution-routing`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
 Status: planned
-Last verified: 2026-06-08
+Last verified: 2026-06-09
 Wave: 1p44n framework-1p6-hardening
 
 ## Rationale
@@ -45,22 +45,22 @@ The lint output itself is not silent — it names `scan-findings.json`, the `pen
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `.wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md` contains a "Docs gate failed on a secrets finding — resolve first" subsection (or equivalently-titled subsection clearly scoped to the secrets-finding docs-gate failure).
-- [ ] AC-2: That subsection explicitly routes the agent to the seed-213 Pre-Scope Step resolution loop (`213-security-reviewer.prompt.md`).
-- [ ] AC-3: That subsection names the status transitions `pending` → `false-positive` / `suspected-secret` / `confirmed-secret`.
-- [ ] AC-4: That subsection states the docs gate must be re-run after each resolution, with the reason that the secrets scan runs as the first lint check and any non-zero result aborts the upgrade.
-- [ ] AC-5: A discoverability cross-reference to the new subsection appears at the docs-gate re-run (step 11, near line 207) and at step 0 pre-flight and/or the operating-memory docs-gate re-run (lines 207-238).
-- [ ] AC-6 (regression / verification): `.wavefoundry/bin/docs-lint` (or MCP `wave_validate`) reports clean over the edited seed and any touched docs; the secrets scanner itself does not flag the new prose (no provider-prefixed example credentials).
+- [x] AC-1: `.wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md` contains a "Docs gate failed on a secrets finding — resolve first" subsection (or equivalently-titled subsection clearly scoped to the secrets-finding docs-gate failure).
+- [x] AC-2: That subsection explicitly routes the agent to the seed-213 Pre-Scope Step resolution loop (`213-security-reviewer.prompt.md`).
+- [x] AC-3: That subsection names the status transitions `pending` → `false-positive` / `suspected-secret` / `confirmed-secret`.
+- [x] AC-4: That subsection states the docs gate must be re-run after each resolution, with the reason that the secrets scan runs as the first lint check and any non-zero result aborts the upgrade.
+- [x] AC-5: A discoverability cross-reference to the new subsection appears at the docs-gate re-run (step 11, near line 207) and at step 0 pre-flight and/or the operating-memory docs-gate re-run (lines 207-238).
+- [x] AC-6 (regression / verification): `.wavefoundry/bin/docs-lint` (or MCP `wave_validate`) reports clean over the edited seed and any touched docs; the secrets scanner itself does not flag the new prose (no provider-prefixed example credentials).
 
 ## Tasks
 
-- [ ] Open `seed_edit_allowed` gate (`wave_gate_open(gate="seed_edit_allowed")`; CLI fallback `.wavefoundry/bin/wave-gate open seed_edit_allowed`).
-- [ ] Re-read `seed-160` docs-gate steps (step 11 near line 207; operating-memory docs-gate re-run lines 207-238) and step 0 pre-flight to confirm anchor points.
-- [ ] Re-read `213-security-reviewer.prompt.md:12-55` to mirror the exact status-transition vocabulary.
-- [ ] Author the "Docs gate failed on a secrets finding — resolve first" subsection in `seed-160` with: seed-213 pointer, the three status transitions, and the re-run-after-each-resolution note tied to the scan being the first lint check.
-- [ ] Add the discoverability cross-references at step 11 and at step 0 pre-flight and/or the operating-memory docs-gate re-run.
-- [ ] Run the docs gate (`wave_validate` over MCP, or `.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`) and fix any failures.
-- [ ] Close `seed_edit_allowed` gate (`wave_gate_close(gate="seed_edit_allowed")`).
+- [x] Open `seed_edit_allowed` gate (`wave_gate_open(gate="seed_edit_allowed")`; CLI fallback `.wavefoundry/bin/wave-gate open seed_edit_allowed`).
+- [x] Re-read `seed-160` docs-gate steps (step 11 near line 207; operating-memory docs-gate re-run lines 207-238) and step 0 pre-flight to confirm anchor points.
+- [x] Re-read `213-security-reviewer.prompt.md:12-55` to mirror the exact status-transition vocabulary.
+- [x] Author the "Docs gate failed on a secrets finding — resolve first" subsection in `seed-160` with: seed-213 pointer, the three status transitions, and the re-run-after-each-resolution note tied to the scan being the first lint check.
+- [x] Add the discoverability cross-references at step 11 and at step 0 pre-flight and/or the operating-memory docs-gate re-run.
+- [x] Run the docs gate (`wave_validate` over MCP, or `.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`) and fix any failures.
+- [x] Close `seed_edit_allowed` gate (`wave_gate_close(gate="seed_edit_allowed")`).
 
 ## Agent Execution Graph
 
@@ -98,7 +98,7 @@ N/A — doc/guidance-only change to a single framework seed prompt; no module bo
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
-|      |        |          |
+| 2026-06-08 | Added the "Docs gate failed on a secrets finding — resolve first" subsection under seed-160 step 11 (routes to seed-213 Pre-Scope loop; names pending→false-positive/suspected-secret/confirmed-secret; states re-run-after-each-resolution because the secrets scan is the first lint check) + a discoverability pointer at the operating-memory docs-gate re-run. | seed-160; docs-lint clean. |
 
 
 ## Decision Log

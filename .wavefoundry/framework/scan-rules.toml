@@ -1,31 +1,76 @@
-# wavefoundry scan-rules.toml — framework default secrets ruleset
-# Source:    https://github.com/betterleaks/betterleaks/blob/main/config/betterleaks.toml
-# Commit:    3ac987600af0 (downloaded 2026-06-06)
-# Copyright: Copyright (c) 2026 Zachary Rice
-# License:   MIT (https://github.com/betterleaks/betterleaks/blob/main/LICENSE)
+# ============================================================================
+# wavefoundry secrets ruleset — framework default
+# ============================================================================
+# This is wavefoundry's secrets ruleset. It was ADAPTED FROM betterleaks
+# (which is itself based on the Gitleaks community ruleset) and is NO LONGER a
+# verbatim copy. The [[rules]] bodies below are upstream-derived, but the scanner
+# ENGINE, the [policy] and [allowlist] sections, and several per-rule `filter`
+# clauses are wavefoundry-local. Every divergence is documented below so it can
+# be re-applied the next time upstream is re-downloaded — read this first.
 #
-# Do not edit the downloaded rules below. To add project-specific rules or
-# disable framework rules, place a docs/scan-rules.toml file at the project root.
-# To update to a newer betterleaks ruleset, re-download and update the commit SHA above.
+# Upstream:   https://github.com/betterleaks/betterleaks/blob/main/config/betterleaks.toml
+# Commit:     3ac987600af0 (downloaded 2026-06-06)
+# License:    the upstream rule definitions are MIT, © 2026 Zachary Rice
+#             (https://github.com/betterleaks/betterleaks/blob/main/LICENSE)
+# Background: https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need
 #
-# NOTE: betterleaks uses CEL expressions (prefilter/filter) for path and value exclusions.
-# Our Python scanner does not execute CEL — it reads [allowlist] paths/regexes below instead.
-# The [allowlist] section mirrors the betterleaks prefilter/filter paths for scanner parity.
+# Project-specific rules / overrides go in docs/scan-rules.toml at the project
+# root — never edit this framework file in a consumer repo.
+#
+# ── Updating to a newer upstream ruleset ────────────────────────────────────
+#   1. Re-download betterleaks; update the Commit SHA above.
+#   2. The [[rules]] bodies may be replaced wholesale — but RE-APPLY every entry
+#      under "Local additions" below, and keep the [allowlist] self-exclusion in
+#      sync with the SCAN_* path constants in wave_lint_lib/constants.py.
+#   3. Patterns stay in Gitleaks/RE2 schema — do NOT hand-port them to Python. The
+#      engine translates at load (see "Engine — RE2→Python"). If a fresh pattern
+#      uses RE2 syntax the shim does not yet handle, EXTEND THE SHIM.
+#
+# ── Engine — RE2→Python regex shim (wave 1p4d1) ─────────────────────────────
+# Upstream patterns target Go's RE2; this scanner runs Python `re`. `_re2_to_re()`
+# in wave_lint_lib/secrets_validators.py rewrites RE2-only syntax at load, ONLY
+# when a pattern first fails re.compile (a no-op on already-valid patterns):
+#   • a mid-pattern inline `(?i)` flag → a scoped `(?i:…)` group, with the scope
+#     stopping at the enclosing group close AND at any same-depth `|` alternation
+#     bar (so an alternation branch is never swallowed);
+#   • `\z` (RE2 end-of-text) → `\Z` (Python end-of-string).
+# This revived 26 otherwise-silently-dead detectors. A genuinely malformed regex
+# still fails to compile and is skipped (never masked). Extend the shim — never
+# hand-edit a pattern — if a future import adds new RE2-only constructs.
+#
+# ── Engine — which CEL actually runs ────────────────────────────────────────
+# betterleaks expresses path/value exclusions in CEL; this Python scanner does
+# NOT run them all the same way:
+#   (a) Per-rule `filter` CEL IS executed, via wave_lint_lib/cel_filter.py.
+#       Supported subset: entropy(), failsTokenEfficiency(), matchesAny(),
+#       containsAny(), jwtExpired(), jwtExp(); ||/&&/!; <=,>=,<,>,==,!=; and
+#       member/index access incl. attributes[?"path"].orValue("").
+#   (b) The [allowlist] section IS honored: `paths` skip whole files before read;
+#       `regexes` (re.fullmatch on the value) and `stopwords` (substring) suppress
+#       structural-noise match VALUES across every rule.
+#   (c) The top-level betterleaks `prefilter`/`filter` CEL blocks are NOT executed.
+#       The [allowlist] section is the applied mirror of those exclusions.
+#
+# ── Local additions — PRESERVE these on every upstream re-merge ─────────────
+#   • [policy] (1p457): false_positive_confirmations_required + confirmation_valid_days
+#     (yearly false-positive-confirmation expiry; per-confirmation clock; fail-closed).
+#     Not present upstream — keep the whole section.
+#   • [allowlist].regexes / .stopwords (1p456): the global value-filter — env vars
+#     ($VAR), templates ({{…}}), format specifiers, /Users/… paths, true|false|null,
+#     and the well-known placeholder UUID. Take the union with any upstream changes.
+#   • [allowlist].paths self-exclusion (1p456): scan-rules.toml, scan-allowlist,
+#     scan-findings.json — always re-add; keep in sync with constants.py.
+#   • [allowlist].paths generated-artifact rules (1p44t): *.min.{js,css}(.map),
+#     *.{js,css,mjs,cjs}.map, *.snap, and the broadened binary-extension group
+#     (wasm/node/a/o/so/dylib/class).
+#   • generic-api-key `filter` docs-prose clause (1p44u): suppress matches in
+#     .md/.markdown/docs/ when entropy(secret) <= 4.2 (above the rule's ≤3.5 floor).
+#   • jwt `filter` expiry clause (1p44w): jwtExpired()/jwtExp() decode the `exp`
+#     claim. Expired tokens still SURFACE by default (with a decoded exp_date);
+#     suppression is policy-gated OFF via `suppress_expired_jwts == "1"`.
+# ============================================================================
 
-# This file has been auto-generated. Do not edit manually.
-# If you would like to contribute new rules, please use
-# cmd/generate/config/main.go and follow the contributing guidelines
-# at https://github.com/betterleaks/betterleaks/blob/master/CONTRIBUTING.md
-#
-# How the hell does secret scanning work? Read this:
-#   https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need
-#
-# This is the default betterleaks configuration file.
-# Rules and filters are defined within this file.
-# Rules instruct betterleaks on what should be considered a secret.
-# Filters instruct betterleaks on what to skip (prefilter) or discard (filter).
-
-title = "betterleaks config"
+title = "wavefoundry secrets ruleset (adapted from betterleaks)"
 
 # minVersion indicates the minimum gitleaks config format version required.
 # betterleaksMinVersion indicates the minimum betterleaks version required.
@@ -92,9 +137,13 @@ filter = '''
 # ──────────────────────────────────────────────────────────────────────────────
 [policy]
 false_positive_confirmations_required = 2
+# Wave 1p457 — max age (days) of a false-positive confirmation before it must be
+# re-verified with a fresh dated sign-off. Per-confirmation clock (staggered, not a
+# shared epoch). Set to 0 to disable expiry (confirmations never age out).
+confirmation_valid_days = 365
 
 [allowlist]
-description = "global allow lists (mirrors betterleaks prefilter/filter for Python scanner)"
+description = "global allow lists APPLIED by the Python scanner: paths skip files (pre-read), and regexes/stopwords suppress structural-noise match VALUES across every rule (the top-level betterleaks prefilter/filter CEL blocks themselves are not executed; this [allowlist] mirror is what runs — wave 1p456)"
 paths = [
     '''gitleaks\.toml''',
     # Wavefoundry scanner artifacts — never scan the scanner's own ledger/config.
@@ -106,7 +155,7 @@ paths = [
     '''(?:^|/)scan-findings\.json$''',
     '''(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?)$''',
     '''(?i)\.(?:eot|[ot]tf|woff2?)$''',
-    '''(?i)\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|.dll|pdb|exe|gltf)$''',
+    '''(?i)\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|.dll|pdb|exe|gltf|wasm|node|a|o|so|dylib|class)$''',
     '''go\.(?:mod|sum|work(?:\.sum)?)$''',
     '''(?:^|/)vendor/modules\.txt$''',
     '''(?:^|/)vendor/(?:github\.com|golang\.org/x|google\.golang\.org|gopkg\.in|istio\.io|k8s\.io|sigs\.k8s\.io)(?:/.*)?$''',
@@ -118,6 +167,11 @@ paths = [
     '''(?:^|/)(?:deno\.lock|npm-shrinkwrap\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$''',
     '''(?:^|/)bower_components(?:/.*)?$''',
     '''(?:^|/)(?:angular|bootstrap|jquery(?:-?ui)?|plotly|swagger-?ui)[a-zA-Z0-9.-]*(?:\.min)?\.js(?:\.map)?$''',
+    # Wave 1p44t — generic generated-artifact rules (name-agnostic; complement the
+    # library-specific rule above and the 1p44s engine size/line/NUL guards).
+    '''(?i)(?:^|/)[^/]+\.min\.(?:js|css)(?:\.map)?$''',
+    '''(?i)(?:^|/)[^/]+\.(?:js|css|mjs|cjs)\.map$''',
+    '''(?:^|/)[^/]+\.snap$''',
     '''(?:^|/)javascript\.json$''',
     '''(?:^|/)(?:Pipfile|poetry)\.lock$''',
     '''(?i)(?:^|/)(?:v?env|virtualenv)/lib(?:64)?(?:/.*)?$''',
@@ -130,7 +184,7 @@ paths = [
     '''(?:^|/)\.git$''',
 ]
 regexes = [
-    '''(?i)^true|false|null$''',
+    '''(?i)^(?:true|false|null)$''',
     '''^(?i:a+|b+|c+|d+|e+|f+|g+|h+|i+|j+|k+|l+|m+|n+|o+|p+|q+|r+|s+|t+|u+|v+|w+|x+|y+|z+|\*+|\.+)$''',
     '''^\$(?:\d+|{\d+})$''',
     '''^\$(?:[A-Z_]+|[a-z_]+)$''',
@@ -141,7 +195,7 @@ regexes = [
     '''^%[+\-# 0]?[bcdeEfFgGoOpqstTUvxX]$''',
     '''^\{\d{0,2}}$''',
     '''^@(?:[A-Z_]+|[a-z_]+)@$''',
-    '''^/Users/(?i)[a-z0-9]+/[\w .-/]+$''',
+    '''(?i)^/Users/[a-z0-9]+/[\w .-/]+$''',
     '''^/(?:bin|etc|home|opt|tmp|usr|var)/[\w ./-]+$''',
 ]
 stopwords = [
@@ -2968,6 +3022,12 @@ entropy(finding["secret"]) <= 3.5
   r"""LIC_FILES_CHKSUM[^=]*=\s*"[^"]+""",
   r"""SRC[^=]*=\s*"[a-zA-Z0-9]+"""
 ]))
+|| (matchesAny(attributes[?"path"].orValue(""), [
+  r"""\.md$""",
+  r"""\.markdown$""",
+  r"""(?:^|/)docs/"""
+]) && entropy(finding["secret"]) <= 4.2
+   && matchesAny(finding["line"], [r"""(?:\S+\s+){4,}\S+"""]))
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3779,8 +3839,13 @@ id = "jwt"
 description = "Uncovered a JSON Web Token, which may lead to unauthorized access to web applications and sensitive user data."
 regex = '''\b(ey[a-zA-Z0-9]{17,}\.ey[a-zA-Z0-9\/\\_-]{17,}\.(?:[a-zA-Z0-9\/\\_-]{10,}={0,2})?)(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["ey"]
+# Wave 1p44w: jwtExpired() decodes the payload `exp` claim (fail-safe). Expiry is
+# suppressed ONLY when the project policy opts in (attributes[suppress_expired_jwts]
+# == "1"); by default an expired token still surfaces as a finding, and the decoded
+# exp date is attached to the finding (exp_date) for reviewer triage.
 filter = '''
 entropy(finding["secret"]) <= 3.0
+|| (jwtExpired(finding["secret"]) && attributes[?"suppress_expired_jwts"].orValue("") == "1")
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -1,10 +1,10 @@
 # Fix Upgrade Prune Count Reporting
 
 Change ID: `1p44q-bug upgrade-prune-count-reporting`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
 Status: planned
-Last verified: 2026-06-08
+Last verified: 2026-06-09
 Wave: 1p44n framework-1p6-hardening
 
 ## Rationale
@@ -46,20 +46,20 @@ Net effect: the stdout scan never matches, `pruned` is always 0, and that 0 is p
 
 ## Acceptance Criteria
 
-- [ ] AC-1: After a pruning upgrade that removes N files, the value returned by `phase_pruning` equals N (the real number of pruned files), not 0.
-- [ ] AC-2: The corrected count is persisted to the upgrade lock via `update_upgrade_lock(root, pruned_count=N)` and rendered in the upgrade summary as `Files pruned: N`.
-- [ ] AC-3: When `prune_framework.py` emits `prune: nothing to remove`, the reported count is exactly 0.
-- [ ] AC-4: A new unit test feeds a fixture of representative prune output (multiple `deleted:` lines plus the `prune: <label> N item(s)` summary, and a separate `nothing to remove` case) and asserts the extracted count matches.
-- [ ] AC-5 (regression): The existing framework test suite (`python3 .wavefoundry/framework/scripts/run_tests.py`) passes with the new test included.
+- [x] AC-1: After a pruning upgrade that removes N files, the value returned by `phase_pruning` equals N (the real number of pruned files), not 0.
+- [x] AC-2: The corrected count is persisted to the upgrade lock via `update_upgrade_lock(root, pruned_count=N)` and rendered in the upgrade summary as `Files pruned: N`.
+- [x] AC-3: When `prune_framework.py` emits `prune: nothing to remove`, the reported count is exactly 0.
+- [x] AC-4: A new unit test feeds a fixture of representative prune output (multiple `deleted:` lines plus the `prune: <label> N item(s)` summary, and a separate `nothing to remove` case) and asserts the extracted count matches.
+- [x] AC-5 (regression): The existing framework test suite (`python3 .wavefoundry/framework/scripts/run_tests.py`) passes with the new test included.
 
 ## Tasks
 
-- [ ] Confirm the exact emission contract of `prune_framework.py` (stdout `deleted:`/`would delete:` lines at 130/133; stderr summary `prune: <label> N item(s)` at 187 and `prune: nothing to remove` at 189).
-- [ ] Choose the count source: parse `result.stderr` for `prune: ... N item(s)` and extract N (preferred), or count `deleted:`/`would delete:` stdout prefixes, or add a machine-readable `pruned_count: N` stdout line in `prune_framework.py`.
-- [ ] Implement the count extraction in `phase_pruning` (`upgrade_wavefoundry.py` ~1116-1123), replacing the `removed`/`pruned` substring heuristic; handle the `nothing to remove` case as 0.
-- [ ] Ensure the returned count flows to `update_upgrade_lock` (1584) and the summary line (1285) unchanged.
-- [ ] Add a unit test with a prune-output fixture covering the multi-deletion and nothing-to-remove cases.
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and confirm green.
+- [x] Confirm the exact emission contract of `prune_framework.py` (stdout `deleted:`/`would delete:` lines at 130/133; stderr summary `prune: <label> N item(s)` at 187 and `prune: nothing to remove` at 189).
+- [x] Choose the count source: parse `result.stderr` for `prune: ... N item(s)` and extract N (preferred), or count `deleted:`/`would delete:` stdout prefixes, or add a machine-readable `pruned_count: N` stdout line in `prune_framework.py`.
+- [x] Implement the count extraction in `phase_pruning` (`upgrade_wavefoundry.py` ~1116-1123), replacing the `removed`/`pruned` substring heuristic; handle the `nothing to remove` case as 0.
+- [x] Ensure the returned count flows to `update_upgrade_lock` (1584) and the summary line (1285) unchanged.
+- [x] Add a unit test with a prune-output fixture covering the multi-deletion and nothing-to-remove cases.
+- [x] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and confirm green.
 
 ## Agent Execution Graph
 
@@ -96,7 +96,7 @@ N/A — the change is confined to the upgrade/prune scripts and a test; it corre
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
-|      |        |          |
+| 2026-06-08 | Replaced the always-zero stdout substring heuristic in `phase_pruning` with a regex over prune_framework.py's stderr summary (`prune: deleted/would delete N item(s)`); `nothing to remove` → 0. | upgrade_wavefoundry.py; PhasePruningCountTests (5). |
 
 
 ## Decision Log

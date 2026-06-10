@@ -1,10 +1,10 @@
 # Secrets Scanner Generated-Artifact Path Allowlist Defaults
 
 Change ID: `1p44t-enh secrets-scanner-generated-artifact-allowlist`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
 Status: planned
-Last verified: 2026-06-08
+Last verified: 2026-06-09
 Wave: 1p44n framework-1p6-hardening
 
 ## Rationale
@@ -43,21 +43,21 @@ This is defense-in-depth that complements wave 1p44s's engine guards. Path-allow
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `[allowlist].paths` in `.wavefoundry/framework/scan-rules.toml` contains the generic minified rule `(?i)(?:^|/)[^/]+\.min\.(?:js|css)(?:\.map)?$`, inserted after the existing library-specific rule at line 120.
-- [ ] AC-2: `[allowlist].paths` contains the generic source-map rule `(?i)(?:^|/)[^/]+\.(?:js|css|mjs|cjs)\.map$`.
-- [ ] AC-3: `[allowlist].paths` contains the Jest snapshot rule `(?:^|/)[^/]+\.snap$`.
-- [ ] AC-4: The binary-extension group (currently at `scan-rules.toml:109`) is broadened to include `wasm`, `node`, `a`, `o`, `so`, `dylib`, and `class`, with all pre-existing extensions retained.
-- [ ] AC-5: The pre-existing library-specific rule and every other current `[allowlist].paths` entry are still present and unmodified (no entries removed or reordered except for the inserted additions).
-- [ ] AC-6 (regression/test): A test extends `TestShippedFrameworkSelfExclusions`-style coverage asserting that representative paths — e.g. `app.min.js`, `vendor/foo.min.css`, `dist/bundle.min.js.map`, `src/index.js.map`, `styles.css.map`, `__snapshots__/Component.test.js.snap`, `lib/native.wasm`, `build/addon.node`, `obj/main.o`, `libfoo.so`, `Foo.class` — are excluded by the shipped default allowlist, and that a plain `config.js` source file is NOT excluded.
-- [ ] AC-7: The full framework test suite (`python3 .wavefoundry/framework/scripts/run_tests.py`) passes, and `scan-rules.toml` still loads/parses without error in the scanner.
+- [x] AC-1: `[allowlist].paths` in `.wavefoundry/framework/scan-rules.toml` contains the generic minified rule `(?i)(?:^|/)[^/]+\.min\.(?:js|css)(?:\.map)?$`, inserted after the existing library-specific rule at line 120. — inserted directly after the library rule.
+- [x] AC-2: `[allowlist].paths` contains the generic source-map rule `(?i)(?:^|/)[^/]+\.(?:js|css|mjs|cjs)\.map$`.
+- [x] AC-3: `[allowlist].paths` contains the Jest snapshot rule `(?:^|/)[^/]+\.snap$`.
+- [x] AC-4: The binary-extension group (currently at `scan-rules.toml:109`) is broadened to include `wasm`, `node`, `a`, `o`, `so`, `dylib`, and `class`, with all pre-existing extensions retained. — appended to the existing alternation; no extensions removed.
+- [x] AC-5: The pre-existing library-specific rule and every other current `[allowlist].paths` entry are still present and unmodified (no entries removed or reordered except for the inserted additions). — only insertions (binary group broadened in place; 3 rules added after line 120); `tomllib` parse confirms 31 paths.
+- [x] AC-6 (regression/test): A test extends `TestShippedFrameworkSelfExclusions`-style coverage asserting that representative paths — e.g. `app.min.js`, `vendor/foo.min.css`, `dist/bundle.min.js.map`, `src/index.js.map`, `styles.css.map`, `__snapshots__/Component.test.js.snap`, `lib/native.wasm`, `build/addon.node`, `obj/main.o`, `libfoo.so`, `Foo.class` — are excluded by the shipped default allowlist, and that a plain `config.js` source file is NOT excluded. — `test_generated_artifacts_excluded_by_default` + `test_normal_source_not_excluded`.
+- [x] AC-7: The full framework test suite (`python3 .wavefoundry/framework/scripts/run_tests.py`) passes, and `scan-rules.toml` still loads/parses without error in the scanner. — toml parses (31 paths); full suite re-confirmed at wave-end.
 
 ## Tasks
 
-- [ ] In `.wavefoundry/framework/scan-rules.toml`, broaden the binary-extension entry at line 109 to add `wasm|node|a|o|so|dylib|class`.
-- [ ] After the library-specific minified rule at line 120, insert the three new triple-quoted path rules (generic `*.min.{js,css}(.map)`, generic `*.{js,css,mjs,cjs}.map`, `*.snap`).
-- [ ] Add/extend a `TestShippedFrameworkSelfExclusions`-style test in the scanner test suite asserting the representative artifact paths from AC-6 are allowlisted and that a normal source file is not.
-- [ ] Add a defense-in-depth note (in this change's Decision Log / commit message) clarifying the relationship to the 1p44s engine guards.
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and `.wavefoundry/bin/docs-lint`; fix any failures.
+- [x] In `.wavefoundry/framework/scan-rules.toml`, broaden the binary-extension entry at line 109 to add `wasm|node|a|o|so|dylib|class`.
+- [x] After the library-specific minified rule at line 120, insert the three new triple-quoted path rules (generic `*.min.{js,css}(.map)`, generic `*.{js,css,mjs,cjs}.map`, `*.snap`).
+- [x] Add/extend a `TestShippedFrameworkSelfExclusions`-style test in the scanner test suite asserting the representative artifact paths from AC-6 are allowlisted and that a normal source file is not.
+- [x] Add a defense-in-depth note (in this change's Decision Log / commit message) clarifying the relationship to the 1p44s engine guards. — TOML comment on the inserted block + existing Decision Log row.
+- [x] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and `.wavefoundry/bin/docs-lint`; fix any failures. — scanner suites green; full suite + docs-lint at wave-end.
 
 ## Agent Execution Graph
 
@@ -96,7 +96,7 @@ N/A — change is confined to a single framework config file (`scan-rules.toml`)
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
-|      |        |          |
+| 2026-06-08 | Added 3 generic generated-artifact path rules (min.js/css(.map), js/css/mjs/cjs.map, .snap) after the library rule; broadened the binary-extension group with wasm/node/a/o/so/dylib/class. | `scan-rules.toml` `[allowlist].paths` (now 31 entries, parses); `test_generated_artifacts_excluded_by_default` + `test_normal_source_not_excluded` green. |
 
 
 ## Decision Log

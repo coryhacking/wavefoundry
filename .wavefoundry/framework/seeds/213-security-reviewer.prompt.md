@@ -18,7 +18,7 @@ For each entry, act based on `status`:
 
 **`pending`** — Classify the entry using the judgment heuristics below (first match wins):
 
-1. **`env-var-read`** (highest priority): The matched line's right-hand side is a call to `os.environ`, `os.getenv`, `process.env`, or an equivalent environment-variable read — set `status: "false-positive"`, append an agent confirmation entry to `confirmations[]` with your git identity (`git config user.name` / `git config user.email`), verdict `"false-positive"`, reason `"env-var-read — not a hardcoded credential"`, and current UTC ISO-8601 datetime. **No operator prompt required.**
+1. **`env-var-read`** (highest priority): The matched line's right-hand side is a call to `os.environ`, `os.getenv`, `process.env`, or an equivalent environment-variable read — set `status: "false-positive"`, append an agent confirmation entry to `confirmations[]` with your git identity (`git config user.name` / `git config user.email`), verdict `"false-positive"`, reason `"env-var-read — not a hardcoded credential"`, and a `confirmed_at` field holding the current UTC ISO-8601 timestamp. **No operator prompt required.**
 
 2. **`real-credential`**: Matched text has a provider prefix (`AKIA`, `sk_live_`, `ghp_`, `-----BEGIN`, etc.) and does not match env-var-read — set `status: "suspected-secret"`, present full context to operator, prompt to classify as `"false-positive"` or `"confirmed-secret"`.
 
@@ -30,9 +30,11 @@ For each entry, act based on `status`:
 
 **`false-positive` (insufficient confirmations, current git user not in list)** — Run `git config user.email` to identify yourself. Present the entry context, existing confirmations, and remaining count needed (`false_positive_confirmations_required` from `docs/scan-rules.toml` `[policy]`, default 2). Ask the current operator to confirm or escalate. If confirmed, append a confirmation entry. If escalated, set `status: "suspected-secret"`.
 
-**`false-positive` (insufficient confirmations, current git user already in list)** — Show a progress message only. No action required from the current user: "N of M confirmations received from: \<names\> — needs \<remaining\> more from a different reviewer."
+**`false-positive` (insufficient confirmations, current git user already in list)** — Show a progress message only: "N of M valid confirmations from: \<names\>." The threshold M (`false_positive_confirmations_required`) is auto-detected from committer count and operator-tunable in `docs/scan-rules.toml` `[policy]`; on small teams it is auto-clamped down to the number of confirmable (recent, non-bot) reviewers, and any finding can be dismissed by setting a non-empty `override_reason`. If any confirmations have EXPIRED (see *Confirmation expiry* below), say so and note that re-verification is needed.
 
 **`false-positive` (confirmation count met)** — No action, no report.
+
+**Confirmation expiry (`confirmation_valid_days`)** — False-positive confirmations are time-bounded: a confirmation counts toward `false_positive_confirmations_required` only while its `confirmed_at` is within `confirmation_valid_days` (default 365) of the scan's "now". The clock is **per-confirmation** (each ages from its own `confirmed_at`, so re-verification is naturally staggered). An expired or undated/unparseable confirmation is ignored for counting (fail-closed) but is **left in place** in `confirmations[]` — history is never mutated or pruned. To re-verify, **append a NEW dated confirmation entry**; never edit or delete the old one. Set `confirmation_valid_days = 0` in `[policy]` to disable expiry (confirmations never age out).
 
 **`suspected-secret`** — Stop. Read the file and surrounding context. Present a full analysis to the operator. Ask to classify as `"false-positive"` or `"confirmed-secret"`. Do not proceed past this entry without resolution. **`wave_close` soft-blocks on any unresolved `suspected-secret` entry** — the entry must be reclassified before the wave can close.
 
@@ -44,9 +46,9 @@ For each entry, act based on `status`:
 
 Acknowledgment is wave-scoped: closing a different wave requires re-acknowledgment even if the entry was acknowledged for a prior wave.
 
-**Operator prompt format** — Include: file path, line number, redacted matched text, rule ID, classification, recommended verdict, existing confirmations (git name + UTC datetime for each), and remaining confirmations needed.
+**Operator prompt format** — Include: file path, line number, redacted matched text, rule ID, classification, recommended verdict, existing confirmations (git name + UTC datetime **and age** for each, flagging any past `confirmation_valid_days`), and remaining confirmations needed.
 
-**Write-back** — On any status change or confirmation: run `git config user.name` and `git config user.email` to capture identity. Append to `confirmations[]` with `git_user_name`, `git_user_email`, `verdict`, `reason`, and current UTC ISO-8601 datetime. Set `status` explicitly. If the current user's email already appears in `confirmations`, inform the operator their confirmation is already recorded and a different reviewer is required.
+**Write-back** — On any status change or confirmation: run `git config user.name` and `git config user.email` to capture identity. **Append** to `confirmations[]` with `git_user_name`, `git_user_email`, `verdict`, `reason`, and the current UTC ISO-8601 timestamp in a `confirmed_at` field (the timestamp field is named `confirmed_at`). Re-confirming an expired finding **appends a NEW dated entry** — never mutate or remove an existing confirmation. Set `status` explicitly. If the current user's email already appears in `confirmations` (with a still-valid `confirmed_at`), inform the operator their confirmation is already recorded and a different reviewer is required.
 
 **Duplicate confirmation** — The same `git_user_email` confirming twice counts as one unique confirmation toward the threshold.
 

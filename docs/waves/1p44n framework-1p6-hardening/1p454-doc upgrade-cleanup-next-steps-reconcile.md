@@ -1,10 +1,10 @@
 # Reconcile Upgrade Cleanup Next-Steps Output With Seed-160
 
 Change ID: `1p454-doc upgrade-cleanup-next-steps-reconcile`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
 Status: planned
-Last verified: 2026-06-08
+Last verified: 2026-06-09
 Wave: 1p44n framework-1p6-hardening
 
 ## Rationale
@@ -45,22 +45,22 @@ The fix is to make the printed list DEFER to seed-160 as the authoritative editi
 
 ## Acceptance Criteria
 
-- [ ] AC-1: The printed "Next steps" list begins with a deferral line naming seed-160 as the authoritative editing-pass checklist (e.g. `See seed-160 for the full editing-pass sequence; key steps:`).
-- [ ] AC-2: The journal reconciliation line reads `seed-160 step 0 / Reconcile journals` and no longer contains the string `step 0e`.
-- [ ] AC-3: A secrets-resolution step referencing `docs/scan-findings.json` and seed-213 is present and ordered before the docs-gate re-run step.
-- [ ] AC-4: The printed list does NOT enumerate the seed-160 step-8 backfills (no literal `scan-rules.toml threshold`, `.gitignore runtime contract`, or `lifecycle_id_policy` items) — it stays short and defers instead.
-- [ ] AC-5 (regression): A test asserts the rendered `_print_operator_summary` output contains the seed-160 deferral line, the corrected journal label, and the secrets-resolution step, and does NOT contain the `step 0e` string. If `_print_operator_summary` is not directly unit-testable, the existing upgrade-script test module is extended to capture its emitted lines.
+- [x] AC-1: The printed "Next steps" list begins with a deferral line naming seed-160 as the authoritative editing-pass checklist (e.g. `See seed-160 for the full editing-pass sequence; key steps:`).
+- [x] AC-2: The journal reconciliation line reads `seed-160 step 0 / Reconcile journals` and no longer contains the string `step 0e`.
+- [x] AC-3: A secrets-resolution step referencing `docs/scan-findings.json` and seed-213 is present and ordered before the docs-gate re-run step.
+- [x] AC-4: The printed list does NOT enumerate the seed-160 step-8 backfills (no literal `scan-rules.toml threshold`, `.gitignore runtime contract`, or `lifecycle_id_policy` items) — it stays short and defers instead.
+- [x] AC-5 (regression): A test asserts the rendered `_print_operator_summary` output contains the seed-160 deferral line, the corrected journal label, and the secrets-resolution step, and does NOT contain the `step 0e` string. If `_print_operator_summary` is not directly unit-testable, the existing upgrade-script test module is extended to capture its emitted lines.
 
 ## Tasks
 
-- [ ] Read seed-160 (`.wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md`) around lines 53-58 and 151-158 to confirm the current block/label wording before editing.
-- [ ] Open a gate as required before editing the framework script (`framework_edit_allowed`), and close it immediately after.
-- [ ] Edit `_print_operator_summary` in `upgrade_wavefoundry.py` (lines ~1294-1300): prepend the seed-160 deferral line.
-- [ ] Prepend the secrets-resolution (seed-213) step ahead of the docs-gate re-run step.
-- [ ] Correct the journal reconciliation label from `(seed-160 step 0e)` to `(seed-160 step 0 / Reconcile journals)`.
-- [ ] Confirm the list remains short and does not enumerate seed-160 step-8 backfills.
-- [ ] Add/extend a regression test asserting the rendered output (AC-5).
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and confirm green.
+- [x] Read seed-160 (`.wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md`) around lines 53-58 and 151-158 to confirm the current block/label wording before editing.
+- [x] Open a gate as required before editing the framework script (`framework_edit_allowed`), and close it immediately after.
+- [x] Edit `_print_operator_summary` in `upgrade_wavefoundry.py` (lines ~1294-1300): prepend the seed-160 deferral line.
+- [x] Prepend the secrets-resolution (seed-213) step ahead of the docs-gate re-run step.
+- [x] Correct the journal reconciliation label from `(seed-160 step 0e)` to `(seed-160 step 0 / Reconcile journals)`.
+- [x] Confirm the list remains short and does not enumerate seed-160 step-8 backfills.
+- [x] Add/extend a regression test asserting the rendered output (AC-5).
+- [x] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and confirm green.
 
 ## Agent Execution Graph
 
@@ -96,7 +96,7 @@ N/A — this is an advisory operator-output string change confined to a single f
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
-|      |        |          |
+| 2026-06-08 | Rewrote the `_print_operator_summary` 'Next steps' block: prepended a seed-160 deferral line, fixed the journal label `(seed-160 step 0e)`→`(seed-160 step 0 / Reconcile journals)`, prepended a seed-213 secrets-resolution step before the docs-gate re-run; kept it short (no step-8 backfill enumeration). | upgrade_wavefoundry.py; `test_next_steps_defers_to_seed_160`. |
 
 
 ## Decision Log

@@ -2028,6 +2028,68 @@ class SnapshotStoreTests(unittest.TestCase):
         self.assertIn("project", snap)
 
 
+class UpgradeLockFailureMarkerTests(unittest.TestCase):
+    """Wave 1p44o (AC-3) — _check_upgrade_lock must NOT auto-clear a retained
+    failure-marked lock even though the exited upgrade's PID now looks stale, so
+    the dashboard stays paused and never force-reindexes a gate-failed tree.
+
+    Exercised via the unbound method on a minimal stand-in (it only reads
+    ``self._root``) so no watcher thread / index subprocess is started.
+    """
+
+    def setUp(self):
+        # `_check_upgrade_lock` does `import upgrade_lib` at call time — make the
+        # scripts dir importable so the real (non-degraded) path runs.
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        _, self.srv = load_dashboard_modules()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / ".wavefoundry").mkdir(parents=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _lock_path(self) -> Path:
+        return self.root / ".wavefoundry" / "upgrade-in-progress.json"
+
+    def _write_lock(self, **fields) -> None:
+        data = {"from_version": "a", "to_version": "b", "pid": 999_999_999}
+        data.update(fields)
+        self._lock_path().write_text(json.dumps(data), encoding="utf-8")
+
+    def _check(self) -> bool:
+        return self.srv.SnapshotStore._check_upgrade_lock(
+            SimpleNamespace(_root=self.root)
+        )
+
+    def test_failure_marked_stale_lock_not_cleared(self):
+        # Dead PID (upgrade process exited) + failure marker → stays locked, retained.
+        self._write_lock(
+            failed_phase="docs_gate", failed_at="2026-06-08T00:00:00+00:00"
+        )
+        self.assertTrue(self._check())
+        self.assertTrue(
+            self._lock_path().exists(),
+            "failure-marked lock must not be auto-cleared (AC-3)",
+        )
+
+    def test_unmarked_stale_lock_is_cleared(self):
+        # Existing behavior preserved: dead PID + no marker → stale → auto-clear.
+        self._write_lock()
+        self.assertFalse(self._check())
+        self.assertFalse(
+            self._lock_path().exists(),
+            "unmarked stale lock retains existing auto-clear behavior",
+        )
+
+    def test_live_lock_without_marker_is_locked(self):
+        # Live PID, no marker → a normal in-progress upgrade → locked, retained.
+        self._write_lock(pid=os.getpid())
+        self.assertTrue(self._check())
+        self.assertTrue(self._lock_path().exists())
+
+
 class GitStatsParsingTests(unittest.TestCase):
     """Verify collect_git_stats parses subprocess output correctly."""
 

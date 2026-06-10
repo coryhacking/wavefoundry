@@ -1049,6 +1049,18 @@ class NewChangeTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_new_change_passes_repo_root_to_build_id(self):  # 1p45b AC-2
+        lc = self.srv._lifecycle_module()
+        with patch.object(lc, "build_id", wraps=lc.build_id) as spy:
+            self.srv.new_change(self.root, "feat", "dedup-x")
+        self.assertEqual(spy.call_args.kwargs.get("repo_root"), self.root)
+
+    def test_create_wave_passes_repo_root_to_build_id(self):  # 1p45b AC-2
+        lc = self.srv._lifecycle_module()
+        with patch.object(lc, "build_id", wraps=lc.build_id) as spy:
+            self.srv.create_wave(self.root, "dedup-wave", mode="dry_run")
+        self.assertEqual(spy.call_args.kwargs.get("repo_root"), self.root)
+
     def test_creates_change_doc_file(self):
         result = self.srv.new_change(self.root, "feat", "my-feature")
         out_path = self.root / result["path"]
@@ -15876,6 +15888,32 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         called_cmd = mock_run.call_args[0][0]
         self.assertIn("--cleanup", called_cmd)
 
+    def test_resume_after_gate_phase_passes_flag(self):
+        """Wave 1p44r AC-7: resume_after_gate is a valid phase and maps to
+        --resume-after-gate."""
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "Docs gate PASSED on resume\n"
+        mock_proc.stderr = ""
+        with patch("subprocess.run", return_value=mock_proc) as mock_run:
+            result = self.srv.wave_upgrade_response(self.root, phase="resume_after_gate", mode="apply")
+        called_cmd = mock_run.call_args[0][0]
+        self.assertIn("--resume-after-gate", called_cmd)
+        self.assertNotEqual(result.get("status"), "error")
+
+    def test_resume_after_gate_nonzero_exit_is_error(self):  # wave 1p44r AC-5 (delivery review)
+        # A repeated docs-gate failure (exit 1) on resume must map to status=error
+        # so the caller detects it (the exit-code mapping is phase-agnostic).
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1
+        mock_proc.stdout = ""
+        mock_proc.stderr = "Docs gate still failing"
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wave_upgrade_response(self.root, phase="resume_after_gate", mode="apply")
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["data"]["exit_code"], 1)
+        self.assertIn("upgrade_failed", [d["code"] for d in result.get("diagnostics", [])])
+
     def test_dry_run_mode_passes_flag_and_omits_yes(self):
         """mode='dry_run' passes --dry-run and must NOT pass --yes (read-only, no prompt)."""
         mock_proc = MagicMock()
@@ -16893,3 +16931,124 @@ class WaveCloseSecretsGateTests(unittest.TestCase):
         }])
         result = self._close()
         self.assertNotIn("secrets_gate_confirmed_secret", self._diagnostic_codes(result))
+
+
+# Wave 1p41o: code_risk_score MCP wrapper-layer regression (AC-7) — assert the
+# documented fields survive the tool boundary, not just the query-layer method.
+_RISK_WRAP_FIXTURE = {
+    "present": True,
+    "layer": "project",
+    "nodes": [
+        {"id": "src/m.py", "label": "m", "kind": "module", "source_file": "src/m.py"},
+        {"id": "src/m.py::hub", "label": "hub", "kind": "function", "source_file": "src/m.py"},
+        {"id": "src/m.py::leaf", "label": "leaf", "kind": "function", "source_file": "src/m.py"},
+        {"id": "src/c1.py::a", "label": "a", "kind": "function", "source_file": "src/c1.py"},
+        {"id": "src/c2.py::b", "label": "b", "kind": "function", "source_file": "src/c2.py"},
+    ],
+    "edges": [
+        {"source": "src/c1.py::a", "target": "src/m.py::hub", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+        {"source": "src/c2.py::b", "target": "src/m.py::hub", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+    ],
+}
+
+
+class CodeRiskScoreWrapperTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _call(self, scope, **kw):
+        gqmod = self.srv._load_graph_query()
+        idx = gqmod.GraphQueryIndex(dict(_RISK_WRAP_FIXTURE))
+        with patch.object(
+            gqmod.GraphQueryIndex, "from_root",
+            classmethod(lambda cls, root, layer="project": idx),
+        ):
+            return self.srv.code_risk_score_response(self.root, scope, **kw)
+
+    def test_wrapper_surfaces_documented_fields(self):
+        resp = self._call("src/m.py", top=5)
+        self.assertEqual(resp["status"], "ok")
+        data = resp["data"]
+        self.assertEqual(data["score_formula"], "risk = affected_file_count * log1p(fan_in)")
+        self.assertEqual(data["score_components"], ["affected_file_count", "fan_in", "fan_out"])
+        self.assertTrue(data["results"])
+        top = data["results"][0]
+        self.assertEqual(top["label"], "hub")
+        for field in ("node_id", "label", "source_file", "kind",
+                      "affected_file_count", "fan_in", "fan_out", "risk", "hop"):
+            self.assertIn(field, top, f"missing documented field {field!r} through the tool boundary")
+
+    def test_wrapper_empty_scope_errors(self):
+        resp = self.srv.code_risk_score_response(self.root, "")
+        self.assertEqual(resp["status"], "error")
+
+    def test_wrapper_over_cap_errors(self):
+        resp = self._call("src/m.py", candidate_cap=1)
+        self.assertEqual(resp["status"], "error")
+        self.assertIn("scope_too_large", json.dumps(resp))
+
+
+# Wave 1p4es: code_impact graph-mode ergonomics — edges bounded by max_results,
+# edges_total surfaced, resolved no longer null (Teton field report).
+_IMPACT_EDGES_FIXTURE = {
+    "present": True,
+    "layer": "project",
+    "nodes": [
+        {"id": "m.py::hub", "label": "hub", "kind": "function", "source_file": "m.py"},
+        {"id": "a.py::a", "label": "a", "kind": "function", "source_file": "a.py"},
+        {"id": "b.py::b", "label": "b", "kind": "function", "source_file": "b.py"},
+        {"id": "c.py::c", "label": "c", "kind": "function", "source_file": "c.py"},
+    ],
+    "edges": [
+        {"source": "a.py::a", "target": "m.py::hub", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+        {"source": "b.py::b", "target": "m.py::hub", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+        {"source": "c.py::c", "target": "m.py::hub", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+    ],
+}
+
+
+class CodeImpactErgonomicsTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _call(self, **kw):
+        gqmod = self.srv._load_graph_query()
+        idx = gqmod.GraphQueryIndex(dict(_IMPACT_EDGES_FIXTURE))
+        with patch.object(
+            gqmod.GraphQueryIndex, "from_root",
+            classmethod(lambda cls, root, layer="project": idx),
+        ):
+            return self.srv.code_impact_response(self.root, symbol="hub", **kw)
+
+    def test_edges_bounded_by_max_results_and_total_surfaced(self):
+        resp = self._call(max_results=2)
+        self.assertEqual(resp["status"], "ok")
+        d = resp["data"]
+        # hub has 3 callers → 3 edges; max_results=2 caps the response edges.
+        self.assertLessEqual(len(d["edges"]), 2, "edges must be bounded by max_results")
+        self.assertGreaterEqual(d["edges_total"], 3, "edges_total must surface the real count")
+        self.assertTrue(d["truncated"], "truncated must reflect edge truncation")
+
+    def test_resolved_field_is_true_not_null(self):
+        resp = self._call(max_results=50)
+        d = resp["data"]
+        self.assertEqual(d["resolved"], True, "graph-mode `resolved` must be True (was null)")
+        self.assertEqual(d["node_id"], "m.py::hub")

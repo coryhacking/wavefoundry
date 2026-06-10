@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: framework-operator
 Category: persona
-Last verified: 2026-06-04
+Last verified: 2026-06-09
 
 ## Who
 
@@ -32,7 +32,7 @@ Last verified: 2026-06-04
 **Daily operation:**
 - Verify the docs gate: prefer MCP **`wave_validate`** (and **`wave_garden`** when metadata needs refresh); use **`.wavefoundry/bin/docs-lint`** only without MCP
 - Use shortcut phrases from `AGENTS.md` for planning, wave management, and closure
-- Generate IDs: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>`
+- Generate IDs: prefer the MCP `wave_create_wave` / `wave_new_<kind>` tools (they dedupe against on-disk IDs). CLI fallback when MCP is unavailable: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>`
 
 **Upgrade:**
 1. Build or obtain a new semver release zip in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`

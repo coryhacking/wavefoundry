@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import heapq
 import importlib.util
 import itertools
@@ -9,7 +10,7 @@ import math
 import sys
 from collections import deque
 from pathlib import Path
-from typing import Any, Iterable, Literal
+from typing import Any, Callable, Iterable, Literal
 
 Layer = Literal["project", "framework", "union"]
 Direction = Literal["callers", "callees", "both"]
@@ -21,6 +22,23 @@ _DEFAULT_IMPACT_RELATIONS = ("imports", "calls")
 _DEFAULT_CALL_RELATIONS = ("calls",)
 _DOC_KINDS = frozenset({"doc", "seed"})
 _CHOKEPOINT_FAN_OUT = 20
+
+
+def _scope_matches(scope: str, source_file: str) -> bool:
+    """True when ``source_file`` falls under ``scope`` (wave 1p41o).
+
+    ``scope`` is a repo-relative file path, a directory prefix, or a glob
+    (containing ``*``/``?``/``[]``). Path separators are normalized so callers
+    can pass either style.
+    """
+    scope = (scope or "").strip().replace("\\", "/")
+    sf = (source_file or "").replace("\\", "/")
+    if not scope or not sf:
+        return False
+    if any(ch in scope for ch in "*?["):
+        return fnmatch.fnmatch(sf, scope)
+    return sf == scope or sf.startswith(scope.rstrip("/") + "/")
+
 
 _GRAPH_INDEXER_MOD = None
 
@@ -1268,6 +1286,102 @@ class GraphQueryIndex:
             "max_hops": max_hops,
             "relations": list(rels),
         }
+
+    def risk_score(
+        self,
+        scope: str,
+        *,
+        max_hops: int = 3,
+        top: int = 20,
+        candidate_cap: int = 200,
+        is_test_path: Callable[[str], bool] | None = None,
+    ) -> dict[str, Any]:
+        """Rank symbols defined in ``scope`` by how risky they are to *change*.
+
+        Composite v1 (wave 1p41o): ``risk = affected_file_count * log1p(fan_in)``
+        — blast radius (count of distinct files reachable upstream, i.e. who
+        breaks if this symbol changes) times log-dampened call-degree (to avoid
+        hub domination). ``fan_out`` (what the symbol itself calls — near-
+        orthogonal to change-risk) is surfaced as an *independent* component,
+        NOT multiplied into ``risk``. The response carries ``score_formula`` and
+        ``score_components`` so the score is transparent, re-weightable, and
+        extensible (future signals fold into ``score_components`` without a
+        rename). ``risk`` is a *relative rank within the queried scope*, not a
+        cross-module-comparable absolute magnitude.
+
+        ``scope`` is a repo-relative file path, directory prefix, or glob
+        (``*``/``?``/``[]``). Candidate symbols are the ``function``/``method``
+        definitions whose ``source_file`` matches. The candidate set is bounded
+        by ``candidate_cap`` (default 200) — ``graph_impact`` runs a reverse-BFS
+        per candidate — and over the cap the call returns ``over_candidate_cap``
+        rather than scoring a misleading subset. ``is_test_path``, when given,
+        filters test-file nodes out of the blast radius (mirrors ``code_impact``).
+        """
+        fan_in_counts: dict[str, int] = {}
+        fan_out_counts: dict[str, int] = {}
+        for edge in self.edges:
+            if edge.get("relation") != "calls":
+                continue
+            tgt = edge.get("target")
+            src = edge.get("source")
+            if isinstance(tgt, str):
+                fan_in_counts[tgt] = fan_in_counts.get(tgt, 0) + 1
+            if isinstance(src, str):
+                fan_out_counts[src] = fan_out_counts.get(src, 0) + 1
+
+        candidates = [
+            node for node in self.nodes
+            if node.get("kind") in ("function", "method")
+            and node.get("source_file")
+            and _scope_matches(scope, str(node.get("source_file") or ""))
+        ]
+        candidate_count = len(candidates)
+        base = {
+            "scope": scope,
+            "score_formula": "risk = affected_file_count * log1p(fan_in)",
+            "score_components": ["affected_file_count", "fan_in", "fan_out"],
+            "candidate_count": candidate_count,
+            "candidate_cap": candidate_cap,
+            "top": top,
+            "max_hops": max_hops,
+        }
+        if candidate_count > candidate_cap:
+            # Over the cap: do NOT score an arbitrary subset (that would hide the
+            # riskiest symbols). Signal the caller to narrow scope instead.
+            return {**base, "over_candidate_cap": True, "results": []}
+
+        results: list[dict[str, Any]] = []
+        for node in candidates:
+            nid = str(node.get("id"))
+            impact = self.graph_impact(nid, max_hops=max_hops)
+            affected = impact.get("affected") or []
+            if is_test_path is not None:
+                affected = [
+                    a for a in affected
+                    if not is_test_path(str(a.get("source_file") or ""))
+                ]
+            files = {
+                str(a.get("source_file") or "")
+                for a in affected if a.get("source_file")
+            }
+            affected_file_count = len(files)
+            fan_in = fan_in_counts.get(nid, 0)
+            fan_out = fan_out_counts.get(nid, 0)
+            worst_hop = max((int(a.get("hop", 0)) for a in affected), default=0)
+            risk = affected_file_count * math.log1p(fan_in)
+            results.append({
+                "node_id": nid,
+                "label": node.get("label", nid),
+                "source_file": node.get("source_file"),
+                "kind": node.get("kind"),
+                "affected_file_count": affected_file_count,
+                "fan_in": fan_in,
+                "fan_out": fan_out,
+                "risk": risk,
+                "hop": worst_hop,
+            })
+        results.sort(key=lambda r: (-r["risk"], -r["fan_in"], r["node_id"]))
+        return {**base, "over_candidate_cap": False, "results": results[:top]}
 
     def callgraph(
         self,

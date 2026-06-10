@@ -1,10 +1,10 @@
 # Scan Findings Format Reference Doc
 
 Change ID: `1p455-doc scan-findings-format-reference-doc`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
 Status: planned
-Last verified: 2026-06-08
+Last verified: 2026-06-09
 Wave: 1p44n framework-1p6-hardening
 
 ## Rationale
@@ -51,25 +51,27 @@ This change also **corrects a false sub-claim** in the originating report: the r
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `docs/references/scan-findings-format.md` exists and documents the full finding-record schema (`id`, `file`, `line`, `line_hash`, `context_hash`, `rule_id`, `matched_text`, `status`, `confirmations[]`) consistent with `secrets_validators.py:603-612`.
-- [ ] AC-2: The new doc documents the status lifecycle `pending` → `false-positive` / `suspected-secret` / `confirmed-secret` plus `acknowledged_for_wave` / `override_reason`, consistent with `213-security-reviewer.prompt.md:17-55`.
-- [ ] AC-3: The new doc documents the `[policy] false_positive_confirmations_required` threshold contract (default 2, solo-repo 1) and its role in clearing false-positives and `wave_close` soft-blocks.
-- [ ] AC-4: The new doc includes an explicit warning that `docs/scan-findings.json` is committed and self-scanned, and documents the `[allowlist].paths` self-exclusion that prevents it from re-triggering.
-- [ ] AC-5: `160-upgrade-wavefoundry.prompt.md` (step 8) and `012-install-wavefoundry-phase-2.prompt.md` (step 2.3a) each contain a reference to `docs/references/scan-findings-format.md`.
-- [ ] AC-6: This change doc explicitly records that `docs/references/install-log-format.md` already exists (100 lines, real content, referenced by seed-011:11 and 010:22/35/37) and requires no action.
-- [ ] AC-7 (regression / lint): `docs-lint` (`.wavefoundry/bin/docs-lint`) runs clean over the new doc and the two edited seeds; a doc-cross-reference check verifies the new doc path resolves and is reachable from both seeds (e.g., `grep` for `scan-findings-format.md` in both seed files returns a hit).
+- [x] AC-1: `docs/references/scan-findings-format.md` exists and documents the full finding-record schema (`id`, `file`, `line`, `line_hash`, `context_hash`, `rule_id`, `matched_text`, `status`, `confirmations[]`) consistent with `secrets_validators.py:603-612`.
+- [x] AC-2: The new doc documents the status lifecycle `pending` → `false-positive` / `suspected-secret` / `confirmed-secret` plus `acknowledged_for_wave` / `override_reason`, consistent with `213-security-reviewer.prompt.md:17-55`.
+- [x] AC-3: The new doc documents the `[policy] false_positive_confirmations_required` threshold contract (default 2, solo-repo 1) and its role in clearing false-positives and `wave_close` soft-blocks.
+- [x] AC-4: The new doc includes an explicit warning that `docs/scan-findings.json` is committed and self-scanned, and documents the `[allowlist].paths` self-exclusion that prevents it from re-triggering.
+- [x] AC-5: `160-upgrade-wavefoundry.prompt.md` (step 8) and `012-install-wavefoundry-phase-2.prompt.md` (step 2.3a) each contain a reference to `docs/references/scan-findings-format.md`.
+- [x] AC-6: This change doc explicitly records that `docs/references/install-log-format.md` already exists (100 lines, real content, referenced by seed-011:11 and 010:22/35/37) and requires no action.
+- [x] AC-7 (regression / lint): `docs-lint` (`.wavefoundry/bin/docs-lint`) runs clean over the new doc and the two edited seeds; a doc-cross-reference check verifies the new doc path resolves and is reachable from both seeds (e.g., `grep` for `scan-findings-format.md` in both seed files returns a hit).
+- [x] AC-8 (provisioning / delivery correction): the reference doc is **shipped in the pack** and **provisioned into target projects**, not merely pointed at. `.wavefoundry/framework/docs/references/scan-findings-format.md` exists (byte-identical to the live `docs/references/` copy) so `build_pack` ships it; `seed-012` step 2.3a copies it into `docs/references/` on fresh install (if absent); `seed-160` refreshes it from the template on upgrade. This closes the original delivery gap where both seed pointers dangled for every target project (the pack carried only the seeds, never the doc they referenced).
 
 ## Tasks
 
-- [ ] Open the `seed_edit_allowed` gate: `wave_gate_open(gate="seed_edit_allowed")` (coordinate with 1p450/1p453 — shared seed edits).
-- [ ] Read `secrets_validators.py:595-620` and `213-security-reviewer.prompt.md:11-55` to confirm field names and lifecycle wording before authoring.
-- [ ] Author `docs/references/scan-findings-format.md`: header block, file locations, record schema table, `confirmations[]` schema, status lifecycle section, `[policy]` threshold contract section, and the self-scanned/`[allowlist].paths` warning section.
-- [ ] Edit `160-upgrade-wavefoundry.prompt.md` step 8 (~line 153) to point at the new doc.
-- [ ] Edit `012-install-wavefoundry-phase-2.prompt.md` step 2.3a (~line 37) to point at the new doc.
-- [ ] Record the `install-log-format.md` already-exists confirmation in the Decision Log and Progress Log of this change.
-- [ ] Run `.wavefoundry/bin/docs-lint` (or `wave_validate`) and fix any failures.
-- [ ] Grep both seeds for `scan-findings-format.md` to confirm the cross-references landed.
-- [ ] Close the gate: `wave_gate_close(gate="seed_edit_allowed")`.
+- [x] Open the `seed_edit_allowed` gate: `wave_gate_open(gate="seed_edit_allowed")` (coordinate with 1p450/1p453 — shared seed edits).
+- [x] Read `secrets_validators.py:595-620` and `213-security-reviewer.prompt.md:11-55` to confirm field names and lifecycle wording before authoring.
+- [x] Author `docs/references/scan-findings-format.md`: header block, file locations, record schema table, `confirmations[]` schema, status lifecycle section, `[policy]` threshold contract section, and the self-scanned/`[allowlist].paths` warning section.
+- [x] Edit `160-upgrade-wavefoundry.prompt.md` step 8 (~line 153) to point at the new doc.
+- [x] Edit `012-install-wavefoundry-phase-2.prompt.md` step 2.3a (~line 37) to point at the new doc.
+- [x] Record the `install-log-format.md` already-exists confirmation in the Decision Log and Progress Log of this change.
+- [x] Run `.wavefoundry/bin/docs-lint` (or `wave_validate`) and fix any failures.
+- [x] Grep both seeds for `scan-findings-format.md` to confirm the cross-references landed.
+- [x] **Delivery correction (AC-8):** ship the doc as a framework template at `.wavefoundry/framework/docs/references/scan-findings-format.md` and convert the seed pointers into provisioning steps (seed-012 copies on install; seed-160 refreshes on upgrade), so target projects actually receive the doc the seeds reference. Re-run the full suite (2905 ok, incl. `build_pack` 78) and `docs-lint`.
+- [x] Close the gate: `wave_gate_close(gate="seed_edit_allowed")`.
 
 ## Agent Execution Graph
 
@@ -110,7 +112,9 @@ N/A — this change adds a single reference doc under `docs/references/` and add
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
-|      |        |          |
+| 2026-06-08 | Created `docs/references/scan-findings-format.md` (record schema incl. in_comment/exp_date/override/confirmations, status lifecycle, `[policy]` threshold+clamp+expiry+override contract, self-scan/[allowlist] self-exclusion warning, redaction). Wired pointers in seed-160 (scan-rules bullet) + seed-012 (step 2.3a). Confirmed `docs/references/install-log-format.md` ALREADY EXISTS (100 lines, referenced by seed-011:11 + 010) — NOT recreated. | docs-lint clean. |
+| 2026-06-08 | **Delivery correction (pre-build):** caught that the two seed pointers dangled for every target project — the pack ships only `.wavefoundry/framework/`, so a repo-local `docs/references/scan-findings-format.md` is never delivered to targets. Shipped the doc as a framework template `.wavefoundry/framework/docs/references/scan-findings-format.md` (byte-identical) so `build_pack` carries it, and converted both seed pointers into provisioning steps: seed-012 step 2.3a copies it on fresh install (if absent); seed-160 refreshes it from the template on upgrade. Now every install/upgrade lands the doc the seeds reference. | Full suite 2905 ok (`build_pack` 78, `test_expected_files_present` uses membership asserts — new framework doc does not break the pack contract); `wave_validate` → `docs-lint: ok`; `diff -q` template vs live copy → IDENTICAL. |
+| 2026-06-08 | **Dedup doc correction (field test).** The `rule_id` row claimed cross-rule "same secret → first rule wins" dedup; p49k real-scan showed an `aws-secret-access-key` and a `generic-api-key` finding on the same line (`apis.ts:25`) are two legitimate entries — dedup is **span-based**, not value-based (confirmed against `scan_file_raw` + its existing test). Rewrote the row to describe span dedup accurately; both copies re-synced byte-identical. | `docs/references/scan-findings-format.md` + `.wavefoundry/framework/docs/references/scan-findings-format.md` (IDENTICAL); `wave_validate` → `docs-lint: ok`. |
 
 
 ## Decision Log
@@ -120,6 +124,7 @@ N/A — this change adds a single reference doc under `docs/references/` and add
 | ---------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | 2026-06-08 | Document the schema in one new `scan-findings-format.md`; keep seed-213 authoritative for lifecycle. | Single canonical reference removes the four-source scatter; seed-213 stays the source of truth for agent behavior, and the doc references it to avoid duplication drift. | Inline the schema into each seed (rejected: duplication); a combined findings+rules format doc (deferred: rules-format is out of scope). |
 | 2026-06-08 | Treat `install-log-format.md` as already-existing; record the non-action instead of creating it.   | The originating report's "missing" claim is false — the file exists with 100 lines and is referenced by seed-011:11 and 010:22/35/37; creating it would duplicate/overwrite real content. | "Create install-log-format.md" per the report (rejected: would clobber existing, correct content). |
+| 2026-06-08 | Ship the reference doc as a framework template (`.wavefoundry/framework/docs/references/`) and provision it via the seeds, rather than only pointing at a repo-local doc. | The pack ships only `.wavefoundry/framework/`; a `docs/references/` doc never reaches targets, so the original seed pointers would dangle in every installed/upgraded project. The template-in-pack + seed-copy pattern mirrors the established `install-log.template.md → .wavefoundry/install-log.md` provisioning, and is overwrite-on-upgrade because the doc is framework-tracked reference material operators do not hand-edit. | (a) Repoint the seeds to shipped sources (seed-213 + scan-rules.toml) — rejected: loses the consolidated schema reference for operators. (b) Leave as a self-host-only doc — rejected: the shipped seeds would keep dangling for targets. Note: `install-log-format.md` has the same latent provisioning gap (referenced by seed-011, not provisioned by any seed); out of scope here, flagged for a follow-on. |
 
 
 ## Risks

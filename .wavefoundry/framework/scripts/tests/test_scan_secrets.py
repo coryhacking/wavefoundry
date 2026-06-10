@@ -337,6 +337,15 @@ class TestRunSecretsScanMainEscalation(unittest.TestCase):
         _make_root(tmp)
         return tmp
 
+    def test_mode_full_uses_full_scan_path(self):  # wave 1p450 AC-7
+        # The full-scan entrypoint that wave_scan_secrets(mode="full") backs must
+        # resolve to scan_all=True (covers all tracked files), distinct from the
+        # default incremental path.
+        with tempfile.TemporaryDirectory() as d:
+            root = self._setup_root(Path(d))
+            result = self._run_main(root, "full")
+            self.assertTrue(result["_captured_scan_all"][0], "mode='full' must set scan_all=True")
+
     def test_no_stored_hash_escalates_incremental_to_full(self):
         with tempfile.TemporaryDirectory() as d:
             root = self._setup_root(Path(d))

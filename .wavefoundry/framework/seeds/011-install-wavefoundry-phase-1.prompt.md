@@ -8,7 +8,7 @@
 
 The install state is tracked in `.wavefoundry/install-log.md` — your project's **live log instance**, copied from `.wavefoundry/framework/install/install-log.template.md` on first install. The template is overwritten on framework upgrades; your live log is NOT, so install progress is preserved.
 
-Each row points at a step the agent must execute and an artifact the step is expected to produce. Read the first unchecked row, execute the step, verify the artifact, mark `[x]`, advance. The full row format and trustworthy-invariant rule are in `docs/references/install-log-format.md` (created during Phase 2 step 2.4 — until then, the rules are inline below).
+Each row points at a step the agent must execute and an artifact the step is expected to produce. Read the first unchecked row, execute the step, verify the artifact, mark `[x]`, advance. The full row format and trustworthy-invariant rule are in `docs/references/install-log-format.md` (provisioned during Phase 2 step 2.3 from the shipped framework template — until then, the rules are inline below).
 
 ### Bootstrap: copy template if live log doesn't exist
 

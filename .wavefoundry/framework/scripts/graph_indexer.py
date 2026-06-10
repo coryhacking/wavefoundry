@@ -25,7 +25,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "23"  # bumped for wave 1p2q3 (1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Teton field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges Teton observed in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (Teton-confirmed: ALL backend functions on their 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per Teton estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
+GRAPH_BUILDER_VERSION = "25"  # bumped for wave 1p4eq (cross-file-resolution-followups), one consolidated bump covering five graph-shaping changes: (1p4ef) fix a leaked `qualified` loop var that injected phantom qualified_index candidates for collapsed/basename-merged nodes (C#/Swift/Rust/Ruby) and silently suppressed unique cross-file resolution; (1p4er) same-package/same-directory disambiguation fallback for ambiguous receivers used WITHOUT an import (Java field miss, `JreCompat.canAccess`), GATED to Java/Kotlin/Go (same-dir ⇒ same-package visibility; Python/JS/TS/Rust/C# excluded); (1p4et) Go methods now keyed `Type.method` (was bare `method`) + package-qualified receiver inference (`var h foo.Helper` → `foo.Helper`, package PRESERVED and resolved by the candidate's package directory); (1p4eu) Rust `Type::assoc_fn()` resolution + struct-literal/`::new()` let-binding type inference; (1p4ev) C# namespace-membership disambiguation (own-namespace ∪ `using`), the namespace derived from each file's DECLARED namespace nodes by longest-prefix (nesting-proof), NOT by fixed-segment qname stripping. FAITHFULNESS FIXES (1p4eq adversarial verification): the 1p4et/1p4ev paths above already incorporate the over-resolution fixes the verification caught — dropping the Go package qualifier bound a co-located cross-package twin, and fixed-segment C# namespace stripping mis-derived a nested-class caller's namespace and bound a coincident sibling twin; both now stay external unless a unique package/namespace-faithful candidate matches. COVERAGE SCOPE — synthetic-fixture tests only, NOT yet validated against a real consumer project: same-package = Java; cross-file method/assoc-fn = Go + Rust; ambiguous-receiver namespace membership = C#. Each carries an adversarial "never binds the wrong twin / stays external" test. **Correction to the v24 line below:** v24 advertised its `imports`-edge disambiguation as "language-agnostic (Python + Java/Kotlin/C#/Go)" — that was over-stated; it fired ONLY for Python + Java (per-type imports), and was dead code for C#/Go/Rust (their import heads are namespaces/packages, not type names) until v25 supplied the per-language mechanisms above. Previous bump (1p47e 1p470): Python sibling-loader return-type inference + cross-file import disambiguation. v24 resolves the lazy-loader blast-radius hole — `gq = _load_graph_query()` (→ `_load_script("graph_query")`) and direct `v = _load_script("mod")` now bind `v.Class.method()` / `v.func()` to the loaded module's symbols (previously emitted NO edge because `v` had no known type; e.g. `GraphQueryIndex.from_root` was called from 14 sites with 0 incoming edges). Also adds import-edge-based disambiguation in the cross-file rewrite pass: an ambiguous `external::Type.method` (multiple same-simple-name candidates) is disambiguated via the source file's `imports` edge for `Type`, language-agnostically (Python + Java/Kotlin/C#/Go). Previous bump (1p2q3 / 1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Teton field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges Teton observed in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (Teton-confirmed: ALL backend functions on their 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per Teton estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
 GRAPH_DIRNAME = "graph"
 GRAPH_FILENAMES = {
     "project": "project-graph.json",
@@ -250,6 +250,14 @@ _TS_DEF_KEYWORDS = (
 )
 _TS_IMPORT_KEYWORDS = ("import", "using", "include", "require", "source", "use", "load")
 _TS_CALL_KEYWORDS = ("call", "invoke", "invocation", "command", "expression", "query", "access", "reference")
+# Wave 1p4eu: language statement keywords the multi-token relation fallback (a
+# regex over a node's text) would otherwise emit as junk `external::<kw>` import
+# edges — e.g. Java/Kotlin `import`, Kotlin `as`/`package`, Rust `use`/`pub`/`fn`.
+# None is ever a valid import or call TARGET in any supported language.
+_RELATION_KEYWORD_NOISE = frozenset({
+    "import", "use", "using", "package", "as", "from", "pub", "fn", "fun",
+    "mod", "export", "include", "require",
+})
 _TS_NAME_FIELD_PRIORITY = (
     "name", "identifier", "declarator", "target", "module", "path", "label",
     "field", "table", "view", "procedure", "function", "selector", "key", "attribute",
@@ -1867,6 +1875,14 @@ def _ts_is_import_node(node_type: str, mode: str) -> bool:
         return any(token in lower for token in ("from", "join", "into", "using", "with", "call", "reference", "source"))
     if mode == "config":
         return any(token in lower for token in ("include", "import", "source", "path", "file", "template", "script", "command"))
+    # Wave 1p4eu: the grammar ROOT node (`source_file` for Rust/Kotlin/Go/Swift/
+    # C/…) is NEVER an import, but the `source` import-keyword substring-matches
+    # it — so the generic relation fallback regexed the ENTIRE file into junk
+    # `external::<token>` import edges (every keyword/identifier on every line:
+    # `use`/`pub`/`fn`/`as`/`package`/function names). Java's root (`program`)
+    # never matched, which is why only the `source_file` languages were noisy.
+    if lower == "source_file":
+        return False
     return any(token in lower for token in _TS_IMPORT_KEYWORDS) or "import" in lower or "use" in lower or "include" in lower
 
 
@@ -2552,6 +2568,61 @@ def _find_enclosing_go_method_receiver_type(node, source_bytes: bytes) -> str | 
     return None
 
 
+def _go_simple_type_name(type_node, source_bytes: bytes) -> str | None:
+    """Type name from a Go type node (wave 1p4et; package-preserving since 1p4eq).
+
+    `type_identifier` → itself; `pointer_type` (`*T`) → inner type; `qualified_type`
+    (`pkg.Type`) → the PACKAGE-QUALIFIED `pkg.Type`. Returns None for shapes we
+    don't model (slices, maps, func types, generics).
+
+    Wave 1p4eq faithfulness fix: a `qualified_type` previously returned only the
+    bare trailing `Type`, dropping the package. That collapsed `foo.Helper` and a
+    co-located `bar.Helper` to the same `Helper` receiver key, so the 1p4er
+    same-directory fallback could bind the caller's OWN-package twin even though
+    the source explicitly named a DIFFERENT package — a wrong RECEIVER_RESOLVED
+    edge (caught by the 1p4eq adversarial verification). Preserving `pkg.Type`
+    lets the cross-file rewrite pass resolve by the candidate's package directory,
+    and stay external when no project package matches `pkg`.
+    """
+    tt = getattr(type_node, "type", "")
+    if tt == "type_identifier":
+        return source_bytes[type_node.start_byte:type_node.end_byte].decode("utf-8", errors="replace")
+    if tt == "pointer_type":
+        for c in (getattr(type_node, "children", []) or []):
+            inner = _go_simple_type_name(c, source_bytes)
+            if inner:
+                return inner
+    if tt == "qualified_type":
+        pkg = None
+        typ = None
+        for c in (getattr(type_node, "children", []) or []):
+            ct = getattr(c, "type", "")
+            if ct == "package_identifier" and pkg is None:
+                pkg = source_bytes[c.start_byte:c.end_byte].decode("utf-8", errors="replace")
+            elif ct == "type_identifier":
+                typ = source_bytes[c.start_byte:c.end_byte].decode("utf-8", errors="replace")
+        if typ:
+            return f"{pkg}.{typ}" if pkg else typ
+    return None
+
+
+def _go_method_node_receiver_type(method_node, source_bytes: bytes) -> str | None:
+    """Receiver type of a Go `method_declaration` node directly (wave 1p4et).
+
+    `func (h Helper) M()` / `func (h *Helper) M()` → 'Helper'. The FIRST
+    `parameter_list` (between `func` and the name) is the receiver.
+    """
+    for child in (getattr(method_node, "children", []) or []):
+        if getattr(child, "type", "") == "parameter_list":
+            for pl_child in (getattr(child, "children", []) or []):
+                if getattr(pl_child, "type", "") == "parameter_declaration":
+                    for pd_child in (getattr(pl_child, "children", []) or []):
+                        if getattr(pd_child, "type", "") in ("type_identifier", "pointer_type", "qualified_type"):
+                            return _go_simple_type_name(pd_child, source_bytes)
+            return None  # first parameter_list is the receiver; stop
+    return None
+
+
 def _search_go_declarations_in_scope(scope_node, name: str, source_bytes: bytes) -> str | None:
     """Search Go scope for `var name Type` declarations or function parameters."""
     stack = [scope_node]
@@ -2566,18 +2637,14 @@ def _search_go_declarations_in_scope(scope_node, name: str, source_bytes: bytes)
                 ct = getattr(child, "type", "")
                 if ct == "identifier" and name_child is None:
                     name_child = child
-                elif ct in ("type_identifier", "pointer_type"):
+                elif ct in ("type_identifier", "pointer_type", "qualified_type"):
                     type_child = child
             if name_child is not None and type_child is not None:
                 var_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
                 if var_name == name:
-                    t_type = getattr(type_child, "type", "")
-                    if t_type == "pointer_type":
-                        for c in (getattr(type_child, "children", []) or []):
-                            if getattr(c, "type", "") == "type_identifier":
-                                return source_bytes[c.start_byte:c.end_byte].decode("utf-8", errors="replace")
-                    else:
-                        return source_bytes[type_child.start_byte:type_child.end_byte].decode("utf-8", errors="replace")
+                    # Wave 1p4et: + qualified_type so `var h foo.Helper` infers `Helper`
+                    # (the dominant cross-package receiver shape; previously returned None).
+                    return _go_simple_type_name(type_child, source_bytes)
         elif n_type == "parameter_declaration":
             # parameter_declaration: identifier <name> + type_identifier <Type>
             name_child = None
@@ -2586,18 +2653,12 @@ def _search_go_declarations_in_scope(scope_node, name: str, source_bytes: bytes)
                 ct = getattr(child, "type", "")
                 if ct == "identifier" and name_child is None:
                     name_child = child
-                elif ct in ("type_identifier", "pointer_type"):
+                elif ct in ("type_identifier", "pointer_type", "qualified_type"):
                     type_child = child
             if name_child is not None and type_child is not None:
                 param_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
                 if param_name == name:
-                    t_type = getattr(type_child, "type", "")
-                    if t_type == "pointer_type":
-                        for c in (getattr(type_child, "children", []) or []):
-                            if getattr(c, "type", "") == "type_identifier":
-                                return source_bytes[c.start_byte:c.end_byte].decode("utf-8", errors="replace")
-                    else:
-                        return source_bytes[type_child.start_byte:type_child.end_byte].decode("utf-8", errors="replace")
+                    return _go_simple_type_name(type_child, source_bytes)  # wave 1p4et: + qualified_type
         # Don't descend into nested function bodies.
         if n_type in ("method_declaration", "function_declaration") and n is not scope_node:
             continue
@@ -2683,6 +2744,76 @@ def _resolve_go_call_target(call_node, source_bytes: bytes, symbol_lookup: dict[
 # =============================================================================
 
 
+def _rust_use_imports(use_node, source_bytes: bytes) -> list[tuple[str, str]]:
+    """Wave 1p4eu: clean (head, dotted_target) pairs from a Rust `use_declaration`.
+
+    Replaces the generic relation-candidate fallback, which emitted lossy
+    `::`-joined paths (`external::crate::services::Helper`) plus `use`/`as`
+    keyword-noise edges. Each pair's dotted target's FINAL segment is the
+    imported type name (so `imports_by_file`, which keys by the target's last
+    segment, is consumable); an `as` alias becomes the head while the target
+    keeps the REAL type name (the caller registers the alias in `import_aliases`).
+
+      use crate::services::Helper;            -> [("Helper", "crate.services.Helper")]
+      use super::util::{Reader, Writer as W}; -> [("Reader","super.util.Reader"),
+                                                  ("W","super.util.Writer")]
+      use foo::Bar as Baz;                    -> [("Baz", "foo.Bar")]
+      use crate::x::*;                        -> []   (glob — no specific symbol)
+    """
+    try:
+        arg = use_node.child_by_field_name("argument")
+    except Exception:
+        arg = None
+    if arg is None:
+        return []
+    out: list[tuple[str, str]] = []
+    _rust_walk_use_tree(arg, "", source_bytes, out)
+    return out
+
+
+def _rust_walk_use_tree(node, prefix: str, source_bytes: bytes, out: list[tuple[str, str]]) -> None:
+    """Recursive helper for `_rust_use_imports` — accumulates (head, target) pairs.
+
+    `prefix` is the accumulated dotted path from any enclosing `scoped_use_list`
+    (`use a::b::{...}`), without a trailing dot.
+    """
+    def _txt(n) -> str:
+        return source_bytes[n.start_byte:n.end_byte].decode("utf-8", errors="replace")
+
+    def _dotted(n) -> str:
+        return _txt(n).replace("::", ".")
+
+    def _join(p: str, seg: str) -> str:
+        return f"{p}.{seg}" if (p and seg) else (p or seg)
+
+    t = getattr(node, "type", "")
+    if t == "scoped_identifier":
+        name = node.child_by_field_name("name")
+        if name is not None:
+            out.append((_txt(name), _join(prefix, _dotted(node))))
+    elif t == "identifier":
+        nm = _txt(node)
+        if nm:
+            out.append((nm, _join(prefix, nm)))
+    elif t == "use_as_clause":
+        path = node.child_by_field_name("path")
+        alias = node.child_by_field_name("alias")
+        if path is not None and alias is not None:
+            # head = alias; target keeps the REAL type/path (final segment = type)
+            out.append((_txt(alias), _join(prefix, _dotted(path))))
+    elif t == "scoped_use_list":
+        path = node.child_by_field_name("path")
+        lst = node.child_by_field_name("list")
+        new_prefix = _join(prefix, _dotted(path)) if path is not None else prefix
+        if lst is not None:
+            for c in (getattr(lst, "children", []) or []):
+                if getattr(c, "type", "") in (
+                    "identifier", "scoped_identifier", "use_as_clause", "scoped_use_list",
+                ):
+                    _rust_walk_use_tree(c, new_prefix, source_bytes, out)
+    # use_wildcard (`::*`) and punctuation: skip — no specific imported symbol.
+
+
 def _find_enclosing_rust_impl_type(node, source_bytes: bytes) -> str | None:
     """Walk up to enclosing impl_item; return its target type."""
     cur = getattr(node, "parent", None)
@@ -2693,6 +2824,45 @@ def _find_enclosing_rust_impl_type(node, source_bytes: bytes) -> str | None:
                     return source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
             return None
         cur = getattr(cur, "parent", None)
+    return None
+
+
+def _rust_value_type(value_node, source_bytes: bytes) -> str | None:
+    """Infer the type of a Rust let-binding value (wave 1p4eu).
+
+    `Bar { .. }` (struct_expression) → 'Bar'; `Bar::new()` / `Type::from()` /
+    `Type::with_capacity()` / `Type::default()` (a call to a scoped_identifier
+    whose final segment is a constructor-convention name) → the type prefix.
+    Anything else → None (conservative — only the syntactically-named-type cases,
+    never an inter-procedural return type).
+    """
+    vt = getattr(value_node, "type", "")
+    if vt == "struct_expression":
+        for c in (getattr(value_node, "children", []) or []):
+            ct = getattr(c, "type", "")
+            if ct == "type_identifier":
+                return source_bytes[c.start_byte:c.end_byte].decode("utf-8", errors="replace")
+            if ct == "scoped_type_identifier":
+                last = None
+                for cc in (getattr(c, "children", []) or []):
+                    if getattr(cc, "type", "") == "type_identifier":
+                        last = cc
+                if last is not None:
+                    return source_bytes[last.start_byte:last.end_byte].decode("utf-8", errors="replace")
+        return None
+    if vt == "call_expression":
+        children = list(getattr(value_node, "children", []) or [])
+        callee = children[0] if children else None
+        if callee is not None and getattr(callee, "type", "") == "scoped_identifier":
+            text = source_bytes[callee.start_byte:callee.end_byte].decode("utf-8", errors="replace")
+            parts = text.split("::")
+            ctor = parts[-1] if parts else ""
+            if (
+                len(parts) >= 2
+                and parts[-2][:1].isupper()
+                and (ctor in ("new", "from", "default") or ctor.startswith("with_"))
+            ):
+                return parts[-2]
     return None
 
 
@@ -2712,10 +2882,21 @@ def _search_rust_declarations_in_scope(scope_node, name: str, source_bytes: byte
                     name_child = child
                 elif ct == "type_identifier":
                     type_child = child
-            if name_child is not None and type_child is not None:
+            if name_child is not None:
                 var_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
                 if var_name == name:
-                    return source_bytes[type_child.start_byte:type_child.end_byte].decode("utf-8", errors="replace")
+                    if type_child is not None:
+                        return source_bytes[type_child.start_byte:type_child.end_byte].decode("utf-8", errors="replace")
+                    # Wave 1p4eu: no explicit annotation — infer from the value
+                    # (`let x = Bar{..}` / `let x = Bar::new()`).
+                    try:
+                        value_node = n.child_by_field_name("value")
+                    except Exception:
+                        value_node = None
+                    if value_node is not None:
+                        inferred = _rust_value_type(value_node, source_bytes)
+                        if inferred:
+                            return inferred
         elif n_type == "parameter":
             # parameter: identifier <name> : type_identifier <Type>
             name_child = None
@@ -2798,6 +2979,20 @@ def _resolve_rust_call_target(call_node, source_bytes: bytes, symbol_lookup: dic
             if getattr(child, "type", "") == "field_identifier":
                 method_name = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
                 break
+    # Wave 1p4eu: associated-function call `Type::assoc_fn()` — callee is a
+    # scoped_identifier (`new` is owned by the construction resolver, excluded
+    # here). The `::` form is never indexed; emit the DOTTED `external::Type.fn`
+    # so the rewrite pass's qualified_index can resolve it cross-file. The
+    # PascalCase guard makes a module-fn call like `io::stdin()` fall through to
+    # None (stays external) — never mis-keyed as a type method (faithfulness).
+    if callee_type == "scoped_identifier":
+        _txt = source_bytes[callee.start_byte:callee.end_byte].decode("utf-8", errors="replace")
+        _parts = _txt.split("::")
+        if len(_parts) >= 2 and _parts[-1] != "new" and _parts[-2][:1].isupper():
+            _rt, _fn = _parts[-2], _parts[-1]
+            _q = f"{_rt}.{_fn}"
+            return symbol_lookup[_q] if _q in symbol_lookup else f"external::{_rt}.{_fn}"
+        return None
     if not method_name:
         return None
     receiver_type = _resolve_rust_receiver_type(call_node, source_bytes)
@@ -4400,6 +4595,10 @@ def _ts_relation_candidates(
         candidate for candidate in raw_candidates
         if candidate not in _STOP_TERMS
         and candidate not in profile_stop
+        # Import-only: statement keywords (`import`/`use`/`as`/…) are never import
+        # targets, but several (`from`, `require`, `default`) ARE valid method/
+        # function names, so the filter must NOT touch call candidates.
+        and not (relation == "import" and candidate in _RELATION_KEYWORD_NOISE)
         and not _ts_candidate_rejected(candidate)
     ]
 
@@ -4940,6 +5139,51 @@ class GraphIndexSession:
                     return right
             return None
 
+        # Wave 1p47e (1p470): lazy-loader return-type inference. The wavefoundry
+        # sibling-script loader idiom `def _load_X(): return _load_script("mod")`
+        # (and direct `v = _load_script("mod")`) returns a *module* object. Without
+        # tracking it, `v.Class.method()` / `v.func()` emitted no call edge at all
+        # because `v` had no known type — the dominant self-host blast-radius hole
+        # (`GraphQueryIndex.from_root` called from 14 sites, 0 incoming edges).
+        # `loader_modules` maps a file-local wrapper-function name → module name.
+        loader_modules: dict[str, str] = {}
+        for _ldr_stmt in tree.body:
+            if isinstance(_ldr_stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                _eff = [
+                    s for s in _ldr_stmt.body
+                    if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant))
+                ]
+                if len(_eff) == 1 and isinstance(_eff[0], ast.Return):
+                    _ret = _eff[0].value
+                    if (
+                        isinstance(_ret, ast.Call)
+                        and isinstance(_ret.func, ast.Name)
+                        and _ret.func.id == "_load_script"
+                        and _ret.args
+                        and isinstance(_ret.args[0], ast.Constant)
+                        and isinstance(_ret.args[0].value, str)
+                    ):
+                        loader_modules[_ldr_stmt.name] = _ret.args[0].value
+
+        def _py_loader_module(call_node: ast.AST) -> str | None:
+            """Module name a sibling-loader call returns, else None (wave 1p470).
+
+            Recognizes `_load_script("mod")` (direct) and `_load_wrapper()` where
+            the wrapper's body is `return _load_script("mod")`.
+            """
+            if isinstance(call_node, ast.Call) and isinstance(call_node.func, ast.Name):
+                fn = call_node.func.id
+                if (
+                    fn == "_load_script"
+                    and call_node.args
+                    and isinstance(call_node.args[0], ast.Constant)
+                    and isinstance(call_node.args[0].value, str)
+                ):
+                    return call_node.args[0].value
+                if fn in loader_modules:
+                    return loader_modules[fn]
+            return None
+
         def _py_build_local_types(node: ast.AST, scope_class: str | None) -> dict[str, str]:
             """Build name → type mapping for a function body (one-level scope)."""
             types: dict[str, str] = {}
@@ -4975,11 +5219,41 @@ class GraphIndexSession:
                         stack.append(value)
             return types
 
+        def _py_build_module_vars(node: ast.AST) -> dict[str, str]:
+            """Map local var → module name for sibling-loader assignments (1p470).
+
+            Tracks `v = _load_script("mod")` and `v = _load_wrapper()` so
+            `v.Class.method()` / `v.func()` resolve to the loaded module's
+            symbols. One-level scope, mirrors `_py_build_local_types`.
+            """
+            mvars: dict[str, str] = {}
+            body = getattr(node, "body", []) or []
+            stack = list(body)
+            while stack:
+                stmt = stack.pop()
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    continue
+                if (
+                    isinstance(stmt, ast.Assign)
+                    and len(stmt.targets) == 1
+                    and isinstance(stmt.targets[0], ast.Name)
+                ):
+                    mod = _py_loader_module(stmt.value)
+                    if mod:
+                        mvars[stmt.targets[0].id] = mod
+                for _field, value in ast.iter_fields(stmt):
+                    if isinstance(value, list):
+                        stack.extend(v for v in value if isinstance(v, ast.stmt))
+                    elif isinstance(value, ast.stmt):
+                        stack.append(value)
+            return mvars
+
         class CallCollector(ast.NodeVisitor):
-            def __init__(self, current_symbol: str, scope_class: str | None = None, local_types: dict[str, str] | None = None) -> None:
+            def __init__(self, current_symbol: str, scope_class: str | None = None, local_types: dict[str, str] | None = None, module_vars: dict[str, str] | None = None) -> None:
                 self.current_symbol = current_symbol
                 self.scope_class = scope_class
                 self.local_types: dict[str, str] = local_types or {}
+                self.module_vars: dict[str, str] = module_vars or {}
                 # Wave 131bt (1319q): tuples of (source, target, receiver_resolved).
                 self.calls: list[tuple[str, str, bool]] = []
 
@@ -5028,16 +5302,36 @@ class GraphIndexSession:
                             if qualified in symbol_lookup:
                                 return symbol_lookup[qualified], True
                             return f"external::{receiver_type}.{attr}", True
+                        # Wave 1p470: sibling-loader module var, e.g.
+                        # `gq = _load_graph_query(); gq.some_module_func()`.
+                        if root in self.module_vars:
+                            return f"external::{self.module_vars[root]}.{attr}", True
                         if root in import_aliases:
                             return f"external::{import_aliases[root]}.{attr}", False
                         if root in symbol_lookup:
                             candidate = f"{root}.{attr}"
                             if candidate in symbol_lookup:
                                 return symbol_lookup[candidate], False
+                    # Wave 1p470: inline sibling-loader call, e.g.
+                    # `_load_graph_query().load_graph()`.
+                    if isinstance(value, ast.Call):
+                        mod = _py_loader_module(value)
+                        if mod:
+                            return f"external::{mod}.{attr}", True
                     if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name):
                         root = value.value.id
+                        # Wave 1p470: `gq.GraphQueryIndex.from_root()` where gq is a
+                        # sibling-loader module var → graph_query.GraphQueryIndex.from_root.
+                        if root in self.module_vars:
+                            return f"external::{self.module_vars[root]}.{value.attr}.{attr}", True
                         if root in import_aliases:
                             return f"external::{import_aliases[root]}.{value.attr}.{attr}", False
+                    # Wave 1p470: inline loader 3-level, e.g.
+                    # `_load_graph_query().GraphQueryIndex.from_root()`.
+                    if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Call):
+                        mod = _py_loader_module(value.value)
+                        if mod:
+                            return f"external::{mod}.{value.attr}.{attr}", True
                     return None, False
                 return None, False
 
@@ -5045,9 +5339,11 @@ class GraphIndexSession:
             # Wave 131bt (1319q): build local type table for receiver-type
             # resolution when an owner function/method is provided.
             local_types: dict[str, str] = {}
+            module_vars: dict[str, str] = {}
             if owner_node is not None:
                 local_types = _py_build_local_types(owner_node, scope_class)
-            collector = CallCollector(current_symbol, scope_class=scope_class, local_types=local_types)
+                module_vars = _py_build_module_vars(owner_node)
+            collector = CallCollector(current_symbol, scope_class=scope_class, local_types=local_types, module_vars=module_vars)
             for stmt in body:
                 collector.visit(stmt)
                 if isinstance(stmt, ast.ClassDef):
@@ -5511,6 +5807,19 @@ class GraphIndexSession:
             is_definition = bool(_ts_markup_name_candidates(node, source_bytes)) if mode == "markup" else _ts_is_definition_node(node_type, mode)
             if is_import:
                 source_symbol = scope_symbols[-1] if scope_symbols else module_id
+                # Wave 1p4eu (AC-5): Rust `use_declaration` — emit CLEAN dotted
+                # import edges (final segment = the imported type name, so
+                # `imports_by_file` is consumable) with `as` aliases registered in
+                # `import_aliases`, and produce NO keyword-noise edge. The generic
+                # relation-candidate fallback below emitted `external::use`/`pub`/
+                # `fn`/`as` junk and lossy `::`-paths for Rust; handling the
+                # use-tree explicitly and returning skips that path entirely.
+                if lang_key == "rust" and node_type == "use_declaration":
+                    for _imp_head, _imp_target in _rust_use_imports(node, source_bytes):
+                        add_edge(source_symbol, f"external::{_imp_target}", "imports", confidence="EXTRACTED")
+                        if _imp_head and _imp_head != _imp_target.rsplit(".", 1)[-1]:
+                            import_aliases[_imp_head] = _imp_target
+                    return
                 # Wave 1p2q3 (1p2tf): extract imported names BEFORE resolving so
                 # we can register each name → resolved-target binding for the
                 # receiver-type resolver later.
@@ -5524,7 +5833,20 @@ class GraphIndexSession:
                 if lang_key in ("typescript", "javascript"):
                     imported_names = _ts_extract_imported_names(node, source_bytes)
                     raw_spec = _ts_extract_import_module_specifier(node, source_bytes)
-                for target in _ts_relation_candidates(node, source_bytes, "import", mode):
+                # Wave 1p4eu: this import node's `as` aliases (`X as W` → {W: X}),
+                # computed once — used both to drop the redundant bare-alias-name
+                # candidate (the Kotlin `external::W` cosmetic node) and registered
+                # in `import_aliases` at the end of the branch.
+                _node_aliases = _ts_import_aliases(node, source_bytes, mode)
+                _import_candidates = _ts_relation_candidates(node, source_bytes, "import", mode)
+                _import_candidate_set = set(_import_candidates)
+                for target in _import_candidates:
+                    # Skip the bare alias NAME (RHS of `as`) when its real target is
+                    # also a candidate: the alias is captured in `import_aliases`, so
+                    # an `external::<alias>` edge would be a redundant lossy node.
+                    _aliased = _node_aliases.get(target)
+                    if _aliased and _aliased != target and _aliased in _import_candidate_set:
+                        continue
                     resolved: str | None = None
                     if lang_key in ("typescript", "javascript"):
                         # Wave 1p2q3 (1p2tz post-ship-3): try relative-path
@@ -5559,7 +5881,7 @@ class GraphIndexSession:
                     else:
                         for name in imported_names:
                             import_targets[name] = resolved
-                import_aliases.update(_ts_import_aliases(node, source_bytes, mode))
+                import_aliases.update(_node_aliases)
             # Wave 1p2q3 (1p2tz post-ship per Teton field validation): TS/JS
             # arrow-function / function-expression bound to a `const`.
             if lang_key in ("typescript", "javascript"):
@@ -5580,6 +5902,15 @@ class GraphIndexSession:
                 candidates = _ts_name_candidates(node, source_bytes, mode)
                 name = _ts_pick_symbol_name(candidates, mode, node_type)
                 if name:
+                    # Wave 1p4et: Go methods are top-level `func (r Type) Method()`
+                    # — not nested in a class scope — so without this they register
+                    # as bare `Method`; the resolver's `Type.method` symbol_lookup
+                    # probe always misses and two types with a same-named method
+                    # collide to one id. Prepend the receiver type → `Type.Method`.
+                    if lang_key == "go" and node_type == "method_declaration" and not scope_names:
+                        _recv = _go_method_node_receiver_type(node, source_bytes)
+                        if _recv:
+                            name = f"{_recv}.{name}"
                     kind = _ts_kind_for_definition(node_type, current_scope_kind, mode)
                     qname = ".".join([*scope_names, name]) if scope_names else name
                     parent_symbol = scope_symbols[-1] if scope_symbols else module_id
@@ -6196,9 +6527,21 @@ class GraphIndexSession:
         simple_name_index: dict[str, list[str]] = {}
         qualified_index: dict[str, list[str]] = {}
         per_file_simple: dict[tuple[str, str], str] = {}
+        # Wave 1p4eq (1p4ev faithfulness fix): each C# file's DECLARED namespaces,
+        # harvested from its namespace nodes (`file.cs::Namespace`, kind="module").
+        # The cross-file C# membership disambiguation derives a node's namespace by
+        # longest-declared-prefix against this map instead of string-stripping a
+        # FIXED two qname segments — which mis-derived the namespace for a caller in
+        # a NESTED class (`Acme.Web.Outer.App.Run` → wrongly `Acme.Web.Outer`) and
+        # bound the wrong same-name twin (over-resolution caught by verification).
+        cs_file_ns: dict[str, set[str]] = {}
         for node_id, node in node_map.items():
             if node_id.startswith("external::"):
                 continue  # external endpoint nodes are not project candidates
+            if "::" in node_id and node.get("kind") == "module":
+                _ns_file = node_id.split("::", 1)[0]
+                if _ns_file.endswith(".cs"):
+                    cs_file_ns.setdefault(_ns_file, set()).add(node_id.split("::", 1)[1])
             # Wave 13129 (1316l): merged Swift class/module nodes (collapsed_pair=True)
             # live at the file id and carry the class label. Include them in the
             # simple_name_index so cross-file external::Foo rewrites resolve to the
@@ -6231,6 +6574,16 @@ class GraphIndexSession:
                 _, qualified = node_id.split("::", 1)
                 if qualified and qualified != simple:
                     qualified_index.setdefault(qualified, []).append(node_id)
+            else:
+                # Wave 1p4ef: collapsed / basename-merged node (no "::" in id —
+                # C#/Swift/Rust/Ruby emit one per class file). Its qualified name
+                # IS its label (== simple). Without this bind, `qualified` retains
+                # the PREVIOUS iteration's value and the dotted-form index below
+                # injects a phantom candidate (`{this_module}.{prior_qualified}`)
+                # under a key this node has nothing to do with — inflating a
+                # genuinely-unique match to len(candidates) > 1 and silently
+                # suppressing cross-file resolution.
+                qualified = simple
             # Also index a module-path-derived dotted form so per-file extractors
             # that emit dotted external targets (e.g. Python `from src.a import
             # foo` produces `external::src.a.foo`) can resolve to project nodes.
@@ -6265,6 +6618,23 @@ class GraphIndexSession:
             qualified_index[_k] = list(dict.fromkeys(qualified_index[_k]))
         for _k in list(simple_name_index.keys()):
             simple_name_index[_k] = list(dict.fromkeys(simple_name_index[_k]))
+        # Wave 1p47e (1p470): per-source-file import map for ambiguous-receiver
+        # disambiguation. file -> { imported simple name -> import FQN }. Built
+        # from the merged `imports` edges so a call whose receiver type is
+        # ambiguous by simple name (multiple same-named project candidates) can
+        # be disambiguated by which one the SOURCE FILE actually imported.
+        # Language-agnostic: any extractor that emits `imports` edges with FQN
+        # targets participates (Python from-imports, Java/Kotlin/C#/Go package
+        # imports). On a last-wins collision (a file importing two names with the
+        # same final segment), the later import wins — acceptable since the
+        # disambiguation still requires a UNIQUE qualified_index match downstream.
+        imports_by_file: dict[str, dict[str, str]] = {}
+        for (e_src, e_tgt, e_rel, _e_conf) in edge_map.keys():
+            if e_rel == "imports" and e_tgt.startswith("external::"):
+                fqn = e_tgt[len("external::"):]
+                if not fqn:
+                    continue
+                imports_by_file.setdefault(e_src, {})[fqn.rsplit(".", 1)[-1]] = fqn
         if simple_name_index or qualified_index:
             # Wave 1p2q3 (1p2wd post-ship 1.3.31 perf): rewrite in place
             # rather than building a separate `new_edge_map` and reassigning.
@@ -6332,6 +6702,129 @@ class GraphIndexSession:
                     if len(candidates) == 1:
                         resolved = candidates[0]
                         rewrote_via_bare_simple = True
+                # Wave 1p4eq (1p4et faithfulness fix): Go package-qualified
+                # receiver. `var h foo.Helper; h.Process()` now keys as
+                # `foo.Helper.Process` (the package qualifier is preserved by
+                # `_go_simple_type_name`). The qualifier is AUTHORITATIVE: resolve
+                # only to a candidate whose package — the Go-convention directory
+                # basename — matches `foo`. This recovers the cross-package
+                # resolution the bare-name form had, AND prevents the 1p4er
+                # same-directory fallback from binding a co-located same-name twin
+                # in a DIFFERENT package (the wrong RECEIVER_RESOLVED edge the
+                # verification caught). Stays external when no project package
+                # matches `foo` (a genuinely external package, or a name collision).
+                if (
+                    resolved is None
+                    and not candidates
+                    and bare.count(".") == 2
+                    and (src.split("::", 1)[0] if "::" in src else src).endswith(".go")
+                ):
+                    pkg_head, inner_key = bare.split(".", 1)
+                    pkg_matches = []
+                    for cand in qualified_index.get(inner_key, []):
+                        cfile = cand.split("::", 1)[0]
+                        cdir = cfile.rsplit("/", 1)[0] if "/" in cfile else ""
+                        cpkg = cdir.rsplit("/", 1)[-1] if cdir else ""
+                        if cpkg == pkg_head:
+                            pkg_matches.append(cand)
+                    if len(pkg_matches) == 1:
+                        resolved = pkg_matches[0]
+                # Wave 1p47e (1p470): import-edge disambiguation. When the
+                # simple/qualified match above was ambiguous (the receiver's
+                # name maps to MULTIPLE same-named project candidates), use the
+                # SOURCE FILE's `imports` edge for the receiver's head segment to
+                # pick the candidate whose defining module matches what the file
+                # imported. Filtering the candidate POOL (rather than re-looking-
+                # up a constructed FQN) is language-agnostic: it handles both
+                # Python (`from src.a import Foo` → file-module `src.a`, FQN
+                # `src.a.Foo`) and Java (`import com.foo.Helper` → file-module
+                # `com.foo.Helper`, same FQN) by accepting either the FQN itself
+                # or its parent module. Only fires when otherwise unresolved, and
+                # requires the filter to leave exactly ONE candidate — a
+                # genuinely external receiver has no project candidate to match,
+                # so it stays external. The `bare`/`final_seg` denylist above
+                # still applies (we never reach here for a denied name).
+                if resolved is None and len(candidates) > 1:
+                    src_file = src.split("::", 1)[0] if "::" in src else src
+                    head = bare.split(".", 1)[0]
+                    imp_fqn = imports_by_file.get(src_file, {}).get(head)
+                    if imp_fqn:
+                        accept = {imp_fqn}
+                        if "." in imp_fqn:
+                            accept.add(imp_fqn.rsplit(".", 1)[0])
+                        matches = []
+                        for cand in candidates:
+                            cfile = cand.split("::", 1)[0]
+                            cmod = re.sub(r"\.[A-Za-z0-9]+$", "", cfile).replace("/", ".").lstrip(".")
+                            if cmod in accept:
+                                matches.append(cand)
+                        if len(matches) == 1:
+                            resolved = matches[0]
+                    # Wave 1p4er: same-package / same-directory fallback. Java/
+                    # Kotlin/Go make same-package types visible WITHOUT an import,
+                    # so `imports_by_file` has no entry for them and the import path
+                    # above cannot fire (the Aceiss `JreCompat.canAccess` field
+                    # miss). Resolution order is explicit-import > same-package, so
+                    # this runs ONLY after the import path left it unresolved: keep
+                    # the ambiguous candidate(s) whose defining file is in the
+                    # SOURCE file's own directory; resolve iff exactly one is
+                    # co-located (two same-dir twins, or none → stays external).
+                    #
+                    # Wave 1p4eq (regression fix): GATED to languages where
+                    # same-directory ⇒ same-package visibility — Java/Kotlin/Go.
+                    # Python/JS/TS/Rust require an EXPLICIT import for a sibling
+                    # symbol to be visible, so same-directory co-location confers
+                    # nothing there and must not silently resolve (the verification's
+                    # regression seat). C# is also excluded: a C# namespace is not
+                    # tied to the directory — its membership is handled by the
+                    # `.cs`-gated namespace block below (a same-dir C# file can be a
+                    # DIFFERENT namespace). For Go, only the UNQUALIFIED receiver
+                    # (`Type.method`) reaches here; the package-qualified form is
+                    # resolved authoritatively by the Go block above.
+                    if resolved is None and src_file.endswith((".java", ".kt", ".kts", ".go")):
+                        src_dir = src_file.rsplit("/", 1)[0] if "/" in src_file else ""
+                        same_dir = []
+                        for cand in candidates:
+                            cfile = cand.split("::", 1)[0]
+                            cdir = cfile.rsplit("/", 1)[0] if "/" in cfile else ""
+                            if cdir == src_dir:
+                                same_dir.append(cand)
+                        if len(same_dir) == 1:
+                            resolved = same_dir[0]
+                    # Wave 1p4ev: C# namespace membership. A C# namespace can span
+                    # directories (so the same-dir fallback misses it), and cross-
+                    # namespace types are brought in by `using`. Keep candidates
+                    # whose namespace is the source's OWN namespace or a `using`-
+                    # imported one (the `using` FQNs are the values of
+                    # imports_by_file; junk heads like `using` never match a real
+                    # candidate namespace). Resolve iff exactly one survives —
+                    # never the wrong twin (faithfulness).
+                    #
+                    # Wave 1p4eq (1p4ev faithfulness fix): derive a node's namespace
+                    # from its file's DECLARED namespaces (`cs_file_ns`, harvested
+                    # from the `file.cs::Namespace` module nodes) by longest-prefix,
+                    # NOT by string-stripping a fixed two qname segments. The old
+                    # strip mis-derived the namespace for a caller in a NESTED class
+                    # — `app/App.cs::Acme.Web.Outer.App.Run` stripped to
+                    # `Acme.Web.Outer` instead of the file's real `Acme.Web` — and
+                    # bound a sibling twin whose namespace coincided with that
+                    # stripped path (a wrong RECEIVER_RESOLVED edge). The declared-
+                    # namespace lookup is nesting-proof: `app/App.cs` declares only
+                    # `Acme.Web`, so `Run`'s namespace resolves to `Acme.Web`.
+                    if resolved is None and src_file.endswith(".cs"):
+                        def _cs_ns(nid: str) -> str:
+                            f = nid.split("::", 1)[0]
+                            qn = nid.split("::", 1)[1] if "::" in nid else ""
+                            best = ""
+                            for ns in cs_file_ns.get(f, ()):
+                                if (qn == ns or qn.startswith(ns + ".")) and len(ns) > len(best):
+                                    best = ns
+                            return best
+                        accept_ns = {_cs_ns(src)} | set(imports_by_file.get(src_file, {}).values())
+                        accept_ns.discard("")
+                        ns_matches = [c for c in candidates if _cs_ns(c) in accept_ns]
+                        if len(ns_matches) == 1:
+                            resolved = ns_matches[0]
                 if resolved and resolved != src:
                     # Wave 1p2q3 (1p2tz post-ship-5): TS/JS bare-simple-name
                     # promotion. A bare identifier call like `foo()` rewritten

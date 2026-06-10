@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 import sys
 import tempfile
 import unittest
@@ -144,6 +145,104 @@ class GraphQueryTraversalTests(unittest.TestCase):
         self.assertTrue(any(row["node_id"] == "src/b.py::bar" for row in report["fan_in"]))
         orphan_ids = {row["node_id"] for row in report.get("orphan_docs", [])}
         self.assertNotIn("docs/guide.md", orphan_ids)
+
+
+# Wave 1p41o: code_risk_score composite (blast-radius × log-dampened degree).
+_RISK_FIXTURE = {
+    "present": True,
+    "layer": "project",
+    "nodes": [
+        {"id": "src/m.py", "label": "m", "kind": "module", "source_file": "src/m.py"},
+        {"id": "src/m.py::hub", "label": "hub", "kind": "function", "source_file": "src/m.py"},
+        {"id": "src/m.py::mid", "label": "mid", "kind": "function", "source_file": "src/m.py"},
+        {"id": "src/m.py::leaf", "label": "leaf", "kind": "function", "source_file": "src/m.py"},
+        {"id": "src/m.py::driver", "label": "driver", "kind": "function", "source_file": "src/m.py"},
+        {"id": "src/c1.py::a", "label": "a", "kind": "function", "source_file": "src/c1.py"},
+        {"id": "src/c2.py::b", "label": "b", "kind": "function", "source_file": "src/c2.py"},
+        {"id": "src/c3.py::c", "label": "c", "kind": "function", "source_file": "src/c3.py"},
+        {"id": "src/tests/test_x.py::t", "label": "t", "kind": "function", "source_file": "src/tests/test_x.py"},
+    ],
+    "edges": [
+        {"source": "src/c1.py::a", "target": "src/m.py::hub", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+        {"source": "src/c2.py::b", "target": "src/m.py::hub", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+        {"source": "src/c3.py::c", "target": "src/m.py::hub", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+        {"source": "src/tests/test_x.py::t", "target": "src/m.py::hub", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+        {"source": "src/c1.py::a", "target": "src/m.py::mid", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+        {"source": "src/m.py::driver", "target": "src/m.py::hub", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+    ],
+}
+
+
+class GraphQueryRiskScoreTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_graph_query()
+        self.index = self.mod.GraphQueryIndex(dict(_RISK_FIXTURE))
+
+    def _by_label(self, results):
+        return {r["label"]: r for r in results}
+
+    def test_ranking_and_formula(self):
+        out = self.index.risk_score("src/m.py")
+        self.assertFalse(out["over_candidate_cap"])
+        self.assertEqual(out["score_formula"], "risk = affected_file_count * log1p(fan_in)")
+        self.assertEqual(out["score_components"], ["affected_file_count", "fan_in", "fan_out"])
+        results = out["results"]
+        # Descending by risk; hub (high fan_in + blast radius) is the top risk.
+        risks = [r["risk"] for r in results]
+        self.assertEqual(risks, sorted(risks, reverse=True))
+        self.assertEqual(results[0]["label"], "hub")
+        # The composite holds exactly for every entry (math, not hardcoded afc).
+        for r in results:
+            self.assertAlmostEqual(
+                r["risk"], r["affected_file_count"] * math.log1p(r["fan_in"]), places=9
+            )
+
+    def test_components_surfaced(self):
+        by = self._by_label(self.index.risk_score("src/m.py")["results"])
+        # fan_in is raw calls-in degree (matches report(), NOT test-filtered):
+        # hub is called by a, b, c, driver, and the test caller t = 5. Only the
+        # blast-radius afc is test-filtered (matches code_impact) — the
+        # asymmetry is intentional.
+        self.assertEqual(by["hub"]["fan_in"], 5)
+        self.assertEqual(by["hub"]["fan_out"], 0)
+        self.assertEqual(by["mid"]["fan_in"], 1)
+        # driver: high-ish fan_out, no callers → fan_out is NOT folded into risk.
+        self.assertEqual(by["driver"]["fan_out"], 1)
+        self.assertEqual(by["driver"]["fan_in"], 0)
+        self.assertEqual(by["driver"]["risk"], 0)
+        # leaf: nothing calls it → zero risk.
+        self.assertEqual(by["leaf"]["risk"], 0)
+
+    def test_top_cap(self):
+        out = self.index.risk_score("src/m.py", top=1)
+        self.assertEqual(len(out["results"]), 1)
+        self.assertEqual(out["results"][0]["label"], "hub")
+
+    def test_empty_scope_is_not_over_cap(self):
+        out = self.index.risk_score("src/nonexistent.py")
+        self.assertFalse(out["over_candidate_cap"])
+        self.assertEqual(out["results"], [])
+        self.assertEqual(out["candidate_count"], 0)
+
+    def test_over_candidate_cap(self):
+        out = self.index.risk_score("src/m.py", candidate_cap=2)
+        self.assertTrue(out["over_candidate_cap"])
+        self.assertEqual(out["results"], [])
+        self.assertEqual(out["candidate_count"], 4)
+
+    def test_glob_scope(self):
+        out = self.index.risk_score("src/m*.py")
+        self.assertTrue(any(r["label"] == "hub" for r in out["results"]))
+
+    def test_test_path_filter_excludes_test_callers(self):
+        # hub is called from src/tests/test_x.py::t; with the test filter the
+        # test file must NOT count toward hub's blast radius.
+        with_tests = self._by_label(self.index.risk_score("src/m.py")["results"])
+        no_tests = self._by_label(
+            self.index.risk_score("src/m.py", is_test_path=lambda p: "/tests/" in p)["results"]
+        )
+        self.assertEqual(with_tests["hub"]["affected_file_count"] - 1,
+                         no_tests["hub"]["affected_file_count"])
 
 
 class GraphQueryShortestPathTests(unittest.TestCase):

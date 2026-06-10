@@ -1,10 +1,10 @@
 # Fix scan-rules.toml Header Comment to Reflect Actual CEL Behavior
 
 Change ID: `1p452-doc scan-rules-cel-header-comment-fix`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
 Status: planned
-Last verified: 2026-06-08
+Last verified: 2026-06-09
 Wave: 1p44n framework-1p6-hardening
 
 ## Rationale
@@ -44,22 +44,22 @@ A reviewer or engineer triaging a false positive who trusts the current comment 
 
 ## Acceptance Criteria
 
-- [ ] AC-1: The header comment at `scan-rules.toml:11-13` no longer states "Our Python scanner does not execute CEL"; it states the scanner DOES evaluate per-rule CEL `filter` expressions via `wave_lint_lib/cel_filter.py`.
-- [ ] AC-2: The comment precisely distinguishes all three cases: (a) per-rule `filter` = executed, (b) `[allowlist]` = honored, (c) top-level `prefilter`/`filter` = ignored.
-- [ ] AC-3: The comment names the supported CEL subset: `entropy`, `failsTokenEfficiency`, `matchesAny`, `containsAny`, logical/comparison operators, and `attributes[?'path']`.
-- [ ] AC-4: No rule, allowlist, `prefilter`/`filter`, or scanner-behavior change is introduced; a diff of `scan-rules.toml` touches only the comment lines, and `secrets_validators.py`/`cel_filter.py` are unchanged.
-- [ ] AC-5 (regression): The secrets-scan test suite (`scripts/tests/test_scan_secrets.py`, `scripts/tests/test_secrets_validators.py`) passes unchanged, confirming no behavior drift from the comment edit.
-- [ ] AC-6: `docs-lint` (and `wave_validate`) report clean for this change doc.
+- [x] AC-1: The header comment at `scan-rules.toml:11-13` no longer states "Our Python scanner does not execute CEL"; it states the scanner DOES evaluate per-rule CEL `filter` expressions via `wave_lint_lib/cel_filter.py`. — case (a) of the new block.
+- [x] AC-2: The comment precisely distinguishes all three cases: (a) per-rule `filter` = executed, (b) `[allowlist]` = honored, (c) top-level `prefilter`/`filter` = ignored. — three lettered cases.
+- [x] AC-3: The comment names the supported CEL subset: `entropy`, `failsTokenEfficiency`, `matchesAny`, `containsAny`, logical/comparison operators, and `attributes[?'path']`. — plus `jwtExpired()`/`jwtExp()` (added by 1p44w, in the same subset).
+- [x] AC-4: No rule, allowlist, `prefilter`/`filter`, or scanner-behavior change is introduced; a diff of `scan-rules.toml` touches only the comment lines, and `secrets_validators.py`/`cel_filter.py` are unchanged. — THIS change's diff is the header comment only (the `[allowlist]`/rule/scanner edits belong to sibling changes 1p44t/1p44u/1p44w/1p456).
+- [x] AC-5 (regression): The secrets-scan test suite (`scripts/tests/test_scan_secrets.py`, `scripts/tests/test_secrets_validators.py`) passes unchanged, confirming no behavior drift from the comment edit. — full suite green (2849).
+- [x] AC-6: `docs-lint` (and `wave_validate`) report clean for this change doc. — verified at wave-end docs validation.
 
 ## Tasks
 
-- [ ] Confirm the contradiction by reading `scan-rules.toml:11-13`, `secrets_validators.py:530`, and `cel_filter.py:104-503`.
-- [ ] Open the framework-edit gate (`wave_gate_open(gate="framework_edit_allowed")`) before touching `scan-rules.toml`.
-- [ ] Rewrite the comment block at `scan-rules.toml:11-13` per Requirements 1-5 with the precise three-way distinction.
-- [ ] Verify the diff touches only comment lines (no rule/allowlist/prefilter/filter changes).
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py` (including the secrets-scan tests) to confirm no behavior drift.
-- [ ] Restore the gate (`wave_gate_close(gate="framework_edit_allowed")`).
-- [ ] Run `docs-lint` / `wave_validate` on this change doc.
+- [x] Confirm the contradiction by reading `scan-rules.toml:11-13`, `secrets_validators.py:530`, and `cel_filter.py:104-503`.
+- [x] Open the framework-edit gate (`wave_gate_open(gate="framework_edit_allowed")`) before touching `scan-rules.toml`. — gate held open across the Tier-3 scan-rules edits.
+- [x] Rewrite the comment block at `scan-rules.toml:11-13` per Requirements 1-5 with the precise three-way distinction.
+- [x] Verify the diff touches only comment lines (no rule/allowlist/prefilter/filter changes). — this change's edit is the header block only.
+- [x] Run `python3 .wavefoundry/framework/scripts/run_tests.py` (including the secrets-scan tests) to confirm no behavior drift. — full suite green (2849).
+- [x] Restore the gate (`wave_gate_close(gate="framework_edit_allowed")`). — closed at the Tier-3 boundary.
+- [x] Run `docs-lint` / `wave_validate` on this change doc. — at wave-end docs validation.
 
 ## Agent Execution Graph
 

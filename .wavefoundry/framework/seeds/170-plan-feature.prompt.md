@@ -132,7 +132,7 @@ Required planning semantics:
 
 - `change-id` values for tracked changes in scope
 - machine-usable `change-id` values in the form `<id-prefix>-<kind> <slug>`, where `<id-prefix>` is the shared Crockford lifecycle token emitted by MCP `wave_new_*` tools or, when MCP is unavailable, by `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>`: 4 Crockford Base32 digits for hours since the workflow-configured lifecycle epoch in `docs/workflow-config.json` (`lifecycle_id_policy.epoch_utc`, plus optional `hour_offset`) plus one Crockford minute-bucket character, all lowercase (kinds: bug, feat, enh, change, doc, debt, ref, task, maint, ops; example: `1a2x8-bug runtime-retry`)
-- machine-usable `wave-id` values that sort in time order and can serve as `docs/waves/<wave-id>/` folder names, using `<prefix> <slug>` from `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>` — there is no `-wave` token in the emitted ID (example: `1a2yy routine-behavior-contract`)
+- machine-usable `wave-id` values that sort in time order and can serve as `docs/waves/<wave-id>/` folder names, using `<prefix> <slug>` from the MCP `wave_create_wave` tool (or, when MCP is unavailable, the CLI fallback `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>`) — there is no `-wave` token in the emitted ID (example: `1a2yy routine-behavior-contract`)
 - wave-0 baseline IDs in the form `00000 wave-zero-plans-and-specs` when init or migration captures pre-wave corpora
 - generated `Title` values or summary slugs that describe the admitted change set for each wave
 - lifecycle timestamp fields for each wave record: `Activated at` and `Completed at`

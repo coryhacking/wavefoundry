@@ -164,14 +164,14 @@ The more explicit create/refresh/preserve rules, final review checklist, and gol
 
 When this pack initializes or upgrades another project, the generated `docs/workflow-config.json` should explicitly include sections for:
 
-- `wave_execution`
+- `wave_implement`
 - `agent_memory`
 - `project_persona_generation`
 - `prompt_generation`
 - `factor_review_policy`
 - `persona_review_policy`
 
-Suggested `wave_execution` anchors:
+Suggested `wave_implement` anchors:
 
 - whether waves are required for non-trivial work
 - wave root path

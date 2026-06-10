@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-03
+Last verified: 2026-06-09
 
 Adapted from `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` for Wavefoundry's specific reviewer roles, personas, and artifact paths.
 
@@ -62,7 +62,7 @@ Close wave / Finalize feature
 
 ## Wave Council
 
-The framework ships `wave_review.enabled: true` by default (formerly `wave_council_policy`) so the Wave Council surface is available out of the box. Enforcement on every wave is operator opt-in via `required_for_all_waves: true`. When enforcement is on, every wave also requires:
+The framework ships `wave_review.enabled: true` by default so the Wave Council surface is available out of the box. Enforcement on every wave is operator opt-in via `required_for_all_waves: true`. When enforcement is on, every wave also requires:
 
 - `wave-council-readiness` before implementation
 - `wave-council-delivery` before closure
@@ -82,7 +82,7 @@ Use **Pause wave** to park session state in `docs/agents/session-handoff.md` and
 
 ## Lifecycle IDs
 
-Generate with: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>`
+Generate with the MCP `wave_new_<kind>` / `wave_create_wave` tools (preferred — they dedupe against on-disk IDs). CLI fallback when MCP is unavailable: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>`
 
 Kind options: `wave`, `feat`, `bug`, `enh`, `change`, `doc`, `debt`, `ref`, `task`, `maint`, `ops`.
 

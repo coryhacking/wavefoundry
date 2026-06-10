@@ -1,10 +1,10 @@
 # Fix from_version Resolution and Consolidate Version Sources in Upgrade
 
 Change ID: `1p44p-bug upgrade-from-version-and-version-sources`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
 Status: planned
-Last verified: 2026-06-08
+Last verified: 2026-06-09
 Wave: 1p44n framework-1p6-hardening
 
 ## Rationale
@@ -52,26 +52,26 @@ The fix: read the installed revision from `docs/prompts/prompt-surface-manifest.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `_read_installed_revision` contains no `json.loads()` call against `.wavefoundry/framework/MANIFEST`; the only JSON parsed for revision resolution is `docs/prompts/prompt-surface-manifest.json`.
-- [ ] AC-2: On a normal upgrade against a project that has a valid `prompt-surface-manifest.json`, the resolver returns the `framework_revision` value (a real revision string, not `None`), and `from_version` is non-`None` at both `:836` and `:972`.
-- [ ] AC-3: When `prompt-surface-manifest.json` is missing or has no usable `framework_revision`, the resolver falls back to `framework/VERSION`; when both are absent, it returns `None`.
-- [ ] AC-4: On a genuine downgrade (installed revision newer than target), the downgrade guard at `:986` executes its comparison branch (verifiable via a test that asserts the guard's effect — warning/abort — fires).
-- [ ] AC-5: A single version-resolver helper is the sole entry point for installed-revision resolution; all installed-revision readers route through it (grep confirms no other code path re-parses the manifest/VERSION for installed revision).
-- [ ] AC-6: After the upgrade lock is written, cleanup/rebuild phases (`:1446-1447`, `:1467-1468`) read from/to versions from the lock (`upgrade_lib.py:58-59`), not by re-resolving.
-- [ ] AC-7: Pruning is unchanged — a test (or assertion) confirms pruning still keys off `OLD_MANIFEST_TMP` via `--old-manifest` and produces identical results regardless of `from_version`.
-- [ ] AC-8: The upgrade summary prints the resolved `from_version` (no `Version: (none)`) when a revision is resolvable.
-- [ ] AC-9 (regression/test): Unit tests cover (a) the manifest read returning `framework_revision`, (b) the fallback to `framework/VERSION`, and (c) downgrade-guard activation on a newer-installed-than-target scenario; all pass in `run_tests.py`.
+- [x] AC-1: `_read_installed_revision` contains no `json.loads()` call against `.wavefoundry/framework/MANIFEST`; the only JSON parsed for revision resolution is `docs/prompts/prompt-surface-manifest.json`. — rewritten in `check_version.py`. Test: `test_path_list_manifest_not_parsed_as_json`.
+- [x] AC-2: On a normal upgrade with a valid `prompt-surface-manifest.json`, the resolver returns the `framework_revision` value (not `None`), so `from_version` is non-`None` at both call sites. — `test_reads_framework_revision_from_manifest`.
+- [x] AC-3: When `prompt-surface-manifest.json` is missing/has no usable `framework_revision`, falls back to `framework/VERSION`; both absent → `None`. — `test_falls_back_to_version_file`, `test_both_absent_returns_none`.
+- [x] AC-4: On a genuine downgrade (installed newer than target), the guard's comparison branch fires. — resolver returns a real revision (precondition now satisfiable) and `compare_versions("1.5.0", "1.6.0") == "downgrade"`. Test: `test_downgrade_guard_now_classifies_downgrade`.
+- [x] AC-5: A single version-resolver helper is the sole entry point. — canonical impl in `check_version._read_installed_revision`; `upgrade_wavefoundry._read_installed_revision` delegates to it. Test: `ReadInstalledRevisionDelegationTests`. grep confirms no other manifest/VERSION re-parse for installed revision.
+- [x] AC-6: Cleanup/rebuild phases read from/to versions from the lock, not by re-resolving. — audit-confirmed: the `--cleanup` and `--rebuild-index` branches already read `lock.get("from_version")`/`lock.get("to_version")` (no re-resolve); unchanged by this change.
+- [x] AC-7: Pruning is unchanged — still keys off `OLD_MANIFEST_TMP` via `--old-manifest`. — audit-confirmed: pruning untouched (out of scope), independent of `from_version`.
+- [x] AC-8: The upgrade summary prints the resolved `from_version` (no `Version: (none)`) when resolvable. — `_print_operator_summary`'s `from_str = from_version or "(none)"` now receives a real value because the resolver no longer always returns `None`.
+- [x] AC-9 (regression/test): Unit tests cover the manifest read, the VERSION fallback, and downgrade-guard classification. — `ReadInstalledRevisionTests` (6) + delegation (2); full check_version+upgrade suites green (184); full suite at wave-end.
 
 ## Tasks
 
-- [ ] Read `upgrade_wavefoundry.py:276-304` and `:836`/`:972`/`:986` plus `upgrade_lib.py:58-59` and the cleanup/rebuild reads at `:1446-1447`/`:1467-1468` to confirm current control flow.
-- [ ] Rewrite `_read_installed_revision` to load `docs/prompts/prompt-surface-manifest.json` and return its `framework_revision`, falling back to `framework/VERSION`; remove the MANIFEST `json.loads` path.
-- [ ] Introduce a single version-resolver helper as the source of truth and route the installed-revision callers (`:836`, `:972`) through it.
-- [ ] Verify the downgrade guard at `:986` now receives a real `from_version` and fires on a downgrade; fix the summary line so it prints the resolved version.
-- [ ] Make cleanup/rebuild phases read from/to versions from the written lock instead of re-resolving.
-- [ ] Confirm pruning still keys off `OLD_MANIFEST_TMP` / `--old-manifest` and is untouched.
-- [ ] Add/extend tests for the manifest read, the VERSION fallback, and downgrade-guard activation.
-- [ ] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and fix failures.
+- [x] Read `upgrade_wavefoundry.py:276-304` and `:836`/`:972`/`:986` plus `upgrade_lib.py:58-59` and the cleanup/rebuild reads at `:1446-1447`/`:1467-1468` to confirm current control flow.
+- [x] Rewrite `_read_installed_revision` to load `docs/prompts/prompt-surface-manifest.json` and return its `framework_revision`, falling back to `framework/VERSION`; remove the MANIFEST `json.loads` path.
+- [x] Introduce a single version-resolver helper as the source of truth and route the installed-revision callers (`:836`, `:972`) through it.
+- [x] Verify the downgrade guard at `:986` now receives a real `from_version` and fires on a downgrade; fix the summary line so it prints the resolved version.
+- [x] Make cleanup/rebuild phases read from/to versions from the written lock instead of re-resolving.
+- [x] Confirm pruning still keys off `OLD_MANIFEST_TMP` / `--old-manifest` and is untouched.
+- [x] Add/extend tests for the manifest read, the VERSION fallback, and downgrade-guard activation.
+- [x] Run `python3 .wavefoundry/framework/scripts/run_tests.py` and fix failures.
 
 ## Agent Execution Graph
 
@@ -113,7 +113,8 @@ N/A — this change is confined to version resolution inside `upgrade_wavefoundr
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
-|      |        |          |
+| 2026-06-08 | Rewrote `_read_installed_revision` (check_version.py) to read `framework_revision` from prompt-surface-manifest.json → VERSION fallback; upgrade_wavefoundry delegates to it (single source); fixes the always-None bug that disabled the downgrade guard + `Version: (none)` summary. | check_version.py, upgrade_wavefoundry.py; ReadInstalledRevisionTests (6) + delegation (2). |
+| 2026-06-08 | **FIELD-TEST FOLLOW-UP — the read side was fixed but nothing WROTE it.** p49k real-project testing showed `framework_revision` still stale (`1.5.1+p3qj`) two upgrades on: only the self-host packager (`build_pack.update_manifest_revision`) ever wrote it, and the pack ships `framework/VERSION` but not the consumer's manifest — so `extractall` advances VERSION while `framework_revision` freezes, and `_read_installed_revision` (now correct) just reads a stale value. Added `_stamp_manifest_revision(root)` (read-modify-write `framework_revision` from the extracted VERSION; preserves other keys; no-op when VERSION/manifest absent/unparseable, never creates the manifest), called in `main()` right after surface rendering. Self-heals an already-stale consumer on next upgrade. | upgrade_wavefoundry.py (`_stamp_manifest_revision` + call + log line); `StampManifestRevisionTests` (6: stale→stamped / preserves-keys / already-current-noop / manifest-absent-noop / version-absent-noop / unparseable-noop); full suite **2912 green**; docs-lint ok. |
 
 
 ## Decision Log
