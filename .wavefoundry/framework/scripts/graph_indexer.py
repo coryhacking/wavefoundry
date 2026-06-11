@@ -25,7 +25,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "25"  # bumped for wave 1p4eq (cross-file-resolution-followups), one consolidated bump covering five graph-shaping changes: (1p4ef) fix a leaked `qualified` loop var that injected phantom qualified_index candidates for collapsed/basename-merged nodes (C#/Swift/Rust/Ruby) and silently suppressed unique cross-file resolution; (1p4er) same-package/same-directory disambiguation fallback for ambiguous receivers used WITHOUT an import (Java field miss, `JreCompat.canAccess`), GATED to Java/Kotlin/Go (same-dir ⇒ same-package visibility; Python/JS/TS/Rust/C# excluded); (1p4et) Go methods now keyed `Type.method` (was bare `method`) + package-qualified receiver inference (`var h foo.Helper` → `foo.Helper`, package PRESERVED and resolved by the candidate's package directory); (1p4eu) Rust `Type::assoc_fn()` resolution + struct-literal/`::new()` let-binding type inference; (1p4ev) C# namespace-membership disambiguation (own-namespace ∪ `using`), the namespace derived from each file's DECLARED namespace nodes by longest-prefix (nesting-proof), NOT by fixed-segment qname stripping. FAITHFULNESS FIXES (1p4eq adversarial verification): the 1p4et/1p4ev paths above already incorporate the over-resolution fixes the verification caught — dropping the Go package qualifier bound a co-located cross-package twin, and fixed-segment C# namespace stripping mis-derived a nested-class caller's namespace and bound a coincident sibling twin; both now stay external unless a unique package/namespace-faithful candidate matches. COVERAGE SCOPE — synthetic-fixture tests only, NOT yet validated against a real consumer project: same-package = Java; cross-file method/assoc-fn = Go + Rust; ambiguous-receiver namespace membership = C#. Each carries an adversarial "never binds the wrong twin / stays external" test. **Correction to the v24 line below:** v24 advertised its `imports`-edge disambiguation as "language-agnostic (Python + Java/Kotlin/C#/Go)" — that was over-stated; it fired ONLY for Python + Java (per-type imports), and was dead code for C#/Go/Rust (their import heads are namespaces/packages, not type names) until v25 supplied the per-language mechanisms above. Previous bump (1p47e 1p470): Python sibling-loader return-type inference + cross-file import disambiguation. v24 resolves the lazy-loader blast-radius hole — `gq = _load_graph_query()` (→ `_load_script("graph_query")`) and direct `v = _load_script("mod")` now bind `v.Class.method()` / `v.func()` to the loaded module's symbols (previously emitted NO edge because `v` had no known type; e.g. `GraphQueryIndex.from_root` was called from 14 sites with 0 incoming edges). Also adds import-edge-based disambiguation in the cross-file rewrite pass: an ambiguous `external::Type.method` (multiple same-simple-name candidates) is disambiguated via the source file's `imports` edge for `Type`, language-agnostically (Python + Java/Kotlin/C#/Go). Previous bump (1p2q3 / 1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Teton field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges Teton observed in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (Teton-confirmed: ALL backend functions on their 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per Teton estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
+GRAPH_BUILDER_VERSION = "28"  # Wave 1p4q4 review (D1/D2): namespace-scoped enum member nodes now carry the enclosing namespace prefix (`NSA.Inner.AAA` vs `NSB.Inner.AAA` — no cross-namespace collision/clobber), and constant nodes are EXEMPT from the ≤2-char short-symbol prune so short members (`Status.OK`/`Dir.Up`) resolve. Node-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 (27): TS `enum`/`const enum` members are now `kind="constant"` graph nodes (`Enum.Member`), child of the enum type node. Wave 1p4ls (26) (graph-constant-nodes-and-references): module-/type-level CONSTANT declarations are now graph nodes (kind="constant", carrying a simple-literal `value` where the RHS is a literal) across all core languages, plus a faithfulness-gated function→constant `reads` edge (same-scope + explicitly-imported only; never binds a coincidental same-name twin — symbol_lookup uniqueness + a const-kind gate + a local-shadow guard). Consumers surface them: code_definition resolves a constant name; code_references lists readers in a distinct `reads` bucket (NOT merged into callers); graph_neighbors includes constants when `reads` is requested. `reads` is OPT-IN for default 1-hop traversal (excluded when no explicit relations are passed, so a hot constant does not balloon neighbor sets / 1p4hu expansion) and stays OUT of the impact/call default relations; constant nodes + `reads` edges are excluded from clustering (CLUSTER_BUILDER_VERSION 8→9, no community-label shift). resolve_symbol is kind-aware (a constant sharing a simple name no longer shadows a callable lookup). Detection reuses the 1p4mf chunk-lane per-language predicates (one detector, two consumers — Req-7); the graph lane is BROADER where it lands naturally (class/type-level constants; Swift enum cases; Go grouped-const per member). NOTE: TS `enum`/`const enum` members ARE emitted as constant nodes (`Enum.Member`) — delivered in 1p4q4 (see the v27 line at the top). Kotlin bare top-level/object `val` (no `const`) stays `kind="variable"` (an immutable binding is not a compile-time constant — won't-do). Previous bump (1p4eq, cross-file-resolution-followups): one consolidated bump covering five graph-shaping changes: (1p4ef) fix a leaked `qualified` loop var that injected phantom qualified_index candidates for collapsed/basename-merged nodes (C#/Swift/Rust/Ruby) and silently suppressed unique cross-file resolution; (1p4er) same-package/same-directory disambiguation fallback for ambiguous receivers used WITHOUT an import (Java field miss, `JreCompat.canAccess`), GATED to Java/Kotlin/Go (same-dir ⇒ same-package visibility; Python/JS/TS/Rust/C# excluded); (1p4et) Go methods now keyed `Type.method` (was bare `method`) + package-qualified receiver inference (`var h foo.Helper` → `foo.Helper`, package PRESERVED and resolved by the candidate's package directory); (1p4eu) Rust `Type::assoc_fn()` resolution + struct-literal/`::new()` let-binding type inference; (1p4ev) C# namespace-membership disambiguation (own-namespace ∪ `using`), the namespace derived from each file's DECLARED namespace nodes by longest-prefix (nesting-proof), NOT by fixed-segment qname stripping. FAITHFULNESS FIXES (1p4eq adversarial verification): the 1p4et/1p4ev paths above already incorporate the over-resolution fixes the verification caught — dropping the Go package qualifier bound a co-located cross-package twin, and fixed-segment C# namespace stripping mis-derived a nested-class caller's namespace and bound a coincident sibling twin; both now stay external unless a unique package/namespace-faithful candidate matches. COVERAGE SCOPE — synthetic-fixture tests only, NOT yet validated against a real consumer project: same-package = Java; cross-file method/assoc-fn = Go + Rust; ambiguous-receiver namespace membership = C#. Each carries an adversarial "never binds the wrong twin / stays external" test. **Correction to the v24 line below:** v24 advertised its `imports`-edge disambiguation as "language-agnostic (Python + Java/Kotlin/C#/Go)" — that was over-stated; it fired ONLY for Python + Java (per-type imports), and was dead code for C#/Go/Rust (their import heads are namespaces/packages, not type names) until v25 supplied the per-language mechanisms above. Previous bump (1p47e 1p470): Python sibling-loader return-type inference + cross-file import disambiguation. v24 resolves the lazy-loader blast-radius hole — `gq = _load_graph_query()` (→ `_load_script("graph_query")`) and direct `v = _load_script("mod")` now bind `v.Class.method()` / `v.func()` to the loaded module's symbols (previously emitted NO edge because `v` had no known type; e.g. `GraphQueryIndex.from_root` was called from 14 sites with 0 incoming edges). Also adds import-edge-based disambiguation in the cross-file rewrite pass: an ambiguous `external::Type.method` (multiple same-simple-name candidates) is disambiguated via the source file's `imports` edge for `Type`, language-agnostically (Python + Java/Kotlin/C#/Go). Previous bump (1p2q3 / 1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Teton field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges Teton observed in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (Teton-confirmed: ALL backend functions on their 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per Teton estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
 GRAPH_DIRNAME = "graph"
 GRAPH_FILENAMES = {
     "project": "project-graph.json",
@@ -40,7 +40,7 @@ _DOC_EXTENSIONS = {".md", ".markdown", ".txt"}
 _CODE_EXTENSIONS = {
     ".py",
     ".js", ".jsx", ".mjs", ".cjs",
-    ".ts", ".tsx",
+    ".ts", ".tsx", ".mts", ".cts",
     ".go",
     ".rs",
     ".java",
@@ -186,6 +186,8 @@ _TS_EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".cjs": "javascript",
     ".ts": "typescript",
     ".tsx": "typescript",
+    ".mts": "typescript",
+    ".cts": "typescript",
     ".go": "go",
     ".rs": "rust",
     ".java": "java",
@@ -665,6 +667,82 @@ def _kind_for_path(rel_path: str) -> str:
     return "doc"
 
 
+# Wave 1p4ls: constant graph nodes + the `reads` edge.
+GRAPH_CONST_KIND = "constant"
+GRAPH_READS_RELATION = "reads"
+
+
+@functools.lru_cache(maxsize=1)
+def _chunker_module():
+    """Lazily import chunker.py for its per-language constant-detection predicates so the graph
+    lane (1p4ls) and the chunk lane (1p4mf) share ONE detector (Req-7 — no divergent detection).
+    Robust to both the standalone-subprocess and the _load_script(MCP) load contexts: ensures the
+    scripts directory is importable before the import. The predicates are pure (stateless), so a
+    second module instance under the plain `chunker` key is harmless."""
+    _dir = str(Path(__file__).resolve().parent)
+    if _dir not in sys.path:
+        sys.path.insert(0, _dir)
+    import chunker  # noqa: E402 — lazy by design (heavy tree-sitter deps load on first use)
+    return chunker
+
+
+def _py_const_literal_value(value_node: "ast.AST | None") -> str | None:
+    """Short source-faithful value for a Python constant RHS when it is a SIMPLE literal
+    (str/num/bool/None, or a 1-level list/tuple/set/dict of literals). None for anything computed
+    (calls, names, comprehensions, f-strings) — the node still exists, it just carries no value."""
+    if value_node is None:
+        return None
+
+    def _lit(n: "ast.AST") -> "str | None":
+        if isinstance(n, ast.Constant):
+            return repr(n.value)
+        if isinstance(n, ast.UnaryOp) and isinstance(n.op, (ast.USub, ast.UAdd)) and isinstance(n.operand, ast.Constant):
+            return ("-" if isinstance(n.op, ast.USub) else "") + repr(n.operand.value)
+        return None
+
+    direct = _lit(value_node)
+    if direct is not None:
+        return direct[:200]
+    if isinstance(value_node, (ast.List, ast.Tuple, ast.Set)):
+        parts = [_lit(e) for e in value_node.elts]
+        if parts and all(p is not None for p in parts):
+            brackets = {"List": ("[", "]"), "Tuple": ("(", ")"), "Set": ("{", "}")}[type(value_node).__name__]
+            return (brackets[0] + ", ".join(parts) + brackets[1])[:200]
+    if isinstance(value_node, ast.Dict):
+        keys = [_lit(k) for k in value_node.keys]
+        vals = [_lit(v) for v in value_node.values]
+        if keys and all(k is not None for k in keys) and all(v is not None for v in vals):
+            return ("{" + ", ".join(f"{k}: {v}" for k, v in zip(keys, vals)) + "}")[:200]
+    return None
+
+
+def _py_local_names(owner_node: "ast.AST") -> set[str]:
+    """Names BOUND locally inside a Python function — parameters + every Store/Del-context Name in
+    its body (assignments, for-targets, with-as, nested def/class names) — NOT descending into
+    nested scopes. Wave 1p4ls reads-edge faithfulness: a read of such a name is the LOCAL binding,
+    not a module/class constant of the same name, so it must NOT emit a reads edge to the constant."""
+    names: set[str] = set()
+    a = getattr(owner_node, "args", None)
+    if a is not None:
+        for arg in [*getattr(a, "posonlyargs", []), *a.args, *a.kwonlyargs]:
+            names.add(arg.arg)
+        if a.vararg:
+            names.add(a.vararg.arg)
+        if a.kwarg:
+            names.add(a.kwarg.arg)
+    stack: list[Any] = list(getattr(owner_node, "body", []))
+    while stack:
+        n = stack.pop()
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(n.name)  # the nested def/class name binds locally; don't descend
+            continue
+        if isinstance(n, ast.Name) and isinstance(n.ctx, (ast.Store, ast.Del)):
+            names.add(n.id)
+        for child in ast.iter_child_nodes(n):
+            stack.append(child)
+    return names
+
+
 def _node(
     node_id: str,
     label: str,
@@ -744,6 +822,17 @@ def _normalize_symbol_name(name: str) -> str:
 
 
 def _simple_name(symbol_id: str) -> str:
+    # INTENTIONALLY split('.', 1) (FIRST dot), NOT rsplit. Do NOT "fix" this to the bare leaf:
+    # folding a 2+-level-nested symbol's bare leaf into simple_names -> symbol_lookup over-binds the
+    # UNGUARDED bare-call and bare-read paths. An adversarial review verified three regressions from
+    # rsplit: (1) a receiver-less bare `run()` wrong-binds to a unique nested `Outer.Inner.run`
+    # (TS/JS/Rust; promoted to RECEIVER_RESOLVED on TS/JS); (2) a bare PARAMETER read (`TOKEN`)
+    # wrong-binds to a same-leaf nested constant `Outer.Inner.TOKEN` (Java/Kotlin/C#/Swift — the
+    # tree-sitter reads path has no local-shadow guard); (3) a bare read of an EXPLICITLY-IMPORTED
+    # symbol gets shadowed by a same-leaf nested member, which on a real repo file (http2.d.ts)
+    # silently DROPPED 5 correct `external::url` import-reads. The faithful fix for nested
+    # member-access CONSTANT reads is exact qualified-PATH capture (const-gated), not bare-leaf
+    # widening — see the member-access-reads follow-on. Keep this split('.', 1).
     if "::" not in symbol_id:
         return symbol_id
     return symbol_id.rsplit("::", 1)[-1].split(".", 1)[-1]
@@ -1788,6 +1877,255 @@ def _ts_is_definition_node(node_type: str, mode: str) -> bool:
         "target", "task", "command", "table", "view", "trigger", "query", "type", "block",
         "property", "attribute", "selector", "element", "tag", "entry",
     ))
+
+
+# Wave 1p4ls: tree-sitter literal node types whose source text we capture as a constant's `value`.
+_TS_CONST_LITERAL_TYPES = frozenset({
+    "integer_literal", "int_literal", "integer", "float_literal", "decimal_integer_literal",
+    "decimal_floating_point_literal", "number", "numeric_literal", "string_literal",
+    "interpreted_string_literal", "raw_string_literal", "line_string_literal", "string",
+    "true", "false", "null", "nil", "boolean_literal", "character_literal", "char_literal",
+    "rune_literal", "encapsed_string", "unary_expression", "prefix_expression",
+})
+
+
+# Wave 1p4ls: leaf node types that can be a constant READ (name-use) for the `reads` edge.
+# `constant` is Ruby's capital-initial reference node; `name` is PHP's bare const/callee reference;
+# the rest are the per-grammar identifiers. The const-target gate keeps non-constant uses harmless.
+_TS_READ_IDENT_TYPES = frozenset({"identifier", "simple_identifier", "field_identifier", "constant", "name"})
+
+# Member-access read attribution: the node type of a qualified reference `A.B.C` / `A::B::C` per
+# language. A read of a CONSTANT via member access (`Status.ACTIVE`, `SolarisConstants.Network.userAgent`,
+# `Outer.Inner.TOKEN`) is resolved by EXACT qualified-name match against constant nodes — faithful (the
+# qualifier disambiguates), const-gated, and it NEVER widens bare-leaf resolution (so it introduces none
+# of the bare-call / param-shadow / import-shadow over-binds that a `_simple_name` rsplit would).
+_TS_MEMBER_ACCESS_TYPES = frozenset({
+    "member_expression",                  # TS / JS  (A.B.C)
+    "navigation_expression",              # Swift, Kotlin  (A.B.C)
+    "field_access",                       # Java  (A.B.C)
+    "member_access_expression",           # C#  (A.B.C)
+    "selector_expression",                # Go  (A.B.C)
+    "scoped_identifier",                  # Rust  (A::B::C)
+    "scope_resolution",                   # Ruby  (A::B::C)
+    "class_constant_access_expression",   # PHP  (A::B)
+})
+
+# A PURE static qualified path: identifiers joined by `.` / `::` only — no calls, subscripts, `this`,
+# literals, or whitespace (which would signal a computed/dynamic member access, not a resolvable name).
+_TS_MEMBER_PATH_RE = re.compile(r"^[A-Za-z_$][\w$]*(?:(?:\.|::)[A-Za-z_$][\w$]*)+$")
+
+# Parameter + local-variable BINDING nodes per language. Their bound NAME (never the type) is collected
+# per function so a member-access constant read whose head qualifier is a local/param shadow is suppressed
+# (member-access review F4: `func reader(Config: Holder){ return Config.value }` reads the param, not the
+# struct's static const). Suppressing is FAITHFUL — if the head is a local binding, the access is on that
+# local, never the type's constant.
+_TS_BINDING_NODE_TYPES = frozenset({
+    "formal_parameter", "spread_parameter",                  # Java
+    "parameter",                                             # Swift, C#, Rust, Kotlin
+    "required_parameter", "optional_parameter",              # TS / JS
+    "parameter_declaration",                                 # Go
+    "simple_parameter", "variadic_parameter",               # PHP
+    "function_value_parameter",                              # Kotlin
+    "variable_declarator",                                   # Java / TS / JS / C#  (function-local only — gated to fn scope)
+    "property_declaration", "variable_declaration",          # Swift / Kotlin
+    "let_declaration",                                       # Rust
+    "short_var_declaration", "var_spec", "const_spec",       # Go
+    "assignment", "assignment_expression",                  # Ruby / PHP (implicit locals)
+})
+
+
+def _ts_is_member_property_leaf(node) -> bool:
+    """True when ``node`` is the PROPERTY/field side of a member access (the trailing `C` in `A.B.C`).
+    Such leaves are NOT buffered as bare reads — the member-access PATH branch resolves the qualified
+    read instead (by exact qname, const-gated, with the F4 qualifier-shadow guard). This removes the
+    pre-existing trailing-member over-fire where a bare leaf `value` from an instance access
+    `local.value` wrong-binds a same-named top-level constant `Type.value`."""
+    p = getattr(node, "parent", None)
+    if p is None:
+        return False
+    pt = str(getattr(p, "type", "") or "")
+    if pt == "navigation_suffix":   # Swift trailing `.member` wrapper
+        return True
+    if pt in _TS_MEMBER_ACCESS_TYPES:
+        # The object/operand is the FIRST named child of a member-access node; any OTHER identifier
+        # under it is the trailing property/field side (works uniformly whether the grammar uses a
+        # `property`/`field` field, a bare trailing identifier (Kotlin), or a `field_identifier` (Go)).
+        kids = list(getattr(p, "named_children", []))
+        # NOTE: `==` not `is` — tree-sitter's Python binding returns a NEW wrapper object on every
+        # `.named_children`/`.parent` access, so `is` is ALWAYS False (a blanket skip that would also
+        # drop the legit HEAD read, e.g. the const in `FRAMEWORK_FLOW.length`). `Node.__eq__` compares
+        # the underlying AST node.
+        if kids and kids[0] != node:
+            return True
+    return False
+
+
+def _ts_binding_names(node) -> set[str]:
+    """The NAME(s) bound by a parameter / local-variable node — extracted from the ``name``/``pattern``/
+    ``left`` field (never the type), so the qualifier-shadow guard cannot accidentally suppress a real
+    read of a type's constant."""
+    names: set[str] = set()
+    fields: list = []
+    for fld in ("name", "pattern", "left"):
+        try:
+            c = node.child_by_field_name(fld)
+        except Exception:
+            c = None
+        if c is not None:
+            fields.append(c)
+    if not fields:  # Kotlin parameter / variable_declaration carry the name as a bare leading identifier
+        for c in getattr(node, "named_children", []):
+            if str(getattr(c, "type", "") or "") in ("simple_identifier", "identifier"):
+                fields.append(c)
+                break
+    for c in fields:
+        ct = str(getattr(c, "type", "") or "")
+        leaves = [c] if ct in ("identifier", "simple_identifier", "variable_name") else [
+            g for g in getattr(c, "named_children", [])
+            if str(getattr(g, "type", "") or "") in ("identifier", "simple_identifier", "variable_name")
+        ]
+        for leaf in leaves:
+            try:
+                nm = leaf.text.decode().strip()
+            except Exception:
+                nm = ""
+            if nm:
+                names.add(nm)
+    return names
+
+
+def _ts_member_access_path(node, source_bytes: bytes) -> str | None:
+    """The dotted qualified name of a member-access node (``::`` normalized to ``.``), or ``None`` when
+    it is not a pure static path (e.g. ``foo().bar``, ``arr[0].x``, ``this.x``). Used to resolve a
+    qualified CONSTANT read by exact qname match."""
+    try:
+        text = source_bytes[node.start_byte:node.end_byte].decode("utf-8", "replace").strip()
+    except Exception:
+        return None
+    if not _TS_MEMBER_PATH_RE.match(text):
+        return None
+    norm = text.replace("::", ".")
+    # A receiver-relative access (`this.X`, `self.X`, `super.X`, `cls.X`) is not a static type path;
+    # no constant qname begins with these, but reject them so the contract is explicit (not reliant
+    # on an unstated qname-mismatch invariant).
+    if norm.split(".", 1)[0] in ("this", "self", "super", "cls"):
+        return None
+    return norm
+
+
+def _ts_literal_value(value_node, source_bytes: bytes) -> str | None:
+    if value_node is None:
+        return None
+    if str(getattr(value_node, "type", "") or "") in _TS_CONST_LITERAL_TYPES:
+        try:
+            return source_bytes[value_node.start_byte:value_node.end_byte].decode("utf-8", "replace")[:200]
+        except Exception:
+            return None
+    return None
+
+
+def _ts_declarator_value(decl_node, source_bytes: bytes) -> str | None:
+    """RHS value of a declarator / const_spec / element node when it is a simple literal."""
+    v = None
+    try:
+        v = decl_node.child_by_field_name("value")
+    except Exception:
+        v = None
+    if v is None:
+        kids = list(getattr(decl_node, "children", []) or [])
+        for i, c in enumerate(kids):
+            if str(getattr(c, "type", "") or "") == "=" and i + 1 < len(kids):
+                v = kids[i + 1]
+                break
+    # Go wraps the RHS in an `expression_list`; unwrap a single-element list to its literal.
+    if v is not None and str(getattr(v, "type", "") or "") == "expression_list":
+        named = [c for c in getattr(v, "children", []) if getattr(c, "is_named", False)]
+        if len(named) == 1:
+            v = named[0]
+    return _ts_literal_value(v, source_bytes)
+
+
+def _ts_constant_decls(lang_key, node, node_type, source_bytes, source_lines, *, in_type_body):
+    """Wave 1p4ls: the constant(s) DECLARED directly by ``node`` for the graph lane — a list of
+    ``(name, value_or_None)``. Reuses the 1p4mf chunk-lane detection predicates (Req-7 — ONE
+    detector, two consumers). Returns [] when ``node`` is not a constant declaration. The caller
+    scope-gates (function/method-body locals are never passed). ``in_type_body`` is True when the
+    enclosing scope is a class/struct/type member body (used by Swift's static-vs-instance rule)."""
+    ck = _chunker_module()
+    out: list[tuple[str, str | None]] = []
+    try:
+        if lang_key == "java":
+            if node_type == "field_declaration" and not ck._java_field_is_static_final(node):
+                return []
+            if node_type in ("field_declaration", "constant_declaration"):
+                for d in node.children:
+                    if str(getattr(d, "type", "") or "") == "variable_declarator":
+                        nm = ck._java_declarator_name(d, source_lines)
+                        if nm:
+                            out.append((nm, _ts_declarator_value(d, source_bytes)))
+        elif lang_key == "csharp":
+            if node_type == "field_declaration" and ck._csharp_is_const_field(node, source_lines):
+                for d in node.children:
+                    if str(getattr(d, "type", "") or "") == "variable_declaration":
+                        for vd in d.children:
+                            if str(getattr(vd, "type", "") or "") == "variable_declarator":
+                                ident = next((c for c in vd.children if str(getattr(c, "type", "") or "") == "identifier"), None)
+                                if ident is not None:
+                                    out.append((ident.text.decode(), _ts_declarator_value(vd, source_bytes)))
+        elif lang_key == "kotlin":
+            if node_type == "property_declaration" and ck._kotlin_property_is_const(node):
+                nm = ck._kotlin_property_name(node, source_lines)
+                if nm:
+                    out.append((nm, _ts_declarator_value(node, source_bytes)))
+        elif lang_key == "go":
+            if node_type == "const_declaration":
+                for spec in node.children:
+                    if str(getattr(spec, "type", "") or "") == "const_spec":
+                        for nm in ck._go_const_spec_names(spec, source_lines):
+                            if nm != "_":
+                                out.append((nm, _ts_declarator_value(spec, source_bytes)))
+        elif lang_key == "rust":
+            if node_type in ck._RUST_CONST_NODE_TYPES:
+                nm = ck._rust_const_name(node, source_lines)
+                if nm:
+                    out.append((nm, _ts_declarator_value(node, source_bytes)))
+        elif lang_key == "swift":
+            if node_type == "property_declaration":
+                if ck._swift_property_is_computed(node):
+                    return []
+                if in_type_body and not ck._swift_property_has_static(node):
+                    return []  # instance let/var = a field, not a constant
+                for nm in ck._swift_property_names(node):
+                    out.append((nm, _ts_declarator_value(node, source_bytes)))
+            elif node_type == "enum_entry":
+                for c in node.children:
+                    if str(getattr(c, "type", "") or "") == "simple_identifier":
+                        out.append((c.text.decode().strip(), None))
+        elif lang_key == "ruby":
+            if node_type == "assignment":
+                lhs = node.child_by_field_name("left")
+                if lhs is not None and str(getattr(lhs, "type", "") or "") not in ck._RUBY_LOCAL_LHS_TYPES:
+                    for nm in ck._ruby_const_lhs_names(lhs):
+                        if nm:
+                            out.append((nm, _ts_declarator_value(node, source_bytes)))
+        elif lang_key == "php":
+            if node_type == "const_declaration":
+                for el in node.children:
+                    if str(getattr(el, "type", "") or "") == "const_element":
+                        nm_node = next((c for c in el.children if str(getattr(c, "type", "") or "") == "name"), None)
+                        if nm_node is not None:
+                            out.append((nm_node.text.decode().strip(), _ts_declarator_value(el, source_bytes)))
+        elif lang_key in ("typescript", "javascript"):
+            if node_type == "lexical_declaration" and ck._js_is_const_decl(node):
+                for d in node.children:
+                    if str(getattr(d, "type", "") or "") == "variable_declarator":
+                        if ck._js_const_value_type(d) in ck._JS_VALUE_CONST_TYPES:
+                            nm_node = d.child_by_field_name("name")
+                            if nm_node is not None and str(getattr(nm_node, "type", "") or "") == "identifier":
+                                out.append((nm_node.text.decode(), _ts_declarator_value(d, source_bytes)))
+    except Exception:
+        return []
+    return out
 
 
 # Wave 131bt (1319v): languages where the indexer should recover an ERROR-wrapped
@@ -5025,7 +5363,7 @@ class GraphIndexSession:
             1 for s in tree.body if isinstance(s, ast.ClassDef)
         )
 
-        def add_symbol(qname: str, kind: str, lineno: int, label: str | None = None, parent: str | None = None) -> str:
+        def add_symbol(qname: str, kind: str, lineno: int, label: str | None = None, parent: str | None = None, value: str | None = None) -> str:
             # Wave 131bt (1319o): merge top-level class into module node when
             # the dominance gate passes (exactly one top-level class) and the
             # class name matches the file basename (literal or snake-to-Pascal).
@@ -5043,16 +5381,17 @@ class GraphIndexSession:
                     defined_symbols.append(module_id)
                 return module_id
             node_id = f"{rel_path}::{qname}"
-            nodes.append(
-                _node(
-                    node_id,
-                    label or qname.split(".")[-1],
-                    kind,
-                    rel_path,
-                    self._source_location(source_text, lineno),
-                    layer=self.layer,
-                )
+            new_node = _node(
+                node_id,
+                label or qname.split(".")[-1],
+                kind,
+                rel_path,
+                self._source_location(source_text, lineno),
+                layer=self.layer,
             )
+            if value is not None:  # Wave 1p4ls: constant nodes carry a simple-literal value
+                new_node["value"] = value
+            nodes.append(new_node)
             edges.append(_edge(module_id, node_id, "defines", confidence="EXTRACTED"))
             defined_symbols.append(node_id)
             base_name = qname.split(".")[-1]
@@ -5061,7 +5400,36 @@ class GraphIndexSession:
                 simple_name_lookup.setdefault(parent, []).append(node_id)
             return node_id
 
-        def collect_imports_and_defs(body: list[ast.stmt], parent_qname: str | None = None) -> None:
+        def emit_py_constant(stmt: "ast.Assign | ast.AnnAssign", parent_qname: str | None) -> None:
+            # Wave 1p4ls: a module-/class-level Python constant → a graph node (kind="constant").
+            # Reuses the chunk lane's detection predicates (Req-7 — one detector): UPPER_SNAKE name,
+            # with typing.Final as a casing-independent override. Function-local assigns never reach
+            # here (scope_kind gate); Enum members are skipped (their class body is scope_kind="enum").
+            _ck = _chunker_module()
+            value_node = stmt.value
+            if isinstance(stmt, ast.AnnAssign):
+                targets = [stmt.target]
+                final_override = _ck._is_final_annotation(stmt.annotation)
+            else:
+                targets = list(stmt.targets)
+                final_override = False
+            # value only for a single simple-literal RHS; chained/unpacked targets share or drop it
+            literal = _py_const_literal_value(value_node)
+            names: list[str] = []
+            for tgt in targets:
+                if isinstance(tgt, ast.Name):
+                    names.append(tgt.id)
+                elif isinstance(tgt, (ast.Tuple, ast.List)):
+                    names.extend(e.id for e in tgt.elts if isinstance(e, ast.Name))
+            tuple_unpack = any(isinstance(t, (ast.Tuple, ast.List)) for t in targets)
+            for name in names:
+                if not (final_override or _ck._is_const_name(name)):
+                    continue
+                qname = f"{parent_qname}.{name}" if parent_qname else name
+                add_symbol(qname, GRAPH_CONST_KIND, stmt.lineno,
+                           value=None if tuple_unpack else literal)
+
+        def collect_imports_and_defs(body: list[ast.stmt], parent_qname: str | None = None, scope_kind: str = "module") -> None:
             for stmt in body:
                 if isinstance(stmt, ast.Import):
                     for alias in stmt.names:
@@ -5087,11 +5455,18 @@ class GraphIndexSession:
                     qname = f"{parent_qname}.{stmt.name}" if parent_qname else stmt.name
                     add_symbol(qname, "function", stmt.lineno)
                     if stmt.body:
-                        collect_imports_and_defs(stmt.body, qname)
+                        collect_imports_and_defs(stmt.body, qname, "function")
                 elif isinstance(stmt, ast.ClassDef):
                     qname = f"{parent_qname}.{stmt.name}" if parent_qname else stmt.name
                     add_symbol(qname, "class", stmt.lineno)
-                    collect_imports_and_defs(stmt.body, qname)
+                    # Wave 1p4ls: an Enum class body's members are NOT constants (kept as the class
+                    # node), mirroring the chunk lane — recurse with scope_kind="enum" to skip them.
+                    body_scope = "enum" if _chunker_module()._is_enum_class(stmt) else "class"
+                    collect_imports_and_defs(stmt.body, qname, body_scope)
+                elif scope_kind in ("module", "class") and isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+                    # Wave 1p4ls: module/class-level constant → graph node. Function-local assigns
+                    # (scope_kind="function") and Enum members (scope_kind="enum") are excluded.
+                    emit_py_constant(stmt, parent_qname)
 
         collect_imports_and_defs(tree.body)
 
@@ -5100,6 +5475,10 @@ class GraphIndexSession:
         for name, items in simple_names.items():
             if len(items) == 1:
                 symbol_lookup.setdefault(name, items[0])
+
+        # Wave 1p4ls: ids of THIS file's constant nodes — gates reads-edge emission so a `reads`
+        # edge only ever binds a constant target (never a coincidental same-name function/class).
+        const_ids = {n["id"] for n in nodes if n.get("kind") == GRAPH_CONST_KIND}
 
         # Wave 131bt (1319q): Python receiver-type resolution via PEP 484
         # type annotations. Extracts simple type names from annotated locals
@@ -5249,13 +5628,18 @@ class GraphIndexSession:
             return mvars
 
         class CallCollector(ast.NodeVisitor):
-            def __init__(self, current_symbol: str, scope_class: str | None = None, local_types: dict[str, str] | None = None, module_vars: dict[str, str] | None = None) -> None:
+            def __init__(self, current_symbol: str, scope_class: str | None = None, local_types: dict[str, str] | None = None, module_vars: dict[str, str] | None = None, local_names: set[str] | None = None) -> None:
                 self.current_symbol = current_symbol
                 self.scope_class = scope_class
                 self.local_types: dict[str, str] = local_types or {}
                 self.module_vars: dict[str, str] = module_vars or {}
+                # Wave 1p4ls: names bound locally in this function — a read of one is the local, not
+                # a same-name constant (shadowing guard), so it never emits a reads edge.
+                self.local_names: set[str] = local_names or set()
                 # Wave 131bt (1319q): tuples of (source, target, receiver_resolved).
                 self.calls: list[tuple[str, str, bool]] = []
+                # Wave 1p4ls: (source, constant_target) reads of a same-file constant.
+                self.reads: list[tuple[str, str]] = []
 
             def visit_FunctionDef(self, node: ast.FunctionDef) -> Any:  # noqa: N802
                 return None
@@ -5271,6 +5655,39 @@ class GraphIndexSession:
                 if target:
                     self.calls.append((self.current_symbol, target, receiver_resolved))
                 self.generic_visit(node)
+
+            def visit_Name(self, node: ast.Name) -> Any:  # noqa: N802
+                # Wave 1p4ls: a bare-name READ that resolves to a same-file constant → reads edge.
+                if isinstance(node.ctx, ast.Load):
+                    self._maybe_read(node.id)
+                return None
+
+            def visit_Attribute(self, node: ast.Attribute) -> Any:  # noqa: N802
+                # Wave 1p4ls: `Owner.CONST` / `self.CONST` reads of a class constant.
+                if isinstance(node.ctx, ast.Load):
+                    base = node.value
+                    if isinstance(base, ast.Name):
+                        if base.id in ("self", "cls") and self.scope_class:
+                            self._maybe_read(f"{self.scope_class}.{node.attr}", qualified=True)
+                        else:
+                            self._maybe_read(f"{base.id}.{node.attr}", qualified=True)
+                self.generic_visit(node)
+
+            def _maybe_read(self, name: str, qualified: bool = False) -> None:
+                # Faithful: bind ONLY to a same-file constant node, never a local shadow, never a
+                # coincidental same-name function/class (symbol_lookup uniqueness + const_ids kind gate).
+                if not qualified and name in self.local_names:
+                    return
+                target = symbol_lookup.get(name)
+                if target is None and self.scope_class and not qualified:
+                    target = symbol_lookup.get(f"{self.scope_class}.{name}")
+                if target is not None and target in const_ids and target != self.current_symbol:
+                    self.reads.append((self.current_symbol, target))
+                elif target is None and not qualified and name in import_aliases:
+                    # Wave 1p4ls: cross-module imported-constant candidate — emit an external::
+                    # reads edge; finalize() resolves it to a UNIQUE constant (kind-checked) or
+                    # drops it (most imports are functions/classes → dropped; never wrong-bound).
+                    self.reads.append((self.current_symbol, f"external::{import_aliases[name]}"))
 
             def _resolve_call(self, func: ast.AST) -> tuple[str | None, bool]:
                 if isinstance(func, ast.Name):
@@ -5340,10 +5757,12 @@ class GraphIndexSession:
             # resolution when an owner function/method is provided.
             local_types: dict[str, str] = {}
             module_vars: dict[str, str] = {}
+            local_names: set[str] = set()
             if owner_node is not None:
                 local_types = _py_build_local_types(owner_node, scope_class)
                 module_vars = _py_build_module_vars(owner_node)
-            collector = CallCollector(current_symbol, scope_class=scope_class, local_types=local_types, module_vars=module_vars)
+                local_names = _py_local_names(owner_node)
+            collector = CallCollector(current_symbol, scope_class=scope_class, local_types=local_types, module_vars=module_vars, local_names=local_names)
             for stmt in body:
                 collector.visit(stmt)
                 if isinstance(stmt, ast.ClassDef):
@@ -5358,6 +5777,9 @@ class GraphIndexSession:
             for src, target, receiver_resolved in collector.calls:
                 confidence = "RECEIVER_RESOLVED" if receiver_resolved else "EXTRACTED"
                 edges.append(_edge(src, target, "calls", confidence=confidence))
+            # Wave 1p4ls: same-file constant reads (deduped per (reader, constant)).
+            for src, target in dict.fromkeys(collector.reads):
+                edges.append(_edge(src, target, GRAPH_READS_RELATION, confidence="EXTRACTED"))
 
         # Attach call edges for top-level defs and classes.
         for stmt in tree.body:
@@ -5548,6 +5970,8 @@ class GraphIndexSession:
             return None
         mode = profile.mode
         source_bytes = source_text.encode("utf-8", errors="replace")
+        source_lines = source_text.splitlines()  # Wave 1p4ls: chunker const predicates need lines
+        const_node_ids: set[str] = set()  # Wave 1p4ls: this file's constant node ids (reads gate)
         module_id = rel_path
         node_map: dict[str, dict[str, Any]] = {
             module_id: _node(module_id, _path_term(rel_path), "module", rel_path, "1:0", layer=self.layer)
@@ -5778,8 +6202,35 @@ class GraphIndexSession:
                 add_edge(parent_symbol, node_id, "defines", confidence="EXTRACTED")
             defined_symbols.append(node_id)
             simple = _simple_name(node_id)
-            if simple:
-                simple_names.setdefault(simple, []).append(node_id)
+            # Wave 1p4ls (delivery review B1): dedup the simple_names append. The constant
+            # intercept recurses into a const declaration's OWN name-bearing child (e.g. a
+            # Kotlin `const val X` → variable_declaration, an already-registered constant node),
+            # which re-registers the SAME node_id here. An unconditional append makes
+            # simple_names[X] length 2, so the uniqueness gate below (len == 1) skips X and its
+            # same-scope read never resolves — silently producing zero reads edges for every
+            # object/companion/class `const val`. Deduping a node_id under its own simple key is
+            # always correct (a node appearing twice only inflates the count, never adds info).
+            if simple and node_id not in simple_names.setdefault(simple, []):
+                simple_names[simple].append(node_id)
+            return node_id
+
+        def register_constant(qname: str, node, value: str | None, parent_symbol: str | None) -> str:
+            # Wave 1p4ls: a tree-sitter constant node (kind="constant"). Unlike register_symbol it
+            # never merges with the file node (a constant is not a file-dominant type) and carries
+            # an optional simple-literal value. Registered in defined_symbols/simple_names so reads
+            # edges + cross-file resolution see it exactly like a function/class.
+            node_id = f"{rel_path}::{qname}"
+            add_node(node_id, qname.rsplit(".", 1)[-1], GRAPH_CONST_KIND, self._source_location(source_text, node.start_point[0] + 1))
+            if value is not None:
+                node_map[node_id]["value"] = value
+            add_edge(module_id, node_id, "defines", confidence="EXTRACTED")
+            if parent_symbol and parent_symbol != module_id:
+                add_edge(parent_symbol, node_id, "defines", confidence="EXTRACTED")
+            if node_id not in defined_symbols:
+                defined_symbols.append(node_id)
+            simple = _simple_name(node_id)
+            if simple and node_id not in simple_names.setdefault(simple, []):  # 1p4ls B1: dedup (see register_symbol)
+                simple_names[simple].append(node_id)
             return node_id
 
         # Wave 1p2q3 (1p2tz post-ship-4 perf): single-pass walker. The previous
@@ -5791,6 +6242,8 @@ class GraphIndexSession:
         # table. Reduces walker wall-time ~30-40% on real codebases by avoiding
         # the duplicate AST descent.
         buffered_calls: list[tuple[str, Any, str, list[str]]] = []  # (source_symbol, call_node, node_type, scope_signatures_snapshot)
+        buffered_reads: list[tuple[str, str]] = []  # Wave 1p4ls: (reader_symbol, identifier_text)
+        func_locals: dict[str, set[str]] = {}  # reader_symbol -> {param/local binding names} (member-access F4 shadow guard)
 
         def walk_definitions(
             node,
@@ -5803,6 +6256,13 @@ class GraphIndexSession:
                 scope_signatures = []
             node_type = str(getattr(node, "type", "") or "")
             current_scope_kind = scope_kinds[-1] if scope_kinds else None
+            # Member-access F4 shadow guard: collect this function's parameter + local binding NAMES.
+            # Done BEFORE the is_definition/import branches (which `return`) because some grammars (e.g.
+            # Swift `parameter`) ARE definition nodes and would otherwise skip this.
+            if current_scope_kind in ("function", "method") and node_type in _TS_BINDING_NODE_TYPES and scope_symbols:
+                _bn = _ts_binding_names(node)
+                if _bn:
+                    func_locals.setdefault(scope_symbols[-1], set()).update(_bn)
             is_import = _ts_markup_import_nodes(node, source_bytes) if mode == "markup" else _ts_is_import_node(node_type, mode)
             is_definition = bool(_ts_markup_name_candidates(node, source_bytes)) if mode == "markup" else _ts_is_definition_node(node_type, mode)
             if is_import:
@@ -5898,6 +6358,25 @@ class GraphIndexSession:
                         for child in (getattr(declarator_node, "named_children", []) or []):
                             walk_definitions(child, next_scope_names, next_scope_kinds, next_scope_symbols, next_scope_signatures)
                     return
+            # Wave 1p4ls: intercept module-/type-level CONSTANT declarations → kind="constant"
+            # per-name (+ simple-literal value), reusing the chunk-lane predicates. Replaces the
+            # generic variable/function mislabel for these nodes. Function/method-body locals are
+            # never reached (scope gate); a constant node never pushes scope (it is a leaf).
+            if mode not in ("markup", "config", "sql") and current_scope_kind not in ("function", "method"):
+                _const_decls = _ts_constant_decls(
+                    lang_key, node, node_type, source_bytes, source_lines,
+                    in_type_body=(current_scope_kind == "class"),
+                )
+                if _const_decls:
+                    _parent_symbol = scope_symbols[-1] if scope_symbols else module_id
+                    for _cname, _cvalue in _const_decls:
+                        _cqname = ".".join([*scope_names, _cname]) if scope_names else _cname
+                        const_node_ids.add(register_constant(_cqname, node, _cvalue, _parent_symbol))
+                    # recurse into children WITHOUT pushing scope (initializer calls/reads attribute
+                    # to the enclosing scope), then stop — the constant itself is a leaf symbol.
+                    for child in getattr(node, "named_children", []):
+                        walk_definitions(child, scope_names, scope_kinds, scope_symbols, scope_signatures)
+                    return
             if is_definition:
                 candidates = _ts_name_candidates(node, source_bytes, mode)
                 name = _ts_pick_symbol_name(candidates, mode, node_type)
@@ -5915,6 +6394,42 @@ class GraphIndexSession:
                     qname = ".".join([*scope_names, name]) if scope_names else name
                     parent_symbol = scope_symbols[-1] if scope_symbols else module_id
                     node_id = register_symbol(qname, kind, node, parent_symbol)
+                    # Wave 1p4q4: TS `enum` / `const enum` — each member is a constant NODE
+                    # (`Enum.Member`), child of the enum type node (which stays a class node above).
+                    # Members are how TS expresses named constants.
+                    if lang_key in ("typescript", "javascript") and node_type == "enum_declaration":
+                        # The walker does NOT push a scope frame for a TS namespace/module
+                        # (internal_module/module aren't definition nodes), so `qname` lacks the
+                        # enclosing namespace. Recover it from the AST ancestor chain and prepend it
+                        # to the member qname — else two same-named enums in two namespaces collide
+                        # to one member node and silently clobber each other's value (review D1).
+                        _nsparts: list[str] = []
+                        _anc = getattr(node, "parent", None)
+                        while _anc is not None:
+                            if str(getattr(_anc, "type", "") or "") in ("internal_module", "module"):
+                                for _c in getattr(_anc, "children", []):
+                                    if str(getattr(_c, "type", "") or "") in ("identifier", "nested_identifier"):
+                                        _nsparts.append(_c.text.decode().strip())
+                                        break
+                            _anc = getattr(_anc, "parent", None)
+                        _mem_base = (".".join(reversed(_nsparts)) + "." + qname) if _nsparts else qname
+                        for _eb in getattr(node, "named_children", []):
+                            if str(getattr(_eb, "type", "") or "") != "enum_body":
+                                continue
+                            for _mem in getattr(_eb, "named_children", []):
+                                _mt = str(getattr(_mem, "type", "") or "")
+                                if _mt == "property_identifier":
+                                    _mn, _mv = _mem.text.decode().strip(), None
+                                elif _mt == "enum_assignment":
+                                    _mid = next((g for g in _mem.children
+                                                 if str(getattr(g, "type", "") or "") == "property_identifier"), None)
+                                    if _mid is None:
+                                        continue
+                                    _mn, _mv = _mid.text.decode().strip(), _ts_declarator_value(_mem, source_bytes)
+                                else:
+                                    continue
+                                if _mn:
+                                    const_node_ids.add(register_constant(f"{_mem_base}.{_mn}", _mem, _mv, node_id))
                     sig = _extract_definition_signature(node, source_bytes, lang_key)
                     if sig:
                         overload_signatures.setdefault(node_id, set()).add(sig)
@@ -5955,6 +6470,31 @@ class GraphIndexSession:
             if _ts_is_call_node(node_type, mode, profile):
                 source_symbol = scope_symbols[-1] if scope_symbols else module_id
                 buffered_calls.append((source_symbol, node, node_type, list(scope_signatures)))
+            # Wave 1p4ls: buffer identifier READS inside a function/method body for the `reads`
+            # edge. Gated to function scope so class-body const-name identifiers and module noise
+            # are not captured; resolved post-walk against the const node set (symbol_lookup
+            # uniqueness = cross-module faithfulness; a coincidental twin stays unresolved).
+            elif (current_scope_kind in ("function", "method") and node_type in _TS_READ_IDENT_TYPES
+                  and scope_symbols and not _ts_is_member_property_leaf(node)):
+                # The PROPERTY side of a member access (the trailing `.C`) is skipped here — the
+                # member-access path branch below resolves `A.B.C` qualified instead, so a trailing
+                # leaf can't wrong-bind a same-named constant when the head is an instance/local.
+                try:
+                    _ident = source_bytes[node.start_byte:node.end_byte].decode("utf-8", "replace")
+                except Exception:
+                    _ident = ""
+                if _ident:
+                    buffered_reads.append((scope_symbols[-1], _ident))
+            elif current_scope_kind in ("function", "method") and node_type in _TS_MEMBER_ACCESS_TYPES and scope_symbols:
+                # Member-access CONSTANT read: buffer the full qualified PATH (`Status.ACTIVE`,
+                # `Outer.Inner.TOKEN`) so it resolves by EXACT qname match against a constant node.
+                # This is what surfaces `graph_related.readers` for enum members + nested/type-level
+                # constants accessed as `A.B.C` — including TS/JS, whose trailing `property_identifier`
+                # the leaf-capture branch above never sees. Faithful by construction: the qualifier is
+                # part of the key, so a same-leaf parameter / import / bare call can never match it.
+                _mpath = _ts_member_access_path(node, source_bytes)
+                if _mpath:
+                    buffered_reads.append((scope_symbols[-1], _mpath))
             for child in getattr(node, "named_children", []):
                 walk_definitions(child, scope_names, scope_kinds, scope_symbols, scope_signatures)
 
@@ -6087,6 +6627,35 @@ class GraphIndexSession:
         for nid, sigs in overload_signatures.items():
             if nid in node_map and len(sigs) > 0:
                 node_map[nid]["param_signatures"] = sorted(sigs)
+
+        # Wave 1p4ls: resolve buffered identifier reads → `reads` edges (reader function → constant).
+        # symbol_lookup uniqueness is the cross-module faithfulness gate (an ambiguous same-name
+        # constant is absent → stays unresolved, never a wrong twin); const_node_ids restricts the
+        # target to constants only (never a coincidental same-name function/class).
+        _seen_reads: set[tuple[str, str]] = set()
+        for _reader, _ident in buffered_reads:
+            if "." in _ident and _ident.split(".", 1)[0] in func_locals.get(_reader, ()):
+                continue  # member-access head is a function-local/param shadow → reads the local, not the const (F4)
+            _target = symbol_lookup.get(_ident)
+            if _target is not None and _target in const_node_ids and _target != _reader:
+                # A DOTTED ident is a member-access read (`Outer.Inner.TOKEN`); it must match the
+                # constant's FULL qualified name, not a `_simple_name` PARTIAL key (`config.timeout`
+                # for a const `Outer.config.timeout`) — else an instance/local `owner.leaf` access
+                # wrong-binds a 1-level-nested const (member-access review F1). Bare-leaf reads (no
+                # dot) keep the unique-simple-name path unchanged.
+                if "." in _ident and _target.split("::", 1)[-1] != _ident:
+                    continue
+                _key = (_reader, _target)
+            elif _target is None and _ident in import_aliases:
+                # Wave 1p4ls: cross-module imported-constant candidate — finalize() resolves it to a
+                # unique constant (kind-checked) or drops it. Most imports are non-constant → dropped.
+                _key = (_reader, f"external::{import_aliases[_ident]}")
+            else:
+                continue
+            if _key in _seen_reads:
+                continue
+            _seen_reads.add(_key)
+            add_edge(_key[0], _key[1], GRAPH_READS_RELATION, confidence="EXTRACTED")
 
         return {
             "kind": "code",
@@ -6862,13 +7431,59 @@ class GraphIndexSession:
                     flush=True,
                 )
 
+            # Wave 1p4ls: resolve cross-module IMPORTED constant reads. An `external::` reads edge
+            # (a function reading a constant imported from another module) binds ONLY to a UNIQUE
+            # constant node — qualified name first, then the final simple-name segment — kind-checked
+            # so it never binds a non-constant or a coincidental twin; otherwise the edge is DROPPED
+            # (most imports are functions/classes → dropped, never wrong-bound). Faithfulness mirrors
+            # the call rewrite's "unique-or-stay-external" discipline, but reads DROP rather than
+            # persist an unresolved external:: target (a read of a stdlib/3rd-party value is not a
+            # project graph fact).
+            reads_replacements: list[tuple[tuple, tuple | None, dict[str, Any] | None]] = []
+            for key, edge in edge_map.items():
+                src, tgt, rel, conf = key
+                if rel != "reads" or not tgt.startswith("external::"):
+                    continue
+                bare = tgt[len("external::"):]
+                target = None
+                if bare:
+                    # Wave 1p4ls (delivery review B2): bind an imported read ONLY to a UNIQUE
+                    # constant matched by the import's QUALIFIED name (the dotted module path and
+                    # its suffixes — robust for relative + package imports; see the qualified_index
+                    # construction above). The previous simple-name fallback bound a coincidental
+                    # same-name constant in an UNRELATED module whenever the qualified import target
+                    # was a non-constant project symbol (an imported FUNCTION whose const-kind
+                    # filter emptied the qualified match) OR a genuinely 3rd-party module — exactly
+                    # the wrong-twin bind the wave's unique-or-DROP faithfulness forbids. A read we
+                    # cannot resolve to a UNIQUE qualified project constant is DROPPED, never
+                    # guessed from a bare simple name (which is why the legitimate imported-constant
+                    # case below still resolves: its dotted module form is a qualified_index key).
+                    cands = [c for c in qualified_index.get(bare, [])
+                             if (node_map.get(c) or {}).get("kind") == GRAPH_CONST_KIND]
+                    if len(cands) == 1 and cands[0] != src:
+                        target = cands[0]
+                if target is not None:
+                    reads_replacements.append((key, (src, target, "reads", conf), {**edge, "target": target}))
+                else:
+                    reads_replacements.append((key, None, None))  # drop unresolved external read
+            for old_key, new_key, new_edge in reads_replacements:
+                edge_map.pop(old_key, None)
+                if new_key is not None and new_edge is not None:
+                    edge_map.setdefault(new_key, new_edge)
+
         # Prune short internal symbols: drop code symbol nodes with labels ≤
         # _SHORT_SYMBOL_MAX_LEN chars unless some other file imports or calls them.
+        # EXEMPT constants (kind=GRAPH_CONST_KIND): an enum member / named const like `Status.OK`
+        # or `Dir.Up` (label `OK`/`Up`) is a meaningful value-carrying symbol, not the loop-var /
+        # type-param noise this prune targets — and these short names are the wave's own canonical
+        # examples. The chunk lane already keeps them (`_go_const_chunk_name`); the graph matches so
+        # `code_definition("OK")` resolves (1p4q4 review D2/F1).
         short_symbols: set[str] = {
             node_id
             for node_id, node in node_map.items()
             if "::" in node_id
             and len(str(node.get("label") or "")) <= _SHORT_SYMBOL_MAX_LEN
+            and node.get("kind") != GRAPH_CONST_KIND
         }
         if short_symbols:
             externally_used: set[str] = set()

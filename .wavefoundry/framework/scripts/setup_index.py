@@ -595,10 +595,13 @@ def _run_indexer(
     include_tests: bool,
     include_generated: bool,
     project_include_prefixes: tuple[str, ...],
+    rechunk: bool = False,
 ) -> None:
     cmd = [str(_tool_venv_python()), str(SCRIPTS_DIR / "indexer.py"), "--root", str(root), "--content", content]
     if full:
         cmd.append("--full")
+    if rechunk:  # Wave 1p4n4: re-chunk all + reuse embeddings by hash (no version change)
+        cmd.append("--rechunk")
     if include_tests:
         cmd.append("--include-tests")
     if include_generated:
@@ -681,6 +684,7 @@ def build_index(
     include_generated: bool = False,
     project_include_prefixes_for_docs: tuple[str, ...] = (),
     project_include_prefixes_for_code: tuple[str, ...] = (),
+    rechunk: bool = False,
 ) -> None:
     if include_code:
         print("Building docs and code semantic index (single indexer pass)...", flush=True)
@@ -701,6 +705,7 @@ def build_index(
         include_tests=include_tests,
         include_generated=include_generated,
         project_include_prefixes=prefixes,
+        rechunk=rechunk,
     )
 
 
@@ -752,6 +757,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Set up the Wavefoundry semantic index")
     p.add_argument("--root", default=None, help="Repository root (default: current directory)")
     p.add_argument("--full", action="store_true", help="Force full rebuild")
+    p.add_argument("--rechunk", action="store_true", help="Re-chunk every file but reuse embeddings by content hash (no version change; only new/changed chunks re-embed)")
     p.add_argument("--include-code", action="store_true", help="Also build semantic code embeddings (slower and more memory-intensive)")
     p.add_argument("--background-code", action="store_true", help="Build docs index synchronously (unblocks MCP immediately), then spawn a detached background process for code embedding")
     p.add_argument("--graph-only", action="store_true", help="Rebuild only the graph index without re-embedding semantic vectors")
@@ -799,6 +805,18 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     background_code = args.background_code and not args.include_code
+    if background_code:
+        # H1 (Phase 4b reliability): stamp THIS process's pid into the background-build marker BEFORE
+        # the synchronous docs build, so a crash here (prewarm / docs build) leaves a dead-pid record —
+        # `wave_index_build_status` then reports `completed` (attempted-and-exited) instead of `none`
+        # (never run), which is what masked the silent failure the JS/TS team hit. On success,
+        # `_spawn_background_code_build` overwrites this with the detached code-build pid.
+        try:
+            _bg_pid = root / ".wavefoundry" / "index" / "background-build.pid"
+            _bg_pid.parent.mkdir(parents=True, exist_ok=True)
+            _bg_pid.write_text(str(os.getpid()), encoding="utf-8")
+        except OSError:
+            pass
     try:
         prewarm_models(include_code=not background_code and args.include_code)
     except ModelPrewarmError as exc:
@@ -807,6 +825,7 @@ def main(argv: list[str] | None = None) -> int:
     build_index(
         root,
         full=args.full,
+        rechunk=args.rechunk,
         include_code=not background_code and args.include_code,
         verbose=args.verbose,
         include_tests=args.include_tests,

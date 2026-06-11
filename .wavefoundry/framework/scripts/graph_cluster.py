@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 CLUSTER_SCHEMA_VERSION = "1"
-CLUSTER_BUILDER_VERSION = "8"
+CLUSTER_BUILDER_VERSION = "9"  # Wave 1p4ls: exclude constant nodes + `reads` edges from clustering
 
 # Document node kinds. These are pre-assigned to a single fixed "Documentation"
 # community (like Tests/Configuration) before Leiden runs, so docs stay visible
@@ -350,6 +350,11 @@ def _project_undirected_projection(graph_payload: dict[str, Any]) -> tuple[dict[
         node_id = _normalize_node_id(str(raw_node.get("id") or ""))
         if not node_id or raw_node.get("kind") == "external" or node_id.startswith("external::"):
             continue
+        # Wave 1p4ls: constant nodes are excluded from community discovery — they are lightweight
+        # data-flow metadata, not call/structure members. Excluding the node (and its `reads` edges
+        # below) keeps the clustered graph identical to pre-1p4ls, so community labels do NOT shift.
+        if raw_node.get("kind") == "constant":
+            continue
         node = dict(raw_node)
         node["id"] = node_id
         nodes_by_id[node_id] = node
@@ -360,6 +365,11 @@ def _project_undirected_projection(graph_payload: dict[str, Any]) -> tuple[dict[
         source = _normalize_node_id(str(raw_edge.get("source") or ""))
         target = _normalize_node_id(str(raw_edge.get("target") or ""))
         if not source or not target or source == target:
+            continue
+        # Wave 1p4ls: `reads` (constant-read) edges never carry clustering signal — they would
+        # bridge unrelated modules through a shared hot constant. Skip before the membership check
+        # (the constant endpoint is already excluded above, but skip explicitly for clarity).
+        if str(raw_edge.get("relation") or "") == "reads":
             continue
         if source not in nodes_by_id or target not in nodes_by_id:
             continue

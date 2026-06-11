@@ -7829,7 +7829,7 @@ class CodeAskTests(unittest.TestCase):
         index = MagicMock()
         # code_ask_response now uses search_combined; provide combined results
         combined = (code_results or []) + (doc_results or [])
-        index.search_combined.return_value = (combined, False, 0, 0, [], [], "none")
+        index.search_combined.return_value = (combined, False, 0, 0, [], [], "none", None)
         index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
         return index
 
@@ -7963,6 +7963,7 @@ class CodeAskTests(unittest.TestCase):
             [],
             [],
             "none",
+            None,
         )
         # rerank="local": post-selection demotion path (mocks search_combined, so agent-mode's
         # pre-selection demotion isn't exercised here — that's verified on the real index).
@@ -9162,7 +9163,7 @@ class RerankerTests(unittest.TestCase):
         idx = self._make_index_with_docs(docs, code_chunks=code)
         mock_reranker = self._make_mock_reranker(6)
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
-            results, reranked, vector_ms, rerank_ms, _, _, _ = idx.search_combined("query", top_n=5, rerank="local")
+            results, reranked, vector_ms, rerank_ms, _, _, _, _ = idx.search_combined("query", top_n=5, rerank="local")
         self.assertTrue(reranked)
         self.assertLessEqual(len(results), 5)
         self.assertIsInstance(vector_ms, int)
@@ -9174,7 +9175,7 @@ class RerankerTests(unittest.TestCase):
         code = [self._fake_code_chunk(f"c{i}") for i in range(3)]
         idx = self._make_index_with_docs(docs, code_chunks=code)
         with patch.object(idx, "_get_reranker", return_value=None):
-            results, reranked, vector_ms, rerank_ms, _, _, _ = idx.search_combined("query", top_n=5, rerank="local")
+            results, reranked, vector_ms, rerank_ms, _, _, _, _ = idx.search_combined("query", top_n=5, rerank="local")
         self.assertFalse(reranked)
         self.assertLessEqual(len(results), 5)
         self.assertIsInstance(vector_ms, int)
@@ -9187,13 +9188,13 @@ class RerankerTests(unittest.TestCase):
         idx = self._make_index_with_docs(docs, code_chunks=code)
         mock_reranker = self._make_mock_reranker(10)
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
-            results, _, _vms, _rms, _, _, _ = idx.search_combined("query", top_n=3, rerank="local")
+            results, _, _vms, _rms, _, _, _, _ = idx.search_combined("query", top_n=3, rerank="local")
         self.assertLessEqual(len(results), 3)
 
     def test_code_ask_response_includes_reranked_field(self):
         """code_ask_response includes 'reranked' and timing fields in response data."""
         index = MagicMock()
-        index.search_combined.return_value = ([], False, 0, 0, [], [], "none")
+        index.search_combined.return_value = ([], False, 0, 0, [], [], "none", None)
         index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -9222,7 +9223,7 @@ class RerankerTests(unittest.TestCase):
     def test_code_ask_rerank_defaults_to_agent(self):
         """1p4hj AC-1: default rerank is 'agent' — search_combined receives rerank='agent'."""
         index = MagicMock()
-        index.search_combined.return_value = ([], False, 0, 0, [], [], "none")
+        index.search_combined.return_value = ([], False, 0, 0, [], [], "none", None)
         index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -9238,7 +9239,7 @@ class RerankerTests(unittest.TestCase):
         idx = self._make_index_with_docs(docs, code_chunks=code)
         mock_reranker = self._make_mock_reranker(6)
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
-            results, reranked, _, _, _, _, _ = idx.search_combined("query", top_n=5, rerank="agent")
+            results, reranked, _, _, _, _, _, _ = idx.search_combined("query", top_n=5, rerank="agent")
         mock_reranker.rerank.assert_not_called()
         self.assertFalse(reranked)
         self.assertTrue(results, "agent-mode must still return candidates")
@@ -9259,7 +9260,7 @@ class RerankerTests(unittest.TestCase):
         mock_reranker = self._make_mock_reranker(2)
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
             with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
-                results, reranked, _, _, definition_boosted, _, _ = idx.search_combined(
+                results, reranked, _, _, definition_boosted, _, _, _ = idx.search_combined(
                     "how does build_prefix generate the +2vr8 format?",
                     top_n=5, question_type="artifact_anchored", rerank="agent",
                 )
@@ -9362,28 +9363,91 @@ class RerankerTests(unittest.TestCase):
         self.assertEqual(t("MaxRetries"), ["max", "retries"])
         self.assertEqual(t("apiURL"), ["api", "url"])
 
-    def test_lr_const_boost_fires_on_marker_and_full_name_match(self):
-        """1p4lr: boost fires only on a " [const]" chunk whose name tokens ALL appear in the query."""
+    def test_lr_definition_boost_fires_on_constant(self):
+        """1p4lr: boost fires on a " [const]" chunk whose name tokens ALL appear in the query."""
         srv = self.srv
-        cand = {"id": "indexer.py::RERANKER_MODEL", "section": "indexer > RERANKER_MODEL [const]"}
+        cand = {"id": "indexer.py::RERANKER_MODEL", "section": "indexer > RERANKER_MODEL [const]", "kind": "code"}
         qt = srv._query_content_terms("what cross-encoder reranker model does local mode use?")
-        self.assertEqual(srv._const_definition_boost(qt, cand), srv.CONST_DEFINITION_BOOST)
+        self.assertEqual(srv._definition_match_boost(qt, cand), srv.DEFINITION_MATCH_BOOST)
 
-    def test_lr_const_boost_skips_non_declaration_and_strict_misses(self):
-        """1p4lr: no boost for a non-constant (no marker), a partial name match, or a single-token name."""
+    def test_lr_definition_boost_fires_on_function_class_method(self):
+        """1p4lr AC-4: the boost generalizes beyond constants — a FUNCTION, CLASS, or qualified
+        METHOD definition whose multi-token name the query names is boosted too."""
         srv = self.srv
-        # non-declaration (a function chunk — no marker)
-        fn = {"id": "server_impl.py::search_combined", "section": "server_impl > search_combined"}
-        self.assertEqual(srv._const_definition_boost(srv._query_content_terms("where is search_combined"), fn), 1.0)
+        fn = {"id": "server_impl.py::search_combined", "section": "server_impl > search_combined", "kind": "code"}
+        self.assertEqual(srv._definition_match_boost(srv._query_content_terms("how does search_combined work"), fn),
+                         srv.DEFINITION_MATCH_BOOST)
+        cls = {"id": "indexer.py::WaveIndex", "section": "indexer > WaveIndex", "kind": "code"}
+        self.assertEqual(srv._definition_match_boost(srv._query_content_terms("what is the WaveIndex class"), cls),
+                         srv.DEFINITION_MATCH_BOOST)
+        meth = {"id": "m.py::Config.connect", "section": "m > Config.connect", "kind": "code"}
+        self.assertEqual(srv._definition_match_boost(srv._query_content_terms("how does Config connect"), meth),
+                         srv.DEFINITION_MATCH_BOOST)
+
+    def test_lr_definition_boost_multilanguage(self):
+        """1p4lr AC-4: detection is language-agnostic — a const/func/class definition from any chunked
+        language (JS const, Go func, Java class) boosts on a full-name query (camelCase/PascalCase
+        names match because the query terms are camel-split too)."""
+        srv = self.srv
+        cases = [
+            ({"id": "conf.ts::API_URL", "section": "conf > API_URL [const]", "kind": "code"}, "what is the API_URL value"),
+            ({"id": "h.go::ParseConfig", "section": "h > ParseConfig", "kind": "code"}, "how does ParseConfig work"),
+            ({"id": "B.java::OrderService", "section": "B > OrderService", "kind": "code"}, "the OrderService class"),
+        ]
+        for cand, q in cases:
+            self.assertEqual(srv._definition_match_boost(srv._query_content_terms(q), cand),
+                             srv.DEFINITION_MATCH_BOOST, cand["id"])
+
+    def test_lr_definition_boost_skips_non_definition_and_strict_misses(self):
+        """1p4lr: no boost for a NON-definition (doc / imports chunk), a partial name match, or a
+        single-token name (the over-boost guard)."""
+        srv = self.srv
+        # non-definition: a doc chunk (kind != code, no marker)
+        doc = {"id": "guide.md::s", "section": "guide > How Search Works", "kind": "doc"}
+        self.assertEqual(srv._definition_match_boost(srv._query_content_terms("how does search work"), doc), 1.0)
+        # non-definition: an imports chunk
+        imp = {"id": "m.py::__imports__", "section": "m > imports", "kind": "code"}
+        self.assertEqual(srv._definition_match_boost(srv._query_content_terms("imports module list"), imp), 1.0)
         # partial overlap: query has 'reranker' but not 'model'
-        c1 = {"id": "x::RERANKER_MODEL", "section": "x > RERANKER_MODEL [const]"}
-        self.assertEqual(srv._const_definition_boost(srv._query_content_terms("which reranker"), c1), 1.0)
+        c1 = {"id": "x::RERANKER_MODEL", "section": "x > RERANKER_MODEL [const]", "kind": "code"}
+        self.assertEqual(srv._definition_match_boost(srv._query_content_terms("which reranker"), c1), 1.0)
         # single-token name (the over-boost guard)
-        c2 = {"id": "x::PORT", "section": "x > PORT [const]"}
-        self.assertEqual(srv._const_definition_boost(srv._query_content_terms("what is the port"), c2), 1.0)
+        c2 = {"id": "x::PORT", "section": "x > PORT [const]", "kind": "code"}
+        self.assertEqual(srv._definition_match_boost(srv._query_content_terms("what is the port"), c2), 1.0)
+
+    def test_lr_definition_boost_strips_split_chunk_suffix(self):
+        """1p4lr (delivery review C1): an oversized declaration is split into chunks whose id carries a
+        `:L<start>-L<end>` suffix and whose breadcrumb carries a ` (part N/M)` tail. Those junk tokens
+        (l1274, part) can never appear in a query, so without stripping them the all-tokens match fails
+        and the boost is DEAD for every large symbol (e.g. WaveIndex.search_combined)."""
+        srv = self.srv
+        split_id = {"id": "server_impl.py::WaveIndex.search_combined:L1274-L1289",
+                    "section": "server_impl > WaveIndex.search_combined (part 1/2)", "kind": "code"}
+        self.assertEqual(srv._definition_qname(split_id), "WaveIndex.search_combined")
+        # breadcrumb-derived path (no "::" leaf) carries the same (part N/M) tail
+        split_section = {"id": "noident", "section": "server_impl > WaveIndex.search_combined (part 2/2)", "kind": "code"}
+        self.assertEqual(srv._definition_qname(split_section), "WaveIndex.search_combined")
+        self.assertEqual(
+            srv._definition_match_boost(srv._query_content_terms("how does search_combined work"), split_id),
+            srv.DEFINITION_MATCH_BOOST)
+
+    def test_lr_definition_boost_fires_on_leaf_method_query(self):
+        """1p4lr (delivery review C3): a natural-language method query names only the method, not its
+        enclosing class. A multi-token LEAF the query names boosts even when the class tokens are
+        absent; a single-token leaf still needs its qualified context (precision guard)."""
+        srv = self.srv
+        meth = {"id": "server_impl.py::WaveIndex.search_combined",
+                "section": "server_impl > WaveIndex.search_combined", "kind": "code"}
+        # the class (WaveIndex) is NOT named — the 2-token leaf search_combined is → boost
+        self.assertEqual(
+            srv._definition_match_boost(srv._query_content_terms("how does search_combined work"), meth),
+            srv.DEFINITION_MATCH_BOOST)
+        # a single-token leaf method without its class still does NOT boost (no over-fire on a bare word)
+        single = {"id": "m.py::Config.connect", "section": "m > Config.connect", "kind": "code"}
+        self.assertEqual(srv._definition_match_boost(srv._query_content_terms("how does connect work"), single), 1.0)
 
     def test_lr_boost_lifts_declaration_without_re_trimming_others(self):
-        """1p4lr: a boosted constant ranks UP, but the drop-off cutoff (from the UN-boosted top) is
+        """1p4lr: a boosted definition ranks UP, but the drop-off cutoff (from the UN-boosted top) is
         unchanged — so EXACTLY the same other candidates are selected (the council's top_w must-fix)."""
         srv = self.srv
         code = [{"path": f"{x}.py", "kind": "code", "lines": [1, 1], "text": x, "score": s}
@@ -9392,9 +9456,9 @@ class RerankerTests(unittest.TestCase):
                  "id": "k.py::RERANKER_MODEL", "section": "k > RERANKER_MODEL [const]"}
         idx = self._make_index_with_docs([self._fake_doc_chunk("d")], code_chunks=[self._fake_code_chunk("c")])
         base = idx._agent_candidate_select({"code": [dict(c) for c in code] + [dict(const)]}, top_n=20, floor_k=1)
-        cb = dict(const); cb["_boost"] = srv.CONST_DEFINITION_BOOST
+        cb = dict(const); cb["_boost"] = srv.DEFINITION_MATCH_BOOST
         boosted = idx._agent_candidate_select({"code": [dict(c) for c in code] + [cb]}, top_n=20, floor_k=1)
-        self.assertEqual(boosted[0]["path"], "k.py")  # the boosted constant ranks first
+        self.assertEqual(boosted[0]["path"], "k.py")  # the boosted definition ranks first
         self.assertEqual({r["path"] for r in base}, {r["path"] for r in boosted})  # same set selected
         self.assertNotIn("e.py", {r["path"] for r in boosted})  # 0.68 < cutoff in BOTH (not re-trimmed)
 
@@ -9430,11 +9494,11 @@ class RerankerTests(unittest.TestCase):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             root = _make_repo(Path(tmp))
-            index.search_combined.return_value = ([], False, 0, 0, [], [], "none")
+            index.search_combined.return_value = ([], False, 0, 0, [], [], "none", None)
             self.assertEqual(self.srv.code_ask_response(index, root, "q", rerank="agent")["data"]["rerank_mode"], "agent")
-            index.search_combined.return_value = ([], True, 0, 0, [], [], "none")
+            index.search_combined.return_value = ([], True, 0, 0, [], [], "none", None)
             self.assertEqual(self.srv.code_ask_response(index, root, "q", rerank="local")["data"]["rerank_mode"], "local")
-            index.search_combined.return_value = ([], False, 0, 0, [], [], "none")
+            index.search_combined.return_value = ([], False, 0, 0, [], [], "none", None)
             self.assertEqual(self.srv.code_ask_response(index, root, "q", rerank="local")["data"]["rerank_mode"], "rrf_fallback")
 
     # --- _get_reranker caching ---
@@ -9487,7 +9551,7 @@ class RerankerTests(unittest.TestCase):
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
             with patch.object(idx, "_rerank", side_effect=passthrough_rerank):
                 with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
-                    results, reranked, vector_ms, _, definition_boosted, _, _ = idx.search_combined(
+                    results, reranked, vector_ms, _, definition_boosted, _, _, _ = idx.search_combined(
                         "how does build_prefix generate the +2vr8 format?",
                         top_n=5,
                         question_type="artifact_anchored", rerank="local",
@@ -9569,7 +9633,7 @@ class RerankerTests(unittest.TestCase):
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
             with patch.object(idx, "_rerank", side_effect=passthrough_rerank):
                 with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
-                    results, _, _, _, _, _, _ = idx.search_combined(
+                    results, _, _, _, _, _, _, _ = idx.search_combined(
                         "how does build_prefix generate the +2vr8 format?",
                         top_n=5,
                         question_type="artifact_anchored", rerank="local",
@@ -9643,8 +9707,8 @@ class RerankerTests(unittest.TestCase):
         code = [self._fake_code_chunk("c0")]
         idx = self._make_index_with_docs(docs, code_chunks=code)
         with patch.object(idx, "_get_reranker", return_value=None):
-            results_nav, _, _, _, _, _, _ = idx.search_combined("where is the config", top_n=5, question_type="navigational")
-            results_def, _, _, _, _, _, _ = idx.search_combined("where is the config", top_n=5, question_type="")
+            results_nav, _, _, _, _, _, _, _ = idx.search_combined("where is the config", top_n=5, question_type="navigational")
+            results_def, _, _, _, _, _, _, _ = idx.search_combined("where is the config", top_n=5, question_type="")
         # Results should be returned without error and obey top_n
         self.assertLessEqual(len(results_nav), 5)
         self.assertLessEqual(len(results_def), 5)
@@ -9664,7 +9728,7 @@ class RerankerTests(unittest.TestCase):
         mock_reranker.rerank.return_value = [0.9, 0.8, 0.5]
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
             with patch.object(idx, "_rerank", return_value=[infra_chunk, biz_chunk]):
-                results, reranked, _, _, _, _, _ = idx.search_combined("how does billing work", top_n=5, question_type="explanatory", rerank="local")
+                results, reranked, _, _, _, _, _, _ = idx.search_combined("how does billing work", top_n=5, question_type="explanatory", rerank="local")
         self.assertTrue(reranked)
         # The business logic file must appear before the infra file
         paths = [r.get("path", "") for r in results]
@@ -9681,7 +9745,7 @@ class RerankerTests(unittest.TestCase):
         idx = self._make_index_with_docs(docs, code_chunks=code)
         infra_chunk = {**code[0], "score": 0.9}
         with patch.object(idx, "_get_reranker", return_value=None):
-            results, reranked, _, _, _, _, _ = idx.search_combined("where is the stack", top_n=5, question_type="navigational")
+            results, reranked, _, _, _, _, _, _ = idx.search_combined("where is the stack", top_n=5, question_type="navigational")
         self.assertFalse(reranked)  # RRF fallback
 
     def test_search_combined_infrastructure_demoted_flag_in_code_ask(self):
@@ -9689,7 +9753,7 @@ class RerankerTests(unittest.TestCase):
         index = MagicMock()
         infra_result = {"path": "src/constructs/MyStack.ts", "score": 0.9, "lines": [1, 10], "text": "...", "kind": "code"}
         biz_result = {"path": "src/services/billing.ts", "score": 0.8, "lines": [1, 10], "text": "...", "kind": "code"}
-        index.search_combined.return_value = ([infra_result, biz_result], True, 10, 20, [], [], "none")
+        index.search_combined.return_value = ([infra_result, biz_result], True, 10, 20, [], [], "none", None)
         index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -9703,7 +9767,7 @@ class RerankerTests(unittest.TestCase):
         """code_ask_response does not set infrastructure_demoted for navigational questions."""
         index = MagicMock()
         infra_result = {"path": "src/constructs/MyStack.ts", "score": 0.9, "lines": [1, 10], "text": "...", "kind": "code"}
-        index.search_combined.return_value = ([infra_result], True, 5, 10, [], [], "none")
+        index.search_combined.return_value = ([infra_result], True, 5, 10, [], [], "none", None)
         index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -9717,7 +9781,7 @@ class RerankerTests(unittest.TestCase):
     def test_code_ask_timing_ms_fields_are_non_negative_integers(self):
         """total_ms, vector_ms, rerank_ms are non-negative integers in code_ask response."""
         index = MagicMock()
-        index.search_combined.return_value = ([], False, 5, 3, [], [], "none")
+        index.search_combined.return_value = ([], False, 5, 3, [], [], "none", None)
         index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -9733,7 +9797,7 @@ class RerankerTests(unittest.TestCase):
         """total_ms >= vector_ms + rerank_ms (structural invariant: total covers both phases)."""
         index = MagicMock()
         # Use 0,0 for mocked component times — wall-clock total_ms will always be >= 0+0
-        index.search_combined.return_value = ([], False, 0, 0, [], [], "none")
+        index.search_combined.return_value = ([], False, 0, 0, [], [], "none", None)
         index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -9745,7 +9809,7 @@ class RerankerTests(unittest.TestCase):
     def test_code_ask_total_ms_geq_component_sum_nonzero(self):
         """Component times from search_combined are correctly propagated into the response."""
         index = MagicMock()
-        index.search_combined.return_value = ([], False, 10, 20, [], [], "none")
+        index.search_combined.return_value = ([], False, 10, 20, [], [], "none", None)
         index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -9766,7 +9830,7 @@ class RerankerTests(unittest.TestCase):
         import tempfile
         from unittest.mock import patch as _patch
         index = MagicMock()
-        index.search_combined.return_value = ([], False, 5, 3, [], [], "none")
+        index.search_combined.return_value = ([], False, 5, 3, [], [], "none", None)
         index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
         printed = []
         with tempfile.TemporaryDirectory() as tmp:
@@ -9851,7 +9915,7 @@ class RerankerTests(unittest.TestCase):
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
             with patch.object(idx, "_rerank", side_effect=passthrough_rerank):
                 with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
-                    results, reranked, _, _, definition_boosted, _, _ = idx.search_combined(
+                    results, reranked, _, _, definition_boosted, _, _, _ = idx.search_combined(
                         "how does the stored procedure work", top_n=10
                     )
         self.assertIn("sql", definition_boosted)
@@ -9869,7 +9933,7 @@ class RerankerTests(unittest.TestCase):
         code = [self._fake_code_chunk("src/billing.ts")]
         idx = self._make_index_with_docs(docs, code_chunks=code)
         with patch.object(idx, "_get_reranker", return_value=None):
-            _, _, _, _, definition_boosted, _, _ = idx.search_combined("where is the billing handler", top_n=5)
+            _, _, _, _, definition_boosted, _, _, _ = idx.search_combined("where is the billing handler", top_n=5)
         self.assertEqual(definition_boosted, [])
 
     def test_definition_boost_result_count_does_not_exceed_top_n(self):
@@ -9882,7 +9946,7 @@ class RerankerTests(unittest.TestCase):
         fake_kw_resp = {"status": "ok", "data": {"results": sql_hits}}
         with patch.object(idx, "_get_reranker", return_value=None):
             with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
-                results, _, _, _, _, _, _ = idx.search_combined("how does the sql schema work", top_n=3, rerank="local")
+                results, _, _, _, _, _, _, _ = idx.search_combined("how does the sql schema work", top_n=3, rerank="local")
         self.assertLessEqual(len(results), 3)
 
     def test_definition_boost_second_rule_addition_requires_no_logic_change(self):
@@ -9902,7 +9966,7 @@ class RerankerTests(unittest.TestCase):
             self.srv.DEFINITION_BOOST_RULES = original_rules + [graphql_rule]
             with patch.object(idx, "_get_reranker", return_value=None):
                 with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
-                    _, _, _, _, boosted, _, _ = idx.search_combined("what graphql types exist", top_n=5)
+                    _, _, _, _, boosted, _, _, _ = idx.search_combined("what graphql types exist", top_n=5)
             self.assertIn("graphql", boosted)
         finally:
             self.srv.DEFINITION_BOOST_RULES = original_rules
@@ -9910,7 +9974,7 @@ class RerankerTests(unittest.TestCase):
     def test_definition_boosted_flag_propagated_to_code_ask_response(self):
         """code_ask_response includes definition_boosted list when rule fired."""
         index = MagicMock()
-        index.search_combined.return_value = ([], False, 0, 0, ["sql"], [], "none")
+        index.search_combined.return_value = ([], False, 0, 0, ["sql"], [], "none", None)
         index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -9923,7 +9987,7 @@ class RerankerTests(unittest.TestCase):
     def test_definition_boosted_absent_from_code_ask_when_no_rule_fired(self):
         """code_ask_response omits definition_boosted when no rule fired."""
         index = MagicMock()
-        index.search_combined.return_value = ([], False, 0, 0, [], [], "none")
+        index.search_combined.return_value = ([], False, 0, 0, [], [], "none", None)
         index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -10082,7 +10146,7 @@ class RerankerTests(unittest.TestCase):
             with patch.object(idx, "_rerank", side_effect=capture_rerank) as mock_rerank:
                 mock_rerank.side_effect = [first_rerank_result, first_rerank_result + second_hop_result]
                 with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
-                    results, reranked, _, _, _, second_hop_symbols, symbol_extraction_method = idx.search_combined(
+                    results, reranked, _, _, _, second_hop_symbols, symbol_extraction_method, _ = idx.search_combined(
                         "how does billing charge a customer", top_n=5, question_type="explanatory", rerank="local"
                     )
         self.assertTrue(second_hop_symbols, "expected second_hop_symbols to be non-empty")
@@ -10096,7 +10160,7 @@ class RerankerTests(unittest.TestCase):
         idx = self._make_index_with_docs(docs, code_chunks=code)
 
         with patch.object(idx, "_get_reranker", return_value=None):
-            _, _, _, _, _, second_hop_symbols, symbol_extraction_method = idx.search_combined(
+            _, _, _, _, _, second_hop_symbols, symbol_extraction_method, _ = idx.search_combined(
                 "where is the billing module", top_n=5, question_type="navigational"
             )
         self.assertEqual(second_hop_symbols, [])
@@ -10114,7 +10178,7 @@ class RerankerTests(unittest.TestCase):
 
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
             with patch.object(idx, "_rerank", return_value=prose_result):
-                _, _, _, _, _, second_hop_symbols, symbol_extraction_method = idx.search_combined(
+                _, _, _, _, _, second_hop_symbols, symbol_extraction_method, _ = idx.search_combined(
                     "how does billing work", top_n=5, question_type="explanatory"
                 )
         self.assertEqual(second_hop_symbols, [])
@@ -10155,7 +10219,7 @@ class RerankerTests(unittest.TestCase):
     def test_second_hop_symbols_propagated_to_code_ask_response(self):
         """code_ask_response emits second_hop_symbols and symbol_extraction_method when second hop fired."""
         index = MagicMock()
-        index.search_combined.return_value = ([], False, 0, 0, [], ["chargeCustomer"], "ast")
+        index.search_combined.return_value = ([], False, 0, 0, [], ["chargeCustomer"], "ast", None)
         index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -10170,7 +10234,7 @@ class RerankerTests(unittest.TestCase):
     def test_second_hop_symbols_absent_when_empty(self):
         """code_ask_response omits second_hop_symbols and symbol_extraction_method when second hop did not fire."""
         index = MagicMock()
-        index.search_combined.return_value = ([], False, 0, 0, [], [], "none")
+        index.search_combined.return_value = ([], False, 0, 0, [], [], "none", None)
         index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -10194,7 +10258,7 @@ class RerankerTests(unittest.TestCase):
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
             with patch.object(idx, "_rerank", return_value=ts_result):
                 with patch(f"{self.srv.__name__}._get_chunker_module", side_effect=Exception("no grammar")):
-                    _, _, _, _, _, _symbols, method = idx.search_combined(
+                    _, _, _, _, _, _symbols, method, _ = idx.search_combined(
                         "how does billing charge", top_n=5, question_type="explanatory", rerank="local"
                     )
         self.assertEqual(method, "regex_fallback",
@@ -10214,7 +10278,7 @@ class RerankerTests(unittest.TestCase):
         mock_reranker = MagicMock()
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
             with patch.object(idx, "_rerank", return_value=py_result):
-                _, _, _, _, _, _symbols, method = idx.search_combined(
+                _, _, _, _, _, _symbols, method, _ = idx.search_combined(
                     "how does auth work", top_n=5, question_type="explanatory", rerank="local"
                 )
         self.assertEqual(method, "ast",
@@ -10234,7 +10298,7 @@ class RerankerTests(unittest.TestCase):
         mock_reranker = MagicMock()
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
             with patch.object(idx, "_rerank", return_value=infra_only):
-                _, _, _, _, _, _symbols, method = idx.search_combined(
+                _, _, _, _, _, _symbols, method, _ = idx.search_combined(
                     "how does billing charge", top_n=5, question_type="explanatory"
                 )
         self.assertEqual(method, "none",
@@ -11086,14 +11150,90 @@ class CodeConstantsTests(unittest.TestCase):
     # Edge cases
     # ------------------------------------------------------------------
 
-    def test_indented_assignment_ignored(self):
-        """Only module-level (column-0) assignments are matched."""
+    def test_class_level_constant_found(self):
+        """Wave 1p4pz: a class-level (indented) constant IS now found by the multi-language detector,
+        alongside the module-level one — both are real constants. The old column-0 regex missed the
+        class-level one; the chunk-lane detector surfaces it."""
         self._add_file("mod.py", "class Foo:\n    MY_CONST = 99\nMY_CONST = 1\n")
         result = self._call(["MY_CONST"])
         entries = result["data"]["results"]
-        self.assertEqual(len(entries), 1)
+        self.assertEqual(sorted(e["value"] for e in entries), ["1", "99"],
+                         f"both module + class-level constants found; got {entries}")
+
+    def test_function_local_assignment_ignored(self):
+        """A function-local assignment is NOT a constant (scope gate) — only the module-level one is
+        returned. The chunk-lane detector excludes function/block locals exactly as 1p4mf gates them."""
+        self._add_file("mod.py", "def f():\n    MY_CONST = 99\n    return MY_CONST\nMY_CONST = 1\n")
+        result = self._call(["MY_CONST"])
+        entries = [e for e in result["data"]["results"] if e["value"] is not None]
+        self.assertEqual(len(entries), 1, f"only the module-level const expected; got {entries}")
         self.assertEqual(entries[0]["value"], "1")
-        self.assertEqual(entries[0]["line"], 3)
+
+    # ------------------------------------------------------------------
+    # Wave 1p4pz — multi-language constant lookup (chunk-lane detector)
+    # ------------------------------------------------------------------
+
+    _ML_CASES = [
+        ("J.java", "class J {\n  private static final int MAX_SIZE = 1048576;\n}\n", "MAX_SIZE", "1048576"),
+        ("g.go", "package main\nconst MaxRetries = 3\n", "MaxRetries", "3"),
+        ("c.cs", "class C { const int MaxRetries = 3; }\n", "MaxRetries", "3"),
+        ("k.kt", 'const val API_KEY = "k"\n', "API_KEY", '"k"'),
+        ("r.rs", "const LIMIT: u32 = 3;\n", "LIMIT", "3"),
+        ("s.swift", 'static let apiURL = "u"\n', "apiURL", '"u"'),
+        ("rb.rb", "class S\n  RETRY = 5\nend\n", "RETRY", "5"),
+        ("p.php", "<?php\nconst LIMIT = 100;\n", "LIMIT", "100"),
+        ("t.ts", 'const API_URL = "https://x";\n', "API_URL", '"https://x"'),
+    ]
+
+    def test_multi_language_detection(self):
+        """AC-1: `code_constants` finds indented / non-Python constants across all languages via the
+        1p4mf chunk-lane detector (Java static final, Go/C# const, Kotlin const val, Rust const,
+        Swift static let, Ruby const, PHP const, TS const). FAIL-not-skip on a missing grammar."""
+        for fn, src, sym, expected in self._ML_CASES:
+            with self.subTest(file=fn):
+                self._add_file(fn, src)
+                entries = [e for e in self._call([sym])["data"]["results"] if e["value"] is not None]
+                self.assertTrue(entries, f"[{fn}] constant {sym} not found (grammar missing or detector gap)")
+                self.assertEqual(entries[0]["value"], expected, f"[{fn}] {sym} value")
+
+    def test_value_extraction_edge_cases(self):
+        """AC-2: trailing `;` trimmed (Java/C#/Rust/PHP); PHP `define()` second arg; per-declarator
+        value for a multi-const line; multiline literal preserved."""
+        self._add_file("J.java", "class J { static final int X = 42; }\n")
+        self._add_file("p.php", "<?php\ndefine('CACHE_KEY', 'xyz');\n")
+        self._add_file("t.ts", "const A = 1, B = 2;\n")
+        self._add_file("py.py", 'CONFIG = frozenset({\n  "a",\n  "b",\n})\n')
+        def _val(sym, want, file_kw=None):
+            es = [e for e in self._call([sym])["data"]["results"] if e["value"] is not None]
+            es = [e for e in es if (file_kw is None or file_kw in (e["file"] or ""))]
+            self.assertTrue(es, f"{sym} not found")
+            return es[0]
+        self.assertEqual(_val("X", None)["value"], "42")                 # trailing ; trimmed
+        self.assertEqual(_val("CACHE_KEY", None)["value"], "'xyz'")      # PHP define() 2nd arg
+        self.assertEqual(_val("A", None)["value"], "1")                  # per-declarator
+        self.assertEqual(_val("B", None)["value"], "2")
+        cfg = _val("CONFIG", None)
+        self.assertIn("frozenset", cfg["value"])
+        self.assertEqual(cfg["kind"], "multiline")
+
+    def test_candidate_prefilter_only_chunks_matching_files(self):
+        """AC-4: only files containing a requested symbol (cheap substring pre-filter) are chunked —
+        a targeted lookup never parses the whole tree."""
+        self._add_file("has.py", "TARGET_CONST = 5\n")
+        self._add_file("nope.py", "UNRELATED = 9\n")
+        chunker = self.srv._get_chunker_module()
+        seen: list[str] = []
+        orig = chunker.chunk_python
+        def _spy(source, path):
+            seen.append(path)
+            return orig(source, path)
+        chunker.chunk_python = _spy
+        try:
+            self._call(["TARGET_CONST"])
+        finally:
+            chunker.chunk_python = orig
+        self.assertTrue(any("has.py" in p for p in seen), f"matching file chunked; got {seen}")
+        self.assertFalse(any("nope.py" in p for p in seen), f"non-matching file must NOT be chunked; got {seen}")
 
     def test_partial_name_not_matched(self):
         """MY_K should not match MY_KEYWORD or MY_K_EXTRA."""
@@ -11114,6 +11254,78 @@ class CodeConstantsTests(unittest.TestCase):
         self.assertEqual(srv._bracket_depth("frozenset({"), 2)
         # Closed properly
         self.assertEqual(srv._bracket_depth("frozenset({})"), 0)
+
+    # ------------------------------------------------------------------
+    # Wave 1p4pz/1p4q4 review fixes (chunk-lane value extraction + coverage)
+    # ------------------------------------------------------------------
+
+    def test_take_balanced_value_is_string_aware(self):
+        """Review A1: `_take_balanced_value` must treat a string literal as opaque — a `,`/`;`/`}`
+        INSIDE a quoted string is value content, not a separator / enclosing-scope close. (Shares the
+        `_string_literal_end` primitive with `_bracket_depth`.)"""
+        tbv = self.srv._take_balanced_value
+        self.assertEqual(tbv('","')[0], '","')              # value IS a comma → not eaten
+        self.assertEqual(tbv('";"')[0], '";"')              # value IS a semicolon
+        self.assertEqual(tbv('"a;b;c";')[0], '"a;b;c"')     # separators inside string kept; trailing ; trimmed
+        self.assertEqual(tbv('"a}b"}')[0], '"a}b"')         # `}` in string kept; real enclosing `}` ends value
+        v, kind = tbv('{"open": "a}b", "close": "c"}')
+        self.assertEqual(v, '{"open": "a}b", "close": "c"}')  # full dict, not truncated at the in-string `}`
+        self.assertNotEqual(kind, "multiline-truncated")
+
+    def test_chunk_lane_string_value_with_separators_not_truncated(self):
+        """Review A1 (end-to-end): a non-Python / class-level constant whose STRING value contains a
+        `,`/`;`/`}` is returned in full, not truncated to the opening quote."""
+        self._add_file("C.java", 'class C { static final String SEP = "a;b;c"; }\n')
+        self._add_file("m.go", 'package main\nconst Sep = ","\n')
+        self._add_file("conf.py", 'class Conf:\n    TMPL = {"open": "a}b", "close": "c"}\n')
+        java = [e for e in self._call(["SEP"])["data"]["results"] if e["value"] is not None]
+        self.assertEqual(java[0]["value"], '"a;b;c"', "Java String separators must not truncate the value")
+        go = [e for e in self._call(["Sep"])["data"]["results"] if e["value"] is not None]
+        self.assertEqual(go[0]["value"], '","', "a constant whose value IS a comma must not be eaten")
+        tmpl = [e for e in self._call(["TMPL"])["data"]["results"] if e["value"] is not None][0]
+        self.assertIn('"close": "c"', tmpl["value"], "dict value must be complete past the in-string `}`")
+        self.assertNotEqual(tmpl["kind"], "multiline-truncated")
+
+    def test_leading_comment_does_not_poison_value(self):
+        """Review B1: a leading comment that mentions `NAME = <other>` must NOT poison the extracted
+        value — the chunk body's leading comment block is stripped before the NAME search."""
+        self._add_file("cfg.py",
+                       "class Config:\n    # THRESHOLD = 10 was the old default; do not use\n    THRESHOLD = 99\n")
+        entries = [e for e in self._call(["THRESHOLD"])["data"]["results"] if e["value"] is not None]
+        self.assertEqual(entries[0]["value"], "99", "value must come from the decl, not the leading comment")
+
+    def test_go_grouped_const_members_all_resolve(self):
+        """Review B2: a Go grouped `const (...)` block is ONE chunk named after its first member —
+        every member (not just the first) must resolve to its own value + line. iota members resolve
+        too (bare → empty value)."""
+        self._add_file("s.go",
+                       "package main\nconst (\n\tStatusOK = 200\n\tStatusNotFound = 404\n\tStatusError = 500\n)\n")
+        res = {e["name"]: e["value"] for e in self._call(["StatusOK", "StatusNotFound", "StatusError"])["data"]["results"]}
+        self.assertEqual(res, {"StatusOK": "200", "StatusNotFound": "404", "StatusError": "500"})
+        self._add_file("i.go", "package main\nconst (\n\tAlpha = iota\n\tBeta\n\tGamma\n)\n")
+        iota = {e["name"]: e["value"] for e in self._call(["Alpha", "Beta", "Gamma"])["data"]["results"]}
+        self.assertTrue(all(v is not None for v in iota.values()), f"all iota members must resolve; got {iota}")
+
+    def test_qualified_enum_member_lookup(self):
+        """Review B3: a qualified query (`Status.OK`) resolves via the chunk leaf (the substring
+        pre-filter uses the bare leaf so the file is chunked); and when BOTH `OK` and `Status.OK` are
+        requested, each resolves (the short form no longer shadows the qualified one)."""
+        self._add_file("e.ts", "enum Status { OK = 0, FAIL = 1 }\n")
+        qualified = [e for e in self._call(["Status.OK"])["data"]["results"] if e["value"] is not None]
+        self.assertEqual(qualified[0]["value"], "0", "qualified `Status.OK` must resolve")
+        both = {e["name"]: e["value"] for e in self._call(["OK", "Status.OK"])["data"]["results"]
+                if e["value"] is not None}
+        self.assertEqual(both, {"OK": "0", "Status.OK": "0"}, "both the short and qualified form must resolve")
+
+    def test_mts_cts_typescript_dispatch(self):
+        """Review B4: `.mts` / `.cts` TypeScript module files are in the const-chunker dispatch table
+        (the chunker already supports them)."""
+        self._add_file("api.mts", "export const API = 'x';\n")
+        self._add_file("legacy.cts", "export const LEGACY = 7;\n")
+        api = [e for e in self._call(["API"])["data"]["results"] if e["value"] is not None]
+        self.assertEqual(api[0]["value"], "'x'")
+        legacy = [e for e in self._call(["LEGACY"])["data"]["results"] if e["value"] is not None]
+        self.assertEqual(legacy[0]["value"], "7")
 
 
 class TestCodeOutlineTypescript(unittest.TestCase):
@@ -16700,6 +16912,206 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
         closed_text = wave_md.read_text(encoding="utf-8")
         self.assertIn("Status: closed", closed_text)
         self.assertIn("Completed At:", closed_text)
+
+
+class ConstantReadsBucketTests(unittest.TestCase):
+    """Wave 1p4ls AC-4: code_references surfaces a CONSTANT's readers in a distinct graph-sourced
+    `reads` bucket (faithfulness-gated) — NOT merged into call_sites/callers."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        import importlib.util
+        gi_path = Path(__file__).resolve().parents[1] / "graph_indexer.py"
+        spec = importlib.util.spec_from_file_location("graph_indexer", gi_path)
+        gi = importlib.util.module_from_spec(spec)
+        sys.modules["graph_indexer"] = gi
+        spec.loader.exec_module(gi)
+        src = ('RERANKER_MODEL = "BAAI/bge-reranker-base"\n\n'
+               'def get_model():\n    return RERANKER_MODEL\n\n'
+               'def rerank():\n    m = RERANKER_MODEL\n    return m\n')
+        f = self.root / "indexer.py"
+        f.write_text(src, encoding="utf-8")
+        gi.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index", layer="project",
+            files=[f], current_file_meta={"indexer.py": {"hash": src}}, changed={"indexer.py"},
+            removed=set(), walker_version="1", chunker_version="1", verbose=False)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_reads_bucket_lists_constant_readers(self):
+        result = self.srv.code_references_response(self.root, "RERANKER_MODEL")
+        self.assertEqual(result["status"], "ok")
+        reads = result["data"]["detail_buckets"]["reads"]
+        names = {r.get("name") for r in reads}
+        self.assertIn("get_model", names)
+        self.assertIn("rerank", names)
+        # the reads bucket is DISTINCT — readers are not callers
+        self.assertEqual(result["data"]["detail_buckets"]["call_sites"], [])
+
+
+class GraphSignalTests(unittest.TestCase):
+    """Wave 1p4hu: graph-signal candidate source — structural 1-hop neighbors (callers/callees via
+    calls, importers via imports, constant readers via the 1p4ls reads edge) surfaced in agent-mode."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        import importlib.util
+        gi_path = Path(__file__).resolve().parents[1] / "graph_indexer.py"
+        spec = importlib.util.spec_from_file_location("graph_indexer", gi_path)
+        self.gi = importlib.util.module_from_spec(spec)
+        sys.modules["graph_indexer"] = self.gi
+        spec.loader.exec_module(self.gi)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build_graph(self, files):
+        paths, meta = [], {}
+        for rel, c in files.items():
+            pth = self.root / rel
+            pth.parent.mkdir(parents=True, exist_ok=True)
+            pth.write_text(c, encoding="utf-8")
+            paths.append(pth)
+            meta[rel] = {"hash": c}
+        self.gi.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index", layer="project",
+            files=paths, current_file_meta=meta, changed=set(meta), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False)
+
+    def _idx(self):
+        return self.srv.WaveIndex(self.root)
+
+    def _heads(self, cands):
+        return {c["text"].split("\n", 1)[0] for c in cands}
+
+    def test_reader_surfaced_via_reads_edge(self):
+        """AC-1/AC-2: a constant's readers surface via the 1p4ls reads edge (structural, not text)."""
+        self._build_graph({"m.py": "MAX_SIZE = 100\n\ndef compute_size():\n    return MAX_SIZE\n"})
+        cands = self._idx()._graph_signal_candidates(
+            "what reads MAX_SIZE", [{"section": "m > MAX_SIZE", "path": "x", "lines": [1, 1]}], cap=3)
+        self.assertTrue(any("compute_size" in h for h in self._heads(cands)),
+                        f"reader not surfaced via graph; got {self._heads(cands)}")
+
+    def test_caller_surfaced_via_calls_edge(self):
+        """AC-2: a caller surfaces via the calls edge from the resolved symbol."""
+        self._build_graph({"m.py": "def target_fn():\n    return 1\n\ndef caller_fn():\n    return target_fn()\n"})
+        cands = self._idx()._graph_signal_candidates(
+            "who calls target_fn", [{"section": "m > target_fn", "path": "x", "lines": [1, 1]}], cap=3)
+        self.assertTrue(any("caller_fn" in h for h in self._heads(cands)),
+                        f"caller not surfaced via graph; got {self._heads(cands)}")
+
+    def test_graph_signal_bounded(self):
+        """AC-3: capped at `cap` even for a high-fan-in symbol (never pulls the subgraph)."""
+        readers = "".join("def reader_%d():\n    return HOT_FLAG\n\n" % i for i in range(20))
+        self._build_graph({"m.py": "HOT_FLAG = 1\n\n" + readers})
+        cands = self._idx()._graph_signal_candidates(
+            "HOT_FLAG", [{"section": "m > HOT_FLAG", "path": "x", "lines": [1, 1]}], cap=3)
+        self.assertLessEqual(len(cands), 3, "graph signal must respect the cap")
+        self.assertGreater(len(cands), 0, "a high-fan-in symbol should surface some readers")
+
+    def test_no_graph_fallback(self):
+        """AC-4: with NO graph index, the graph signal returns [] with no error (semantic-only)."""
+        cands = self._idx()._graph_signal_candidates(
+            "anything", [{"section": "m > Whatever", "path": "x", "lines": [1, 1]}], cap=3)
+        self.assertEqual(cands, [])
+
+    def test_graph_related_section_groups_callers(self):
+        """Delivery follow-up: "what calls X" produces a `graph_related` section with the callers in a
+        relationship-labeled `callers` bucket — NOT 0.0-scored rows mixed into citations."""
+        self._build_graph({"m.py":
+            "def target():\n    return 1\n\n"
+            "def caller_fn():\n    return target()\n"})
+        idx = self._idx()
+        cands = idx._graph_signal_candidates(
+            "what calls target", [{"section": "m > target", "path": "x", "lines": [1, 1]}], cap=3)
+        self.assertTrue(any(c.get("_relationship") == "caller" for c in cands),
+                        f"caller relationship label expected; got {[c.get('_relationship') for c in cands]}")
+        section = idx._build_graph_related(cands)
+        self.assertIn("target", section["seed"])
+        self.assertTrue(any("caller_fn" in e["symbol"] for e in section.get("callers", [])),
+                        f"caller_fn in the callers bucket expected; got {section}")
+        self.assertNotIn("score", section["callers"][0], "graph_related entries are not 0.0-scored citation rows")
+
+    def test_direction_aware_what_calls_surfaces_callers_not_callees(self):
+        """Delivery follow-up D1: 'what calls X' surfaces X's CALLERS (incoming `calls`), NOT the
+        functions X itself calls. The old union-of-both-directions answered a callers question with
+        the seed's callees."""
+        self._build_graph({"m.py":
+            "def helper():\n    return 1\n\n"
+            "def target():\n    return helper()\n\n"
+            "def caller():\n    return target()\n"})
+        cands = self._idx()._graph_signal_candidates(
+            "what calls target", [{"section": "m > target", "path": "x", "lines": [1, 1]}], cap=3)
+        heads = self._heads(cands)
+        self.assertTrue(any("caller" in h for h in heads), f"caller (incoming) must surface; got {heads}")
+        self.assertFalse(any("helper" in h for h in heads),
+                         f"helper (a callee of target) must NOT surface for a 'what calls' query; got {heads}")
+
+    def test_test_file_neighbor_suppressed(self):
+        """Delivery follow-up: a structural neighbor in a TEST file is not surfaced — a fixture is a
+        poor structural answer (the sweep showed mis-resolved seeds dragging in test helpers)."""
+        self._build_graph({
+            "m.py": "CONST_VALUE = 5\n",
+            "tests/test_m.py": "from m import CONST_VALUE\n\ndef test_uses():\n    return CONST_VALUE\n",
+        })
+        cands = self._idx()._graph_signal_candidates(
+            "what reads CONST_VALUE", [{"section": "m > CONST_VALUE", "path": "x", "lines": [1, 1]}], cap=3)
+        self.assertFalse(any("test_uses" in h for h in self._heads(cands)),
+                         f"a reader in a test file must be suppressed; got {self._heads(cands)}")
+
+    def test_intent_direction_classification(self):
+        """Delivery re-review (A1/A2): query intent → traversal direction. "what calls X" / "is X
+        called" → incoming (callers); "X calls what" (subject-first) → both, not forced callers."""
+        srv = self.srv
+        def direction(q):
+            ql = q.lower()
+            inc = bool(srv._GRAPH_USER_INTENT_RE.search(ql)) and not bool(srv._GRAPH_OUTGOING_INTENT_RE.search(ql))
+            return "in" if inc else "both"
+        for q in ["what calls foo", "who calls foo", "where is foo used", "is foo called anywhere",
+                  "what reads foo", "what invokes foo"]:
+            self.assertEqual(direction(q), "in", q)
+        for q in ["foo calls what", "what does foo call", "callees of foo", "how does foo work"]:
+            self.assertEqual(direction(q), "both", q)
+
+    def test_generic_plural_entries_not_seeded(self):
+        """Delivery re-review (F1): generic content words like 'entries' (which collide with JSON
+        content nodes) are excluded from graph-signal seed resolution."""
+        self.assertIn("entries", self.srv._GRAPH_SEED_STOPWORDS)
+
+    def test_graph_related_reader_bucket(self):
+        """Delivery follow-up: a constant's reader lands in the `readers` bucket of graph_related."""
+        self._build_graph({"m.py": "LIMIT_X = 5\n\ndef reader_fn():\n    return LIMIT_X\n"})
+        idx = self._idx()
+        cands = idx._graph_signal_candidates(
+            "what reads LIMIT_X", [{"section": "m > LIMIT_X", "path": "x", "lines": [1, 1]}], cap=3)
+        section = idx._build_graph_related(cands)
+        self.assertTrue(any("reader_fn" in e["symbol"] for e in section.get("readers", [])),
+                        f"reader_fn in the readers bucket expected; got {section}")
+
+    def test_graph_related_text_deduped_against_citations(self):
+        """User follow-up: a structural match that is ALSO a semantic citation keeps its relationship
+        entry (the structural answer stays complete + labeled) but DROPS the duplicate excerpt and is
+        flagged `also_cited` — the chunk text is never sent twice. A non-cited match keeps its excerpt."""
+        idx = self._idx()
+        cands = [
+            {"path": "m.py", "lines": [3, 27], "text": "m > caller_a\n\nbody-a", "kind": "code",
+             "_relationship": "caller", "_seed": "target", "_symbol": "caller_a", "_graph_kind": "function"},
+            {"path": "n.py", "lines": [8, 32], "text": "n > caller_b\n\nbody-b", "kind": "code",
+             "_relationship": "caller", "_seed": "target", "_symbol": "caller_b", "_graph_kind": "function"},
+        ]
+        # caller_a coincides with a citation (same path, start line); caller_b does not.
+        citations = [{"path": "m.py", "lines": [3, 19]}]
+        section = idx._build_graph_related(cands, citations)
+        by_sym = {e["symbol"]: e for e in section["callers"]}
+        self.assertEqual(set(by_sym), {"caller_a", "caller_b"}, "both callers stay in the structural answer")
+        self.assertTrue(by_sym["caller_a"].get("also_cited"), "the cited match is flagged also_cited")
+        self.assertNotIn("excerpt", by_sym["caller_a"], "the cited match drops its duplicate excerpt")
+        self.assertIn("excerpt", by_sym["caller_b"], "a non-cited match keeps its excerpt")
 
 
 if __name__ == "__main__":

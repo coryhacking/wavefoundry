@@ -20,6 +20,12 @@ _BETWEENNESS_NODE_LIMIT = 10_000
 
 _DEFAULT_IMPACT_RELATIONS = ("imports", "calls")
 _DEFAULT_CALL_RELATIONS = ("calls",)
+# Wave 1p4ls: relations OPT-IN for default 1-hop traversal — excluded when a caller passes no
+# explicit `relations` so a hot constant (read by hundreds of functions) does not balloon every
+# default neighbor query (incl. 1p4hu's graph-signal expansion). A caller that WANTS constant
+# reads passes them explicitly (e.g. relations=("reads",)). Deliberately NOT in the impact/call
+# defaults above either, so constant reads never pollute blast-radius or call-graph analysis.
+_NEIGHBOR_OPT_IN_RELATIONS = frozenset({"reads"})
 _DOC_KINDS = frozenset({"doc", "seed"})
 _CHOKEPOINT_FAN_OUT = 20
 
@@ -978,8 +984,10 @@ class GraphQueryIndex:
         if len(matches) == 1:
             return matches[0]
         if len(matches) > 1:
-            # Prefer shortest id (most specific path prefix)
-            return sorted(matches, key=len)[0]
+            # Wave 1p4ls: kind-aware — prefer callables so a constant node sharing a simple name
+            # does NOT shadow a previously-resolving function/method lookup. Then shortest id.
+            pool = self._prefer_callable_ids(matches)
+            return sorted(pool, key=len)[0]
         # Bare symbol name
         by_label = [
             nid for nid, node in self._node_by_id.items()
@@ -987,7 +995,24 @@ class GraphQueryIndex:
         ]
         if len(by_label) == 1:
             return by_label[0]
+        if len(by_label) > 1:
+            # Wave 1p4ls: kind-aware tiebreak — if exactly ONE callable matches (the rest being
+            # constants/other), bind it; multiple callables stay ambiguous (conservative → None).
+            callables = self._prefer_callable_ids(by_label, only_callables=True)
+            if len(callables) == 1:
+                return callables[0]
         return None
+
+    def _prefer_callable_ids(self, ids: list[str], *, only_callables: bool = False) -> list[str]:
+        """Wave 1p4ls: of a multi-match set, the callable (function/method) node ids — or, when no
+        callable is present and ``only_callables`` is False, the original set unchanged."""
+        callables = [
+            nid for nid in ids
+            if (self._node_by_id.get(nid) or {}).get("kind") in ("function", "method")
+        ]
+        if only_callables:
+            return callables
+        return callables if callables else ids
 
     def traverse(
         self,
@@ -1043,18 +1068,35 @@ class GraphQueryIndex:
         node_ids: Iterable[str],
         *,
         relations: Iterable[str] | None = None,
+        max_neighbors: int | None = None,
+        direction: str = "both",
     ) -> dict[str, Any]:
+        """1-hop neighbors of each seed. ``direction`` selects edge orientation relative to the
+        seed: ``"both"`` (default — out + in, back-compatible), ``"in"``/``"callers"`` (edges
+        pointing AT the seed — its callers / readers / importers, i.e. "what uses X"), or
+        ``"out"``/``"callees"`` (edges FROM the seed — what it calls / reads / imports). Wave 1p4hu
+        delivery follow-up: the structural signal passes ``direction="in"`` for "what calls/reads/
+        uses X" phrasing so it stops answering a callers question with the seed's callees."""
         rel_set = set(relations) if relations is not None else None
+        _want_out = direction in ("both", "out", "callees")
+        _want_in = direction in ("both", "in", "callers")
         nodes: dict[str, dict[str, Any]] = {}
         edges: list[dict[str, Any]] = []
         seen_edges: set[tuple[str, str, str]] = set()
+        truncated = False
         for start in node_ids:
             if start not in self._node_by_id:
                 continue
             nodes[start] = self._node_by_id[start]
-            for edge in self._out.get(start, []) + self._in.get(start, []):
+            _seed_edges = (self._out.get(start, []) if _want_out else []) + (self._in.get(start, []) if _want_in else [])
+            for edge in _seed_edges:
                 rel = edge.get("relation")
-                if rel_set is not None and rel not in rel_set:
+                if rel_set is None:
+                    # Wave 1p4ls: default traversal excludes opt-in relations (e.g. "reads") so a
+                    # hot constant does not balloon the neighbor set; explicit relations override.
+                    if rel in _NEIGHBOR_OPT_IN_RELATIONS:
+                        continue
+                elif rel not in rel_set:
                     continue
                 src = edge.get("source")
                 tgt = edge.get("target")
@@ -1063,18 +1105,25 @@ class GraphQueryIndex:
                 key = (src, tgt, str(rel))
                 if key in seen_edges:
                     continue
+                # Wave 1p4ls: optional neighbor-size bound — a degree cap for hot nodes.
+                if max_neighbors is not None and len(nodes) >= max_neighbors:
+                    truncated = True
+                    continue
                 seen_edges.add(key)
                 edges.append(edge)
                 for nid in (src, tgt):
                     if nid in self._node_by_id:
                         nodes[nid] = self._node_by_id[nid]
-        return {
+        result = {
             "present": True,
             "layer": self.layer,
             "nodes": list(nodes.values()),
             "edges": edges,
             "note": "1-hop structural neighbors; on by default, suppress with graph=false",
         }
+        if truncated:
+            result["truncated"] = True
+        return result
 
     def shortest_path(
         self,

@@ -3179,21 +3179,30 @@ class UniversalOversizedChunkGuardTests(unittest.TestCase):
         cls.chunker = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.chunker)
 
-    def test_chunker_version_bumped_to_26(self):
-        """Wave 1p4mf: CHUNKER_VERSION bumped 25 → 26 because module/class-level
-        constants are now emitted as their own `kind="code"` chunks (breadcrumb-
-        prefixed text, merge-excluded via a `" [const]"` section marker) — a constant
-        like `RERANKER_MODEL = "..."` previously lived in NO chunk and is now
-        retrievable by `code_ask`. The output shape changes (new constant chunks),
-        so consumers need a full reindex. `indexer.build_index` auto-escalates
+    def test_chunker_version_bumped_to_29(self):
+        """Wave 1p4q4 review: CHUNKER_VERSION bumped 28 → 29 — the `module M{}` keyword form,
+        non-export namespace const, `export namespace`, `declare namespace`, and `declare enum`
+        members now chunk (completing the namespace/module coverage that rode 28). Chunk-set shape
+        change → bump so any 28-index re-chunks. Wave 1p4q4: CHUNKER_VERSION bumped 27 → 28 — TS
+        `enum`/`const enum` members (+ namespace const, declare const) are now constant chunks.
+        (Wave 1p4hi close: 26 → 27.) The interim `81bae0c` committed `26`
+        with PYTHON-ONLY constant chunking; this wave extended the chunk shape to all 11 languages
+        (+ the Go short-const fix) under the SAME `26`, breaking the version=shape invariant — so the
+        bump to 27 forces every consumer/index on the interim `26` to re-chunk to the final shape.
+        Constants (`RERANKER_MODEL = "..."` etc.) are emitted as their own `kind="code"` chunks
+        (breadcrumb-prefixed text, merge-excluded via a `" [const]"` section marker). The output
+        shape changed, so consumers need a full reindex; `indexer.build_index` auto-escalates
         incremental updates to a full rebuild on the version mismatch.
 
         Prior bumps in this ratchet (preserved as the historical sequence):
         22 → 23 (wave 1p397): part-N/M labels, paragraph decomposition.
         23 → 24 (wave 1p3ho): test fixture for chunker-bump detection path.
         24 → 25 (wave 1p3jc): symbolless-code-file summary fallback.
-        25 → 26 (wave 1p4mf): module/class-level constant chunks."""
-        self.assertEqual(self.chunker.CHUNKER_VERSION, "26")
+        25 → 26 (wave 1p4mf): module/class-level constant chunks (Python; interim all-11-language).
+        26 → 27 (wave 1p4hi close): all-11-language constant chunking finalized under a clean version.
+        27 → 28 (wave 1p4q4): TS enum/const-enum members + namespace const + declare const chunked.
+        28 → 29 (wave 1p4q4 review): module-keyword / non-export-namespace / export-&-declare-namespace / declare-enum chunking completed."""
+        self.assertEqual(self.chunker.CHUNKER_VERSION, "29")
 
     def test_split_large_chunks_is_idempotent_on_small_chunks(self):
         c = self.chunker.Chunk(id="x", path="p", kind="doc", language=None,
@@ -3523,6 +3532,1221 @@ class ConstantChunkTests(unittest.TestCase):
         self.assertIn("mod.py::A_X", consts)
         self.assertIn("mod.py::B_Y", consts)
 
+
+class JsTsConstantChunkTests(unittest.TestCase):
+    """Wave 1p4mf (JS/TS): value-const chunking on the tree-sitter production path.
+
+    A `const` whose RHS is a literal value (scalar/string/object/array/template) is a VALUE
+    constant → kind=code chunk, " [const]" section marker (merge-excluded), breadcrumb-prefixed
+    text carrying the declaration. A function/component const (arrow/styled-call) and any
+    `let`/`var` keep the original plain code-chunk path (no marker)."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _chunk(self, source, path="src/conf.ts"):
+        # AC-5: a missing tree-sitter grammar must FAIL loudly, not skip — a silent skip would let
+        # a vacuous gate masquerade as a pass. Run under ~/.wavefoundry/venv (grammars installed).
+        result = self.chunker.chunk_js_ts_treesitter(source, path)
+        self.assertIsNotNone(result, "tree-sitter JS/TS grammar unavailable — gate is vacuous")
+        return result
+
+    def _consts(self, source, path="src/conf.ts"):
+        return {c.id: c for c in self._chunk(source, path)
+                if c.section and c.section.endswith(" [const]")}
+
+    def test_enum_members_chunked(self):
+        """AC-1 (1p4q4): each TS `enum` / `const enum` / `export enum` member is its own
+        `Enum.Member` const chunk — members are how TS expresses named constants."""
+        consts = self._consts(
+            "enum Status { OK = 0, FAIL = 1 }\n"
+            "const enum Dir { Up, Down }\n"
+            'export enum Color { Red = "r" }\n')
+        ids = {i.rsplit("::", 1)[-1] for i in consts}
+        self.assertEqual({"Status.OK", "Status.FAIL", "Dir.Up", "Dir.Down", "Color.Red"}, ids,
+                         f"all enum members chunked; got {ids}")
+        self.assertIn("0", consts["src/conf.ts::Status.OK"].text, "member value carried in text")
+
+    def test_namespace_and_declare_const_chunked(self):
+        """AC-2 (1p4q4): a `namespace` export-const and a `declare const` value are constant chunks."""
+        ids = {i.rsplit("::", 1)[-1] for i in self._consts(
+            "namespace NS { export const NS_LIMIT = 5; }\n"
+            "declare const AMBIENT = 9;\n")}
+        self.assertIn("NS.NS_LIMIT", ids, f"namespace const; got {ids}")
+        self.assertIn("AMBIENT", ids, f"declare const; got {ids}")
+
+    def test_module_keyword_block_chunked(self):
+        """Review C1: the `module M { ... }` keyword form parses as a top-level `module` node (NOT
+        `internal_module`); its consts AND enum members must be chunked, qualified by the module
+        name. Requirement 2 names `module` explicitly."""
+        ids = {i.rsplit("::", 1)[-1] for i in self._consts(
+            "module Legacy {\n  const X = 5;\n  enum Code { OKAY = 200 }\n}\n")}
+        self.assertIn("Legacy.X", ids, f"module-keyword const; got {ids}")
+        self.assertIn("Legacy.Code.OKAY", ids, f"module-keyword enum member; got {ids}")
+
+    def test_non_export_const_in_namespace_chunked(self):
+        """Review C2: a NON-export `const` inside a `namespace` is chunked (qualified by the namespace
+        name) — previously only `export const` survived. Requirement 2 says namespace consts
+        (unqualified) are chunked."""
+        ids = {i.rsplit("::", 1)[-1] for i in self._consts(
+            'namespace N {\n  const VERSION = "1.0";\n  export const NAME = "app";\n}\n')}
+        self.assertIn("N.VERSION", ids, f"non-export namespace const; got {ids}")
+        self.assertIn("N.NAME", ids, f"export namespace const; got {ids}")
+
+    def test_export_and_declare_namespace_and_declare_enum_chunked(self):
+        """Review C3: `export namespace` (export_statement→internal_module), `declare namespace`
+        (ambient_declaration→internal_module) and `declare enum` (ambient_declaration→enum_declaration)
+        must recurse so contained members are chunked — these are the common `.d.ts` ambient forms."""
+        exp = {i.rsplit("::", 1)[-1] for i in self._consts(
+            "export namespace ENS {\n  export enum E { MEMBER = 1 }\n}\n")}
+        self.assertIn("ENS.E.MEMBER", exp, f"export namespace enum member; got {exp}")
+        dns = {i.rsplit("::", 1)[-1] for i in self._consts(
+            "declare namespace DNS {\n  enum K { CODE = 404 }\n  const VER = 2;\n}\n")}
+        self.assertIn("DNS.K.CODE", dns, f"declare namespace enum member; got {dns}")
+        self.assertIn("DNS.VER", dns, f"declare namespace const; got {dns}")
+        den = {i.rsplit("::", 1)[-1] for i in self._consts("declare enum DE { ONLY = 7 }\n")}
+        self.assertIn("DE.ONLY", den, f"declare enum member; got {den}")
+
+    def test_mts_cts_chunked_as_typescript(self):
+        """Review B4 (completed): `.mts`/`.cts` TypeScript module files are first-class in the MAIN
+        chunker pipeline (not only code_constants) — they parse as TypeScript (so enum members chunk)
+        and carry language='typescript'. Regression for the dispatch gap where they fell through to
+        line-window chunking / parsed as JS (no enum support)."""
+        for path in ("m.mts", "m.cts"):
+            with self.subTest(path=path):
+                chunks = self._chunk('enum E { Aaa = 1, Bbb = 2 }\nexport const API = "x";\n', path)
+                consts = {c.id.rsplit("::", 1)[-1]: c for c in chunks if c.section.endswith(" [const]")}
+                self.assertIn("E.Aaa", consts, f"[{path}] enum member must chunk (TS parse); got {sorted(consts)}")
+                self.assertIn("API", consts, f"[{path}] const must chunk; got {sorted(consts)}")
+                self.assertEqual(consts["E.Aaa"].language, "typescript", f"[{path}] language must be typescript")
+
+    def test_enum_does_not_disturb_regular_const_or_functions(self):
+        """AC-5 (1p4q4): a regular value const stays marked; an arrow-const function stays UNmarked
+        (no false const) when coexisting with an enum."""
+        by_leaf = {c.id.rsplit("::", 1)[-1]: c for c in self._chunk(
+            'enum E { A = 1 }\nconst API_URL = "x";\nexport const handler = (a) => a + 1;\n')}
+        self.assertTrue(by_leaf["API_URL"].section.endswith(" [const]"), "regular value const still marked")
+        self.assertFalse(by_leaf["handler"].section.endswith(" [const]"), "arrow-const fn must NOT be a const")
+
+    def test_toplevel_value_const_marked_with_breadcrumb_and_value(self):
+        """AC-1: a top-level scalar const → marked chunk; text carries breadcrumb + value."""
+        consts = self._consts("const MAX_SIZE = 100;\n")
+        self.assertIn("src/conf.ts::MAX_SIZE", consts)
+        c = consts["src/conf.ts::MAX_SIZE"]
+        self.assertEqual(c.kind, "code")
+        self.assertTrue(c.text.startswith("conf > MAX_SIZE\n\n"))
+        self.assertIn("100", c.text)
+
+    def test_export_const_string_marked(self):
+        """AC-1 + regression: `export const` whose line text starts with `export` must still be
+        detected as const (the keyword-token check, not line-prefix) and marked."""
+        consts = self._consts('export const API_URL = "https://x";\n')
+        self.assertIn("src/conf.ts::API_URL", consts)
+        self.assertIn('"https://x"', consts["src/conf.ts::API_URL"].text)
+
+    def test_object_and_array_and_template_consts_marked(self):
+        consts = self._consts(
+            "const config = { a: 1 };\n"
+            "const items = [1, 2, 3];\n"
+            "const greeting = `hello`;\n"
+        )
+        self.assertEqual(
+            set(consts),
+            {"src/conf.ts::config", "src/conf.ts::items", "src/conf.ts::greeting"},
+        )
+
+    def test_function_and_component_consts_not_marked(self):
+        """A function/component const (arrow / styled-call) is NOT a value constant → no marker."""
+        src = (
+            "const handler = () => { return 1; };\n"
+            "export const Btn = styled.div`x`;\n"
+        )
+        self.assertEqual(self._consts(src), {})
+
+    def test_let_and_var_not_marked(self):
+        """`let`/`var` are not constants — never marked, even with a literal RHS. (Anchored with a
+        const so the chunker emits output rather than returning None on a declaration-only file.)"""
+        consts = self._consts("const REAL = 1;\nlet mutable = 3;\nvar legacy = 4;\n")
+        self.assertIn("src/conf.ts::REAL", consts)
+        self.assertNotIn("src/conf.ts::mutable", consts)
+        self.assertNotIn("src/conf.ts::legacy", consts)
+
+    def test_typed_ts_const_marked(self):
+        """AC-1 (TS): a type-annotated const still resolves its value via the `value` field."""
+        self.assertIn("src/conf.ts::TIMEOUT", self._consts("const TIMEOUT: number = 5000;\n"))
+
+    def test_adjacent_value_consts_each_survive_merge(self):
+        """AC-3: adjacent 1-line value consts each keep their OWN id (marker → merge-excluded)."""
+        consts = self._consts("const A_ONE = 1;\nconst B_TWO = 2;\nconst C_THREE = 3;\n")
+        self.assertEqual(
+            set(consts),
+            {"src/conf.ts::A_ONE", "src/conf.ts::B_TWO", "src/conf.ts::C_THREE"},
+        )
+
+
+class JsTsRegexFallbackConstantTests(unittest.TestCase):
+    """Wave 1p4mf (JS/TS): value-const chunking on the REGEX fallback path (`chunk_js_ts`), used
+    when the tree-sitter grammar is unavailable. Parity with the tree-sitter path: value consts
+    (incl. non-exported — closing the export-only `_JS_EXPORT_CONST_RE` gap) are marked; function/
+    component consts (arrow / styled-call) keep their plain code-chunk path."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _consts(self, source, path="src/conf.ts"):
+        return {c.id: c for c in self.chunker.chunk_js_ts(source, path)
+                if c.section and c.section.endswith(" [const]")}
+
+    def test_non_exported_value_const_marked(self):
+        """Closes the export-only gap: a plain `const NAME = value` (never chunked before) is now
+        a marked value-const chunk with the breadcrumb-prefixed value in its text."""
+        consts = self._consts("const MAX_SIZE = 100;\n")
+        self.assertIn("src/conf.ts::MAX_SIZE", consts)
+        c = consts["src/conf.ts::MAX_SIZE"]
+        self.assertTrue(c.text.startswith("conf > MAX_SIZE\n\n"))
+        self.assertIn("100", c.text)
+
+    def test_exported_string_and_typed_const_marked(self):
+        consts = self._consts(
+            'export const API_URL = "https://x";\n'
+            "const TIMEOUT: number = 5000;\n"
+        )
+        self.assertIn("src/conf.ts::API_URL", consts)
+        self.assertIn("src/conf.ts::TIMEOUT", consts)
+
+    def test_multiline_object_and_array_consts_marked(self):
+        consts = self._consts(
+            "const config = {\n  a: 1,\n  b: 2,\n};\n"
+            "const items = [1, 2, 3];\n"
+        )
+        self.assertIn("src/conf.ts::config", consts)
+        self.assertIn("src/conf.ts::items", consts)
+        # the multi-line object body is captured in the const chunk
+        self.assertIn("b: 2", consts["src/conf.ts::config"].text)
+
+    def test_arrow_and_styled_not_marked(self):
+        """A function/component const is NOT a value const — no marker (caught by the arrow/export
+        paths as a plain code chunk)."""
+        consts = self._consts(
+            "const handler = () => { return 1; };\n"
+            "export const Btn = styled.div`x`;\n"
+        )
+        self.assertEqual(consts, {})
+
+    def test_let_and_var_not_marked(self):
+        self.assertEqual(self._consts("let mutable = 3;\nvar legacy = 4;\n"), {})
+
+
+
+class GoConstantChunkTests(unittest.TestCase):
+    """Wave 1p4mf (Go): package/file-level constant chunking on the tree-sitter path.
+
+    Go const-ness is the `const` keyword — NOT casing. MixedCaps exported (`MaxRetries`) and
+    camelCase unexported (`apiURL`) consts are BOTH detected (an UPPER_SNAKE filter would drop
+    idiomatic Go). A single `const X =` -> one marked chunk; a grouped `const ( ... )` block
+    (Go's iota-enum; no enum type node) -> ONE chunk for the whole block so a member query still
+    hits it. Function-local `const`, `var`/grouped `var`, blank `const _ =`, and <=2-char flag
+    names are excluded. Marker section suffix " [const]" -> merge-excluded (1-line consts survive
+    _merge_small_chunks)."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _chunk(self, source, path="pkg/config/config.go"):
+        # A missing tree-sitter Go grammar must FAIL loudly, not skip — a silent skip would let a
+        # vacuous gate masquerade as a pass. Run under ~/.wavefoundry/venv (grammars installed).
+        result = self.chunker.chunk_go_treesitter(source, path)
+        self.assertIsNotNone(result, "tree-sitter Go grammar unavailable — gate is vacuous")
+        return result
+
+    def _consts(self, source, path="pkg/config/config.go"):
+        return {c.id: c for c in self._chunk(source, path)
+                if c.section and c.section.endswith(" [const]")}
+
+    def test_mixedcaps_exported_const_marked_with_breadcrumb_and_value(self):
+        """No casing gate: a MixedCaps EXPORTED const (NOT ALL_CAPS) is detected; text carries
+        the breadcrumb prefix + the value."""
+        consts = self._consts("package config\n\nconst MaxRetries = 3\n")
+        self.assertIn("pkg/config/config.go::MaxRetries", consts)
+        c = consts["pkg/config/config.go::MaxRetries"]
+        self.assertEqual(c.kind, "code")
+        self.assertTrue(c.text.startswith("config > MaxRetries\n\n"))
+        self.assertIn("3", c.text)
+
+    def test_camelcase_unexported_const_marked(self):
+        """Counterexample: an UNEXPORTED camelCase const (apiURL — not ALL_CAPS, not exported)
+        is still a constant and is marked. Anchored with an exported const so output is non-empty."""
+        consts = self._consts(
+            "package config\n\nconst MaxRetries = 3\n"
+            'const apiURL = "https://api.example.com"\n'
+        )
+        self.assertIn("pkg/config/config.go::apiURL", consts)
+        self.assertIn('"https://api.example.com"', consts["pkg/config/config.go::apiURL"].text)
+
+    def test_grouped_iota_enum_is_one_chunk_kept_together(self):
+        """A grouped `const ( ... )` block (Go's enum) -> ONE chunk for the whole block; a member
+        query (e.g. StatusErr) still hits the chunk text. Chunk id uses the first usable member."""
+        src = (
+            "package config\n\n"
+            "const (\n"
+            "\tStatusOK = iota\n"
+            "\tStatusErr\n"
+            ")\n"
+        )
+        consts = self._consts(src)
+        self.assertIn("pkg/config/config.go::StatusOK", consts)
+        c = consts["pkg/config/config.go::StatusOK"]
+        # whole block kept together — the second member is in the SAME chunk
+        self.assertIn("StatusErr", c.text)
+        # exactly one const chunk for the grouped block (not one per member)
+        self.assertEqual(len(consts), 1)
+
+    def test_typed_grouped_enum_kept_together(self):
+        """A typed grouped const (Go enum idiom `const ( Red Color = iota; ... )`) is still ONE
+        const chunk with all members kept together."""
+        src = (
+            "package config\n\n"
+            "type Color int\n\n"
+            "const (\n"
+            "\tRed Color = iota\n"
+            "\tGreen\n"
+            "\tBlue\n"
+            ")\n"
+        )
+        consts = self._consts(src)
+        self.assertIn("pkg/config/config.go::Red", consts)
+        c = consts["pkg/config/config.go::Red"]
+        self.assertIn("Green", c.text)
+        self.assertIn("Blue", c.text)
+
+    def test_function_local_const_not_marked(self):
+        """SCOPE exclusion: a function-local `const` is the SAME node type (const_declaration) as a
+        package-level one — only its nesting separates them. It must NOT be marked. Anchored with a
+        package-level const so output is non-empty and the contrast is explicit."""
+        src = (
+            "package config\n\n"
+            "const MaxRetries = 3\n\n"
+            "func Connect() error {\n"
+            "\tconst localRetries = 5\n"
+            "\treturn nil\n"
+            "}\n"
+        )
+        consts = self._consts(src)
+        self.assertIn("pkg/config/config.go::MaxRetries", consts)
+        self.assertNotIn("pkg/config/config.go::localRetries", consts)
+
+    def test_var_and_grouped_var_not_marked(self):
+        """`var` and grouped `var ( ... )` are var_declaration, not const — never marked."""
+        src = (
+            "package config\n\n"
+            "const MaxRetries = 3\n"
+            "var GlobalVar = 9\n"
+            "var (\n\tA = 1\n\tB = 2\n)\n"
+        )
+        consts = self._consts(src)
+        self.assertIn("pkg/config/config.go::MaxRetries", consts)
+        self.assertNotIn("pkg/config/config.go::GlobalVar", consts)
+        self.assertNotIn("pkg/config/config.go::A", consts)
+        self.assertNotIn("pkg/config/config.go::B", consts)
+
+    def test_blank_const_excluded_short_names_chunked(self):
+        """Only the blank `const _ =` is skipped. Short flag names (`x`, `Pi`, `KB`) ARE chunked —
+        1p4ls delivery review: dropping ≤2-char Go consts made common ones (Pi/KB/MB/Hz/OK/ID)
+        unretrievable. The CHUNK lane includes every named const-keyword decl; the graph applies
+        its own short-symbol prune separately."""
+        src = (
+            "package config\n\n"
+            "const _ = 7\n"
+            "const x = 1\n"
+            "const Pi = 3.14159\n"
+            "const KB = 1024\n"
+            "const MaxRetries = 3\n"
+        )
+        consts = self._consts(src)
+        self.assertEqual(
+            set(consts),
+            {
+                "pkg/config/config.go::x",
+                "pkg/config/config.go::Pi",
+                "pkg/config/config.go::KB",
+                "pkg/config/config.go::MaxRetries",
+            },
+        )
+        self.assertNotIn("pkg/config/config.go::_", consts)
+
+    def test_adjacent_single_consts_each_survive_merge(self):
+        """Adjacent 1-line consts each keep their OWN id (marker suffix -> merge-excluded), so a
+        1-line const is never folded into a neighbor."""
+        src = (
+            "package config\n\n"
+            "const AlphaOne = 1\n"
+            "const BetaTwo = 2\n"
+            "const GammaThree = 3\n"
+        )
+        consts = self._consts(src)
+        self.assertEqual(
+            set(consts),
+            {"pkg/config/config.go::AlphaOne",
+             "pkg/config/config.go::BetaTwo",
+             "pkg/config/config.go::GammaThree"},
+        )
+
+
+class RustConstantChunkTests(unittest.TestCase):
+    """Wave 1p4mf (Rust): module/type-level constant chunking on the tree-sitter path.
+
+    ``const_item`` (const NAME: T = …) and ``static_item`` (static / static mut) at file/module
+    top level, or as associated consts inside an ``impl_item`` / ``trait_item`` (Owner.NAME), become
+    kind=code chunks with a " [const]" section marker (merge-excluded) and breadcrumb-prefixed text.
+    The const/static KEYWORD is authoritative — NO casing gate (idiomatic ALL-CAPS is incidental).
+    FUNCTION-LOCAL const/static (same node type, but inside a block), `let`, enum variants, struct
+    fields, `type` aliases, and `const fn` (a function_item) are NOT constants."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _chunk(self, source, path="src/config.rs"):
+        # Grammar-availability guard: a missing tree-sitter Rust grammar returns None → the test
+        # FAILS loudly (never silently skips into the regex fallback). Run under ~/.wavefoundry/venv.
+        result = self.chunker.chunk_rust_treesitter(source, path)
+        self.assertIsNotNone(result, "tree-sitter Rust grammar unavailable — gate is vacuous")
+        return result
+
+    def _consts(self, source, path="src/config.rs"):
+        return {c.id: c for c in self._chunk(source, path)
+                if c.section and c.section.endswith(" [const]")}
+
+    def test_toplevel_const_marked_with_breadcrumb_and_value(self):
+        """AC-1: a top-level const → marked chunk; text carries breadcrumb + value."""
+        consts = self._consts("const MAX_RETRIES: u32 = 5;\n")
+        self.assertIn("src/config.rs::MAX_RETRIES", consts)
+        c = consts["src/config.rs::MAX_RETRIES"]
+        self.assertEqual(c.kind, "code")
+        self.assertTrue(c.text.startswith("config > MAX_RETRIES\n\n"))
+        self.assertIn("= 5", c.text)
+
+    def test_pub_const_and_static_and_static_mut_marked(self):
+        """const, static, and `static mut` are all constants; `pub` does not change that."""
+        consts = self._consts(
+            'pub const API_URL: &str = "https://example.com";\n'
+            'static GREETING: &str = "hello";\n'
+            "static mut COUNTER: i32 = 0;\n"
+        )
+        self.assertEqual(
+            set(consts),
+            {"src/config.rs::API_URL", "src/config.rs::GREETING", "src/config.rs::COUNTER"},
+        )
+        self.assertIn('"https://example.com"', consts["src/config.rs::API_URL"].text)
+
+    def test_no_casing_gate_lowercase_and_mixed_const_still_marked(self):
+        """COUNTEREXAMPLE to a casing filter: a non-ALL-CAPS const is still a const (keyword wins)."""
+        consts = self._consts(
+            "const apiTimeout: u32 = 30;\n"
+            'static buildLabel: &str = "v1";\n'
+        )
+        self.assertEqual(
+            set(consts),
+            {"src/config.rs::apiTimeout", "src/config.rs::buildLabel"},
+        )
+
+    def test_impl_and_trait_associated_consts_scoped_to_owner(self):
+        """impl/trait associated consts are scoped to the owner (Owner.NAME); trait consts may be
+        declaration-only (no value) and are still constants."""
+        src = textwrap.dedent('''\
+            struct Config;
+            impl Config {
+                const DEFAULT_TIMEOUT: u32 = 30;
+                pub const VERSION: &str = "1.0";
+                fn new() -> Self { Config }
+            }
+            trait Describable {
+                const LABEL: &'static str;
+                const COUNT: usize = 0;
+            }
+        ''')
+        consts = self._consts(src)
+        self.assertIn("src/config.rs::Config.DEFAULT_TIMEOUT", consts)
+        self.assertIn("src/config.rs::Config.VERSION", consts)
+        self.assertIn("src/config.rs::Describable.LABEL", consts)   # decl-only trait const
+        self.assertIn("src/config.rs::Describable.COUNT", consts)
+        self.assertTrue(
+            consts["src/config.rs::Config.DEFAULT_TIMEOUT"].text.startswith(
+                "config > Config.DEFAULT_TIMEOUT\n\n"
+            )
+        )
+
+    def test_function_local_const_and_static_excluded(self):
+        """THE #1 TRAP: a fn-local const/static is the SAME node type as a module const; only the
+        ANCESTOR (a `block`) distinguishes it. The walker never descends into a function body."""
+        src = textwrap.dedent('''\
+            const REAL: u32 = 1;
+            fn helper() {
+                const LOCAL_LIMIT: usize = 16;
+                static LOCAL_STATIC: u8 = 9;
+                let x = 3;
+            }
+        ''')
+        consts = self._consts(src)
+        self.assertIn("src/config.rs::REAL", consts)
+        self.assertNotIn("src/config.rs::LOCAL_LIMIT", consts)
+        self.assertNotIn("src/config.rs::LOCAL_STATIC", consts)
+        self.assertNotIn("src/config.rs::x", consts)
+
+    def test_impl_method_local_const_excluded(self):
+        """Same trap inside an impl method body — must not leak as Owner.LOCAL or bare LOCAL."""
+        src = textwrap.dedent('''\
+            struct Config;
+            impl Config {
+                pub const VERSION: &str = "1.0";
+                fn build() -> u32 {
+                    const STEP: u32 = 4;
+                    STEP
+                }
+            }
+        ''')
+        consts = self._consts(src)
+        self.assertIn("src/config.rs::Config.VERSION", consts)
+        self.assertNotIn("src/config.rs::Config.STEP", consts)
+        self.assertNotIn("src/config.rs::STEP", consts)
+
+    def test_type_alias_enum_struct_and_const_fn_not_marked(self):
+        """`type` aliases, enum variants, struct fields, and `const fn` (a function_item) are not
+        constants. (Anchored with a real const so the chunker emits output rather than None.)"""
+        src = textwrap.dedent('''\
+            const ANCHOR: u32 = 1;
+            type Alias = u32;
+            enum Color { Red, Green }
+            struct Point { x: i32, y: i32 }
+            const fn compute() -> u32 { 42 }
+        ''')
+        consts = self._consts(src)
+        self.assertEqual(set(consts), {"src/config.rs::ANCHOR"})
+
+    def test_leading_doc_comment_captured(self):
+        """A leading `///` doc-comment block is included in the constant chunk span/text."""
+        src = textwrap.dedent('''\
+            /// Maximum number of retries before giving up.
+            const MAX_RETRIES: u32 = 5;
+        ''')
+        c = self._consts(src)["src/config.rs::MAX_RETRIES"]
+        self.assertIn("Maximum number of retries", c.text)
+
+    def test_adjacent_consts_each_survive_merge(self):
+        """AC-3: adjacent 1-line consts each keep their OWN id (marker → merge-excluded)."""
+        consts = self._consts(
+            "const A_ONE: i32 = 1;\nconst B_TWO: i32 = 2;\nconst C_THREE: i32 = 3;\n"
+        )
+        self.assertEqual(
+            set(consts),
+            {"src/config.rs::A_ONE", "src/config.rs::B_TWO", "src/config.rs::C_THREE"},
+        )
+
+
+class CSharpConstantChunkTests(unittest.TestCase):
+    # Wave 1p4mf: C# type-member constants — `const` field OR `static readonly` pair.
+    # Scope: class/struct/interface/record members only. NO casing gate (idiomatic PascalCase).
+    CS_SOURCE = textwrap.dedent('''\
+        using System;
+
+        namespace Acme.Billing
+        {
+            public class HttpClientConfig
+            {
+                public const int MaxRetries = 5;
+                public static readonly string apiURL = "https://api.acme.test";
+                private const string SecretSalt = "pepper";
+                public const int StatusOK = 200, StatusCreated = 201;
+                public static int RequestCount = 0;
+                public readonly int InstanceId;
+                private string _token;
+                public int Width { get; set; } = 10;
+                public string Title => "billing";
+
+                public int Compute()
+                {
+                    const int LocalLimit = 7;
+                    return LocalLimit * MaxRetries;
+                }
+            }
+
+            public enum Phase { Draft, Sent, Paid }
+
+            public struct Dimensions
+            {
+                public const int Rank = 2;
+                public static readonly Dimensions Zero = new Dimensions();
+            }
+
+            public interface IVersioned
+            {
+                const int SchemaVersion = 3;
+            }
+
+            public record Invoice(string Number)
+            {
+                public const int MaxLineItems = 50;
+            }
+        }
+    ''')
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _consts(self, source, path):
+        chunks = self.chunker.chunk_csharp_treesitter(source, path)
+        # Grammar-availability guard: a missing C# tree-sitter grammar makes the chunker
+        # return None — assert (FAIL), never skip, so a missing grammar is caught.
+        self.assertIsNotNone(
+            chunks, "chunk_csharp_treesitter returned None — C# tree-sitter grammar missing")
+        return {c.id: c for c in chunks
+                if c.section is not None and c.section.endswith(" [const]")}
+
+    def test_const_and_static_readonly_detected_no_casing_gate(self):
+        consts = self._consts(self.CS_SOURCE, "src/HttpClientConfig.cs")
+        # plain const
+        self.assertIn("src/HttpClientConfig.cs::HttpClientConfig.MaxRetries", consts)
+        # static readonly with a camelCase name (counterexample to any ALL_CAPS gate)
+        self.assertIn("src/HttpClientConfig.cs::HttpClientConfig.apiURL", consts)
+        # idiomatic PascalCase const counterexample (NOT ALL_CAPS)
+        self.assertIn("src/HttpClientConfig.cs::HttpClientConfig.StatusOK", consts)
+
+    def test_private_const_included(self):
+        consts = self._consts(self.CS_SOURCE, "src/HttpClientConfig.cs")
+        self.assertIn("src/HttpClientConfig.cs::HttpClientConfig.SecretSalt", consts)
+
+    def test_multi_declarator_one_chunk_per_name(self):
+        consts = self._consts(self.CS_SOURCE, "src/HttpClientConfig.cs")
+        self.assertIn("src/HttpClientConfig.cs::HttpClientConfig.StatusOK", consts)
+        self.assertIn("src/HttpClientConfig.cs::HttpClientConfig.StatusCreated", consts)
+
+    def test_struct_interface_record_scoped(self):
+        consts = self._consts(self.CS_SOURCE, "src/HttpClientConfig.cs")
+        self.assertIn("src/HttpClientConfig.cs::Dimensions.Rank", consts)
+        self.assertIn("src/HttpClientConfig.cs::Dimensions.Zero", consts)
+        self.assertIn("src/HttpClientConfig.cs::IVersioned.SchemaVersion", consts)
+        self.assertIn("src/HttpClientConfig.cs::Invoice.MaxLineItems", consts)
+
+    def test_excludes_non_constants(self):
+        consts = self._consts(self.CS_SOURCE, "src/HttpClientConfig.cs")
+        ids = set(consts)
+        # static-alone (mutable) and readonly-alone (instance field) — need the FULL pair
+        self.assertFalse(any("RequestCount" in i for i in ids))
+        self.assertFalse(any("InstanceId" in i for i in ids))
+        # mutable field, auto-property, expression-bodied property
+        self.assertFalse(any("_token" in i for i in ids))
+        self.assertFalse(any("Width" in i for i in ids))
+        self.assertFalse(any("Title" in i for i in ids))
+        # enum members and record positional parameter
+        self.assertFalse(any(".Draft" in i or ".Sent" in i or ".Paid" in i for i in ids))
+        self.assertFalse(any(i.endswith("::Invoice.Number") for i in ids))
+
+    def test_method_body_local_const_excluded(self):
+        # SCOPE: a method-body `local_declaration_statement` const is the same "const" keyword
+        # but a different node type / scope — must NOT be marked as a constant chunk.
+        consts = self._consts(self.CS_SOURCE, "src/HttpClientConfig.cs")
+        self.assertFalse(any("LocalLimit" in i for i in consts))
+
+    def test_breadcrumb_and_value_in_text(self):
+        consts = self._consts(self.CS_SOURCE, "src/HttpClientConfig.cs")
+        chunk = consts["src/HttpClientConfig.cs::HttpClientConfig.MaxRetries"]
+        # breadcrumb prefix injects the symbol name; the value is retrievable in the text
+        self.assertIn("HttpClientConfig > HttpClientConfig.MaxRetries", chunk.text)
+        self.assertIn("= 5", chunk.text)
+
+
+class JavaConstantChunkTests(unittest.TestCase):
+    """Wave 1p4mf: Java module/type-level constant chunking — `static final` fields and
+    interface constants emitted as kind=code chunks, breadcrumb-prefixed, merge-excluded."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _consts(self, source, path="src/Config.java"):
+        # Target the tree-sitter path directly; assertIsNotNone so a missing Java grammar
+        # FAILS (never silently skips) and produces a vacuous-pass.
+        chunks = self.chunker.chunk_java_treesitter(source, path)
+        self.assertIsNotNone(chunks, "tree-sitter Java grammar unavailable (must FAIL, not skip)")
+        return {c.id: c for c in chunks if c.section and c.section.endswith(" [const]")}
+
+    def test_static_final_constant_chunked_with_value_and_breadcrumb(self):
+        # The motivating case: "what value is X" — breadcrumb prefix + value both in text.
+        consts = self._consts(textwrap.dedent("""\
+            public class Config {
+                public static final String API_URL = "https://api.example.com";
+            }
+        """))
+        self.assertIn("src/Config.java::Config.API_URL", consts)
+        c = consts["src/Config.java::Config.API_URL"]
+        self.assertEqual(c.kind, "code")
+        self.assertTrue(c.text.startswith("Config > Config.API_URL\n\n"))
+        self.assertIn('"https://api.example.com"', c.text)
+
+    def test_casing_counterexamples_camel_and_mixed_case(self):
+        # NOT just ALL_CAPS: the gate is `static final`, not casing — camel/mixed-case caught.
+        consts = self._consts(textwrap.dedent("""\
+            public class Cfg {
+                public static final int MaxRetries = 3;
+                static final String apiURL = "u";
+            }
+        """))
+        self.assertIn("src/Config.java::Cfg.MaxRetries", consts)
+        self.assertIn("src/Config.java::Cfg.apiURL", consts)
+
+    def test_interface_constant_implicit_static_final(self):
+        # Interface fields are constant_declaration (implicitly static final) — lowercase too.
+        consts = self._consts(textwrap.dedent("""\
+            public interface Limits {
+                int DefaultTimeout = 30;
+                String name = "limits";
+            }
+        """))
+        self.assertIn("src/Config.java::Limits.DefaultTimeout", consts)
+        self.assertIn("src/Config.java::Limits.name", consts)
+
+    def test_nested_type_constant_qualified(self):
+        consts = self._consts(textwrap.dedent("""\
+            public class Outer {
+                static class Inner {
+                    public static final long INNER_CONST = 42L;
+                }
+            }
+        """))
+        self.assertIn("src/Config.java::Outer.Inner.INNER_CONST", consts)
+
+    def test_multi_declarator_emits_per_name(self):
+        consts = self._consts(textwrap.dedent("""\
+            public class M {
+                public static final String A = "a", B = "b";
+            }
+        """))
+        self.assertIn("src/Config.java::M.A", consts)
+        self.assertIn("src/Config.java::M.B", consts)
+
+    def test_scope_and_modifier_exclusions(self):
+        # Same node type (field_declaration / local_variable_declaration) but NOT constants:
+        # instance final (no static), mutable static (no final), plain field, method/block
+        # locals, and enum_constant members.
+        consts = self._consts(textwrap.dedent("""\
+            public class S {
+                private final int instanceFinal = 7;
+                static int mutableStatic = 0;
+                int plain = 1;
+                public void run() {
+                    final int localFinal = 9;
+                    int x = 1;
+                }
+                enum Color { RED, GREEN }
+            }
+        """))
+        for bad in ("instanceFinal", "mutableStatic", "plain", "localFinal", "x"):
+            self.assertNotIn(f"src/Config.java::S.{bad}", consts, bad)
+        self.assertNotIn("src/Config.java::S.Color.RED", consts)
+        self.assertNotIn("src/Config.java::Color.RED", consts)
+
+    def test_adjacent_constants_each_survive_merge(self):
+        # 3 adjacent 1-line constants each keep their own id (merge-excluded via " [const]").
+        consts = self._consts(textwrap.dedent("""\
+            public class K {
+                public static final int A = 1;
+                public static final int B = 2;
+                public static final int C = 3;
+            }
+        """))
+        for n in ("A", "B", "C"):
+            self.assertIn(f"src/Config.java::K.{n}", consts, n)
+
+
+class KotlinConstantChunkTests(unittest.TestCase):
+    """Wave 1p4mf: module/object/companion-level `const val` chunked for code_ask value retrieval."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _consts(self, source: str, path: str = "src/Config.kt") -> dict:
+        # The grammar-availability guard: a missing tree-sitter-kotlin grammar makes the
+        # chunker return None, which assertIsNotNone turns into a FAILURE (never a skip).
+        result = self.chunker.chunk_kotlin_treesitter(source, path)
+        self.assertIsNotNone(
+            result, "chunk_kotlin_treesitter returned None — tree-sitter-kotlin grammar missing")
+        return {c.id: c for c in result
+                if c.section is not None and c.section.endswith(" [const]")}
+
+    def test_file_top_level_const_val_chunked_casing_counterexamples(self):
+        # Gate on the `const` modifier, NOT casing: a camelCase const (apiURL) and an
+        # UPPER_SNAKE const (MAX_RETRIES) must BOTH be chunked.
+        source = textwrap.dedent("""\
+            package com.example
+
+            const val apiURL = "https://api.example.com"
+            const val MAX_RETRIES = 3
+        """)
+        consts = self._consts(source)
+        self.assertIn("src/Config.kt::apiURL", consts)
+        self.assertIn("src/Config.kt::MAX_RETRIES", consts)
+
+    def test_object_and_companion_const_scoped_to_owner(self):
+        source = textwrap.dedent("""\
+            object Config {
+                const val timeout = 30
+            }
+
+            class Service {
+                companion object {
+                    const val VERSION = "1.0"
+                }
+            }
+        """)
+        consts = self._consts(source)
+        # object const -> {Object}.{NAME}
+        self.assertIn("src/Config.kt::Config.timeout", consts)
+        # companion const -> qualified with the ENCLOSING CLASS name (not "Companion")
+        self.assertIn("src/Config.kt::Service.VERSION", consts)
+
+    def test_scope_local_const_val_excluded(self):
+        # SCOPE gate: a function-body-local `const val` is the SAME node type AND carries
+        # the SAME const modifier as a top-level const — it must NOT be chunked.
+        source = textwrap.dedent("""\
+            const val topConst = 1
+
+            fun compute(): Int {
+                const val LOCAL_CONST = 2
+                return LOCAL_CONST
+            }
+        """)
+        consts = self._consts(source)
+        self.assertIn("src/Config.kt::topConst", consts)
+        self.assertNotIn("src/Config.kt::LOCAL_CONST", consts)
+        self.assertFalse(any("LOCAL_CONST" in cid for cid in consts),
+                         "function-local const val leaked into const chunks")
+
+    def test_non_const_declarations_excluded(self):
+        # plain val/var, instance val, primary-constructor val/var params, and enum_entry
+        # must all be excluded from the const lane.
+        source = textwrap.dedent("""\
+            val plainTop = 42
+            var mutableTop = 7
+
+            class Service(val name: String, var count: Int) {
+                val field = 10
+            }
+
+            enum class Color { RED, GREEN, BLUE }
+        """)
+        consts = self._consts(source)
+        self.assertNotIn("src/Config.kt::plainTop", consts)
+        self.assertNotIn("src/Config.kt::mutableTop", consts)
+        self.assertNotIn("src/Config.kt::Service.field", consts)
+        self.assertNotIn("src/Config.kt::Service.name", consts)
+        self.assertNotIn("src/Config.kt::Service.count", consts)
+        self.assertFalse(any("RED" in cid or "GREEN" in cid or "BLUE" in cid for cid in consts),
+                         "enum entry leaked into const chunks")
+
+    def test_const_chunk_has_breadcrumb_prefix_and_value(self):
+        source = textwrap.dedent("""\
+            const val apiURL = "https://api.example.com"
+        """)
+        consts = self._consts(source)
+        chunk = consts["src/Config.kt::apiURL"]
+        self.assertEqual(chunk.kind, "code")
+        self.assertEqual(chunk.language, "kotlin")
+        # breadcrumb prefix injects the symbol name into the embedding text
+        self.assertTrue(chunk.text.startswith("Config > apiURL\n\n"), chunk.text)
+        # the value is present in the chunk text
+        self.assertIn('const val apiURL = "https://api.example.com"', chunk.text)
+
+    def test_const_survives_merge_as_standalone(self):
+        # A 1-line const must keep its own id (not fold into a neighbour) via the
+        # " [const]" section marker excluded from _merge_small_chunks.
+        source = textwrap.dedent("""\
+            package com.example
+
+            const val onlyConst = 99
+
+            fun helper() = onlyConst
+        """)
+        consts = self._consts(source)
+        self.assertIn("src/Config.kt::onlyConst", consts)
+
+
+class SwiftConstantChunkTests(unittest.TestCase):
+    """Wave 1p4mf (Swift): module/type-level constant chunking on the tree-sitter path.
+
+    Constants: file/global `let`/`var`, type-level `static let`/`static var`, and enum cases.
+    Each -> kind=code chunk, " [const]" section marker (merge-excluded), breadcrumb-prefixed
+    text carrying the declaration. NO casing gate: Swift constants are lowerCamelCase
+    (apiURL, maxRetries) — an UPPER_SNAKE filter would wrongly drop them. Scope is the
+    discriminator: a func/init LOCAL `let`/`var` (same node type) is NOT a constant, nor is an
+    instance field, computed var, lazy/@Published var, `if let`, `guard let`, or `for x in`."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _chunk(self, source, path="src/Conf.swift"):
+        # A missing tree-sitter grammar must FAIL loudly, not skip — a silent skip would let a
+        # vacuous gate masquerade as a pass. Run under ~/.wavefoundry/venv (grammars installed).
+        result = self.chunker.chunk_swift_treesitter(source, path)
+        self.assertIsNotNone(result, "tree-sitter Swift grammar unavailable — gate is vacuous")
+        return result
+
+    def _consts(self, source, path="src/Conf.swift"):
+        return {c.id: c for c in self._chunk(source, path)
+                if c.section and c.section.endswith(" [const]")}
+
+    def test_file_global_let_and_var_marked_with_breadcrumb_and_value(self):
+        """File-scope `let`/`var` are constants; lowerCamelCase NOT UPPER_SNAKE; text carries
+        breadcrumb + value (counterexample to a casing gate: apiURL, not API_URL)."""
+        consts = self._consts(
+            'let apiURL = "https://example.com"\n'
+            "var globalCounter = 0\n"
+        )
+        self.assertIn("src/Conf.swift::apiURL", consts)
+        self.assertIn("src/Conf.swift::globalCounter", consts)
+        c = consts["src/Conf.swift::apiURL"]
+        self.assertEqual(c.kind, "code")
+        self.assertTrue(c.text.startswith("Conf > apiURL\n\n"))
+        self.assertIn("https://example.com", c.text)
+
+    def test_static_let_and_var_on_type_marked_qualified(self):
+        """`static let`/`static var` on struct/class -> Type.name id, lowerCamelCase
+        (maxRetries, not MAX_RETRIES)."""
+        consts = self._consts(
+            "struct Config {\n"
+            '    static let apiKey = "abc"\n'
+            "    static var maxRetries = 3\n"
+            "}\n"
+        )
+        self.assertIn("src/Conf.swift::Config.apiKey", consts)
+        self.assertIn("src/Conf.swift::Config.maxRetries", consts)
+        self.assertTrue(
+            consts["src/Conf.swift::Config.apiKey"].text.startswith("Conf > Config.apiKey\n\n")
+        )
+        self.assertIn('"abc"', consts["src/Conf.swift::Config.apiKey"].text)
+
+    def test_enum_cases_each_marked(self):
+        """Each enum case is a constant (Swift enum cases ARE split out, per the per-language
+        rule), including each name in `case a, b` and associated-value cases."""
+        consts = self._consts(
+            "enum Status {\n"
+            "    case ok\n"
+            "    case notFound\n"
+            "    case serverError(code: Int)\n"
+            "}\n"
+        )
+        self.assertIn("src/Conf.swift::Status.ok", consts)
+        self.assertIn("src/Conf.swift::Status.notFound", consts)
+        self.assertIn("src/Conf.swift::Status.serverError", consts)
+
+    def test_static_const_in_extension_marked(self):
+        """`static let` declared in an `extension Type { ... }` is a type constant."""
+        consts = self._consts(
+            "extension Config {\n"
+            '    static let extra = "y"\n'
+            "}\n"
+        )
+        self.assertIn("src/Conf.swift::Config.extra", consts)
+
+    def test_instance_field_and_computed_and_attributed_not_marked(self):
+        """Instance `let`/`var` (= a field), computed `var { ... }`, `lazy var`, and
+        `@Published var` are NOT constants — they have no static property_modifier or store no
+        value. (Anchored with a real static const so output isn't empty.)"""
+        consts = self._consts(
+            "struct Config {\n"
+            "    static let real = 1\n"
+            "    let instanceField = 5\n"
+            "    var mutableField = 0\n"
+            "    @Published var published = 1\n"
+            "    lazy var lazyField = compute()\n"
+            "    var computed: Int { return 6 }\n"
+            "}\n"
+        )
+        self.assertIn("src/Conf.swift::Config.real", consts)
+        self.assertNotIn("src/Conf.swift::Config.instanceField", consts)
+        self.assertNotIn("src/Conf.swift::Config.mutableField", consts)
+        self.assertNotIn("src/Conf.swift::Config.published", consts)
+        self.assertNotIn("src/Conf.swift::Config.lazyField", consts)
+        self.assertNotIn("src/Conf.swift::Config.computed", consts)
+
+    def test_function_locals_not_marked(self):
+        """SCOPE-local exclusion: a `let`/`var` inside a func/init body is the SAME node type
+        ("property_declaration") as a constant but is NOT one. `if let`/`guard let`/`for x in`
+        bindings likewise. (Anchored with a file-scope const so output isn't empty.)"""
+        consts = self._consts(
+            "let apiURL = \"x\"\n"
+            "struct Config {\n"
+            "    func doWork() {\n"
+            "        let localConst = 42\n"
+            "        var localVar = 7\n"
+            "        if let unwrapped = maybe { print(unwrapped) }\n"
+            "        guard let safe = other else { return }\n"
+            "        for item in list { print(item) }\n"
+            "    }\n"
+            "    init() {\n"
+            "        let initLocal = 1\n"
+            "    }\n"
+            "}\n"
+        )
+        self.assertIn("src/Conf.swift::apiURL", consts)
+        self.assertNotIn("src/Conf.swift::localConst", consts)
+        self.assertNotIn("src/Conf.swift::Config.localConst", consts)
+        self.assertNotIn("src/Conf.swift::localVar", consts)
+        self.assertNotIn("src/Conf.swift::Config.localVar", consts)
+        self.assertNotIn("src/Conf.swift::unwrapped", consts)
+        self.assertNotIn("src/Conf.swift::Config.unwrapped", consts)
+        self.assertNotIn("src/Conf.swift::safe", consts)
+        self.assertNotIn("src/Conf.swift::item", consts)
+        self.assertNotIn("src/Conf.swift::initLocal", consts)
+        self.assertNotIn("src/Conf.swift::Config.initLocal", consts)
+
+    def test_multi_declarator_emits_per_name(self):
+        """`static let m = 1, n = 2` and file-scope `let a = 3, b = 4` -> one chunk per name."""
+        consts = self._consts(
+            "let firstFlag = 3, secondFlag = 4\n"
+            "struct Config {\n"
+            "    static let m = 1, n = 2\n"
+            "}\n"
+        )
+        self.assertIn("src/Conf.swift::firstFlag", consts)
+        self.assertIn("src/Conf.swift::secondFlag", consts)
+        self.assertIn("src/Conf.swift::Config.m", consts)
+        self.assertIn("src/Conf.swift::Config.n", consts)
+
+    def test_adjacent_consts_each_survive_merge(self):
+        """Adjacent 1-line consts each keep their OWN id (" [const]" marker -> merge-excluded)."""
+        consts = self._consts(
+            "let aOne = 1\n"
+            "let bTwo = 2\n"
+            "let cThree = 3\n"
+        )
+        self.assertEqual(
+            set(consts),
+            {"src/Conf.swift::aOne", "src/Conf.swift::bTwo", "src/Conf.swift::cThree"},
+        )
+
+
+class RubyConstantChunkTests(unittest.TestCase):
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _consts(self, source: str, path: str = "app/config.rb") -> dict:
+        chunks = self.chunker.chunk_ruby_treesitter(textwrap.dedent(source), path)
+        # Grammar-availability guard: a missing tree-sitter Ruby grammar makes the chunker
+        # return None — assert non-None so this FAILS loudly, never silently skips.
+        self.assertIsNotNone(chunks)
+        return {
+            c.id: c
+            for c in chunks
+            if c.section is not None and c.section.endswith(" [const]")
+        }
+
+    def test_module_level_constants_incl_mixed_case(self):
+        consts = self._consts(
+            """
+            MAX_RETRIES = 3
+            Timeout = 30
+            apiURL = "http://x"
+            DEFAULTS = { "k" => 1 }
+            """
+        )
+        self.assertIn("app/config.rb::MAX_RETRIES", consts)
+        # mixed-case constant: `Timeout` is a `constant` LHS, NOT excluded for not being ALL_CAPS
+        self.assertIn("app/config.rb::Timeout", consts)
+        self.assertIn("app/config.rb::DEFAULTS", consts)
+        # casing COUNTEREXAMPLE: apiURL has an `identifier` LHS -> a local, not a constant
+        self.assertNotIn("app/config.rb::apiURL", consts)
+
+    def test_multi_target_split_per_name(self):
+        consts = self._consts("A_URL, B_URL = \"a\", \"b\"\n")
+        # one chunk per name for a multi-target (left_assignment_list) constant assignment
+        self.assertIn("app/config.rb::A_URL", consts)
+        self.assertIn("app/config.rb::B_URL", consts)
+
+    def test_scope_resolution_constant(self):
+        consts = self._consts("Config::SETTING = :on\n")
+        # Foo::BAR -> keyed by the last segment; full decl text retained
+        self.assertIn("app/config.rb::SETTING", consts)
+        self.assertIn("Config::SETTING = :on", consts["app/config.rb::SETTING"].text)
+
+    def test_breadcrumb_and_value_in_text(self):
+        consts = self._consts("MAX_RETRIES = 3\n")
+        chunk = consts["app/config.rb::MAX_RETRIES"]
+        # breadcrumb-PREFIXED text injects the symbol name into the embedding
+        self.assertTrue(chunk.text.startswith("config > MAX_RETRIES\n\n"))
+        self.assertIn("MAX_RETRIES = 3", chunk.text)
+
+    def test_class_level_constant_scoped_incl_mixed_case(self):
+        consts = self._consts(
+            """
+            class Service
+              RETRY_LIMIT = 5
+              StatusOK = 200
+            end
+            """
+        )
+        ids = set(consts)
+        self.assertTrue(any(i.endswith("::Service.RETRY_LIMIT") for i in ids))
+        # mixed-case class constant survives (no ALL_CAPS gate)
+        self.assertTrue(any(i.endswith("::Service.StatusOK") for i in ids))
+
+    def test_module_constant_scoped(self):
+        consts = self._consts(
+            """
+            module Net
+              PORT = 8080
+            end
+            """
+        )
+        self.assertTrue(any(i.endswith("::Net.PORT") for i in set(consts)))
+
+    def test_method_body_local_const_excluded(self):
+        # SCOPE-local exclusion: LOCAL_CONST inside `def run` is the SAME node type
+        # (assignment + constant LHS) as REAL_CONST, but lives in a method body -> excluded.
+        consts = self._consts(
+            """
+            class Service
+              REAL_CONST = 1
+              def run
+                LOCAL_CONST = 7
+                x = 1
+              end
+            end
+            """
+        )
+        ids = set(consts)
+        self.assertTrue(any(i.endswith("REAL_CONST") for i in ids))
+        self.assertFalse(any(i.endswith("LOCAL_CONST") for i in ids))
+
+    def test_ivar_cvar_global_local_and_calls_excluded(self):
+        # @ivar / @@cvar / $global / identifier locals / DSL calls are NOT constants.
+        # A real method is included so the chunker returns a non-None list (proving the
+        # grammar loaded) while the [const] subset is empty.
+        consts = self._consts(
+            """
+            @ivar = 1
+            @@cvar = 2
+            $global = 3
+            local = 4
+            Foo.bar(1)
+            def helper
+              y = 1
+            end
+            """
+        )
+        self.assertEqual(consts, {})
+
+
+class PhpConstantChunkTests(unittest.TestCase):
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    PHP_SOURCE = textwrap.dedent('''\
+        <?php
+        namespace App\\Config;
+
+        const API_URL = "https://api.example.com";
+        const MAX_RETRIES = 5;
+        const FLAG_A = 1, FLAG_B = 2;
+        define('LEGACY_TIMEOUT', 30);
+        define("STRICT_MODE", true);
+        define('DYNAMIC_' . $env, 1);
+        $bootstrapVar = 99;
+        defined('ALREADY_SET');
+        constant('READ_ONLY');
+
+        interface HttpStatus {
+            const OK = 200;
+        }
+
+        trait Timestamped {
+            const FORMAT = "Y-m-d";
+        }
+
+        enum Suit: string {
+            case Hearts = 'H';
+            case Spades = 'S';
+            const WILD = 'joker';
+        }
+
+        class Settings {
+            const camelCaseConst = "ok";
+            public const DEFAULT_LOCALE = "en";
+            private const SECRET_SALT = "xyz";
+            public static $mutable = 10;
+            public $name = "n";
+
+            public function configure() {
+                define('IN_FUNCTION', 1);
+                $localConst = 42;
+                return $localConst;
+            }
+        }
+        ''')
+
+    def _consts(self):
+        # Grammar-availability guard: a missing tree-sitter PHP grammar returns None here, so
+        # assertIsNotNone makes the test FAIL (never silently skip).
+        result = self.chunker.chunk_php_treesitter(self.PHP_SOURCE, "src/Config.php")
+        self.assertIsNotNone(result, "chunk_php_treesitter returned None (PHP tree-sitter grammar missing?)")
+        out = {}
+        for c in result:
+            if c.section is not None and c.section.endswith(" [const]"):
+                out[c.id.split("::", 1)[1]] = c
+        return out
+
+    def test_module_const_detected(self):
+        consts = self._consts()
+        self.assertIn("API_URL", consts)
+        self.assertIn("MAX_RETRIES", consts)
+
+    def test_casing_counterexamples_not_dropped(self):
+        # camelCase / non-ALL_CAPS constants MUST be kept — `const`/`define` is the signal, not casing.
+        consts = self._consts()
+        self.assertIn("Settings.camelCaseConst", consts)   # camelCase class const
+        self.assertIn("HttpStatus.OK", consts)             # short, mixed-case interface const
+        self.assertIn("Timestamped.FORMAT", consts)        # trait const
+
+    def test_multi_declarator_split_per_name(self):
+        consts = self._consts()
+        self.assertIn("FLAG_A", consts)
+        self.assertIn("FLAG_B", consts)
+
+    def test_define_both_quote_styles(self):
+        consts = self._consts()
+        self.assertIn("LEGACY_TIMEOUT", consts)   # single-quoted name
+        self.assertIn("STRICT_MODE", consts)      # double-quoted name
+
+    def test_enum_body_const_kept_but_cases_excluded(self):
+        consts = self._consts()
+        self.assertIn("Suit.WILD", consts)        # a real `const` inside the enum body
+        self.assertNotIn("Suit.Hearts", consts)   # enum_case -> excluded
+        self.assertNotIn("Suit.Spades", consts)
+
+    def test_private_const_included(self):
+        consts = self._consts()
+        self.assertIn("Settings.SECRET_SALT", consts)
+        self.assertIn("Settings.DEFAULT_LOCALE", consts)
+
+    def test_scope_local_and_property_exclusions(self):
+        # Function-body define()/local and class properties are the structural counter-cases.
+        consts = self._consts()
+        self.assertNotIn("IN_FUNCTION", consts)           # define() in a method body
+        self.assertNotIn("Settings.IN_FUNCTION", consts)
+        self.assertNotIn("localConst", consts)            # function local $-var
+        self.assertNotIn("Settings.localConst", consts)
+        self.assertNotIn("bootstrapVar", consts)          # top-level mutable $-var
+        self.assertNotIn("Settings.mutable", consts)      # static property (mutable $x)
+        self.assertNotIn("Settings.name", consts)         # instance property
+        self.assertNotIn("ALREADY_SET", consts)           # defined() read
+        self.assertNotIn("READ_ONLY", consts)             # constant() read
+        self.assertNotIn("DYNAMIC_", consts)              # define() with computed (non-literal) name
+
+    def test_breadcrumb_prefix_and_value_in_text(self):
+        consts = self._consts()
+        c = consts["API_URL"]
+        self.assertTrue(c.text.startswith("Config > API_URL"))  # breadcrumb injects the symbol name
+        self.assertIn("https://api.example.com", c.text)        # the value is searchable
+        # marker suffix is on the section, NOT bleeding into the embedded text
+        self.assertNotIn("[const]", c.text)
+        self.assertTrue(c.section.endswith(" [const]"))
 
 if __name__ == "__main__":
     unittest.main()

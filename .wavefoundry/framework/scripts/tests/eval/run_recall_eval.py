@@ -12,7 +12,7 @@ known-answer set (ac10_known_answers.json) and reports per-query answer rank.
 
 Usage:  python run_recall_eval.py [--root <project_root>] [--json]
 Exit 0 iff every query passes the bar (constant rank <= constant_rank_max; symbol rank <=
-baseline+tolerance, or symbol_rank_max when no baseline). Requires a built CHUNKER_VERSION=26
+baseline+tolerance, or symbol_rank_max when no baseline). Requires a built CHUNKER_VERSION=28
 index.
 """
 from __future__ import annotations

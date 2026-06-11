@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-02
+Last verified: 2026-06-11
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
-> **Line citations** reference `GRAPH_BUILDER_VERSION="25"` (current at wave 1p4eq close-out). Line numbers shift on builder version bumps — use function names as stable anchors when citing across versions.
+> **Line citations** reference `GRAPH_BUILDER_VERSION="28"` (wave 1p4q4 review — namespace-prefixed enum member nodes + short-symbol-prune exemption; 1p4q4 (27) added TS enum member constant nodes; 1p4ls (26) added constant nodes + the `reads` edge). Line numbers shift on builder version bumps — use function names as stable anchors when citing across versions.
 
 ---
 
@@ -69,6 +69,7 @@ Three boolean annotations are written directly onto module-level node dicts duri
 | `module` | Every file's root node; also namespaces and packages |
 | `function` | Functions, methods, async functions, constructors |
 | `class` | Classes, interfaces, structs, enums, traits |
+| `constant` | Module-/type-level named constant declarations (wave 1p4ls). Carries an optional `value` field when the RHS is a simple literal. Detected per-language by the shared chunk-lane predicates (one detector, two consumers): Python `UPPER_SNAKE`/`Final`; JS/TS `const` value-bindings + per-declarator; Java `static final` + interface constants; Kotlin `const val`; C# `const`/`static readonly`; Go `const` (per-member, incl. grouped blocks); Rust `const`/`static`; Swift `static let`/file `let` + enum cases; Ruby `constant`-LHS assignments; PHP `const`. JS/TS `enum` / `const enum` MEMBERS are also constant nodes (wave 1p4q4; label `Enum.Member`, namespace-prefixed when nested — `NSA.Inner.AAA` vs `NSB.Inner.AAA`, no cross-namespace collision) while the enum type itself stays a `class` node. Constant nodes are EXEMPT from the `<=2`-char short-symbol prune (1p4q4 review), so short members like `Status.OK` / `Dir.Up` survive and resolve via `code_definition`. Function/method-body locals are excluded by scope. |
 | `doc` | Markdown and plain-text doc files |
 | `seed` | Files under `.wavefoundry/framework/seeds/` |
 
@@ -93,6 +94,7 @@ Every edge is a dict produced by `_edge()` at `graph_indexer.py:509-525`:
 | `defines` | `graph_indexer.py:1179, 1344, 1511` | Module declares a symbol |
 | `calls` | `graph_indexer.py:1297, 1597` | Symbol invokes another symbol |
 | `imports` | `graph_indexer.py:1197, 1208, 1372, 1380, 1529` | Module imports an internal or external module |
+| `reads` | `graph_indexer.py` (`_extract_python_artifact` CallCollector + the tree-sitter `buffered_reads` resolution) | A function/method READS a constant's value (wave 1p4ls). Faithfulness-gated: binds only a same-scope constant uniquely resolvable by `symbol_lookup` (never a coincidental same-name twin; Python adds a local-shadow guard). **OPT-IN** for default 1-hop traversal (`graph_query._NEIGHBOR_OPT_IN_RELATIONS`) so a hot constant does not balloon neighbor sets/1p4hu expansion, and excluded from `_DEFAULT_IMPACT_RELATIONS`/`_DEFAULT_CALL_RELATIONS` + from clustering (`graph_cluster`). Surfaced via `code_references`' distinct `reads` bucket (not callers). _Resolves **same-scope** (same-module) reads AND **explicitly-imported cross-module** constant reads — an imported read binds only a UNIQUE constant matched by the qualified import name (kind-checked) or is DROPPED, never a coincidental same-name twin or a 3rd-party value. The local-shadow guard is Python-only; tree-sitter languages may over-fire on a function-local that shadows a same-named constant (uncommon)._ |
 | `doc_references_code` | `graph_indexer.py:1699` | Doc node mentions a code node |
 | `doc_references_doc` | `graph_indexer.py:1735` | Doc node links or path-references another doc |
 | `binds` | `graph_di_signals.py:285-293` | DI interface bound to an implementation |
@@ -104,18 +106,20 @@ Every edge is a dict produced by `_edge()` at `graph_indexer.py:509-525`:
 
 ### Versioning
 
-Four constants gate incremental reuse (`graph_indexer.py:25-35`):
+Four constants gate incremental reuse (`graph_indexer.py:27-37`):
 
 ```
 GRAPH_SCHEMA_VERSION  = "1"
-GRAPH_BUILDER_VERSION = "25"
+GRAPH_BUILDER_VERSION = "28"   # 1p4ls (26): constant nodes + `reads` edge; 1p4q4 (27): TS enum member nodes; 1p4q4 review (28): namespace-prefixed members + short-symbol-prune exemption
 ```
 
-A full re-extraction is forced whenever any of `schema_version`, `builder_version`, `walker_version`, or `chunker_version` changes — detected by `_load_state()` at `graph_indexer.py:1044-1061`.
+The community-clustering layer (`graph_cluster.py`) carries its own `CLUSTER_BUILDER_VERSION = "9"` (bumped at 1p4ls — constant nodes + `reads` edges are excluded from the clustered projection so community labels do not shift).
+
+A full re-extraction is forced whenever any of `schema_version`, `builder_version`, `walker_version`, or `chunker_version` changes — detected by `_load_state()` at `graph_indexer.py:5079-5096`.
 
 ### Entry Point
 
-`update_graph_index()` at `graph_indexer.py:2163-2226` is the public entry point. It instantiates a `GraphIndexSession`, detects version bumps, calls `session.record_file()` for each changed file, and calls `session.finalize()` to produce the final graph payload.
+`update_graph_index()` at `graph_indexer.py:7761-8077` is the public entry point. It instantiates a `GraphIndexSession`, detects version bumps, calls `session.record_file()` for each changed file, and calls `session.finalize()` to produce the final graph payload.
 
 ### File Types Processed
 
@@ -162,7 +166,7 @@ Written by `_write_json()` as pretty-printed JSON with sorted keys (`graph_index
 | Project state | `.wavefoundry/index/graph/project-graph-state.json` |
 | Framework state | `.wavefoundry/framework/index/graph/framework-graph-state.json` |
 
-### `read_graph_payload()` (`graph_indexer.py:2229-2254`)
+### `read_graph_payload()` (`graph_indexer.py:8079`)
 
 Returns a dict with: `layer`, `schema_version`, `nodes` (list), `edges` (list), `counts` (files/nodes/edges ints), `present` (bool), `graph_path` (repo-relative string). When the file is absent or empty: `present=False`, empty `nodes`/`edges`.
 
@@ -264,7 +268,7 @@ Loads project and framework payloads separately into two `nx.DiGraph` objects, t
 
 ```
 CLUSTER_SCHEMA_VERSION  = "1"
-CLUSTER_BUILDER_VERSION = "8"
+CLUSTER_BUILDER_VERSION = "9"
 ```
 
 ### Input Projection (`graph_cluster.py:319-348`)
@@ -437,7 +441,7 @@ The graph build is **incremental by default**. `update_graph_index()` receives `
 
 A full re-extraction is forced when:
 1. The state file is absent or empty (first build).
-2. Any version constant changes (`schema_version`, `builder_version`, `walker_version`, `chunker_version`) — detected by `_load_state()` at `graph_indexer.py:1044-1061`.
+2. Any version constant changes (`schema_version`, `builder_version`, `walker_version`, `chunker_version`) — detected by `_load_state()` at `graph_indexer.py:5079-5096`.
 3. The state's `"files"` dict is empty after loading — `update_graph_index()` expands `changed_set` to all files (`graph_indexer.py:2191-2202`).
 
 Additionally, when code files change, doc artifacts that referenced changed symbols are automatically re-scanned via the `impacted_docs` pass at `graph_indexer.py:1886-1931`.
@@ -456,8 +460,8 @@ Additionally, when code files change, doc artifacts that referenced changed symb
 
 | Concern | Entry point | Key file |
 |---|---|---|
-| Build the graph | `update_graph_index()` | `graph_indexer.py:2163` |
-| Read the graph from disk | `read_graph_payload()` | `graph_indexer.py:2229` |
+| Build the graph | `update_graph_index()` | `graph_indexer.py:7761` |
+| Read the graph from disk | `read_graph_payload()` | `graph_indexer.py:8079` |
 | Load into memory | `GraphQueryIndex.__init__()` | `graph_query.py:123` |
 | Resolve a symbol | `GraphQueryIndex.resolve_symbol()` | `graph_query.py:152` |
 | BFS traversal | `GraphQueryIndex.traverse()` | `graph_query.py:178` |

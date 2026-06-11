@@ -744,5 +744,54 @@ class GraphQueryAutoRebuildCallbackTests(unittest.TestCase):
                              "in-flight marker should be cleared after a failed rebuild too")
 
 
+class ConstantQueryMustFixTests(unittest.TestCase):
+    """Wave 1p4ls council must-fixes on the query layer: kind-aware resolve, reads opt-in +
+    neighbor bound, and the lock keeping `reads` out of the impact/call default relation sets."""
+
+    def setUp(self):
+        self.mod = load_graph_query()
+
+    def _idx(self, nodes, edges):
+        return self.mod.GraphQueryIndex({"present": True, "layer": "project", "nodes": nodes, "edges": edges})
+
+    def test_resolve_symbol_prefers_callable_over_constant(self):
+        """A constant sharing a simple name must NOT shadow a function lookup (kind-aware tiebreak)."""
+        idx = self._idx([
+            {"id": "f.py::HANDLER", "label": "HANDLER", "kind": "function"},
+            {"id": "g.py::HANDLER", "label": "HANDLER", "kind": "constant"},
+        ], [])
+        self.assertEqual(idx.resolve_symbol("HANDLER"), "f.py::HANDLER")
+
+    def test_one_hop_reads_opt_in(self):
+        """`reads` is excluded from default 1-hop traversal (hot-constant guard) but included when
+        the caller passes it explicitly."""
+        nodes = [
+            {"id": "m.py::reader", "label": "reader", "kind": "function"},
+            {"id": "m.py::CONST", "label": "CONST", "kind": "constant"},
+        ]
+        edges = [{"source": "m.py::reader", "target": "m.py::CONST", "relation": "reads", "confidence": "EXTRACTED"}]
+        idx = self._idx(nodes, edges)
+        default = idx.one_hop_neighbors(["m.py::CONST"])
+        self.assertEqual([e for e in default["edges"] if e["relation"] == "reads"], [])
+        explicit = idx.one_hop_neighbors(["m.py::CONST"], relations=["reads"])
+        self.assertTrue([e for e in explicit["edges"] if e["relation"] == "reads"])
+
+    def test_one_hop_max_neighbors_bound(self):
+        """A degree bound caps the neighbor set for a hot node + flags truncation."""
+        nodes = [{"id": "m.py::CONST", "label": "CONST", "kind": "constant"}]
+        edges = []
+        for i in range(10):
+            nodes.append({"id": f"m.py::rd{i}", "label": f"rd{i}", "kind": "function"})
+            edges.append({"source": f"m.py::rd{i}", "target": "m.py::CONST", "relation": "calls", "confidence": "EXTRACTED"})
+        bounded = self._idx(nodes, edges).one_hop_neighbors(["m.py::CONST"], max_neighbors=4)
+        self.assertLessEqual(len(bounded["nodes"]), 4)
+        self.assertTrue(bounded.get("truncated"))
+
+    def test_reads_stays_out_of_default_relation_sets(self):
+        """Guard AC (locks the deferral): `reads` never pollutes impact/blast-radius or call graphs."""
+        self.assertNotIn("reads", self.mod._DEFAULT_IMPACT_RELATIONS)
+        self.assertNotIn("reads", self.mod._DEFAULT_CALL_RELATIONS)
+
+
 if __name__ == "__main__":
     unittest.main()

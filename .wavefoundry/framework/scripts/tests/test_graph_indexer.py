@@ -4603,3 +4603,350 @@ class ParallelExtractionSpawnModeTests(unittest.TestCase):
         self.assertIsNotNone(mp_ctx, "mp_context must be passed to ProcessPoolExecutor")
         self.assertEqual(mp_ctx.get_start_method(), "spawn",
                          f"start method must be 'spawn' (Bug 4 fix); got {mp_ctx.get_start_method()!r}")
+
+
+class ConstantGraphTests(unittest.TestCase):
+    """Wave 1p4ls: constant nodes (kind="constant") + faithfulness-gated function->constant
+    `reads` edges across all core languages. Reuses the 1p4mf chunk-lane detection (one detector,
+    two consumers). Reader names are >2 chars so the short-symbol prune keeps them."""
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files: dict) -> dict:
+        paths, meta = [], {}
+        for rel, content in files.items():
+            p = self.root / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+            paths.append(p)
+            meta[rel] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index", layer="project",
+            files=paths, current_file_meta=meta, changed=set(meta), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False)
+
+    # (rel_path, source, const_simple_suffix, reader_simple_suffix)
+    _CASES = [
+        ("python", "ind.py",
+         'RERANKER_MODEL = "BAAI/bge-reranker-base"\n\ndef get_model():\n    return RERANKER_MODEL\n',
+         "RERANKER_MODEL", "get_model"),
+        ("go", "a.go",
+         "package main\nconst MaxRetries = 3\nfunc compute() int { return MaxRetries }\n",
+         "MaxRetries", "compute"),
+        ("java", "B.java",
+         "class B {\n  static final int MAX_SIZE = 100;\n  int compute() { return MAX_SIZE; }\n}\n",
+         "MAX_SIZE", "compute"),
+        ("rust", "c.rs",
+         "const LIMIT: u32 = 3;\nfn compute() -> u32 { LIMIT }\n",
+         "LIMIT", "compute"),
+        ("kotlin", "d.kt",
+         'const val API_URL = "x"\nfun fetchUrl(): String { return API_URL }\n',
+         "API_URL", "fetchUrl"),
+        ("csharp", "E.cs",
+         "class E { const int MaxRetries = 3; int compute() { return MaxRetries; } }",
+         "MaxRetries", "compute"),
+        ("swift", "f.swift",
+         'let apiURL = "x"\nfunc fetchUrl() -> String { return apiURL }\n',
+         "apiURL", "fetchUrl"),
+        ("ruby", "g.rb",
+         "class Svc\n  LIMIT = 5\n  def compute\n    LIMIT\n  end\nend\n",
+         "LIMIT", "compute"),
+        ("php", "h.php",
+         "<?php\nconst MAX_SIZE = 100;\nfunction compute() { return MAX_SIZE; }\n",
+         "MAX_SIZE", "compute"),
+        ("typescript", "i.ts",
+         'const API_URL = "x";\nfunction fetchUrl() { return API_URL; }\n',
+         "API_URL", "fetchUrl"),
+    ]
+
+    def test_constant_node_and_reads_edge_per_language(self):
+        """AC-1 + AC-2: each core language emits a kind="constant" node and a reader->constant
+        `reads` edge. A grammar that silently failed would drop both, FAILing here (not skipping)."""
+        for lang, rel, src, const_suffix, reader_suffix in self._CASES:
+            with self.subTest(language=lang):
+                payload = self._build({rel: src})
+                consts = [n for n in payload["nodes"]
+                          if n.get("kind") == "constant" and n["id"].split("::")[-1].split(".")[-1] == const_suffix]
+                self.assertTrue(consts, f"[{lang}] no constant node ending in {const_suffix}; "
+                                        f"got {[n['id'] for n in payload['nodes'] if n.get('kind')=='constant']}")
+                const_id = consts[0]["id"]
+                reads = [e for e in payload["edges"]
+                         if e.get("relation") == "reads" and e.get("target") == const_id
+                         and e.get("source", "").split("::")[-1].split(".")[-1] == reader_suffix]
+                self.assertTrue(reads, f"[{lang}] no reads edge {reader_suffix}->{const_id}; "
+                                       f"reads={[(e['source'],e['target']) for e in payload['edges'] if e.get('relation')=='reads']}")
+
+    def test_constant_value_captured(self):
+        """AC-1: a simple-literal RHS is captured on the node's `value`."""
+        payload = self._build({"ind.py": 'RERANKER_MODEL = "BAAI/bge-reranker-base"\n'})
+        node = next(n for n in payload["nodes"] if n["id"].endswith("::RERANKER_MODEL"))
+        self.assertEqual(node.get("kind"), "constant")
+        self.assertIn("bge-reranker-base", str(node.get("value")))
+
+    def test_python_local_shadow_not_bound(self):
+        """AC-5: a function-local assignment shadowing a module constant must NOT emit a reads
+        edge to the module constant (the local-shadow guard)."""
+        payload = self._build({"ind.py":
+            "MAX_RETRIES = 3\n\ndef shadower():\n    MAX_RETRIES = 99\n    return MAX_RETRIES\n"})
+        reads = [e for e in payload["edges"]
+                 if e.get("relation") == "reads" and e.get("source", "").endswith("::shadower")]
+        self.assertEqual(reads, [], "local shadow must not bind the module constant")
+
+    def test_ambiguous_twin_constant_stays_unresolved(self):
+        """AC-5: a bare read of a constant name defined in TWO modules (no import) must NOT bind a
+        coincidental twin — symbol_lookup uniqueness keeps it unresolved."""
+        payload = self._build({
+            "a.py": "LIMIT = 1\n",
+            "b.py": "LIMIT = 2\n",
+            "c.py": "def use_limit():\n    return LIMIT\n",
+        })
+        reads = [e for e in payload["edges"]
+                 if e.get("relation") == "reads" and e.get("source", "").endswith("::use_limit")]
+        self.assertEqual(reads, [], f"ambiguous twin must stay unresolved; got {reads}")
+
+    def test_constant_excluded_function_local(self):
+        """A function-local constant is NOT a constant node (scope gate)."""
+        payload = self._build({"ind.py":
+            "def f():\n    LOCAL_CONST = 9\n    return LOCAL_CONST\n"})
+        self.assertEqual(
+            [n["id"] for n in payload["nodes"] if n.get("kind") == "constant"], [],
+            "function-local constants must not be graph nodes")
+
+    def test_cross_module_imported_constant_read(self):
+        """AC-2 (imported): a function reading a constant imported from ANOTHER module gets a reads
+        edge (resolved cross-module in finalize). An imported FUNCTION is NOT bound as a read."""
+        payload = self._build({
+            "consts.py": 'RERANKER_MODEL = "bge"\n\ndef helper():\n    return 1\n',
+            "reader.py": "from consts import RERANKER_MODEL, helper\n\n"
+                         "def use_model():\n    x = helper()\n    return RERANKER_MODEL\n",
+        })
+        reads = [(e["source"].split("::")[-1], e["target"]) for e in payload["edges"]
+                 if e.get("relation") == "reads"]
+        self.assertIn(("use_model", "consts.py::RERANKER_MODEL"), reads)
+        self.assertFalse(any("helper" in tgt for _, tgt in reads),
+                         "imported FUNCTION must not be bound as a constant read")
+        self.assertFalse(any(tgt.startswith("external::") for _, tgt in reads),
+                         "unresolved external:: reads must be dropped, not persisted")
+
+    def test_typescript_enum_members_are_constant_nodes(self):
+        """AC-3 (1p4q4): TS `enum` / `const enum` / `export enum` members become `kind="constant"`
+        nodes (`Enum.Member`) carrying their literal value; the enum TYPE stays a class node."""
+        payload = self._build({"e.ts":
+            'enum Status { ACTIVE = 0, FAILED = 1 }\n'
+            'const enum Dir { Upward, Downward }\n'
+            'export enum Color { Crimson = "r" }\n'})
+        consts = {n["id"].split("::")[-1]: n.get("value")
+                  for n in payload["nodes"] if n.get("kind") == "constant"}
+        for m in ("Status.ACTIVE", "Status.FAILED", "Dir.Upward", "Dir.Downward", "Color.Crimson"):
+            self.assertIn(m, consts, f"enum member {m} not a constant node; got {sorted(consts)}")
+        self.assertEqual(consts["Status.ACTIVE"], "0")
+        self.assertEqual(consts["Color.Crimson"], '"r"')
+        classes = {n["id"].split("::")[-1] for n in payload["nodes"] if n.get("kind") == "class"}
+        self.assertIn("Status", classes, "the enum type stays a class node alongside its member constants")
+
+    def test_short_enum_members_survive_short_symbol_prune(self):
+        """Review D2/F1: short (≤2-char) enum members like `Status.OK` / `Dir.Up` — the wave's own
+        canonical AC examples — are value-carrying constant nodes and must NOT be dropped by the
+        short-symbol prune (constants are exempt). `code_definition("OK")` depends on this."""
+        payload = self._build({"s.ts":
+            "enum Status { OK = 0, FAIL = 1 }\nconst enum Dir { Up, Down }\n"})
+        consts = {n["id"].split("::")[-1]: n.get("value")
+                  for n in payload["nodes"] if n.get("kind") == "constant"}
+        for m in ("Status.OK", "Status.FAIL", "Dir.Up", "Dir.Down"):
+            self.assertIn(m, consts, f"short enum member {m} pruned from graph; got {sorted(consts)}")
+        self.assertEqual(consts["Status.OK"], "0")
+
+    def test_namespace_scoped_enum_members_do_not_collide(self):
+        """Review D1: two same-named enums in two different namespaces must produce DISTINCT member
+        nodes (NS-qualified) — the graph walker doesn't push a namespace scope, so the member qname
+        must recover the enclosing namespace prefix from the AST, else NSB clobbers NSA's value."""
+        payload = self._build({"s.ts":
+            "namespace NSA { export enum Inner { AAA = 1 } }\n"
+            "namespace NSB { export enum Inner { AAA = 2 } }\n"})
+        consts = {n["id"].split("::")[-1]: n.get("value")
+                  for n in payload["nodes"] if n.get("kind") == "constant"}
+        self.assertEqual(consts.get("NSA.Inner.AAA"), "1", f"NSA member missing/clobbered; got {sorted(consts)}")
+        self.assertEqual(consts.get("NSB.Inner.AAA"), "2", f"NSB member missing/clobbered; got {sorted(consts)}")
+
+    def test_simple_name_stays_first_dot_split_to_avoid_overbind(self):
+        """Guard (adversarial review): `_simple_name` must stay `split('.',1)` (first dot), NOT rsplit.
+        Returning the bare leaf for a 2+-level-nested id over-binds the unguarded bare-call/bare-read
+        paths (verified: nested-method call over-bind; param-shadow read over-fire; import-read shadow
+        dropping 5 correct external:: edges on a real file). Nested member-access CONSTANT reads are a
+        separate faithful (exact qualified-path) follow-on — see the guard comment on `_simple_name`."""
+        sn = load_graph_indexer()._simple_name
+        self.assertEqual(sn("f.swift::Cfg.limit"), "limit")                              # 1-level: leaf
+        self.assertEqual(sn("f.swift::Outer.Inner.TOKEN"), "Inner.TOKEN")                # 2-level: NOT bare leaf
+        self.assertEqual(sn("f.swift::A.B.C.run"), "B.C.run")                            # deep: first dot only
+
+    def test_member_access_constant_read_resolves(self):
+        """Member-access read attribution: a CONSTANT read via a qualified path (`Enum.MEMBER`,
+        `Outer.Inner.CONST`) produces a `reads` edge by EXACT qname match — covering TS enum members
+        (whose trailing `property_identifier` the leaf-capture never sees) and 2+-level-nested
+        constants in every language whose member-access node is recognized. Reader names are >2 chars
+        so the short-symbol prune keeps them."""
+        # TS enum member (member_expression)
+        ts = self._build({"a.ts": "enum Status { ACTIVE = 1 }\nfunction reader() { return Status.ACTIVE; }\n"})
+        self._assert_reads_in(ts, ("reader", "Status.ACTIVE"))
+        # TS namespace enum member (the JS-TS surface) — qualified NS.E.MEMBER
+        nsts = self._build({"b.ts": "namespace NS { export enum E { ALPHA = 1 } }\nfunction reader() { return NS.E.ALPHA; }\n"})
+        self._assert_reads_in(nsts, ("reader", "NS.E.ALPHA"))
+        # Swift nested static (navigation_expression) — Solaris's exact shape
+        sw = self._build({"s.swift":
+            "struct SolarisConstants {\n  struct Network { static let userAgent = \"x\" }\n}\n"
+            "class NotificationDispatcher { func dispatch() -> String { return SolarisConstants.Network.userAgent } }\n"})
+        self._assert_reads_in(sw, ("NotificationDispatcher.dispatch", "SolarisConstants.Network.userAgent"))
+        # Java 2-level (field_access)
+        jv = self._build({"C.java":
+            "class Outer { static class Inner { static final String TOKEN=\"T\"; } String reader(){ return Outer.Inner.TOKEN; } }\n"})
+        self._assert_reads_in(jv, ("Outer.reader", "Outer.Inner.TOKEN"))
+
+    def test_member_access_read_is_faithful_no_overbind(self):
+        """Faithfulness (adversarial — the cases that sank the `_simple_name` rsplit attempt): the
+        member-access path approach is exact-qname + const-gated, so a bare parameter/local that
+        shares a leaf with a nested constant, and an explicitly-imported same-leaf symbol, must NOT
+        wrong-bind to the nested constant."""
+        # (a) a function reading its own PARAMETER `TOKEN` must NOT bind the nested const Outer.Inner.TOKEN
+        pj = self._build({"P.java":
+            "class Outer { static class Inner { static final String TOKEN=\"T\"; } String handle(String TOKEN){ return TOKEN; } }\n"})
+        self.assertEqual([e for e in pj["edges"] if e.get("relation") == "reads"], [],
+                         "bare parameter read must not bind a same-leaf nested constant")
+        # (b) an explicitly-imported `TOKEN` must NOT be shadowed by a same-leaf nested enum member
+        it = self._build({
+            "c.ts": "export const TOKEN = 1;\n",
+            "i.ts": "import { TOKEN } from './c';\nnamespace App { export enum Cfg { TOKEN } }\nfunction f() { return TOKEN; }\n"})
+        wrong = [e for e in it["edges"] if e.get("relation") == "reads"
+                 and e.get("target", "").endswith("App.Cfg.TOKEN")]
+        self.assertEqual(wrong, [], "imported symbol read must not wrong-bind a same-leaf nested enum member")
+        # (c) instance access `config.timeout` must NOT bind the 1-level-nested const Outer.config.timeout
+        #     via a `_simple_name` partial key (review F1: member-access reads require FULL-qname match).
+        inst = self._build({"A.java":
+            "class Outer { static class config { static final int timeout=30; } "
+            "static class Other { config config; int reader(){ return config.timeout; } } }\n"})
+        self.assertEqual([e for e in inst["edges"] if e.get("relation") == "reads"], [],
+                         "instance member access must not bind a 1-level-nested const via a partial key")
+
+    def test_member_access_qualifier_shadow_suppressed(self):
+        """Faithfulness F4 (review): when a parameter/local is named like a type with a static const and
+        accessed as `Name.MEMBER`, the access is on the LOCAL — no `reads` edge to the type's constant
+        (the qualifier-shadow guard + property-leaf skip). A genuine `Type.MEMBER` (Type not shadowed)
+        still fires."""
+        def _reads(payload):
+            return [e for e in payload["edges"] if e.get("relation") == "reads"]
+        # param shadows a top-level type
+        self.assertEqual(_reads(self._build({"s.swift":
+            "struct Config { static let value=\"c\" }\nstruct Holder {}\n"
+            "func reader(Config: Holder) -> String { return Config.value }\n"})), [],
+            "Swift param shadowing a struct must not bind its static const")
+        self.assertEqual(_reads(self._build({"k.kt":
+            "object Cfg { const val VALUE=1 }\nclass Holder\n"
+            "fun reader(Cfg: Holder): Int { return Cfg.VALUE }\n"})), [],
+            "Kotlin param shadowing an object must not bind its const")
+        # local var shadows a nested type
+        self.assertEqual(_reads(self._build({"N.java":
+            "class N { static class Status { static final String ACTIVE=\"a\"; } "
+            "static class Other { static final String ACTIVE=\"x\"; } "
+            "String reader(){ Other Status = new Other(); return Status.ACTIVE; } }\n"})), [],
+            "Java local var shadowing a class must not bind its constant")
+        # NOT shadowed → the genuine member read still fires
+        legit = [(e["source"].split("::")[-1], e["target"].split("::")[-1]) for e in _reads(self._build({"m.kt":
+            "object Cfg { const val VALUE=1 }\nfun reader(): Int { return Cfg.VALUE }\n"}))]
+        self.assertIn(("reader", "Cfg.VALUE"), legit, f"genuine Type.MEMBER read must still fire; got {legit}")
+
+    def test_object_array_constant_head_read_fires(self):
+        """Regression (final review blocker): the property-leaf skip must NOT drop the HEAD of a member
+        access. An OBJECT/ARRAY constant read via `CONST.member` / `CONST.length` (where the full path
+        is NOT a registered qname) must still emit a `reads` edge to the constant via the captured head.
+        (The bug was an `is` identity check on tree-sitter wrappers that blanket-skipped every leaf.)"""
+        for rel, src, reader, const in [
+            ("a.ts", "const GRAPH_KIND_COLORS = { external: \"#fff\" };\n"
+                     "function graphCommunityColor() { return GRAPH_KIND_COLORS.external; }\n",
+             "graphCommunityColor", "GRAPH_KIND_COLORS"),
+            ("b.ts", "const FRAMEWORK_FLOW = [1,2,3];\nfunction frameworkFlow() { return FRAMEWORK_FLOW.length; }\n",
+             "frameworkFlow", "FRAMEWORK_FLOW"),
+            ("C.java", "class K { static final int[] RETRY_SCHEDULE_TABLE={1,2}; "
+                       "int computeLen(){ return RETRY_SCHEDULE_TABLE.length; } }\n",
+             "K.computeLen", "K.RETRY_SCHEDULE_TABLE"),
+        ]:
+            with self.subTest(file=rel):
+                reads = [(e["source"].split("::")[-1], e["target"].split("::")[-1])
+                         for e in self._build({rel: src})["edges"] if e.get("relation") == "reads"]
+                self.assertIn((reader, const), reads, f"[{rel}] object/array const head read missing; got {reads}")
+
+    def _assert_reads_in(self, payload, pair):
+        reads = [(e["source"].split("::")[-1], e["target"].split("::")[-1])
+                 for e in payload["edges"] if e.get("relation") == "reads"]
+        self.assertIn(pair, reads, f"expected reads {pair}; got {reads}")
+
+    def test_imported_ambiguous_constant_not_external(self):
+        """AC-5 (imported): an unresolved imported read never persists as an external:: edge."""
+        payload = self._build({
+            "x.py": "LIMIT = 1\n",
+            "y.py": "LIMIT = 2\n",
+            "z.py": "from x import LIMIT\n\ndef use_limit():\n    return LIMIT\n",
+        })
+        ext = [e for e in payload["edges"]
+               if e.get("relation") == "reads" and e.get("target", "").startswith("external::")]
+        self.assertEqual(ext, [], "unresolved external:: reads must be dropped")
+
+    def test_kotlin_object_const_read_edge(self):
+        """AC-2 (delivery review B1): a `const val` inside an object/companion/class is read by a
+        sibling method → a `reads` edge fires. Regression for the const-intercept double-registering
+        the declaration's own name-bearing child, which inflated simple_names[name] to len 2 and made
+        the same-scope uniqueness lookup skip it (silently zero reads for ALL nested Kotlin consts)."""
+        payload = self._build({
+            "d.kt": "object Settings {\n  const val TIMEOUT = 30\n"
+                    "  fun retrieve(): Int { return TIMEOUT }\n}\n",
+        })
+        reads = [(e["source"].split("::")[-1], e["target"].split("::")[-1])
+                 for e in payload["edges"] if e.get("relation") == "reads"]
+        self.assertIn(("Settings.retrieve", "Settings.TIMEOUT"), reads,
+                      f"object-const read edge missing; reads={reads}")
+
+    def test_imported_function_with_const_twin_dropped(self):
+        """AC-5 (delivery review B2): when the imported symbol is a project FUNCTION (kind gate empties
+        the qualified match) and an UNRELATED module defines a coincidental same-name constant, the
+        read is DROPPED — never wrong-bound to the twin via a bare simple-name fallback."""
+        payload = self._build({
+            "modA.py": "def CONFIG():\n    return 1\n",       # imported symbol is a FUNCTION
+            "modB.py": "CONFIG = 'real-const'\n",              # coincidental const twin, unrelated
+            "reader.py": "from modA import CONFIG\n\ndef use_it():\n    x = CONFIG\n    return x\n",
+        })
+        reads = [(e["source"].split("::")[-1], e.get("target", "")) for e in payload["edges"]
+                 if e.get("relation") == "reads"]
+        self.assertFalse(any(t == "modB.py::CONFIG" for _, t in reads),
+                         f"imported function must not bind the coincidental const twin; reads={reads}")
+        self.assertFalse(any(t.startswith("external::") for _, t in reads),
+                         "unresolved external:: reads must be dropped, not persisted")
+
+    def test_imported_thirdparty_name_with_const_twin_dropped(self):
+        """AC-5 (delivery review B2): an import from a NON-project (3rd-party) module that happens to
+        share a name with a unique project constant must NOT bind that constant — the reader never
+        imported it. unique-or-DROP applies to the QUALIFIED import target, not a bare name."""
+        payload = self._build({
+            "othermod.py": "SHARED = 42\n",
+            "reader2.py": "from nonexistent_3rd_party import SHARED\n\n"
+                          "def use_shared():\n    return SHARED\n",
+        })
+        reads = [(e["source"].split("::")[-1], e.get("target", "")) for e in payload["edges"]
+                 if e.get("relation") == "reads"]
+        self.assertFalse(any(t == "othermod.py::SHARED" for _, t in reads),
+                         f"3rd-party import must not bind a same-name project const; reads={reads}")
+
+
+class GraphBuilderVersionTests(unittest.TestCase):
+    """Wave 1p4ls AC-3: the node/edge shape changed (constant nodes + reads edge) so the builder
+    version is bumped, forcing a full re-extract against any older cache."""
+
+    def test_graph_builder_version_is_28(self):
+        # 1p4ls bumped 25→26 (constant nodes + reads edge); 1p4q4 bumped 26→27 (TS enum member nodes);
+        # 1p4q4 review bumped 27→28 (namespace-prefixed enum members + short-symbol-prune exemption for
+        # constants — node-set shape change).
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "28")

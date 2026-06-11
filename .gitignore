@@ -20,6 +20,7 @@ build/
 
 # Wavefoundry runtime lock files (host-local process/test locks — never commit)
 .wavefoundry/**/*.lock
+*.lock
 
 # Wavefoundry runtime logs — all logs consolidated here (upgrade, index build, dashboard)
 .wavefoundry/logs/

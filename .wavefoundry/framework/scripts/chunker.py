@@ -8,7 +8,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
-from typing import Optional
+from typing import Callable, Optional
 
 try:
     from _tag_utils import infer_tags as _infer_tags
@@ -195,7 +195,7 @@ def _ts_collapse_body(text: str, max_lines: int = 150) -> str:
 # (b) `phase_index_rebuild` (full) running on `--update-index` instead of
 # `phase_index_update` (incremental), (c) post-condition verification confirming
 # the new version in `.wavefoundry/index/meta.json` after rebuild.
-CHUNKER_VERSION = "26"  # 1p4mf: module/class-level constants emitted as chunks (kind="code", breadcrumb-prefixed text, merge-excluded via " [const]" section marker)
+CHUNKER_VERSION = "29"  # 1p4q4 review (C1/C2/C3): complete the TS namespace/module const-chunk coverage — the `module M{}` keyword form, NON-export namespace const, `export namespace`, `declare namespace`, and `declare enum` members now chunk. Chunk-set shape change → bump (consumer code index re-chunks). 1p4q4 (28): TS enum/const-enum members + namespace const + declare const are now constant chunks (Enum.Member). 1p4hi close (27): all-11-language constant chunking + Go short-const fix. 1p4mf (26): module/class-level constants emitted as chunks (kind="code", breadcrumb-prefixed text, merge-excluded via " [const]" section marker)
 
 # Lines per window and overlap for the line-window fallback chunker.
 WINDOW_SIZE = 120
@@ -238,7 +238,7 @@ MARKDOWN_EXTENSIONS = {".md", ".markdown"}
 JAVA_EXTENSIONS = {".java"}
 SCALA_EXTENSIONS = {".scala"}
 CSHARP_EXTENSIONS = {".cs"}
-JS_TS_EXTENSIONS = {".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"}
+JS_TS_EXTENSIONS = {".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs", ".mts", ".cts"}
 C_CPP_EXTENSIONS = {".c", ".cpp", ".h", ".hpp"}
 HTML_EXTENSIONS = {".html", ".htm"}
 GO_EXTENSIONS = {".go"}
@@ -282,7 +282,7 @@ IPYNB_EXTENSIONS = {".ipynb"}
 _EXT_TO_LANGUAGE: dict[str, str] = {
     ".py": "python",
     ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
-    ".ts": "typescript", ".tsx": "typescript",
+    ".ts": "typescript", ".tsx": "typescript", ".mts": "typescript", ".cts": "typescript",
     ".go": "go",
     ".rs": "rust",
     ".java": "java",
@@ -2181,6 +2181,15 @@ _JS_ARROW_RE = re.compile(
 # Top-level export const declarations at column 0: export const Foo = ...
 # (styled-components, plain constants, enum-like objects, etc.)
 _JS_EXPORT_CONST_RE = re.compile(r"^export\s+const\s+(\w+)\s*[:=]")
+# Wave 1p4mf (JS/TS regex fallback): a top-level VALUE constant — `const NAME = <literal>`,
+# exported OR not. The RHS first token (quote/backtick/brace/bracket/digit/bool/null) is the
+# discriminator: it separates a value const from an arrow fn (`= (`, caught by _JS_ARROW_RE) and
+# from a factory/styled/`require` call (`= ident(...)`, an identifier-start RHS). This closes the
+# export-only gap (non-exported consts were never chunked) and marks value consts for retrieval.
+_JS_VALUE_CONST_RE = re.compile(
+    r"^(?:export\s+)?const\s+(\w+)\s*(?::[^=]+)?\s*=\s*"
+    r"(?:['\"`\{\[]|-?\d|true\b|false\b|null\b)"
+)
 _JS_METHOD_RE = re.compile(
     r"^\s*(?:static\s+)?(?:async\s+)?(?:get\s+|set\s+)?(\w+)\s*\(", re.MULTILINE
 )
@@ -2274,6 +2283,54 @@ def chunk_js_ts(source: str, path: str) -> list[Chunk]:
                 ))
                 i = j
                 continue
+
+            # Top-level VALUE constant (exported or not): const NAME = <literal>.
+            # Marked with the const section suffix so it is retrievable + merge-excluded, like the
+            # tree-sitter path. Checked BEFORE the generic export-const block so a value export
+            # (`export const URL = "…"`) is marked, while a styled/function export falls through.
+            if not current_class:
+                vcm = _JS_VALUE_CONST_RE.match(line)
+                if vcm:
+                    const_name = vcm.group(1)
+                    breadcrumb = f"{stem} > {const_name}"
+                    body_lines = [line]
+                    # Multi-line object/array/template literal — collect until brackets + backticks
+                    # balance (a single-line `const X = 1;` stops immediately).
+                    depth = (line.count("{") - line.count("}")
+                             + line.count("[") - line.count("]")
+                             + line.count("(") - line.count(")"))
+                    btick = line.count("`") % 2
+                    j = i + 1
+                    while j < len(lines) and (depth > 0 or btick):
+                        body_lines.append(lines[j])
+                        depth += (lines[j].count("{") - lines[j].count("}")
+                                  + lines[j].count("[") - lines[j].count("]")
+                                  + lines[j].count("(") - lines[j].count(")"))
+                        btick = (btick + lines[j].count("`")) % 2
+                        j += 1
+                    code_text = "\n".join(body_lines)
+                    doc_text = next((doc_ends[k] for k in range(i, i - 3, -1) if k in doc_ends), None)
+                    if doc_text:
+                        chunks.append(Chunk(
+                            id=f"{path}::{const_name}.__doc__",
+                            path=path,
+                            kind="doc",
+                            language=lang,
+                            lines=(max(1, i), i + 1),
+                            section=breadcrumb,
+                            text=f"{breadcrumb}\n\n{doc_text}",
+                        ))
+                    chunks.append(Chunk(
+                        id=f"{path}::{const_name}",
+                        path=path,
+                        kind="code",
+                        language=lang,
+                        lines=(i + 1, max(j, i + 1)),
+                        section=f"{breadcrumb}{_CONST_SECTION_SUFFIX}",
+                        text=f"{breadcrumb}\n\n{code_text}",
+                    ))
+                    i = j if j > i else i + 1
+                    continue
 
             # Top-level export const declarations at column 0 (styled-components, etc.)
             if not current_class:
@@ -3525,10 +3582,34 @@ def _ts_imports_chunk(import_nodes, source_lines: list[str], path: str, lang: st
     )
 
 
+# Wave 1p4mf (JS/TS): a `const` whose RHS is one of these literal value types is a VALUE
+# constant (→ constant chunk + " [const]" marker). arrow_function / call_expression (styled
+# components, computed values) are functions/components and stay as plain code chunks.
+_JS_VALUE_CONST_TYPES = frozenset({
+    "number", "string", "object", "array", "true", "false", "null",
+    "template_string", "unary_expression", "regex",
+})
+
+
+def _js_const_value_type(declarator) -> str:
+    """Tree-sitter type of a JS/TS variable_declarator's RHS value, or '' when absent."""
+    val = declarator.child_by_field_name("value")
+    if val is None:
+        kids = [c for c in declarator.children if c.type != "="]
+        val = kids[-1] if len(kids) > 1 else None
+    return val.type if val is not None else ""
+
+
+def _js_is_const_decl(node) -> bool:
+    """True when a lexical_declaration's keyword token is `const` (not `let`). Checks the
+    keyword node type directly — robust to `export const` (where line text starts with `export`)."""
+    return bool(node.children) and node.children[0].type == "const"
+
+
 def chunk_js_ts_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
     """Tree-sitter JS/TS chunker. Returns None if tree-sitter unavailable."""
     ext = PurePosixPath(_normalize_path(path)).suffix.lower()
-    lang_key = "typescript" if ext in {".ts", ".tsx"} else "javascript"
+    lang_key = "typescript" if ext in {".ts", ".tsx", ".mts", ".cts"} else "javascript"
     lang = _ext_language(ext)
     stem = _file_stem(path)
     path = _normalize_path(path)
@@ -3547,12 +3628,73 @@ def chunk_js_ts_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
                 return source_lines[child.start_point[0]][child.start_point[1]:child.end_point[1]]
         return None
 
+    def _enum_member_name(member) -> Optional[str]:
+        # Wave 1p4q4: a TS enum member is `property_identifier` (bare) or `enum_assignment`
+        # (property_identifier = value). Return the member's name in both shapes.
+        if member.type == "property_identifier":
+            return source_lines[member.start_point[0]][member.start_point[1]:member.end_point[1]]
+        for c in member.children:
+            if c.type == "property_identifier":
+                return source_lines[c.start_point[0]][c.start_point[1]:c.end_point[1]]
+        return None
+
+    def _emit_const_chunk(qname: str, node) -> None:
+        breadcrumb = f"{stem} > {qname}"
+        start, end = _ts_node_lines(node)
+        text = _ts_node_text(node, source_lines)
+        chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code", language=lang,
+                            lines=(start, end), section=f"{breadcrumb}{_CONST_SECTION_SUFFIX}",
+                            text=f"{breadcrumb}\n\n{text}"))
+
     def _process_node(node, class_name: Optional[str] = None):
         nonlocal import_nodes
         t = node.type
 
         if t == "import_statement":
             import_nodes.append(node)
+            return
+
+        if t == "enum_declaration":
+            # Wave 1p4q4: TS `enum` / `const enum` — each member becomes a `Enum.Member` constant
+            # chunk (members are how TS expresses named constants).
+            ename = _symbol_name(node) or "Enum"
+            qprefix = f"{class_name}.{ename}" if class_name else ename
+            for child in node.children:
+                if child.type == "enum_body":
+                    for member in child.named_children:
+                        if member.type not in ("enum_assignment", "property_identifier"):
+                            continue
+                        mname = _enum_member_name(member)
+                        if mname:
+                            _emit_const_chunk(f"{qprefix}.{mname}", member)
+            return
+
+        if t in ("internal_module", "module"):
+            # Wave 1p4q4: `namespace NS { ... }` (→ internal_module) and the `module NS { ... }`
+            # keyword form (→ a top-level `module` node) — recurse into the body, qualifying by NS.
+            nsname = _symbol_name(node) or "namespace"
+            nsq = f"{class_name}.{nsname}" if class_name else nsname
+            for child in node.children:
+                if child.type == "statement_block":
+                    for stmt in child.children:
+                        _process_node(stmt, class_name=nsq)
+            return
+
+        if t == "expression_statement":
+            # A top-level `namespace`/`module` block parses as expression_statement → internal_module.
+            for child in node.children:
+                if child.type in ("internal_module", "module"):
+                    _process_node(child, class_name=class_name)
+            return
+
+        if t == "ambient_declaration":
+            # Wave 1p4q4: `declare const X = <value>` → the inner value const; `declare namespace`
+            # / `declare module` (→ internal_module / module) and `declare enum` → recurse so the
+            # contained consts / enum members are chunked (review C3).
+            for child in node.children:
+                if child.type in ("lexical_declaration", "variable_declaration",
+                                  "internal_module", "module", "enum_declaration"):
+                    _process_node(child, class_name=class_name)
             return
 
         if t in ("function_declaration", "generator_function_declaration"):
@@ -3590,43 +3732,66 @@ def chunk_js_ts_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
             return
 
         if t == "export_statement":
-            # export function Foo / export class Foo / export const Foo = ...
+            # export function Foo / export class Foo / export const Foo = ... / export enum Foo /
+            # export namespace NS { ... } (→ internal_module / module — review C3)
             for child in node.children:
                 if child.type in ("function_declaration", "class_declaration",
-                                  "generator_function_declaration"):
+                                  "generator_function_declaration", "enum_declaration",
+                                  "internal_module", "module"):
                     _process_node(child, class_name=class_name)
                     return
                 if child.type in ("lexical_declaration", "variable_declaration"):
                     # export const Foo = ...
+                    is_const = child.type == "lexical_declaration" and _js_is_const_decl(child)
                     for decl in child.children:
-                        if decl.type == "variable_declarator":
-                            name = _symbol_name(decl) or "const"
-                            qname = f"{class_name}.{name}" if class_name else name
-                            breadcrumb = f"{stem} > {qname}"
-                            start, end = _ts_node_lines(node)
-                            text = _ts_collapse_body(_ts_node_text(node, source_lines))
+                        if decl.type != "variable_declarator":
+                            continue
+                        name = _symbol_name(decl) or "const"
+                        qname = f"{class_name}.{name}" if class_name else name
+                        breadcrumb = f"{stem} > {qname}"
+                        start, end = _ts_node_lines(node)
+                        text = _ts_collapse_body(_ts_node_text(node, source_lines))
+                        # Wave 1p4mf: a VALUE const (literal RHS) → constant chunk (marker +
+                        # breadcrumb prefix); a function/component const (arrow/call) → code chunk.
+                        if is_const and _js_const_value_type(decl) in _JS_VALUE_CONST_TYPES:
+                            chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code",
+                                                language=lang, lines=(start, end),
+                                                section=f"{breadcrumb}{_CONST_SECTION_SUFFIX}",
+                                                text=f"{breadcrumb}\n\n{text}"))
+                        else:
                             chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code",
                                                 language=lang, lines=(start, end),
                                                 section=breadcrumb, text=text))
                     return
             return
 
-        if t in ("lexical_declaration", "variable_declaration") and class_name is None:
-            # Top-level const Foo = () => ...  or const Foo = styled(...)
+        if t in ("lexical_declaration", "variable_declaration"):
+            # Top-level const Foo = <value>  /  const Foo = () => ...  /  const Foo = styled(...).
+            # A class body routes ONLY method_definition here, so a set `class_name` means this was
+            # reached via namespace recursion (review C2) — qualify by it so a NON-export `const`
+            # inside `namespace N { const X = 5 }` is chunked as `N.X` (previously a `class_name is
+            # None` guard dropped it; only `export const` survived).
+            is_const = t == "lexical_declaration" and _js_is_const_decl(node)
             for decl in node.children:
-                if decl.type == "variable_declarator":
-                    # check if value is arrow_function or call_expression (styled)
-                    for val in decl.children:
-                        if val.type in ("arrow_function", "call_expression",
-                                        "template_string", "object"):
-                            name = _symbol_name(decl) or "const"
-                            breadcrumb = f"{stem} > {name}"
-                            start, end = _ts_node_lines(node)
-                            text = _ts_collapse_body(_ts_node_text(node, source_lines))
-                            chunks.append(Chunk(id=f"{path}::{name}", path=path, kind="code",
-                                                language=lang, lines=(start, end),
-                                                section=breadcrumb, text=text))
-                            break
+                if decl.type != "variable_declarator":
+                    continue
+                name = _symbol_name(decl) or "const"
+                qname = f"{class_name}.{name}" if class_name else name
+                breadcrumb = f"{stem} > {qname}"
+                start, end = _ts_node_lines(node)
+                text = _ts_collapse_body(_ts_node_text(node, source_lines))
+                vtype = _js_const_value_type(decl)
+                # Wave 1p4mf: a VALUE const (literal RHS — incl. scalars, previously unchunked)
+                # → constant chunk (marker + breadcrumb). Function/component consts (arrow/call)
+                # keep the existing plain code-chunk behavior.
+                if is_const and vtype in _JS_VALUE_CONST_TYPES:
+                    chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code", language=lang,
+                                        lines=(start, end), section=f"{breadcrumb}{_CONST_SECTION_SUFFIX}",
+                                        text=f"{breadcrumb}\n\n{text}"))
+                elif vtype in ("arrow_function", "call_expression", "template_string", "object"):
+                    # function/component/styled (or a non-const object/template) — plain code chunk
+                    chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code",
+                                        language=lang, lines=(start, end), section=breadcrumb, text=text))
 
     for node in tree.root_node.children:
         _process_node(node)
@@ -3638,6 +3803,36 @@ def chunk_js_ts_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
     if not chunks:
         return None
     return split_large_code_chunks(_merge_small_chunks(chunks, scoped=True))
+
+
+def _go_const_spec_names(spec, source_lines: list[str]) -> list[str]:
+    """First-level identifier names declared by a Go const_spec. A const_spec can declare
+    multiple targets (``const a, b = 1, 2``), so collect every direct ``identifier`` child."""
+    names: list[str] = []
+    for c in spec.children:
+        if c.type == "identifier":
+            names.append(source_lines[c.start_point[0]][c.start_point[1]:c.end_point[1]])
+    return names
+
+
+def _go_const_chunk_name(node, source_lines: list[str]) -> Optional[str]:
+    """Chunk NAME for a Go ``const_declaration`` (single OR grouped). Returns the first usable
+    identifier across all const_specs — single ``const X =`` -> its name; grouped
+    ``const ( A=iota; B )`` block -> its first usable member (the block stays ONE chunk).
+    Excludes ONLY the blank identifier ``_``; returns None if none usable (a blank-only
+    declaration is skipped). Short names (``Pi``/``KB``/``MB``/``Hz``/``OK``/``ID``) ARE chunked —
+    they are common, retrievable Go constants, and dropping them made them unfindable (1p4ls
+    delivery review). The CHUNK lane includes every named const-keyword declaration; the graph
+    applies its own short-symbol prune separately, so retrieval is not gated on name length here.
+    No casing gate — Go const-ness is the ``const`` keyword (MixedCaps/camelCase are normal);
+    first-letter case is EXPORT only."""
+    for spec in node.children:
+        if spec.type != "const_spec":
+            continue
+        for name in _go_const_spec_names(spec, source_lines):
+            if name != "_":
+                return name
+    return None
 
 
 def chunk_go_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
@@ -3705,6 +3900,24 @@ def chunk_go_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
             text = _ts_collapse_body(_ts_node_text(node, source_lines))
             chunks.append(Chunk(id=f"{path}::{name}", path=path, kind="code", language="go",
                                 lines=(start, end), section=breadcrumb, text=text))
+        elif t == "const_declaration":
+            # Wave 1p4mf: package/file-level Go constants. Scope = root-level iteration here, so
+            # function-local `const` (nested in function_declaration) is never reached. `var`/
+            # grouped `var(...)` are var_declaration and never match. No casing gate (Go const-ness
+            # is the keyword; first-letter case = export). Single `const X =` -> ONE chunk; grouped
+            # `const ( ... )` (Go's enum, no enum type node) -> ONE chunk for the WHOLE block so a
+            # member query still hits it. Blank `const _ =` and <=2-char flag names are skipped.
+            cname = _go_const_chunk_name(node, source_lines)
+            if cname is not None:
+                breadcrumb = f"{stem} > {cname}"
+                start, end = _ts_node_lines(node)
+                decl_text = _ts_collapse_body(_ts_node_text(node, source_lines))
+                chunks.append(Chunk(
+                    id=f"{path}::{cname}", path=path, kind="code", language="go",
+                    lines=(start, end),
+                    section=f"{breadcrumb}{_CONST_SECTION_SUFFIX}",
+                    text=f"{breadcrumb}\n\n{decl_text}",
+                ))
 
     imp = _ts_imports_chunk(import_nodes, source_lines, path, "go", stem)
     if imp:
@@ -3715,6 +3928,33 @@ def chunk_go_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
     if not chunks:
         return None
     return split_large_code_chunks(_merge_small_chunks(chunks, scoped=True))
+
+
+# Wave 1p4mf (Rust): module/type-level constant detection. ``const_item`` (const NAME: T = …)
+# and ``static_item`` (static / static mut) are the const node types; the const/static KEYWORD
+# is authoritative (no casing gate). SCOPE is the discriminator — a FUNCTION-LOCAL const/static is
+# the SAME node type but lives inside a ``block``; the walker never descends into a ``block`` /
+# ``function_item`` body, so only file/module-top-level + impl/trait associated consts are emitted.
+_RUST_CONST_NODE_TYPES = ("const_item", "static_item")
+
+
+def _rust_const_name(node, source_lines: list[str]) -> Optional[str]:
+    """Name identifier of a ``const_item`` / ``static_item`` (the FIRST direct ``identifier`` child;
+    skips ``visibility_modifier`` for ``pub`` and ``mutable_specifier`` for ``static mut``)."""
+    for c in node.children:
+        if c.type == "identifier":
+            return source_lines[c.start_point[0]][c.start_point[1]:c.end_point[1]]
+    return None
+
+
+def _rust_leading_doc_start(start_line: int, source_lines: list[str]) -> int:
+    """Extend a const's start line upward over a contiguous leading ``///`` doc-comment block."""
+    start = start_line
+    i = start_line - 2  # 0-indexed line directly above the declaration
+    while i >= 0 and source_lines[i].lstrip().startswith("///"):
+        start = i + 1
+        i -= 1
+    return start
 
 
 def chunk_rust_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
@@ -3735,10 +3975,33 @@ def chunk_rust_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
                 return source_lines[c.start_point[0]][c.start_point[1]:c.end_point[1]]
         return "unknown"
 
+    def _emit_const(node, owner: Optional[str]) -> None:
+        # Wave 1p4mf: one constant chunk per const_item / static_item. owner=None → file/module
+        # top-level; owner=TypeName → impl/trait associated const (Owner.NAME). Span includes any
+        # leading ``///`` doc; value is optional (trait consts may be declaration-only).
+        name = _rust_const_name(node, source_lines)
+        if not name:
+            return
+        qname = f"{owner}.{name}" if owner else name
+        raw_start, end = _ts_node_lines(node)
+        start = _rust_leading_doc_start(raw_start, source_lines)
+        decl = "\n".join(source_lines[start - 1:end])
+        breadcrumb = f"{stem} > {qname}"
+        chunks.append(Chunk(
+            id=f"{path}::{qname}", path=path, kind="code", language="rust",
+            lines=(start, end),
+            section=f"{breadcrumb}{_CONST_SECTION_SUFFIX}",
+            text=f"{breadcrumb}\n\n{decl}",
+        ))
+
     def _process(node, impl_name: Optional[str] = None):
         t = node.type
         if t == "use_declaration":
             import_nodes.append(node)
+        elif t in _RUST_CONST_NODE_TYPES:
+            # file/module top-level const / static (NOT function-local — those live in a block we
+            # never descend into). impl_name is None at file scope.
+            _emit_const(node, impl_name)
         elif t in ("struct_item", "enum_item", "trait_item"):
             name = _name(node)
             breadcrumb = f"{stem} > {name}"
@@ -3746,6 +4009,13 @@ def chunk_rust_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
             text = _ts_collapse_body(_ts_node_text(node, source_lines))
             chunks.append(Chunk(id=f"{path}::{name}", path=path, kind="code", language="rust",
                                 lines=(start, end), section=breadcrumb, text=text))
+            if t == "trait_item":
+                # trait associated consts (Owner.NAME); value optional (declaration-only allowed).
+                for child in node.children:
+                    if child.type == "declaration_list":
+                        for member in child.children:
+                            if member.type in _RUST_CONST_NODE_TYPES:
+                                _emit_const(member, name)
         elif t == "impl_item":
             # find the type name
             iname = None
@@ -3766,6 +4036,9 @@ def chunk_rust_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
                     for member in child.children:
                         if member.type == "function_item":
                             _process(member, impl_name=iname)
+                        elif member.type in _RUST_CONST_NODE_TYPES:
+                            # impl associated const (Owner.NAME).
+                            _emit_const(member, iname)
         elif t == "function_item":
             name = _name(node)
             qname = f"{impl_name}.{name}" if impl_name else name
@@ -3787,6 +4060,29 @@ def chunk_rust_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
     return split_large_code_chunks(_merge_small_chunks(chunks, scoped=True))
 
 
+def _java_field_is_static_final(field_node) -> bool:
+    """True when a field_declaration's `modifiers` child contains BOTH the `static`
+    and `final` keyword tokens — the Java type-constant signal (casing-independent)."""
+    for child in field_node.children:
+        if child.type == "modifiers":
+            kinds = {m.type for m in child.children}
+            return "static" in kinds and "final" in kinds
+    return False
+
+
+def _java_declarator_name(declarator, source_lines: list[str]) -> Optional[str]:
+    """Identifier name of a variable_declarator, or None."""
+    name = declarator.child_by_field_name("name")
+    if name is None:
+        for c in declarator.children:
+            if c.type == "identifier":
+                name = c
+                break
+    if name is None:
+        return None
+    return source_lines[name.start_point[0]][name.start_point[1]:name.end_point[1]]
+
+
 def chunk_java_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
     """Tree-sitter Java chunker. Returns None if unavailable."""
     path = _normalize_path(path)
@@ -3805,10 +4101,47 @@ def chunk_java_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
                 return source_lines[c.start_point[0]][c.start_point[1]:c.end_point[1]]
         return "unknown"
 
+    def _java_body_members(body_node):
+        # Direct body members; for enums the constants/fields live one level deeper
+        # under `enum_body_declarations` (after the enum_constant list).
+        for m in body_node.children:
+            if m.type == "enum_body_declarations":
+                yield from m.children
+            else:
+                yield m
+
+    def _emit_java_constants(members, owner_qname: str) -> None:
+        # Wave 1p4mf: one chunk per type-level constant identifier. The MODIFIER PAIR
+        # `static final` is the gate (field_declaration); interface `constant_declaration`
+        # is implicitly static final. NO casing gate. Per-NAME for multi-declarators.
+        for member in members:
+            if member.type == "field_declaration":
+                if not _java_field_is_static_final(member):
+                    continue          # instance `final`, mutable `static`, plain field
+            elif member.type != "constant_declaration":
+                continue              # not a constant member (method/enum_const/etc.)
+            start, end = _ts_node_lines(member)
+            decl_text = _ts_node_text(member, source_lines)
+            for decl in member.children:
+                if decl.type != "variable_declarator":
+                    continue
+                cname = _java_declarator_name(decl, source_lines)
+                if not cname:
+                    continue
+                qname = f"{owner_qname}.{cname}"
+                breadcrumb = f"{stem} > {qname}"
+                chunks.append(Chunk(
+                    id=f"{path}::{qname}", path=path, kind="code", language="java",
+                    lines=(start, end),
+                    section=f"{breadcrumb}{_CONST_SECTION_SUFFIX}",
+                    text=f"{breadcrumb}\n\n{decl_text}",
+                ))
+
     def _process_class(class_node, class_name: str):
         for child in class_node.children:
-            if child.type == "class_body":
-                for member in child.children:
+            if child.type in ("class_body", "interface_body", "enum_body"):
+                members = list(_java_body_members(child))
+                for member in members:
                     if member.type in ("method_declaration", "constructor_declaration"):
                         name = _name(member)
                         qname = f"{class_name}.{name}"
@@ -3818,6 +4151,12 @@ def chunk_java_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
                         chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code",
                                             language="java", lines=(start, end),
                                             section=breadcrumb, text=text))
+                    elif member.type in ("class_declaration", "interface_declaration",
+                                         "enum_declaration"):
+                        # Nested type → Outer.Inner.CONST qualification.
+                        _process_class(member, f"{class_name}.{_name(member)}")
+                # Wave 1p4mf: type-level constants for this class/interface/enum body.
+                _emit_java_constants(members, class_name)
 
     for node in tree.root_node.children:
         t = node.type
@@ -3906,6 +4245,41 @@ def chunk_c_cpp_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
     return split_large_code_chunks(_merge_small_chunks(chunks, scoped=True))
 
 
+# Wave 1p4mf (C#): a type-member constant is a `field_declaration` with the `const`
+# modifier, OR with BOTH `static` and `readonly`. Modifiers appear as `modifier`
+# child nodes whose source text is the keyword. NO casing gate (idiomatic PascalCase).
+def _csharp_field_modifier_set(field_node, source_lines: list[str]) -> set[str]:
+    mods: set[str] = set()
+    for c in field_node.children:
+        if c.type == "modifier":
+            s, e = c.start_point, c.end_point
+            mods.add(source_lines[s[0]][s[1]:e[1]])
+    return mods
+
+
+def _csharp_is_const_field(field_node, source_lines: list[str]) -> bool:
+    mods = _csharp_field_modifier_set(field_node, source_lines)
+    # const field OR the full static+readonly pair (static-alone / readonly-alone excluded)
+    return "const" in mods or ("static" in mods and "readonly" in mods)
+
+
+def _csharp_declarator_names(field_node, source_lines: list[str]) -> list[str]:
+    # One name per `variable_declarator` (first `identifier` child) → per-name multi-declarator.
+    names: list[str] = []
+    for vd in field_node.children:
+        if vd.type != "variable_declaration":
+            continue
+        for decl in vd.children:
+            if decl.type != "variable_declarator":
+                continue
+            for ic in decl.children:
+                if ic.type == "identifier":
+                    s, e = ic.start_point, ic.end_point
+                    names.append(source_lines[s[0]][s[1]:e[1]])
+                    break
+    return names
+
+
 def chunk_csharp_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
     """Tree-sitter C# chunker. Returns None if unavailable."""
     path = _normalize_path(path)
@@ -3938,6 +4312,20 @@ def chunk_csharp_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
                         chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code",
                                             language="csharp", lines=(start, end),
                                             section=breadcrumb, text=text))
+                    # Wave 1p4mf: type-member constants — `const` field OR `static readonly`
+                    # pair. One chunk per declarator name; private const included; method-body
+                    # local `const` is a `local_declaration_statement` (not a field_declaration)
+                    # so it never reaches here. Marker suffix keeps it out of _merge_small_chunks.
+                    elif member.type == "field_declaration" and _csharp_is_const_field(member, source_lines):
+                        start, end = _ts_node_lines(member)
+                        decl_text = _ts_node_text(member, source_lines)
+                        for const_name in _csharp_declarator_names(member, source_lines):
+                            qname = f"{type_name}.{const_name}"
+                            breadcrumb = f"{stem} > {qname}"
+                            chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code",
+                                                language="csharp", lines=(start, end),
+                                                section=f"{breadcrumb}{_CONST_SECTION_SUFFIX}",
+                                                text=f"{breadcrumb}\n\n{decl_text}"))
 
     def _walk(node):
         t = node.type
@@ -4003,6 +4391,34 @@ def chunk_bash_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
     return split_large_code_chunks(_merge_small_chunks(chunks, scoped=True))
 
 
+def _kotlin_property_is_const(node) -> bool:
+    """True if a Kotlin property_declaration carries a `const` modifier (compile-time const val).
+
+    Wave 1p4mf: the const token — not casing — gates the chunk. A plain val/var
+    property has no modifiers/property_modifier/const child and returns False.
+    """
+    if node.type != "property_declaration":
+        return False
+    for child in node.children:
+        if child.type == "modifiers":
+            for mod_node in child.children:
+                if mod_node.type == "property_modifier":
+                    for leaf in mod_node.children:
+                        if leaf.type == "const":
+                            return True
+    return False
+
+
+def _kotlin_property_name(node, source_lines: list[str]) -> Optional[str]:
+    """Return the single declared name of a Kotlin property_declaration, or None."""
+    for child in node.children:
+        if child.type == "variable_declaration":
+            for leaf in child.children:
+                if leaf.type in ("identifier", "simple_identifier"):
+                    return source_lines[leaf.start_point[0]][leaf.start_point[1]:leaf.end_point[1]]
+    return None
+
+
 def chunk_kotlin_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
     """Tree-sitter Kotlin chunker. Returns None if unavailable."""
     path = _normalize_path(path)
@@ -4021,6 +4437,28 @@ def chunk_kotlin_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
                 return source_lines[c.start_point[0]][c.start_point[1]:c.end_point[1]]
         return "unknown"
 
+    def _emit_const(node, owner: Optional[str]) -> None:
+        # Wave 1p4mf: chunk a module/object/companion-level `const val` so code_ask can
+        # answer "what value is X". SCOPE is the discriminator — only property_declaration
+        # nodes reached from file top-level / an object body / a companion-object body are
+        # passed here, so function-body-local `const val` (same node type + same modifier)
+        # is never emitted. owner=None -> file-level; owner=Type -> "{Type}.{NAME}".
+        if not _kotlin_property_is_const(node):
+            return
+        cname = _kotlin_property_name(node, source_lines)
+        if not cname:
+            return
+        qname = f"{owner}.{cname}" if owner else cname
+        start, end = _ts_node_lines(node)
+        decl_text = _ts_node_text(node, source_lines)
+        breadcrumb = f"{stem} > {qname}"
+        chunks.append(Chunk(
+            id=f"{path}::{qname}", path=path, kind="code", language="kotlin",
+            lines=(start, end),
+            section=f"{breadcrumb}{_CONST_SECTION_SUFFIX}",
+            text=f"{breadcrumb}\n\n{decl_text}",
+        ))
+
     def _process(node):
         t = node.type
         if t == "package_header":
@@ -4030,6 +4468,9 @@ def chunk_kotlin_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
                                 text=f"{breadcrumb}\n\n{_ts_node_text(node, source_lines)}"))
         elif t in ("import_list", "import"):
             import_nodes.append(node)
+        elif t == "property_declaration":
+            # Wave 1p4mf: file top-level `const val` (owner=None). A plain val/var is not const.
+            _emit_const(node, None)
         elif t in ("class_declaration", "object_declaration", "interface_declaration"):
             name = _name(node)
             breadcrumb = f"{stem} > {name}"
@@ -4038,6 +4479,7 @@ def chunk_kotlin_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
             chunks.append(Chunk(id=f"{path}::{name}.__decl__", path=path, kind="code",
                                 language="kotlin", lines=(start, start), section=breadcrumb,
                                 text=f"{breadcrumb}\n\n{decl_line}"))
+            is_object = t == "object_declaration"
             for child in node.children:
                 if child.type == "class_body":
                     for member in child.children:
@@ -4050,6 +4492,17 @@ def chunk_kotlin_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
                             chunks.append(Chunk(id=f"{path}::{qname}", path=path, kind="code",
                                                 language="kotlin", lines=(ms, me),
                                                 section=bc, text=text))
+                        elif is_object and member.type == "property_declaration":
+                            # `object Foo { const val X = ... }` — X scoped to the object
+                            _emit_const(member, name)
+                        elif member.type == "companion_object":
+                            # `class Foo { companion object { const val X = ... } }`
+                            # X is accessed via Foo, so qualify with the enclosing class name
+                            for comp_child in member.children:
+                                if comp_child.type == "class_body":
+                                    for comp_member in comp_child.children:
+                                        if comp_member.type == "property_declaration":
+                                            _emit_const(comp_member, name)
         elif t == "function_declaration":
             name = _name(node)
             breadcrumb = f"{stem} > {name}"
@@ -4081,6 +4534,9 @@ def chunk_kotlin_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
 _TS_NAME_CHILD_TYPES = frozenset({
     "identifier", "type_identifier", "simple_identifier", "property_identifier",
     "field_identifier", "name", "function_name", "bare_key", "class_name",
+    # Ruby encodes a class/module name as a `constant` node (capital-initial); needed so a
+    # Ruby class-scoped constant resolves its owner (Service.RETRY_LIMIT, not anonymous.RETRY_LIMIT).
+    "constant",
 })
 
 
@@ -4109,9 +4565,17 @@ def _ts_generic_structured_chunker(
     top_level_node_types: frozenset[str] = frozenset(),
     import_node_types: frozenset[str] = frozenset(),
     namespace_node_types: frozenset[str] = frozenset(),
+    const_emitter: Optional[Callable] = None,
     scoped: bool = True,
 ) -> Optional[list[Chunk]]:
-    """Walk a tree-sitter parse tree and emit declaration-boundary code chunks."""
+    """Walk a tree-sitter parse tree and emit declaration-boundary code chunks.
+
+    Wave 1p4mf: when ``const_emitter`` is provided it is invoked for every top-level node
+    (``owner=None``) and every class-body member (``owner=<class qname>``) as
+    ``const_emitter(node, owner, emit_const)``. The callback inspects the node (its grammar type +
+    modifiers/LHS + scope) and calls ``emit_const(qname, decl_node)`` once per constant it finds —
+    function/block locals are never reached because methods are emitted, not descended. The emitter
+    is dormant by default (``None`` → identical legacy behavior)."""
     path = _normalize_path(path)
     stem = _file_stem(path)
     tree = _ts_parse(lang_key, source)
@@ -4121,6 +4585,21 @@ def _ts_generic_structured_chunker(
     source_lines = source.splitlines()
     chunks: list[Chunk] = []
     import_nodes: list = []
+
+    def emit_const(qname: str, decl_node) -> None:
+        """Append one constant chunk: kind=code, the " [const]" merge-excluded suffix, and
+        breadcrumb-prefixed text carrying the declaration value (mirrors the Python/JS const work)."""
+        breadcrumb = f"{stem} > {qname}"
+        start, end = _ts_node_lines(decl_node)
+        chunks.append(Chunk(
+            id=f"{path}::{qname}",
+            path=path,
+            kind="code",
+            language=language,
+            lines=(start, end),
+            section=f"{breadcrumb}{_CONST_SECTION_SUFFIX}",
+            text=f"{breadcrumb}\n\n{_ts_node_text(decl_node, source_lines)}",
+        ))
 
     def _emit_code(node, qname: str, *, decl_only: bool = False) -> None:
         breadcrumb = f"{stem} > {qname}"
@@ -4146,6 +4625,8 @@ def _ts_generic_structured_chunker(
 
     def _walk_class_members(node, class_name: str) -> None:
         for child in node.children:
+            if const_emitter is not None:
+                const_emitter(child, class_name, emit_const)
             if child.type in method_node_types:
                 mname = _ts_node_name(child, source_lines)
                 qname = f"{class_name}.{mname}" if mname != "anonymous" else class_name
@@ -4184,6 +4665,10 @@ def _ts_generic_structured_chunker(
             name = _ts_node_name(node, source_lines)
             _emit_code(node, name)
             return
+        # Wave 1p4mf: top-level fall-through (not a class/method/namespace/import) — a constant
+        # candidate. The callback decides (by node type + scope); owner=None ⇒ module/file scope.
+        if const_emitter is not None:
+            const_emitter(node, None, emit_const)
 
     for node in tree.root_node.children:
         _process(node)
@@ -4297,6 +4782,72 @@ def _ts_markup_chunker(
     return split_large_code_chunks(chunks)
 
 
+def _swift_property_has_static(node) -> bool:
+    """True when a Swift property_declaration carries a `static` (or type-level `class`) modifier
+    — i.e. it is a TYPE constant (`static let`/`static var`), not an instance field. Instance
+    `let`/`var`, `lazy var`, and `@Published/@State var` have no static property_modifier."""
+    for child in node.children:
+        if child.type == "modifiers":
+            for mod in child.children:
+                if mod.type == "property_modifier":
+                    for tok in mod.children:
+                        if tok.type in ("static", "class"):
+                            return True
+    return False
+
+
+def _swift_property_is_computed(node) -> bool:
+    """True when a property_declaration is a computed property (`var x: T { ... }`) — it stores
+    no value, so it is not a constant even when `static`."""
+    return any(child.type == "computed_property" for child in node.children)
+
+
+def _swift_property_names(node) -> list[str]:
+    """Each bound identifier of a property_declaration, in source order. Handles grouped
+    multi-declarators (`let a = 1, b = 2` -> [a, b]) and tuple destructuring
+    (`let (x, y) = ...` -> [x, y]) by recursing through nested patterns."""
+    names: list[str] = []
+
+    def _descend(pat) -> None:
+        for child in pat.children:
+            if child.type == "simple_identifier":
+                txt = child.text.decode().strip()
+                if txt:
+                    names.append(txt)
+            elif child.type in ("pattern", "tuple_pattern"):
+                _descend(child)
+
+    for child in node.children:
+        if child.type == "pattern":
+            _descend(child)
+    return names
+
+
+def _swift_const_emitter(node, owner, emit) -> None:
+    """Wave 1p4mf Swift constant detector for the _ts_generic_structured_chunker const hook. Wired
+    at BOTH top-level (owner=None -> file/global `let`/`var`) and type-member scope
+    (owner=TypeName -> `static let`/`static var` + enum cases). Scope is the discriminator: the
+    walker never descends into func/init/computed bodies, so locals, `if let`/`guard let`, and
+    `for x in` bindings (same node type) are never reached. No casing gate — Swift constants are
+    lowerCamelCase. ``emit(qname, decl_node)`` appends the const chunk."""
+    t = node.type
+    if t == "property_declaration":
+        if _swift_property_is_computed(node):
+            return  # computed var stores no value
+        # Type scope: only `static let`/`static var` are constants (instance let/var = field).
+        if owner is not None and not _swift_property_has_static(node):
+            return
+        for name in _swift_property_names(node):
+            emit(f"{owner}.{name}" if owner else name, node)
+    elif t == "enum_entry":
+        # Each enum case (and each name in `case a, b`) is a constant.
+        for child in node.children:
+            if child.type == "simple_identifier":
+                txt = child.text.decode().strip()
+                if txt:
+                    emit(f"{owner}.{txt}" if owner else txt, node)
+
+
 def chunk_swift_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
     return _ts_generic_structured_chunker(
         "swift", source, path, "swift",
@@ -4309,6 +4860,7 @@ def chunk_swift_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
             "function_declaration", "init_declaration", "deinit_declaration",
         }),
         import_node_types=frozenset({"import_declaration"}),
+        const_emitter=_swift_const_emitter,
     )
 
 
@@ -4331,12 +4883,115 @@ def chunk_scala_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
     )
 
 
+# Wave 1p4mf (Ruby): an `assignment` LHS of one of these types is a local / ivar / cvar /
+# global, NEVER a constant — excluded. A `constant` / `scope_resolution` / `left_assignment_list`
+# LHS is a constant (the grammar encodes capital-initial as the `constant` node type, so no
+# casing re-grep). Class/module NAMEs and DSL `call`s are not `assignment` nodes and are skipped.
+_RUBY_LOCAL_LHS_TYPES = frozenset({"identifier", "instance_variable", "class_variable", "global_variable"})
+
+
+def _ruby_scope_resolution_name(node) -> str:
+    """Last `::` segment of a scope_resolution LHS (Config::SETTING -> SETTING)."""
+    nm = node.child_by_field_name("name")
+    if nm is not None:
+        return nm.text.decode().strip()
+    return node.text.decode().split("::")[-1].strip()
+
+
+def _ruby_const_lhs_names(lhs):
+    """Yield constant NAME(s) for an assignment LHS; empty for a local/ivar/cvar/global LHS."""
+    t = lhs.type
+    if t == "constant":
+        yield lhs.text.decode().strip()
+    elif t == "scope_resolution":
+        yield _ruby_scope_resolution_name(lhs)
+    elif t == "left_assignment_list":  # multi-target: A_URL, B_URL = ...  -> per-name
+        for child in lhs.children:
+            if child.type == "constant":
+                yield child.text.decode().strip()
+            elif child.type == "scope_resolution":
+                yield _ruby_scope_resolution_name(child)
+
+
+def _ruby_const_emitter(node, owner, emit) -> None:
+    """const_emitter callback for the _ts_generic_structured_chunker hook. node = a candidate stmt;
+    owner = ClassName or None; emit(qname, decl_node) appends a [const] chunk. Wired at BOTH file
+    top-level (owner=None) and class/module member scope (owner=ClassName) via the walker's
+    recursion through `body_statement`; method bodies are emitted (not descended) so a const inside
+    a method is never reached. An identifier/ivar/cvar/global LHS is a local, never a constant."""
+    if node.type != "assignment":
+        return
+    lhs = node.child_by_field_name("left")
+    if lhs is None or lhs.type in _RUBY_LOCAL_LHS_TYPES:
+        return
+    for name in _ruby_const_lhs_names(lhs):
+        if name:
+            emit(f"{owner}.{name}" if owner else name, node)
+
+
 def chunk_ruby_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
     return _ts_generic_structured_chunker(
         "ruby", source, path, "ruby",
         class_node_types=frozenset({"class", "module", "singleton_class"}),
         method_node_types=frozenset({"method", "singleton_method"}),
+        const_emitter=_ruby_const_emitter,
     )
+
+
+# Wave 1p4mf: PHP constant detection for the generic structured walker.
+# `string` (single-quote) / `encapsed_string` (double-quote) are the only define() name
+# literals we accept; a computed name (binary_expression) is excluded.
+_PHP_DEFINE_NAME_LITERALS = frozenset({"string", "encapsed_string"})
+
+
+def _php_string_literal_value(lit_node) -> str:
+    """Inner value of a php `string`/`encapsed_string` literal (quotes stripped)."""
+    sc = next((c for c in lit_node.children if c.type == "string_content"), None)
+    if sc is not None:
+        return sc.text.decode()
+    raw = lit_node.text.decode()  # empty literal '' has no string_content
+    return raw[1:-1] if len(raw) >= 2 else raw
+
+
+def _php_const_emitter(node, owner, emit) -> None:
+    """Self-contained PHP const callback for the _ts_generic_structured_chunker hook.
+    (node, owner, emit) where emit(qname, decl_node) appends the const chunk. owner is None at
+    file/namespace top-level, ClassName inside a class/interface/trait/enum body. NO casing gate —
+    `const`/`define` is the signal. NOTE: constants inside a BRACED `namespace App { ... }` block
+    are not reached (the walker treats namespace_definition as one chunk); the dominant PSR-4
+    semicolon form `namespace App;` works (its const/define are root-level siblings)."""
+    t = node.type
+    # (1) `const` — file/namespace top-level AND class/interface/trait/enum body.
+    #     One emit per const_element (iterates `const A=1, B=2`). decl_node = whole statement.
+    if t == "const_declaration":
+        for child in node.children:
+            if child.type == "const_element":
+                name_node = next((c for c in child.children if c.type == "name"), None)
+                if name_node is not None:
+                    name = name_node.text.decode().strip()
+                    if name:
+                        emit(f"{owner}.{name}" if owner else name, node)
+        return
+    # (2) legacy top-level define('NAME', value) — only at file/namespace scope (owner is None).
+    if owner is None and t == "expression_statement":
+        call = next((c for c in node.children if c.type == "function_call_expression"), None)
+        if call is None:
+            return
+        callee = next((c for c in call.children if c.type == "name"), None)
+        if callee is None or callee.text.decode().strip() != "define":
+            return  # excludes defined()/constant() reads and any other call
+        args = next((c for c in call.children if c.type == "arguments"), None)
+        if args is None:
+            return
+        arg_nodes = [c for c in args.children if c.type == "argument"]
+        if not arg_nodes:
+            return
+        first_lit = next((c for c in arg_nodes[0].children if c.is_named), None)
+        if first_lit is None or first_lit.type not in _PHP_DEFINE_NAME_LITERALS:
+            return  # define($computed, …) / binary_expression name -> skip
+        name = _php_string_literal_value(first_lit).strip()
+        if name:
+            emit(name, node)
 
 
 def chunk_php_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
@@ -4345,6 +5000,7 @@ def chunk_php_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
         class_node_types=frozenset({"class_declaration", "interface_declaration", "trait_declaration", "enum_declaration"}),
         method_node_types=frozenset({"function_definition", "method_declaration"}),
         namespace_node_types=frozenset({"namespace_definition"}),
+        const_emitter=_php_const_emitter,
     )
 
 

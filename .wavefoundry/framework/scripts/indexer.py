@@ -231,7 +231,7 @@ def record_hook_reindex_spawn(index_dir: Path) -> None:
 
 SOURCE_CODE_EXTENSIONS = {
     ".py",
-    ".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs",
+    ".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs", ".mts", ".cts",
     ".go", ".rs", ".java", ".kt", ".swift", ".c", ".cpp", ".h", ".hpp",
     ".cs", ".rb", ".php", ".sh", ".bash", ".zsh", ".fish",
     ".yaml", ".yml", ".toml", ".json", ".jsonc",
@@ -1885,6 +1885,7 @@ def build_index(
     root: Path,
     *,
     full: bool = False,
+    rechunk: bool = False,
     content: str = "docs",
     index_dir: Optional[Path] = None,
     include_prefixes: tuple[str, ...] = (),
@@ -1904,6 +1905,7 @@ def build_index(
         return _build_index_locked(
             root,
             full=full,
+            rechunk=rechunk,
             content=content,
             index_dir=index_dir,
             include_prefixes=include_prefixes,
@@ -1919,6 +1921,7 @@ def build_index(
         return _build_index_locked(
             root,
             full=full,
+            rechunk=rechunk,
             content=content,
             index_dir=index_dir,
             include_prefixes=include_prefixes,
@@ -1936,6 +1939,7 @@ def _build_index_locked(
     root: Path,
     *,
     full: bool = False,
+    rechunk: bool = False,
     content: str = "docs",
     index_dir: Optional[Path] = None,
     include_prefixes: tuple[str, ...] = (),
@@ -2011,21 +2015,44 @@ def _build_index_locked(
         chunker_changed = chunker_changed or (
             current_chunker_version and old_chunker_versions.get("code") != current_chunker_version
         )
-    if model_changed or chunker_changed or walker_changed:
-        if not full and (old_model_versions or old_chunker_versions or old_walker_version):
-            if walker_changed:
-                reason = "walker version changed" if old_walker_version else "walker version unknown (legacy index)"
-            elif chunker_changed:
-                reason = "chunker version changed"
-            else:
-                reason = "model version changed or index missing"
+    # Wave 1p4n4: a CHUNKER-only version bump (model + walker unchanged) changes chunk
+    # SHAPE, not the embedding MODEL — content-identical chunks keep valid vectors. Re-chunk
+    # every file but reuse embeddings by content hash (the delta-write path) so only new/
+    # changed chunks re-embed, instead of a full from-scratch re-encode. A model/walker change
+    # (or an explicit --full) still rebuilds fully (old-model vectors are invalid).
+    rechunk_all = False
+    # Wave 1p4n4 (mode='rechunk'): an EXPLICIT operator rechunk request forces the re-chunk-all +
+    # embedding-reuse path WITHOUT a version change — re-materialize chunks after a chunker-LOGIC
+    # change that wasn't version-bumped (or to recover a same-version shape drift). Model/walker
+    # changes still override to a full re-embed (old vectors are invalid under a new model).
+    rechunk_requested = rechunk and not full and not model_changed and not walker_changed
+    if model_changed or chunker_changed or walker_changed or rechunk_requested:
+        chunker_only = chunker_changed and not model_changed and not walker_changed
+        if not full and (chunker_only or rechunk_requested) and old_chunker_versions:
+            _why = "chunker version changed" if chunker_only else "explicit rechunk requested"
             print(
-                f"build_index: selected {content} index missing or {reason} — "
-                "performing full rebuild",
+                f"build_index: selected {content} index — {_why} "
+                f"(chunker {old_chunker_versions.get('code') or old_chunker_versions.get('docs')} → "
+                f"{current_chunker_version}) — incremental re-chunk with embedding reuse "
+                "(only new/changed chunks re-embed)",
                 flush=True,
             )
-        full = True
-        old_file_meta = {}
+            rechunk_all = True
+        else:
+            if not full and (old_model_versions or old_chunker_versions or old_walker_version):
+                if walker_changed:
+                    reason = "walker version changed" if old_walker_version else "walker version unknown (legacy index)"
+                elif chunker_changed:
+                    reason = "chunker version changed"
+                else:
+                    reason = "model version changed or index missing"
+                print(
+                    f"build_index: selected {content} index missing or {reason} — "
+                    "performing full rebuild",
+                    flush=True,
+                )
+            full = True
+            old_file_meta = {}
 
     if files is None:
         # Walk repo
@@ -2170,6 +2197,12 @@ def _build_index_locked(
             # (we got them from file_meta), so adding them to changed_broad
             # is sufficient.
             changed_broad |= drifted
+    # Wave 1p4n4: chunker-only re-index — force every file to re-chunk so the new chunk
+    # SHAPE is produced. They are all already in old_file_meta, so they flow through below as
+    # `updated` (not `added`) → existing Lance rows are fetched and the delta planner reuses
+    # vectors for content-unchanged chunks; only genuinely new/changed chunks re-embed.
+    if rechunk_all:
+        changed_broad |= set(current_file_meta.keys())
     # changed: scope to the content-type-filtered walk — don't re-embed files that
     # are outside this run's scope (e.g. framework scripts for a docs-only run).
     # removed: use the broad result directly — a file absent from files_for_meta is
@@ -2666,6 +2699,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build or update the Wavefoundry semantic index.")
     parser.add_argument("--root", type=Path, default=None, help="Repository root (default: auto-discover)")
     parser.add_argument("--full", action="store_true", help="Force a full rebuild even if index is current")
+    parser.add_argument("--rechunk", action="store_true", help="Re-chunk every file (even unchanged) but reuse embeddings by content hash — only new/changed chunks re-embed. For a chunker LOGIC change that was not version-bumped (no full re-encode).")
     parser.add_argument(
         "--content",
         choices=CONTENT_CHOICES,
@@ -2718,6 +2752,7 @@ def main(argv: list[str] | None = None) -> int:
         build_index(
             root,
             full=args.full,
+            rechunk=args.rechunk,
             content=args.content,
             index_dir=args.index_dir,
             include_prefixes=tuple(args.include_prefix),

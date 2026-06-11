@@ -373,8 +373,10 @@ class TimestampedLogTests(unittest.TestCase):
             self.assertIn(name, names, f"{name} should be included")
 
     def test_new_code_extensions_in_source_set(self):
-        """AC-7: .xml, .graphql, .gql, .proto, .sql and common SQL aliases are in SOURCE_CODE_EXTENSIONS."""
-        for ext in (".xml", ".graphql", ".gql", ".proto", ".sql", ".psql", ".pgsql", ".ddl", ".dml", ".tsql", ".hql"):
+        """AC-7: .xml, .graphql, .gql, .proto, .sql and common SQL aliases are in SOURCE_CODE_EXTENSIONS.
+        Plus `.mts`/`.cts` (1p4q4 review B4): TypeScript module extensions are first-class indexable."""
+        for ext in (".xml", ".graphql", ".gql", ".proto", ".sql", ".psql", ".pgsql", ".ddl", ".dml", ".tsql", ".hql",
+                    ".mts", ".cts"):
             self.assertIn(ext, self.bi.SOURCE_CODE_EXTENSIONS, f"{ext} missing from SOURCE_CODE_EXTENSIONS")
 
 
@@ -730,6 +732,67 @@ class IncrementalBuildTests(unittest.TestCase):
         result = self.bi.build_index(self.root, full=False, content="all", verbose=False)
         self.assertTrue(result["up_to_date"])
         self.assertEqual(result["files_indexed"], 0)
+
+    def test_chunker_version_bump_reuses_vectors_no_reembed(self):
+        """1p4n4: a chunker-ONLY version bump re-chunks every file but reuses embeddings by
+        content hash — content-identical chunks are NOT re-embedded (no full re-encode)."""
+        _make_repo(self.root, {"src/foo.py": "def f():\n    return 1\n\ndef g():\n    return 2\n"})
+        self._run_build(full=True)
+        index_dir = self.root / ".wavefoundry" / "index"
+        meta = json.loads((index_dir / "meta.json").read_text())
+        meta.setdefault("chunker_versions", {})["code"] = "old-chunker-version"  # simulate a bump
+        (index_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+        code_calls: list[list[str]] = []
+        spy = _make_embedder_mock(dim=4, calls=code_calls)
+        with patch.object(self.bi, "_get_embedder", return_value=spy):
+            self.bi.build_index(self.root, full=False, content="code", verbose=False)
+
+        embedded = [t for batch in code_calls for t in batch]
+        self.assertEqual(embedded, [], "chunker-only bump must reuse vectors, not re-embed")
+        # the bump is recorded (so it doesn't re-trigger)
+        meta2 = json.loads((index_dir / "meta.json").read_text())
+        self.assertEqual(meta2["chunker_versions"]["code"], self.bi._get_chunker().CHUNKER_VERSION)
+
+    def test_model_version_bump_reembeds_all_no_reuse(self):
+        """1p4n4: a MODEL-version change forces a full re-embed (old-model vectors are invalid)
+        — it must NOT take the chunker-only reuse path."""
+        _make_repo(self.root, {"src/foo.py": "def f():\n    return 1\n"})
+        self._run_build(full=True)
+        index_dir = self.root / ".wavefoundry" / "index"
+        meta = json.loads((index_dir / "meta.json").read_text())
+        meta.setdefault("model_versions", {})["code"] = "old-model"
+        (index_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+        code_calls: list[list[str]] = []
+        spy = _make_embedder_mock(dim=4, calls=code_calls)
+        with patch.object(self.bi, "_get_embedder", return_value=spy):
+            self.bi.build_index(self.root, full=False, content="code", verbose=False)
+
+        embedded = [t for batch in code_calls for t in batch]
+        self.assertTrue(any("return 1" in t for t in embedded), "model change must re-embed, not reuse")
+
+    def test_explicit_rechunk_rechunks_all_reuses_vectors_no_version_change(self):
+        """1p4n4 mode='rechunk': an explicit rechunk re-chunks EVERY file even with NO version
+        change (a plain update would re-chunk nothing) while reusing embeddings by content hash —
+        only new/changed chunks re-embed. Lets an operator re-materialize chunks after a chunker
+        LOGIC change that was not version-bumped, cheaply."""
+        _make_repo(self.root, {"src/foo.py": "def f():\n    return 1\n\ndef g():\n    return 2\n"})
+        self._run_build(full=True)
+
+        # A plain update with nothing changed re-chunks nothing.
+        upd_calls: list[list[str]] = []
+        with patch.object(self.bi, "_get_embedder", return_value=_make_embedder_mock(dim=4, calls=upd_calls)):
+            r_upd = self.bi.build_index(self.root, full=False, content="code", verbose=False)
+        self.assertEqual(r_upd.get("files_indexed"), 0, "plain update with no changes must re-chunk nothing")
+
+        # rechunk re-processes every file but reuses vectors (nothing re-embedded), no version change.
+        rc_calls: list[list[str]] = []
+        with patch.object(self.bi, "_get_embedder", return_value=_make_embedder_mock(dim=4, calls=rc_calls)):
+            r_rc = self.bi.build_index(self.root, full=False, rechunk=True, content="code", verbose=False)
+        self.assertGreater(r_rc.get("files_indexed") or 0, 0, "rechunk must re-process every file")
+        self.assertEqual([t for batch in rc_calls for t in batch], [],
+                         "rechunk must reuse embeddings (content unchanged), not re-embed")
 
     def test_incremental_only_reindexes_changed_file(self):
         _make_repo(self.root, {

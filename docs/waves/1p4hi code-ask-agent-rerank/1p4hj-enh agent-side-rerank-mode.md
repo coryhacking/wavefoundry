@@ -1,10 +1,10 @@
 # Agent-Side Rerank for `code_ask` (Default: Skip the Cross-Encoder *and* RRF; the Agent Fuses Labeled Per-Index Candidates)
 
 Change ID: `1p4hj-enh agent-side-rerank-mode`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-06-09
+Status: implemented
+Last verified: 2026-06-11
 Wave: 1p4hi code-ask-agent-rerank
 
 ## Rationale
@@ -67,14 +67,14 @@ So the cross-encoder is a redundant, slow, contention-prone middle step for the 
 
 ## Tasks
 
-- [ ] Add the `rerank` parameter to `code_ask` (`server_impl.py`) + validation; thread it through retrieval.
-- [ ] Agent-mode candidate pipeline: per-index top-N + per-index floor (K≈3) + cross-index budget allocation; **skip `_get_reranker` and the `_rrf_merge` cross-source order**; attach `source` labels; emit full chunk `text`.
-- [ ] Dedup pass (symbol / overlapping-lines / near-identical) that preserves distinct chunks.
-- [ ] Self-describing `rerank_mode` field + `source` on citations.
-- [ ] Resolve two-hop behavior in agent-mode (per-index top vs. scope-out); record the decision.
-- [ ] Tests: AC-1 (param), AC-2 (no cross-encoder/no-RRF-order), AC-3 (full chunk + source + no-vector), AC-4 (floor + allocation), AC-5 (dedup), AC-6 (budget + degenerate), AC-7 (self-describing), AC-8 (local pinned), AC-9 (two-hop).
+- [x] Add the `rerank` parameter to `code_ask` (`server_impl.py`) + validation; thread it through retrieval.
+- [x] Agent-mode candidate pipeline: per-index top-N + per-index floor (K≈3) + cross-index budget allocation; **skip `_get_reranker` and the `_rrf_merge` cross-source order**; attach `source` labels; emit full chunk `text`.
+- [x] Dedup pass (symbol / overlapping-lines / near-identical) that preserves distinct chunks.
+- [x] Self-describing `rerank_mode` field + `source` on citations.
+- [x] Resolve two-hop behavior in agent-mode (per-index top vs. scope-out); record the decision.
+- [x] Tests: AC-1 (param), AC-2 (no cross-encoder/no-RRF-order), AC-3 (full chunk + source + no-vector), AC-4 (floor + allocation), AC-5 (dedup), AC-6 (budget + degenerate), AC-7 (self-describing), AC-8 (local pinned), AC-9 (two-hop).
 - [x] Quality + recall check (AC-10) on ≥5 real queries; record. (8 queries, agent 8/8 vs local 7/8, PASS — `wf_0e43fa6a-7ae`.)
-- [ ] Docstring + `mcp-tool-surface.md` (AC-11).
+- [x] Docstring + `mcp-tool-surface.md` (AC-11).
 
 ## Agent Execution Graph
 

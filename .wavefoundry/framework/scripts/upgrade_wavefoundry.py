@@ -1234,9 +1234,15 @@ def phase_index_update(root: Path) -> None:
         "--root", str(root),
         "--background-code",
     ]
+    # H1 (Phase 4b reliability): log the launcher's output (docs build + any startup crash) to a
+    # dedicated file instead of DEVNULL — the silent-failure case the JS/TS team hit had no
+    # diagnosable trace. The detached code build (process B) logs separately to project-background-build.log.
+    _bg_log = root / ".wavefoundry" / "logs" / "project-upgrade-bgcode.log"
+    _bg_log.parent.mkdir(parents=True, exist_ok=True)
+    _bg_log_file = open(_bg_log, "w", encoding="utf-8")  # noqa: SIM115
     kwargs: dict = {
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
+        "stdout": _bg_log_file,
+        "stderr": _bg_log_file,
         "stdin": subprocess.DEVNULL,
         "cwd": str(root),
     }
@@ -1244,8 +1250,11 @@ def phase_index_update(root: Path) -> None:
         kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         kwargs["start_new_session"] = True
-    subprocess.Popen(background_cmd, **kwargs)
-    _log("  Code index update running in background.")
+    try:
+        subprocess.Popen(background_cmd, **kwargs)
+    finally:
+        _bg_log_file.close()
+    _log(f"  Code index update running in background (launcher log: {_bg_log}).")
 
 
 def phase_index_rebuild(root: Path) -> None:
@@ -1276,9 +1285,13 @@ def phase_index_rebuild(root: Path) -> None:
         "--background-code",
         "--full",
     ]
+    # H1 (Phase 4b reliability): log the launcher's output instead of DEVNULL (see phase_index_update).
+    _bg_log = root / ".wavefoundry" / "logs" / "project-upgrade-bgcode.log"
+    _bg_log.parent.mkdir(parents=True, exist_ok=True)
+    _bg_log_file = open(_bg_log, "w", encoding="utf-8")  # noqa: SIM115
     kwargs: dict = {
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
+        "stdout": _bg_log_file,
+        "stderr": _bg_log_file,
         "stdin": subprocess.DEVNULL,
         "cwd": str(root),
     }
@@ -1286,8 +1299,11 @@ def phase_index_rebuild(root: Path) -> None:
         kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         kwargs["start_new_session"] = True
-    subprocess.Popen(background_cmd, **kwargs)
-    _log("  Code index rebuild running in background.")
+    try:
+        subprocess.Popen(background_cmd, **kwargs)
+    finally:
+        _bg_log_file.close()
+    _log(f"  Code index rebuild running in background (launcher log: {_bg_log}).")
 
 
 # ── Phase 5 — Cleanup & summary ───────────────────────────────────────────────
@@ -1324,6 +1340,8 @@ def phase_cleanup(
     else:
         _log("  Upgrade lock removed — dashboard will trigger post-upgrade reindex.")
 
+    _warn_if_background_code_incomplete(root)
+
     _print_operator_summary(
         from_version=from_version,
         to_version=to_version,
@@ -1332,6 +1350,28 @@ def phase_cleanup(
         ran_index_rebuild=ran_index_rebuild,
         failed_phase=failed_phase,
     )
+
+
+def _warn_if_background_code_incomplete(root: Path) -> None:
+    """H1 (Phase 4b reliability): warn when the BACKGROUND code re-embed left the code layer behind the
+    (synchronously-built) docs layer — the silent-failure case (status 'idle', code chunker stale) the
+    JS/TS team hit on p4g3/p4su. A stale code layer must not be mistaken for a finished upgrade."""
+    import json as _json
+    try:
+        meta = _json.loads((root / ".wavefoundry" / "index" / "meta.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    cv = meta.get("chunker_versions") or {}
+    docs_v, code_v = cv.get("docs"), cv.get("code")
+    if docs_v and code_v and str(docs_v) != str(code_v):
+        _log(
+            f"  ⚠  Code index chunker version ({code_v}) is still BEHIND the docs layer ({docs_v}) — "
+            "the background code build (Phase 4b) may have failed or not yet finished."
+        )
+        _log(
+            "     Check .wavefoundry/logs/project-background-build.log + project-upgrade-bgcode.log, "
+            "then run: wave_index_build(content='code', mode='rebuild')"
+        )
 
 
 def _docs_gate_summary_line(failed_phase: str | None) -> str:

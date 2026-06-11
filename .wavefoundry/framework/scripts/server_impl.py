@@ -158,6 +158,54 @@ AGENT_TEXT_BUDGET_CHARS = 16000    # PRIMARY ceiling: cumulative full-chunk text
 AGENT_CANDIDATE_MAX = 40           # loose COUNT backstop — guards pathological "hundreds of tiny chunks"; rarely the binding limit (the text budget + drop-off bind first)
 AGENT_PER_INDEX_FLOOR_K = 3        # per-index coverage floor — each source contributes ≥K, regardless of cross-source ranking (anti-starvation minimum)
 AGENT_RELEVANCE_DROPOFF = 0.85     # quality cutoff: fill stops past the top cluster — keep candidates with weighted score ≥ ratio×top (floor exempt). The "enough to answer, no noise" knob. Calibrated by 1p4hj AC-10.
+# Wave 1p4hu: graph-signal source for the dedicated `graph_related` response section. Direction-aware
+# 1-hop neighbors (callers / 1p4ls constant `reads` / importers via edges INTO the seed for "what
+# calls/reads/uses X"; the seed's mechanism both-ways for "how does X work"), grouped by relationship
+# — NOT mixed into citations with a 0.0 score. A match that is also a citation is text-deduped.
+AGENT_GRAPH_SIGNAL_CAP = 3         # max structural matches in the graph_related section (bounded — never pulls the subgraph)
+AGENT_GRAPH_DEF_WINDOW = 24        # source lines read per graph neighbor to form its candidate text
+_GRAPH_SIGNAL_RELATIONS = ("calls", "imports", "reads")  # 1-hop edge types followed for the structural signal
+_GRAPH_SIGNAL_SEED_KINDS = frozenset({"function", "method", "class", "constant", "module"})
+# Kinds a graph NEIGHBOR may be SURFACED as a candidate. Excludes "module" — a whole-file module
+# node ("stem > stem") is a poor structural answer (delivery follow-up: it showed up as noise for
+# behavioral queries whose seed's importer was a module). Modules can still be seeds.
+_GRAPH_SIGNAL_CAND_KINDS = frozenset({"function", "method", "class", "constant"})
+# (edge relation, is-incoming-to-the-seed) → the neighbor's RELATIONSHIP to the seed. Incoming
+# edges (neighbor → seed) are the "what uses X" answers; outgoing (seed → neighbor) are the
+# seed's own dependencies. Drives the response's relationship-grouped `graph_related` section.
+_GRAPH_REL_LABEL = {
+    ("calls", True): "caller", ("calls", False): "callee",
+    ("reads", True): "reader", ("reads", False): "reads",
+    ("imports", True): "importer", ("imports", False): "imports",
+}
+# relationship → response bucket key (pluralized).
+_GRAPH_REL_BUCKET = {
+    "caller": "callers", "callee": "callees", "reader": "readers",
+    "reads": "reads", "importer": "importers", "imports": "imports", "related": "related",
+}
+_GRAPH_QUERY_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")  # identifier-like query tokens to resolve as seeds
+# Wave 1p4hu delivery follow-up — graph-signal seed scoping + direction.
+# Generic words that resolve to a coincidental symbol (server.py::main, a `root`/`index` class)
+# and pollute the structural seed set — excluded from query-token seed resolution (D3). Checked
+# alongside _QUERY_STOPWORDS (defined below) in _graph_signal_candidates._resolve.
+_GRAPH_SEED_STOPWORDS = frozenset({
+    "main", "root", "index", "name", "names", "data", "type", "types", "item", "items",
+    "node", "nodes", "path", "paths", "list", "base", "core", "self", "code", "docs", "file",
+    "files", "line", "lines", "text", "call", "calls", "read", "reads", "user", "users",
+    "work", "works", "purpose", "build", "handler", "result", "results", "module", "overall",
+    "entry", "entries",
+})
+# "what calls/reads/uses X", "where is X used", "callers of X", "is X called" — the user wants the
+# things pointing AT X (its callers/readers/importers). Drives direction="in" (vs. the direction-
+# blind union that answered a callers question with the seed's callees).
+_GRAPH_USER_INTENT_RE = re.compile(
+    r"\b(calls?|called|calling|callers?|invoke[sd]?|reads?|readers?|uses?|users?|used|referenc\w*|imports?|importers?|depends?\s+on|where\s+is)\b"
+)
+# "what does X call", "callees of X", "what X calls/reads", "X calls what" (subject-first) — X is the
+# SUBJECT (outgoing); keep both directions rather than forcing "in".
+_GRAPH_OUTGOING_INTENT_RE = re.compile(
+    r"\b(callees|what\s+does\s+\w+|does\s+\w+\s+(?:call|read|use|import|access)|what\s+\w+\s+(?:calls|reads|imports|uses)|\w+\s+(?:calls|reads|imports|invokes|uses)\s+what)\b"
+)
 # Agent-mode confidence calibration (bge-small cosine): on-topic queries top ≥ ~0.75, off-topic
 # top ≤ ~0.70 (measured on/off-topic separation). Only applied to agent-mode cosine scores — the
 # cross-encoder (local) + RRF + keyword/exact (top≈0) paths use other scales and stay count-based.
@@ -171,7 +219,7 @@ CONF_AGENT_LOW_SCORE = 0.65        # agent-mode top cosine < this → "low" (fla
 # its score so it ranks into the returned set. Applied BEFORE the drop-off, but the cutoff is
 # computed from UN-boosted scores so the boost never raises the bar for other candidates.
 _CONST_SECTION_SUFFIX = " [const]"   # mirrors chunker.py (1p4mf)
-CONST_DEFINITION_BOOST = 1.3         # multiplier; calibrated by the 1p4hj AC-10 recall eval
+DEFINITION_MATCH_BOOST = 1.3         # multiplier for a query-named DEFINITION (const/func/class) chunk; calibrated by the 1p4hj AC-10 recall eval
 _QUERY_STOPWORDS = frozenset(
     # function words only — NOT domain words (mode/local/value/default/model stay as content
     # terms, else a constant like DEFAULT_TIMEOUT would never match a "default timeout" query)
@@ -896,6 +944,203 @@ class WaveIndex:
         sorted_ids = sorted(scores, key=lambda cid: scores[cid], reverse=True)
         return [chunks_by_id[cid] for cid in sorted_ids[:top_n]]
 
+    def _node_def_candidate(self, node: dict) -> Optional[dict]:
+        """Wave 1p4hu: build an agent candidate from a graph NODE — its definition text read from
+        source (a bounded window), tagged kind=code, score 0.0 (it is a structural, not semantic,
+        hit). None when the source file is unreadable. Path qualified via the same helper the
+        semantic retrieval uses, so cross-source dedup matches."""
+        sf = node.get("source_file")
+        if not isinstance(sf, str) or not sf:
+            return None
+        head = str(node.get("source_location") or "").split(":", 1)[0]
+        line = int(head) if head.isdigit() else 1
+        try:
+            text_lines = (self.root / sf).read_text(encoding="utf-8", errors="replace").splitlines()
+        except Exception:
+            return None
+        start = max(0, line - 1)
+        window = text_lines[start:start + AGENT_GRAPH_DEF_WINDOW]
+        snippet = "\n".join(window).strip()
+        if not snippet:
+            return None
+        label = node.get("label") or sf.rsplit("/", 1)[-1]
+        breadcrumb = f"{Path(sf).stem} > {label}"
+        return {
+            "path": self._qualify_index_path(sf, "project"),
+            "text": f"{breadcrumb}\n\n{snippet}",
+            "score": 0.0,
+            "kind": "code",
+            "lines": [line, line + len(window)],
+            "_graph_kind": node.get("kind"),
+        }
+
+    def _graph_signal_candidates(self, query: str, semantic_results: list[dict], *, cap: int) -> list[dict]:
+        """Wave 1p4hu: structural graph-signal candidates that feed the dedicated ``graph_related``
+        response section (via ``_build_graph_related``), each carrying its ``_relationship`` to the
+        seed (caller/reader/importer/…) — NOT injected into the textual citations. Bounded by ``cap``
+        (AC-3); returns [] when the graph is absent/empty or no symbol resolves — graceful fallback (AC-4).
+
+        Seed + direction strategy (delivery follow-up — a live 17-query sweep showed the original
+        union-of-both-directions, both-seed-channels approach was mostly noise):
+        - **TARGETED** (the query NAMES a resolvable identifier, e.g. "what reads RERANKER_MODEL"):
+          expand ONLY that symbol — NOT the top semantic hits, whose neighbors are co-location
+          noise. Direction follows phrasing: "what calls/reads/uses/references X" / "where is X
+          used" wants edges INTO X (its callers / readers / importers — ``direction="in"``), so it
+          stops answering a *callers* question with the seed's *callees*; "how does X work" / "what
+          is X" keeps both directions (the mechanism).
+        - **BEHAVIORAL / NL** (no named identifier, e.g. "how does the chunker split markdown"):
+          expand the top semantic hits' symbols, both directions — this is where the wins are (the
+          referenced split constants / decision helpers the semantic ranker missed).
+        Test-file structural neighbors are suppressed (a user rarely wants a fixture as the answer),
+        common generic words are excluded from seed resolution (D3), and candidates are deduped
+        against semantic hits by start line (D2)."""
+        if cap <= 0:
+            return []
+        try:
+            gq = _load_graph_query()
+            index = gq.GraphQueryIndex.from_root(self.root, layer="project")
+            if not getattr(index, "present", False):
+                return []
+        except Exception:
+            return []
+
+        def _resolve(name: str) -> Optional[str]:
+            name = (name or "").strip()
+            if len(name) < 4 or name.lower() in _GRAPH_SEED_STOPWORDS or name.lower() in _QUERY_STOPWORDS:
+                return None
+            try:
+                return index.resolve_symbol(name)
+            except Exception:
+                return None
+
+        # Seed channel 2 (PRIMARY when present): identifiers the query NAMES — the user's targets.
+        seed_ids: list[str] = []
+        seed_set: set[str] = set()
+        for tok in _GRAPH_QUERY_IDENT_RE.findall(query or "")[:8]:
+            nid = _resolve(tok)
+            if nid and nid not in seed_set:
+                seed_set.add(nid)
+                seed_ids.append(nid)
+
+        ql = (query or "").lower()
+        incoming_intent = bool(_GRAPH_USER_INTENT_RE.search(ql)) and not bool(_GRAPH_OUTGOING_INTENT_RE.search(ql))
+        if seed_ids and incoming_intent:
+            # TARGETED — "what calls/reads/uses X": expand ONLY the named symbol(s), edges INTO them
+            # (callers/readers/importers). This is the precision case where the old both-directions
+            # union answered a callers question with the seed's callees.
+            direction = "in"
+        else:
+            # BEHAVIORAL / mechanism ("how does X work", or no user-finding verb): expand the named
+            # symbol(s) (if any) AND the top semantic hits' symbols, both directions — this is where
+            # the wins are (a correctly-ranked seed's referenced split constants / decision helpers
+            # the semantic ranker missed). Seeding the named symbol here too means "how does X work"
+            # still surfaces X's mechanism without the co-location noise that targeting-only caused.
+            for c in semantic_results[:4]:
+                section = str(c.get("section") or "")
+                if " > " in section:
+                    nid = _resolve(section.rsplit(" > ", 1)[-1])
+                    if nid and nid not in seed_set:
+                        seed_set.add(nid)
+                        seed_ids.append(nid)
+            direction = "both"
+        if not seed_ids:
+            return []
+
+        try:
+            nb = index.one_hop_neighbors(seed_ids, relations=list(_GRAPH_SIGNAL_RELATIONS), max_neighbors=cap * 6, direction=direction)
+        except Exception:
+            return []
+        nodes = nb.get("nodes", [])
+        node_label = {n.get("id"): (n.get("label") or "") for n in nodes}
+        # Map each neighbor node → (relationship to the seed, seed label, edge confidence) from the
+        # traversed edges, so the response can group structural matches by RELATIONSHIP (caller /
+        # reader / importer) — the actual answer to "what calls/reads X" — instead of an
+        # undifferentiated source="graph" tag. First edge per neighbor wins.
+        rel_by_node: dict[str, tuple[str, str, Optional[str]]] = {}
+        for e in nb.get("edges", []):
+            src, tgt, rel = e.get("source"), e.get("target"), e.get("relation")
+            if src in seed_set and tgt not in seed_set:
+                neighbor, incoming, seed = tgt, False, src
+            elif tgt in seed_set and src not in seed_set:
+                neighbor, incoming, seed = src, True, tgt
+            else:
+                continue
+            if neighbor not in rel_by_node:
+                rel_by_node[neighbor] = (_GRAPH_REL_LABEL.get((rel, incoming), "related"),
+                                         node_label.get(seed, ""), e.get("confidence"))
+        seen: set[tuple] = set()
+        out: list[dict] = []
+        for node in nodes:
+            if len(out) >= cap:
+                break
+            nid = node.get("id")
+            if not isinstance(nid, str) or nid.startswith("external::") or nid in seed_set:
+                continue
+            if node.get("kind") not in _GRAPH_SIGNAL_CAND_KINDS:
+                continue
+            # Suppress test-file structural neighbors — a "what calls/reads X" or "how does X work"
+            # question rarely wants a test fixture as a structural answer (the sweep showed mis-
+            # resolved seeds dragging in _fake_*/CHUNKER_PATH test helpers).
+            if _is_test_path(str(node.get("source_file") or "")):
+                continue
+            cand = self._node_def_candidate(node)
+            if cand is None:
+                continue
+            key = (cand["path"], (cand.get("lines") or [None])[0])
+            if key in seen:
+                continue
+            seen.add(key)
+            rel, seed_label, conf = rel_by_node.get(nid, ("related", "", None))
+            cand["_relationship"] = rel
+            cand["_seed"] = seed_label
+            cand["_confidence"] = conf
+            cand["_symbol"] = node.get("label") or ""
+            out.append(cand)
+        return out
+
+    def _build_graph_related(self, cands: list[dict], citations: Optional[list[dict]] = None) -> dict[str, Any]:
+        """Wave 1p4hu: assemble the response's ``graph_related`` section — structural matches grouped
+        by their RELATIONSHIP to the query's symbol (``callers``/``readers``/``importers`` for a
+        "what calls/reads/uses X" question; ``related`` for behavioral both-direction neighbors).
+        This replaces mixing 0.0-scored graph rows into the textual ``citations``: the relationship
+        (the actual answer) is preserved, and the structural evidence is its own block.
+
+        Semantic dedup: a structural match that is ALSO a semantic citation keeps its relationship
+        entry (so the structural answer stays complete + labeled) but DROPS the duplicate ``excerpt``
+        and is flagged ``also_cited`` — the agent reads the full text from the citation, so the same
+        chunk text is never sent twice. Matched on (path, start line), the cross-source identity.
+        Dedup SCOPE (re-review B1/B2): ``citations`` here is the SEMANTIC selection (the keyword
+        fallback runs only when <2 citations, which never co-occurs with a resolved graph symbol), and
+        the match is exact-start-line (a graph def nested strictly inside a larger citation chunk's
+        range escapes) — both bound the observed text duplication to negligible, not a correctness gap.
+        The (path, start-line) identity is collision-free among real code symbols (0 distinct-symbol
+        start-line collisions in non-test function/method/class/constant nodes on the live graph)."""
+        cited = {(str(c.get("path", "")), (c.get("lines") or [None])[0]) for c in (citations or [])}
+        seeds: list[str] = []
+        buckets: dict[str, list[dict]] = {}
+        for c in cands:
+            seed = c.get("_seed") or ""
+            if seed and seed not in seeds:
+                seeds.append(seed)
+            lines = c.get("lines") or []
+            entry: dict[str, Any] = {
+                "symbol": c.get("_symbol") or "",
+                "path": c.get("path"),
+                "lines": c.get("lines"),
+                "kind": c.get("_graph_kind") or c.get("kind"),
+            }
+            if c.get("_confidence"):
+                entry["confidence"] = c.get("_confidence")
+            if (str(c.get("path", "")), (lines[0] if lines else None)) in cited:
+                entry["also_cited"] = True   # full text already in citations — don't duplicate it
+            else:
+                entry["excerpt"] = c.get("text") or ""
+            bucket = _GRAPH_REL_BUCKET.get(c.get("_relationship") or "related", "related")
+            buckets.setdefault(bucket, []).append(entry)
+        out: dict[str, Any] = {"seed": seeds}
+        out.update(buckets)
+        return out
+
     def _agent_candidate_select(self, source_lists: dict[str, list[dict]], top_n: int, floor_k: int, weights: Optional[dict[str, float]] = None, text_budget: Optional[int] = None) -> list[dict]:
         """Wave 1p4hj agent-mode: labeled, deduped, per-index candidate selection.
 
@@ -959,6 +1204,9 @@ class WaveIndex:
                         if c.get("text"):
                             rec["text"] = c.get("text")
 
+        # Citation selection is SEMANTIC-only (docs + code). Wave 1p4hu's graph signal is no longer a
+        # candidate source here — structural matches go to the response's dedicated ``graph_related``
+        # section (relationship-labeled), not mixed into the textual citations with a fake 0.0 score.
         selected: list[tuple] = []
         seen: set[tuple] = set()
         # Per-index floor — guarantee each source's top floor_k, regardless of cross-source rank.
@@ -1014,8 +1262,8 @@ class WaveIndex:
             seen.add(k)
             selected.append(k)
             used += _chars(rec)
-        # Return best-first (advisory — the agent re-ranks; the response text-budget cap
-        # trims the lowest-scoring tail). The floor is guaranteed present by the selection.
+        # Return best-first (advisory — the agent re-ranks; the budget is enforced in the fill above).
+        # The floor is guaranteed present by the selection.
         out = [merged[k] for k in selected if k in merged]
         out.sort(key=_wscore, reverse=True)
         return out
@@ -1165,10 +1413,10 @@ class WaveIndex:
             return results, True
         return results[:top_n], False
 
-    def search_combined(self, query: str, top_n: int = 7, question_type: str = "", rerank: str = "agent") -> tuple[list[dict], bool, int, int, list[str], list[str], str]:
+    def search_combined(self, query: str, top_n: int = 7, question_type: str = "", rerank: str = "agent") -> tuple[list[dict], bool, int, int, list[str], list[str], str, Optional[dict]]:
         """Combined semantic search across docs and code indexes.
 
-        Returns ``(results, reranked, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method)``.
+        Returns ``(results, reranked, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method, graph_related)``.
 
         - ``question_type`` influences retrieval weighting and post-rerank ordering:
           - ``"navigational"``: code-index candidates receive a ``RRF_NAVIGATIONAL_CODE_WEIGHT``
@@ -1182,11 +1430,25 @@ class WaveIndex:
         - ``rerank_ms``: wall time for reranker inference or RRF merge, in milliseconds.
         - ``definition_boosted``: list of rule labels that fired (e.g. ``["sql"]``); empty when no rule fired.
         - ``second_hop_symbols``: list of symbol names that triggered second-hop retrieval; empty when
-          the second hop was skipped or produced no candidates.
+          the second hop was skipped or produced no candidates. In agent mode (wave 1p4hu) this holds
+          the breadcrumbs of the graph-signal candidates surfaced via graph-edge traversal.
         - ``symbol_extraction_method``: extraction method used for the second-hop symbol pass —
           ``"ast"`` (Python stdlib AST or tree-sitter produced symbols), ``"regex"`` (AST unavailable
-          or produced no symbols), or ``"none"`` (second hop not attempted, or all citations were
-          infra-filtered before extraction).
+          or produced no symbols), ``"graph"`` (wave 1p4hu — agent mode followed graph EDGES from the
+          resolved symbol(s) rather than keyword re-retrieval), or ``"none"`` (no second hop / all
+          citations infra-filtered).
+
+        **Wave 1p4hu — graph signal (agent mode default):** alongside the semantic docs/code
+        citations, agent mode returns a dedicated ``graph_related`` section (the 8th tuple element):
+        structural matches from the code graph, grouped by their RELATIONSHIP to the query's symbol
+        (``callers``/``readers``/``importers`` — NOT mixed into citations with a 0.0 score). Seed +
+        direction follow query intent: a "what calls/reads/uses X" / "where is X used" question
+        expands ONLY the named symbol with edges INTO it (callers / readers via the 1p4ls ``reads``
+        edge / importers — ``direction="in"``); a behavioral "how does X work" query expands the
+        named symbol AND the top semantic hits both directions (its mechanism, bucketed ``related``).
+        Generic-word seeds, test-file neighbors, and whole-file module nodes are suppressed. Bounded
+        by ``AGENT_GRAPH_SIGNAL_CAP``; ``None`` when the graph is absent/empty or no symbol resolves.
+        No ``GRAPH_BUILDER_VERSION`` bump — it consumes the existing graph.
         """
         self._ensure_loaded()
         DOCS_MODEL = self._indexer_constant("DOCS_MODEL")
@@ -1224,17 +1486,17 @@ class WaveIndex:
                                     _p = _c.get("path", "")
                                     _c["source"] = "docs" if (_p.startswith("docs/") or "/docs/" in _p or _p.endswith(".md")) else "code"
                                     _c["sources"] = [_c["source"]]
-                                return _partition_tests(kw_candidates[:max(top_n, AGENT_CANDIDATE_MAX)]), False, 0, 0, ["artifact_anchored"], [], "none"
+                                return _partition_tests(kw_candidates[:max(top_n, AGENT_CANDIDATE_MAX)]), False, 0, 0, ["artifact_anchored"], [], "none", None
                             t_exact = time.monotonic()
                             reranker = self._get_reranker()
                             if reranker is not None:
                                 try:
                                     results = self._rerank(query, kw_candidates, top_n)
                                     results = _partition_tests(results)
-                                    return results, True, 0, round((time.monotonic() - t_exact) * 1000), ["artifact_anchored"], [], "none"
+                                    return results, True, 0, round((time.monotonic() - t_exact) * 1000), ["artifact_anchored"], [], "none", None
                                 except Exception:
                                     pass
-                            return _partition_tests(kw_candidates[:top_n]), False, 0, 0, ["artifact_anchored"], [], "none"
+                            return _partition_tests(kw_candidates[:top_n]), False, 0, 0, ["artifact_anchored"], [], "none", None
                 except Exception:
                     pass
             # Exact pass found no code results — treat remainder as explanatory
@@ -1327,6 +1589,7 @@ class WaveIndex:
         t_rerank = time.monotonic()
         second_hop_symbols: list[str] = []
         symbol_extraction_method: str = "none"
+        graph_related: Optional[dict] = None  # Wave 1p4hu: relationship-grouped structural section (agent mode)
         # Wave 1p4hj: agent-mode (the default) — skip the cross-encoder AND the RRF
         # cross-source merge; return labeled, deduped per-index candidates (per-index
         # floor + balanced cross-index allocation, multi-source agreement preserved).
@@ -1343,14 +1606,15 @@ class WaveIndex:
             # the selection's _wscore instead; the two question types are exclusive.)
             if question_type == "explanatory":
                 all_candidates, _ = _demote_doc_results(all_candidates, question_type)
-            # Wave 1p4lr: candidate-side constant-definition boost. A constant-declaration
-            # chunk (1p4mf " [const]") whose name tokens all appear in the query gets a bounded
-            # score multiplier so a short "what value/model/flag is X" answer ranks into the
-            # returned set. Stored as `_boost`; the selection applies it to the fill ORDER but
-            # computes the drop-off cutoff from UN-boosted scores so it never re-trims others.
+            # Wave 1p4lr: candidate-side definition-match boost. A DEFINITION chunk — a constant
+            # (1p4mf " [const]"), or a function/method/class/interface/type/enum (any language) —
+            # whose declared-name tokens ALL appear in the query gets a bounded score multiplier so
+            # the named definition ("what value is X" / "how does X work") ranks into the returned
+            # set. Stored as `_boost`; the selection applies it to the fill ORDER but computes the
+            # drop-off cutoff from UN-boosted scores so it never re-trims others.
             _q_terms = _query_content_terms(query)
             for _c in all_candidates:
-                _b = _const_definition_boost(_q_terms, _c)
+                _b = _definition_match_boost(_q_terms, _c)
                 if _b != 1.0:
                     _c["_boost"] = _b
             _docs_src = [c for c in all_candidates if str(c.get("kind", "")) in ("doc", "doc-summary", "seed")]
@@ -1362,19 +1626,35 @@ class WaveIndex:
                 {"code": RRF_NAVIGATIONAL_CODE_WEIGHT, "docs": RRF_NAVIGATIONAL_DOCS_WEIGHT}
                 if question_type == "navigational" else None
             )
+            # Citations are SEMANTIC-only (docs + code). Wave 1p4hu's structural graph signal goes to
+            # the dedicated, relationship-grouped ``graph_related`` response section (not mixed into
+            # citations with a 0.0 score). It resolves the query's symbol(s) → direction-aware 1-hop
+            # neighbors (callers / readers via the 1p4ls reads edge / importers) and labels each by its
+            # relationship to the seed. Bounded by AGENT_GRAPH_SIGNAL_CAP; None when the graph is
+            # absent/empty or no symbol resolves — graceful fallback to semantic-only.
+            _agent_sources = {"docs": _docs_src, "code": _code_src}
+            _graph_src = self._graph_signal_candidates(query, all_candidates, cap=AGENT_GRAPH_SIGNAL_CAP)
             results = self._agent_candidate_select(
-                {"docs": _docs_src, "code": _code_src},
+                _agent_sources,
                 max(top_n, AGENT_CANDIDATE_MAX),
                 AGENT_PER_INDEX_FLOOR_K,
                 weights=_agent_weights,
                 text_budget=AGENT_TEXT_BUDGET_CHARS,
             )
+            if _graph_src:
+                # Build the structural section AFTER citation selection so a structural match that is
+                # also a citation is text-deduped (flagged also_cited, excerpt dropped) — never sent twice.
+                graph_related = self._build_graph_related(_graph_src, results)
+                second_hop_symbols = [c.get("_symbol") or str(c.get("text", "")).split("\n", 1)[0].strip()
+                                      for c in _graph_src]
+                symbol_extraction_method = "graph"
             if question_type == "explanatory":
                 results = _partition_infra(results)
             for r in results:
                 r.pop("_sym_injected", None)
+                r.pop("_graph_kind", None)
             rerank_ms = round((time.monotonic() - t_rerank) * 1000)
-            return results, False, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method
+            return results, False, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method, graph_related
         reranker = self._get_reranker()
         if reranker is not None:
             try:
@@ -1424,7 +1704,7 @@ class WaveIndex:
                 for r in results:
                     r.pop("_sym_injected", None)
                 rerank_ms = round((time.monotonic() - t_rerank) * 1000)
-                return results, True, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method
+                return results, True, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method, graph_related
             except Exception:
                 pass
 
@@ -1441,7 +1721,7 @@ class WaveIndex:
             results = _partition_infra(results)
         for r in results:
             r.pop("_sym_injected", None)
-        return results, False, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method
+        return results, False, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method, graph_related
 
     def get_seed(self, name: str) -> Optional[dict]:
         self._ensure_loaded()
@@ -3014,6 +3294,7 @@ def run_index_rebuild(
     *,
     content: str = "docs",
     full: bool = False,
+    rechunk: bool = False,
     layer: str = "project",
 ) -> dict:
     """Spawn indexer.py as a background process and return immediately with pre-build stats.
@@ -3043,8 +3324,8 @@ def run_index_rebuild(
             ),
             "content": content,
             "full": full,
-            "mode": "rebuild" if full else "update",
-            "index_scope": "full_rebuild" if full else "incremental_update",
+            "mode": "rebuild" if full else ("rechunk" if rechunk else "update"),
+            "index_scope": "full_rebuild" if full else ("rechunk_reuse" if rechunk else "incremental_update"),
             "layer": layer,
             "stats": pre_stats,
             "log": str(log_path),
@@ -3071,12 +3352,17 @@ def run_index_rebuild(
     # Project layer (docs/code): indexer.py reads workflow-config include-prefixes itself.
     if full:
         cmd.append("--full")
+    # Wave 1p4n4 (mode='rechunk'): re-chunk all files + reuse embeddings by hash, no version change.
+    # Meaningful only for chunked content (graph has no embeddings to reuse).
+    if rechunk and content in {"docs", "code", "all"}:
+        cmd.append("--rechunk")
 
     pre_stats = _read_index_rebuild_stats(root, layer)
     _index_label = {"docs": "docs/seed", "code": "code", "all": "docs/seed + code"}.get(content, content)
     _file_count = pre_stats.get("files_total", "?")
 
-    if not full and _index_is_up_to_date(root, layer, content):
+    # rechunk must NOT short-circuit on an up-to-date index — re-chunking unchanged files is the point.
+    if not full and not rechunk and _index_is_up_to_date(root, layer, content):
         # Wave 1p31b (1p312): even when files are up-to-date, LanceDB rows for
         # paths now excluded by workflow-config narrowing must be reaped. The
         # bug is invisible to ``_index_is_up_to_date`` (meta.json was already
@@ -3225,7 +3511,7 @@ def run_index_rebuild(
             f"Watch progress: {log_path}"
         )
 
-    mode_label = "rebuild" if full else "update"
+    mode_label = "rebuild" if full else ("rechunk" if rechunk else "update")
     # Wave 1p2q3 (1p2w5): synchronous post-Popen verification window. The
     # subprocess can die in its first few hundred ms with "lock file busy"
     # written to the log; the prior code returned `passed: True` immediately
@@ -3293,7 +3579,7 @@ def run_index_rebuild(
             "content": content,
             "full": full,
             "mode": mode_label,
-            "index_scope": "full_rebuild" if full else "incremental_update",
+            "index_scope": "full_rebuild" if full else ("rechunk_reuse" if rechunk else "incremental_update"),
             "layer": layer,
             "stats": pre_stats,
             "log": str(log_path),
@@ -3307,7 +3593,7 @@ def run_index_rebuild(
         "content": content,
         "full": full,
         "mode": mode_label,
-        "index_scope": "full_rebuild" if full else "incremental_update",
+        "index_scope": "full_rebuild" if full else ("rechunk_reuse" if rechunk else "incremental_update"),
         "layer": layer,
         "stats": pre_stats,
         "log": str(log_path),
@@ -5867,14 +6153,16 @@ def wave_index_build_response(
     content_s = (content or "").strip().lower()
     layer_s = (layer or "").strip().lower()
     mode_s = (mode or "").strip().lower()
-    if mode_s not in {"update", "rebuild"}:
+    if mode_s not in {"update", "rebuild", "rechunk"}:
         return _response(
             "error",
             {"content": content, "mode": mode, "layer": layer},
             diagnostics=[
                 _diagnostic(
                     "invalid_arguments",
-                    f"Unsupported mode {mode!r}. Use 'update' (incremental) or 'rebuild' (full).",
+                    f"Unsupported mode {mode!r}. Use 'update' (incremental, changed files only), "
+                    "'rechunk' (re-chunk every file but reuse embeddings by hash — only new/changed "
+                    "chunks re-embed), or 'rebuild' (full re-embed from scratch).",
                     recovery_tools=["wave_help"],
                     recovery_usage="wave_help(goal='refresh_semantic_index')",
                 )
@@ -5883,8 +6171,9 @@ def wave_index_build_response(
             usage="wave_help(goal='refresh_semantic_index')",
         )
     full = mode_s == "rebuild"
+    rechunk = mode_s == "rechunk"
     try:
-        result = run_index_rebuild(root, content=content_s, full=full, layer=layer_s)
+        result = run_index_rebuild(root, content=content_s, full=full, rechunk=rechunk, layer=layer_s)
     except ValueError as exc:
         return _response(
             "error",
@@ -9327,6 +9616,32 @@ def code_keyword_response(
                      next_tools=["code_read"], usage="code_read(path='...', start_line=N, end_line=N+20)")
 
 
+def _string_literal_end(text: str, i: int) -> Optional[int]:
+    """If a string literal begins at ``text[i]``, return the index just past its closing quote;
+    otherwise ``None``. Handles triple-quoted and single/double-quoted strings (with backslash
+    escapes). The ONE string-skipping primitive shared by ``_bracket_depth`` and
+    ``_take_balanced_value`` so the two stay consistent (a separator/bracket inside a string
+    literal must never affect either)."""
+    n = len(text)
+    # Triple-quoted string — skip to closing triple-quote
+    if text[i:i + 3] in ('"""', "'''"):
+        q = text[i:i + 3]
+        j = i + 3
+        while j < n and text[j:j + 3] != q:
+            j += 1
+        return j + 3
+    # Single/double-quoted string — skip to closing quote (respecting escapes)
+    if text[i] in ('"', "'"):
+        q = text[i]
+        j = i + 1
+        while j < n and text[j] != q:
+            if text[j] == '\\':
+                j += 1  # skip escaped character
+            j += 1
+        return j + 1  # skip closing quote
+    return None
+
+
 def _bracket_depth(text: str) -> int:
     """Net open-bracket depth of ``text``, treating quoted strings as opaque.
 
@@ -9338,51 +9653,137 @@ def _bracket_depth(text: str) -> int:
     i = 0
     n = len(text)
     while i < n:
-        # Triple-quoted string — skip to closing triple-quote
-        if text[i:i + 3] in ('"""', "'''"):
-            q = text[i:i + 3]
-            i += 3
-            while i < n and text[i:i + 3] != q:
-                i += 1
-            i += 3
-        # Single-quoted string — skip to closing quote
-        elif text[i] in ('"', "'"):
-            q = text[i]
-            i += 1
-            while i < n and text[i] != q:
-                if text[i] == '\\':
-                    i += 1  # skip escaped character
-                i += 1
-            i += 1  # skip closing quote
-        elif text[i] in '([{':
+        se = _string_literal_end(text, i)
+        if se is not None:
+            i = se
+            continue
+        if text[i] in '([{':
             depth += 1
-            i += 1
         elif text[i] in ')]}':
             depth -= 1
-            i += 1
-        else:
-            i += 1
+        i += 1
     return depth
 
 
 _CONSTANTS_MAX_CONTINUATION = 50
 
+# A whole-line comment (any of our 11 languages): `#`, `//`, block-comment `/* … */` start/body/end.
+_COMMENT_LINE_RE = re.compile(r"^\s*(#|//|/\*|\*/|\*|--)")
+
+
+def _strip_leading_comment_lines(text: str) -> str:
+    """Drop leading blank + whole-line-comment lines from ``text`` (the leading comment block a
+    chunker folds onto a const chunk), returning the body from the first real code line on. Only
+    LEADING lines are removed, so an interior line of a multiline value is never touched."""
+    lines = text.splitlines()
+    k = 0
+    while k < len(lines) and (not lines[k].strip() or _COMMENT_LINE_RE.match(lines[k])):
+        k += 1
+    return "\n".join(lines[k:])
+
+
+def _take_balanced_value(rest: str) -> tuple[str, str]:
+    """From the text immediately after a constant's ``=`` (or after a PHP ``define(`` comma),
+    extract the value: consume until a TOP-LEVEL ``,`` / ``;`` / newline (statement end,
+    multi-declarator boundary, or grouped-const member boundary) OR a depth-0 CLOSING bracket we
+    did not open (the enclosing scope's — e.g. the `}` after a TS enum member or the `)` of a PHP
+    `define(`); bracketed literals (``()`` ``[]`` ``{}``) are consumed whole. (value, kind)."""
+    rest = rest.lstrip()
+    depth = 0
+    out: list[str] = []
+    i = 0
+    n = len(rest)
+    while i < n:
+        # A string literal is opaque: a `,`/`;`/`\n` or a `}`/`)`/`]` INSIDE a quoted string
+        # is value content, not a separator/enclosing-scope close (e.g. CSV_SEP = "," or
+        # `static final String SEP = "a;b;c"` or a dict value `{"k": "a}b"}`).
+        se = _string_literal_end(rest, i)
+        if se is not None:
+            out.append(rest[i:se])
+            i = se
+            continue
+        ch = rest[i]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            if depth == 0:
+                break  # a closing bracket we didn't open = the enclosing scope's → value ended
+            depth -= 1
+        elif depth == 0 and ch in ",;\n":
+            break
+        out.append(ch)
+        i += 1
+    val = "".join(out).strip().rstrip(";,").strip()
+    if not val:
+        return val, "scalar"
+    if _bracket_depth(val) != 0:
+        return val, "multiline-truncated"
+    return val, ("multiline" if "\n" in val else "scalar")
+
+
+def _extract_const_value(decl: str, name: str) -> tuple[str, str]:
+    """Language-agnostic value extraction for constant ``name`` from its declaration text (the
+    1p4mf chunk-lane const chunk's body). Handles ``NAME = value`` at any indentation / with
+    modifiers / a type annotation, per-declarator multi-const lines, PHP ``define('NAME', value)``,
+    and multiline bracket literals. Returns (value, kind); ``('', 'scalar')`` when no assignment is
+    found (e.g. a value-less interface/trait constant)."""
+    # The chunk body can carry a LEADING comment block (chunkers fold leading comments into the
+    # const chunk). Strip those leading comment/blank lines first, else a comment that mentions the
+    # NAME (e.g. `# THRESHOLD = 10 was the old default` above `THRESHOLD = 99`) poisons the value
+    # match — the `\bNAME\b` search would land in the comment (1p4pz review B1).
+    text = _strip_leading_comment_lines(decl or "").strip()
+    if not text:
+        return "", "scalar"
+    # PHP define('NAME', <value>) — the value is the second argument.
+    mdef = re.search(r"\bdefine\s*\(\s*['\"]" + re.escape(name) + r"['\"]\s*,", text)
+    if mdef:
+        return _take_balanced_value(text[mdef.end():])
+    # Otherwise: find the NAME token, then the first assignment '=' after it (skip ==/<=/>=/!=/=>).
+    mname = re.search(r"\b" + re.escape(name) + r"\b", text)
+    if not mname:
+        return "", "scalar"
+    i, n = mname.end(), len(text)
+    while i < n:
+        if text[i] == "=" and text[i - 1] not in "=<>!" and (i + 1 >= n or text[i + 1] not in "=>"):
+            return _take_balanced_value(text[i + 1:])
+        i += 1
+    return "", "scalar"
+
+
+# Wave 1p4pz: per-language const-producing chunker (file extension → chunker fn name on the chunker
+# module). Called DIRECTLY rather than via the generic `chunk_file` dispatch — that dispatch's
+# tree-sitter wrapper can silently fall back to a whole-file chunk (no `[const]` markers) for some
+# languages; the specific chunker is reliable (same pattern `code_definition` uses).
+_CONST_CHUNKER_BY_EXT = {
+    ".py": "chunk_python", ".pyi": "chunk_python",
+    ".js": "chunk_js_ts_treesitter", ".jsx": "chunk_js_ts_treesitter", ".mjs": "chunk_js_ts_treesitter",
+    ".cjs": "chunk_js_ts_treesitter", ".ts": "chunk_js_ts_treesitter", ".tsx": "chunk_js_ts_treesitter",
+    ".mts": "chunk_js_ts_treesitter", ".cts": "chunk_js_ts_treesitter",
+    ".java": "chunk_java_treesitter", ".cs": "chunk_csharp_treesitter", ".go": "chunk_go_treesitter",
+    ".rs": "chunk_rust_treesitter", ".kt": "chunk_kotlin_treesitter", ".kts": "chunk_kotlin_treesitter",
+    ".swift": "chunk_swift_treesitter", ".rb": "chunk_ruby_treesitter", ".php": "chunk_php_treesitter",
+}
+
 
 def code_constants_response(root: Path, symbols: list[str], glob: str = "") -> dict[str, Any]:
-    """Look up module-level constant assignments by name, returning parsed values.
+    """Look up module-/type-level constant declarations by name across all languages, returning
+    parsed values.
 
-    For each symbol, scans files for an assignment of the form::
+    Two detection passes are unioned (wave 1p4pz):
+    1. A column-0 ``NAME = <value>`` / ``NAME: TYPE = <value>`` scan — fast, catches Python module
+       assignments (incl. lowercase) and collects multiline literals via bracket-depth continuation.
+    2. The **1p4mf chunk-lane constant detector** (one detector, three consumers — reused via the
+       chunker module) — catches **indented / non-Python** constants the regex misses: Java
+       ``static final``, Go/C# ``const``, Kotlin ``const val``, Rust ``const``, Swift ``static let``,
+       Ruby/PHP constants, JS/TS ``const``, AND Python **class-level** constants. The right-hand-side
+       value is extracted language-agnostically (after ``=`` at any indent; trailing ``;`` trimmed;
+       PHP ``define('NAME', value)`` second arg; multiline literals preserved). Only files containing
+       a requested symbol are chunked (cheap pre-filter). Function/block locals are NOT returned (the
+       chunk lane's scope gate carries through). A constant the regex already returned is not
+       duplicated (range-dedup, keeping the regex's richer value).
 
-        NAME = <value>
-        NAME: TYPE = <value>
-
-    at column 0 (no leading indent). Collects multiline values (frozenset, list,
-    dict literals) by tracking bracket depth until depth returns to zero or
-    ``_CONSTANTS_MAX_CONTINUATION`` continuation lines are consumed.
-
-    Returns results in input ``symbols`` order. Symbols not found are included
-    with ``value: null``. When a symbol appears in multiple files all matches are
-    returned (one entry per match).
+    Returns results in input ``symbols`` order. Symbols not found are included with ``value: null``.
+    When a symbol appears in multiple files / scopes, all matches are returned (one entry per match).
     """
     if not symbols:
         return _response(
@@ -9462,6 +9863,99 @@ def code_constants_response(root: Path, symbols: list[str], glob: str = "") -> d
                             "file": rel, "line": lineno, "kind": kind,
                         })
             i += 1
+
+    # --- Multi-language pass (wave 1p4pz): the column-0 scan above is Python-shaped (and misses
+    # indented declarations). Reuse the 1p4mf chunk-lane constant detector to find constants the
+    # regex missed — Java `static final`, Go `const`, C#/Kotlin/Rust/Swift/Ruby/PHP, JS/TS `const`,
+    # AND Python CLASS-level constants (indented). Add only (name, file, line) not already matched
+    # above, so a Python module const found by the richer-value regex is not duplicated. Chunk ONLY
+    # files that mention a requested symbol (cheap substring pre-filter — never chunk the whole tree).
+    # The column-0 regex above recorded each constant's PRECISE assignment line. Dedup a chunk-lane
+    # const against it by RANGE: a chunk span can include a leading comment/decorator, so the chunk
+    # is the SAME constant when the regex's line falls inside the chunk's [start, end]. (name, file)-scoped.
+    regex_lines: dict[tuple[str, str], list[int]] = {}
+    for _lst in matches.values():
+        for _m in _lst:
+            if _m.get("line") is not None:
+                regex_lines.setdefault((_m["name"], str(_m["file"])), []).append(_m["line"])
+    chunk_seen: set[tuple[str, str, Any]] = set()
+    chunker = _get_chunker_module()
+    const_suffix = getattr(chunker, "_CONST_SECTION_SUFFIX", " [const]")
+    # Pre-filter on the LEAF token of each requested symbol too: a qualified query like
+    # `Status.OK` is never a literal substring of the source (which has `Status` and `OK`
+    # separately), so filtering on the bare leaf lets the file be chunked (1p4q4 review B3).
+    prefilter_tokens = symbol_set | {s.rsplit(".", 1)[-1] for s in symbol_set}
+    for p in all_files:
+        ext = p.suffix.lower()
+        fn_name = _CONST_CHUNKER_BY_EXT.get(ext)
+        if fn_name is None:
+            continue
+        try:
+            source = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if not any(s in source for s in prefilter_tokens):
+            continue
+        rel = str(p.resolve().relative_to(root_r)).replace("\\", "/")
+        chunk_fn = getattr(chunker, fn_name, None)
+        if chunk_fn is None:
+            continue
+        try:
+            chunks = chunk_fn(source, rel)
+        except Exception:
+            chunks = None
+        for chunk in (chunks or []):
+            section = str(getattr(chunk, "section", "") or "")
+            if not section.endswith(const_suffix):
+                continue
+            leaf = section[: -len(const_suffix)].rsplit(" > ", 1)[-1].strip()
+            short = leaf.rsplit(".", 1)[-1]
+            _clines = list(getattr(chunk, "lines", None) or [])
+            start = _clines[0] if _clines else None
+            end = _clines[-1] if _clines else start
+            ctext = str(getattr(chunk, "text", "") or "")
+            decl = ctext.split("\n\n", 1)[-1] if "\n\n" in ctext else ctext
+            # Which requested symbols does this const chunk define, and at what line?
+            #  (1) the chunk's section leaf — recorded under BOTH its short and qualified form
+            #      when each is requested, so `OK` and `Status.OK` both resolve to the member
+            #      (1p4q4 review B3); the primary keeps the chunk's [start, end] span.
+            #  (2) every requested symbol that HEADS a body line — so a Go grouped `const (...)`
+            #      / iota block (ONE chunk, MANY members) resolves each member to its own line,
+            #      not just the first (review B2).
+            chunk_defs: list[tuple[str, Optional[int], bool]] = []  # (requested_symbol, line, is_primary)
+            for form in (short, leaf):
+                if form in symbol_set and all(form != d[0] for d in chunk_defs):
+                    chunk_defs.append((form, start, True))
+            # Go is the one language whose grouped `const (...)` / iota block stays a SINGLE chunk
+            # named after its first member (`_go_const_chunk_name`); scan the body so the OTHER
+            # members resolve too. Restricted to Go because Go const values are compile-time scalars
+            # (no nested object/dict literals), so a body line head is always a real member — for
+            # other languages a multiline value's `KEY: ...` entry could false-positive (review B2).
+            if ext == ".go":
+                for off, bl in enumerate(decl.split("\n")):
+                    s_bl = bl.strip()
+                    if not s_bl or _COMMENT_LINE_RE.match(bl):
+                        continue
+                    mtok = _re.match(r"[A-Za-z_]\w*", s_bl)
+                    if not mtok:
+                        continue
+                    tok = mtok.group(0)
+                    if tok in symbol_set and all(tok != d[0] for d in chunk_defs):
+                        chunk_defs.append((tok, (start + off) if start is not None else None, False))
+            for dsym, dline, is_primary in chunk_defs:
+                prior = regex_lines.get((dsym, rel), [])
+                if is_primary:
+                    if start is not None and any(start <= L <= end for L in prior):
+                        continue  # same constant the column-0 regex already returned (its richer value kept)
+                elif dline is not None and any(L == dline for L in prior):
+                    continue
+                if (dsym, rel, dline) in chunk_seen:
+                    continue
+                chunk_seen.add((dsym, rel, dline))
+                value, kind = _extract_const_value(decl, dsym.rsplit(".", 1)[-1])
+                matches.setdefault(dsym, []).append(
+                    {"name": dsym, "value": value, "file": rel, "line": dline, "kind": kind}
+                )
 
     # Assemble results in input order; emit all matches per symbol, or null if none
     results: list[dict[str, Any]] = []
@@ -11122,6 +11616,60 @@ def code_definition_response(root: Path, symbol_or_path_position: str) -> dict[s
     )
 
 
+def _graph_constant_reader_refs(root: Path, symbol: str) -> list[dict[str, Any]]:
+    """Wave 1p4ls: graph-confirmed readers of a CONSTANT, as reference entries tagged
+    ``reference_kind="reads"`` — DISTINCT from ``call_sites`` (callers). These are functions that
+    read the constant's value, bound by the faithfulness-gated ``reads`` edge (never a coincidental
+    same-name twin). Empty unless the symbol resolves to a ``kind="constant"`` node."""
+    try:
+        gq = _load_graph_query()
+        index = gq.GraphQueryIndex.from_root(root, layer="project")
+        if not index.present:
+            return []
+        node_id = index.resolve_symbol(symbol)
+        if node_id is None:
+            return []
+        if (index.get_node(node_id) or {}).get("kind") != "constant":
+            return []
+        out: list[dict[str, Any]] = []
+        seen: set[tuple[str, int]] = set()
+        for edge in index._in.get(node_id, []):
+            if edge.get("relation") != "reads":
+                continue
+            src = edge.get("source")
+            if not isinstance(src, str) or src.startswith("external::"):
+                continue
+            reader = index.get_node(src) or {}
+            sf = reader.get("source_file")
+            if not isinstance(sf, str) or not sf:
+                continue
+            loc = str(reader.get("source_location") or "")
+            head = loc.split(":", 1)[0]
+            line = int(head) if head.isdigit() else 0
+            if (sf, line) in seen:
+                continue
+            seen.add((sf, line))
+            snippet = ""
+            try:
+                fp = root / sf
+                if line > 0 and fp.is_file():
+                    snippet = fp.read_text(encoding="utf-8", errors="replace").splitlines()[line - 1].strip()[:200]
+            except Exception:
+                snippet = ""
+            out.append({
+                "path": sf,
+                "line": line,
+                "snippet": snippet,
+                "language": _detect_language(sf),
+                "method": "graph_reads",
+                "reference_kind": "reads",
+                "name": reader.get("label") or src.split("::")[-1],
+            })
+        return out
+    except Exception:
+        return []
+
+
 def code_references_response(
     root: Path,
     symbol_or_path_position: str,
@@ -11167,6 +11715,11 @@ def code_references_response(
             ("path", "line", "language", "snippet"),
         )
         note = f"Included docs and mention matches from schema-stripped SQL symbol '{_sql_schema_retry_symbol(symbol)}'."
+    # Wave 1p4ls: graph-confirmed CONSTANT readers as a distinct `reads` bucket (functions that
+    # read the constant's value) — faithfulness-gated, never merged into `call_sites` (callers).
+    reads_refs = _graph_constant_reader_refs(root, symbol)
+    if reads_refs:
+        refs = _dedupe_navigation_results(refs + reads_refs, ("path", "line", "language", "snippet"))
     if refs:
         refs, filtered_counts, all_counts, detail_filtered_counts, detail_all_counts = _apply_reference_filters(
             refs,
@@ -11194,6 +11747,7 @@ def code_references_response(
             "definition": [r for r in refs if r["reference_kind"] == "definition"],
             "import": [r for r in refs if r["reference_kind"] == "import"],
             "mention": [r for r in refs if r["reference_kind"] == "mention"],
+            "reads": [r for r in refs if r["reference_kind"] == "reads"],
             "docs": [r for r in refs if r["reference_kind"] == "docs"],
             "tests": [r for r in refs if r["reference_kind"] == "tests"],
             "other": [r for r in refs if r["reference_kind"] == "other"],
@@ -12723,6 +13277,23 @@ def _maybe_append_graph_neighbors(
         if not index.present:
             return response
         neighbors = index.one_hop_neighbors(unique_ids)
+        # Wave 1p4ls: `reads` is opt-in for default traversal (so a hot constant never balloons a
+        # 1p4hu expansion), but when a SEED is itself a constant the caller is asking about that
+        # constant — include its reader edges. Bounded by the max_nodes cap below.
+        const_seeds = [nid for nid in unique_ids if (index.get_node(nid) or {}).get("kind") == "constant"]
+        if const_seeds:
+            reads_nb = index.one_hop_neighbors(const_seeds, relations=["reads"])
+            _seen_n = {n["id"] for n in neighbors.get("nodes", []) if isinstance(n.get("id"), str)}
+            for n in reads_nb.get("nodes", []):
+                if isinstance(n.get("id"), str) and n["id"] not in _seen_n:
+                    neighbors["nodes"].append(n)
+                    _seen_n.add(n["id"])
+            _seen_e = {(e.get("source"), e.get("target"), e.get("relation")) for e in neighbors.get("edges", [])}
+            for e in reads_nb.get("edges", []):
+                k = (e.get("source"), e.get("target"), e.get("relation"))
+                if k not in _seen_e:
+                    neighbors["edges"].append(e)
+                    _seen_e.add(k)
         if not neighbors.get("nodes"):
             return response
         if max_nodes > 0 and len(neighbors["nodes"]) > max_nodes:
@@ -14578,25 +15149,79 @@ def _tokenize_identifier(name: str) -> list[str]:
 
 
 def _query_content_terms(query: str) -> set[str]:
-    """Query tokens (len > 1) minus function-word stopwords."""
-    return {t for t in (w.lower() for w in re.findall(r"[A-Za-z0-9]+", query))
-            if len(t) > 1 and t not in _QUERY_STOPWORDS}
+    """Query tokens (len > 1) minus function-word stopwords. Each word is ALSO camel/snake-split
+    (wave 1p4lr) so a query that NAMES a camelCase/PascalCase symbol — ``ParseConfig``, ``WaveIndex``
+    — yields its sub-tokens (parse, config / wave, index) to match a definition's name tokens; snake
+    and UPPER_SNAKE names already split on ``_``. The joined form is kept too (harmless superset)."""
+    terms: set[str] = set()
+    for word in re.findall(r"[A-Za-z0-9_]+", query):
+        for sub in (word, *_tokenize_identifier(word)):
+            s = sub.lower()
+            if len(s) > 1 and s not in _QUERY_STOPWORDS:
+                terms.add(s)
+    return terms
 
 
-def _const_definition_boost(query_terms: set[str], candidate: dict) -> float:
-    """Wave 1p4lr: CONST_DEFINITION_BOOST when the candidate is a constant-declaration chunk
-    (1p4mf's `" [const]"` section marker) whose declared-name tokens (≥2 — to avoid over-boosting
-    single common words) ALL appear in the query; else 1.0. The bounded multiplier lifts a short
-    constant chunk into the returned set for a "what value/model/flag is X" query, without
-    re-imposing any casing rule (the camel/snake tokenizer is casing-agnostic)."""
-    if not str(candidate.get("section") or "").endswith(_CONST_SECTION_SUFFIX):
+def _definition_qname(candidate: dict) -> Optional[str]:
+    """Wave 1p4lr: the declared symbol name (qualified, e.g. ``Config.connect``) of a DEFINITION
+    chunk, or ``None`` when the candidate is not a code definition. A definition is a CONSTANT
+    (1p4mf ``" [const]"`` marker) OR a ``kind="code"`` chunk whose id/breadcrumb leaf is a declared
+    symbol — function, method, class, interface, type, enum, const — across EVERY language the
+    chunker chunks (Python/JS/TS/Java/Kotlin/C#/Go/Rust/Swift/Ruby/PHP; the chunker emits one code
+    chunk per declaration with a ``stem > Qname`` breadcrumb + ``path::Qname`` id). Imports,
+    code-summaries, doc/seed chunks, and dunder pseudo-symbols (``__imports__``/``__decl__``/
+    ``__namespace__``) are NOT definitions."""
+    section = str(candidate.get("section") or "")
+    is_const = section.endswith(_CONST_SECTION_SUFFIX)
+    if not is_const and str(candidate.get("kind") or "") != "code":
+        return None
+    cid = str(candidate.get("id") or "")
+    if "::" in cid:
+        qname = cid.rsplit("::", 1)[-1]
+    elif " > " in section:
+        qname = section.rsplit(" > ", 1)[-1]
+    else:
+        return None
+    qname = qname.replace(_CONST_SECTION_SUFFIX, "").strip()
+    # Wave 1p4lr (delivery review C1): an oversized declaration is split into chunks whose id
+    # carries a ``:L<start>-L<end>`` suffix and whose breadcrumb leaf carries a `` (part N/M)`` tail.
+    # Both inject tokens (``l1274``, ``part``…) that can NEVER appear in a natural-language query, so
+    # the all-tokens match in ``_definition_match_boost`` would always fail — silently disabling the
+    # boost for every large symbol (e.g. ``WaveIndex.search_combined``). Strip them so the boost sees
+    # the real declared name.
+    qname = re.sub(r":L\d+-L\d+$", "", qname)
+    qname = re.sub(r"\s*\(part \d+/\d+\)$", "", qname).strip()
+    leaf = qname.rsplit(".", 1)[-1]
+    if not qname or leaf in ("imports", "__imports__") or leaf.startswith("__"):
+        return None
+    return qname
+
+
+def _definition_match_boost(query_terms: set[str], candidate: dict) -> float:
+    """Wave 1p4lr: DEFINITION_MATCH_BOOST when the candidate is a DEFINITION chunk (constant,
+    function/method, or class/interface/type/enum — see ``_definition_qname``) whose declared name
+    the query NAMES; else 1.0. Language-agnostic: detection is the chunk's declaration shape and the
+    casing-agnostic camel/snake tokenizer, so it covers every chunked language. The query NAMES the
+    symbol when EITHER the full QUALIFIED name's tokens are all present (``how does Config connect
+    work`` → {config, connect}) OR — for a multi-token LEAF — the leaf name alone is present (``how
+    does search_combined work`` → {search, combined}; a natural-language method/function query rarely
+    repeats the enclosing class — delivery-review C3). The ≥2-token guard on whichever set fires
+    keeps a single common word from over-boosting; a single-token leaf (e.g. ``connect``) still needs
+    its qualified context. The bounded multiplier lifts a name-matching definition — a short constant
+    (``what value/model/flag is X``) or the very function/class the query names — into the returned
+    set WITHOUT re-imposing any casing rule, firing only on a real name match, not coincidental term
+    overlap."""
+    qname = _definition_qname(candidate)
+    if qname is None:
         return 1.0
-    cid = str(candidate.get("id") or candidate.get("path") or "")
-    name = cid.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
-    name_tokens = [t for t in _tokenize_identifier(name) if len(t) > 1]
-    if len(name_tokens) < 2:
-        return 1.0
-    return CONST_DEFINITION_BOOST if all(t in query_terms for t in name_tokens) else 1.0
+    segs = qname.split(".")
+    qualified_tokens = [t for seg in segs for t in _tokenize_identifier(seg) if len(t) > 1]
+    leaf_tokens = [t for t in _tokenize_identifier(segs[-1]) if len(t) > 1]
+    if len(qualified_tokens) >= 2 and all(t in query_terms for t in qualified_tokens):
+        return DEFINITION_MATCH_BOOST
+    if len(leaf_tokens) >= 2 and all(t in query_terms for t in leaf_tokens):
+        return DEFINITION_MATCH_BOOST
+    return 1.0
 
 
 def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str = "agent") -> dict[str, Any]:
@@ -14640,8 +15265,9 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
     definition_boosted: list[str] = []
     second_hop_symbols: list[str] = []
     symbol_extraction_method: str = "none"
+    graph_related: Optional[dict] = None
     try:
-        combined_results, combined_reranked, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method = index.search_combined(
+        combined_results, combined_reranked, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method, graph_related = index.search_combined(
             question, top_n=7, question_type=question_type, rerank=rerank
         )
         # Detect whether the scaffolding-layer partition fired (explanatory questions only)
@@ -14768,6 +15394,11 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         data["second_hop_symbols"] = second_hop_symbols
     if symbol_extraction_method != "none":
         data["symbol_extraction_method"] = symbol_extraction_method
+    # Wave 1p4hu: structural matches grouped by relationship to the query symbol (callers / readers /
+    # importers / related), separate from the textual citations. Present only in agent mode when the
+    # graph signal resolved a symbol and found neighbors.
+    if graph_related and any(graph_related.get(k) for k in ("callers", "readers", "importers", "callees", "reads", "imports", "related")):
+        data["graph_related"] = graph_related
 
     if question_type == "explanatory" and citations and citations[0].get("kind") in ("doc", "doc-summary"):
         data["validation_required"] = True
@@ -15971,8 +16602,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def wave_index_build(content: str = "docs", mode: str = "update", layer: str = "project", **kwargs: Any) -> dict[str, Any]:
         """Run a semantic or graph index **build** for the current repo root.
 
-        Use ``mode='update'`` (default) for an incremental hash-based refresh of changed files.
-        Use ``mode='rebuild'`` to force a full rebuild of the selected ``content`` for ``layer``.
+        Use ``mode='update'`` (default) for an incremental hash-based refresh of *changed* files.
+        Use ``mode='rechunk'`` to re-chunk *every* file (even unchanged ones) while **reusing
+        embeddings by content hash** — only new/changed chunks re-embed. This is the cheap way to
+        materialize a chunker LOGIC change that was not version-bumped (no full re-encode); a plain
+        ``update`` would skip unchanged files. Applies to ``content`` ``docs``/``code``/``all``.
+        Use ``mode='rebuild'`` to force a full from-scratch re-embed of the selected ``content`` for ``layer``.
 
         **content values:**
 
@@ -16375,7 +17010,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def code_constants(symbols: list[str], glob: str = "", **kwargs: Any) -> dict[str, Any]:
-        """Look up current values of named module-level constants in one call.
+        """Look up current values of named module-/type-level constants in one call.
 
         Prefer when: you need the current value of one or more named constants
         (e.g. VECTOR_TOP_K, MAX_SYMBOLS_EXTRACTED) without manually parsing
@@ -16383,11 +17018,19 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Use code_keyword when searching for arbitrary substrings rather than
         constant assignments specifically.
 
-        Scans for unindented assignments of the form ``NAME = <value>`` or
-        ``NAME: TYPE = <value>``. Multiline values (frozenset, list, dict
-        literals) are collected until the bracket depth closes. A value that
-        does not close within 50 continuation lines is returned with
-        kind="multiline-truncated".
+        Multi-language (wave 1p4pz): finds module-/type-level constants across all
+        languages — Python module + class constants, Java ``static final``, Go/C#
+        ``const``, Kotlin ``const val``, Rust ``const``, Swift ``static let``,
+        Ruby/PHP constants, JS/TS ``const`` (plus TS ``enum``/``const enum`` members
+        as ``Enum.Member`` and ``namespace``-scoped consts) — by reusing the indexer's
+        per-language constant detector (NOT a Python-only column-0 scan). Both a
+        qualified name (``Status.OK``) and the bare member (``OK``) resolve; a Go
+        grouped ``const (...)`` / ``iota`` block resolves every member. The value is
+        the right-hand-side after ``=`` (trailing ``;`` trimmed; PHP ``define('NAME',
+        value)`` second arg), extracted string-aware so a ``,``/``;``/``}`` inside a
+        quoted value is kept; multiline literals (frozenset/list/dict/array) are
+        preserved, and a value that does not close is returned with
+        kind="multiline-truncated". Function/block locals are NOT returned.
 
         Symbols not found in the codebase are included in the result with
         value=null so callers can verify every lookup was attempted. When a

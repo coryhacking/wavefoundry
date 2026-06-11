@@ -2531,5 +2531,40 @@ class UpgradeContextChunkerFieldsTests(unittest.TestCase):
         self.assertIsNone(ctx.chunker_version_transition)
 
 
+class BackgroundCodeIncompleteWarningTests(unittest.TestCase):
+    """H1 (Phase 4b reliability): cleanup warns when the background code re-embed left the code layer
+    behind the docs layer (the silent-failure case the JS/TS team hit on p4g3/p4su)."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / ".wavefoundry" / "index").mkdir(parents=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _meta(self, docs, code):
+        (self.root / ".wavefoundry" / "index" / "meta.json").write_text(
+            json.dumps({"chunker_versions": {"docs": docs, "code": code}}), encoding="utf-8")
+
+    def _run_capturing(self):
+        lines: list[str] = []
+        with patch.object(self.mod, "_log", side_effect=lambda *a: lines.append(" ".join(str(x) for x in a))):
+            self.mod._warn_if_background_code_incomplete(self.root)
+        return lines
+
+    def test_warns_on_chunker_mismatch(self):
+        self._meta("29", "28")
+        self.assertTrue(any("BEHIND" in ln for ln in self._run_capturing()))
+
+    def test_silent_when_versions_match(self):
+        self._meta("29", "29")
+        self.assertFalse(any("BEHIND" in ln for ln in self._run_capturing()))
+
+    def test_silent_when_meta_absent(self):
+        self.assertEqual(self._run_capturing(), [])  # no meta.json → no warning, no crash
+
+
 if __name__ == "__main__":
     unittest.main()

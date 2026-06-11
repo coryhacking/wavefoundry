@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-29
+Last verified: 2026-06-11
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -122,7 +122,7 @@ A full rebuild is triggered automatically when any of the following values diffe
 the stored `meta.json`:
 
 - The embedding model name or version
-- `CHUNKER_VERSION` (currently `"22"`) — bumped whenever the chunk format changes
+- `CHUNKER_VERSION` (currently `"29"`) — bumped whenever the chunk format changes
 - `WALKER_VERSION` (currently `"5"`) — bumped when the file-walk logic changes
 
 On a forced rebuild, change detection is bypassed and every file is re-processed.
@@ -212,6 +212,14 @@ character counts. Three parsing strategies apply:
 | **Tree-sitter AST** | See table below | Walk parse tree; optional regex fallback per language |
 | **Line window** | Remaining indexed extensions | `chunk_line_window` — 120 lines per window (`WINDOW_SIZE`) |
 
+**Module-/type-level constants are chunked** (wave 1p4mf, all 11 languages): each named module- or
+type-level constant produces its own `" [const]"`-marked, breadcrumb-prefixed chunk so a constant's
+NAME and VALUE are independently retrievable (`RERANKER_MODEL` → its `"BAAI/bge-reranker-base"`
+value). Detection is per-language by real mechanism + scope (the keyword/grammar node + an
+ancestor gate to module/file/type top level), **never** a uniform `UPPER_SNAKE` casing filter —
+camelCase/PascalCase/MixedCaps constants (Swift `apiURL`, C# `MaxRetries`, Go `StatusOK`) are
+included and function/block locals are excluded by scope. Casing gates apply for Python only.
+
 #### Tree-sitter installation
 
 - Runtime: `tree-sitter>=0.24,<0.26` (pinned in `setup_index.py`)
@@ -238,7 +246,7 @@ character counts. Three parsing strategies apply:
 
 | Language | Extensions | PyPI grammar | Tree-sitter entry | Fallback |
 |----------|------------|--------------|-------------------|----------|
-| TypeScript / JS | `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs` | `tree-sitter-typescript`, `tree-sitter-javascript` | `chunk_js_ts_treesitter` | `chunk_js_ts` |
+| TypeScript / JS | `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.mts`, `.cts` | `tree-sitter-typescript`, `tree-sitter-javascript` | `chunk_js_ts_treesitter` | `chunk_js_ts` |
 | Go | `.go` | `tree-sitter-go` | `chunk_go_treesitter` | `chunk_go` |
 | Rust | `.rs` | `tree-sitter-rust` | `chunk_rust_treesitter` | `chunk_rust` |
 | Java | `.java` | `tree-sitter-java` | `chunk_java_treesitter` | `chunk_java` |
@@ -290,6 +298,16 @@ Breadcrumb format: `file_stem > ClassName > method_name`. Import blocks may appe
 Wave `12c86` introduced the tree-sitter chunker set (JS/TS through Kotlin/SQL). Wave `12pn3`
 change `12qf3-enh tree-sitter-swift-objc-and-regex-replacements` extended coverage to Swift,
 ObjC, Scala, config/markup languages above, and bumped `CHUNKER_VERSION` to `"21"`.
+
+Wave `1p4q4` (and its review) extends constant chunking into TypeScript enums and
+namespaces: each `enum` / `const enum` / `export enum` **member** becomes its own
+`Enum.Member` constant chunk, and each namespace-scoped `const` (export and non-export)
+becomes a `Namespace.CONST` constant chunk. The `module M{}` keyword form, `export namespace`,
+`declare namespace`, `declare enum`, and `declare const` are all chunked. `CHUNKER_VERSION`
+is now `"29"`. The same wave makes `.mts` / `.cts` **first-class** across the main pipeline —
+they are added to the chunker `JS_TS_EXTENSIONS` set and the indexer `SOURCE_CODE_EXTENSIONS`
+set, both mapped to TypeScript, so these files are walked, chunked, and indexed like any
+other `.ts` source.
 
 ---
 
@@ -411,7 +429,7 @@ changed since the last run.
 
 | Constant                  | Value  | Effect of change                                 |
 |---------------------------|--------|--------------------------------------------------|
-| `CHUNKER_VERSION`         | `"22"` | Forces full rebuild of the affected layer        |
+| `CHUNKER_VERSION`         | `"29"` | Forces full rebuild of the affected layer        |
 | `WALKER_VERSION`          | `"5"`  | Forces full rebuild of all layers                |
 | `WINDOW_SIZE`             | 120    | Line-window fallback window (lines per chunk)    |
 | `WINDOW_OVERLAP`          | 10     | Reserved; structured fallbacks often advance without overlap |
@@ -425,8 +443,9 @@ Whenever `CHUNKER_VERSION` is bumped — for example because a breadcrumb format
 new tree-sitter language is added — every file in the affected layer is re-chunked and
 re-embedded on the next build. The same applies when the embedding model name changes.
 
-After deploying `CHUNKER_VERSION` `"22"`, run a **full index rebuild** so existing LanceDB
-rows include `chunk_hash` consistently before chunk-level vector reuse is used (e.g.
+An index whose existing LanceDB rows predate `chunk_hash` triggers a one-time **full rebuild**
+automatically (the 1p4n4 legacy-fallback preflight) so rows carry `chunk_hash` consistently
+before chunk-level vector reuse applies; you can also force it (e.g.
 `python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full` or `wave_index_build`
 with full mode).
 

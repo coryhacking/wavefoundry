@@ -731,5 +731,33 @@ class BarrelDeprioritizedInCommunityLabelsTests(unittest.TestCase):
         self.assertEqual(seed, barrel_id, "barrel-only community must still seed at the barrel")
 
 
+class ConstantClusterExclusionTests(unittest.TestCase):
+    """Wave 1p4ls: constant nodes + `reads` edges are excluded from clustering so community labels
+    do NOT shift (CLUSTER_BUILDER_VERSION bumped 8->9)."""
+
+    def setUp(self):
+        self.mod = load_graph_cluster()
+
+    def test_cluster_builder_version_bumped(self):
+        self.assertEqual(self.mod.CLUSTER_BUILDER_VERSION, "9")
+
+    def test_reads_and_constants_excluded_from_projection(self):
+        payload = {
+            "nodes": [
+                {"id": "m.py::funcA", "kind": "function"},
+                {"id": "m.py::funcB", "kind": "function"},
+                {"id": "m.py::CONST", "kind": "constant"},
+            ],
+            "edges": [
+                {"source": "m.py::funcA", "target": "m.py::funcB", "relation": "calls"},
+                {"source": "m.py::funcA", "target": "m.py::CONST", "relation": "reads"},
+            ],
+        }
+        adjacency, nodes_by_id, _ = self.mod._project_undirected_projection(payload)
+        self.assertNotIn("m.py::CONST", nodes_by_id, "constant node excluded from clustering")
+        self.assertNotIn("m.py::CONST", adjacency.get("m.py::funcA", {}), "reads edge excluded from clustering")
+        self.assertIn("m.py::funcB", adjacency.get("m.py::funcA", {}), "calls edge still clusters")
+
+
 if __name__ == "__main__":
     unittest.main()
