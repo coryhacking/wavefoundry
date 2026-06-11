@@ -17,6 +17,9 @@ from pathlib import Path
 from typing import Optional
 
 sys.dont_write_bytecode = True
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
 
 FASTEMBED_CACHE_DEFAULT = Path.home() / ".wavefoundry" / "cache" / "fastembed"
 if not os.environ.get("FASTEMBED_CACHE_PATH"):
@@ -73,6 +76,11 @@ LANCEDB_NPROBES = 20             # ANN search probes (recall vs latency)
 LANCEDB_REFINE_FACTOR = 10       # reranking candidates multiplier
 RERANKER_MODEL = "BAAI/bge-reranker-base"
 CONTENT_CHOICES = ("docs", "code", "all", "graph")
+
+try:
+    import provider_policy
+except ImportError:  # pragma: no cover - defensive when loaded from an unusual path
+    provider_policy = None
 
 
 class _TimestampedStream:
@@ -1657,18 +1665,10 @@ def _table_lock(table_dir: Path, *, create_dir: bool = False):
 
 def _onnx_providers() -> list[str]:
     """Return the best available ONNX Runtime execution providers for this machine."""
-    try:
-        import onnxruntime as _ort
-        available = set(_ort.get_available_providers())
-    except Exception:
+    if provider_policy is None:
         return ["CPUExecutionProvider"]
-    # CoreMLExecutionProvider is intentionally excluded: it is a no-op for INT8
-    # ONNX models (ANE can't run INT8 ops) and actively hurts FP32 models by
-    # fragmenting execution across ANE/CPU boundaries. Revisit when a proper
-    # coremltools-converted .mlpackage is available.
-    if "CUDAExecutionProvider" in available:
-        return ["CUDAExecutionProvider", "CPUExecutionProvider"]
-    return ["CPUExecutionProvider"]
+    decision = provider_policy.select_embedding_providers()
+    return list(decision.providers)
 
 
 def _get_embedder(model_name: str):

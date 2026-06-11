@@ -14,11 +14,13 @@ Make Wavefoundry setup choose the best verified local embedding execution provid
 ## Changes
 
 Change ID: `1p4u0-enh hardware-aware-embedding-provider-selection`
+Change Status: `implemented`
+Change ID: `1p4u1-enh coreml-available-is-acceptable`
 Change Status: `planned`
 
 ## Wave Summary
 
-This wave adds hardware-aware embedding provider evaluation to setup and indexing. It should close with setup logs that clearly explain why CPU, CUDA, or CoreML was selected, tests that cover provider decisions without physical GPU hardware, and docs that tell operators how to verify or remediate provider selection.
+This wave adds hardware-aware embedding provider evaluation to setup and indexing. It should close with setup logs that clearly explain why CPU, CUDA, or CoreML was selected, tests that cover provider decisions without physical GPU hardware, docs that tell operators how to verify or remediate provider selection, and a narrower Apple Silicon policy that accepts CoreML when it is available and CPU fallback remains correct.
 
 ## Journal Watchpoints
 
@@ -31,6 +33,7 @@ This wave adds hardware-aware embedding provider evaluation to setup and indexin
 ## Review Evidence
 
 - wave-council-readiness: READY-WITH-NOTES — readiness sign-off recorded 2026-06-11. Single-change wave `1p4u0` is coherent and implementable: it targets setup/index provider selection without changing retrieval ranking, chunking, graph indexing, or embedding model selection. Required guardrails for implementation: CPU remains the safe fallback; CUDA and CoreML are evaluated as distinct provider paths; provider availability alone is insufficient without package/provider verification and a bounded active-model correctness/performance probe; no OS-level driver/toolkit/package-manager mutation is in scope; CI coverage must use mocks rather than requiring physical NVIDIA or Apple Neural Engine hardware. Architecture/docs updates are required because setup topology and indexing-provider diagnostics become part of the operator contract.
+- implementation: PASS — 2026-06-11. Implemented shared provider policy (`provider_policy.py`), setup-time CUDA dependency planning and provider diagnostics, bounded active-model provider probe, runtime provider reuse in `indexer.py`, named secondary provider handling, operator override support, and docs updates. Verification: focused setup tests OK; provider-selection tests OK; `wave_validate` docs-lint OK; full framework suite `python3 .wavefoundry/framework/scripts/run_tests.py` ran 3137 tests across 29 files OK.
 - operator-signoff: <approved when operator confirms closure>
 
 ## Review Checkpoints

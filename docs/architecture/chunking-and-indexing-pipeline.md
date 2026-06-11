@@ -35,6 +35,9 @@ Repository files
           Embedding            -- docs model / code model (768-dim each)
                 |
                 v
+          Provider selection   -- CUDA, verified CoreML, named secondary provider, or CPU
+                |
+                v
           LanceDB write        -- chunk-delta update or full overwrite
                 |
                 v
@@ -328,6 +331,26 @@ the docs model; when `CODE_MODEL` or `DOCS_MODEL` in `indexer.py` changes, `meta
 
 Docstrings and other `kind="doc"` chunks from source files are embedded with the **docs**
 model even though they originate from `.py`, `.java`, etc.
+
+### Provider Selection
+
+`setup_index.py` and `indexer.py` share provider-selection policy through
+`provider_policy.py`. The policy chooses ONNX Runtime execution providers in this order:
+
+1. `CUDAExecutionProvider` for NVIDIA/CUDA when ONNX Runtime exposes it.
+2. `CoreMLExecutionProvider` on Apple Silicon only after a bounded active-model probe produces
+   valid embeddings and beats the CPU path by a material margin.
+3. Named secondary ONNX providers such as `DmlExecutionProvider`, `OpenVINOExecutionProvider`,
+   `MIGraphXExecutionProvider`, or `ROCMExecutionProvider`, only after explicit availability and
+   model probing.
+4. `CPUExecutionProvider` as the safe fallback.
+
+There is intentionally no generic GPU provider tier. Each non-CPU provider has different package,
+driver, and model-compatibility constraints, so setup diagnostics report the actual provider name
+and fallback reason. On NVIDIA machines, setup plans the `fastembed-gpu` dependency path when local
+`nvidia-smi` detection succeeds. If hardware is present but `CUDAExecutionProvider` is missing after
+installation, setup keeps CPU execution and prints remediation guidance instead of failing the
+index build.
 
 ### Sliding sort buffer
 

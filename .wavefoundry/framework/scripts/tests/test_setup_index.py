@@ -113,7 +113,7 @@ class SetupIndexTests(unittest.TestCase):
         missing = ["fastembed", "lancedb"]
         call_count = [0]
 
-        def missing_side_effect(venv_python):
+        def missing_side_effect(venv_python, required_imports=None):
             call_count[0] += 1
             return missing if call_count[0] == 1 else []
 
@@ -285,6 +285,101 @@ class SetupIndexTests(unittest.TestCase):
         self.assertEqual(self.mod.REQUIRED_IMPORTS["igraph>=0.11"], "igraph")
         self.assertIn("leidenalg>=0.10", self.mod.REQUIRED_IMPORTS)
         self.assertEqual(self.mod.REQUIRED_IMPORTS["leidenalg>=0.10"], "leidenalg")
+
+    def test_planned_required_imports_adds_cuda_package_for_nvidia(self):
+        with patch.object(self.mod.provider_policy, "nvidia_gpu_present", return_value=True):
+            with patch.dict(os.environ, {"WAVEFOUNDRY_EMBED_PROVIDER": "auto"}, clear=False):
+                required = self.mod._planned_required_imports()
+        self.assertIn("fastembed-gpu", required)
+        self.assertEqual(required["fastembed-gpu"], "fastembed")
+
+    def test_planned_required_imports_respects_forced_cpu(self):
+        with patch.object(self.mod.provider_policy, "nvidia_gpu_present", return_value=True):
+            with patch.dict(os.environ, {"WAVEFOUNDRY_EMBED_PROVIDER": "cpu"}, clear=False):
+                required = self.mod._planned_required_imports()
+        self.assertNotIn("fastembed-gpu", required)
+
+    def test_report_embedding_provider_decision_selects_cuda(self):
+        result = self.mod.provider_policy.ProviderProbeResult(
+            "CUDAExecutionProvider",
+            True,
+            "CUDA probe ok",
+        )
+        with patch.object(
+            self.mod.provider_policy,
+            "available_onnx_providers",
+            return_value=("CUDAExecutionProvider", "CPUExecutionProvider"),
+        ):
+            with patch.object(self.mod, "_probe_embedding_provider", return_value=result) as probe:
+                with patch.dict(os.environ, {}, clear=True):
+                    stdout = io.StringIO()
+                    with redirect_stdout(stdout):
+                        decision = self.mod.report_embedding_provider_decision()
+        self.assertEqual(decision.selected_provider, "CUDAExecutionProvider")
+        probe.assert_not_called()
+        self.assertIn("selected=CUDAExecutionProvider", stdout.getvalue())
+
+    def test_report_embedding_provider_decision_selects_coreml_after_passing_probe(self):
+        result = self.mod.provider_policy.ProviderProbeResult(
+            "CoreMLExecutionProvider",
+            True,
+            "CoreML passed benchmark",
+            candidate_seconds=0.5,
+            cpu_seconds=1.0,
+        )
+        with patch.object(
+            self.mod.provider_policy,
+            "available_onnx_providers",
+            return_value=("CoreMLExecutionProvider", "CPUExecutionProvider"),
+        ):
+            with patch.object(self.mod, "_probe_embedding_provider", return_value=result):
+                with patch.dict(os.environ, {}, clear=True):
+                    decision = self.mod.report_embedding_provider_decision()
+        self.assertEqual(decision.selected_provider, "CoreMLExecutionProvider")
+        self.assertEqual(decision.providers, ("CoreMLExecutionProvider", "CPUExecutionProvider"))
+
+    def test_report_embedding_provider_decision_falls_back_when_coreml_probe_fails(self):
+        result = self.mod.provider_policy.ProviderProbeResult(
+            "CoreMLExecutionProvider",
+            False,
+            "candidate did not beat CPU by 1.25x",
+        )
+        with patch.object(
+            self.mod.provider_policy,
+            "available_onnx_providers",
+            return_value=("CoreMLExecutionProvider", "CPUExecutionProvider"),
+        ):
+            with patch.object(self.mod, "_probe_embedding_provider", return_value=result):
+                with patch.dict(os.environ, {}, clear=True):
+                    stdout = io.StringIO()
+                    with redirect_stdout(stdout):
+                        decision = self.mod.report_embedding_provider_decision()
+        self.assertEqual(decision.selected_provider, "CPUExecutionProvider")
+        self.assertIn("candidate did not beat CPU", stdout.getvalue())
+
+    def test_provider_policy_selects_named_secondary_provider_after_probe(self):
+        def probe(provider: str):
+            return self.mod.provider_policy.ProviderProbeResult(provider, True, f"{provider} ok")
+
+        with patch.dict(os.environ, {}, clear=True):
+            decision = self.mod.provider_policy.select_embedding_providers(
+                available_providers=("OpenVINOExecutionProvider", "CPUExecutionProvider"),
+                provider_probe=probe,
+            )
+        self.assertEqual(decision.selected_provider, "OpenVINOExecutionProvider")
+        self.assertNotIn("Generic", decision.reason)
+
+    def test_provider_policy_reports_nvidia_remediation_when_cuda_missing(self):
+        with patch.object(self.mod.provider_policy, "nvidia_gpu_present", return_value=True):
+            with patch.dict(os.environ, {}, clear=True):
+                decision = self.mod.provider_policy.select_embedding_providers(
+                    available_providers=("CPUExecutionProvider",),
+                    provider_probe=lambda provider: self.mod.provider_policy.ProviderProbeResult(provider, False, "nope"),
+                )
+        self.assertEqual(decision.selected_provider, "CPUExecutionProvider")
+        self.assertIsNotNone(decision.remediation)
+        assert decision.remediation is not None
+        self.assertIn("NVIDIA GPU detected", decision.remediation)
 
     def test_prewarm_models_warms_then_verifies_offline(self):
         with patch.object(self.mod, "_indexer_models", return_value=["model-a", "model-b"]):

@@ -22,6 +22,11 @@ if not os.environ.get("FASTEMBED_CACHE_PATH"):
     os.environ["FASTEMBED_CACHE_PATH"] = str(FASTEMBED_CACHE_DEFAULT)
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+import provider_policy
+
 TIMESTAMP_LOGS_ENV = "WAVEFOUNDRY_TIMESTAMP_LOGS"
 REQUIRED_IMPORTS = {
     "fastembed": "fastembed",
@@ -60,6 +65,9 @@ REQUIRED_IMPORTS = {
     "tree-sitter-powershell": "tree_sitter_powershell",
     "lancedb": "lancedb",
     "networkx>=3.0": "networkx",
+}
+CUDA_DEPENDENCY_IMPORTS = {
+    "fastembed-gpu": "fastembed",
 }
 
 
@@ -136,19 +144,51 @@ def _bootstrap_venv() -> Path:
     return venv_python
 
 
-def _missing_in_venv(venv_python: Path) -> list[str]:
+def _planned_required_imports() -> dict[str, str]:
+    required = dict(REQUIRED_IMPORTS)
+    if _should_plan_cuda_dependencies():
+        required.update(CUDA_DEPENDENCY_IMPORTS)
+    return required
+
+
+def _should_plan_cuda_dependencies() -> bool:
+    requested = os.environ.get(provider_policy.REQUESTED_PROVIDER_ENV, "auto").strip().lower()
+    if requested in {"cpu", "coreml", "dml", "directml", "openvino", "migraphx", "rocm"}:
+        return False
+    return provider_policy.nvidia_gpu_present()
+
+
+def _missing_in_venv(venv_python: Path, required_imports: dict[str, str] | None = None) -> list[str]:
     """Return distribution names for packages not importable from the venv Python."""
-    mod_to_dist = {mod: dist for dist, mod in REQUIRED_IMPORTS.items()}
+    required_imports = required_imports or _planned_required_imports()
+    mod_to_dist = {mod: dist for dist, mod in required_imports.items()}
+    gpu_dists = [dist for dist in CUDA_DEPENDENCY_IMPORTS if dist in required_imports]
     script = (
         "import importlib.util\n"
+        "import importlib.metadata as metadata\n"
         f"mods = {list(mod_to_dist)!r}\n"
-        "print('\\n'.join(m for m in mods if importlib.util.find_spec(m) is None))"
+        f"gpu_dists = {gpu_dists!r}\n"
+        "missing = [m for m in mods if importlib.util.find_spec(m) is None]\n"
+        "for dist in gpu_dists:\n"
+        "    try:\n"
+        "        metadata.version(dist)\n"
+        "    except metadata.PackageNotFoundError:\n"
+        "        missing.append('__dist__:' + dist)\n"
+        "print('\\n'.join(missing))"
     )
     result = subprocess.run([str(venv_python), "-c", script], capture_output=True, text=True)
     if result.returncode != 0:
-        return list(REQUIRED_IMPORTS.keys())
+        return list(required_imports.keys())
     missing_mods = [m.strip() for m in result.stdout.strip().splitlines() if m.strip()]
-    return [mod_to_dist[m] for m in missing_mods if m in mod_to_dist]
+    missing: list[str] = []
+    for item in missing_mods:
+        if item.startswith("__dist__:"):
+            dist = item.split(":", 1)[1]
+        else:
+            dist = mod_to_dist.get(item)
+        if dist and dist not in missing:
+            missing.append(dist)
+    return missing
 
 
 def _exclude_newer_cutoff(days: int = 21) -> str:
@@ -235,12 +275,13 @@ def _install_deps(missing: list[str], venv_python: Path) -> None:
 
 def ensure_deps() -> None:
     venv_python = _bootstrap_venv()
-    missing = _missing_in_venv(venv_python)
+    required_imports = _planned_required_imports()
+    missing = _missing_in_venv(venv_python, required_imports)
     if not missing:
-        print(f"Dependencies satisfied ({', '.join(REQUIRED_IMPORTS)})", flush=True)
+        print(f"Dependencies satisfied ({', '.join(required_imports)})", flush=True)
         return
     _install_deps(missing, venv_python)
-    still_missing = _missing_in_venv(venv_python)
+    still_missing = _missing_in_venv(venv_python, required_imports)
     if still_missing:
         print(
             f"Dependencies installed but still not importable: {', '.join(still_missing)}\n"
@@ -322,11 +363,100 @@ def _offline_env():
             os.environ["HF_HUB_OFFLINE"] = prior
 
 
+def _embedding_providers_for_setup() -> list[str]:
+    selected = os.environ.get(provider_policy.SETUP_SELECTED_ENV)
+    if selected and selected != provider_policy.CPU_PROVIDER:
+        return [selected, provider_policy.CPU_PROVIDER]
+    return [provider_policy.CPU_PROVIDER]
+
+
 def _warm_model(model_name: str, *, local_files_only: bool) -> None:
     from fastembed import TextEmbedding
 
-    embedding = TextEmbedding(model_name=model_name, local_files_only=local_files_only)
+    embedding = TextEmbedding(
+        model_name=model_name,
+        local_files_only=local_files_only,
+        providers=_embedding_providers_for_setup(),
+    )
     next(iter(embedding.embed(["wavefoundry cache verification"])))
+
+
+def _probe_embedding_provider(provider: str, *, model_name: str | None = None) -> provider_policy.ProviderProbeResult:
+    """Bounded correctness/performance probe for providers that need model proof."""
+    import math
+    import time as _time
+
+    from fastembed import TextEmbedding
+
+    model = model_name or _indexer_models(include_code=False)[0]
+    sample = [
+        "wavefoundry provider verification",
+        "A short setup probe is not representative of a full semantic index rebuild.",
+        "Provider selection should compare realistic embedding work across multiple chunks.",
+        "The Wavefoundry framework index includes prompt docs, architecture docs, wave records, and code snippets.",
+        "CoreMLExecutionProvider can be available while still partitioning meaningful work back to CPU.",
+        "CUDA, CoreML, DirectML, OpenVINO, MIGraphX, ROCm, and CPU have different provider behavior.",
+        "This bounded probe uses a mixed text batch so setup does not choose a provider based on one tiny input.",
+        "If a provider cannot beat CPU by a material margin for the active model, CPU remains the default.",
+    ]
+    try:
+        # Run one unmeasured warm pass for each provider, then time the second pass.
+        # FastEmbed and ONNX Runtime both do lazy setup that would otherwise dominate
+        # a tiny benchmark and make CoreML look better than a full-corpus rebuild.
+        cpu_embedding = TextEmbedding(
+            model_name=model,
+            local_files_only=True,
+            providers=[provider_policy.CPU_PROVIDER],
+        )
+        list(cpu_embedding.embed(sample))
+        started = _time.perf_counter()
+        cpu_vectors = [list(vector) for vector in cpu_embedding.embed(sample)]
+        cpu_seconds = _time.perf_counter() - started
+
+        candidate_embedding = TextEmbedding(
+            model_name=model,
+            local_files_only=True,
+            providers=[provider, provider_policy.CPU_PROVIDER],
+        )
+        list(candidate_embedding.embed(sample))
+        started = _time.perf_counter()
+        candidate_vectors = [list(vector) for vector in candidate_embedding.embed(sample)]
+        candidate_seconds = _time.perf_counter() - started
+    except Exception as exc:
+        return provider_policy.ProviderProbeResult(provider, False, f"{type(exc).__name__}: {exc}")
+
+    if len(candidate_vectors) != len(cpu_vectors) or not candidate_vectors:
+        return provider_policy.ProviderProbeResult(provider, False, "embedding shape mismatch")
+    for candidate_vector, cpu_vector in zip(candidate_vectors, cpu_vectors):
+        if len(candidate_vector) != len(cpu_vector):
+            return provider_policy.ProviderProbeResult(provider, False, "embedding shape mismatch")
+        if not all(math.isfinite(float(value)) for value in candidate_vector):
+            return provider_policy.ProviderProbeResult(provider, False, "embedding contains non-finite values")
+    min_speedup = float(os.environ.get("WAVEFOUNDRY_EMBED_PROVIDER_MIN_SPEEDUP", "1.25"))
+    if candidate_seconds <= 0 or (cpu_seconds / candidate_seconds) < min_speedup:
+        return provider_policy.ProviderProbeResult(
+            provider,
+            False,
+            f"candidate did not beat CPU by {min_speedup:.2f}x ({candidate_seconds:.3f}s vs {cpu_seconds:.3f}s)",
+            candidate_seconds=candidate_seconds,
+            cpu_seconds=cpu_seconds,
+        )
+    return provider_policy.ProviderProbeResult(
+        provider,
+        True,
+        f"{provider} passed embedding probe ({candidate_seconds:.3f}s vs CPU {cpu_seconds:.3f}s)",
+        candidate_seconds=candidate_seconds,
+        cpu_seconds=cpu_seconds,
+    )
+
+
+def report_embedding_provider_decision() -> provider_policy.ProviderDecision:
+    decision = provider_policy.select_embedding_providers(provider_probe=_probe_embedding_provider)
+    os.environ[provider_policy.SETUP_SELECTED_ENV] = decision.selected_provider
+    print(provider_policy.format_provider_decision(decision), flush=True)
+    if decision.remediation:
+        print(f"Embedding provider remediation: {decision.remediation}", flush=True)
+    return decision
 
 
 def _warm_reranker(model_name: str, *, local_files_only: bool) -> None:
@@ -805,6 +935,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     background_code = args.background_code and not args.include_code
+    report_embedding_provider_decision()
     if background_code:
         # H1 (Phase 4b reliability): stamp THIS process's pid into the background-build marker BEFORE
         # the synchronous docs build, so a crash here (prewarm / docs build) leaves a dead-pid record —

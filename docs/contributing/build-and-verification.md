@@ -30,6 +30,7 @@ python3 .wavefoundry/framework/scripts/setup_index.py
 
 What this does:
 - checks required runtime packages
+- evaluates the local embedding execution provider
 - prewarms the docs embedding model cache
 - rebuilds the project docs index (seeds + docs)
 
@@ -54,6 +55,24 @@ To build both synchronously (e.g. CI):
 ```bash
 python3 .wavefoundry/framework/scripts/setup_index.py --include-code
 ```
+
+### Embedding provider diagnostics
+
+Setup prints one provider line before model prewarm:
+
+```text
+Embedding provider: selected=CPUExecutionProvider; providers=['CPUExecutionProvider']; available=[...]; reason=...
+```
+
+Provider priority is CUDA/NVIDIA first, verified Apple CoreML second, explicit secondary ONNX
+providers such as DirectML/OpenVINO/MIGraphX/ROCm third, then CPU. There is no generic GPU tier.
+On NVIDIA machines, setup plans the `fastembed-gpu` dependency path when `nvidia-smi` reports a
+GPU. If the machine has NVIDIA hardware but ONNX Runtime still does not expose
+`CUDAExecutionProvider`, setup continues on CPU and prints a remediation hint to install a
+CUDA-capable FastEmbed/ONNX Runtime stack, then rerun setup.
+
+Operators can force a provider family for diagnosis with `WAVEFOUNDRY_EMBED_PROVIDER`:
+`cpu`, `cuda`, `coreml`, `directml`, `openvino`, `migraphx`, or `rocm`.
 
 ### Upgrade rebuild requirement
 

@@ -66,14 +66,15 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
 
 ```
 setup_wavefoundry.py --root .
-  ├── dependency check → fastembed, numpy, mcp[cli], tree-sitter + grammar packages in current Python
+  ├── dependency check → fastembed/fastembed-gpu, numpy, mcp[cli], tree-sitter + grammar packages in current Python
+  ├── embedding provider policy → CUDA, verified CoreML, named secondary ONNX providers, or CPU
   ├── prewarm docs/code embedding models in local cache
   ├── verify cached models in offline-only mode
   ├── indexer.py --root . --content docs   (default; docs/seeds only)
   ├── or with --include-code: indexer.py --root . --content all  (single subprocess, docs + code)
   ├── walk_repo()      →  respects .gitignore, .aiignore, hardcoded excludes; WALKER_VERSION triggers full rebuild on filter changes
   ├── chunker.py       →  chunk_python (AST) / chunk_markdown / tree-sitter chunkers for JS/TS/Go/Rust/Java/C/C++/C#/Bash/Kotlin / chunk_line_window fallback
-  ├── fastembed        →  BAAI/bge-base-en-v1.5 (docs/seeds and optional code)
+  ├── fastembed        →  BAAI/bge-small-en-v1.5 via selected ONNX provider
   └── .wavefoundry/index/
         ├── docs.npy / docs.json
         ├── code.npy / code.json
@@ -103,7 +104,7 @@ dashboard_server.py
 |------|---------|-----------|
 | Framework dir accidentally deleted | `.wavefoundry/framework/` is tracked in git; restore with `git checkout HEAD -- .wavefoundry/framework` | Covered by normal git recovery |
 | No CI/CD | No automated test runs on push | Framework tests run manually: `python3 .wavefoundry/framework/scripts/run_tests.py` |
-| Index not built on first install | `fastembed`, `numpy`, and `mcp[cli]` must be available in the Python runtime; index built manually before server is useful | `setup_index.py` checks dependencies, prewarms/verifies the embedding model cache, and prints isolated tool-venv setup commands when missing |
+| Index not built on first install | `fastembed`, `numpy`, and `mcp[cli]` must be available in the Python runtime; index built manually before server is useful | `setup_index.py` checks dependencies, selects/logs the embedding provider, prewarms/verifies the embedding model cache, and prints remediation when GPU-capable hardware falls back to CPU |
 | Search index drift or missing cache | Hook-driven indexing is not guaranteed in every agent environment, and query embedding must remain offline-safe | `docs_search` falls back to lexical search with structured diagnostics when the index is not ready or the semantic model is unavailable offline; per-query repo hash walks were removed to avoid O(repo) latency on every search; mutating MCP doc tools now request background incremental refresh for affected docs in non-hook environments; additional project index roots are explicit in `docs/workflow-config.json` `indexing.project_include_prefixes` rather than hidden repo-specific toggles |
 | Loopback dashboard port collisions | Multiple local Wave Framework repositories can run dashboards concurrently on one workstation | Dashboard host/port preferences live in `docs/workflow-config.json`; the server reuses host-local metadata when valid and scans a bounded fallback range when the preferred port is busy |
 | Lifecycle mutation drift between docs and files | Admitted change docs can drift between `docs/plans/` and wave folders when operators or tools bypass the normal lifecycle path | `wave_add_change`, `wave_remove_change`, and `wave_prepare` now relocate or repair placement and emit explicit diagnostics for duplicates or mismatched wave ownership |

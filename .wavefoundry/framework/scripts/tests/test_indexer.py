@@ -1629,8 +1629,9 @@ class OnnxProviderSelectionTests(unittest.TestCase):
         self.mod = load_build_index()
 
     def _providers(self, available: list[str]) -> list[str]:
-        with patch("onnxruntime.get_available_providers", return_value=available):
-            return self.mod._onnx_providers()
+        with patch.object(self.mod.provider_policy, "available_onnx_providers", return_value=tuple(available)):
+            with patch.dict(os.environ, {}, clear=True):
+                return self.mod._onnx_providers()
 
     def test_coreml_not_used_on_apple_silicon(self):
         # CoreML is excluded: no-op for INT8 models, actively hurts FP32 models.
@@ -1651,8 +1652,22 @@ class OnnxProviderSelectionTests(unittest.TestCase):
         providers = self._providers(["CoreMLExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"])
         self.assertEqual(providers[0], "CUDAExecutionProvider")
 
+    def test_setup_validated_coreml_handoff_is_honored(self):
+        with patch.object(
+            self.mod.provider_policy,
+            "available_onnx_providers",
+            return_value=("CoreMLExecutionProvider", "CPUExecutionProvider"),
+        ):
+            with patch.dict(
+                os.environ,
+                {"WAVEFOUNDRY_EMBED_PROVIDER_SELECTED": "CoreMLExecutionProvider"},
+                clear=True,
+            ):
+                providers = self.mod._onnx_providers()
+        self.assertEqual(providers, ["CoreMLExecutionProvider", "CPUExecutionProvider"])
+
     def test_onnxruntime_import_error_returns_cpu(self):
-        with patch.dict("sys.modules", {"onnxruntime": None}):
+        with patch.object(self.mod.provider_policy, "available_onnx_providers", return_value=("CPUExecutionProvider",)):
             result = self.mod._onnx_providers()
         self.assertEqual(result, ["CPUExecutionProvider"])
 

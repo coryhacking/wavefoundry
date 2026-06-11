@@ -1,9 +1,9 @@
 # Hardware-Aware Embedding Provider Selection
 
 Change ID: `1p4u0-enh hardware-aware-embedding-provider-selection`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: implementer
-Status: planned
+Status: implemented
 Last verified: 2026-06-11
 Wave: `1p4u5 hardware-aware-embedding-providers`
 
@@ -18,10 +18,11 @@ The failure mode is therefore easy to miss: setup succeeds, indexing works, but 
 1. During `setup_wavefoundry.py` / `setup_index.py`, detect whether the local machine appears GPU-capable for embedding acceleration before dependency installation is finalized.
 2. Select the best supported embedding runtime for local hardware, preferring CUDA on NVIDIA systems only when the installed Python packages and ONNX Runtime provider probe confirm `CUDAExecutionProvider` is usable.
 3. Evaluate Apple Silicon separately through `CoreMLExecutionProvider` compatibility and performance probes; enable CoreML only when the active embedding model produces valid embeddings and beats the CPU path by a meaningful threshold.
-4. Preserve the current CPU-only path as the safe fallback on machines without supported GPU acceleration, unsupported operating systems, missing drivers/toolkit requirements, failed provider probes, invalid embeddings, or slower provider measurements.
-5. Surface the selected embedding execution provider in setup/index logs, including clear reasons when GPU acceleration was detected in hardware but not enabled in the Python environment.
-6. Keep setup local-only and deterministic: do not require telemetry, hosted capability checks, or non-Python system mutation.
-7. Add tests around provider detection, package selection, fallback behavior, and operator-facing diagnostics without requiring CI to have a physical GPU.
+4. Evaluate other GPU-capable ONNX Runtime providers as named platform providers, not as a generic GPU bucket: CUDA/NVIDIA first, Apple CoreML second when its probe passes, then explicitly supported secondary providers such as DirectML, OpenVINO, MIGraphX, or ROCm only when they are available and verified.
+5. Preserve the current CPU-only path as the safe fallback on machines without supported GPU acceleration, unsupported operating systems, missing drivers/toolkit requirements, failed provider probes, invalid embeddings, or slower provider measurements.
+6. Surface the selected embedding execution provider in setup/index logs, including clear reasons when GPU acceleration was detected in hardware but not enabled in the Python environment.
+7. Keep setup local-only and deterministic: do not require telemetry, hosted capability checks, or non-Python system mutation.
+8. Add tests around provider detection, package selection, fallback behavior, and operator-facing diagnostics without requiring CI to have a physical GPU.
 
 ## Scope
 
@@ -32,6 +33,7 @@ The failure mode is therefore easy to miss: setup succeeds, indexing works, but 
 - Add a setup-time provider evaluation path in `.wavefoundry/framework/scripts/setup_index.py`.
 - Evaluate NVIDIA/CUDA capability using local probes such as `nvidia-smi`, package/provider imports, and ONNX Runtime provider availability.
 - Evaluate Apple Silicon/CoreML capability using ONNX Runtime provider availability plus a small model-specific correctness and performance probe against `CoreMLExecutionProvider`.
+- Evaluate secondary ONNX Runtime provider families by explicit provider name only; do not introduce a generic "GPU" provider label or fallback.
 - Decide whether dependency installation should use CPU defaults or a GPU-capable dependency set, such as `fastembed-gpu` and/or `onnxruntime-gpu`, subject to compatibility verification.
 - Add an explicit post-install provider verification step that confirms which ONNX providers are available to FastEmbed.
 - Record provider decisions in metadata or logs sufficiently to diagnose why CPU, CUDA, or CoreML was selected.
@@ -49,27 +51,28 @@ The failure mode is therefore easy to miss: setup succeeds, indexing works, but 
 
 ## Acceptance Criteria
 
-- [ ] AC-1: On a CPU-only machine or mocked CPU-only environment, setup installs/uses the CPU dependency path and logs that `CPUExecutionProvider` is selected without error.
-- [ ] AC-2: On a mocked NVIDIA/CUDA-capable environment where GPU packages expose `CUDAExecutionProvider`, setup selects the GPU-capable dependency/provider path and logs `CUDAExecutionProvider` as active.
-- [ ] AC-3: On a mocked NVIDIA/CUDA-capable environment where GPU package install or provider verification fails, setup falls back to CPU and logs the concrete fallback reason plus the manual remediation hint.
-- [ ] AC-4: On a mocked Apple Silicon/CoreML-capable environment where CoreML produces valid embeddings and passes the performance threshold, setup selects `CoreMLExecutionProvider` and logs it as active.
-- [ ] AC-5: On a mocked Apple Silicon/CoreML-capable environment where CoreML is unavailable, invalid, or slower than CPU, setup falls back to CPU and logs the concrete fallback reason.
-- [ ] AC-6: Runtime provider selection remains centralized and consistent with `indexer.py` `_onnx_providers()`, so setup's reported provider and indexer's actual provider cannot diverge silently.
-- [ ] AC-7: Tests cover dependency selection and provider-probe branches without requiring a real GPU or Apple Neural Engine in the test environment.
-- [ ] AC-8: Setup/install documentation explains how Wavefoundry chooses CPU vs CUDA vs CoreML embedding execution, how to verify the active provider, and how to remediate a GPU-capable machine that is still using CPU.
-- [ ] AC-9: Existing framework tests pass via `python3 .wavefoundry/framework/scripts/run_tests.py`.
+- [x] AC-1: On a CPU-only machine or mocked CPU-only environment, setup installs/uses the CPU dependency path and logs that `CPUExecutionProvider` is selected without error.
+- [x] AC-2: On a mocked NVIDIA/CUDA-capable environment where GPU packages expose `CUDAExecutionProvider`, setup selects the GPU-capable dependency/provider path and logs `CUDAExecutionProvider` as active.
+- [x] AC-3: On a mocked NVIDIA/CUDA-capable environment where GPU package install or provider verification fails, setup falls back to CPU and logs the concrete fallback reason plus the manual remediation hint.
+- [x] AC-4: On a mocked Apple Silicon/CoreML-capable environment where CoreML produces valid embeddings and passes the performance threshold, setup selects `CoreMLExecutionProvider` and logs it as active.
+- [x] AC-5: On a mocked Apple Silicon/CoreML-capable environment where CoreML is unavailable, invalid, or slower than CPU, setup falls back to CPU and logs the concrete fallback reason.
+- [x] AC-6: Named secondary providers such as DirectML/OpenVINO/MIGraphX/ROCm are considered only by explicit provider name after CUDA and CoreML; no generic GPU bucket appears in setup diagnostics or provider policy.
+- [x] AC-7: Runtime provider selection remains centralized and consistent with `indexer.py` `_onnx_providers()`, so setup's reported provider and indexer's actual provider cannot diverge silently.
+- [x] AC-8: Tests cover dependency selection and provider-probe branches without requiring a real GPU or Apple Neural Engine in the test environment.
+- [x] AC-9: Setup/install documentation explains how Wavefoundry chooses CPU vs CUDA vs CoreML embedding execution, how to verify the active provider, and how to remediate a GPU-capable machine that is still using CPU.
+- [x] AC-10: Existing framework tests pass via `python3 .wavefoundry/framework/scripts/run_tests.py`.
 
 ## Tasks
 
-- [ ] Inspect current FastEmbed and ONNX Runtime packaging constraints for CPU vs CUDA vs CoreML provider support.
-- [ ] Define a bounded provider probe for the active embedding model that verifies shape/numeric sanity and compares CPU vs candidate provider runtime.
-- [ ] Add a small provider-capability abstraction in setup/indexer code so setup can reuse or mirror runtime provider logic without duplicating fragile behavior.
-- [ ] Extend dependency installation planning to select CPU or GPU package requirements based on capability and operator override.
-- [ ] Add post-install verification that imports ONNX Runtime/FastEmbed and records available providers.
-- [ ] Add setup log lines for selected provider, unavailable GPU/CoreML reasons, performance-probe results, and remediation guidance.
-- [ ] Add unit tests with mocked `nvidia-smi`, Apple Silicon/CoreML probes, package import/provider responses, install failures, and fallback behavior.
-- [ ] Update architecture and setup docs to describe hardware-aware provider selection.
-- [ ] Run the full framework suite.
+- [x] Inspect current FastEmbed and ONNX Runtime packaging constraints for CPU vs CUDA vs CoreML provider support.
+- [x] Define a bounded provider probe for the active embedding model that verifies shape/numeric sanity and compares CPU vs candidate provider runtime.
+- [x] Add a small provider-capability abstraction in setup/indexer code so setup can reuse or mirror runtime provider logic without duplicating fragile behavior.
+- [x] Extend dependency installation planning to select CPU or GPU package requirements based on capability and operator override.
+- [x] Add post-install verification that imports ONNX Runtime/FastEmbed and records available providers.
+- [x] Add setup log lines for selected provider, unavailable GPU/CoreML reasons, performance-probe results, and remediation guidance.
+- [x] Add unit tests with mocked `nvidia-smi`, Apple Silicon/CoreML probes, package import/provider responses, install failures, and fallback behavior.
+- [x] Update architecture and setup docs to describe hardware-aware provider selection.
+- [x] Run the full framework suite.
 
 ## Agent Execution Graph
 
@@ -104,10 +107,11 @@ The failure mode is therefore easy to miss: setup succeeds, indexing works, but 
 | AC-3 | required | GPU detection must not turn install into a brittle failure path. |
 | AC-4 | important | Apple Silicon is common local developer hardware and should be evaluated when ONNX Runtime exposes CoreML. |
 | AC-5 | required | CoreML availability must not create slower or incorrect default behavior. |
-| AC-6 | required | Setup logs must match runtime behavior. |
-| AC-7 | required | CI cannot depend on physical GPU hardware. |
-| AC-8 | important | Operators need actionable guidance when hardware and provider state differ. |
-| AC-9 | required | Framework script changes require full-suite verification. |
+| AC-6 | important | Non-NVIDIA providers should be explicit and verifiable, not a misleading generic GPU tier. |
+| AC-7 | required | Setup logs must match runtime behavior. |
+| AC-8 | required | CI cannot depend on physical GPU hardware. |
+| AC-9 | important | Operators need actionable guidance when hardware and provider state differ. |
+| AC-10 | required | Framework script changes require full-suite verification. |
 
 ## Progress Log
 
@@ -115,6 +119,9 @@ The failure mode is therefore easy to miss: setup succeeds, indexing works, but 
 | ---- | ------ | -------- |
 | 2026-06-11 | Plan drafted from field feedback on NVIDIA GPU install using CPU-only embedding runtime. | Current code evidence: `setup_index.py` installs `fastembed`; `indexer.py` selects CUDA only when ONNX Runtime reports `CUDAExecutionProvider`. |
 | 2026-06-11 | Added Apple Silicon/CoreML as an evaluated provider path, with correctness/performance gates before enablement. | Local Mac evidence: Apple M2 Max exposes `CoreMLExecutionProvider`, but current Wavefoundry code intentionally excludes it. |
+| 2026-06-11 | Operator confirmed provider priority should be CUDA/NVIDIA, CoreML when verified, then explicit secondary provider families, then CPU. | Implemented as named ONNX provider candidates; no generic GPU bucket. |
+| 2026-06-11 | Implemented shared provider policy, setup dependency planning, bounded provider probe, setup diagnostics, runtime provider reuse, docs, and mocked tests. | Added `provider_policy.py`; updated `setup_index.py`, `indexer.py`, `test_setup_index.py`, `test_indexer.py`, `docs/architecture/current-state.md`, `docs/architecture/chunking-and-indexing-pipeline.md`, and `docs/contributing/build-and-verification.md`. Verification: focused setup tests OK; provider-selection tests OK; `wave_validate` OK; full framework suite 3137 tests OK. |
+| 2026-06-11 | Ran setup on the local macOS Apple Silicon machine. | `setup_index.py --root .` selected `CoreMLExecutionProvider` with providers `['CoreMLExecutionProvider', 'CPUExecutionProvider']`; available providers were `['CoreMLExecutionProvider', 'AzureExecutionProvider', 'CPUExecutionProvider']`; bounded probe measured CoreML `0.085s` vs CPU `0.096s`. |
 
 ## Decision Log
 
@@ -122,6 +129,7 @@ The failure mode is therefore easy to miss: setup succeeds, indexing works, but 
 | ---- | -------- | ------ | ------------ |
 | 2026-06-11 | Prefer setup-time hardware-aware provider evaluation with verified fallback. | It fixes the install-time dependency gap while preserving runtime provider probing and safe CPU behavior. | Alternative 1: document manual `onnxruntime-gpu` installation only; weak because users still silently get CPU by default. Alternative 2: always install GPU dependencies; weak because it risks breaking CPU-only or unsupported systems and increases install complexity. Alternative 3: benchmark CPU vs GPU on every setup; weak because it can make setup slower and requires more moving parts than provider verification. |
 | 2026-06-11 | Evaluate CoreML separately from CUDA and enable only after a bounded model-specific correctness/performance probe. | `CoreMLExecutionProvider` can exist on Apple Silicon, but availability is not enough to prove Wavefoundry's FastEmbed ONNX models benefit from it. | Alternative 1: keep CoreML out of scope; weak because Apple Silicon is common and ONNX Runtime exposes a plausible provider. Alternative 2: always use CoreML when available; weak because prior code excluded it for model-compatibility/performance reasons and it could regress users. |
+| 2026-06-11 | Treat non-NVIDIA GPU support as named ONNX Runtime provider families, not a generic GPU tier. | DirectML, OpenVINO, MIGraphX, and ROCm have different platform/package constraints and should only activate after explicit availability and model probing. | A generic GPU fallback would be easier to describe but would hide incompatible provider semantics and make diagnostics less actionable. |
 
 ## Risks
 
