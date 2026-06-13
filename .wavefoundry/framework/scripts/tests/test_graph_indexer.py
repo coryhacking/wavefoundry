@@ -482,15 +482,15 @@ class GraphIndexerTests(unittest.TestCase):
         # not only the indexer "changed" set (which may be a single doc from the hook).
         self.assertIn("src/b.py::beta", node_ids)
 
-    def test_framework_layer_writes_framework_graph_file(self):
-        payload = self._run(
-            {"src/tools.py": "def process():\n    return 1\n"},
-            changed={"src/tools.py"},
-            removed=set(),
-            layer="framework",
-        )
-        self.assertEqual(payload["layer"], "framework")
-        self.assertTrue((self._index_dir() / "graph" / "framework-graph.json").exists())
+    def test_framework_graph_layer_rejected(self):
+        # Wave 1p4ww: single project graph — the framework graph layer was removed.
+        with self.assertRaises(ValueError):
+            self._run(
+                {"src/tools.py": "def process():\n    return 1\n"},
+                changed={"src/tools.py"},
+                removed=set(),
+                layer="framework",
+            )
 
     def test_tree_sitter_config_files_get_symbol_nodes(self):
         if getattr(self.mod, "_ts_get_parser", lambda *_: None)("yaml") is None:
@@ -4945,8 +4945,8 @@ class GraphBuilderVersionTests(unittest.TestCase):
     """Wave 1p4ls AC-3: the node/edge shape changed (constant nodes + reads edge) so the builder
     version is bumped, forcing a full re-extract against any older cache."""
 
-    def test_graph_builder_version_is_28(self):
+    def test_graph_builder_version_is_29(self):
         # 1p4ls bumped 25→26 (constant nodes + reads edge); 1p4q4 bumped 26→27 (TS enum member nodes);
-        # 1p4q4 review bumped 27→28 (namespace-prefixed enum members + short-symbol-prune exemption for
-        # constants — node-set shape change).
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "28")
+        # 1p4q4 review bumped 27→28 (namespace-prefixed enum members + short-symbol-prune exemption);
+        # 1p4up bumped 28→29 (member-access constant reads — new function→constant `reads` edges).
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "29")

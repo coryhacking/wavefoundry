@@ -196,6 +196,19 @@ def _run_file(file_path: Path) -> tuple[str, int, str, int]:
     """
     env = os.environ.copy()
     env["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = "1"
+    # Wave 1p52p: the test suite is hardware-INDEPENDENT (CI has no GPU, so it must pass on CPU).
+    # Force the CPU provider so tests never build/run the real CoreML/CUDA embedder OR cross-encoder
+    # reranker — that downloads models, pays the ~20s CoreML compile per process, runs ~0.8s/rerank
+    # across the many code_ask integration tests, and (with 6 files in parallel) widens the
+    # onnx/protobuf+CoreML abort surface. The GPU accel paths are unit-tested via mocks
+    # (make_embedder/make_reranker dispatch); real-GPU parity is an operator-side validation.
+    # A test that specifically needs a GPU provider can override this in its own env.
+    env.setdefault("WAVEFOUNDRY_EMBED_PROVIDER", "cpu")
+    # Wave 1p52p (CPU reranker fallback): with the CPU INT8 reranker, `EMBED_PROVIDER=cpu` would now
+    # build a REAL CPU reranker in the integration tests (~960 ms/query → slow suite). The dedicated
+    # disable flag turns reranking off entirely for the suite — fast + deterministic. Tests that
+    # exercise the reranker mock `_get_reranker`/`make_reranker` directly.
+    env.setdefault("WAVEFOUNDRY_DISABLE_RERANKER", "1")
     try:
         result = subprocess.run(
             [_test_runner_python(), "-B", "-m", "unittest", "discover",

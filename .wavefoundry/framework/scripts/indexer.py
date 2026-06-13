@@ -36,17 +36,31 @@ TABLE_LOCK_NAME = ".lock"   # written inside docs.lance/ and code.lance/
 LOCK_STALE_SECONDS = 60 * 60
 TIMESTAMP_LOGS_ENV = "WAVEFOUNDRY_TIMESTAMP_LOGS"
 
-DOCS_MODEL = "BAAI/bge-small-en-v1.5"
+# Wave 1p4wx: docs/code embedding-model split. Docs use the asymmetric
+# arctic-embed-xs (best on the 45-query docs bake-off: 82% vs bge-small 67%);
+# code stays on the symmetric bge-small (unbeaten on the 62-query code set).
+# Both are 384-d, so there is no vector-dimension ripple. The model name stored
+# in ``model_versions["docs"]`` IS the version — changing it auto-forces a
+# docs-only re-embed (see ``build_index``); the code layer reuses its vectors.
+DOCS_MODEL = "Snowflake/snowflake-arctic-embed-xs"
 CODE_MODEL = "BAAI/bge-small-en-v1.5"
 
 # Instruction prefixes required by asymmetric embedding models.
-# Values include a trailing space so that `prefix + text` produces correctly
-# formatted input (e.g. "search_document: " + passage_text).
-# Empty strings mean no prefix (symmetric models such as bge-base).
+# Values include a trailing space/separator so that ``prefix + text`` produces
+# correctly formatted input. Empty strings mean no prefix (symmetric models such
+# as bge-small/base). The pipeline embeds via fastembed ``.embed()`` (which does
+# NOT auto-apply prefixes), so the QUERY prefix is applied explicitly at query
+# time (``server_impl._embed_query`` via ``query_embedding_prefix``) and the
+# DOCUMENT prefix at index time. arctic-embed is asymmetric: queries carry the
+# "Represent this sentence…" instruction; documents carry none.
 EMBEDDING_PREFIXES: dict[str, dict[str, str]] = {
     "nomic-ai/nomic-embed-text-v1.5-Q": {
         "document": "search_document: ",
         "query": "search_query: ",
+    },
+    "Snowflake/snowflake-arctic-embed-xs": {
+        "document": "",
+        "query": "Represent this sentence for searching relevant passages: ",
     },
     "BAAI/bge-base-en-v1.5": {
         "document": "",
@@ -66,6 +80,42 @@ EMBEDDING_PREFIXES: dict[str, dict[str, str]] = {
     },
 }
 
+
+def query_embedding_prefix(model_name: str) -> str:
+    """Instruction prefix to prepend to a QUERY before embedding with ``model_name``.
+
+    Empty for symmetric models. Asymmetric models (e.g. arctic-embed) require it
+    at query time — the pipeline embeds via fastembed ``.embed()``, which does not
+    apply prefixes automatically.
+    """
+    return EMBEDDING_PREFIXES.get(model_name, {}).get("query", "")
+
+
+def document_embedding_prefix(model_name: str) -> str:
+    """Instruction prefix to prepend to a DOCUMENT/passage before embedding.
+
+    Empty for every model currently in use (arctic-embed documents take no
+    prefix). The build path embeds passages without a prefix; this invariant is
+    enforced by ``_assert_active_models_have_empty_document_prefix`` so a future
+    asymmetric-document model can't silently regress the index.
+    """
+    return EMBEDDING_PREFIXES.get(model_name, {}).get("document", "")
+
+
+def _assert_active_models_have_empty_document_prefix() -> None:
+    """Guard: the index build embeds passages without a prefix, which is only
+    correct while every active model's document prefix is empty."""
+    for model_name in (DOCS_MODEL, CODE_MODEL):
+        if document_embedding_prefix(model_name):
+            raise AssertionError(
+                f"Active model {model_name!r} declares a non-empty document prefix, "
+                "but the index build does not apply document prefixes. Wire the "
+                "document prefix into the embed path before using this model."
+            )
+
+
+_assert_active_models_have_empty_document_prefix()
+
 # LanceDB vector index constants
 # Tables are stored directly inside the index directory (e.g. .wavefoundry/index/docs.lance/).
 LANCEDB_INDEX_THRESHOLD = 1000   # rows; below: flat scan; at/above: IVF_HNSW_SQ index
@@ -74,13 +124,23 @@ EMBED_BATCH_SIZE = 256           # chunks per embedding batch
 SORT_WINDOW_SIZE = 2048          # sliding sort buffer size (8× EMBED_BATCH_SIZE)
 LANCEDB_NPROBES = 20             # ANN search probes (recall vs latency)
 LANCEDB_REFINE_FACTOR = 10       # reranking candidates multiplier
-RERANKER_MODEL = "BAAI/bge-reranker-base"
+# Wave 1p52p: cross-encoder reranker. ms-marco-MiniLM-L-6-v2 (6-layer, 22M) via its Xenova FP16 export
+# (resolved in accel_embedder.CLEAN_ONNX_SOURCES). Chosen over bge-reranker-base after a head-to-head:
+# better known-answer recall (mean rank 1.07 vs 1.67), ~4-5x faster, ~8x less memory, and the only one
+# whose CoreML compile cache speeds up restarts. Runs on either hardware: GPU FP16, or CPU INT8 (no
+# ranking loss); reranking is skipped only when explicitly disabled (WAVEFOUNDRY_DISABLE_RERANKER).
+RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 CONTENT_CHOICES = ("docs", "code", "all", "graph")
 
 try:
     import provider_policy
 except ImportError:  # pragma: no cover - defensive when loaded from an unusual path
     provider_policy = None
+
+try:
+    import accel_embedder  # Wave 1p517: GPU static-shape ONNX embedder
+except ImportError:  # pragma: no cover - defensive
+    accel_embedder = None
 
 
 class _TimestampedStream:
@@ -325,6 +385,18 @@ PROJECT_INDEX_EXCLUDE_PREFIXES = (
     ".wavefoundry/",
 )
 
+# 1p4ww: the separate shipped framework index is eliminated. Only the framework
+# SEEDS + README are folded into the PROJECT docs index by default — they describe
+# the framework's methodology/overview and are useful in any consumer project. The
+# rest of `.wavefoundry/framework/` (scripts, operational docs, dashboard,
+# install/release) is framework-internal; the self-hosting repo already covers its
+# own scripts via workflow-config and its docs via the project `docs/` tree. Both
+# folded prefixes are docs-kind, so no framework code is added and no dedup is needed.
+FRAMEWORK_FOLD_DOCS_PREFIXES = (
+    ".wavefoundry/framework/seeds",
+    ".wavefoundry/framework/README.md",
+)
+
 BINARY_EXTENSIONS = frozenset({
     # Compiled / native
     ".pyc", ".pyo", ".so", ".dylib", ".dll", ".exe", ".bin", ".a", ".o", ".elf",
@@ -380,9 +452,13 @@ _DOT_DIR_ALLOWLIST = ".wavefoundry"
 _DOT_DIR_ALLOWLIST_PREFIX = ".wavefoundry/"
 
 # Bump when walk_repo() filter logic changes (binary exclusions, generated file exclusions,
-# null-byte/magic-byte sniff changes). A version mismatch forces a full rebuild so that
-# files newly excluded by the filter are removed from existing indexes automatically.
-WALKER_VERSION = "5"
+# null-byte/magic-byte sniff changes) OR when the project-index include set changes. A version
+# mismatch forces a full rebuild so existing indexes pick up newly-included / drop newly-excluded
+# files automatically.
+# 5 -> 6 (1p4ww): framework seeds + README are now folded into the project docs index by default;
+# existing indexes must re-walk to pull them in (the stale shipped framework/index/ is removed by
+# the manifest-prune on upgrade since the new pack no longer ships it).
+WALKER_VERSION = "6"
 
 # Environment variable used by the MCP server to tell the background indexer
 # which state file to remove once the process exits.
@@ -751,22 +827,37 @@ def _effective_project_include_prefixes(
     """Resolve project-layer semantic include-prefixes for this run.
 
     Explicit ``override`` (a CLI ``--project-include-prefix`` or a direct call
-    argument) always wins. Otherwise, for the project layer, the indexer reads
-    ``docs/workflow-config.json`` itself and selects the prefix list matching
-    this run's content — so launchers (hooks, dashboard, background refresh) no
-    longer have to read the config and forward prefixes on every invocation.
+    argument) selects the configured surface. Otherwise, for the project layer,
+    the indexer reads ``docs/workflow-config.json`` itself and selects the prefix
+    list matching this run's content — so launchers (hooks, dashboard, background
+    refresh) no longer have to read the config and forward prefixes on every
+    invocation.
+
+    The 1p4ww framework-seed fold is a project-DOCS invariant: it must survive
+    even when an ``override`` is present. setup_index forwards the merged
+    docs+code workflow prefixes as ``override`` (non-empty whenever a project
+    configures self-hosting code prefixes like ``.wavefoundry/framework/scripts``),
+    so an unconditional ``override`` short-circuit silently drops the folded seeds
+    from the docs index. We therefore append ``FRAMEWORK_FOLD_DOCS_PREFIXES`` for
+    docs/all content on the project layer regardless of override.
     """
+    is_project = _graph_layer_for_index_dir(index_dir) == "project"
+    folds_seeds = is_project and content_for_filter in ("docs", "all")
     if override:
-        return _normalize_prefixes(override)
-    if _graph_layer_for_index_dir(index_dir) != "project":
+        base = _normalize_prefixes(override)
+        if folds_seeds:
+            return _normalize_prefixes((*base, *FRAMEWORK_FOLD_DOCS_PREFIXES))
+        return base
+    if not is_project:
         return ()
     wf = _workflow_project_include_prefixes(root)
+    # 1p4ww: fold the framework seeds + README into the PROJECT docs index by default.
     if content_for_filter == "docs":
-        selected: tuple[str, ...] = wf["docs"]
+        selected: tuple[str, ...] = (*wf["docs"], *FRAMEWORK_FOLD_DOCS_PREFIXES)
     elif content_for_filter == "code":
         selected = wf["code"]
     else:  # "all"
-        selected = (*wf["docs"], *wf["code"])
+        selected = (*wf["docs"], *wf["code"], *FRAMEWORK_FOLD_DOCS_PREFIXES)
     return _normalize_prefixes(selected)
 
 
@@ -784,6 +875,31 @@ def _merged_project_include_prefixes_for_graph(
         return _normalize_prefixes(configured_prefixes)
     wf = _workflow_project_include_prefixes(root)
     return _normalize_prefixes((*wf["docs"], *wf["code"]))
+
+
+def _project_meta_include_prefixes(
+    root: Path,
+    configured_prefixes: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Include-prefixes for project ``file_meta`` eligibility — the docs+code
+    graph surface PLUS the framework docs folded into the project docs index
+    (Wave 1p4ww: ``FRAMEWORK_FOLD_DOCS_PREFIXES``).
+
+    ``files_for_meta`` is computed once and reused by both the docs-content and
+    code-content filters, so the folded framework seeds/README must survive into
+    it — otherwise they are stripped here (they live under the ``.wavefoundry/``
+    blanket exclusion) before the docs-content filter, which DOES allow them, ever
+    runs, and the fold never reaches the index. The graph surface
+    (``_merged_project_include_prefixes_for_graph``) intentionally omits these
+    docs-only prefixes.
+    """
+    # The fold is a project-DOCS invariant and must reach ``file_meta`` whether or
+    # not the project also configures explicit prefixes (self-hosting code
+    # prefixes make ``configured_prefixes`` non-empty). An early ``return base``
+    # on a non-empty config silently strips the folded seeds before the
+    # docs-content filter — which DOES allow them — ever runs.
+    base = _merged_project_include_prefixes_for_graph(root, configured_prefixes)
+    return _normalize_prefixes((*base, *FRAMEWORK_FOLD_DOCS_PREFIXES))
 
 
 def _is_generated_code_path(rel_path: str) -> bool:
@@ -1671,8 +1787,33 @@ def _onnx_providers() -> list[str]:
     return list(decision.providers)
 
 
+_EMBEDDER_CACHE: dict[str, Any] = {}
+
+
 def _get_embedder(model_name: str):
-    """Return a fastembed TextEmbedding instance for model_name."""
+    """Return a fastembed TextEmbedding instance for model_name.
+
+    Wave 1p4wy: cached per process so the ONNX/CoreML session (and its ~40s compile
+    on the GPU path) is built once, not re-created if the same model is requested
+    again within a build.
+    """
+    cached = _EMBEDDER_CACHE.get(model_name)
+    if cached is not None:
+        return cached
+    providers = _onnx_providers()
+    # Wave 1p517: when a GPU provider is selected, use the static-shape ONNX embedder
+    # (CoreML/CUDA) if this model's graph actually runs on the GPU; else fall back to fastembed.
+    if accel_embedder is not None:
+        try:
+            accel = accel_embedder.make_embedder(model_name, providers)
+        except Exception:
+            accel = None
+        if accel is not None:
+            print(f"build_index: using GPU-accelerated embedder for {model_name} "
+                  f"({getattr(accel, 'provider', '?')}, static {accel_embedder.STATIC_BATCH}x"
+                  f"{accel_embedder.STATIC_SEQ})", flush=True)
+            _EMBEDDER_CACHE[model_name] = accel
+            return accel
     try:
         from fastembed import TextEmbedding
     except ImportError:
@@ -1682,7 +1823,9 @@ def _get_embedder(model_name: str):
             file=sys.stderr,
         )
         sys.exit(1)
-    return TextEmbedding(model_name=model_name, providers=_onnx_providers())
+    embedder = TextEmbedding(model_name=model_name, providers=providers)
+    _EMBEDDER_CACHE[model_name] = embedder
+    return embedder
 
 
 def _embed_texts(embedder, texts: list[str], batch_size: int = 256) -> "np.ndarray":
@@ -1871,9 +2014,8 @@ def _chunks_for_file(rel_path: str, content: str) -> tuple[list[dict], list[dict
 
 
 def _graph_layer_for_index_dir(index_dir: Path) -> str:
-    normalized = str(index_dir).replace("\\", "/")
-    if normalized.endswith("/.wavefoundry/framework/index"):
-        return "framework"
+    # Wave 1p4ww: single project graph — the framework graph layer was removed,
+    # so every index build extracts into the one project graph.
     return "project"
 
 
@@ -2070,7 +2212,7 @@ def _build_index_locked(
         # workflow-config.json, not by the per-run content type's include set.
         graph_layer = _graph_layer_for_index_dir(index_dir)
         if graph_layer == "project":
-            meta_project_includes = _merged_project_include_prefixes_for_graph(root, project_include_prefixes)
+            meta_project_includes = _project_meta_include_prefixes(root, project_include_prefixes)
             files_for_meta = _filter_project_index_excludes(
                 files,
                 root,
@@ -2122,7 +2264,7 @@ def _build_index_locked(
         # Project-layer meta must not contain framework files even when files= is
         # passed in explicitly.  See the walk-branch comment above for the rationale.
         if graph_layer == "project":
-            meta_project_includes = _merged_project_include_prefixes_for_graph(root, project_include_prefixes)
+            meta_project_includes = _project_meta_include_prefixes(root, project_include_prefixes)
             files_for_meta = _filter_project_index_excludes(
                 files,
                 root,

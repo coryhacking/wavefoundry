@@ -443,8 +443,8 @@ Wave: `12x test-wave`
         self.assertEqual(project["files_indexed"], 2)
 
     def test_collect_dashboard_snapshot_includes_graph_health(self):
+        # 1p4ww: single project index — only the project graph is surfaced in health.
         project_graph = self.root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
-        framework_graph = self.root / ".wavefoundry" / "framework" / "index" / "graph" / "framework-graph.json"
         _write(
             project_graph,
             json.dumps(
@@ -461,29 +461,13 @@ Wave: `12x test-wave`
                 }
             ),
         )
-        _write(
-            framework_graph,
-            json.dumps(
-                {
-                    "schema_version": "1",
-                    "builder_version": "1",
-                    "layer": "framework",
-                    "present": True,
-                    "counts": {"files": 1, "nodes": 1, "edges": 0},
-                    "nodes": [
-                        {"id": "docs/prompts/prepare-wave.prompt.md", "label": "prepare-wave", "kind": "doc", "source_file": "docs/prompts/prepare-wave.prompt.md", "source_location": "1:0", "layer": "framework"}
-                    ],
-                    "edges": [],
-                }
-            ),
-        )
 
         snapshot = self.lib.collect_dashboard_snapshot(self.root)
 
         self.assertTrue(snapshot["health"]["graph"]["project"]["present"])
         self.assertEqual(snapshot["health"]["graph"]["project"]["counts"]["nodes"], 3)
-        self.assertTrue(snapshot["health"]["graph"]["framework"]["present"])
-        self.assertEqual(snapshot["health"]["graph"]["framework"]["counts"]["edges"], 0)
+        self.assertNotIn("framework", snapshot["health"]["graph"])
+        self.assertNotIn("framework", snapshot["health"]["index"])
 
     def test_collect_dashboard_snapshot_parses_plain_bullet_items_for_complete_change(self):
         wave_dir = self.root / "docs" / "waves" / "12x test-wave"
@@ -967,9 +951,9 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         payload = json.loads(handler.wfile.getvalue().decode("utf-8"))
         self.assertEqual(payload["project"]["active_wave_id"], "12x test-wave")
 
-    def test_api_graph_serves_layered_graph_payload(self):
+    def test_api_graph_serves_project_graph_payload(self):
+        # Wave 1p4ww: single project graph — framework/union layers removed.
         project_graph = self.root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
-        framework_graph = self.root / ".wavefoundry" / "framework" / "index" / "graph" / "framework-graph.json"
         _write(
             project_graph,
             json.dumps(
@@ -1017,42 +1001,6 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
                 }
             ),
         )
-        _write(
-            framework_graph,
-            json.dumps(
-                {
-                    "schema_version": "1",
-                    "builder_version": "1",
-                    "layer": "framework",
-                    "present": True,
-                    "counts": {"files": 1, "nodes": 1, "edges": 0},
-                    "graph_mtime": 333,
-                    "nodes": [
-                        {"id": "docs/prompts/prepare-wave.prompt.md", "label": "prepare-wave", "kind": "doc", "source_file": "docs/prompts/prepare-wave.prompt.md", "source_location": "1:0", "layer": "framework"}
-                    ],
-                    "edges": [],
-                }
-            ),
-        )
-        _write(
-            self.root / ".wavefoundry" / "framework" / "index" / "graph" / "framework-graph-clusters.json",
-            json.dumps(
-                {
-                    "cluster_schema_version": "1",
-                    "cluster_builder_version": "1",
-                    "layer": "framework",
-                    "graph_schema_version": "1",
-                    "graph_builder_version": "1",
-                    "graph_path": ".wavefoundry/framework/index/graph/framework-graph.json",
-                    "graph_mtime": 333,
-                    "cluster_mtime": 444,
-                    "projection": "derived-undirected",
-                    "community_count": 0,
-                    "communities": [],
-                }
-            ),
-        )
-
         project_handler = self._make_handler("/api/graph?layer=project")
         project_handler.do_GET()
         self.assertEqual(project_handler.response_code, 200)
@@ -1066,15 +1014,10 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         self.assertEqual(project_payload["nodes"][0]["degree"], 1)
         self.assertEqual(project_payload["nodes"][0]["community_id"], "project:c0")
 
+        # The framework graph layer is gone — /api/graph?layer=framework is rejected.
         framework_handler = self._make_handler("/api/graph?layer=framework")
         framework_handler.do_GET()
-        self.assertEqual(framework_handler.response_code, 200)
-        framework_payload = json.loads(framework_handler.wfile.getvalue().decode("utf-8"))
-        self.assertEqual(framework_payload["layer"], "framework")
-        self.assertTrue(framework_payload["present"])
-        self.assertEqual(framework_payload["counts"]["edges"], 0)
-        self.assertEqual(framework_payload["graph_version"], max(framework_payload["graph_mtime"], framework_payload["cluster_mtime"]))
-        self.assertEqual(framework_payload["clusters"]["community_count"], 0)
+        self.assertEqual(framework_handler.response_code, 400)
 
     def test_api_graph_rejects_unsupported_layer(self):
         handler = self._make_handler("/api/graph?layer=bogus")
@@ -2509,8 +2452,8 @@ class IndexBuilderTests(unittest.TestCase):
     def test_execute_writes_state_file_during_build(self):
         """_execute must write index-build.json while communicate() is running."""
         builder = self._make_builder()
-        builder._active_layers = {"framework"}
-        state_path = builder._index_state_path("framework")
+        builder._active_layers = {"project"}
+        state_path = builder._index_state_path("project")
         state_during_build = []
 
         class FakeProc:
@@ -2531,7 +2474,7 @@ class IndexBuilderTests(unittest.TestCase):
         self.assertTrue(len(state_during_build) > 0, "index-build.json not written before communicate() returned")
         state = state_during_build[0]
         self.assertEqual(state.get("pid"), 99999)
-        self.assertEqual(state.get("layer"), "framework")
+        self.assertEqual(state.get("layer"), "project")
 
     def test_execute_removes_state_file_after_build(self):
         """_execute must remove index-build.json after the build completes."""
@@ -2579,21 +2522,22 @@ class IndexBuilderTests(unittest.TestCase):
         with patch.object(self.srv.IndexBuilder, "_execute", return_value=0):
             builder = self._make_builder(delay=0.0, on_done=on_done)
             with patch("sys.stderr", new=io.StringIO()) as stderr:
-                builder.signal_change(layer="framework", reason="periodic stale check")
+                builder.signal_change(layer="project", reason="periodic stale check")
                 done_event.wait(timeout=2.0)
                 output = stderr.getvalue()
 
-        self.assertIn("scheduled framework index update", output)
-        self.assertIn("framework: periodic stale check", output)
-        self.assertIn("starting framework index update", output)
-        self.assertIn("completed framework index update", output)
+        self.assertIn("scheduled project index update", output)
+        self.assertIn("project: periodic stale check", output)
+        self.assertIn("starting project index update", output)
+        self.assertIn("completed project index update", output)
         self.assertRegex(
             output,
-            r"\[dashboard\] \d{4}-\d{2}-\d{2}T[^\n]+ - IndexBuilder: scheduled framework index update",
+            r"\[dashboard\] \d{4}-\d{2}-\d{2}T[^\n]+ - IndexBuilder: scheduled project index update",
         )
         self.assertNotIn("[dashboard] [dashboard]", output)
 
-    def test_signal_startup_logs_framework_only_layers(self):
+    def test_signal_startup_logs_project_layer(self):
+        # 1p4ww: single project index — the framework layer is folded in.
         done_event = threading.Event()
 
         def on_done():
@@ -2602,13 +2546,12 @@ class IndexBuilderTests(unittest.TestCase):
         with patch.object(self.srv.IndexBuilder, "_execute", return_value=0):
             builder = self._make_builder(delay=0.0, on_done=on_done)
             with patch("sys.stderr", new=io.StringIO()) as stderr:
-                builder.signal_startup(delay=0.0, layers={"framework"}, reason="startup stale check")
+                builder.signal_startup(delay=0.0, layers={"project"}, reason="startup stale check")
                 done_event.wait(timeout=2.0)
                 output = stderr.getvalue()
 
-        self.assertIn("scheduled startup framework index update", output)
-        self.assertIn("starting framework index update", output)
-        self.assertNotIn("project, framework", output)
+        self.assertIn("scheduled startup project index update", output)
+        self.assertIn("starting project index update", output)
 
     def test_dashboard_log_helper_prefixes_timestamp(self):
         with patch("sys.stderr", new=io.StringIO()) as stderr:
@@ -2682,8 +2625,10 @@ class IndexStalenessTests(unittest.TestCase):
     def test_stale_when_meta_missing(self):
         self.assertTrue(self.srv._index_is_stale(self.root))
 
-    def test_framework_stale_when_meta_missing(self):
-        self.assertTrue(self.srv._index_is_stale(self.root, "framework"))
+    def test_framework_layer_rejected(self):
+        # 1p4ww: framework folded into the project index — the layer is rejected.
+        with self.assertRaises(ValueError):
+            self.srv._index_is_stale(self.root, "framework")
 
     def test_stale_when_meta_has_no_built_at(self):
         self._write_meta("")
@@ -2752,11 +2697,13 @@ class IndexStalenessTests(unittest.TestCase):
             result = self.srv._index_is_stale(self.root)
         self.assertFalse(result)
 
-    def test_framework_stale_when_framework_file_meta_detects_changed_input_on_disk(self):
-        framework_file = self.root / ".wavefoundry" / "framework" / "seeds" / "100-sample.prompt.md"
-        framework_file.parent.mkdir(parents=True, exist_ok=True)
-        framework_file.write_text("changed", encoding="utf-8")
-        stat = framework_file.stat()
+    def test_project_stale_when_folded_framework_seed_changes(self):
+        # 1p4ww: framework seeds fold into the project index, so a seed change marks
+        # the PROJECT layer stale (there is no separate framework layer).
+        seed = self.root / ".wavefoundry" / "framework" / "seeds" / "100-sample.prompt.md"
+        seed.parent.mkdir(parents=True, exist_ok=True)
+        seed.write_text("# Sample updated\n", encoding="utf-8")
+        stat = seed.stat()
         self._write_meta_payload(
             {
                 "built_at": "2026-01-01T00:00:00+00:00",
@@ -2769,155 +2716,37 @@ class IndexStalenessTests(unittest.TestCase):
                     }
                 },
             },
-            layer="framework",
+            layer="project",
         )
-        with patch("subprocess.run", side_effect=AssertionError("framework file_meta path should bypass git")):
-            result = self.srv._index_is_stale(self.root, "framework")
+        with patch("subprocess.run", side_effect=AssertionError("file_meta path should bypass git")):
+            result = self.srv._index_is_stale(self.root, "project")
         self.assertTrue(result)
 
-    def test_framework_not_stale_when_framework_file_meta_matches_current_inputs(self):
-        framework_file = self.root / ".wavefoundry" / "framework" / "seeds" / "100-sample.prompt.md"
-        framework_file.parent.mkdir(parents=True, exist_ok=True)
-        framework_file.write_text("# Sample\n", encoding="utf-8")
-        digest = hashlib.sha256(framework_file.read_bytes()).hexdigest()
-        stat = framework_file.stat()
-        self._write_meta_payload(
-            {
-                "built_at": "2026-01-01T00:00:00+00:00",
-                "file_meta": {
-                    ".wavefoundry/framework/seeds/100-sample.prompt.md": {
-                        "hash": digest,
-                        "mtime": stat.st_mtime,
-                        "size": stat.st_size,
-                        "inode": stat.st_ino,
-                    }
-                },
-            },
-            layer="framework",
-        )
-        with patch("subprocess.run", side_effect=AssertionError("framework file_meta path should bypass git")):
-            result = self.srv._index_is_stale(self.root, "framework")
-        self.assertFalse(result)
-
-    def test_framework_stale_when_framework_file_meta_detects_changed_input(self):
-        framework_file = self.root / ".wavefoundry" / "framework" / "seeds" / "100-sample.prompt.md"
-        framework_file.parent.mkdir(parents=True, exist_ok=True)
-        framework_file.write_text("# Sample updated\n", encoding="utf-8")
-        stat = framework_file.stat()
-        self._write_meta_payload(
-            {
-                "built_at": "2026-01-01T00:00:00+00:00",
-                "file_meta": {
-                    ".wavefoundry/framework/seeds/100-sample.prompt.md": {
-                        "hash": "stale-hash",
-                        "mtime": stat.st_mtime - 1,
-                        "size": max(stat.st_size - 1, 0),
-                        "inode": stat.st_ino,
-                    }
-                },
-            },
-            layer="framework",
-        )
-        with patch("subprocess.run", side_effect=AssertionError("framework file_meta path should bypass git")):
-            result = self.srv._index_is_stale(self.root, "framework")
-        self.assertTrue(result)
-
-    def test_framework_not_stale_when_only_manifest_differs_from_file_meta(self):
+    def test_project_not_stale_when_only_framework_manifest_differs(self):
+        # 1p4ww: MANIFEST/VERSION are not folded, so they never affect project staleness.
+        seed = self.root / ".wavefoundry" / "framework" / "seeds" / "100-sample.prompt.md"
+        seed.parent.mkdir(parents=True, exist_ok=True)
+        seed.write_text("# Sample\n", encoding="utf-8")
+        seed_stat = seed.stat()
         manifest = self.root / ".wavefoundry" / "framework" / "MANIFEST"
-        manifest.parent.mkdir(parents=True, exist_ok=True)
         manifest.write_text("current\n", encoding="utf-8")
-        stat = manifest.stat()
         self._write_meta_payload(
             {
                 "built_at": "2026-01-01T00:00:00+00:00",
                 "file_meta": {
-                    ".wavefoundry/framework/MANIFEST": {
-                        "hash": "stale-hash",
-                        "mtime": stat.st_mtime - 1,
-                        "size": max(stat.st_size - 1, 0),
-                        "inode": stat.st_ino,
+                    ".wavefoundry/framework/seeds/100-sample.prompt.md": {
+                        "hash": hashlib.sha256(seed.read_bytes()).hexdigest(),
+                        "mtime": seed_stat.st_mtime,
+                        "size": seed_stat.st_size,
+                        "inode": seed_stat.st_ino,
                     }
                 },
             },
-            layer="framework",
+            layer="project",
         )
-        with patch("subprocess.run", side_effect=AssertionError("framework file_meta path should bypass git")):
-            result = self.srv._index_is_stale(self.root, "framework")
+        with patch("subprocess.run", side_effect=AssertionError("file_meta path should bypass git")):
+            result = self.srv._index_is_stale(self.root, "project")
         self.assertFalse(result)
-
-    def test_framework_not_stale_when_only_version_differs_from_file_meta(self):
-        version = self.root / ".wavefoundry" / "framework" / "VERSION"
-        version.parent.mkdir(parents=True, exist_ok=True)
-        version.write_text("2026-05-11e\n", encoding="utf-8")
-        stat = version.stat()
-        self._write_meta_payload(
-            {
-                "built_at": "2026-01-01T00:00:00+00:00",
-                "file_meta": {
-                    ".wavefoundry/framework/VERSION": {
-                        "hash": "stale-hash",
-                        "mtime": stat.st_mtime - 1,
-                        "size": max(stat.st_size - 1, 0),
-                        "inode": stat.st_ino,
-                    }
-                },
-            },
-            layer="framework",
-        )
-        with patch("subprocess.run", side_effect=AssertionError("framework file_meta path should bypass git")):
-            result = self.srv._index_is_stale(self.root, "framework")
-        self.assertFalse(result)
-
-    def test_framework_not_stale_when_only_framework_pycache_dir_is_dirty(self):
-        self._write_meta("2026-01-01T00:00:00+00:00", layer="framework")
-        dirty = self.root / ".wavefoundry" / "framework" / "scripts" / "__pycache__"
-        dirty.mkdir(parents=True, exist_ok=True)
-        with patch("subprocess.run", side_effect=AssertionError("staleness must not invoke git")):
-            result = self.srv._index_is_stale(self.root, "framework")
-        self.assertFalse(result)
-
-    def test_framework_not_stale_when_only_framework_pyc_file_is_dirty(self):
-        self._write_meta("2026-01-01T00:00:00+00:00", layer="framework")
-        dirty = self.root / ".wavefoundry" / "framework" / "scripts" / "__pycache__" / "dashboard_server.cpython-313.pyc"
-        dirty.parent.mkdir(parents=True, exist_ok=True)
-        dirty.write_bytes(b"compiled")
-        with patch("subprocess.run", side_effect=AssertionError("staleness must not invoke git")):
-            result = self.srv._index_is_stale(self.root, "framework")
-        self.assertFalse(result)
-
-    def test_framework_not_stale_when_only_collapsed_untracked_framework_directory_is_dirty(self):
-        self._write_meta("2026-01-01T00:00:00+00:00", layer="framework")
-        framework_dir = self.root / ".wavefoundry" / "framework"
-        (framework_dir / "index").mkdir(parents=True, exist_ok=True)
-        with patch("subprocess.run", side_effect=AssertionError("staleness must not invoke git")):
-            result = self.srv._index_is_stale(self.root, "framework")
-        self.assertFalse(result)
-
-    def test_framework_stale_when_untracked_framework_file_not_in_file_meta(self):
-        other = self.root / ".wavefoundry" / "framework" / "seeds" / "other.prompt.md"
-        other.parent.mkdir(parents=True, exist_ok=True)
-        other.write_text("# Other\n", encoding="utf-8")
-        other_stat = other.stat()
-        other_digest = hashlib.sha256(other.read_bytes()).hexdigest()
-        self._write_meta_payload(
-            {
-                "built_at": "2026-01-01T00:00:00+00:00",
-                "file_meta": {
-                    ".wavefoundry/framework/seeds/other.prompt.md": {
-                        "hash": other_digest,
-                        "mtime": other_stat.st_mtime,
-                        "size": other_stat.st_size,
-                        "inode": other_stat.st_ino,
-                    }
-                },
-            },
-            layer="framework",
-        )
-        dirty = self.root / ".wavefoundry" / "framework" / "seeds" / "100-sample.prompt.md"
-        dirty.write_text("changed", encoding="utf-8")
-        with patch("subprocess.run", side_effect=AssertionError("framework file_meta path should bypass git")):
-            result = self.srv._index_is_stale(self.root, "framework")
-        self.assertTrue(result)
 
     def test_project_not_stale_when_project_file_meta_matches_current_inputs(self):
         project_file = self.root / "docs" / "guide.md"
@@ -3111,57 +2940,43 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         store = self._track(self.srv.SnapshotStore(self.root))
         snap = store.get()
         proj = snap.get("health", {}).get("index", {}).get("project", {})
-        fw = snap.get("health", {}).get("index", {}).get("framework", {})
         self.assertEqual(proj.get("build_status"), "idle")
-        self.assertEqual(fw.get("build_status"), "idle")
 
     def test_idle_builder_clears_stale_failed_snapshot(self):
         self._disable_auto_index()
         failed_snapshot = self.lib.collect_dashboard_snapshot(self.root)
         failed_snapshot["health"]["index"]["project"]["build_status"] = "failed"
-        failed_snapshot["health"]["index"]["framework"]["build_status"] = "failed"
 
         store = self._track(self.srv.SnapshotStore(self.root))
         store._index_builder = MagicMock()
-        store._index_builder.get_status.side_effect = [
-            {"build_status": "idle"},
-            {"build_status": "idle"},
-        ]
+        store._index_builder.get_status.return_value = {"build_status": "idle"}
 
         with patch.object(self.lib, "collect_dashboard_snapshot", return_value=failed_snapshot):
             changed = store._rebuild(force_git=False)
 
         snap = store.get()
         proj = snap.get("health", {}).get("index", {}).get("project", {})
-        fw = snap.get("health", {}).get("index", {}).get("framework", {})
 
         self.assertTrue(changed)
         self.assertEqual(proj.get("build_status"), "idle")
-        self.assertEqual(fw.get("build_status"), "idle")
 
     def test_failed_builder_status_is_visible(self):
         self._disable_auto_index()
         healthy_snapshot = self.lib.collect_dashboard_snapshot(self.root)
         healthy_snapshot["health"]["index"]["project"].pop("build_status", None)
-        healthy_snapshot["health"]["index"]["framework"].pop("build_status", None)
 
         store = self._track(self.srv.SnapshotStore(self.root))
         store._index_builder = MagicMock()
-        store._index_builder.get_status.side_effect = [
-            {"build_status": "failed"},
-            {"build_status": "failed"},
-        ]
+        store._index_builder.get_status.return_value = {"build_status": "failed"}
 
         with patch.object(self.lib, "collect_dashboard_snapshot", return_value=healthy_snapshot):
             changed = store._rebuild(force_git=False)
 
         snap = store.get()
         proj = snap.get("health", {}).get("index", {}).get("project", {})
-        fw = snap.get("health", {}).get("index", {}).get("framework", {})
 
         self.assertTrue(changed)
         self.assertEqual(proj.get("build_status"), "failed")
-        self.assertEqual(fw.get("build_status"), "failed")
 
     def test_semantic_index_tile_uses_generic_build_status_copy(self):
         source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
@@ -3246,35 +3061,6 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
 
         self.assertTrue(signalled.is_set(), "IndexBuilder.signal_change not called after stale detection")
 
-    def test_periodic_staleness_check_signals_framework_layer_when_framework_becomes_stale(self):
-        self._enable_auto_index()
-        store = self._track(self.srv.SnapshotStore(self.root))
-        if store._index_builder is None:
-            self.skipTest("auto_index not enabled")
-
-        called_layers: list[str] = []
-        original_signal = store._index_builder.signal_change
-
-        def tracking_signal(layer="project", reason="change signal"):
-            called_layers.append(layer)
-            original_signal(layer=layer, reason=reason)
-
-        store._index_builder.signal_change = tracking_signal
-        store._index_stale = {"project": False, "framework": False}
-        store._last_staleness_check = 0.0
-
-        def fake_stale(_root, layer="project"):
-            return layer == "framework"
-
-        with patch.object(self.srv, "_index_is_stale", side_effect=fake_stale):
-            import time as _time
-            deadline = _time.time() + (self.srv._WATCH_INTERVAL * 4)
-            while "framework" not in called_layers and _time.time() < deadline:
-                _time.sleep(0.05)
-
-        self.assertIn("framework", called_layers)
-        self.assertNotIn("project", called_layers)
-
     def test_periodic_staleness_check_skipped_while_running(self):
         """Staleness check must not fire while a build is already in progress."""
         self._enable_auto_index()
@@ -3311,18 +3097,6 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         proj = snap.get("health", {}).get("index", {}).get("project", {})
         # elapsed_seconds comes from dashboard_lib reading the file
         self.assertIsInstance(proj, dict)
-
-    def test_external_framework_build_stats_trigger_snapshot_refresh(self):
-        store = self._track(self.srv.SnapshotStore(self.root))
-        fw_index = self.root / ".wavefoundry" / "framework" / "index"
-        fw_index.mkdir(parents=True, exist_ok=True)
-        (fw_index / "meta.json").write_text(json.dumps({"built_at": "2026-05-11T00:00:00+00:00"}))
-        (fw_index / "index-build-stats.json").write_text(json.dumps({"elapsed_seconds": 5, "mode": "update"}))
-        changed = store._rebuild(force_git=False)
-        snap = store.get()
-        fw = snap.get("health", {}).get("index", {}).get("framework", {})
-        self.assertIsInstance(fw, dict)
-        self.assertIn("elapsed_seconds", fw)
 
     def test_on_index_build_done_calls_rebuild_then_notify(self):
         """_on_index_build_done must rebuild before notifying SSE."""

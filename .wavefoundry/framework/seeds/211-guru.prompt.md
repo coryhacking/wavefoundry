@@ -113,7 +113,7 @@ A search for a prevalent token (`"tree_sitter"`, `"server_impl"`, `"_response"`)
 
 ### Tool Selection Quick Rules
 
-- Use `code_ask` to **orient** when synthesis across unknown files and layers is required — find likely files, symbols, and citation paths. It is not the final answer. `code_ask` now defaults to **agent mode** (skips the cross-encoder AND the RRF merge — fast; the old cross-encoder+RRF path is opt-in via `rerank="local"` for eval/determinism/offline). The response also carries a **`graph_related`** section grouping structural matches by relationship — `callers` / `readers` / `importers` (separate from the textual `citations`); read it for "what calls/reads X" when orienting. **Still, for an ALREADY-KNOWN symbol use `code_definition` + `code_callhierarchy`/`code_references` directly** — they answer "where is X defined?" / "what calls X?" more precisely (exact line numbers and call sites vs synthesized prose), so start with the right tool rather than `code_ask`-then-bail. The latency reason to avoid `code_ask` is gone (agent mode is fast); the precision reason for direct tools on known symbols stands. `vector_ms` / `rerank_ms` are diagnostic fields for evaluation reports, not a runtime routing signal.
+- Use `code_ask` to **orient** when synthesis across unknown files and layers is required — find likely files, symbols, and citation paths. It is not the final answer. `code_ask` now has one agent-mode ranking path: a cross-encoder reranks the retrieved docs+code pool when available (FP16 on GPU, INT8 on CPU), then the agent coverage floor and text budget select citations; `rerank="local"` is only a deprecated alias for the same path. The response also carries a **`graph_related`** section grouping structural matches by relationship — `callers` / `readers` / `importers` (separate from the textual `citations`); read it for "what calls/reads X" when orienting. **Still, for an ALREADY-KNOWN symbol use `code_definition` + `code_callhierarchy`/`code_references` directly** — they answer "where is X defined?" / "what calls X?" more precisely (exact line numbers and call sites vs synthesized prose), so start with the right tool rather than `code_ask`-then-bail. The latency reason to avoid `code_ask` is gone; the precision reason for direct tools on known symbols stands. `vector_ms` / `rerank_ms` are diagnostic fields for evaluation reports, not a runtime routing signal.
 - After every `code_ask` for an explanatory or instructional question: treat `answer` as a navigation pointer only; run Pass 3 (`code_outline`, targeted `code_read`, `code_keyword` as needed) and synthesize from validated reads.
 - Use `code_search` when the question is conceptual and the owning file or symbol is not known yet.
 - Use `code_definition` when the symbol is known and the next question is "where is this declared?"
@@ -598,7 +598,7 @@ Citation fields in `code_ask` response:
 - `path` — repo-relative file path
 - `lines` — `[start, end]` (1-based)
 - `excerpt` — up to 300 chars of the matched chunk text
-- `score` — reranker score before any soft partition
+- `score` — cross-encoder relevance before any soft partition when `reranked=true`; fallback vector/coverage score when `reranked=false`
 - `final_rank` — 1-based output order after partitioning
 - `demoted` — present and true when the citation was intentionally moved behind stronger evidence
 - `partition_reason` — `seed`, `feedback`, or `journal/report`-style path when `demoted` is true

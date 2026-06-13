@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-09
+Last verified: 2026-06-13
 
 Architecture Decision Records (ADRs) capture significant design decisions made for Wavefoundry.
 
@@ -29,3 +29,5 @@ Copy `template.md` and fill in all sections. Link new ADRs from `docs/ARCHITECTU
 | [12dzj-adr](12dzj-adr%20embedding-model-and-format.md) | Embedding Model: BAAI/bge-base-en-v1.5 via fastembed ONNX INT8 | accepted |
 | [12tm5-adr](12tm5-adr%20semver-versioning-contract.md) | Semver Versioning Contract | accepted |
 | [12tm5-adr](12tm5-adr%20python-tool-environment.md) | Python Tool Environment | accepted |
+| [1p4xx-adr](1p4xx-adr%20fold-framework-index-into-project-docs.md) | Fold the framework index into the project docs index | accepted |
+| [1p50s-adr](1p50s-adr%20docs-code-embedding-model-split.md) | Docs/code embedding-model split (arctic-embed-xs for docs) | accepted |

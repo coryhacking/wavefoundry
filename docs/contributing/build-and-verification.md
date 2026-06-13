@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-08
+Last verified: 2026-06-13
 
 ## Verification Commands
 
@@ -70,6 +70,16 @@ On NVIDIA machines, setup plans the `fastembed-gpu` dependency path when `nvidia
 GPU. If the machine has NVIDIA hardware but ONNX Runtime still does not expose
 `CUDAExecutionProvider`, setup continues on CPU and prints a remediation hint to install a
 CUDA-capable FastEmbed/ONNX Runtime stack, then rerun setup.
+
+On Apple Silicon, `CoreMLExecutionProvider` is accepted whenever ONNX Runtime exposes it and the
+probe produces correct embeddings — it is **not** required to beat CPU by the `min_speedup` margin
+that gates the secondary ONNX providers. CoreML transparently partitions unsupported operators back
+to CPU, so "CoreML selected, CPU still does meaningful work" is the intended local-setup contract,
+not a failure. Selecting CoreML does **not** imply a large speedup: on the current FastEmbed model
+the full framework docs rebuild measured ≈420s under CoreML vs ≈422s on the prior CPU run (no
+material acceleration; high CPU usage throughout is expected from provider partitioning). The
+`WAVEFOUNDRY_EMBED_PROVIDER_MIN_SPEEDUP` gate (default 1.25×) still applies to the secondary ONNX
+providers (DirectML/OpenVINO/MIGraphX/ROCm), and CUDA is selected from availability without a probe.
 
 Operators can force a provider family for diagnosis with `WAVEFOUNDRY_EMBED_PROVIDER`:
 `cpu`, `cuda`, `coreml`, `directml`, `openvino`, `migraphx`, or `rocm`.

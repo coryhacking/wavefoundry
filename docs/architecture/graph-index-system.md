@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-11
+Last verified: 2026-06-13
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
-> **Line citations** reference `GRAPH_BUILDER_VERSION="28"` (wave 1p4q4 review — namespace-prefixed enum member nodes + short-symbol-prune exemption; 1p4q4 (27) added TS enum member constant nodes; 1p4ls (26) added constant nodes + the `reads` edge). Line numbers shift on builder version bumps — use function names as stable anchors when citing across versions.
+> **Line citations** reference `GRAPH_BUILDER_VERSION="29"` (wave 1p4up — member-access qualified constant `reads`; 1p4q4 review (28) namespace-prefixed enum members + short-symbol-prune exemption; 1p4q4 (27) TS enum member constant nodes; 1p4ls (26) constant nodes + the `reads` edge). Line numbers shift on builder version bumps — use function names as stable anchors when citing across versions.
 
 ---
 
@@ -21,11 +21,14 @@ Architecture reference for Wavefoundry's code and documentation graph index: how
 | Reverse dependency chain ("who reaches me?") | `code_graph_path(from_symbol=..., to_symbol=..., direction="backward")` |
 | Are two symbols connected at all (direction-agnostic) | `code_graph_path(from_symbol=..., to_symbol=..., direction="either")` |
 | Members of a community cluster | `code_graph_community(community_id=...)` |
-| Structural health report (fan-in/out, chokepoints, betweenness) | `wave_graph_report(layer="project"/"union", sections=["betweenness"])` |
+| Structural health report (fan-in/out, chokepoints, betweenness) | `wave_graph_report(sections=["betweenness"])` |
 | Graph index metadata (ambient) | MCP resource `wavefoundry://graph/status` |
 | Community catalog (ambient — id, label, size, top members) | MCP resource `wavefoundry://graph/communities` |
 
-**Layer modes**: `"project"` (project graph only), `"framework"` (framework graph only), `"union"` (merged; requires `networkx`).
+**Single graph layer**: there is one project graph. Wave `1p4ww` removed the separate
+`framework` graph and the `union` (merged) mode along with the shipped framework index; the
+`layer` argument on the graph tools is retained as a back-compat no-op that always resolves to
+`project`.
 
 **When the graph is absent**: `read_graph_payload()` returns `present=False`. All graph-backed tools degrade gracefully — `code_references` falls back to a full repository walk; `code_callhierarchy`, `code_callgraph`, `code_impact`, and `wave_graph_report` return a diagnostic response. The graph is absent until explicitly built. To build: `wave_index_build(content='graph')` (graph only) or `wave_index_build(content='all')` (graph + semantic index).
 
@@ -52,7 +55,7 @@ Every node is a dict with these six fields, produced by `_node()` in `graph_inde
 | `kind` | str | Node type; see table below |
 | `source_file` | str | Repo-relative path of the owning file |
 | `source_location` | str | `"line:col"` offset within `source_file` |
-| `layer` | str | `"project"` or `"framework"` |
+| `layer` | str | `"project"` (the only graph layer) |
 
 Three boolean annotations are written directly onto module-level node dicts during `finalize()` at `graph_indexer.py:2076-2123`:
 
@@ -94,7 +97,7 @@ Every edge is a dict produced by `_edge()` at `graph_indexer.py:509-525`:
 | `defines` | `graph_indexer.py:1179, 1344, 1511` | Module declares a symbol |
 | `calls` | `graph_indexer.py:1297, 1597` | Symbol invokes another symbol |
 | `imports` | `graph_indexer.py:1197, 1208, 1372, 1380, 1529` | Module imports an internal or external module |
-| `reads` | `graph_indexer.py` (`_extract_python_artifact` CallCollector + the tree-sitter `buffered_reads` resolution) | A function/method READS a constant's value (wave 1p4ls). Faithfulness-gated: binds only a same-scope constant uniquely resolvable by `symbol_lookup` (never a coincidental same-name twin; Python adds a local-shadow guard). **OPT-IN** for default 1-hop traversal (`graph_query._NEIGHBOR_OPT_IN_RELATIONS`) so a hot constant does not balloon neighbor sets/1p4hu expansion, and excluded from `_DEFAULT_IMPACT_RELATIONS`/`_DEFAULT_CALL_RELATIONS` + from clustering (`graph_cluster`). Surfaced via `code_references`' distinct `reads` bucket (not callers). _Resolves **same-scope** (same-module) reads AND **explicitly-imported cross-module** constant reads — an imported read binds only a UNIQUE constant matched by the qualified import name (kind-checked) or is DROPPED, never a coincidental same-name twin or a 3rd-party value. The local-shadow guard is Python-only; tree-sitter languages may over-fire on a function-local that shadows a same-named constant (uncommon)._ |
+| `reads` | `graph_indexer.py` (`_extract_python_artifact` CallCollector + the tree-sitter `buffered_reads` resolution) | A function/method READS a constant's value (wave 1p4ls). Faithfulness-gated: binds only a same-scope constant uniquely resolvable by `symbol_lookup` (never a coincidental same-name twin; Python adds a local-shadow guard). **OPT-IN** for default 1-hop traversal (`graph_query._NEIGHBOR_OPT_IN_RELATIONS`) so a hot constant does not balloon neighbor sets/1p4hu expansion, and excluded from `_DEFAULT_IMPACT_RELATIONS`/`_DEFAULT_CALL_RELATIONS` + from clustering (`graph_cluster`). Surfaced via `code_references`' distinct `reads` bucket (not callers). _Resolves **same-scope** (same-module) reads AND **explicitly-imported cross-module** constant reads — an imported read binds only a UNIQUE constant matched by the qualified import name (kind-checked) or is DROPPED, never a coincidental same-name twin or a 3rd-party value. The local-shadow guard is Python-only; tree-sitter languages may over-fire on a function-local that shadows a same-named constant (uncommon)._ Wave 1p4up: also resolves **qualified member-access reads** (`Status.ACTIVE`, `Outer.Inner.TOKEN`, `A::B::C`) by EXACT qname match (const-kind-gated) — the qualifier disambiguates, with an F4 guard dropping a read whose head is a function param/local. |
 | `doc_references_code` | `graph_indexer.py:1699` | Doc node mentions a code node |
 | `doc_references_doc` | `graph_indexer.py:1735` | Doc node links or path-references another doc |
 | `binds` | `graph_di_signals.py:285-293` | DI interface bound to an implementation |
@@ -110,7 +113,7 @@ Four constants gate incremental reuse (`graph_indexer.py:27-37`):
 
 ```
 GRAPH_SCHEMA_VERSION  = "1"
-GRAPH_BUILDER_VERSION = "28"   # 1p4ls (26): constant nodes + `reads` edge; 1p4q4 (27): TS enum member nodes; 1p4q4 review (28): namespace-prefixed members + short-symbol-prune exemption
+GRAPH_BUILDER_VERSION = "29"   # 1p4ls (26): constant nodes + `reads` edge; 1p4q4 (27): TS enum member nodes; 1p4q4 review (28): namespace-prefixed members + short-symbol-prune exemption; 1p4up (29): member-access qualified constant reads
 ```
 
 The community-clustering layer (`graph_cluster.py`) carries its own `CLUSTER_BUILDER_VERSION = "9"` (bumped at 1p4ls — constant nodes + `reads` edges are excluded from the clustered projection so community labels do not shift).
@@ -162,9 +165,7 @@ Written by `_write_json()` as pretty-printed JSON with sorted keys (`graph_index
 | Artifact | Path |
 |---|---|
 | Project graph | `.wavefoundry/index/graph/project-graph.json` |
-| Framework graph | `.wavefoundry/framework/index/graph/framework-graph.json` |
 | Project state | `.wavefoundry/index/graph/project-graph-state.json` |
-| Framework state | `.wavefoundry/framework/index/graph/framework-graph-state.json` |
 
 ### `read_graph_payload()` (`graph_indexer.py:8079`)
 
@@ -254,11 +255,10 @@ Iterates `self.edges` once, counting only `relation == "calls"` edges, then comp
 | `fan_out` | Top-`limit` nodes by outgoing call count |
 | `orphan_docs` | Doc/seed nodes (`_DOC_KINDS = {"doc","seed"}`) with no `doc_references_code` outgoing edge, or zero edges total |
 | `chokepoints` | Nodes with `fan_out >= chokepoint_threshold` (default `_CHOKEPOINT_FAN_OUT = 20`) |
-| `cross_layer` | Edges where `src_layer != tgt_layer` (only when `self.layer == "union"`) |
 
-### `load_union()` (`graph_query.py:52-115`)
-
-Loads project and framework payloads separately into two `nx.DiGraph` objects, tagging project nodes `layer="project"` and framework nodes `layer="framework"`. Calls `networkx.compose()` to merge them. Union mode (`layer="union"`) requires `networkx`; **single-layer queries (`layer="project"` or `layer="framework"`) do not**. When `networkx` is unavailable, `load_union()` returns `present=False` with `diagnostic="networkx_unavailable"`.
+> Wave `1p4ww` removed the `cross_layer` section (project×framework boundary edges) and the
+> `load_union()` merge along with the framework graph layer. There is one project graph;
+> `GraphQueryIndex.from_root()` always loads it.
 
 ---
 
@@ -318,7 +318,6 @@ Four passes run after the algorithm (`graph_cluster.py:504-758`):
 | Artifact | Path |
 |---|---|
 | Project clusters | `.wavefoundry/index/graph/project-graph-clusters.json` |
-| Framework clusters | `.wavefoundry/framework/index/graph/framework-graph-clusters.json` |
 
 Each community record contains: `community_id`, `label`, `seed_node_id`, `node_ids`, `node_count`, `edge_count`, `boundary_node_count`, and optionally `kind: "fixed"`.
 
@@ -391,7 +390,7 @@ Test coverage: `TestGraphRefreshThenRecheck`, `TestGraphRefreshAndResolve`, and 
 
 Two modes:
 
-- **Graph mode** (`symbol=` param): `_code_impact_graph_response()` calls `index.graph_impact(symbol, max_hops=max(1,max_hops), relations=relations)`. Default relations: `("imports","calls")`, `max_hops=3`. Supports `layer` param (project/framework/union). Truncates `affected` at `max_results=50`. Each affected node carries a `community` field from `_load_cluster_lookup(root)`. When `include_tests=False` (default), nodes whose `source_file` matches `_is_test_path()` patterns are excluded from `affected`.
+- **Graph mode** (`symbol=` param): `_code_impact_graph_response()` calls `index.graph_impact(symbol, max_hops=max(1,max_hops), relations=relations)`. Default relations: `("imports","calls")`, `max_hops=3`. The `layer` param is a back-compat no-op (project graph only). Truncates `affected` at `max_results=50`. Each affected node carries a `community` field from `_load_cluster_lookup(root)`. When `include_tests=False` (default), nodes whose `source_file` matches `_is_test_path()` patterns are excluded from `affected`.
 - **Heuristic mode** (`path=` param): File-based reverse-import search. Does not use `graph_query.py`.
 
 ### `code_graph_path_response()`

@@ -84,6 +84,13 @@ class VenvBootstrapTests(unittest.TestCase):
 class SetupIndexTests(unittest.TestCase):
     def setUp(self):
         self.mod = load_setup_index()
+        # Wave 1p52p: never run the REAL GPU-accel prewarm inside unit tests — it downloads the
+        # Xenova FP16 reranker, pays the CoreML compile, and imports the heavy `onnx` package
+        # (slow + real-hardware + protobuf/onnx import surface). `main()` calls it; the orchestration
+        # tests assert on prewarm_models/build_index, not the GPU prewarm.
+        _gpu = patch.object(self.mod, "_prewarm_gpu_accel")
+        _gpu.start()
+        self.addCleanup(_gpu.stop)
 
     def test_fastembed_cache_dir_defaults_under_wavefoundry_cache(self):
         default_cache = Path("/tmp/home/.wavefoundry/cache/fastembed")
@@ -91,6 +98,18 @@ class SetupIndexTests(unittest.TestCase):
             with patch.dict(os.environ, {}, clear=True):
                 cache_dir = self.mod._fastembed_cache_dir()
         self.assertEqual(cache_dir, default_cache)
+
+    def test_arctic_docs_model_cache_alias_resolves_lowercase_dir(self):
+        # 1p4wx: arctic-embed-xs (DOCS_MODEL) — fastembed downloads to the lowercase
+        # ``models--snowflake--…`` dir, so the offline cache resolution must include it.
+        default_cache = Path("/tmp/home/.wavefoundry/cache/fastembed")
+        with patch.object(self.mod, "FASTEMBED_CACHE_DEFAULT", default_cache):
+            with patch.dict(os.environ, {}, clear=True):
+                names = {
+                    p.name
+                    for p in self.mod._model_cache_dir_candidates("Snowflake/snowflake-arctic-embed-xs")
+                }
+        self.assertIn("models--snowflake--snowflake-arctic-embed-xs", names)
 
     def test_ensure_deps_installs_missing_packages(self):
         """ensure_deps calls _install_deps for missing packages then rechecks."""
@@ -295,9 +314,21 @@ class SetupIndexTests(unittest.TestCase):
 
     def test_planned_required_imports_respects_forced_cpu(self):
         with patch.object(self.mod.provider_policy, "nvidia_gpu_present", return_value=True):
-            with patch.dict(os.environ, {"WAVEFOUNDRY_EMBED_PROVIDER": "cpu"}, clear=False):
+            with patch.dict(os.environ, {"WAVEFOUNDRY_EMBED_PROVIDER": "cpu", "WAVEFOUNDRY_DISABLE_RERANKER": ""}, clear=False):
                 required = self.mod._planned_required_imports()
         self.assertNotIn("fastembed-gpu", required)
+        self.assertIn("onnx", required, "CPU INT8 reranker still needs onnx for the static-shape graph")
+
+    def test_planned_required_imports_omits_onnx_only_when_reranker_disabled_and_no_gpu(self):
+        with patch.object(self.mod.provider_policy, "nvidia_gpu_present", return_value=False), \
+             patch.object(self.mod.provider_policy, "apple_silicon_present", return_value=False):
+            with patch.dict(os.environ, {
+                "WAVEFOUNDRY_EMBED_PROVIDER": "cpu",
+                "WAVEFOUNDRY_DISABLE_RERANKER": "1",
+            }, clear=False):
+                required = self.mod._planned_required_imports()
+        self.assertNotIn("fastembed-gpu", required)
+        self.assertNotIn("onnx", required)
 
     def test_report_embedding_provider_decision_selects_cuda(self):
         result = self.mod.provider_policy.ProviderProbeResult(
@@ -381,13 +412,42 @@ class SetupIndexTests(unittest.TestCase):
         assert decision.remediation is not None
         self.assertIn("NVIDIA GPU detected", decision.remediation)
 
+    def test_coreml_probe_accepts_on_correctness_without_speedup_gate(self):
+        """Wave 1p4u1: CoreML passes the embedding probe on correctness alone — it is NOT required to
+        beat CPU by the 1.25x speedup margin (CoreML partitions unsupported ops to CPU; a tiny probe
+        is unrepresentative). Other probed providers (e.g. OpenVINO) STILL require the speedup gate."""
+        import time as _t
+        import fastembed
+
+        class _FakeEmbed:
+            def __init__(self, *a, **k):
+                pass
+
+            def embed(self, texts):
+                return [[0.1, 0.2] for _ in texts]
+
+        # 4 perf_counter calls per probe: cpu(start,end)=0.0,0.9 → 0.9s; candidate(start,end)=0.0,1.0
+        # → 1.0s (SLOWER than CPU, ratio 0.9 < 1.25). Two probes → 8 values.
+        seq = [0.0, 0.9, 0.0, 1.0, 0.0, 0.9, 0.0, 1.0]
+        with patch.object(fastembed, "TextEmbedding", _FakeEmbed), \
+                patch.object(_t, "perf_counter", side_effect=seq), \
+                patch.dict(os.environ, {}, clear=True):
+            coreml = self.mod._probe_embedding_provider(
+                self.mod.provider_policy.COREML_PROVIDER, model_name="m")
+            other = self.mod._probe_embedding_provider("OpenVINOExecutionProvider", model_name="m")
+        self.assertTrue(coreml.ok, coreml.reason)
+        self.assertIn("not a speedup gate", coreml.reason)
+        self.assertFalse(other.ok, other.reason)
+        self.assertIn("did not beat CPU", other.reason)
+
     def test_prewarm_models_warms_then_verifies_offline(self):
+        # Wave 1p52p: prewarm_models warms only the embedding models. The reranker is the GPU-only
+        # FP16 accel reranker, prewarmed in _prewarm_gpu_accel (not via fastembed _warm_reranker,
+        # which was removed) — so it is NOT warmed here.
         with patch.object(self.mod, "_indexer_models", return_value=["model-a", "model-b"]):
-            with patch.object(self.mod, "_indexer_reranker_model", return_value="reranker-a"):
-                with patch.object(self.mod, "_warm_model") as warm:
-                    with patch.object(self.mod, "_warm_reranker") as warm_reranker:
-                        with redirect_stdout(io.StringIO()):
-                            self.mod.prewarm_models(include_code=True)
+            with patch.object(self.mod, "_warm_model") as warm:
+                with redirect_stdout(io.StringIO()):
+                    self.mod.prewarm_models(include_code=True)
 
         self.assertEqual(
             warm.call_args_list,
@@ -398,22 +458,13 @@ class SetupIndexTests(unittest.TestCase):
                 call("model-b", local_files_only=True),
             ],
         )
-        self.assertEqual(
-            warm_reranker.call_args_list,
-            [
-                call("reranker-a", local_files_only=False),
-                call("reranker-a", local_files_only=True),
-            ],
-        )
 
     def test_prewarm_models_restores_offline_env(self):
         os.environ.pop("HF_HUB_OFFLINE", None)
         with patch.object(self.mod, "_indexer_models", return_value=["model-a"]):
-            with patch.object(self.mod, "_indexer_reranker_model", return_value="reranker-a"):
-                with patch.object(self.mod, "_warm_model"):
-                    with patch.object(self.mod, "_warm_reranker"):
-                        with redirect_stdout(io.StringIO()):
-                            self.mod.prewarm_models(include_code=False)
+            with patch.object(self.mod, "_warm_model"):
+                with redirect_stdout(io.StringIO()):
+                    self.mod.prewarm_models(include_code=False)
         self.assertNotIn("HF_HUB_OFFLINE", os.environ)
 
     def test_prewarm_required_model_quarantines_corrupt_cache_and_retries_once(self):
@@ -551,13 +602,13 @@ class SetupIndexTests(unittest.TestCase):
         with patch.object(self.mod, "_model_cache_corruption_reason", return_value="missing onnx model artifact"):
             with patch.object(self.mod, "_quarantine_model_cache", return_value=Path("/tmp/quarantine")) as quarantine:
                 self.mod._prewarm_required_model(
-                    "BAAI/bge-reranker-base",
-                    model_kind="reranker",
+                    "Snowflake/snowflake-arctic-embed-xs",
+                    model_kind="embedding",
                     action="semantic index setup",
                     warm_fn=warm_fn,
                 )
 
-        quarantine.assert_called_once_with("BAAI/bge-reranker-base")
+        quarantine.assert_called_once_with("Snowflake/snowflake-arctic-embed-xs")
         self.assertEqual(calls["count"], 3)
 
     def test_main_prewarms_before_building_index(self):

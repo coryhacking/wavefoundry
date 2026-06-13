@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: guru
 Category: specialist
-Last verified: 2026-06-11
+Last verified: 2026-06-13
 
 Shortcut: **`Guru`** | MCP tool: **`code_ask`**
 
@@ -99,7 +99,7 @@ A search for a prevalent token (`"tree_sitter"`, `"server_impl"`, `"_response"`)
 
 ### Tool Selection Quick Rules
 
-- Use `code_ask` to **orient** when synthesis across unknown files and layers is required — find likely files, symbols, and citation paths. It is not the final answer. `code_ask` now defaults to **agent mode** (skips the cross-encoder AND the RRF merge — fast; `rerank="local"` restores the old cross-encoder+RRF path for eval/determinism). Its response also carries a **`graph_related`** section — structural matches grouped by relationship (`callers`, `callees`, `readers`, `reads`, `importers`, `imports`, `related`), separate from `citations`; read it for structural "what calls/reads/imports X" questions. **For an ALREADY-KNOWN symbol still go direct** — `code_definition` + `code_callhierarchy`/`code_references` answer "where is X defined?" / "what calls X?" more precisely (exact line numbers and call sites vs synthesized prose). The latency reason to avoid `code_ask` is gone; the precision reason for direct tools on known symbols stands. `vector_ms`/`rerank_ms` are diagnostic fields, not a runtime routing signal.
+- Use `code_ask` to **orient** when synthesis across unknown files and layers is required — find likely files, symbols, and citation paths. It is not the final answer. `code_ask` now has one agent-mode ranking path: a cross-encoder reranks the retrieved docs+code pool when available (FP16 on GPU, INT8 on CPU), then the agent coverage floor and text budget select citations; `rerank="local"` is only a deprecated alias for the same path. Its response also carries a **`graph_related`** section — structural matches grouped by relationship (`callers`, `callees`, `readers`, `reads`, `importers`, `imports`, `related`), separate from `citations`; read it for structural "what calls/reads/imports X" questions. **For an ALREADY-KNOWN symbol still go direct** — `code_definition` + `code_callhierarchy`/`code_references` answer "where is X defined?" / "what calls X?" more precisely (exact line numbers and call sites vs synthesized prose). The latency reason to avoid `code_ask` is gone; the precision reason for direct tools on known symbols stands. `vector_ms`/`rerank_ms` are diagnostic fields, not a runtime routing signal.
 - After every `code_ask` for an explanatory or instructional question: treat `answer` as a navigation pointer only; run Pass 3 (`code_outline`, targeted `code_read`, `code_keyword` as needed) and synthesize from validated reads.
 - Use `code_search` when the question is conceptual and the owning file or symbol is not known yet.
 - Use `code_definition` when the symbol is known and the next question is "where is this declared?"
@@ -479,14 +479,14 @@ Never present an inferred conclusion as a confirmed fact. A qualified answer is 
 - **Low** — no citations returned; the answer is inference only.
 
 **`code_ask` response fields to check on every call:**
-- `rerank_mode` (wave `1p4hi`) — `"agent"` (the DEFAULT: labeled per-index candidates the agent fuses; **no** cross-encoder, **no** RRF — fast + high quality), `"local"` (the cross-encoder + RRF path, opt-in via `rerank="local"` for eval/determinism/offline), or `"rrf_fallback"` (reranker unavailable). **Do NOT read `reranked: false` as "low quality"** — in agent mode (the default) it is false *by design* and is the high-quality path. `reranked` is overloaded; prefer `rerank_mode`.
+- `rerank_mode` (wave `1p52p`) — always `"agent"`; `rerank="local"` is a deprecated alias for the same single path. Use `reranked` to tell whether the cross-encoder actually ran. `reranked=true` means citations were scored on the unified cross-encoder scale (FP16 on GPU, INT8 on CPU); `reranked=false` means the reranker was disabled or unbuildable and ordering fell back to vector/coverage order over mixed-model cosine.
 - `graph_related` (wave `1p4hi`) — present in agent mode when the query resolved a symbol: structural matches grouped by relationship (`callers` / `readers` / `importers` / `related`), each with `symbol` / `path` / `lines` / `confidence`, **separate from the textual `citations`**. This is the structural answer to "what calls/reads X" — read it before chasing call chains manually. A match that is also a citation is flagged `also_cited` (its excerpt dropped, never duplicated).
 - `question_type` — confirms how the question was classified; if the classification looks wrong, rephrase the question to match the intended type.
 - `partition_applied` / `demotion_count` — when present, some citations were intentionally reordered (pre-selection in agent mode) so code evidence stays ahead of feedback/journal/seed artifacts.
 - `second_hop_symbols` / `symbol_extraction_method` — the symbol expansion behind the answer. In `"local"` mode (explanatory) these are keyword second-hop symbols; in agent mode with `symbol_extraction_method == "graph"` they are the graph-signal seeds whose neighbors `graph_related` surfaced. When present, the citation/structural set already followed those one layer deeper — don't re-chase them manually.
 - `index_freshness` — `"stale"` means the index may not reflect recent commits; recommend `wave_index_build(mode="rebuild")` before answering questions about recently changed code.
 
-**Citation interpretation:** in agent mode `score` is the weighted cosine (no cross-encoder); in `"local"` mode it is the pre-partition reranker score. `final_rank` is the actual output order after any soft demotion. When `demoted: true` is present, the lower position is intentional. Prefer `final_rank` over `score` when deciding which citation is primary. Structural matches live in `graph_related`, NOT in `citations` (citations are semantic-only).
+**Citation interpretation:** when `reranked=true`, `score` is the unified cross-encoder relevance (`sigmoid(logit)`) before any soft demotion; when `reranked=false`, it is vector/coverage order over mixed-model cosine and should be treated as weaker. `final_rank` is the actual output order after any soft demotion. When `demoted: true` is present, the lower position is intentional. Prefer `final_rank` over `score` when deciding which citation is primary. Structural matches live in `graph_related`, NOT in `citations` (citations are semantic-only).
 
 ## Operator Q&A
 

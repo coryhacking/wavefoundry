@@ -47,13 +47,12 @@ _CONFIG_FILENAMES = {
 }
 
 GRAPH_DIRNAME = "graph"
+# Wave 1p4ww: single project graph — the framework graph layer was removed.
 GRAPH_FILENAMES = {
     "project": "project-graph.json",
-    "framework": "framework-graph.json",
 }
 CLUSTER_FILENAMES = {
     "project": "project-graph-clusters.json",
-    "framework": "framework-graph-clusters.json",
 }
 
 _RELATION_WEIGHTS = {
@@ -64,11 +63,9 @@ _RELATION_WEIGHTS = {
 }
 
 
-def _graph_index_dir(root: Path, layer: str) -> Path:
+def _graph_index_dir(root: Path, layer: str = "project") -> Path:
     if layer not in GRAPH_FILENAMES:
         raise ValueError(f"Unsupported graph layer: {layer}")
-    if layer == "framework":
-        return root / ".wavefoundry" / "framework" / "index"
     return root / ".wavefoundry" / "index"
 
 

@@ -84,177 +84,30 @@ class BuildPackTests(unittest.TestCase):
         self.assertEqual((fw / "VERSION").read_text(encoding="utf-8"), "1.0.0+2tm5\n")
 
     # ------------------------------------------------------------------
-    # Prebuild index
+    # Framework index removal (1p4ww)
     # ------------------------------------------------------------------
 
-    def test_prebuild_index_runs_before_zip_and_is_packaged(self):
+    def test_build_zip_does_not_ship_framework_index(self):
+        # 1p4ww: the framework index is no longer built or shipped — the pack carries
+        # framework SOURCE only (seeds/README fold into each project's docs index).
         fw = self.tmp / "mini-fw"
         fw.mkdir(parents=True)
-        (fw / "stub.txt").write_text("stub", encoding="utf-8")
-
-        def fake_prebuild(framework_dir, *, source_files=None, verbose=False):
-            index_dir = framework_dir / "index"
-            index_dir.mkdir(parents=True)
-            (index_dir / "meta.json").write_text("{}", encoding="utf-8")
-
-        with patch.object(build_pack, "build_framework_index", side_effect=fake_prebuild) as mocked, \
-             patch.object(build_pack, "_compact_framework_index") as compact_mock:
-            path = build_pack.build_zip(
-                self.tmp,
-                "1.0.0",
-                "12tm5",
-                framework_dir=fw,
-                write_version=True,
-                update_manifest=False,
-                prebuild_index=True,
-                inject_install_templates=False,
-            )
-
-        mocked.assert_called_once()
-        compact_mock.assert_called_once_with(fw, verbose=False)
-        self.assertEqual(mocked.call_args.args[0], fw)
-        self.assertEqual(mocked.call_args.kwargs["verbose"], False)
-        self.assertIn(fw / "stub.txt", mocked.call_args.kwargs["source_files"])
-        self.assertNotIn(fw / "MANIFEST", mocked.call_args.kwargs["source_files"])
+        (fw / "seeds").mkdir()
+        (fw / "seeds" / "010-install.prompt.md").write_text("seed", encoding="utf-8")
+        path = build_pack.build_zip(
+            self.tmp,
+            "1.0.0",
+            "12tm5",
+            framework_dir=fw,
+            write_version=True,
+            update_manifest=False,
+            inject_install_templates=False,
+        )
         with zipfile.ZipFile(path) as zf:
-            self.assertIn(".wavefoundry/framework/index/meta.json", zf.namelist())
-
-    def test_prebuild_index_uses_pack_filtered_source_files(self):
-        fw = self.tmp / "mini-fw"
-        fw.mkdir(parents=True)
-        (fw / "seed.md").write_text("seed", encoding="utf-8")
-        scripts_dir = fw / "scripts"
-        (scripts_dir / "tests").mkdir(parents=True)
-        (scripts_dir / "benchmarks").mkdir(parents=True)
-        (scripts_dir / "tests" / "test_foo.py").write_text("x", encoding="utf-8")
-        (scripts_dir / "benchmarks" / "bench.py").write_text("x", encoding="utf-8")
-        (scripts_dir / "run_tests.py").write_text("x", encoding="utf-8")
-
-        fake_indexer = MagicMock()
-
-        with patch.object(build_pack, "_load_indexer", return_value=fake_indexer), \
-             patch.object(build_pack, "_compact_framework_index"):
-            build_pack.build_zip(
-                self.tmp,
-                "1.0.0",
-                "12tm5",
-                framework_dir=fw,
-                write_version=True,
-                update_manifest=False,
-                prebuild_index=True,
-                inject_install_templates=False,
-            )
-
-        kwargs = fake_indexer.build_index.call_args.kwargs
-        source_files = {
-            str(Path(path).relative_to(fw)).replace("\\", "/")
-            for path in kwargs["files"]
-        }
-        self.assertIn("seed.md", source_files)
-        self.assertNotIn("scripts/tests/test_foo.py", source_files)
-        self.assertNotIn("scripts/benchmarks/bench.py", source_files)
-        self.assertNotIn("scripts/run_tests.py", source_files)
-        self.assertNotIn("VERSION", source_files)
-        self.assertNotIn("MANIFEST", source_files)
-        self.assertNotIn("index/meta.json", source_files)
-
-    def test_prebuild_index_compacts_lance_tables_before_zip(self):
-        fw = self.tmp / "mini-fw"
-        fw.mkdir(parents=True)
-        (fw / "stub.txt").write_text("stub", encoding="utf-8")
-        index_dir = fw / "index"
-        (index_dir / "docs.lance").mkdir(parents=True)
-        (index_dir / "code.lance").mkdir(parents=True)
-
-        fake_docs_table = MagicMock(name="docs_table")
-        fake_code_table = MagicMock(name="code_table")
-        fake_db = MagicMock()
-        fake_db.open_table.side_effect = [fake_docs_table, fake_code_table]
-        fake_indexer = MagicMock()
-        fake_indexer._get_lance_db.return_value = fake_db
-
-        def fake_prebuild(framework_dir, *, source_files=None, verbose=False):
-            (framework_dir / "index").mkdir(parents=True, exist_ok=True)
-
-        with patch.object(build_pack, "build_framework_index", side_effect=fake_prebuild), \
-             patch.object(build_pack, "_load_indexer", return_value=fake_indexer):
-            build_pack.build_zip(
-                self.tmp,
-                "1.0.0",
-                "12tm5",
-                framework_dir=fw,
-                write_version=True,
-                update_manifest=False,
-                prebuild_index=True,
-                inject_install_templates=False,
-            )
-
-        self.assertEqual(fake_db.open_table.call_args_list[0].args[0], "docs")
-        self.assertEqual(fake_db.open_table.call_args_list[1].args[0], "code")
-        self.assertEqual(fake_indexer._optimize_lance_table.call_count, 2)
-        fake_indexer._optimize_lance_table.assert_any_call(fake_docs_table)
-        fake_indexer._optimize_lance_table.assert_any_call(fake_code_table)
-
-    def test_prebuild_index_fails_when_compaction_fails(self):
-        fw = self.tmp / "mini-fw"
-        fw.mkdir(parents=True)
-        (fw / "stub.txt").write_text("stub", encoding="utf-8")
-        index_dir = fw / "index"
-        (index_dir / "docs.lance").mkdir(parents=True)
-
-        fake_db = MagicMock()
-        fake_db.open_table.side_effect = RuntimeError("boom")
-        fake_indexer = MagicMock()
-        fake_indexer._get_lance_db.return_value = fake_db
-
-        def fake_prebuild(framework_dir, *, source_files=None, verbose=False):
-            (framework_dir / "index").mkdir(parents=True, exist_ok=True)
-
-        with patch.object(build_pack, "build_framework_index", side_effect=fake_prebuild), \
-             patch.object(build_pack, "_load_indexer", return_value=fake_indexer):
-            with self.assertRaises(RuntimeError) as ctx:
-                build_pack.build_zip(
-                    self.tmp,
-                    "1.0.0",
-                    "12tm5",
-                    framework_dir=fw,
-                    write_version=True,
-                    update_manifest=False,
-                    prebuild_index=True,
-                    inject_install_templates=False,
-                )
-
-        self.assertIn("compaction failed", str(ctx.exception))
-
-    def test_framework_index_uses_repo_relative_paths_when_under_wavefoundry(self):
-        repo = self.tmp / "repo"
-        fw = repo / ".wavefoundry" / "framework"
-        fw.mkdir(parents=True)
-        fake_indexer = MagicMock()
-
-        with patch.object(build_pack, "_load_indexer", return_value=fake_indexer):
-            build_pack.build_framework_index(fw)
-
-        fake_indexer.build_index.assert_called_once()
-        kwargs = fake_indexer.build_index.call_args.kwargs
-        self.assertEqual(fake_indexer.build_index.call_args.args[0], repo.resolve())
-        self.assertEqual(kwargs["index_dir"], (fw / "index").resolve())
-        self.assertFalse(kwargs["full"])
-        self.assertEqual(kwargs["include_prefixes"], (".wavefoundry/framework",))
-        self.assertFalse(kwargs["respect_ignore"])
-
-    def test_framework_index_requests_incremental_update_for_packaging(self):
-        fw = self.tmp / "mini-fw"
-        fw.mkdir(parents=True)
-        fake_indexer = MagicMock()
-
-        with patch.object(build_pack, "_load_indexer", return_value=fake_indexer):
-            build_pack.build_framework_index(fw)
-
-        fake_indexer.build_index.assert_called_once()
-        kwargs = fake_indexer.build_index.call_args.kwargs
-        self.assertFalse(kwargs["full"])
-        self.assertEqual(kwargs["content"], "docs")
+            names = zf.namelist()
+        self.assertFalse(any(".lance" in name for name in names))
+        self.assertFalse(any("/framework/index/" in name for name in names))
+        self.assertTrue(any(name.endswith("seeds/010-install.prompt.md") for name in names))
 
     # ------------------------------------------------------------------
     # Zip contents
@@ -760,44 +613,6 @@ class ReleaseNotesInstallPrependTests(unittest.TestCase):
         self.assertIn("Install Wavefoundry", text)
         for host in ("Claude Code", "Cursor", "Codex"):
             self.assertIn(host, text)
-
-
-class ZipIndexAssertionTests(unittest.TestCase):
-    """Tests for _assert_zip_contains_index() — RC-1 must-fix from prepare council."""
-
-    def setUp(self):
-        import tempfile
-        self._tmp = tempfile.mkdtemp()
-        self.tmp = Path(self._tmp)
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self._tmp, ignore_errors=True)
-
-    def _make_zip(self, entries):
-        zip_path = self.tmp / "test.zip"
-        with zipfile.ZipFile(zip_path, "w") as zf:
-            for name, body in entries:
-                zf.writestr(name, body)
-        return zip_path
-
-    def test_passes_when_lance_file_present(self):
-        """Index files end in `.lance` — presence is sufficient."""
-        zp = self._make_zip([
-            (".wavefoundry/framework/VERSION", "1.4.0+abcd"),
-            (".wavefoundry/framework/index/docs.lance/data/x.lance", b"binary"),
-        ])
-        build_pack._assert_zip_contains_index(zp)  # no exception
-
-    def test_refuses_when_no_lance_file_present(self):
-        """No `.lance` files → release halts before publish (the regression this guards)."""
-        zp = self._make_zip([
-            (".wavefoundry/framework/VERSION", "1.4.0+abcd"),
-            (".wavefoundry/framework/seeds/001.md", "seed"),
-        ])
-        with self.assertRaises(RuntimeError) as ctx:
-            build_pack._assert_zip_contains_index(zp)
-        self.assertIn(".lance", str(ctx.exception))
 
 
 class ReleasePreflightTests(unittest.TestCase):

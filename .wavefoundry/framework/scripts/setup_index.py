@@ -69,6 +69,11 @@ REQUIRED_IMPORTS = {
 CUDA_DEPENDENCY_IMPORTS = {
     "fastembed-gpu": "fastembed",
 }
+# Wave 1p517/1p52p: `onnx` pins model input dims to a static shape. GPU embedders need it for the
+# FP16 acceleration path; the CPU INT8 reranker also needs it to build its static 64x512 graph.
+GPU_ACCEL_IMPORTS = {
+    "onnx": "onnx",
+}
 
 
 class _TimestampedStream:
@@ -148,6 +153,8 @@ def _planned_required_imports() -> dict[str, str]:
     required = dict(REQUIRED_IMPORTS)
     if _should_plan_cuda_dependencies():
         required.update(CUDA_DEPENDENCY_IMPORTS)
+    if _should_plan_gpu_accel_dependencies():
+        required.update(GPU_ACCEL_IMPORTS)
     return required
 
 
@@ -156,6 +163,21 @@ def _should_plan_cuda_dependencies() -> bool:
     if requested in {"cpu", "coreml", "dml", "directml", "openvino", "migraphx", "rocm"}:
         return False
     return provider_policy.nvidia_gpu_present()
+
+
+def _should_plan_gpu_accel_dependencies() -> bool:
+    """Plan `onnx` when a static-shape model path can run.
+
+    GPU embedders need it for CoreML/CUDA/ROCm/DirectML acceleration. Wave 1p52p also made the
+    cross-encoder reranker hardware-selected: GPU uses FP16 and CPU uses INT8, but BOTH paths build a
+    static ONNX graph. Therefore CPU-only installs still need `onnx` unless reranking is explicitly
+    disabled.
+    """
+    if os.environ.get("WAVEFOUNDRY_DISABLE_RERANKER", "").strip().lower() in {"1", "true", "yes", "on"}:
+        requested = os.environ.get(provider_policy.REQUESTED_PROVIDER_ENV, "auto").strip().lower()
+        if requested == "cpu" or not (provider_policy.apple_silicon_present() or provider_policy.nvidia_gpu_present()):
+            return False
+    return True
 
 
 def _missing_in_venv(venv_python: Path, required_imports: dict[str, str] | None = None) -> list[str]:
@@ -432,6 +454,22 @@ def _probe_embedding_provider(provider: str, *, model_name: str | None = None) -
             return provider_policy.ProviderProbeResult(provider, False, "embedding shape mismatch")
         if not all(math.isfinite(float(value)) for value in candidate_vector):
             return provider_policy.ProviderProbeResult(provider, False, "embedding contains non-finite values")
+    # Wave 1p4u1: CoreML is accepted as the Apple Silicon provider path on CORRECTNESS alone — it is
+    # NOT required to beat CPU by a benchmark margin. CoreML transparently partitions unsupported ops
+    # back to CPU, so "CoreML selected, CPU still does meaningful work" is the intended local-setup
+    # contract, not a failure. A tiny setup probe is also unrepresentative of a full-corpus rebuild
+    # (observed: CoreML-selected docs rebuild 420.13s vs prior 422.08s — no material speedup), so a
+    # speedup gate on it can spuriously reject (or over-favour) CoreML. Other probed providers
+    # (DML/OpenVINO/…) keep the speedup gate below; CUDA bypasses the probe entirely.
+    if provider == provider_policy.COREML_PROVIDER:
+        return provider_policy.ProviderProbeResult(
+            provider,
+            True,
+            f"{provider} accepted as the Apple Silicon provider path (correct embeddings; unsupported "
+            f"ops fall back to CPU; probe {candidate_seconds:.3f}s vs CPU {cpu_seconds:.3f}s — not a speedup gate)",
+            candidate_seconds=candidate_seconds,
+            cpu_seconds=cpu_seconds,
+        )
     min_speedup = float(os.environ.get("WAVEFOUNDRY_EMBED_PROVIDER_MIN_SPEEDUP", "1.25"))
     if candidate_seconds <= 0 or (cpu_seconds / candidate_seconds) < min_speedup:
         return provider_policy.ProviderProbeResult(
@@ -459,15 +497,6 @@ def report_embedding_provider_decision() -> provider_policy.ProviderDecision:
     return decision
 
 
-def _warm_reranker(model_name: str, *, local_files_only: bool) -> None:
-    from fastembed.rerank.cross_encoder import TextCrossEncoder
-    try:
-        reranker = TextCrossEncoder(model_name=model_name, local_files_only=local_files_only)
-    except TypeError:
-        reranker = TextCrossEncoder(model_name=model_name)
-    list(reranker.rerank("verification query", ["verification document"]))
-
-
 def _fastembed_cache_dir() -> Path:
     cache_path = Path(os.getenv("FASTEMBED_CACHE_PATH") or str(FASTEMBED_CACHE_DEFAULT))
     cache_path.mkdir(parents=True, exist_ok=True)
@@ -479,6 +508,10 @@ _MODEL_CACHE_DIR_ALIASES: dict[str, tuple[str, ...]] = {
     # ONNX repo directories, not the public model IDs used by indexer.py.
     "BAAI/bge-small-en-v1.5": ("qdrant/bge-small-en-v1.5-onnx-q",),
     "BAAI/bge-base-en-v1.5": ("qdrant/bge-base-en-v1.5-onnx-q",),
+    # Wave 1p4wx: arctic-embed-xs (docs model). fastembed normalizes the model
+    # name to lowercase ``snowflake/…`` and downloads from that HF repo, so the
+    # offline cache lives under ``models--snowflake--snowflake-arctic-embed-xs``.
+    "Snowflake/snowflake-arctic-embed-xs": ("snowflake/snowflake-arctic-embed-xs",),
 }
 
 
@@ -668,15 +701,50 @@ def prewarm_models(*, include_code: bool) -> None:
         )
         print(f"Verified offline semantic model cache: {model_name}", flush=True)
 
+    # Wave 1p52p: the reranker (Xenova export via accel_embedder) is prewarmed in _prewarm_gpu_accel,
+    # NOT here — it is no longer a fastembed model to download/verify. It runs on either hardware
+    # (GPU FP16 / CPU INT8); search degrades to vector order only when reranking is explicitly disabled.
+
+
+def _prewarm_gpu_accel(models: list[str]) -> None:
+    """Wave 1p517: on a GPU machine, build each model's static-shape CoreML session once at setup —
+    downloads + caches any clean ONNX (offline-ready) and pays the CoreML compile here (cached via
+    ``ModelCacheDirectory``), so the first index build doesn't. No-op on CPU machines / without onnx.
+    """
+    try:
+        import accel_embedder
+    except ImportError:
+        return
+    providers = list(provider_policy.select_embedding_providers().providers)
+
+    # Wave 1p52p: prewarm the cross-encoder reranker REGARDLESS of GPU — it runs FP16 on the GPU
+    # (~350 ms) or INT8 on the CPU (~960 ms). Pays the download + compile once so the first server
+    # query is fast. No-op when reranking is disabled (WAVEFOUNDRY_DISABLE_RERANKER).
     reranker_model = _indexer_reranker_model()
-    print(f"Prewarming reranker model cache: {reranker_model}", flush=True)
-    _prewarm_required_model(
-        reranker_model,
-        model_kind="reranker",
-        action="semantic index setup",
-        warm_fn=_warm_reranker,
-    )
-    print(f"Verified offline reranker model cache: {reranker_model}", flush=True)
+    try:
+        reranker = accel_embedder.make_reranker(reranker_model, providers)
+        if reranker is not None:
+            print(f"Prewarmed reranker ({reranker.provider}, compile cached): {reranker_model}", flush=True)
+        else:
+            print(f"Reranker not used for {reranker_model} (disabled or unbuildable)", flush=True)
+    except Exception as exc:  # noqa: BLE001 - prewarm is best-effort
+        print(f"Reranker prewarm skipped for {reranker_model}: {exc}", flush=True)
+
+    # The EMBEDDER accel is GPU-only (CPU embedders stay on fastembed). make_embedder falls back to
+    # AVAILABLE GPU providers if the selection lacks one, so don't short-circuit on the (possibly
+    # flaky) decision — let it decide. No-op without a GPU.
+    if not (any(p in accel_embedder.GPU_PROVIDERS for p in providers) or accel_embedder._available_gpu_providers()):
+        return
+    for model_name in models:
+        try:
+            embedder = accel_embedder.make_embedder(model_name, providers)
+        except Exception as exc:  # noqa: BLE001 - prewarm is best-effort
+            print(f"GPU embedder prewarm skipped for {model_name}: {exc}", flush=True)
+            continue
+        if embedder is not None:
+            print(f"Prewarmed GPU embedder ({embedder.provider}, CoreML compile cached): {model_name}", flush=True)
+        else:
+            print(f"GPU embedder not used for {model_name} (graph not GPU-friendly) — fastembed path", flush=True)
 
 
 def _spawn_background_code_build(root: Path, args: argparse.Namespace) -> None:
@@ -935,7 +1003,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     background_code = args.background_code and not args.include_code
-    report_embedding_provider_decision()
     if background_code:
         # H1 (Phase 4b reliability): stamp THIS process's pid into the background-build marker BEFORE
         # the synchronous docs build, so a crash here (prewarm / docs build) leaves a dead-pid record —
@@ -948,16 +1015,22 @@ def main(argv: list[str] | None = None) -> int:
             _bg_pid.write_text(str(os.getpid()), encoding="utf-8")
         except OSError:
             pass
+    _include_code = not background_code and args.include_code
     try:
-        prewarm_models(include_code=not background_code and args.include_code)
+        # Download/verify the models BEFORE the provider probe — the probe loads with
+        # local_files_only and would transiently fail on a fresh/cleared cache (model absent),
+        # silently dropping the whole build to CPU. Order: download → probe → GPU accel prewarm.
+        prewarm_models(include_code=_include_code)
     except ModelPrewarmError as exc:
         print(str(exc), file=sys.stderr)
         return 2
+    report_embedding_provider_decision()
+    _prewarm_gpu_accel(_indexer_models(include_code=_include_code))
     build_index(
         root,
         full=args.full,
         rechunk=args.rechunk,
-        include_code=not background_code and args.include_code,
+        include_code=_include_code,
         verbose=args.verbose,
         include_tests=args.include_tests,
         include_generated=args.include_generated,

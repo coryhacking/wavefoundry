@@ -297,12 +297,6 @@ def hook_helpers() -> str:
             return suffix not in skip_suffixes
 
 
-        def should_reindex_framework(path: str) -> bool:
-            if not should_reindex(path):
-                return False
-            return path.startswith(".wavefoundry/framework/")
-
-
         def _venv_python_path() -> str:
             import os
             venv_base = os.environ.get("WAVEFOUNDRY_TOOL_VENV", str(Path.home() / ".wavefoundry" / "venv"))
@@ -341,6 +335,8 @@ def hook_helpers() -> str:
                 pass
             # indexer.py reads docs/workflow-config.json itself for project
             # include-prefixes — launchers run bare, no prefix forwarding.
+            # 1p4ww: a single bare reindex — indexer folds the framework seeds/README
+            # into the project docs index, so no separate framework-index spawn.
             subprocess.Popen(
                 [python_exec, str(indexer), "--root", str(REPO_ROOT)],
                 stdout=subprocess.DEVNULL,
@@ -349,28 +345,6 @@ def hook_helpers() -> str:
                 start_new_session=True,
                 close_fds=os.name != "nt",
             )
-            if should_reindex_framework(file_path):
-                framework_index = REPO_ROOT / ".wavefoundry" / "framework" / "index"
-                subprocess.Popen(
-                    [
-                        python_exec,
-                        str(indexer),
-                        "--root",
-                        str(REPO_ROOT),
-                        "--content",
-                        "docs",
-                        "--index-dir",
-                        str(framework_index),
-                        "--include-prefix",
-                        ".wavefoundry/framework",
-                        "--no-ignore-files",
-                    ],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    cwd=str(REPO_ROOT),
-                    start_new_session=True,
-                    close_fds=os.name != "nt",
-                )
         """
     ).strip()
 

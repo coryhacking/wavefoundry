@@ -1,4 +1,4 @@
-"""Tests for graph_query.py — load, union, traversal, and report helpers."""
+"""Tests for graph_query.py — load, traversal, and report helpers."""
 
 from __future__ import annotations
 
@@ -23,13 +23,10 @@ def load_graph_query():
 
 
 def _write_graph(root: Path, layer: str, payload: dict) -> None:
-    if layer == "project":
-        graph_dir = root / ".wavefoundry" / "index" / "graph"
-    else:
-        graph_dir = root / ".wavefoundry" / "framework" / "index" / "graph"
+    # Wave 1p4ww: single project graph.
+    graph_dir = root / ".wavefoundry" / "index" / "graph"
     graph_dir.mkdir(parents=True, exist_ok=True)
-    name = "project-graph.json" if layer == "project" else "framework-graph.json"
-    (graph_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+    (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 FIXTURE_GRAPH = {
@@ -72,28 +69,11 @@ class GraphQueryLoadTests(unittest.TestCase):
         self.assertTrue(payload["present"])
         self.assertEqual(len(payload["nodes"]), 5)
 
-    def test_load_union_composes_layers(self):
-        _write_graph(self.root, "project", FIXTURE_GRAPH)
-        framework = {
-            **FIXTURE_GRAPH,
-            "layer": "framework",
-            "nodes": [
-                {"id": ".wavefoundry/framework/seeds/x.md", "label": "x", "kind": "seed", "source_file": ".wavefoundry/framework/seeds/x.md", "layer": "framework"},
-            ],
-            "edges": [],
-            "counts": {"files": 1, "nodes": 1, "edges": 0},
-        }
-        _write_graph(self.root, "framework", framework)
-        try:
-            import networkx  # noqa: F401
-        except ImportError:
-            self.skipTest("networkx unavailable")
-        union = self.mod.load_union(self.root)
-        self.assertTrue(union["present"])
-        self.assertEqual(union["layer"], "union")
-        self.assertEqual(len(union["nodes"]), 6)
-        layers = {node.get("layer") for node in union["nodes"]}
-        self.assertEqual(layers, {"project", "framework"})
+    def test_load_graph_rejects_non_project_layer(self):
+        # Wave 1p4ww: only the project graph exists; framework/union are removed.
+        with self.assertRaises(ValueError):
+            self.mod.load_graph(self.root, layer="framework")
+        self.assertFalse(hasattr(self.mod, "load_union"))
 
 
 class GraphQueryTraversalTests(unittest.TestCase):

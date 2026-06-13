@@ -15,7 +15,6 @@ Usage:
 
 import argparse
 import datetime
-import importlib.util
 import os
 import re
 import subprocess
@@ -195,23 +194,6 @@ def collect_files(framework_dir: Path) -> list[tuple[Path, str]]:
     return entries
 
 
-def _framework_index_source_files(framework_dir: Path) -> list[Path]:
-    """Return the pack-shipped framework source files used to build the index."""
-    source_files: list[Path] = []
-    for abs_path, arcname in collect_files(framework_dir):
-        if not arcname.startswith(FRAMEWORK_REL + "/"):
-            continue
-        rel_path = arcname[len(FRAMEWORK_REL) + 1 :]
-        if rel_path == "VERSION":
-            continue
-        if rel_path == "MANIFEST" or rel_path.startswith("MANIFEST.pre-"):
-            continue
-        if rel_path == "index" or rel_path.startswith("index/"):
-            continue
-        source_files.append(abs_path)
-    return source_files
-
-
 def write_manifest(framework_dir: Path, entries: list[tuple[Path, str]]) -> Path:
     """Write MANIFEST listing all packed paths (relative to framework root).
 
@@ -233,70 +215,6 @@ def write_pack_version(framework_dir: Path, version: str, build_prefix: str) -> 
     """Stamp VERSION with MAJOR.MINOR.PATCH+<build_prefix> so the archive is traceable."""
     version_path = framework_dir / "VERSION"
     version_path.write_text(f"{version}+{build_prefix}\n", encoding="utf-8")
-
-
-def _load_indexer():
-    script_dir = Path(__file__).resolve().parent
-    spec = importlib.util.spec_from_file_location("indexer", script_dir / "indexer.py")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["indexer"] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def build_framework_index(
-    framework_dir: Path,
-    *,
-    source_files: list[Path] | None = None,
-    verbose: bool = False,
-) -> None:
-    """Update the packaged framework docs/seed index under framework/index/."""
-    indexer = _load_indexer()
-    framework_dir = framework_dir.resolve()
-    root = framework_dir
-    include_prefixes: tuple[str, ...] = ()
-    if framework_dir.parent.name == ".wavefoundry":
-        root = framework_dir.parent.parent
-        include_prefixes = (framework_dir.relative_to(root).as_posix(),)
-    indexer.build_index(
-        root,
-        # Prefer the indexer's incremental path during packaging. The shared
-        # build_index logic will automatically escalate to a full rebuild when
-        # model, chunker, walker, or on-disk index state requires it.
-        full=False,
-        content="docs",
-        index_dir=framework_dir / "index",
-        include_prefixes=include_prefixes,
-        respect_ignore=False,
-        files=source_files,
-        verbose=verbose,
-    )
-
-
-def _compact_framework_index(framework_dir: Path, *, verbose: bool = False) -> None:
-    """Compact the packaged framework LanceDB tables after updating them."""
-    indexer = _load_indexer()
-    index_dir = framework_dir / "index"
-    if not index_dir.is_dir():
-        return
-    try:
-        db = indexer._get_lance_db(index_dir)
-    except Exception as exc:
-        raise RuntimeError(f"unable to open framework index for compaction ({exc})") from exc
-    for table_name in ("docs", "code"):
-        table_dir = index_dir / f"{table_name}.lance"
-        if not table_dir.is_dir():
-            continue
-        try:
-            table = db.open_table(table_name)
-            indexer._optimize_lance_table(table)
-            if verbose:
-                print(
-                    f"build_pack: compacted framework index table '{table_name}'",
-                    flush=True,
-                )
-        except Exception as exc:
-            raise RuntimeError(f"framework index compaction failed for '{table_name}' ({exc})") from exc
 
 
 def update_manifest_revision(repo_root: Path, full_version: str) -> None:
@@ -353,17 +271,15 @@ def check_docs_gate(repo_root: Path) -> None:
 #
 # These helpers support the `--release` flag, which extends `build_pack.py`
 # from a local-build CLI into the official release CLI: after a successful
-# local build (with the optimized + vacuumed framework index), `--release`
-# tags the commit, pushes the tag to origin, and uploads the zip as a
-# GitHub Release asset via `gh release create`.
+# local build, `--release` tags the commit, pushes the tag to origin, and
+# uploads the zip as a GitHub Release asset via `gh release create`.
 #
 # Pre-flight checks run BEFORE the build so failures (dirty tree, wrong
-# branch, missing CHANGELOG section, gh not auth'd) abort cheaply. The
-# post-build assertion verifies the produced zip contains the framework
-# index `.lance` files — guarding against silent skips in
-# `_compact_framework_index`. `--release-dry-run` walks the entire pipeline
-# without side effects (no git tag, no push, no gh upload) so the
-# orchestration logic itself can be smoke-tested before a real release.
+# branch, missing CHANGELOG section, gh not auth'd) abort cheaply. Wave 1p4ww
+# removed the shipped framework index, so there is no post-build index
+# assertion. `--release-dry-run` walks the entire pipeline without side
+# effects (no git tag, no push, no gh upload) so the orchestration logic
+# itself can be smoke-tested before a real release.
 
 
 RELEASE_NOTES_INSTALL_BLOCK_REL = Path(".wavefoundry/framework/release/install-block.md")
@@ -427,24 +343,6 @@ def _extract_changelog_section(changelog_path: Path, version: str) -> str:
     while out and not out[-1].strip():
         out.pop()
     return "\n".join(out)
-
-
-def _assert_zip_contains_index(zip_path: Path) -> None:
-    """Post-build assertion: published zip must include framework-index `.lance` files.
-
-    Guards against silent failures in `_compact_framework_index` that would
-    let `--release` publish a zip without semantic embeddings — the exact
-    regression this wave exists to prevent.
-    """
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        has_lance = any(name.endswith(".lance") for name in zf.namelist())
-    if not has_lance:
-        raise RuntimeError(
-            "post-build assertion failed: zip does not contain framework index "
-            "(.lance files). Refusing to publish a regression-shape release. "
-            "Check that --skip-framework-index is not set and that "
-            "_compact_framework_index ran successfully."
-        )
 
 
 def _check_git_working_tree_clean(repo_root: Path) -> None:
@@ -681,10 +579,11 @@ def build_zip(
     framework_dir: Optional[Path] = None,
     write_version: bool = True,
     update_manifest: bool = True,
-    prebuild_index: bool = False,
     inject_install_templates: bool = True,
     verbose: bool = False,
 ) -> Path:
+    # Wave 1p4ww: the framework index is no longer built or shipped — framework
+    # seeds/README fold into each project's docs index at setup/upgrade time.
     zip_name = f"{ZIP_PREFIX}{version}.{build_prefix}.zip"
     zip_path = output_dir / zip_name
 
@@ -696,11 +595,6 @@ def build_zip(
         write_pack_version(fw, version, build_prefix)
     if update_manifest:
         update_manifest_revision(repo_root, f"{version}+{build_prefix}")
-
-    if prebuild_index:
-        source_files = _framework_index_source_files(fw)
-        build_framework_index(fw, source_files=source_files, verbose=verbose)
-        _compact_framework_index(fw, verbose=verbose)
 
     # Remove .DS_Store files from the repo root before collecting files.
     for ds in repo_root.rglob(".DS_Store"):
@@ -834,11 +728,6 @@ def main():
         ),
     )
     parser.add_argument(
-        "--skip-framework-index",
-        action="store_true",
-        help="Skip updating and compacting framework/index before packaging.",
-    )
-    parser.add_argument(
         "--skip-manifest-update",
         action="store_true",
         help="Skip writing framework_revision to prompt-surface-manifest.json after packaging.",
@@ -856,8 +745,7 @@ def main():
             "After a successful local build, also tag the commit, push the tag "
             "to origin, and publish a GitHub Release with the local zip attached. "
             "Pre-flight checks refuse on dirty tree, non-main branch, existing "
-            "tag, missing CHANGELOG section, or unauthenticated gh. Incompatible "
-            "with --skip-framework-index."
+            "tag, missing CHANGELOG section, or unauthenticated gh."
         ),
     )
     parser.add_argument(
@@ -886,17 +774,6 @@ def main():
         )
         sys.exit(1)
 
-    # Mutex: --release publishes a zip; --skip-framework-index produces a zip
-    # without the semantic index. Combining them would publish the exact
-    # regression-shape artifact this wave (1p347) exists to prevent.
-    if (args.release or args.release_dry_run) and args.skip_framework_index:
-        print(
-            "error: --release / --release-dry-run is incompatible with "
-            "--skip-framework-index (would publish a zip without the framework "
-            "semantic index — the regression this flag exists to prevent).",
-            file=sys.stderr,
-        )
-        sys.exit(1)
 
     # Resolve output directory; create ~/.wavefoundry/dist/ if needed.
     if args.output:
@@ -972,7 +849,8 @@ def main():
             args.version,
             build_prefix,
             update_manifest=not args.skip_manifest_update,
-            prebuild_index=not args.skip_framework_index,
+            # 1p4ww: the framework index is no longer shipped — framework seeds/README
+            # fold into each project's own docs index. The pack ships framework SOURCE only.
             verbose=args.verbose,
         )
     except RuntimeError as exc:
@@ -988,11 +866,9 @@ def main():
     # the zip-contains-index check has to actually inspect the produced zip;
     # nothing earlier can verify it.
     if args.release or args.release_dry_run:
-        try:
-            _assert_zip_contains_index(zip_path)
-        except RuntimeError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            sys.exit(1)
+        # 1p4ww: the framework index is no longer shipped (folded into each project's
+        # docs index), so the old "published zip must contain a framework index" guard
+        # is removed. The dead build/guard functions are cleaned up in Stage 4.
         try:
             _run_release_orchestration(
                 repo_root,

@@ -147,8 +147,6 @@ DEFINITION_BOOST_RULES: list[dict] = [
     },
 ]
 DEFINITION_BOOST_CANDIDATES = 5   # maximum candidates injected per rule per query
-MAX_SYMBOLS_EXTRACTED = 5         # maximum symbol names extracted from first-hop citations
-MAX_SECOND_HOP_CANDIDATES = 10    # maximum total candidates injected via second hop
 
 # Wave 1p4hj: agent-mode (the default `rerank` value) candidate selection. The host
 # agent — code_ask's only consumer, which already synthesizes — fuses labeled,
@@ -206,12 +204,16 @@ _GRAPH_USER_INTENT_RE = re.compile(
 _GRAPH_OUTGOING_INTENT_RE = re.compile(
     r"\b(callees|what\s+does\s+\w+|does\s+\w+\s+(?:call|read|use|import|access)|what\s+\w+\s+(?:calls|reads|imports|uses)|\w+\s+(?:calls|reads|imports|invokes|uses)\s+what)\b"
 )
-# Agent-mode confidence calibration (bge-small cosine): on-topic queries top ≥ ~0.75, off-topic
-# top ≤ ~0.70 (measured on/off-topic separation). Only applied to agent-mode cosine scores — the
-# cross-encoder (local) + RRF + keyword/exact (top≈0) paths use other scales and stay count-based.
-# Thin margin → tunable, calibrated by 1p4hj AC-10.
-CONF_AGENT_HIGH_SCORE = 0.72       # agent-mode top cosine ≥ this (with ≥2 citations) → "high"
-CONF_AGENT_LOW_SCORE = 0.65        # agent-mode top cosine < this → "low" (flat/weak band — likely no real answer)
+# Wave 1p52p: agent-mode confidence is now calibrated on the CROSS-ENCODER relevance scale
+# (``sigmoid(logit)`` ∈ [0,1]), not cosine. The docs/code model split (1p4wx) put arctic-doc and
+# bge-code cosines on different scales, so a mixed-source cosine top was never a valid band; the
+# cross-encoder scores docs+code on ONE scale. Measured separation: on-topic queries whose answer is
+# retrieved top ``sigmoid ≥ ~0.5`` (the model's native relevance boundary), off-topic / no-answer top
+# ``sigmoid < ~0.1``. These bands apply ONLY when the cross-encoder actually ran (GPU FP16 or CPU
+# INT8). When reranking is disabled/unbuildable, agent confidence is count-based (mixed-model cosine
+# is not trustworthy).
+CONF_AGENT_RERANK_HIGH = 0.5       # reranked top sigmoid ≥ this (with ≥2 citations) → "high"
+CONF_AGENT_RERANK_LOW = 0.1        # reranked top sigmoid < this → "low" (nothing relevant retrieved)
 
 # Wave 1p4lr: candidate-side constant-definition rank boost. A short constant-declaration
 # chunk (the 1p4mf " [const]" marker) whose declared-name tokens ALL appear in the query is
@@ -227,18 +229,10 @@ _QUERY_STOPWORDS = frozenset(
     "this that it its with and or as has have had can could should would will use used uses".split()
 )
 
-# Tree-sitter node types used during symbol extraction
-_TS_CALL_TYPES = frozenset({
-    "call", "call_expression", "method_invocation",
-    "invocation_expression", "function_call",
-})
+# Tree-sitter identifier node types (used by code-symbol extraction in the code_* tools)
 _TS_IDENTIFIER_TYPES = frozenset({
     "identifier", "name", "simple_name", "property_identifier",
     "type_identifier",  # TypeScript class/interface/type names
-})
-_TS_MEMBER_TYPES = frozenset({
-    "attribute", "member_expression",
-    "member_access_expression", "field_access",
 })
 # Node types used by code_outline to identify class/struct definitions
 _TS_OUTLINE_CLASS_TYPES = frozenset({
@@ -271,21 +265,6 @@ _TS_SYMBOL_LANG_MAP: dict[str, str] = {
     "bash": "bash",
     "sql": "sql",
 }
-# Common built-in names filtered out of symbol extraction results
-_SYMBOL_BLOCKLIST = frozenset({
-    "get", "set", "run", "init", "main", "self", "this", "true", "false",
-    "null", "new", "return", "create", "update", "delete", "list", "find",
-    "print", "none", "super", "async", "await", "with", "open", "next",
-    "type", "repr", "hash", "iter", "copy", "bool", "dict", "join",
-})
-
-# Regex patterns for symbol extraction fallback
-_RE_CALL = re.compile(r'\b([A-Za-z_][A-Za-z0-9_]{3,})\s*\(')
-_RE_SQL_EXEC = re.compile(
-    r'\b(?:EXEC|EXECUTE|CALL)\s+([A-Za-z_][A-Za-z0-9_.]{3,})\b', re.IGNORECASE
-)
-_RE_IMPORT = re.compile(r'\bimport\s+([A-Za-z_][A-Za-z0-9_]{3,})')
-
 _PROMPT_MISS = object()
 """Sentinel used by ``McpRepoCache.get_prompt_text_cached`` to cache a None
 result (i.e. prompt not found) without storing Python ``None``, which cannot
@@ -365,30 +344,23 @@ def _ensure_model_cached(model_name: str, model_type: str) -> None:
     import os
 
     if model_type == "reranker":
+        # 1p52p: prewarm the cross-encoder reranker (download + compile) so the first live query is
+        # fast — FP16 on the GPU or INT8 on the CPU, whichever this machine has. No-op when reranking
+        # is disabled (WAVEFOUNDRY_DISABLE_RERANKER) or the model can't be built. The BAAI FP32
+        # fastembed reranker is no longer downloaded.
         try:
-            from fastembed.rerank.cross_encoder import TextCrossEncoder
-        except ImportError:
-            _wf_log(f"[wavefoundry] fastembed.rerank not available; skipping {model_name}")
-            return
-
-        # Check if already cached (offline probe)
-        try:
-            with _offline_model_env():
-                try:
-                    TextCrossEncoder(model_name=model_name, local_files_only=True)
-                except TypeError:
-                    TextCrossEncoder(model_name=model_name)
-            _wf_log(f"[wavefoundry] Reranker already cached: {model_name}")
-            return
+            import accel_embedder
         except Exception:
-            pass
-
-        # Not cached — download (object is discarded after)
+            _wf_log(f"[wavefoundry] accel_embedder unavailable; skipping reranker prewarm: {model_name}")
+            return
         try:
-            TextCrossEncoder(model_name=model_name, local_files_only=False)
-        except TypeError:
-            TextCrossEncoder(model_name=model_name)
-        _wf_log(f"[wavefoundry] Model cached: {model_name}")
+            reranker = accel_embedder.make_reranker(model_name, [])  # online: downloads + compiles
+            if reranker is not None:
+                _wf_log(f"[wavefoundry] reranker prewarmed: {model_name} ({reranker.provider})")
+            else:
+                _wf_log(f"[wavefoundry] reranker not built (disabled or unbuildable): {model_name}")
+        except Exception as exc:  # noqa: BLE001
+            _wf_log(f"[wavefoundry] reranker prewarm failed for {model_name}: {exc}")
 
     else:  # embedding
         from fastembed import TextEmbedding
@@ -419,10 +391,19 @@ class WaveIndex:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.index_dir = root / ".wavefoundry" / "index"
-        self.framework_index_dir = root / ".wavefoundry" / "framework" / "index"
         self._docs_lance_table = None   # LanceDB Table object for docs, None if not loaded
         self._code_lance_table = None   # LanceDB Table object for code, None if not loaded
         self._reranker = None
+        # Wave 1p4wz: serialize the one-time lazy build of the reranker / embedders. FastMCP dispatches
+        # tools on a thread pool, so N concurrent first queries could otherwise each pay the CoreML
+        # compile + GPU-offload probe (and race the shared offline-env mutation). The locks guard only
+        # the build, not steady-state ``.rerank()``/``.embed()`` (ORT sessions are run-thread-safe).
+        import threading
+        self._reranker_lock = threading.Lock()
+        self._embedder_lock = threading.Lock()
+        # Wave 1p4wy: cache the embedder per model name so the CoreML/ONNX session
+        # (and its ~40s compile) is built once per process, not rebuilt per query.
+        self._embedders: dict[str, Any] = {}
         self._model_downloads_started: bool = False
         self._meta: dict = {}
         self._loaded = False
@@ -434,7 +415,7 @@ class WaveIndex:
         available = getattr(self, "_lance_available", None)
         if available is not None and (layer, kind) not in available:
             return None
-        index_dir = getattr(self, "index_dir", None) if layer == "project" else getattr(self, "framework_index_dir", None)
+        index_dir = getattr(self, "index_dir", None)
         if index_dir is None:
             return object() if available and (layer, kind) in available else None
         table_path = index_dir / f"{kind}.lance"
@@ -480,35 +461,32 @@ class WaveIndex:
     def _indexer_module(self):
         return _load_script("indexer")
 
-    def _layer_current_hashes(self, layer: str) -> dict[str, str]:
+    def _layer_current_hashes(self, layer: str = "project") -> dict[str, str]:
         idx = self._indexer_module()
-        # Framework index builds use ``--no-ignore-files`` (see ``run_index_rebuild``); match
-        # that walk so ``meta.json`` ``file_hashes`` keys align with health checks.
-        files = idx.walk_repo(self.root, respect_ignore=layer == "project")
-        index_dir = self.index_dir if layer == "project" else self.framework_index_dir
-        files = [path for path in files if not idx._is_relative_to(path, index_dir)]
-        if layer == "project":
-            # Wave 1p31b (1p312 in-session): match the indexer's actual
-            # files_for_meta eligibility by reading project_include_prefixes
-            # from workflow-config. Without this, the audit's "current
-            # eligibility" misses workflow-config opt-ins (e.g. wavefoundry's
-            # own self-host opts in `.wavefoundry/framework/scripts` and
-            # `.wavefoundry/framework/dashboard`) and reports false-positive
-            # ``removed_paths`` for paths the indexer correctly indexed.
-            meta_project_includes = idx._merged_project_include_prefixes_for_graph(self.root, ())
-            files = idx._filter_project_index_excludes(
-                files,
-                self.root,
-                (),
-                project_include_prefixes=meta_project_includes,
-            )
-        else:
-            files = idx._filter_by_prefixes(files, self.root, (".wavefoundry/framework/",))
-            files = idx._filter_framework_pack_artifacts(files, self.root)
+        files = idx.walk_repo(self.root, respect_ignore=True)
+        files = [path for path in files if not idx._is_relative_to(path, self.index_dir)]
+        # Wave 1p31b (1p312 in-session): match the indexer's actual
+        # files_for_meta eligibility by reading project_include_prefixes
+        # from workflow-config. Without this, the audit's "current
+        # eligibility" misses workflow-config opt-ins (e.g. wavefoundry's
+        # own self-host opts in `.wavefoundry/framework/scripts` and the
+        # 1p4ww folded framework seeds/README) and reports false-positive
+        # ``removed_paths`` for paths the indexer correctly indexed.
+        # Wave 1p4ww: ``_project_meta_include_prefixes`` is the single source of truth for
+        # project file_meta eligibility — the docs+code surface PLUS the folded framework
+        # seeds/README. Using it here keeps the health walk aligned with the build walk, so
+        # the folded docs don't read as false ``removed_paths`` against the index.
+        meta_project_includes = idx._project_meta_include_prefixes(self.root, ())
+        files = idx._filter_project_index_excludes(
+            files,
+            self.root,
+            (),
+            project_include_prefixes=meta_project_includes,
+        )
         return idx._build_file_hashes(files, self.root)
 
-    def _layer_health(self, layer: str) -> dict[str, Any]:
-        """Compute health metadata for one index layer (``'project'`` or ``'framework'``).
+    def _layer_health(self, layer: str = "project") -> dict[str, Any]:
+        """Compute health metadata for the project index layer.
 
         Walks the repo and hashes every indexed file, then compares the result
         against the hashes stored in ``meta.json``.  Paths where the digest
@@ -517,7 +495,8 @@ class WaveIndex:
         it only via the explicit ``wave_index_health`` MCP tool, never on the
         search hot path.
         """
-        index_dir = self.index_dir if layer == "project" else self.framework_index_dir
+        layer = "project"
+        index_dir = self.index_dir
         meta_path = index_dir / "meta.json"
         docs_lance_path = index_dir / "docs.lance"
         meta = self._meta.get(layer) if self._loaded else {}
@@ -573,40 +552,33 @@ class WaveIndex:
         }
 
     def docs_health(self) -> dict[str, Any]:
+        # Wave 1p4ww: single project docs index — the framework layer is folded in.
         self._ensure_loaded()
         project = self._layer_health("project")
-        framework = self._layer_health("framework")
         project["readiness"] = _index_layer_readiness(project)
-        framework["readiness"] = _index_layer_readiness(framework)
         compatible_chunks = (
             getattr(self, "_docs_lance_table", None) is not None
             or getattr(self, "_code_lance_table", None) is not None
         )
-        has_any_index = project["meta_present"] or framework["meta_present"]
-        stale_layers = [layer["layer"] for layer in (project, framework) if layer["stale_paths"]]
+        has_any_index = project["meta_present"]
+        stale_layers = [project["layer"]] if project["stale_paths"] else []
         missing_layers = [
-            layer["layer"]
-            for layer in (project, framework)
-            if layer["has_sources"] and (not layer["meta_present"] or not layer["docs_present"])
-        ]
+            project["layer"]
+        ] if project["has_sources"] and (not project["meta_present"] or not project["docs_present"]) else []
         readiness_overview = _index_readiness_overview(
             missing_layers, stale_layers, compatible_chunks, has_any_index
         )
         # Detect chunker version mismatch: index was built with an older CHUNKER_VERSION.
         # Fires even when file hashes are current (e.g. after a pack upgrade before rebuild).
         chunker_version_mismatch_layers: list[str] = []
-        for layer_health in (project, framework):
-            current_cv = layer_health.get("current_chunker_version", "")
-            indexed_cvs = layer_health.get("indexed_chunker_versions", {})
-            if not current_cv or not layer_health.get("meta_present"):
-                continue
-            if isinstance(indexed_cvs, dict) and any(
-                v != current_cv for v in indexed_cvs.values() if v
-            ):
-                chunker_version_mismatch_layers.append(layer_health["layer"])
+        current_cv = project.get("current_chunker_version", "")
+        indexed_cvs = project.get("indexed_chunker_versions", {})
+        if current_cv and project.get("meta_present") and isinstance(indexed_cvs, dict) and any(
+            v != current_cv for v in indexed_cvs.values() if v
+        ):
+            chunker_version_mismatch_layers.append(project["layer"])
         return {
             "project": project,
-            "framework": framework,
             "has_any_index": has_any_index,
             "stale_layers": stale_layers,
             "missing_layers": missing_layers,
@@ -633,7 +605,6 @@ class WaveIndex:
         idx = self._indexer_module()
         files = idx.walk_repo(self.root, respect_ignore=True)
         files = [path for path in files if not idx._is_relative_to(path, self.index_dir)]
-        files = [path for path in files if not idx._is_relative_to(path, self.framework_index_dir)]
 
         chunks: list[dict[str, Any]] = []
         seen_paths: set[str] = set()
@@ -715,18 +686,16 @@ class WaveIndex:
 
     def _ensure_loaded(self) -> None:
         if self._loaded:
-            # Invalidate if either index has been rebuilt since we last loaded.
+            # Invalidate if the index has been rebuilt since we last loaded.
             project_signature = self._index_meta_signature(self.index_dir)
-            framework_signature = self._index_meta_signature(self.framework_index_dir)
-            if (project_signature != self._loaded_meta_signature.get("project")
-                    or framework_signature != self._loaded_meta_signature.get("framework")):
+            if project_signature != self._loaded_meta_signature.get("project"):
                 self._loaded = False
         if self._loaded:
             return
 
-        if not (self.index_dir / "meta.json").exists() and not (self.framework_index_dir / "meta.json").exists():
+        if not (self.index_dir / "meta.json").exists():
             raise IndexNotReadyError(
-                f"Index not found at {self.index_dir} or {self.framework_index_dir}. "
+                f"Index not found at {self.index_dir}. "
                 "Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py"
             )
 
@@ -751,26 +720,22 @@ class WaveIndex:
 
         proj_docs_table = _load_lance_table(self.index_dir, "docs")
         proj_code_table = _load_lance_table(self.index_dir, "code")
-        fw_docs_table = _load_lance_table(self.framework_index_dir, "docs")
-        fw_code_table = _load_lance_table(self.framework_index_dir, "code")
 
-        if not any(t is not None for t in (proj_docs_table, proj_code_table, fw_docs_table, fw_code_table)):
+        if not any(t is not None for t in (proj_docs_table, proj_code_table)):
             raise IndexNotReadyError(
                 "[wavefoundry] No index found. "
                 "Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py"
             )
 
-        self._docs_lance_table = proj_docs_table or fw_docs_table
-        self._code_lance_table = proj_code_table or fw_code_table
+        # 1p4ww: single project layer — the framework index is folded into the project docs index.
+        self._docs_lance_table = proj_docs_table
+        self._code_lance_table = proj_code_table
         self._proj_docs_lance_table = proj_docs_table
         self._proj_code_lance_table = proj_code_table
-        self._fw_docs_lance_table = fw_docs_table
-        self._fw_code_lance_table = fw_code_table
         self._lance_available = set()
-        for layer_id, idx_dir in (("project", self.index_dir), ("framework", self.framework_index_dir)):
-            for kind in ("docs", "code"):
-                if (idx_dir / f"{kind}.lance").is_dir():
-                    self._lance_available.add((layer_id, kind))
+        for kind in ("docs", "code"):
+            if (self.index_dir / f"{kind}.lance").is_dir():
+                self._lance_available.add(("project", kind))
 
         def _load_meta_only(index_dir: Path) -> dict:
             meta_path = index_dir / "meta.json"
@@ -783,11 +748,9 @@ class WaveIndex:
 
         self._meta = {
             "project": _load_meta_only(self.index_dir),
-            "framework": _load_meta_only(self.framework_index_dir),
         }
         self._loaded_meta_signature = {
             "project": self._index_meta_signature(self.index_dir),
-            "framework": self._index_meta_signature(self.framework_index_dir),
         }
         self._loaded = True
 
@@ -812,36 +775,59 @@ class WaveIndex:
     #   - Both are caught by docs_search   → lexical fallback, mode="lexical" in response
     # ------------------------------------------------------------------
     def _get_embedder(self, model_name: str):
-        try:
-            from fastembed import TextEmbedding
-        except ImportError:
-            raise IndexNotReadyError(
-                "fastembed is not installed. Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py"
-            )
-        try:
-            with self._offline_model_env():
-                return TextEmbedding(model_name=model_name, local_files_only=True)
-        except TypeError:
+        # Wave 1p4wy: per-process embedder cache (mirrors ``_get_reranker``). On the
+        # CoreML path the ONNX session compile is ~40s; without this guard a fresh
+        # embedder was built on every query, re-paying the compile each time.
+        cached = self._embedders.get(model_name)
+        if cached is not None:
+            return cached
+        lock = getattr(self, "_embedder_lock", None)
+        if lock is None:  # bypass-constructed instance (e.g. WaveIndex.__new__ in tests)
+            import threading
+            lock = self._embedder_lock = threading.Lock()
+        with lock:
+            # Re-check under the lock so the ~40s CoreML compile (and the shared offline-env mutation)
+            # runs once per model even if several queries race the first build.
+            cached = self._embedders.get(model_name)
+            if cached is not None:
+                return cached
+            try:
+                from fastembed import TextEmbedding
+            except ImportError:
+                raise IndexNotReadyError(
+                    "fastembed is not installed. Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py"
+                )
             try:
                 with self._offline_model_env():
-                    return TextEmbedding(model_name=model_name)
-            except Exception as exc:  # pragma: no cover - fallback path
+                    embedder = TextEmbedding(model_name=model_name, local_files_only=True)
+            except TypeError:
+                try:
+                    with self._offline_model_env():
+                        embedder = TextEmbedding(model_name=model_name)
+                except Exception as exc:  # pragma: no cover - fallback path
+                    raise SemanticModelUnavailableOfflineError(
+                        f"Semantic query model '{model_name}' is unavailable offline. "
+                        "Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root ."
+                    ) from exc
+            except Exception as exc:
                 raise SemanticModelUnavailableOfflineError(
                     f"Semantic query model '{model_name}' is unavailable offline. "
                     "Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root ."
                 ) from exc
-        except Exception as exc:
-            raise SemanticModelUnavailableOfflineError(
-                f"Semantic query model '{model_name}' is unavailable offline. "
-                "Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root ."
-            ) from exc
+            self._embedders[model_name] = embedder
+            return embedder
 
     def _embed_query(self, text: str, model_name: str) -> "np.ndarray":
         import numpy as np
         embedder = self._get_embedder(model_name)
+        # Wave 1p4wx: asymmetric models (e.g. arctic-embed for docs) require an
+        # instruction prefix on the QUERY side. fastembed ``.embed()`` does not
+        # apply it, so prepend it explicitly. Empty for symmetric models (bge).
+        prefix = self._indexer_module().query_embedding_prefix(model_name)
+        query_text = f"{prefix}{text}" if prefix else text
         try:
             with self._offline_model_env():
-                return next(iter(embedder.embed([text])))
+                return next(iter(embedder.embed([query_text])))
         except Exception as exc:
             raise SemanticModelUnavailableOfflineError(
                 f"Semantic query model '{model_name}' is unavailable offline. "
@@ -849,29 +835,53 @@ class WaveIndex:
             ) from exc
 
     def _get_reranker(self):
+        """Wave 1p52p: FP16-on-GPU / INT8-on-CPU cross-encoder reranker (`accel_embedder`).
+
+        ``make_reranker`` picks the path for this hardware: a GPU machine gets the FP16 GPU reranker
+        (~350 ms/query); a CPU-only machine gets the INT8 CPU reranker (~960 ms/query, no ranking
+        loss). It returns ``None`` only when reranking is explicitly disabled
+        (``WAVEFOUNDRY_DISABLE_RERANKER``) or the model can't be built — then the search path degrades
+        to vector order (the call sites tolerate ``None``), logged once so it's observable.
+        """
         if self._reranker is not None:
             return self._reranker
-        try:
-            from fastembed.rerank.cross_encoder import TextCrossEncoder
-        except ImportError:
+        if getattr(self, "_reranker_disabled", False):
             return None
-        try:
-            RERANKER_MODEL = self._indexer_constant("RERANKER_MODEL")
-            with self._offline_model_env():
-                reranker = TextCrossEncoder(model_name=RERANKER_MODEL, local_files_only=True)
-            self._reranker = reranker
-            return self._reranker
-        except TypeError:
-            try:
-                RERANKER_MODEL = self._indexer_constant("RERANKER_MODEL")
-                with self._offline_model_env():
-                    reranker = TextCrossEncoder(model_name=RERANKER_MODEL)
-                self._reranker = reranker
+        lock = getattr(self, "_reranker_lock", None)
+        if lock is None:  # bypass-constructed instance (e.g. WaveIndex.__new__ in tests)
+            import threading
+            lock = self._reranker_lock = threading.Lock()
+        with lock:
+            # Re-check under the lock: a racing first query may have finished the build (or marked it
+            # disabled) while we waited, so the costly compile/probe runs exactly once per process.
+            if self._reranker is not None:
                 return self._reranker
-            except Exception:
+            if getattr(self, "_reranker_disabled", False):
                 return None
-        except Exception:
-            return None
+            try:
+                import accel_embedder
+            except Exception:
+                accel_embedder = None
+            reranker = None
+            if accel_embedder is not None:
+                try:
+                    RERANKER_MODEL = self._indexer_constant("RERANKER_MODEL")
+                    reranker = accel_embedder.make_reranker(RERANKER_MODEL, [])
+                except Exception:
+                    reranker = None
+            if reranker is None:
+                self._reranker_disabled = True  # don't re-probe every query
+                _wf_log(
+                    "[wavefoundry] No reranker (disabled or unbuildable); search uses vector order "
+                    "without the cross-encoder rerank stage."
+                )
+                return None
+            self._reranker = reranker
+            _wf_log(
+                f"[wavefoundry] using cross-encoder reranker: {reranker.model_name} "
+                f"({reranker.provider}, static {accel_embedder.STATIC_BATCH}x{accel_embedder.STATIC_SEQ})"
+            )
+            return self._reranker
 
     def _start_background_model_downloads(self) -> None:
         import os
@@ -906,6 +916,33 @@ class WaveIndex:
 
         thread = threading.Thread(target=_download_worker, daemon=True, name="wavefoundry-model-download")
         thread.start()
+
+    def _agent_rerank(self, query: str, candidates: list[dict]) -> bool:
+        """Wave 1p52p: cross-encoder rerank for agent mode, run BEFORE selection.
+
+        Replaces each candidate's ``score`` with the UNIFIED relevance ``sigmoid(logit)`` ∈ [0,1] so
+        the agent selection (per-index floor, relevance drop-off, text budget) and the confidence band
+        all key off one scale — the arctic-doc vs bge-code cosines (1p4wx split) are not comparable.
+        Mutates ``candidates`` in place; returns True if the cross-encoder ran — it runs on either
+        hardware (GPU FP16 or CPU INT8). Returns False only when the reranker is unavailable
+        (disabled/unbuildable): scores stay raw cosine and the caller treats confidence as
+        count-based. Never raises.
+        """
+        reranker = self._get_reranker()
+        if not reranker or not candidates:
+            return False
+        try:
+            import math
+            logits = list(reranker.rerank(query, [c.get("text", "") for c in candidates]))
+            if len(logits) != len(candidates):
+                return False
+            for logit, c in zip(logits, candidates):
+                c["score"] = 1.0 / (1.0 + math.exp(-float(logit)))  # sigmoid → relevance prob
+                if c.get("_sym_injected") and c.get("kind") == "code":
+                    c["score"] = min(c["score"] + _SYMBOL_INJECTION_BOOST, 1.0)
+            return True
+        except Exception:
+            return False
 
     def _rerank(self, query: str, candidates: list[dict], top_n: int) -> list[dict]:
         reranker = self._get_reranker()
@@ -1169,8 +1206,9 @@ class WaveIndex:
             return (c.get("path", ""), tuple(c.get("lines") or []))
 
         def _wscore_base(c: dict) -> float:
-            # Un-boosted weighted cosine. Docs + code share the bge-small model → scores are
-            # comparable across sources; apply the per-source weight (RRF's navigational tilt).
+            # Un-boosted weighted relevance. Post-rerank (1p4wz) docs + code share ONE cross-encoder
+            # sigmoid scale → comparable across sources; only when the reranker is unavailable are they
+            # mixed arctic/bge cosines. Apply the per-source weight (RRF's navigational tilt).
             return (c.get("score") or 0.0) * ((weights or {}).get(c.get("source"), 1.0))
 
         def _wscore(c: dict) -> float:
@@ -1272,11 +1310,10 @@ class WaveIndex:
         mod = _load_script("indexer")
         return getattr(mod, name)
 
-    def _qualify_index_path(self, path: str, layer: str) -> str:
-        normalized = str(path or "").replace("\\", "/")
-        if layer == "framework" and normalized and not normalized.startswith(".wavefoundry/framework/"):
-            return f".wavefoundry/framework/{normalized.lstrip('/')}"
-        return normalized
+    def _qualify_index_path(self, path: str, layer: str = "project") -> str:
+        # Wave 1p4ww: single project layer — folded framework seeds/README are already
+        # stored under their real ``.wavefoundry/framework/...`` path, so no requalification.
+        return str(path or "").replace("\\", "/")
 
     def _lance_search(self, table, query_vec: "np.ndarray", top_n: int, where: Optional[str] = None, layer: str = "project") -> list[dict]:
         """Search a LanceDB table with cosine metric.
@@ -1317,18 +1354,13 @@ class WaveIndex:
             tag_clauses = [f"tags LIKE '%{t.replace(chr(39), chr(39)*2)}%'" for t in tags]
             where_parts.append(f"({' OR '.join(tag_clauses)})")
         where = " AND ".join(where_parts) if where_parts else None
-        tables = [t for t in [
-            getattr(self, "_proj_docs_lance_table", None),
-            getattr(self, "_fw_docs_lance_table", None),
-        ] if t is not None]
+        tables = [t for t in [getattr(self, "_proj_docs_lance_table", None)] if t is not None]
         if not tables:
             return [], False
         fetch_n = max(top_n, VECTOR_TOP_K)
         all_candidates: list[dict] = []
         if getattr(self, "_proj_docs_lance_table", None) is not None:
             all_candidates.extend(self._lance_search(self._proj_docs_lance_table, qvec, fetch_n, where=where, layer="project"))
-        if getattr(self, "_fw_docs_lance_table", None) is not None:
-            all_candidates.extend(self._lance_search(self._fw_docs_lance_table, qvec, fetch_n, where=where, layer="framework"))
         all_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
         candidates = all_candidates[:fetch_n]
         reranker = self._get_reranker()
@@ -1368,7 +1400,7 @@ class WaveIndex:
         if getattr(self, "_lance_available", None):
             dense_lists: list[list[dict]] = []
             fts_lists: list[list[dict]] = []
-            for layer in ("project", "framework"):
+            for layer in ("project",):
                 if (layer, "code") in self._lance_available:
                     dense = sorted(_code_dense(layer), key=lambda x: x.get("score", 0.0), reverse=True)
                     fts = sorted(_code_fts(layer), key=lambda x: x.get("score", 0.0), reverse=True)
@@ -1382,17 +1414,12 @@ class WaveIndex:
             fts_merged = self._rrf_merge(fts_lists, fetch_n) if fts_lists else []
             results = self._rrf_merge([dense_merged, fts_merged], fetch_n)
         else:
-            tables = [t for t in [
-                getattr(self, "_proj_code_lance_table", None),
-                getattr(self, "_fw_code_lance_table", None),
-            ] if t is not None]
+            tables = [t for t in [getattr(self, "_proj_code_lance_table", None)] if t is not None]
             if not tables:
                 return [], False
             all_candidates: list[dict] = []
             if getattr(self, "_proj_code_lance_table", None) is not None:
                 all_candidates.extend(self._lance_search(self._proj_code_lance_table, qvec, fetch_n, where=where, layer="project"))
-            if getattr(self, "_fw_code_lance_table", None) is not None:
-                all_candidates.extend(self._lance_search(self._fw_code_lance_table, qvec, fetch_n, where=where, layer="framework"))
             all_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
             results = all_candidates[:fetch_n]
         if language:
@@ -1477,26 +1504,20 @@ class WaveIndex:
                             if r.get("path")
                         ]
                         if kw_candidates:
-                            # Wave 1p4hj: agent-mode honors the exact-first artifact pass too —
-                            # return the keyword candidates labeled by source, full chunk, WITHOUT
-                            # the cross-encoder (this early-return path otherwise bypassed agent-mode
-                            # and ran the ~30s reranker on artifact-anchored questions).
-                            if rerank == "agent":
-                                for _c in kw_candidates:
-                                    _p = _c.get("path", "")
-                                    _c["source"] = "docs" if (_p.startswith("docs/") or "/docs/" in _p or _p.endswith(".md")) else "code"
-                                    _c["sources"] = [_c["source"]]
-                                return _partition_tests(kw_candidates[:max(top_n, AGENT_CANDIDATE_MAX)]), False, 0, 0, ["artifact_anchored"], [], "none", None
+                            # Wave 1p52p: agent-mode exact-first artifact pass, rerank-FIRST. Label by
+                            # source, then score the keyword candidates (was score=0.0) with the
+                            # cross-encoder for a unified relevance order. If the reranker is explicitly
+                            # disabled or unbuildable, keep keyword order.
+                            for _c in kw_candidates:
+                                _p = _c.get("path", "")
+                                _c["source"] = "docs" if (_p.startswith("docs/") or "/docs/" in _p or _p.endswith(".md")) else "code"
+                                _c["sources"] = [_c["source"]]
                             t_exact = time.monotonic()
-                            reranker = self._get_reranker()
-                            if reranker is not None:
-                                try:
-                                    results = self._rerank(query, kw_candidates, top_n)
-                                    results = _partition_tests(results)
-                                    return results, True, 0, round((time.monotonic() - t_exact) * 1000), ["artifact_anchored"], [], "none", None
-                                except Exception:
-                                    pass
-                            return _partition_tests(kw_candidates[:top_n]), False, 0, 0, ["artifact_anchored"], [], "none", None
+                            anchored_reranked = self._agent_rerank(query, kw_candidates)
+                            if anchored_reranked:
+                                kw_candidates.sort(key=lambda c: c.get("score", 0.0), reverse=True)
+                            results = _partition_tests(kw_candidates[:max(top_n, AGENT_CANDIDATE_MAX)])
+                            return results, anchored_reranked, 0, round((time.monotonic() - t_exact) * 1000), ["artifact_anchored"], [], "none", None
                 except Exception:
                     pass
             # Exact pass found no code results — treat remainder as explanatory
@@ -1510,14 +1531,10 @@ class WaveIndex:
         docs_candidates = []
         if getattr(self, "_proj_docs_lance_table", None) is not None:
             docs_candidates.extend(self._lance_search(self._proj_docs_lance_table, docs_qvec, top_k, layer="project"))
-        if getattr(self, "_fw_docs_lance_table", None) is not None:
-            docs_candidates.extend(self._lance_search(self._fw_docs_lance_table, docs_qvec, top_k, layer="framework"))
         docs_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
         code_candidates = []
         if getattr(self, "_proj_code_lance_table", None) is not None:
             code_candidates.extend(self._lance_search(self._proj_code_lance_table, code_qvec, top_k, layer="project"))
-        if getattr(self, "_fw_code_lance_table", None) is not None:
-            code_candidates.extend(self._lance_search(self._fw_code_lance_table, code_qvec, top_k, layer="framework"))
         code_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
         vector_ms = round((time.monotonic() - t_vector) * 1000)
 
@@ -1595,141 +1612,82 @@ class WaveIndex:
         # floor + balanced cross-index allocation, multi-source agreement preserved).
         # The host agent fuses+ranks. Two-hop expansion stays a "local"-mode feature
         # here (AC-9); `1p4hu` generalizes it to graph edges for agent-mode.
-        if rerank == "agent":
-            # Apply the explanatory doc-type relevance prior BEFORE selection. This is a
-            # validated signal (code > narrative docs for "how does X work" — wave
-            # journals/plans/seeds over-retrieve on semantic similarity), NOT context-blind
-            # noise: keep it, but apply it up front so the per-index floor + relevance
-            # drop-off operate on the ADJUSTED relevance. The demoted narrative-doc tail
-            # then falls below the cutoff and is trimmed (variable count), rather than being
-            # selected on raw cosine and padded in. (Navigational uses the code weight in
-            # the selection's _wscore instead; the two question types are exclusive.)
-            if question_type == "explanatory":
-                all_candidates, _ = _demote_doc_results(all_candidates, question_type)
-            # Wave 1p4lr: candidate-side definition-match boost. A DEFINITION chunk — a constant
-            # (1p4mf " [const]"), or a function/method/class/interface/type/enum (any language) —
-            # whose declared-name tokens ALL appear in the query gets a bounded score multiplier so
-            # the named definition ("what value is X" / "how does X work") ranks into the returned
-            # set. Stored as `_boost`; the selection applies it to the fill ORDER but computes the
-            # drop-off cutoff from UN-boosted scores so it never re-trims others.
-            _q_terms = _query_content_terms(query)
-            for _c in all_candidates:
-                _b = _definition_match_boost(_q_terms, _c)
-                if _b != 1.0:
-                    _c["_boost"] = _b
-            _docs_src = [c for c in all_candidates if str(c.get("kind", "")) in ("doc", "doc-summary", "seed")]
-            _code_src = [c for c in all_candidates if str(c.get("kind", "")) not in ("doc", "doc-summary", "seed")]
-            # Wave 1p4hj: bring forward RRF's navigational tilt — boost code for
-            # navigational questions (same encoding model for both indexes → cosine
-            # scores are comparable, so the weight applies cleanly to the fill order).
-            _agent_weights = (
-                {"code": RRF_NAVIGATIONAL_CODE_WEIGHT, "docs": RRF_NAVIGATIONAL_DOCS_WEIGHT}
-                if question_type == "navigational" else None
-            )
-            # Citations are SEMANTIC-only (docs + code). Wave 1p4hu's structural graph signal goes to
-            # the dedicated, relationship-grouped ``graph_related`` response section (not mixed into
-            # citations with a 0.0 score). It resolves the query's symbol(s) → direction-aware 1-hop
-            # neighbors (callers / readers via the 1p4ls reads edge / importers) and labels each by its
-            # relationship to the seed. Bounded by AGENT_GRAPH_SIGNAL_CAP; None when the graph is
-            # absent/empty or no symbol resolves — graceful fallback to semantic-only.
-            _agent_sources = {"docs": _docs_src, "code": _code_src}
-            _graph_src = self._graph_signal_candidates(query, all_candidates, cap=AGENT_GRAPH_SIGNAL_CAP)
-            results = self._agent_candidate_select(
-                _agent_sources,
-                max(top_n, AGENT_CANDIDATE_MAX),
-                AGENT_PER_INDEX_FLOOR_K,
-                weights=_agent_weights,
-                text_budget=AGENT_TEXT_BUDGET_CHARS,
-            )
-            if _graph_src:
-                # Build the structural section AFTER citation selection so a structural match that is
-                # also a citation is text-deduped (flagged also_cited, excerpt dropped) — never sent twice.
-                graph_related = self._build_graph_related(_graph_src, results)
-                second_hop_symbols = [c.get("_symbol") or str(c.get("text", "")).split("\n", 1)[0].strip()
-                                      for c in _graph_src]
-                symbol_extraction_method = "graph"
-            if question_type == "explanatory":
-                results = _partition_infra(results)
-            for r in results:
-                r.pop("_sym_injected", None)
-                r.pop("_graph_kind", None)
-            rerank_ms = round((time.monotonic() - t_rerank) * 1000)
-            return results, False, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method, graph_related
-        reranker = self._get_reranker()
-        if reranker is not None:
-            try:
-                results = self._rerank(query, all_candidates, top_n)
-                rerank_ms = round((time.monotonic() - t_rerank) * 1000)
-
-                # --- Second-hop symbol expansion (explanatory questions only) ---
-                if question_type == "explanatory":
-                    symbols, symbol_extraction_method = _extract_symbols_from_citations(results)
-                    if symbols:
-                        # Track which (path, start_line) pairs are already in the pool
-                        first_hop_keys = {
-                            (r.get("path", ""), (r.get("lines") or [0])[0])
-                            for r in all_candidates
-                        }
-                        second_hop_candidates: list[dict] = []
-                        for sym in symbols:
-                            if len(second_hop_candidates) >= MAX_SECOND_HOP_CANDIDATES:
-                                break
-                            try:
-                                kw_resp = code_keyword_response(self.root, sym)
-                                if kw_resp.get("status") == "ok":
-                                    for r in kw_resp["data"]["results"]:
-                                        if len(second_hop_candidates) >= MAX_SECOND_HOP_CANDIDATES:
-                                            break
-                                        key = (r.get("path", ""), r.get("line", 0))
-                                        if key not in first_hop_keys:
-                                            second_hop_candidates.append({
-                                                "path": r.get("path", ""),
-                                                "text": r.get("snippet", ""),
-                                                "score": 0.0,
-                                                "kind": "code",
-                                                "lines": [r.get("line", 1), r.get("line", 1)],
-                                            })
-                                            first_hop_keys.add(key)
-                            except Exception:
-                                pass
-                        if second_hop_candidates:
-                            second_hop_symbols = symbols
-                            results = self._rerank(
-                                query, results + second_hop_candidates, top_n
-                            )
-
-                # Stable partition: push scaffolding-layer citations to end
-                if question_type == "explanatory":
-                    results = _partition_infra(results)
-                for r in results:
-                    r.pop("_sym_injected", None)
-                rerank_ms = round((time.monotonic() - t_rerank) * 1000)
-                return results, True, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method, graph_related
-            except Exception:
-                pass
-
-        # RRF fallback — apply navigational weight bias when appropriate
-        # (second hop is skipped in RRF path — unpredictable ordering without reranker)
-        rrf_weights = (
-            [RRF_NAVIGATIONAL_DOCS_WEIGHT, RRF_NAVIGATIONAL_CODE_WEIGHT]
-            if question_type == "navigational"
-            else None
+        # Wave 1p52p: code_ask has a SINGLE ranking path — agent selection with a rerank-FIRST
+        # cross-encoder stage. The cross-encoder scores the full retrieved pool on ONE unified
+        # relevance scale (sigmoid of the logit) BEFORE selection, so the per-index floor / relevance
+        # drop-off / text budget AND the confidence band no longer compare incomparable arctic-doc vs
+        # bge-code cosines (the 1p4wx model split). The reranker runs on either hardware (GPU FP16 /
+        # CPU INT8); only when it is unavailable (disabled/unbuildable) does `_agent_rerank` no-op
+        # (scores stay cosine; confidence falls back to count-based). The former `rerank="local"`
+        # cross-encoder path and the `rrf_fallback` path were REMOVED here — `docs_search`/`code_search`
+        # keep their own independent rerank. (`rerank` param retained for API compat; ignored.)
+        agent_reranked = self._agent_rerank(query, all_candidates)
+        # Apply the explanatory doc-type relevance prior BEFORE selection — a validated signal (code >
+        # narrative docs for "how does X work"); applied up front so the floor + drop-off operate on the
+        # adjusted relevance and the demoted narrative tail falls below the cutoff.
+        if question_type == "explanatory":
+            all_candidates, _ = _demote_doc_results(all_candidates, question_type)
+        # Wave 1p4lr: candidate-side definition-match boost. A DEFINITION chunk whose declared-name
+        # tokens ALL appear in the query gets a bounded multiplier on the fill ORDER (cutoff uses
+        # un-boosted scores so it never re-trims others).
+        _q_terms = _query_content_terms(query)
+        for _c in all_candidates:
+            _b = _definition_match_boost(_q_terms, _c)
+            if _b != 1.0:
+                _c["_boost"] = _b
+        _docs_src = [c for c in all_candidates if str(c.get("kind", "")) in ("doc", "doc-summary", "seed")]
+        _code_src = [c for c in all_candidates if str(c.get("kind", "")) not in ("doc", "doc-summary", "seed")]
+        # Wave 1p4wz: rerank-FIRST means the per-index floor must pick each source's top-K on the
+        # UNIFIED post-rerank scale — but these lists still carry the pre-rerank cosine order from the
+        # vector fetch (1527/1531). Explanatory already re-sorted via _demote_doc_results; navigational/
+        # instructional did not, so without this the floor would pick top-K by stale cosine, defeating
+        # rerank-first. Sort each source by its current score (sigmoid post-rerank, or same-model cosine
+        # when the reranker is unavailable — valid within one source either way). _boost stays a
+        # fill-order-only nudge.
+        _docs_src.sort(key=lambda c: c.get("score") or 0.0, reverse=True)
+        _code_src.sort(key=lambda c: c.get("score") or 0.0, reverse=True)
+        # Navigational tilt — boost code over docs for navigational questions. This cross-source weight
+        # is only meaningful on the UNIFIED post-rerank sigmoid scale, so apply it only when the
+        # cross-encoder actually ran (GPU FP16 or CPU INT8). When the reranker is unavailable
+        # (disabled/unbuildable) the per-source scores are incomparable cross-model cosines (arctic docs
+        # vs bge code) and a cross-source multiplier would be meaningless — skip it; the per-index floor
+        # (each source sorted within itself) still gives a sound result.
+        _agent_weights = (
+            {"code": RRF_NAVIGATIONAL_CODE_WEIGHT, "docs": RRF_NAVIGATIONAL_DOCS_WEIGHT}
+            if (question_type == "navigational" and agent_reranked) else None
         )
-        results = self._rrf_merge([docs_candidates, code_candidates], top_n, weights=rrf_weights)
-        rerank_ms = round((time.monotonic() - t_rerank) * 1000)
+        # Citations are SEMANTIC-only (docs + code). The structural graph signal (1p4hu) goes to the
+        # dedicated relationship-grouped ``graph_related`` section, bounded by AGENT_GRAPH_SIGNAL_CAP.
+        _agent_sources = {"docs": _docs_src, "code": _code_src}
+        _graph_src = self._graph_signal_candidates(query, all_candidates, cap=AGENT_GRAPH_SIGNAL_CAP)
+        results = self._agent_candidate_select(
+            _agent_sources,
+            max(top_n, AGENT_CANDIDATE_MAX),
+            AGENT_PER_INDEX_FLOOR_K,
+            weights=_agent_weights,
+            text_budget=AGENT_TEXT_BUDGET_CHARS,
+        )
+        if _graph_src:
+            # Build the structural section AFTER citation selection so a structural match that is also a
+            # citation is text-deduped (flagged also_cited, excerpt dropped) — never sent twice.
+            graph_related = self._build_graph_related(_graph_src, results)
+            second_hop_symbols = [c.get("_symbol") or str(c.get("text", "")).split("\n", 1)[0].strip()
+                                  for c in _graph_src]
+            symbol_extraction_method = "graph"
         if question_type == "explanatory":
             results = _partition_infra(results)
         for r in results:
             r.pop("_sym_injected", None)
-        return results, False, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method, graph_related
+            r.pop("_graph_kind", None)
+        rerank_ms = round((time.monotonic() - t_rerank) * 1000)
+        return results, agent_reranked, vector_ms, rerank_ms, definition_boosted, second_hop_symbols, symbol_extraction_method, graph_related
 
     def get_seed(self, name: str) -> Optional[dict]:
         self._ensure_loaded()
         name_lower = name.lower().strip()
-        # First: query Lance docs table for seed chunks.
+        # First: query the project Lance docs table for seed chunks (1p4ww: folded layer).
         for table in filter(None, [
             getattr(self, "_proj_docs_lance_table", None),
-            getattr(self, "_fw_docs_lance_table", None),
         ]):
             try:
                 rows = table.search().where("kind = 'seed'", prefilter=True).to_list()
@@ -1740,7 +1698,7 @@ class WaveIndex:
                 path = chunk.get("path", "")
                 section = chunk.get("section") or ""
                 if name_lower in path.lower() or name_lower in section.lower():
-                    chunk["path"] = self._qualify_index_path(path, "framework" if table is getattr(self, "_fw_docs_lance_table", None) else "project")
+                    chunk["path"] = self._qualify_index_path(path)
                     return chunk
 
         # Wave 1p35d (1p35j): disk fallback. The index can be incomplete (some
@@ -1796,7 +1754,7 @@ class WaveIndex:
 
     def is_stale(self) -> bool:
         """Return True if the index may be out of date (no meta or missing files)."""
-        return not (self.index_dir / "meta.json").exists() and not (self.framework_index_dir / "meta.json").exists()
+        return not (self.index_dir / "meta.json").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -2945,11 +2903,10 @@ def run_sync_surfaces(root: Path) -> dict:
     }
 
 
-def _index_dir_for_layer(root: Path, layer: str) -> Path:
+def _index_dir_for_layer(root: Path, layer: str = "project") -> Path:
+    # Wave 1p4ww: single project index — the framework layer is folded in.
     if layer == "project":
         return root / ".wavefoundry" / "index"
-    if layer == "framework":
-        return root / ".wavefoundry" / "framework" / "index"
     raise ValueError(f"Unsupported layer '{layer}'.")
 
 
@@ -3008,12 +2965,6 @@ def _index_is_up_to_date(root: Path, layer: str, content: str = "docs") -> bool:
         _preferred_python(), str(scripts_dir / "indexer.py"),
         "--root", str(root), "--content", check_content, "--dry-run",
     ]
-    if layer == "framework":
-        cmd.extend([
-            "--index-dir", str(index_dir),
-            "--include-prefix", ".wavefoundry/framework",
-            "--no-ignore-files",
-        ])
     # Project layer: indexer.py reads workflow-config include-prefixes itself.
     try:
         result = subprocess.run(
@@ -3026,9 +2977,7 @@ def _index_is_up_to_date(root: Path, layer: str, content: str = "docs") -> bool:
         return False
 
 
-def _index_build_state_path(root: Path, layer: str) -> Path:
-    if layer == "framework":
-        return root / ".wavefoundry" / "framework" / "index" / "index-build.json"
+def _index_build_state_path(root: Path, layer: str = "project") -> Path:
     return root / ".wavefoundry" / "index" / "index-build.json"
 
 
@@ -3039,9 +2988,7 @@ def _clear_index_build_state(root: Path, layer: str) -> None:
         pass
 
 
-def _index_build_log_path(root: Path, layer: str) -> Path:
-    if layer == "framework":
-        return root / ".wavefoundry" / "logs" / "framework-index-build.log"
+def _index_build_log_path(root: Path, layer: str = "project") -> Path:
     return root / ".wavefoundry" / "logs" / "project-index-build.log"
 
 
@@ -3049,9 +2996,7 @@ def _project_background_build_log_path(root: Path) -> Path:
     return root / ".wavefoundry" / "logs" / "project-background-build.log"
 
 
-def _index_build_stats_path(root: Path, layer: str) -> Path:
-    if layer == "framework":
-        return root / ".wavefoundry" / "framework" / "index" / "index-build-stats.json"
+def _index_build_stats_path(root: Path, layer: str = "project") -> Path:
     return root / ".wavefoundry" / "index" / "index-build-stats.json"
 
 
@@ -3066,20 +3011,14 @@ def _graph_health_summary(root: Path) -> dict[str, Any]:
         {
             "project": {"present": bool, "last_built_at": str | None,
                         "node_count": int | None, "edge_count": int | None},
-            "framework": {...same shape...},
         }
+
+    Wave 1p4ww: single project graph — the framework layer is folded in.
     """
     import datetime as _dt
     summary: dict[str, Any] = {}
-    for layer, fname in (("project", "project-graph.json"),
-                         ("framework", "framework-graph.json")):
+    for layer, fname in (("project", "project-graph.json"),):
         graph_path = root / ".wavefoundry" / "index" / "graph" / fname
-        # framework graphs may live under the framework/ subtree on the operator
-        # repo; fall back to that path when the top-level one is absent.
-        if not graph_path.exists() and layer == "framework":
-            alt = root / ".wavefoundry" / "framework" / "index" / "graph" / fname
-            if alt.exists():
-                graph_path = alt
         if not graph_path.exists():
             summary[layer] = {
                 "present": False, "last_built_at": None,
@@ -3306,10 +3245,9 @@ def run_index_rebuild(
     import time
     if content not in {"docs", "code", "all", "graph"}:
         raise ValueError(f"Unsupported content '{content}'.")
-    if layer not in {"project", "framework"}:
+    # Wave 1p4ww: single project index — the framework layer is folded in.
+    if layer != "project":
         raise ValueError(f"Unsupported layer '{layer}'.")
-    if layer == "framework" and content != "docs":
-        raise ValueError("Framework index rebuild only supports content 'docs'.")
 
     if _index_build_active(root, layer):
         log_path = _index_build_log_path(root, layer)
@@ -3343,12 +3281,6 @@ def run_index_rebuild(
     else:
         script = scripts_dir / "indexer.py"
         cmd = [python_exec, str(script), "--root", str(root), "--content", content, "--verbose"]
-    if layer == "framework":
-        cmd.extend([
-            "--index-dir", ".wavefoundry/framework/index",
-            "--include-prefix", ".wavefoundry/framework",
-            "--no-ignore-files",
-        ])
     # Project layer (docs/code): indexer.py reads workflow-config include-prefixes itself.
     if full:
         cmd.append("--full")
@@ -4525,9 +4457,7 @@ def _repo_rel(root: Path, path: Path) -> str:
     return str(path.relative_to(root)).replace("\\", "/")
 
 
-def _background_refresh_state_path(root: Path, layer: str) -> Path:
-    if layer == "framework":
-        return root / ".wavefoundry" / "framework" / "index" / "background-refresh.json"
+def _background_refresh_state_path(root: Path, layer: str = "project") -> Path:
     return root / ".wavefoundry" / "index" / "background-refresh.json"
 
 
@@ -4641,8 +4571,9 @@ def _background_refresh_active(state_path: Path) -> bool:
     return False
 
 
-def _start_background_index_refresh(root: Path, layer: str) -> bool:
-    if layer not in {"project", "framework"}:
+def _start_background_index_refresh(root: Path, layer: str = "project") -> bool:
+    # Wave 1p4ww: single project index — the framework layer is folded in.
+    if layer != "project":
         return False
     state_path = _background_refresh_state_path(root, layer)
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -4653,16 +4584,6 @@ def _start_background_index_refresh(root: Path, layer: str) -> bool:
         return False
     import subprocess
     cmd = [_preferred_python(), str(indexer), "--root", str(root)]
-    if layer == "framework":
-        cmd.extend([
-            "--content",
-            "docs",
-            "--index-dir",
-            str(root / ".wavefoundry" / "framework" / "index"),
-            "--include-prefix",
-            ".wavefoundry/framework",
-            "--no-ignore-files",
-        ])
     # Project layer: indexer.py reads workflow-config project include-prefixes
     # itself (docs+code merged for the co-running graph extraction), so the
     # background refresh launches it bare.
@@ -4693,11 +4614,16 @@ def _trigger_background_index_refresh_for_paths(root: Path, paths: Iterable[str 
                 normalized = normalized[2:]
         if normalized:
             normalized_paths.append(normalized)
-    project_needed = any(_indexable_refresh_path(path) and path.startswith("docs/") for path in normalized_paths)
-    framework_needed = any(_indexable_refresh_path(path) and path.startswith(".wavefoundry/framework/") for path in normalized_paths)
+    # Wave 1p4ww: framework seeds + README are folded into the project docs index, so a
+    # change to either triggers the single project refresh (no separate framework layer).
+    fold_prefixes = (".wavefoundry/framework/seeds/", ".wavefoundry/framework/README.md")
+    project_needed = any(
+        _indexable_refresh_path(path)
+        and (path.startswith("docs/") or path.startswith(fold_prefixes))
+        for path in normalized_paths
+    )
     return {
         "project": _start_background_index_refresh(root, "project") if project_needed else False,
-        "framework": _start_background_index_refresh(root, "framework") if framework_needed else False,
     }
 
 
@@ -5556,11 +5482,11 @@ def wave_set_handoff_response(root: Path, content: str, cache: Optional[McpRepoC
 
 
 def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
-    """Return structured health status for each index layer (project + framework).
+    """Return structured health status for the project index layer.
 
-    Runs file-hash comparison against meta.json for each layer and reports
-    missing, stale, or ready state.  Intended as an explicit diagnostic tool;
-    does not run on the search hot path.
+    Runs file-hash comparison against meta.json and reports missing, stale, or
+    ready state.  Wave 1p4ww folded the framework docs into this single project
+    index.  Intended as an explicit diagnostic tool; not on the search hot path.
     """
     try:
         health = index.docs_health()
@@ -5613,7 +5539,7 @@ def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
         diagnostics.append(
             _diagnostic(
                 "index_absent",
-                "No index metadata found under project or framework index dirs (nothing to search semantically yet).",
+                "No index metadata found under the project index dir (nothing to search semantically yet).",
                 recovery_tools=["wave_help"],
                 recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .",
             )
@@ -6231,7 +6157,7 @@ def wave_index_build_response(
     # (Aceiss's misread on 1.2.1+315o). When content is not 'graph', append a
     # clarifying note pointing at content='graph' for graph refresh.
     graph_health = _graph_health_summary(root)
-    target_layer = layer_s if layer_s in ("project", "framework") else "project"
+    target_layer = "project"
     layer_graph = graph_health.get(target_layer, {})
     if layer_graph.get("present"):
         result["graph_node_count"] = layer_graph.get("node_count")
@@ -6273,8 +6199,9 @@ def wave_index_build_response(
 def wave_index_build_status_response(root: Path, layer: str = "project") -> dict[str, Any]:
     import time as _time
     layer_s = (layer or "").strip().lower()
-    if layer_s not in {"project", "framework"}:
-        return _response("error", {"layer": layer}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported layer '{layer}'. Use 'project' or 'framework'.")])
+    # Wave 1p4ww: single project index — the framework layer is folded in.
+    if layer_s != "project":
+        return _response("error", {"layer": layer}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported layer '{layer}'. Use 'project'.")])
     state_path = _index_build_state_path(root, layer_s)
     log_path = _index_build_log_path(root, layer_s)
     index_dir = state_path.parent
@@ -13251,10 +13178,11 @@ def _first_call_site_at_or_after(call_sites: list[dict[str, Any]], start_line: i
 
 
 def _graph_layer_value(layer: str) -> str:
-    normalized = (layer or "project").strip().lower()
-    if normalized not in ("project", "framework", "union"):
-        raise ValueError(f"Unsupported graph layer: {layer}")
-    return normalized
+    # Wave 1p4ww: single project graph. The framework/union layers were removed
+    # (the separate framework graph is gone), so every request resolves to the
+    # one project graph. The ``layer`` arg is retained as a harmless no-op for
+    # back-compat with callers that still pass it.
+    return "project"
 
 
 def _maybe_append_graph_neighbors(
@@ -13489,7 +13417,7 @@ def _code_impact_graph_response(
     impact = index.graph_impact(symbol, max_hops=max(1, max_hops), relations=relations)
     if not impact.get("resolved"):
         # Wave 1304x / 1304r: refresh-then-resolve before emitting suggestions
-        new_index, refreshed_id = _graph_refresh_and_resolve(root, symbol, layer=layer_value if layer_value != "union" else "project")
+        new_index, refreshed_id = _graph_refresh_and_resolve(root, symbol, layer=layer_value)
         if refreshed_id is not None:
             index = new_index
             impact = index.graph_impact(symbol, max_hops=max(1, max_hops), relations=relations)
@@ -13507,7 +13435,7 @@ def _code_impact_graph_response(
             next_tools=["code_definition"],
             usage=f"code_definition(symbol_or_path_position={symbol!r})",
         )
-    community_lookup = _load_cluster_lookup_with_ids(root, layer_value if layer_value != "union" else "project")
+    community_lookup = _load_cluster_lookup_with_ids(root, layer_value)
     affected_raw = impact.get("affected") or []
     if not include_tests:
         affected_raw = [a for a in affected_raw if not _is_test_path(str(a.get("source_file") or ""))]
@@ -13893,11 +13821,11 @@ def wave_graph_report_response(
     # communities by node_count with the IDs needed to follow up via
     # code_graph_community. Lazy-loaded so the section only fires when
     # requested OR when the default section set is used.
-    wanted = set(sections) if sections is not None else {"fan_in", "fan_out", "orphan_docs", "chokepoints", "file_hubs", "cross_layer", "communities"}
+    wanted = set(sections) if sections is not None else {"fan_in", "fan_out", "orphan_docs", "chokepoints", "file_hubs", "communities"}
     if "communities" in wanted:
         try:
             gc = _load_script("graph_cluster")
-            cluster_layer = layer_value if layer_value != "union" else "project"
+            cluster_layer = layer_value
             payload = gc.read_cluster_payload(root, cluster_layer)
             communities_section: list[dict[str, Any]] = []
             if payload.get("present"):
@@ -14590,7 +14518,7 @@ def code_graph_community_response(
             next_tools=["wave_index_build"],
             usage="wave_index_build(content='graph', mode='create')",
         )
-    payload = gc.read_cluster_payload(root, layer_value if layer_value != "union" else "project")
+    payload = gc.read_cluster_payload(root, layer_value)
     if not payload.get("present"):
         return _response(
             "error",
@@ -14628,12 +14556,12 @@ def code_graph_community_response(
     if target is None:
         # Wave 1304x / 1304r: refresh-then-recheck before emitting suggestions
         def _recheck_community():
-            refreshed_payload = gc.read_cluster_payload(root, layer_value if layer_value != "union" else "project")
+            refreshed_payload = gc.read_cluster_payload(root, layer_value)
             return _find_community(refreshed_payload) or {}  # truthy on hit, {} so it's falsy on miss but not None
         refreshed = _graph_refresh_then_recheck(root, _recheck_community)
         if refreshed:
             target = refreshed
-            payload = gc.read_cluster_payload(root, layer_value if layer_value != "union" else "project")
+            payload = gc.read_cluster_payload(root, layer_value)
     if target is None:
         suggestions = _suggest_near_communities(payload.get("communities") or [], community_id, n=5)
         return _response(
@@ -14644,7 +14572,7 @@ def code_graph_community_response(
             usage="wave_graph_report(layer='project')",
         )
     # Load graph to get degree information
-    index = gq.GraphQueryIndex.from_root(root, layer=layer_value if layer_value != "union" else "project")
+    index = gq.GraphQueryIndex.from_root(root, layer=layer_value)
     node_ids = target.get("node_ids") or []
     nodes: list[dict[str, Any]] = []
     for nid in node_ids:
@@ -14903,174 +14831,6 @@ def _extract_question_symbol(question: str) -> Optional[str]:
     return None
 
 
-def _extract_symbols_ts(tree: Any) -> list[str]:
-    """Walk a tree-sitter parse tree and extract called function/method names."""
-    symbols: list[str] = []
-
-    def walk(node: Any) -> None:
-        if node.type in _TS_CALL_TYPES:
-            for child in node.children:
-                if child.type in _TS_IDENTIFIER_TYPES:
-                    text = child.text.decode("utf-8", errors="replace").strip()
-                    if text:
-                        symbols.append(text)
-                    break
-                elif child.type in _TS_MEMBER_TYPES:
-                    for attr_child in reversed(child.children):
-                        if attr_child.type in _TS_IDENTIFIER_TYPES:
-                            text = attr_child.text.decode("utf-8", errors="replace").strip()
-                            if text:
-                                symbols.append(text)
-                            break
-                    break
-        for child in node.children:
-            walk(child)
-
-    walk(tree.root_node)
-    return symbols
-
-
-def _extract_symbols_python(text: str) -> list[str]:
-    """Use stdlib ast to extract called and imported names from Python source."""
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
-        return []
-    symbols: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            func = node.func
-            if isinstance(func, ast.Name):
-                symbols.append(func.id)
-            elif isinstance(func, ast.Attribute):
-                symbols.append(func.attr)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                symbols.append(alias.asname or alias.name.split(".")[0])
-        elif isinstance(node, ast.ImportFrom):
-            for alias in node.names:
-                symbols.append(alias.asname or alias.name)
-    return symbols
-
-
-def _extract_symbols_regex(text: str) -> list[str]:
-    """Regex-based symbol extraction for unsupported languages or parse failures."""
-    symbols = list(_RE_CALL.findall(text))
-    symbols += _RE_SQL_EXEC.findall(text)
-    symbols += _RE_IMPORT.findall(text)
-    return symbols
-
-
-def _extract_symbols_from_citations(
-    citations: list[dict],
-    max_symbols: int = MAX_SYMBOLS_EXTRACTED,
-) -> tuple[list[str], str]:
-    """Extract referenced symbol names from the top non-infra citation texts.
-
-    Strategy:
-    - Python chunks: stdlib ``ast.parse`` for accurate call/import extraction.
-    - JS/TS/Java/C# chunks: tree-sitter via the chunker module (lazy-loaded);
-      falls back to regex if unavailable or parse fails.
-    - All other languages: regex.
-
-    Filters infra-path citations before extraction (they import many symbols
-    and would bias second-hop expansion toward wiring/routing files).
-    Deduplicates, enforces min length ≥ 4, removes blocklisted names, caps at
-    ``max_symbols``.
-
-    Returns ``(symbols, symbol_extraction_method)`` where ``symbol_extraction_method``
-    is one of:
-
-    - ``"ast"`` — Python stdlib AST or tree-sitter produced at least one symbol.
-    - ``"regex"`` — regex was the effective extractor for all processed citations
-      and no TS-eligible language was present (regex is the expected path).
-    - ``"regex_fallback"`` — a TS-eligible language was present but tree-sitter
-      was unavailable or failed; regex ran as a degradation fallback.
-    - ``"none"`` — no citations survived the infra filter; no extraction was attempted.
-
-    ``"regex_fallback"`` signals silent tree-sitter grammar degradation: callers can
-    detect missing grammars at query time and alert operators.
-    ``"none"`` distinguishes the empty-top-citations case from ``"regex"``/``"regex_fallback"``
-    (where regex actually ran).
-    """
-    non_infra = [
-        r for r in citations
-        if not any(
-            seg in Path(r.get("path", "")).parts
-            for seg in INFRASTRUCTURE_PATH_SEGMENTS
-        )
-    ]
-    top = non_infra[:3]
-
-    if not top:
-        return [], "none"
-
-    raw: list[str] = []
-    chunker: Any = None  # None = not yet attempted; False = failed to load
-    ast_succeeded = False
-    ts_eligible_seen = False  # True if any citation was a TS-eligible language
-
-    for r in top:
-        text = r.get("text", "")
-        if not text:
-            continue
-        lang = r.get("language", "")
-
-        if lang == "python":
-            extracted = _extract_symbols_python(text)
-            if extracted:
-                ast_succeeded = True
-            else:
-                extracted = _extract_symbols_regex(text)
-            raw.extend(extracted)
-        elif lang in _TS_SYMBOL_LANG_MAP:
-            ts_eligible_seen = True
-            # Try tree-sitter primary
-            if chunker is None:
-                try:
-                    chunker = _get_chunker_module()
-                except Exception:
-                    chunker = False
-            extracted = []
-            if chunker:
-                try:
-                    tree = chunker._ts_parse(_TS_SYMBOL_LANG_MAP[lang], text)
-                    if tree is not None:
-                        extracted = _extract_symbols_ts(tree)
-                        if extracted:
-                            ast_succeeded = True
-                except Exception:
-                    pass
-            if not extracted:
-                extracted = _extract_symbols_regex(text)
-            raw.extend(extracted)
-        else:
-            raw.extend(_extract_symbols_regex(text))
-
-    # Post-filter: deduplicate, min length, blocklist, cap
-    seen: set[str] = set()
-    result: list[str] = []
-    for sym in raw:
-        sym = sym.strip()
-        if (
-            len(sym) >= 4
-            and sym.lower() not in _SYMBOL_BLOCKLIST
-            and sym.lower() not in seen
-        ):
-            seen.add(sym.lower())
-            result.append(sym)
-            if len(result) >= max_symbols:
-                break
-
-    if ast_succeeded:
-        method = "ast"
-    elif ts_eligible_seen:
-        method = "regex_fallback"  # TS-eligible language present but grammar unavailable/degraded
-    else:
-        method = "regex"           # no TS-eligible language — regex is the expected extractor
-    return result, method
-
-
 # Artifact-anchored question detection: implementation verbs + concrete artifact cue.
 # A question qualifies as artifact_anchored when it contains both a verb from
 # _ARTIFACT_VERBS and a token matched by _ARTIFACT_CUE_RE. Detection uses named
@@ -15113,27 +14873,25 @@ def _classify_question(question: str) -> str:
     return "explanatory"
 
 
-def _heuristic_confidence(citations: list[dict], rerank: str = "agent") -> str:
+def _heuristic_confidence(citations: list[dict], reranked: bool = False) -> str:
     """Coarse confidence for the response.
 
-    Count alone is misleading: a flat low-score off-topic query still returns many
-    candidates (bge-small gives everything a ~0.6-0.7 cosine), which count-only would
-    call "high". So for **agent-mode cosine** scores we gate "high" on a genuinely
-    relevant top score and flag a clearly-weak band "low". The cross-encoder (local),
-    RRF fallback, and keyword/exact-match (top≈0) paths use different score scales and
-    are reliable on their own → they stay count-based. Still coarse — the per-citation
-    scores carry the fine signal; this is a quick summary, not a precise certainty.
+    Count alone is misleading: an off-topic query still returns many candidates. Wave 1p52p: when the
+    cross-encoder ran (``reranked=True`` on GPU FP16 or CPU INT8), every citation carries the UNIFIED
+    cross-encoder relevance ``sigmoid(logit)`` ∈ [0,1] — comparable across docs+code — so we gate
+    "high" on a genuinely relevant top score and flag a clearly-weak band "low" around the model's
+    native ~0.5 relevance boundary. Without a reranker (explicitly disabled or unbuildable), the
+    per-citation scores are mixed-model cosine (arctic-doc vs bge-code, 1p4wx split) and are NOT a trustworthy band → confidence
+    stays count-based. Still coarse — the per-citation scores carry the fine signal.
     """
     if not citations:
         return "low"
     n = len(citations)
-    top = max((c.get("score") or 0.0) for c in citations)
-    # Relevance gate only where the scale is bge-small cosine AND a real score exists
-    # (top>0; the keyword/exact path scores 0 and is a strong signal on its own).
-    if rerank == "agent" and top > 0.0:
-        if n >= 2 and top >= CONF_AGENT_HIGH_SCORE:
+    if reranked:
+        top = max((c.get("score") or 0.0) for c in citations)
+        if n >= 2 and top >= CONF_AGENT_RERANK_HIGH:
             return "high"
-        if top < CONF_AGENT_LOW_SCORE:
+        if top < CONF_AGENT_RERANK_LOW:
             return "low"
         return "medium"
     return "high" if n >= 2 else "medium"
@@ -15238,10 +14996,12 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
     if not question:
         return _response("error", {"question": question}, diagnostics=[_diagnostic("invalid_arguments", "question must be a non-empty string.")], next_tools=[], usage="")
 
-    # Wave 1p4hj: validate the rerank mode (AC-1).
+    # Wave 1p52p: code_ask has a single ranking path (agent selection + rerank-FIRST cross-encoder).
+    # The ``rerank`` param is retained for API back-compat: "agent" (default) and the deprecated alias
+    # "local" both route through the one path (search_combined ignores the value). Other values error.
     rerank = (rerank or "agent").strip().lower()
     if rerank not in ("agent", "local"):
-        return _response("error", {"question": question, "rerank": rerank}, diagnostics=[_diagnostic("invalid_arguments", "rerank must be 'agent' (default) or 'local'.")], next_tools=["code_ask"], usage="code_ask(question='...', rerank='agent')")
+        return _response("error", {"question": question, "rerank": rerank}, diagnostics=[_diagnostic("invalid_arguments", "rerank must be 'agent' (default); 'local' is a deprecated alias for the same single path.")], next_tools=["code_ask"], usage="code_ask(question='...')")
 
     question_type = _classify_question(question)
     gaps: list[str] = []
@@ -15304,17 +15064,14 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         return cit
 
     broad_hits = combined_results
-    if rerank == "agent":
-        # Agent-mode already applied the doc-type demotion PRE-selection (so the relevance
-        # drop-off could trim the demoted narrative tail) — don't double-apply here; just
-        # report how many of the returned candidates carry the demotion weight.
-        demotion_count = (
-            sum(1 for r in broad_hits
-                if _doc_demotion_weight(r.get("path", ""), str(r.get("kind") or "").strip().lower()) < 1.0)
-            if question_type == "explanatory" else 0
-        )
-    else:
-        broad_hits, demotion_count = _demote_doc_results(broad_hits, question_type)
+    # Wave 1p52p: code_ask is always the agent path, which applied the doc-type demotion PRE-selection
+    # (so the relevance drop-off could trim the demoted narrative tail) — don't double-apply here; just
+    # report how many of the returned candidates carry the demotion weight.
+    demotion_count = (
+        sum(1 for r in broad_hits
+            if _doc_demotion_weight(r.get("path", ""), str(r.get("kind") or "").strip().lower()) < 1.0)
+        if question_type == "explanatory" else 0
+    )
     partition_applied = bool(demotion_count)
     citations = []
     for final_rank, r in enumerate(broad_hits, start=1):
@@ -15353,7 +15110,7 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
     for final_rank, citation in enumerate(citations, start=1):
         citation["final_rank"] = final_rank
 
-    confidence = _heuristic_confidence(citations, rerank)
+    confidence = _heuristic_confidence(citations, combined_reranked)
 
     # Assemble answer text from top citations
     if citations:
@@ -15376,10 +15133,11 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         "gaps": gaps,
         "index_freshness": index_freshness,
         "reranked": combined_reranked,
-        # Wave 1p4hj: distinct mode field — "agent" (default; skipped cross-encoder +
-        # RRF, the agent fuses), "local" (cross-encoder ran), or "rrf_fallback"
-        # (cross-encoder unavailable, RRF order). NOT an overloaded `reranked: false`.
-        "rerank_mode": ("agent" if rerank == "agent" else ("local" if combined_reranked else "rrf_fallback")),
+        # Wave 1p52p: code_ask has a single ranking path — agent selection with a rerank-FIRST
+        # cross-encoder. ``rerank_mode`` is always "agent"; the ``reranked`` bool tells whether the
+        # cross-encoder actually ran (True; GPU FP16 or CPU INT8) or reranking was explicitly disabled /
+        # unbuildable (False). The former "local"/"rrf_fallback" modes were removed.
+        "rerank_mode": "agent",
         "partition_applied": partition_applied,
         "demotion_count": demotion_count,
         "total_ms": total_ms,
@@ -15738,8 +15496,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             max_results: Maximum results to return (default 50).
             symbol: Qualified graph node id or resolvable symbol for graph mode.
             max_hops: Reverse traversal depth for graph mode (default 3).
-            layer: Graph layer (default ``project`` — target-repo code and docs). Use
-                ``framework`` only for packaged framework seeds/docs; ``union`` merges both.
+            layer: Graph layer — only ``project`` exists (the framework/union layers
+                were removed in 1p4ww); retained as a no-op for back-compat.
             relations: Optional edge relation filter for graph mode.
             include_tests: When False (default), affected nodes in test paths are excluded from
                 the production blast-radius view. Set True to include test callers.
@@ -15798,7 +15556,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             scope: Repo-relative file path, directory prefix, or glob (``*``/``?``/``[]``) to rank over.
             top: Max ranked symbols returned (default 20).
             max_hops: Blast-radius traversal depth passed to impact (default 3).
-            layer: Graph layer (default ``project``). Omit unless querying framework or union.
+            layer: Graph layer — only ``project`` exists (framework/union removed in 1p4ww); a back-compat no-op.
             include_tests: When False (default), test-path nodes are excluded from the blast radius
                 (symmetric with code_impact's filter).
         """
@@ -15845,7 +15603,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             symbol: Required graph node id or resolvable symbol.
             depth: Expansion depth (default 1).
             direction: ``callers``, ``callees``, or ``both``.
-            layer: Graph layer (default ``project``). Omit unless querying framework or union.
+            layer: Graph layer — only ``project`` exists (framework/union removed in 1p4ww); a back-compat no-op.
             include_tests: When False (default), test-path nodes (and edges referencing them)
                 are excluded from the response. Symmetric with code_impact's filter.
         """
@@ -15897,7 +15655,6 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           — potential bottlenecks in the call graph. Module/file entries are NOT in this section (wave 13129);
           see ``file_hubs`` for the parallel file-level view.
         - orphan_docs: doc/seed nodes with no ``doc_references_code`` edges — disconnected documentation
-        - cross_layer: count + edge list of edges that cross the project/framework boundary (union layer only)
         - betweenness: ranked list of {node_id, label, kind, score} — nodes with high betweenness centrality
           (bridge nodes on shortest paths); requires igraph; skipped with diagnostic when graph > 10,000 nodes
         - communities: top communities by node_count with `community_id`, `label`, `hub_node_id`, `hub_label`,
@@ -15928,7 +15685,6 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           (``kind: "module"``) entries.
         - ``orphan_docs_candidates_total`` — docs node pool considered before the
           ``doc_references_code`` filter.
-        - ``cross_layer_candidates_total`` — edges considered before the boundary filter.
         - ``betweenness_computed`` (bool, from wave 130rj) + ``betweenness_skipped_reason``
           (when False) — graph-size or igraph-availability skip diagnostic.
 
@@ -15939,9 +15695,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         when >50% of top-N betweenness results are tagged generated.
 
         Args:
-            layer: Graph layer (default ``project``). Use ``union`` for cross-layer summaries.
+            layer: Graph layer — only ``project`` exists (the framework/union layers
+                were removed in 1p4ww); retained as a no-op for back-compat.
             limit: Max rows per ranking section (default 20).
-            sections: Optional subset: fan_in, fan_out, orphan_docs, chokepoints, file_hubs, cross_layer, betweenness, communities.
+            sections: Optional subset: fan_in, fan_out, orphan_docs, chokepoints, file_hubs, betweenness, communities.
             exclude_generated: When True (wave 130rj), filters nodes tagged ``generated: true`` out of
                 fan_in/fan_out/chokepoints/betweenness/communities. The classifier covers Java and C#
                 generated-code conventions (multi-language follow-up tracked separately).
@@ -16014,20 +15771,23 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           pass was thin and keyword fallback fired — results are still relevant but ranked by term overlap,
           not vector similarity. In the default `rerank="agent"` mode each citation also carries `source`
           (the index it came from: "docs"/"code") and, when it surfaced from more than one index, `sources`
-          (the set — cross-source agreement); `excerpt` is the FULL chunk text (not a 300-char truncation),
-          so YOU do the final ranking from full context. The candidate set is NOT pre-ranked for you beyond
-          a coverage floor + budget — fuse and rank it yourself, then `code_read` the winners.
-        - rerank_mode: "agent" (default — no cross-encoder, no RRF cross-source merge; labeled, deduped,
-          full-chunk per-index candidates for you to fuse) | "local" (cross-encoder ran) | "rrf_fallback"
-          (cross-encoder unavailable, RRF order). Pass rerank="local" only for the eval baseline /
-          determinism / offline; "agent" is faster (no ~30s cross-encoder, no parallel-query contention)
-          and gives you full-context candidates to rank.
-        - reranked: true means the cross-encoder ran (rerank_mode="local"); false in agent and rrf_fallback
-          modes. Prefer `rerank_mode` — `reranked` is retained for back-compat.
-        - confidence: "high" (2+ citations), "medium" (1 citation), "low" (no evidence). Retrieval signal
-          only — not an answer-quality signal. Evaluate citations by path and content, not confidence alone;
-          high confidence with wrong-layer citations (e.g. infrastructure scaffolding for an explanatory
-          question) still requires follow-up reads of the actual handler or repository layer.
+          (the set — cross-source agreement); `excerpt` is the FULL chunk text (not a 300-char truncation).
+          Wave 1p52p: when the reranker is available, the candidate set is RANKED by a cross-encoder relevance score
+          (`score` = sigmoid of the cross-encoder logit ∈ [0,1], unified across docs+code) applied BEFORE
+          the coverage floor + budget selection — citations come best-first; still read the winners. On a
+          GPU machine this uses FP16; on a CPU-only machine it uses the INT8 export. If reranking is
+          explicitly disabled or unbuildable, ordering falls back to coverage-floor over mixed-model cosine
+          (`reranked=false`) — fuse from full context yourself.
+        - rerank_mode: always "agent" — code_ask has one ranking path (agent selection + a rerank-FIRST
+          cross-encoder). Use the `reranked` bool to tell whether the cross-encoder ran.
+        - reranked: true = the cross-encoder ran and scored/ordered the candidates on one unified
+          relevance scale; false = reranker disabled/unbuildable, no cross-encoder (vector/coverage
+          order, mixed-model cosine scores).
+        - confidence: "high" / "medium" / "low". When `reranked=true` it is calibrated on the unified
+          cross-encoder relevance (high = a genuinely relevant top match with ≥2 citations; low = nothing
+          relevant retrieved); when `reranked=false` it is count-based. Retrieval signal only — not an
+          answer-quality signal. Evaluate citations by path and content; high confidence with wrong-layer
+          citations (e.g. infrastructure scaffolding for an explanatory question) still requires follow-up.
         - gaps: Retrieval gaps or index unavailability notices
         - question_type: "navigational" | "explanatory" | "instructional". Influences retrieval pool
           weighting and candidate window size. "explanatory" triggers two enhancements when the
@@ -16060,10 +15820,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Args:
             question: Natural-language question about the codebase, e.g. "where does billing handle failed payments?"
-            rerank: "agent" (default) returns labeled, deduped, full-chunk per-index candidates for you to
-                fuse+rank+synthesize — no cross-encoder, no RRF cross-source merge (faster; no ~30s reranker,
-                no parallel-query contention). "local" runs the cross-encoder + RRF (eval baseline /
-                determinism / offline). See the rerank_mode response field.
+            rerank: deprecated/optional. code_ask has a single ranking path — agent selection with a
+                rerank-FIRST cross-encoder (Wave 1p52p; FP16 on GPU, INT8 on CPU, so it is now embedded in
+                the default flow). "agent" (default) and the legacy alias "local" behave identically. If the
+                reranker is explicitly disabled or unbuildable, ordering falls back to vector/coverage order
+                (`reranked=false`).
         """
         bad = _ensure_no_extra_args("code_ask", kwargs)
         if bad is not None:
@@ -16546,8 +16307,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wave_index_health(**kwargs: Any) -> dict[str, Any]:
-        """Check the semantic and graph index health for each layer (project + framework).
+        """Check the semantic and graph index health for the project index layer.
 
+        Wave 1p4ww folded the framework docs into this single project index.
         Returns per-layer ``readiness`` (``missing`` / ``stale`` / ``current`` / ``idle``),
         aggregate ``readiness_overview`` (``incomplete`` / ``needs_update`` / ``degraded`` /
         ``absent`` / ``ready``), ``compatible_chunks``, ``stale_layers``, ``missing_layers``,
@@ -16636,7 +16398,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Args:
             content: One of `docs`, `code`, `all`, or `graph`.
             mode: `update` (incremental) or `rebuild` (full). For `graph`, always use `rebuild`.
-            layer: `project` for the repo-local index or `framework` for packaged framework docs/seeds.
+            layer: `project` (the only layer; the framework layer was removed in 1p4ww).
         """
         bad = _ensure_no_extra_args("wave_index_build", kwargs)
         if bad is not None:
@@ -17013,7 +16775,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         """Look up current values of named module-/type-level constants in one call.
 
         Prefer when: you need the current value of one or more named constants
-        (e.g. VECTOR_TOP_K, MAX_SYMBOLS_EXTRACTED) without manually parsing
+        (e.g. VECTOR_TOP_K, AGENT_CANDIDATE_MAX) without manually parsing
         grep output. Returns structured name/value/file/line/kind per match.
         Use code_keyword when searching for arbitrary substrings rather than
         constant assignments specifically.

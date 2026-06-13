@@ -29,13 +29,12 @@ _ACTIVE_WAVE_RE = re.compile(r"^\*\*Active wave:\*\*\s+(.+)$", re.MULTILINE)
 DASHBOARD_START_LOCK_NAME = "dashboard-start.lock"
 DASHBOARD_PROCESS_LOCK_NAME = "dashboard-process.lock"
 GRAPH_DIRNAME = "graph"
+# Wave 1p4ww: single project graph — the framework graph layer was removed.
 GRAPH_FILENAMES = {
     "project": "project-graph.json",
-    "framework": "framework-graph.json",
 }
 GRAPH_CLUSTER_FILENAMES = {
     "project": "project-graph-clusters.json",
-    "framework": "framework-graph-clusters.json",
 }
 
 
@@ -220,19 +219,15 @@ def write_dashboard_metadata(root: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def graph_path(root: Path, layer: str) -> Path:
+def graph_path(root: Path, layer: str = "project") -> Path:
     if layer not in GRAPH_FILENAMES:
         raise ValueError(f"Unsupported graph layer: {layer}")
-    if layer == "framework":
-        return root / ".wavefoundry" / "framework" / "index" / GRAPH_DIRNAME / GRAPH_FILENAMES[layer]
     return root / ".wavefoundry" / "index" / GRAPH_DIRNAME / GRAPH_FILENAMES[layer]
 
 
-def graph_cluster_path(root: Path, layer: str) -> Path:
+def graph_cluster_path(root: Path, layer: str = "project") -> Path:
     if layer not in GRAPH_CLUSTER_FILENAMES:
         raise ValueError(f"Unsupported graph layer: {layer}")
-    if layer == "framework":
-        return root / ".wavefoundry" / "framework" / "index" / GRAPH_DIRNAME / GRAPH_CLUSTER_FILENAMES[layer]
     return root / ".wavefoundry" / "index" / GRAPH_DIRNAME / GRAPH_CLUSTER_FILENAMES[layer]
 
 
@@ -1038,18 +1033,13 @@ def _index_stats(meta: Any, build_stats: Any, index_dir: "Path | None" = None) -
 
 
 def collect_health(root: Path, wave_count: int, change_sets: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    # Wave 1p4ww: single project index — the framework layer is folded in.
     index_dir        = root / ".wavefoundry" / "index"
-    fw_index_dir     = root / ".wavefoundry" / "framework" / "index"
     index_meta       = _read_json(index_dir    / "meta.json", {})
     index_stats      = _read_json(index_dir    / "index-build-stats.json", {})
-    fw_index_meta    = _read_json(fw_index_dir / "meta.json", {})
-    fw_index_stats   = _read_json(fw_index_dir / "index-build-stats.json", {})
     project_graph    = read_graph_payload(root, "project")
-    framework_graph   = read_graph_payload(root, "framework")
     project_build    = server.wave_index_build_status_response(root, layer="project").get("data", {})
-    framework_build  = server.wave_index_build_status_response(root, layer="framework").get("data", {})
     project_health   = _index_stats(index_meta,    index_stats,    index_dir)
-    framework_health = _index_stats(fw_index_meta, fw_index_stats, fw_index_dir)
     if isinstance(project_build, dict):
         project_state = str(project_build.get("build_status") or project_build.get("state") or "").strip().lower()
         if project_state in {"running", "failed"}:
@@ -1058,23 +1048,13 @@ def collect_health(root: Path, wave_count: int, change_sets: dict[str, list[dict
             project_health.update(project_build)
         elif project_build.get("stale_locks_cleaned"):
             project_health["stale_locks_cleaned"] = project_build["stale_locks_cleaned"]
-    if isinstance(framework_build, dict):
-        framework_state = str(framework_build.get("build_status") or framework_build.get("state") or "").strip().lower()
-        if framework_state in {"running", "failed"}:
-            if "state" in framework_build and "build_status" not in framework_build:
-                framework_build = {**framework_build, "build_status": framework_build.get("state")}
-            framework_health.update(framework_build)
-        elif framework_build.get("stale_locks_cleaned"):
-            framework_health["stale_locks_cleaned"] = framework_build["stale_locks_cleaned"]
     return {
         "docs_lint": {"status": "unknown", "reason": "Run on demand outside the dashboard poll loop."},
         "index": {
             "project": project_health,
-            "framework": framework_health,
         },
         "graph": {
             "project": project_graph,
-            "framework": framework_graph,
         },
         "counts": {
             "waves": wave_count,

@@ -112,11 +112,11 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
                 (repo_root / ".claude" / "hooks" / "pre-edit.py").read_text(encoding="utf-8"),
             )
             post_edit = (repo_root / ".claude" / "hooks" / "post-edit.py").read_text(encoding="utf-8")
-            self.assertIn("--index-dir", post_edit)
-            self.assertIn(".wavefoundry/framework/index", post_edit)
-            self.assertIn("--include-prefix", post_edit)
-            self.assertIn(".wavefoundry/framework", post_edit)
-            self.assertIn("--no-ignore-files", post_edit)
+            # 1p4ww: the reindex hook is a single bare project spawn (framework seeds/README
+            # fold into the project docs index) — no separate framework-index reindex.
+            self.assertIn("maybe_trigger_reindex", post_edit)
+            self.assertNotIn("--index-dir", post_edit)
+            self.assertNotIn("should_reindex_framework", post_edit)
             self.assertIn("python_exec = _venv_python_path()", post_edit)
             # Wave 1p35d (1p35n, AC-9): the rendered hook helper source must no longer
             # contain the dead `maybe_cleanup_pycache` helper or its `shutil` dependency.

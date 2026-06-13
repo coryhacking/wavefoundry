@@ -3163,6 +3163,63 @@ class JupyterChunkerTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Wave 1p4u5 (1p4w9): docs-chunk section-breadcrumb context injection.
+# ---------------------------------------------------------------------------
+
+class DocsBreadcrumbInjectionTests(unittest.TestCase):
+    """1p4w9: docs-kind chunks prepend the section breadcrumb to embedded text
+    (NL→docs retrieval gain); code chunks are untouched; injection is idempotent."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _chunk(self, kind, section, text):
+        return self.chunker.Chunk(id="x", path="docs/a.md", kind=kind, language="markdown",
+                                  lines=(1, 5), section=section, text=text)
+
+    def test_doc_chunk_gets_section_breadcrumb(self):
+        out = self.chunker._inject_docs_breadcrumb([self._chunk("doc", "Guide > Setup", "Install it.")])
+        self.assertEqual(out[0].text, "Guide > Setup\nInstall it.")
+
+    def test_seed_and_prompt_chunks_also_injected(self):
+        for kind in ("seed", "prompt"):
+            out = self.chunker._inject_docs_breadcrumb([self._chunk(kind, "Topic", "Body")])
+            self.assertEqual(out[0].text, "Topic\nBody", kind)
+
+    def test_doc_summary_chunk_not_injected(self):
+        # 1p4wz: doc-summary's real section is the literal "doc-summary" sentinel (set in
+        # _chunk_doc_summary), not a heading — injecting it would prepend a meaningless token to the
+        # embedded text. doc-summary is excluded from _DOCS_BREADCRUMB_KINDS; the summary already opens
+        # with the H1 title + a "Sections: …" breadcrumb of its own.
+        self.assertNotIn("doc-summary", self.chunker._DOCS_BREADCRUMB_KINDS)
+        out = self.chunker._inject_docs_breadcrumb([self._chunk("doc-summary", "doc-summary", "Title\nBody")])
+        self.assertEqual(out[0].text, "Title\nBody")
+
+    def test_code_chunk_unchanged(self):
+        c = self.chunker.Chunk(id="x", path="a.py", kind="code", language="python",
+                               lines=(1, 5), section="a > foo", text="def foo(): pass")
+        out = self.chunker._inject_docs_breadcrumb([c])
+        self.assertEqual(out[0].text, "def foo(): pass")
+
+    def test_idempotent_when_text_already_starts_with_breadcrumb(self):
+        # e.g. markdown H1-breadcrumb chunks and docstring chunks build text from the breadcrumb.
+        out = self.chunker._inject_docs_breadcrumb([self._chunk("doc", "Doc > Overview", "Doc > Overview\n\nBody")])
+        self.assertEqual(out[0].text, "Doc > Overview\n\nBody")
+
+    def test_empty_or_none_section_no_change(self):
+        self.assertEqual(self.chunker._inject_docs_breadcrumb([self._chunk("doc", None, "Body")])[0].text, "Body")
+        self.assertEqual(self.chunker._inject_docs_breadcrumb([self._chunk("doc", "   ", "Body")])[0].text, "Body")
+
+    def test_chunk_file_injects_for_no_h1_markdown_doc(self):
+        # No H1 → section is the bare heading; chunk_file now prepends it to the doc body.
+        md = "## Overview\n\n" + ("Some documentation prose about the system. " * 8)
+        chunks = self.chunker.chunk_file(md, "docs/guide.md")
+        prose = [c for c in chunks if c.kind == "doc" and c.section == "Overview"]
+        self.assertTrue(prose, "expected a doc chunk with section 'Overview'")
+        self.assertTrue(prose[0].text.startswith("Overview\n"), prose[0].text[:40])
+
+
+# ---------------------------------------------------------------------------
 # Wave 1p3b9 (1p397): universal oversized-chunk guard + markdown structural-
 # unit awareness for H1-only seed/prompt content.
 # ---------------------------------------------------------------------------
@@ -3179,7 +3236,7 @@ class UniversalOversizedChunkGuardTests(unittest.TestCase):
         cls.chunker = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.chunker)
 
-    def test_chunker_version_bumped_to_29(self):
+    def test_chunker_version_bumped_to_30(self):
         """Wave 1p4q4 review: CHUNKER_VERSION bumped 28 → 29 — the `module M{}` keyword form,
         non-export namespace const, `export namespace`, `declare namespace`, and `declare enum`
         members now chunk (completing the namespace/module coverage that rode 28). Chunk-set shape
@@ -3201,8 +3258,9 @@ class UniversalOversizedChunkGuardTests(unittest.TestCase):
         25 → 26 (wave 1p4mf): module/class-level constant chunks (Python; interim all-11-language).
         26 → 27 (wave 1p4hi close): all-11-language constant chunking finalized under a clean version.
         27 → 28 (wave 1p4q4): TS enum/const-enum members + namespace const + declare const chunked.
-        28 → 29 (wave 1p4q4 review): module-keyword / non-export-namespace / export-&-declare-namespace / declare-enum chunking completed."""
-        self.assertEqual(self.chunker.CHUNKER_VERSION, "29")
+        28 → 29 (wave 1p4q4 review): module-keyword / non-export-namespace / export-&-declare-namespace / declare-enum chunking completed.
+        29 → 30 (wave 1p4u5, 1p4w9): docs chunks prepend their section breadcrumb to embedded text (docs-only; code text unchanged)."""
+        self.assertEqual(self.chunker.CHUNKER_VERSION, "30")
 
     def test_split_large_chunks_is_idempotent_on_small_chunks(self):
         c = self.chunker.Chunk(id="x", path="p", kind="doc", language=None,

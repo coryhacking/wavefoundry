@@ -31,9 +31,9 @@ _GIT_INTERVAL = 60       # seconds between git stat rebuilds
 _WATCH_INTERVAL = 3.0    # seconds between mtime polls
 _SSE_HEARTBEAT = 15      # seconds between SSE keep-alive comments
 _STALENESS_CHECK_INTERVAL = 60.0  # seconds between periodic meta-based index staleness checks
-_INDEX_LAYERS = ("project", "framework")
+# Wave 1p4ww: single project index — the framework layer is folded in.
+_INDEX_LAYERS = ("project",)
 _INDEXER_MOD = None
-_FRAMEWORK_STALE_IGNORE_FILENAMES = {"MANIFEST", "VERSION"}
 _PROJECT_STALE_IGNORE_PATHS = {
     ".wavefoundry/dashboard-server.json",
     ".wavefoundry/guard-overrides.json",
@@ -256,20 +256,6 @@ class IndexBuilder:
                 # indexer.py reads workflow-config project include-prefixes itself.
                 project_cmd = [python_exec, str(indexer_path), "--root", str(self._root), "--content", "all"]
                 layer_cmds.append(("project", project_cmd))
-            if "framework" in active_layers:
-                layer_cmds.append(("framework", [
-                    python_exec,
-                    str(indexer_path),
-                    "--root",
-                    str(self._root),
-                    "--content",
-                    "docs",
-                    "--index-dir",
-                    str(self._root / ".wavefoundry" / "framework" / "index"),
-                    "--include-prefix",
-                    ".wavefoundry/framework",
-                    "--no-ignore-files",
-                ]))
             for layer, cmd in layer_cmds:
                 state_path = self._index_state_path(layer)
                 content = "all" if layer == "project" else "docs"
@@ -316,14 +302,11 @@ class IndexBuilder:
             _dashboard_log(f"IndexBuilder error: {exc}")
             return -1
 
-    def _index_state_path(self, layer: str) -> Path:
-        if layer == "framework":
-            return self._root / ".wavefoundry" / "framework" / "index" / "index-build.json"
+    def _index_state_path(self, layer: str = "project") -> Path:
         return self._root / ".wavefoundry" / "index" / "index-build.json"
 
-    def _index_log_path(self, layer: str, content: str = "all") -> Path:
-        prefix = "framework" if layer == "framework" else "project"
-        return self._root / ".wavefoundry" / "logs" / f"{prefix}-index-build-{content}.log"
+    def _index_log_path(self, layer: str = "project", content: str = "all") -> Path:
+        return self._root / ".wavefoundry" / "logs" / f"project-index-build-{content}.log"
 
 
 def _get_graph_query():
@@ -361,34 +344,6 @@ def _graph_neighbors_payload(root: Path, *, layer: str, symbol: str) -> dict[str
         return {"present": False, "layer": layer, "symbol": symbol, "diagnostic": "error", "message": str(exc)}
 
 
-def _framework_index_inputs_stale(root: Path, meta: dict[str, Any]) -> bool | None:
-    file_meta = meta.get("file_meta")
-    if not isinstance(file_meta, dict) or not file_meta:
-        return None
-    try:
-        indexer = _get_indexer()
-        framework_index_dir = root / ".wavefoundry" / "framework" / "index"
-        _docs_suffixes = {".md", ".markdown", ".txt"}
-        _docs_extensionless = indexer.DOCS_EXTENSIONLESS_NAMES
-        def _is_docs_eligible(p: Path) -> bool:
-            return p.suffix in _docs_suffixes or (not p.suffix and p.name in _docs_extensionless)
-        files = indexer.walk_repo(root, respect_ignore=False)
-        files = [path for path in files if not indexer._is_relative_to(path, framework_index_dir)]
-        files = indexer._filter_by_prefixes(files, root, (".wavefoundry/framework",))
-        files = indexer._filter_framework_pack_artifacts(files, root)
-        files = [path for path in files if path.name not in _FRAMEWORK_STALE_IGNORE_FILENAMES and _is_docs_eligible(path)]
-        filtered_file_meta = {
-            rel_path: entry
-            for rel_path, entry in file_meta.items()
-            if Path(rel_path).name not in _FRAMEWORK_STALE_IGNORE_FILENAMES
-            and _is_docs_eligible(Path(rel_path))
-        }
-        _, changed, removed = indexer._detect_changes(files, root, filtered_file_meta)
-        return bool(changed or removed)
-    except Exception:  # noqa: BLE001
-        return None
-
-
 def _project_index_inputs_stale(root: Path, meta: dict[str, Any]) -> bool | None:
     file_meta = meta.get("file_meta")
     if not isinstance(file_meta, dict) or not file_meta:
@@ -409,7 +364,11 @@ def _project_index_inputs_stale(root: Path, meta: dict[str, Any]) -> bool | None
             pass
         files = indexer.walk_repo(root, respect_ignore=True)
         files = [path for path in files if not indexer._is_relative_to(path, project_index_dir)]
-        files = indexer._filter_project_index_excludes(files, root, (), project_include_prefixes=code_prefixes)
+        # Wave 1p4ww: the project docs index folds the framework seeds + README, so they must
+        # survive the ``.wavefoundry/`` blanket exclusion here too (a seed change marks the
+        # project layer stale; MANIFEST/VERSION are not folded and stay excluded).
+        include_prefixes = (*code_prefixes, *indexer.FRAMEWORK_FOLD_DOCS_PREFIXES)
+        files = indexer._filter_project_index_excludes(files, root, (), project_include_prefixes=include_prefixes)
         files = [
             path
             for path in files
@@ -435,11 +394,7 @@ def _index_is_stale(root: Path, layer: str = "project") -> bool:
     """
     if layer not in _INDEX_LAYERS:
         raise ValueError(f"Unsupported index layer: {layer}")
-    meta_path = (
-        root / ".wavefoundry" / "index" / "meta.json"
-        if layer == "project"
-        else root / ".wavefoundry" / "framework" / "index" / "meta.json"
-    )
+    meta_path = root / ".wavefoundry" / "index" / "meta.json"
     if not meta_path.exists():
         return True
     try:
@@ -449,15 +404,9 @@ def _index_is_stale(root: Path, layer: str = "project") -> bool:
     except (OSError, json.JSONDecodeError, ValueError):
         return True
 
-    if layer == "project":
-        project_file_meta_stale = _project_index_inputs_stale(root, meta)
-        if project_file_meta_stale is not None:
-            return project_file_meta_stale
-
-    if layer == "framework":
-        framework_file_meta_stale = _framework_index_inputs_stale(root, meta)
-        if framework_file_meta_stale is not None:
-            return framework_file_meta_stale
+    project_file_meta_stale = _project_index_inputs_stale(root, meta)
+    if project_file_meta_stale is not None:
+        return project_file_meta_stale
 
     return False
 
@@ -559,17 +508,11 @@ class SnapshotStore:
             r / ".wavefoundry" / "index" / "background-build.pid",
             r / ".wavefoundry" / "index" / "index-build-stats.json",
             r / ".wavefoundry" / "index" / "graph" / "project-graph.json",
-            r / ".wavefoundry" / "framework" / "index" / "index-build.json",
-            r / ".wavefoundry" / "framework" / "index" / "index-build-stats.json",
-            r / ".wavefoundry" / "framework" / "index" / "graph" / "framework-graph.json",
             r / ".wavefoundry" / "logs" / "project-index-build.log",
             r / ".wavefoundry" / "logs" / "project-index-build-docs.log",
             r / ".wavefoundry" / "logs" / "project-index-build-code.log",
             r / ".wavefoundry" / "logs" / "project-index-build-all.log",
             r / ".wavefoundry" / "logs" / "project-background-build.log",
-            r / ".wavefoundry" / "logs" / "framework-index-build.log",
-            r / ".wavefoundry" / "logs" / "framework-index-build-docs.log",
-            r / ".wavefoundry" / "logs" / "framework-index-build-all.log",
         ]
 
     def _current_mtimes(self) -> dict[str, float]:
@@ -599,11 +542,10 @@ class SnapshotStore:
             self._cached_git = snap.get("git", {})
         else:
             snap["git"] = self._cached_git
+        # Wave 1p4ww: single project index — the framework layer is folded in.
         proj = snap.setdefault("health", {}).setdefault("index", {}).setdefault("project", {})
-        fw = snap.setdefault("health", {}).setdefault("index", {}).setdefault("framework", {})
         if self._index_builder is not None:
             proj_builder = self._index_builder.get_status("project")
-            fw_builder = self._index_builder.get_status("framework")
             # Preserve live builder state, but clear stale failed snapshots when the
             # builder is idle so the dashboard does not keep showing a past failure.
             if proj_builder.get("build_status") == "running":
@@ -612,20 +554,10 @@ class SnapshotStore:
                 proj.update(proj_builder)
             elif proj.get("build_status") == "failed":
                 proj.pop("build_status", None)
-            if fw_builder.get("build_status") == "running":
-                fw.update(fw_builder)
-            elif fw_builder.get("build_status") == "failed":
-                fw.update(fw_builder)
-            elif fw.get("build_status") == "failed":
-                fw.pop("build_status", None)
         if self._index_builder is not None and proj.get("build_status") is None:
             proj["build_status"] = "idle"
-        if self._index_builder is not None and fw.get("build_status") is None:
-            fw["build_status"] = "idle"
         if self._index_stale.get("project") is not None:
             proj["stale"] = self._index_stale["project"]
-        if self._index_stale.get("framework") is not None:
-            fw["stale"] = self._index_stale["framework"]
         # R2: surface upgrade_paused state in snapshot so the UI can show the right message.
         snap["upgrade_paused"] = self._upgrade_paused
         new_hash = self._hash_snapshot(snap)
@@ -962,16 +894,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/project":
             return self._send_json(snapshot.get("project", {}))
         if path == "/api/graph":
+            # Wave 1p4ww: single project graph — framework/union layers removed.
             params = parse_qs(urlparse(self.path).query)
             layer = (params.get("layer") or ["project"])[0].strip().lower() or "project"
-            if layer not in ("project", "framework"):
+            if layer != "project":
                 return self._send_json({"error": f"Unsupported graph layer: {layer}"}, status=HTTPStatus.BAD_REQUEST)
             return self._send_json(dashboard_lib.read_graph_payload(self._store._root, layer))
         if path == "/api/graph/neighbors":
             params = parse_qs(urlparse(self.path).query)
             layer = (params.get("layer") or ["project"])[0].strip().lower() or "project"
             symbol = unquote((params.get("symbol") or [""])[0]).strip()
-            if layer not in ("project", "framework", "union"):
+            if layer != "project":
                 return self._send_json({"error": f"Unsupported graph layer: {layer}"}, status=HTTPStatus.BAD_REQUEST)
             if not symbol:
                 return self._send_json({"error": "Missing symbol parameter"}, status=HTTPStatus.BAD_REQUEST)

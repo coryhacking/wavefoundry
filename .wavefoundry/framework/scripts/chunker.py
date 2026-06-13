@@ -195,7 +195,7 @@ def _ts_collapse_body(text: str, max_lines: int = 150) -> str:
 # (b) `phase_index_rebuild` (full) running on `--update-index` instead of
 # `phase_index_update` (incremental), (c) post-condition verification confirming
 # the new version in `.wavefoundry/index/meta.json` after rebuild.
-CHUNKER_VERSION = "29"  # 1p4q4 review (C1/C2/C3): complete the TS namespace/module const-chunk coverage — the `module M{}` keyword form, NON-export namespace const, `export namespace`, `declare namespace`, and `declare enum` members now chunk. Chunk-set shape change → bump (consumer code index re-chunks). 1p4q4 (28): TS enum/const-enum members + namespace const + declare const are now constant chunks (Enum.Member). 1p4hi close (27): all-11-language constant chunking + Go short-const fix. 1p4mf (26): module/class-level constants emitted as chunks (kind="code", breadcrumb-prefixed text, merge-excluded via " [const]" section marker)
+CHUNKER_VERSION = "30"  # 1p4w9: docs chunks prepend their section breadcrumb to embedded text (NL→docs retrieval +10pp on the 32-query eval; docs-only — code chunk text unchanged, so code vectors reuse by content-hash and only docs re-embed). 1p4q4 review (C1/C2/C3): complete the TS namespace/module const-chunk coverage — the `module M{}` keyword form, NON-export namespace const, `export namespace`, `declare namespace`, and `declare enum` members now chunk. Chunk-set shape change → bump (consumer code index re-chunks). 1p4q4 (28): TS enum/const-enum members + namespace const + declare const are now constant chunks (Enum.Member). 1p4hi close (27): all-11-language constant chunking + Go short-const fix. 1p4mf (26): module/class-level constants emitted as chunks (kind="code", breadcrumb-prefixed text, merge-excluded via " [const]" section marker)
 
 # Lines per window and overlap for the line-window fallback chunker.
 WINDOW_SIZE = 120
@@ -323,6 +323,10 @@ def _ext_language(ext: str) -> str:
 SEED_PATH_MARKERS = (
     ".wavefoundry/framework/seeds/",
     ".wavefoundry\\framework\\seeds\\",
+    # 1p4ww: the framework README is folded into the project docs index as a seed
+    # (framework overview alongside the seed methodology content).
+    ".wavefoundry/framework/README.md",
+    ".wavefoundry\\framework\\README.md",
 )
 
 PROMPT_PATH_MARKERS = (
@@ -5516,6 +5520,28 @@ def chunk_jupyter(source: str, path: str) -> list[Chunk]:
     return chunks
 
 
+# doc-summary is excluded: its `section` is the literal "doc-summary" sentinel (not a real heading),
+# so prefixing it would inject a meaningless token into the embedding. The summary text already opens
+# with the H1 title and carries a real "Sections: …" breadcrumb (see _chunk_doc_summary), so it needs
+# no injection. (Mirrors the code-summary exclusion.)
+_DOCS_BREADCRUMB_KINDS = ("doc", "seed", "prompt")
+
+
+def _inject_docs_breadcrumb(chunks: list[Chunk]) -> list[Chunk]:
+    """Prepend the section breadcrumb to docs-chunk embedded text so heading/topic
+    context reaches the embedding vector (NL→docs retrieval +10pp on the 32-query eval;
+    change 1p4w9-enh docs-chunk-context-injection). Docs-kind only — code chunks already
+    carry the symbol name in the body and prefixing regresses code retrieval. Idempotent:
+    skips chunks whose text already opens with the breadcrumb (e.g. docstring chunks whose
+    text is built from the breadcrumb)."""
+    for c in chunks:
+        if c.kind in _DOCS_BREADCRUMB_KINDS:
+            section = (c.section or "").strip()
+            if section and not (c.text or "").startswith(section):
+                c.text = f"{section}\n{c.text}"
+    return chunks
+
+
 def chunk_file(source: str, path: str) -> list[Chunk]:
     """Dispatch to the appropriate chunker; then apply the universal oversized-chunk guard.
 
@@ -5530,7 +5556,9 @@ def chunk_file(source: str, path: str) -> list[Chunk]:
     """
     if source.strip() and not _strip_waveframework_marker_regions(source).strip():
         return []
-    return split_large_chunks(_chunk_file_dispatch(source, path))
+    # Inject the docs breadcrumb BEFORE the oversized guard so split_large_chunks
+    # re-caps any chunk the prefix pushes over MAX_CHUNK_CHARS.
+    return split_large_chunks(_inject_docs_breadcrumb(_chunk_file_dispatch(source, path)))
 
 
 def _chunk_file_dispatch(source: str, path: str) -> list[Chunk]:

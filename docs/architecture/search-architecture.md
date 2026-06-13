@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-29
+Last verified: 2026-06-13
 
 ## The Problem
 
@@ -85,16 +85,27 @@ The vector retrieval layer uses **LanceDB** — an Apache 2.0 embedded in-proces
 
 **Score convention:** LanceDB's cosine metric returns `_distance = 1 - cosine_similarity`. `_lance_search` converts this to `score = 1 - distance` so higher scores always mean more similar — matching the numpy path's convention.
 
-### Decision 4: Two-layer index (project + framework)
+### Decision 4: Single project index (framework docs folded in)
 
-The index merges two separate index layers at query time:
+There is **one** semantic index: the project index at `.wavefoundry/index/`, built from the
+user's own docs, code, and seeds. **The framework seeds and README are folded into this same
+project docs index** by the walker — `indexer.FRAMEWORK_FOLD_DOCS_PREFIXES`
+(`.wavefoundry/framework/seeds`, `.wavefoundry/framework/README.md`) is appended to the project
+docs include-prefixes, scoped past the `.wavefoundry/` blanket exclusion. The index is built
+locally at setup/upgrade and rebuilt by `setup_index.py` or the post-edit hook; a change to a
+framework seed or the README marks the project index stale and triggers the same single rebuild.
 
-- **Project index** (`.wavefoundry/index/`) — built from the user's own docs, code, and seeds
-- **Framework index** (`.wavefoundry/framework/index/`) — packaged with the framework, covers framework seeds and prompts
+Wave 1p4ww removed the previously-separate, pre-built **framework index**
+(`.wavefoundry/framework/index/`) that was packaged in the release zip. The two-layer design
+carried a real cost — a separate build/ship/publish-guard and, critically, a model-pinning
+constraint: the shipped framework vectors had to use the same embedding model as the project
+docs, or `docs_search` mixed two vector spaces. Folding framework docs into the locally-built
+project index removes the whole layer (no shipping, no publish guard, no cross-layer
+model-pinning) and unblocks a per-project docs-model choice. Framework docs are small, so the
+local build is cheap. See `docs/architecture/decisions/1p4xx-adr fold-framework-index-into-project-docs.md`.
 
-This separation exists because framework content is versioned and shipped in the framework zip, while project content changes with each doc edit. They have different rebuild triggers: project index is rebuilt by `setup_index.py` or the post-edit hook; framework index is rebuilt by `build_pack.py` when cutting a release. Merging them into a single index would require either rebuilding the framework index on every project doc edit or rebuilding the project index on every framework upgrade.
-
-Layers are only merged if their vector dimensions and model names match. A mismatched layer is silently skipped rather than crashing — this is the safety net for partial upgrades and version mismatches between framework and project index builds.
+Because there is only one layer and one model, the previous "skip a layer whose vector dimension
+or model name mismatches" safety net is no longer needed for the docs/code index.
 
 ### Decision 5: Exact navigation uses live file walks, not an index
 
@@ -134,13 +145,19 @@ Both kinds are prepended to their file's chunk list so they appear first in retr
 `code_ask` is a structured routing tool, not an LLM-in-the-loop summarizer. Given a question, it:
 
 1. Classifies the question type (`navigational` / `explanatory` / `instructional`) using the `_classify_question` keyword heuristic
-2. Runs a broad semantic pass via `search_combined()` — fetches from both docs and code indexes, applies cross-encoder reranking, returns a unified ranked list
+2. Runs a broad semantic pass via `search_combined()` — fetches from both docs and code indexes, then (wave `1p52p`, ADR `1p52q`) applies a **rerank-FIRST** cross-encoder that scores the whole pool on one unified `sigmoid(logit)` relevance scale BEFORE the agent selection (per-index floor / relevance drop-off / text budget). This is `code_ask`'s single ranking path — the former `rerank="local"` and `rrf_fallback` paths were removed. The cross-encoder runs on whatever hardware is present (FP16 on GPU, INT8 on CPU); ordering falls back to vector/coverage order (`reranked=false`) only when reranking is explicitly disabled or unbuildable. The unified scale matters because the docs/code model split (`1p4wx`) put arctic-doc and bge-code cosines on different scales — only the cross-encoder makes docs and code candidates comparable
 3. If fewer than 2 citations, runs a targeted keyword fallback pass (`code_keyword`)
 4. Returns `{answer, citations, confidence, gaps, question_type, index_freshness, reranked, partition_applied, demotion_count, total_ms, vector_ms, rerank_ms, definition_boosted, second_hop_symbols}` and per-citation metadata including `score`, `final_rank`, `demoted`, and `partition_reason`
 
 The `answer` field is mechanically assembled from the top citation — it names the file and line range, not a synthesized prose response. This is intentional: the tool is designed to be called by an agent that will read the cited sources and reason over them, not to replace that reasoning. Synthesis is the caller's job; retrieval and citation is `code_ask`'s job.
 
-`confidence` is heuristic: `high` = 2+ citations, `medium` = 1 citation, `low` = 0. `index_freshness` is `"stale"` when any indexed chunker version differs from the current `CHUNKER_VERSION`.
+`confidence` is heuristic. When the cross-encoder ran (`reranked=true`), it is calibrated on the
+unified cross-encoder relevance (`sigmoid(logit)`): `high` = top ≥ `CONF_AGENT_RERANK_HIGH` (0.5) with
+≥2 citations, `low` = top < `CONF_AGENT_RERANK_LOW` (0.1, nothing relevant retrieved), else `medium`
+(live-index separation: on-topic ≥0.95, off-topic ≤0.07). When `reranked=false` (reranker disabled or
+unbuildable) it is count-based (`high` = 2+ citations, `medium` = 1, `low` = 0) because the
+mixed arctic/bge cosine is not a trustworthy band. `index_freshness` is `"stale"` when any indexed
+chunker version differs from the current `CHUNKER_VERSION`.
 
 `CHUNKER_VERSION` `"22"` introduced per-row `chunk_hash` metadata so incremental updates can reuse existing LanceDB vectors for unchanged chunks inside a changed file. The version bump intentionally forces a one-time rebuild of existing tables so old rows without `chunk_hash` are not mixed with new rows that depend on it.
 

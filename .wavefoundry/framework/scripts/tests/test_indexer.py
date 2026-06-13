@@ -772,6 +772,79 @@ class IncrementalBuildTests(unittest.TestCase):
         embedded = [t for batch in code_calls for t in batch]
         self.assertTrue(any("return 1" in t for t in embedded), "model change must re-embed, not reuse")
 
+    def test_framework_seeds_and_readme_fold_into_project_docs_index(self):
+        """1p4ww (real-pipeline regression): the framework seeds + README must actually
+        land in the project docs index. The original fold unit tests wrote synthetic index
+        rows and never exercised the walk+filter pipeline, which dropped the seeds at the
+        ``files_for_meta`` stage (it used the docs+code graph surface, not the fold prefixes)."""
+        _make_repo(self.root, {
+            "docs/guide.md": "## Intro\n\nProject docs.\n",
+            ".wavefoundry/framework/seeds/100-install.prompt.md": "# Install seed\n\nHow to install.\n",
+            ".wavefoundry/framework/README.md": "# Wavefoundry Framework\n\nOverview.\n",
+        })
+        docs_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock]):
+            self.bi.build_index(self.root, full=True, content="docs", verbose=False)
+
+        import lancedb
+        rows = lancedb.connect(str(self.root / ".wavefoundry" / "index")).open_table("docs").search().limit(10000).to_list()
+        paths = {r.get("path") for r in rows}
+        self.assertIn(".wavefoundry/framework/seeds/100-install.prompt.md", paths,
+                      "framework seed must be folded into the project docs index")
+        self.assertIn(".wavefoundry/framework/README.md", paths,
+                      "framework README must be folded into the project docs index")
+        self.assertIn("docs/guide.md", paths, "project docs must still be indexed")
+
+        # The folded seed/README must also be tracked in meta.json file_meta (staleness).
+        meta = json.loads((self.root / ".wavefoundry" / "index" / "meta.json").read_text())
+        file_meta = meta.get("file_meta") or meta.get("file_hashes") or {}
+        self.assertIn(".wavefoundry/framework/seeds/100-install.prompt.md", file_meta)
+        self.assertIn(".wavefoundry/framework/README.md", file_meta)
+
+    def test_docs_model_change_reembeds_docs_only_code_untouched(self):
+        """1p4wx (AC-4): switching the DOCS model forces a docs-only re-embed via the
+        existing ``model_versions['docs'] != DOCS_MODEL`` trigger. The realistic trigger
+        path is content='docs' (the post-edit hook default), which never loads the code
+        embedder — code vectors are left untouched."""
+        _make_repo(self.root, {
+            "src/foo.py": "def f():\n    return 1\n",
+            "docs/guide.md": "## Intro\n\nWave lifecycle docs.\n",
+        })
+        self._run_build(full=True)
+        index_dir = self.root / ".wavefoundry" / "index"
+        meta = json.loads((index_dir / "meta.json").read_text())
+        # Simulate the docs-model upgrade: the index was built under an old docs model;
+        # the code model still matches the current CODE_MODEL.
+        meta.setdefault("model_versions", {})["docs"] = "old-docs-model"
+        meta["model_versions"]["code"] = self.bi.CODE_MODEL
+        (index_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+        # Snapshot the code table before the docs re-embed.
+        code_lance = index_dir / "code.lance"
+        code_before = sorted(
+            (p.name, p.stat().st_size) for p in code_lance.rglob("*") if p.is_file()
+        ) if code_lance.is_dir() else []
+
+        docs_calls: list[list[str]] = []
+        docs_spy = _make_embedder_mock(dim=4, calls=docs_calls)
+        # Only ONE embedder is provided: if the content='docs' build tried to load a
+        # CODE embedder, side_effect would be exhausted and raise — proving code is untouched.
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_spy]):
+            self.bi.build_index(self.root, full=False, content="docs", verbose=False)
+
+        embedded = [t for batch in docs_calls for t in batch]
+        self.assertTrue(any("Wave lifecycle" in t for t in embedded),
+                        "docs-model change must re-embed the docs layer")
+        # meta now records the current docs model; code model untouched.
+        meta_after = json.loads((index_dir / "meta.json").read_text())
+        self.assertEqual(meta_after["model_versions"]["docs"], self.bi.DOCS_MODEL)
+        self.assertEqual(meta_after["model_versions"]["code"], self.bi.CODE_MODEL)
+        # The code table files are byte-identical (never rewritten by the docs build).
+        code_after = sorted(
+            (p.name, p.stat().st_size) for p in code_lance.rglob("*") if p.is_file()
+        ) if code_lance.is_dir() else []
+        self.assertEqual(code_before, code_after, "code index must be untouched by a docs-only re-embed")
+
     def test_explicit_rechunk_rechunks_all_reuses_vectors_no_version_change(self):
         """1p4n4 mode='rechunk': an explicit rechunk re-chunks EVERY file even with NO version
         change (a plain update would re-chunk nothing) while reusing embeddings by content hash —
@@ -1027,10 +1100,16 @@ class IncrementalBuildTests(unittest.TestCase):
         self.assertIn("framework/seeds/example.md", meta["file_meta"])
         self.assertNotIn("framework/index/stale.json", meta["file_meta"])
 
-    def test_default_project_index_excludes_framework_source(self):
+    def test_default_project_index_folds_framework_docs_but_excludes_other_framework_source(self):
+        # Wave 1p4ww: the project docs index FOLDS the framework seeds + README, but the
+        # rest of .wavefoundry/framework/ (scripts, MANIFEST, …) stays excluded by the
+        # blanket .wavefoundry/ exclusion unless explicitly opted in via workflow-config.
         _make_repo(self.root, {
             "docs/guide.md": "## Intro\n\nHello.\n",
             ".wavefoundry/framework/README.md": "## Framework\n\nCanonical framework docs.\n",
+            ".wavefoundry/framework/seeds/100-x.prompt.md": "# Seed\n\nBody.\n",
+            ".wavefoundry/framework/scripts/server_impl.py": "def foo(): pass\n",
+            ".wavefoundry/framework/MANIFEST": "README.md\nMANIFEST\n",
         })
 
         docs_mock = _make_embedder_mock(dim=4)
@@ -1040,18 +1119,21 @@ class IncrementalBuildTests(unittest.TestCase):
         index_dir = self.root / ".wavefoundry" / "index"
         meta = json.loads((index_dir / "meta.json").read_text())
         chunks = _read_index_chunks(index_dir, "docs")
+        chunk_paths = {c["path"] for c in chunks}
         self.assertIn("docs/guide.md", meta["file_meta"])
-        # Project layer meta must NOT contain framework files (130nf). Framework files
-        # belong to the framework layer's meta.json; keeping them in the project meta
-        # caused wave_index_health to permanently report them as "removed" because the
-        # health check (which applies _filter_project_index_excludes) sees a narrow set
-        # while the meta persisted the broad set.
-        self.assertNotIn(".wavefoundry/framework/README.md", meta["file_meta"])
-        # Framework content must not appear in the semantic docs index either.
-        self.assertFalse(any(c["path"].startswith(".wavefoundry/framework/") for c in chunks))
+        # Folded framework docs ARE indexed.
+        self.assertIn(".wavefoundry/framework/README.md", meta["file_meta"])
+        self.assertIn(".wavefoundry/framework/seeds/100-x.prompt.md", meta["file_meta"])
+        self.assertIn(".wavefoundry/framework/README.md", chunk_paths)
+        self.assertIn(".wavefoundry/framework/seeds/100-x.prompt.md", chunk_paths)
+        # Non-fold framework source stays excluded (not in the fold prefixes).
+        self.assertNotIn(".wavefoundry/framework/scripts/server_impl.py", meta["file_meta"])
+        self.assertNotIn(".wavefoundry/framework/MANIFEST", meta["file_meta"])
+        self.assertFalse(any(c["path"] == ".wavefoundry/framework/scripts/server_impl.py" for c in chunks))
 
-    def test_project_index_excludes_wavefoundry_blanket(self):
-        """Wave 1p2q3 (1p2qd): all of .wavefoundry/ excluded from project index."""
+    def test_project_index_excludes_wavefoundry_blanket_except_folded_docs(self):
+        """Wave 1p2q3 (1p2qd): all of .wavefoundry/ excluded from the project index —
+        EXCEPT the framework docs folded in by 1p4ww (seeds + README)."""
         _make_repo(self.root, {
             "docs/guide.md": "## Intro\n\nHello.\n",
             ".wavefoundry/framework/scripts/server_impl.py": "def foo(): pass\n",
@@ -1065,9 +1147,14 @@ class IncrementalBuildTests(unittest.TestCase):
             self.bi.build_index(self.root, full=True, content="docs", verbose=False)
         index_dir = self.root / ".wavefoundry" / "index"
         meta = json.loads((index_dir / "meta.json").read_text())
+        fold_allowed = {".wavefoundry/framework/seeds/100.md"}
         for path in meta["file_meta"]:
+            if path in fold_allowed:
+                continue
             self.assertFalse(path.startswith(".wavefoundry/"),
                              f"unexpected .wavefoundry/ file in project meta: {path}")
+        # The folded seed IS present.
+        self.assertIn(".wavefoundry/framework/seeds/100.md", meta["file_meta"])
 
     def test_explicit_framework_index_can_include_framework_source(self):
         _make_repo(self.root, {
@@ -1143,15 +1230,17 @@ class IncrementalBuildTests(unittest.TestCase):
         self.assertTrue(any(c["path"] == ".wavefoundry/framework/scripts/server.py" for c in code_chunks))
         self.assertIn("vendor/docs/custom.py", meta["file_meta"])
 
-    def test_project_meta_excludes_framework_and_is_stable_across_docs_and_code_runs(self):
-        """Regression for 130nf: project meta must not contain framework files (under any
-        run), and consecutive docs and code runs must write identical file_meta dicts
-        (preserves the original 'no alternating cycle' invariant from indexer.py:1822).
+    def test_project_meta_folds_framework_docs_only_and_is_stable_across_docs_and_code_runs(self):
+        """Regression for 130nf + 1p4ww: project meta contains the FOLDED framework docs
+        (seeds + README) but no other framework source, under any run; and consecutive docs
+        and code runs must write identical file_meta dicts (the 'no alternating cycle'
+        invariant — the fold lives in the shared files_for_meta surface, so it is stable).
         """
         _make_repo(self.root, {
             "docs/guide.md": "## Intro\n\nHello.\n",
             "src/app.py": "def app(): pass\n",
             ".wavefoundry/framework/README.md": "## Framework\n\nCanonical framework docs.\n",
+            ".wavefoundry/framework/seeds/100-x.prompt.md": "# Seed\n\nBody.\n",
             ".wavefoundry/framework/MANIFEST": "README.md\nMANIFEST\n",
             ".wavefoundry/framework/scripts/tools.py": "def helper():\n    return 1\n",
         })
@@ -1161,15 +1250,16 @@ class IncrementalBuildTests(unittest.TestCase):
         )
 
         index_dir = self.root / ".wavefoundry" / "index"
+        folded = {".wavefoundry/framework/README.md", ".wavefoundry/framework/seeds/100-x.prompt.md"}
 
         # Run 1: docs only
         with patch.object(self.bi, "_get_embedder", return_value=_make_embedder_mock(dim=4)):
             self.bi.build_index(self.root, full=True, content="docs", verbose=False)
         meta_after_docs = json.loads((index_dir / "meta.json").read_text())["file_meta"]
 
-        # Project meta must not contain ANY framework files
-        framework_in_meta = [p for p in meta_after_docs if p.startswith(".wavefoundry/framework/")]
-        self.assertEqual(framework_in_meta, [], f"project meta leaked framework files: {framework_in_meta}")
+        # Only the FOLDED framework docs appear — not MANIFEST or scripts.
+        framework_in_meta = {p for p in meta_after_docs if p.startswith(".wavefoundry/framework/")}
+        self.assertEqual(framework_in_meta, folded, f"unexpected framework files in project meta: {framework_in_meta}")
         self.assertIn("docs/guide.md", meta_after_docs)
         self.assertIn("src/app.py", meta_after_docs)
 
@@ -1178,9 +1268,9 @@ class IncrementalBuildTests(unittest.TestCase):
             self.bi.build_index(self.root, full=False, content="code", verbose=False)
         meta_after_code = json.loads((index_dir / "meta.json").read_text())["file_meta"]
 
-        # Still no framework files in project meta
-        framework_in_meta = [p for p in meta_after_code if p.startswith(".wavefoundry/framework/")]
-        self.assertEqual(framework_in_meta, [], f"project meta leaked framework files after code run: {framework_in_meta}")
+        # Still only the folded framework docs in project meta after the code run.
+        framework_in_meta = {p for p in meta_after_code if p.startswith(".wavefoundry/framework/")}
+        self.assertEqual(framework_in_meta, folded, f"unexpected framework files after code run: {framework_in_meta}")
 
         # Stability invariant: docs run and code run must write IDENTICAL meta keys
         # (the original line-1822 fix prevented the 93-added/93-removed alternating cycle;
@@ -1190,6 +1280,46 @@ class IncrementalBuildTests(unittest.TestCase):
             set(meta_after_code.keys()),
             "docs-run and code-run wrote different project meta — alternating cycle would resume",
         )
+
+    def test_fold_survives_forwarded_non_empty_override_prefixes(self):
+        """Regression (1p4ww × self-hosting): a launcher that FORWARDS non-empty
+        project include-prefixes — e.g. setup_index merging the workflow-config
+        code prefix ``.wavefoundry/framework/scripts`` and passing it as
+        ``project_include_prefixes`` — must NOT disable the framework-seed fold.
+
+        The override path previously returned early WITHOUT appending
+        ``FRAMEWORK_FOLD_DOCS_PREFIXES``, so the moment a project configured ANY
+        code prefix the override became non-empty and every seed silently vanished
+        from the docs index (observed: 0/67 seeds after a real rebuild)."""
+        _make_repo(self.root, {
+            "docs/guide.md": "## Intro\n\nHello.\n",
+            ".wavefoundry/framework/README.md": "## Framework\n\nCanonical.\n",
+            ".wavefoundry/framework/seeds/100-x.prompt.md": "# Seed\n\nBody.\n",
+            ".wavefoundry/framework/scripts/tools.py": "def helper():\n    return 1\n",
+        })
+        index_dir = self.root / ".wavefoundry" / "index"
+        folded = {".wavefoundry/framework/README.md", ".wavefoundry/framework/seeds/100-x.prompt.md"}
+
+        # content="all" with a FORWARDED override prefix (the setup_index merge result).
+        with patch.object(self.bi, "_get_embedder",
+                          side_effect=[_make_embedder_mock(dim=4), _make_embedder_mock(dim=4)]):
+            self.bi.build_index(
+                self.root,
+                full=True,
+                content="all",
+                project_include_prefixes=(".wavefoundry/framework/scripts",),
+                verbose=False,
+            )
+
+        meta = json.loads((index_dir / "meta.json").read_text())["file_meta"]
+        docs_chunks = {c["path"] for c in _read_index_chunks(index_dir, "docs")}
+
+        # The forwarded code prefix is honored...
+        self.assertIn(".wavefoundry/framework/scripts/tools.py", meta)
+        # ...AND the folded seeds survive into both meta and the docs index.
+        for path in folded:
+            self.assertIn(path, meta, f"folded seed dropped from meta when override present: {path}")
+            self.assertIn(path, docs_chunks, f"folded seed not embedded into docs index: {path}")
 
     def test_docs_only_graph_includes_workflow_code_prefixes_without_cli_args(self):
         _make_repo(self.root, {

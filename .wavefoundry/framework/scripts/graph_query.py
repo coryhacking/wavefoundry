@@ -1,4 +1,4 @@
-"""Read-only graph query helpers over persisted project/framework graph artifacts."""
+"""Read-only graph query helpers over the persisted project graph artifact."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Callable, Iterable, Literal
 
-Layer = Literal["project", "framework", "union"]
+Layer = Literal["project"]
 Direction = Literal["callers", "callees", "both"]
-ReportSection = Literal["fan_in", "fan_out", "orphan_docs", "chokepoints", "file_hubs", "cross_layer", "betweenness"]
+ReportSection = Literal["fan_in", "fan_out", "orphan_docs", "chokepoints", "file_hubs", "betweenness"]
 
 _BETWEENNESS_NODE_LIMIT = 10_000
 
@@ -103,19 +103,16 @@ def set_post_rebuild_callback(fn) -> None:
     _POST_REBUILD_CALLBACK = fn
 
 
-def _graph_payload_path(root: Path, layer: str) -> Path:
-    if layer == "framework":
-        return root / ".wavefoundry" / "framework" / "index" / "graph" / f"{layer}-graph.json"
-    return root / ".wavefoundry" / "index" / "graph" / f"{layer}-graph.json"
+def _graph_payload_path(root: Path, layer: str = "project") -> Path:
+    # Wave 1p4ww: single project graph — the framework graph layer was removed.
+    return root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
 
 
-def _graph_state_path(root: Path, layer: str) -> Path:
-    return _graph_payload_path(root, layer).with_name(f"{layer}-graph-state.json")
+def _graph_state_path(root: Path, layer: str = "project") -> Path:
+    return _graph_payload_path(root).with_name("project-graph-state.json")
 
 
-def _graph_index_dir(root: Path, layer: str) -> Path:
-    if layer == "framework":
-        return root / ".wavefoundry" / "framework" / "index"
+def _graph_index_dir(root: Path, layer: str = "project") -> Path:
     return root / ".wavefoundry" / "index"
 
 
@@ -132,7 +129,7 @@ def _ensure_graph_builder_current(root: Path, layer: str) -> dict[str, Any] | No
     upgrade cost; subsequent queries hit the in-process mtime cache and skip
     the state file read entirely.
     """
-    if layer not in ("project", "framework"):
+    if layer != "project":
         return None
     indexer = _get_graph_indexer()
     runtime_version = str(getattr(indexer, "GRAPH_BUILDER_VERSION", "") or "")
@@ -276,86 +273,14 @@ def load_graph(root: Path, *, layer: str = "project") -> dict[str, Any]:
     attached to the payload as ``auto_rebuild_diagnostic`` for the consumer
     tool to surface.
     """
-    if layer not in ("project", "framework"):
+    # Wave 1p4ww: single project graph — only the project layer exists.
+    if layer != "project":
         raise ValueError(f"Unsupported graph layer: {layer}")
     rebuild_diag = _ensure_graph_builder_current(root, layer)
     payload = _get_graph_indexer().read_graph_payload(root, layer)
     if rebuild_diag is not None:
         payload["auto_rebuild_diagnostic"] = rebuild_diag
     return payload
-
-
-def _networkx_unavailable_message() -> str:
-    return (
-        "networkx is required for union graph queries. "
-        "Install via: python3 .wavefoundry/framework/scripts/setup_index.py"
-    )
-
-
-def load_union(root: Path) -> dict[str, Any]:
-    """Compose project + framework graphs at query time; no file is written."""
-    project = load_graph(root, layer="project")
-    framework = load_graph(root, layer="framework")
-    if not project.get("present") and not framework.get("present"):
-        return {
-            "layer": "union",
-            "present": False,
-            "nodes": [],
-            "edges": [],
-            "counts": {"files": 0, "nodes": 0, "edges": 0},
-            "diagnostic": "graph_not_ready",
-        }
-    try:
-        import networkx as nx
-    except ImportError:
-        return {
-            "layer": "union",
-            "present": False,
-            "nodes": [],
-            "edges": [],
-            "counts": {"files": 0, "nodes": 0, "edges": 0},
-            "diagnostic": "networkx_unavailable",
-            "message": _networkx_unavailable_message(),
-        }
-
-    g_project = nx.DiGraph()
-    g_framework = nx.DiGraph()
-    for node in project.get("nodes") or []:
-        if isinstance(node, dict) and node.get("id"):
-            attrs = dict(node)
-            attrs["layer"] = "project"
-            g_project.add_node(node["id"], **attrs)
-    for node in framework.get("nodes") or []:
-        if isinstance(node, dict) and node.get("id"):
-            attrs = dict(node)
-            attrs["layer"] = "framework"
-            g_framework.add_node(node["id"], **attrs)
-    for edge in project.get("edges") or []:
-        if isinstance(edge, dict) and edge.get("source") and edge.get("target"):
-            g_project.add_edge(edge["source"], edge["target"], **edge)
-    for edge in framework.get("edges") or []:
-        if isinstance(edge, dict) and edge.get("source") and edge.get("target"):
-            g_framework.add_edge(edge["source"], edge["target"], **edge)
-
-    composed = nx.compose(g_project, g_framework)
-    nodes = [dict(composed.nodes[nid]) | {"id": nid} for nid in composed.nodes]
-    edges = [
-        {"source": u, "target": v, **data}
-        for u, v, data in composed.edges(data=True)
-    ]
-    project_files = int((project.get("counts") or {}).get("files") or 0)
-    framework_files = int((framework.get("counts") or {}).get("files") or 0)
-    return {
-        "layer": "union",
-        "present": True,
-        "nodes": nodes,
-        "edges": edges,
-        "counts": {
-            "files": project_files + framework_files,
-            "nodes": len(nodes),
-            "edges": len(edges),
-        },
-    }
 
 
 def collapse_generated_view(payload: dict[str, Any]) -> dict[str, Any]:
@@ -951,9 +876,8 @@ class GraphQueryIndex:
 
     @classmethod
     def from_root(cls, root: Path, *, layer: str = "project") -> GraphQueryIndex:
-        if layer == "union":
-            return cls(load_union(root))
-        return cls(load_graph(root, layer=layer))
+        # Wave 1p4ww: single project graph — framework/union layers removed.
+        return cls(load_graph(root, layer="project"))
 
     def get_node(self, node_id: str) -> dict[str, Any] | None:
         return self._node_by_id.get(node_id)
@@ -1468,7 +1392,7 @@ class GraphQueryIndex:
         chokepoint_threshold: int = _CHOKEPOINT_FAN_OUT,
     ) -> dict[str, Any]:
         wanted = set(sections) if sections is not None else {
-            "fan_in", "fan_out", "orphan_docs", "chokepoints", "file_hubs", "cross_layer",
+            "fan_in", "fan_out", "orphan_docs", "chokepoints", "file_hubs",
         }
         fan_in_counts: dict[str, int] = {}
         fan_out_counts: dict[str, int] = {}
@@ -1613,25 +1537,8 @@ class GraphQueryIndex:
                     ][:limit]
                 except ImportError:
                     result["betweenness"] = {"diagnostic": "igraph_unavailable"}
-        if "cross_layer" in wanted and self.layer == "union":
-            cross: list[dict[str, Any]] = []
-            for edge in self.edges:
-                src = edge.get("source")
-                tgt = edge.get("target")
-                if not isinstance(src, str) or not isinstance(tgt, str):
-                    continue
-                src_layer = (self._node_by_id.get(src) or {}).get("layer")
-                tgt_layer = (self._node_by_id.get(tgt) or {}).get("layer")
-                if src_layer and tgt_layer and src_layer != tgt_layer:
-                    cross.append(edge)
-            result["cross_layer"] = {
-                "count": len(cross),
-                "edges": cross[:limit],
-            }
-            # Wave 13129 (1316t): candidates_total = total cross-layer edges
-            # found (same as the existing `count` field, surfaced as the
-            # explicit diagnostic field for parity with other sections).
-            result["cross_layer_candidates_total"] = len(cross)
+        # Wave 1p4ww: the ``cross_layer`` section required the union layer
+        # (project×framework boundary edges), which no longer exists.
         return result
 
 

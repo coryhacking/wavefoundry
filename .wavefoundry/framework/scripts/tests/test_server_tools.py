@@ -4,9 +4,11 @@ import hashlib
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -223,31 +225,30 @@ class LayeredIndexTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_search_docs_merges_project_and_packaged_framework_index(self):
+        # 1p4ww: framework seeds fold into the project docs index (no separate framework layer).
         _write_index_layer(
             self.root / ".wavefoundry" / "index",
-            [{
-                "id": "project-doc",
-                "path": "docs/project.md",
-                "kind": "doc",
-                "language": None,
-                "lines": [1, 1],
-                "section": None,
-                "text": "project docs",
-            }],
-            [[1, 0]],
-        )
-        _write_index_layer(
-            self.root / ".wavefoundry" / "framework" / "index",
-            [{
-                "id": "seed",
-                "path": "seeds/010-install-wavefoundry.prompt.md",
-                "kind": "seed",
-                "language": None,
-                "lines": [1, 1],
-                "section": None,
-                "text": "framework seed",
-            }],
-            [[1, 0]],
+            [
+                {
+                    "id": "project-doc",
+                    "path": "docs/project.md",
+                    "kind": "doc",
+                    "language": None,
+                    "lines": [1, 1],
+                    "section": None,
+                    "text": "project docs",
+                },
+                {
+                    "id": "seed",
+                    "path": ".wavefoundry/framework/seeds/010-install-wavefoundry.prompt.md",
+                    "kind": "seed",
+                    "language": None,
+                    "lines": [1, 1],
+                    "section": None,
+                    "text": "framework seed",
+                },
+            ],
+            [[1, 0], [1, 0]],
         )
 
         index = self.srv.WaveIndex(self.root)
@@ -261,12 +262,13 @@ class LayeredIndexTests(unittest.TestCase):
         self.assertIn("docs/project.md", paths)
         self.assertIn(".wavefoundry/framework/seeds/010-install-wavefoundry.prompt.md", paths)
 
-    def test_packaged_framework_index_can_satisfy_seed_lookup_without_project_index(self):
+    def test_folded_framework_seed_satisfies_seed_lookup(self):
+        # 1p4ww: framework seeds live in the project docs index (folded, not a separate layer).
         _write_index_layer(
-            self.root / ".wavefoundry" / "framework" / "index",
+            self.root / ".wavefoundry" / "index",
             [{
                 "id": "seed",
-                "path": "seeds/010-install-wavefoundry.prompt.md",
+                "path": ".wavefoundry/framework/seeds/010-install-wavefoundry.prompt.md",
                 "kind": "seed",
                 "language": None,
                 "lines": [1, 1],
@@ -284,10 +286,10 @@ class LayeredIndexTests(unittest.TestCase):
 
     def test_seed_lookup_tolerates_null_section(self):
         _write_index_layer(
-            self.root / ".wavefoundry" / "framework" / "index",
+            self.root / ".wavefoundry" / "index",
             [{
                 "id": "seed",
-                "path": "seeds/010-install-wavefoundry.prompt.md",
+                "path": ".wavefoundry/framework/seeds/010-install-wavefoundry.prompt.md",
                 "kind": "seed",
                 "language": None,
                 "lines": [1, 1],
@@ -341,10 +343,10 @@ class LayeredIndexTests(unittest.TestCase):
 
     def test_seed_lookup_still_works_when_model_version_differs(self):
         _write_index_layer(
-            self.root / ".wavefoundry" / "framework" / "index",
+            self.root / ".wavefoundry" / "index",
             [{
                 "id": "seed",
-                "path": "seeds/010-install-wavefoundry.prompt.md",
+                "path": ".wavefoundry/framework/seeds/010-install-wavefoundry.prompt.md",
                 "kind": "seed",
                 "language": None,
                 "lines": [1, 1],
@@ -1135,11 +1137,13 @@ class BackgroundIndexRefreshTests(unittest.TestCase):
                 first = self.srv._trigger_background_index_refresh_for_paths(self.root, ["docs/plans/1200a-feat sample.md"])
                 second = self.srv._trigger_background_index_refresh_for_paths(self.root, ["docs/plans/1200a-feat sample.md"])
 
-        self.assertEqual(first, {"project": True, "framework": False})
-        self.assertEqual(second, {"project": False, "framework": False})
+        self.assertEqual(first, {"project": True})
+        self.assertEqual(second, {"project": False})
         popen.assert_called_once()
 
-    def test_framework_paths_trigger_framework_layer_refresh(self):
+    def test_framework_seed_paths_trigger_project_layer_refresh(self):
+        # 1p4ww: framework seeds fold into the project docs index, so a seed change
+        # triggers the single project refresh (no separate framework index args).
         proc = MagicMock()
         proc.pid = 4321
         with patch("subprocess.Popen", return_value=proc) as popen:
@@ -1148,10 +1152,10 @@ class BackgroundIndexRefreshTests(unittest.TestCase):
                 [".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md"],
             )
 
-        self.assertEqual(result, {"project": False, "framework": True})
+        self.assertEqual(result, {"project": True})
         cmd = popen.call_args.args[0]
-        self.assertIn("--index-dir", cmd)
-        self.assertIn(".wavefoundry/framework/index", " ".join(cmd))
+        self.assertNotIn("--index-dir", cmd)
+        self.assertNotIn(".wavefoundry/framework/index", " ".join(cmd))
 
 
 # ---------------------------------------------------------------------------
@@ -2261,7 +2265,7 @@ class IndexBuildStatusTests(unittest.TestCase):
         self._write_state(99999999, time.time() - 60)
         self.log_path.write_text(
             "Prewarming semantic model cache: BAAI/bge-small-en-v1.5\n"
-            "Required reranker model 'BAAI/bge-reranker-base' could not be prepared for semantic index setup: "
+            "Required embedding model 'Snowflake/snowflake-arctic-embed-xs' could not be prepared for semantic index setup: "
             "network or download host unavailable.\n",
             encoding="utf-8",
         )
@@ -2299,11 +2303,10 @@ class IndexBuildStatusTests(unittest.TestCase):
         result = self.srv.wave_index_build_status_response(self.root, layer="bogus")
         self.assertEqual(result["status"], "error")
 
-    def test_framework_layer_uses_framework_paths(self):
-        fw_index = self.root / ".wavefoundry" / "framework" / "index"
-        fw_index.mkdir(parents=True, exist_ok=True)
+    def test_framework_layer_rejected(self):
+        # 1p4ww: the framework layer is folded into the project index — status rejects it.
         result = self.srv.wave_index_build_status_response(self.root, layer="framework")
-        self.assertEqual(result["data"]["state"], "idle")
+        self.assertEqual(result["status"], "error")
 
     def test_previous_stats_included_in_finished_response(self):
         import json, time
@@ -2378,10 +2381,6 @@ class IndexBuildStatsTests(unittest.TestCase):
         path = self.srv._index_build_stats_path(self.root, "project")
         self.assertEqual(path, self.root / ".wavefoundry" / "index" / "index-build-stats.json")
 
-    def test_stats_path_framework_layer(self):
-        path = self.srv._index_build_stats_path(self.root, "framework")
-        self.assertEqual(path, self.root / ".wavefoundry" / "framework" / "index" / "index-build-stats.json")
-
     def test_read_returns_none_when_file_missing(self):
         result = self.srv._read_index_build_stats_file(self.root, "project")
         self.assertIsNone(result)
@@ -2411,14 +2410,6 @@ class IndexBuildStatsTests(unittest.TestCase):
         fake_root = self.root / "notadir.txt"
         fake_root.write_text("x", encoding="utf-8")
         self.srv._write_index_build_stats_file(fake_root, "project", {"x": 1})
-
-    def test_framework_layer_stats_written_correctly(self):
-        stats = {"elapsed_seconds": 180, "files_indexed": 150, "doc_chunks": 900, "code_chunks": 0, "built_at": "2026-05-06T10:00:00Z", "content": "docs", "mode": "rebuild"}
-        self.srv._write_index_build_stats_file(self.root, "framework", stats)
-        stats_path = self.root / ".wavefoundry" / "framework" / "index" / "index-build-stats.json"
-        self.assertTrue(stats_path.exists())
-        result = self.srv._read_index_build_stats_file(self.root, "framework")
-        self.assertEqual(result["files_indexed"], 150)
 
 
 class McpRepoCacheTests(unittest.TestCase):
@@ -2693,20 +2684,10 @@ class RunIndexRebuildTests(unittest.TestCase):
         self.assertIn("code", cmd)
         self.assertNotIn("--project-include-prefix", cmd)
 
-    def test_framework_layer_uses_framework_index_args(self):
-        mock_proc = MagicMock()
-        mock_proc.pid = 12345
-        with patch("subprocess.Popen") as popen, \
-             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
-            popen.return_value = mock_proc
-            result = self.srv.run_index_rebuild(self.root, content="docs", layer="framework")
-        cmd = popen.call_args.args[0]
-        self.assertEqual(result["layer"], "framework")
-        self.assertIn("--index-dir", cmd)
-        self.assertIn(".wavefoundry/framework/index", cmd)
-        self.assertIn("--include-prefix", cmd)
-        self.assertIn(".wavefoundry/framework", cmd)
-        self.assertIn("--no-ignore-files", cmd)
+    def test_framework_layer_rejected(self):
+        # 1p4ww: framework folded into the project index — rebuild rejects the layer.
+        with self.assertRaises(ValueError):
+            self.srv.run_index_rebuild(self.root, content="docs", layer="framework")
 
     def test_up_to_date_returns_without_spawning(self):
         self._write_index_state(file_hashes={"docs/a.md": "h1"}, docs_chunks=[{"id": "d1"}])
@@ -2806,23 +2787,6 @@ class RunIndexRebuildTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.srv.run_index_rebuild(self.root, layer="bad")
 
-    def test_framework_layer_rejects_non_docs_content(self):
-        with self.assertRaises(ValueError):
-            self.srv.run_index_rebuild(self.root, content="all", layer="framework")
-
-    def test_framework_layer_stats_read_from_framework_index(self):
-        self._write_index_state(
-            layer="framework",
-            file_hashes={"seed/a.md": "h1", "seed/b.md": "h2"},
-            docs_chunks=[{"id": "s1"}, {"id": "s2"}, {"id": "s3"}],
-        )
-        mock_proc = MagicMock()
-        mock_proc.pid = 12345
-        with patch("subprocess.Popen", return_value=mock_proc):
-            result = self.srv.run_index_rebuild(self.root, content="docs", layer="framework")
-        self.assertEqual(result["stats"]["files_total"], 2)
-        self.assertEqual(result["stats"]["doc_chunks"], 3)
-        self.assertEqual(result["index_scope"], "incremental_update")
 
     def test_stats_written_when_previous_log_has_done_marker(self):
         index_dir = self.root / ".wavefoundry" / "index"
@@ -2999,27 +2963,11 @@ class WaveIndexBuildResponseTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["diagnostics"][0]["code"], "index_build_already_running")
 
-    def test_framework_layer_build_returns_ok_with_log(self):
-        with patch.object(
-            self.srv,
-            "run_index_rebuild",
-            return_value={
-                "passed": True,
-                "already_running": False,
-                "notice": "Updating docs/seed index (framework layer) — scanning for changes.",
-                "content": "docs",
-                "full": False,
-                "mode": "update",
-                "index_scope": "incremental_update",
-                "layer": "framework",
-                "stats": {},
-                "log": "/tmp/framework-index-build.log",
-                "pid": 99,
-            },
-        ):
-            result = self.srv.wave_index_build_response(self.root, content="docs", layer="framework")
-        self.assertEqual(result["status"], "ok")
-        self.assertIn("notice", result["data"])
+    def test_framework_layer_build_rejected(self):
+        # 1p4ww: framework folded into the project index — the build response surfaces
+        # the ValueError from run_index_rebuild as an invalid-arguments error.
+        result = self.srv.wave_index_build_response(self.root, content="docs", layer="framework")
+        self.assertEqual(result["status"], "error")
 
 
 # ---------------------------------------------------------------------------
@@ -3043,9 +2991,7 @@ class WaveIndexHealthTests(unittest.TestCase):
             "has_any_index": True,
             "compatible_chunks": True,
             "readiness_overview": "ready",
-            "project": {"readiness": "current"},
-            "framework": {"readiness": "current"},
-        }
+            "project": {"readiness": "current"},        }
         result = self.srv.wave_index_health_response(index)
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["diagnostics"], [])
@@ -3062,9 +3008,7 @@ class WaveIndexHealthTests(unittest.TestCase):
             "has_any_index": True,
             "compatible_chunks": True,
             "readiness_overview": "needs_update",
-            "project": {},
-            "framework": {},
-        }
+            "project": {},        }
         result = self.srv.wave_index_health_response(index)
         self.assertEqual(result["status"], "ok")
         codes = [d["code"] for d in result["diagnostics"]]
@@ -3080,9 +3024,7 @@ class WaveIndexHealthTests(unittest.TestCase):
             "has_any_index": False,
             "compatible_chunks": False,
             "readiness_overview": "incomplete",
-            "project": {},
-            "framework": {},
-        }
+            "project": {},        }
         result = self.srv.wave_index_health_response(index)
         self.assertEqual(result["status"], "ok")
         codes = [d["code"] for d in result["diagnostics"]]
@@ -3098,9 +3040,7 @@ class WaveIndexHealthTests(unittest.TestCase):
             "has_any_index": True,
             "compatible_chunks": False,
             "readiness_overview": "degraded",
-            "project": {"readiness": "current"},
-            "framework": {"readiness": "current"},
-        }
+            "project": {"readiness": "current"},        }
         result = self.srv.wave_index_health_response(index)
         self.assertEqual(result["status"], "ok")
         codes = [d["code"] for d in result["diagnostics"]]
@@ -3116,9 +3056,7 @@ class WaveIndexHealthTests(unittest.TestCase):
             "has_any_index": False,
             "compatible_chunks": False,
             "readiness_overview": "absent",
-            "project": {"readiness": "idle"},
-            "framework": {"readiness": "idle"},
-        }
+            "project": {"readiness": "idle"},        }
         result = self.srv.wave_index_health_response(index)
         self.assertEqual(result["status"], "ok")
         codes = [d["code"] for d in result["diagnostics"]]
@@ -3133,9 +3071,7 @@ class WaveIndexHealthTests(unittest.TestCase):
             "has_any_index": True,
             "compatible_chunks": True,
             "readiness_overview": "ready",
-            "project": {"readiness": "current"},
-            "framework": {"readiness": "current"},
-            "chunker_version_mismatch_layers": [],
+            "project": {"readiness": "current"},            "chunker_version_mismatch_layers": [],
         }
 
     def test_chunker_version_mismatch_emits_advisory(self):
@@ -3148,14 +3084,6 @@ class WaveIndexHealthTests(unittest.TestCase):
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertIn("chunker_version_mismatch", codes)
 
-    def test_chunker_version_mismatch_fires_for_framework_layer(self):
-        index = MagicMock()
-        base = self._healthy_base()
-        base["chunker_version_mismatch_layers"] = ["framework"]
-        index.docs_health.return_value = base
-        result = self.srv.wave_index_health_response(index)
-        codes = [d["code"] for d in result["diagnostics"]]
-        self.assertIn("chunker_version_mismatch", codes)
 
     def test_chunker_version_mismatch_distinct_from_index_stale(self):
         """chunker_version_mismatch fires even when stale_layers is empty (file hashes are current)."""
@@ -6191,7 +6119,9 @@ class WavePrepareACPriorityWarningTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 # Regression anchors — update these deliberately when upgrading the model.
-_EXPECTED_DOCS_MODEL = "BAAI/bge-small-en-v1.5"
+# Wave 1p4wx: docs use arctic-embed-xs (384-d, asymmetric); code stays bge-small.
+_EXPECTED_DOCS_MODEL = "Snowflake/snowflake-arctic-embed-xs"
+_EXPECTED_CODE_MODEL = "BAAI/bge-small-en-v1.5"
 _EXPECTED_EMBEDDING_DIM = 384
 
 
@@ -6396,6 +6326,137 @@ class SemanticEmbeddingRegressionTests(unittest.TestCase):
         )
         self.assertIn("score", results[0])
         self.assertGreater(results[0]["score"], 0.0)
+
+
+class EmbedderSingletonTests(unittest.TestCase):
+    """1p4wy: WaveIndex._get_embedder caches per process so the CoreML/ONNX session
+    compile (~40s on GPU) is paid once, not re-paid on every query."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        self.index = self.srv.WaveIndex(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_get_embedder_constructs_once_per_model(self):
+        construct_calls: list[str] = []
+
+        class _FakeTextEmbedding:
+            def __init__(self, *args, **kwargs):
+                construct_calls.append(kwargs.get("model_name", ""))
+
+        fake_fastembed = types.ModuleType("fastembed")
+        fake_fastembed.TextEmbedding = _FakeTextEmbedding
+        with patch.dict(sys.modules, {"fastembed": fake_fastembed}):
+            first = self.index._get_embedder("BAAI/bge-small-en-v1.5")
+            second = self.index._get_embedder("BAAI/bge-small-en-v1.5")
+
+        self.assertIs(first, second, "embedder must be cached (same instance returned)")
+        self.assertEqual(construct_calls, ["BAAI/bge-small-en-v1.5"],
+                         "embedder must be constructed exactly once per model")
+
+    def test_get_embedder_caches_per_model_name(self):
+        construct_calls: list[str] = []
+
+        class _FakeTextEmbedding:
+            def __init__(self, *args, **kwargs):
+                construct_calls.append(kwargs.get("model_name", ""))
+
+        fake_fastembed = types.ModuleType("fastembed")
+        fake_fastembed.TextEmbedding = _FakeTextEmbedding
+        with patch.dict(sys.modules, {"fastembed": fake_fastembed}):
+            docs = self.index._get_embedder("Snowflake/snowflake-arctic-embed-xs")
+            code = self.index._get_embedder("BAAI/bge-small-en-v1.5")
+            docs_again = self.index._get_embedder("Snowflake/snowflake-arctic-embed-xs")
+
+        self.assertIsNot(docs, code, "different models get distinct cached embedders")
+        self.assertIs(docs, docs_again)
+        self.assertEqual(construct_calls,
+                         ["Snowflake/snowflake-arctic-embed-xs", "BAAI/bge-small-en-v1.5"])
+
+
+class DocsCodeModelSplitTests(unittest.TestCase):
+    """1p4wx: docs use arctic-embed-xs (asymmetric, query prefix); code stays bge-small.
+
+    These are pure-wiring tests — they do not require fastembed or a cached model
+    (the embedder is mocked), so they run everywhere unlike SemanticEmbeddingRegressionTests.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        self.index = self.srv.WaveIndex(self.root)
+        self.indexer = self.index._indexer_module()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_model_constants_are_split(self):
+        self.assertEqual(self.indexer.DOCS_MODEL, _EXPECTED_DOCS_MODEL)
+        self.assertEqual(self.indexer.CODE_MODEL, _EXPECTED_CODE_MODEL)
+        self.assertNotEqual(self.indexer.DOCS_MODEL, self.indexer.CODE_MODEL)
+
+    def test_arctic_query_prefix_registered(self):
+        self.assertEqual(
+            self.indexer.query_embedding_prefix(self.indexer.DOCS_MODEL),
+            "Represent this sentence for searching relevant passages: ",
+        )
+        # Code (bge) is symmetric — no query prefix.
+        self.assertEqual(self.indexer.query_embedding_prefix(self.indexer.CODE_MODEL), "")
+
+    def test_active_models_have_empty_document_prefix(self):
+        # The index build embeds passages without a prefix; this invariant guards it.
+        self.assertEqual(self.indexer.document_embedding_prefix(self.indexer.DOCS_MODEL), "")
+        self.assertEqual(self.indexer.document_embedding_prefix(self.indexer.CODE_MODEL), "")
+        self.indexer._assert_active_models_have_empty_document_prefix()  # must not raise
+
+    def test_unknown_model_prefixes_default_empty(self):
+        self.assertEqual(self.indexer.query_embedding_prefix("no/such-model"), "")
+        self.assertEqual(self.indexer.document_embedding_prefix("no/such-model"), "")
+
+    def test_embed_query_applies_docs_prefix(self):
+        import numpy as np
+        captured: list[list[str]] = []
+
+        class _FakeEmbedder:
+            def embed(self, texts):
+                captured.append(list(texts))
+                return iter([np.array([1.0, 0.0], dtype=np.float32)])
+
+        with patch.object(self.index, "_get_embedder", return_value=_FakeEmbedder()):
+            self.index._embed_query("how does the wave lifecycle work", self.indexer.DOCS_MODEL)
+
+        self.assertEqual(
+            captured[0][0],
+            "Represent this sentence for searching relevant passages: how does the wave lifecycle work",
+        )
+
+    def test_embed_query_no_prefix_for_code_model(self):
+        import numpy as np
+        captured: list[list[str]] = []
+
+        class _FakeEmbedder:
+            def embed(self, texts):
+                captured.append(list(texts))
+                return iter([np.array([1.0, 0.0], dtype=np.float32)])
+
+        with patch.object(self.index, "_get_embedder", return_value=_FakeEmbedder()):
+            self.index._embed_query("parse the config", self.indexer.CODE_MODEL)
+
+        # bge (code) is symmetric — the query text is passed through unchanged.
+        self.assertEqual(captured[0][0], "parse the config")
 
 
 class WavePauseStatusTransitionTests(unittest.TestCase):
@@ -7015,7 +7076,7 @@ class LayerHealthFileMetaTests(unittest.TestCase):
 
         wave_idx = self.server.WaveIndex(root)
         wave_idx._loaded = True
-        wave_idx._meta = {"project": meta, "framework": {}}
+        wave_idx._meta = {"project": meta}
 
         health = wave_idx._layer_health("project")
         self.assertEqual(health["stale_paths"], [], msg="file_meta hashes matched — should be no stale paths")
@@ -7041,7 +7102,7 @@ class LayerHealthFileMetaTests(unittest.TestCase):
 
         wave_idx = self.server.WaveIndex(root)
         wave_idx._loaded = True
-        wave_idx._meta = {"project": meta, "framework": {}}
+        wave_idx._meta = {"project": meta}
         wave_idx._lance_available = {("project", "docs")}
 
         health = wave_idx._layer_health("project")
@@ -7076,48 +7137,36 @@ class LayerHealthFileMetaTests(unittest.TestCase):
 
         wave_idx = self.server.WaveIndex(root)
         wave_idx._loaded = True
-        wave_idx._meta = {"project": meta, "framework": {}}
+        wave_idx._meta = {"project": meta}
 
         health = wave_idx._layer_health("project")
         self.assertEqual(health["stale_paths"], [], msg="file_hashes fallback — should be no stale paths")
 
-    def test_framework_pack_artifacts_are_ignored_by_current_hashes(self):
-        """Framework health should not treat MANIFEST or VERSION as indexable files."""
+    def test_framework_fold_includes_readme_but_not_pack_artifacts(self):
+        """1p4ww: project health folds the framework README/seeds but not MANIFEST/VERSION."""
         root = self._make_repo(self.tmp)
         framework_root = root / ".wavefoundry" / "framework"
         framework_root.mkdir(parents=True, exist_ok=True)
         (framework_root / "README.md").write_text("# Framework\n", encoding="utf-8")
         (framework_root / "MANIFEST").write_text("README.md\nMANIFEST\n", encoding="utf-8")
         (framework_root / "VERSION").write_text("2099-01-01a\n", encoding="utf-8")
+        seeds = framework_root / "seeds"
+        seeds.mkdir(parents=True, exist_ok=True)
+        (seeds / "010-install.prompt.md").write_text("# Seed\n", encoding="utf-8")
 
-        idx_dir = root / ".wavefoundry" / "framework" / "index"
+        idx_dir = root / ".wavefoundry" / "index"
         idx_dir.mkdir(parents=True, exist_ok=True)
         (idx_dir / "docs.lance").mkdir(parents=True, exist_ok=True)
 
-        meta = {
-            "built_at": "2026-01-01T00:00:00Z",
-            "content": ["docs"],
-            "model_versions": {"docs": "BAAI/bge-base-en-v1.5"},
-            "chunker_versions": {"docs": "13"},
-            "walker_version": "3",
-            "file_meta": {
-                ".wavefoundry/framework/README.md": {
-                    "hash": self._hash(framework_root / "README.md"),
-                    "mtime": 0.0,
-                    "size": (framework_root / "README.md").stat().st_size,
-                    "inode": 0,
-                },
-            },
-        }
-        (idx_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
-
         wave_idx = self.server.WaveIndex(root)
         wave_idx._loaded = True
-        wave_idx._meta = {"project": {}, "framework": meta}
+        wave_idx._meta = {"project": {}}
 
-        health = wave_idx._layer_health("framework")
-        self.assertEqual(health["current_hash_count"], 1)
-        self.assertEqual(health["stale_paths"], [], msg="pack artifacts should be ignored by framework health")
+        current = wave_idx._layer_current_hashes()
+        self.assertIn(".wavefoundry/framework/README.md", current)
+        self.assertIn(".wavefoundry/framework/seeds/010-install.prompt.md", current)
+        self.assertNotIn(".wavefoundry/framework/MANIFEST", current)
+        self.assertNotIn(".wavefoundry/framework/VERSION", current)
 
 
 class BackgroundRefreshActiveTests(unittest.TestCase):
@@ -7269,26 +7318,6 @@ class WaveIndexAutoReloadTests(unittest.TestCase):
 
         idx._ensure_loaded()
         self.assertEqual(idx._loaded_meta_signature["project"], self._meta_signature(project_idx))
-
-    def test_ensure_loaded_reloads_when_framework_meta_signature_changes(self):
-        """_ensure_loaded re-reads index when framework meta.json signature changes."""
-        root = self.tmp
-        project_idx = root / ".wavefoundry" / "index"
-        framework_idx = root / ".wavefoundry" / "framework" / "index"
-        self._make_index(project_idx, "2026-01-01T00:00:00Z")
-        self._make_index(framework_idx, "2026-01-01T00:00:00Z")
-
-        idx = self.server.WaveIndex(root)
-        idx._loaded = True
-        idx._loaded_meta_signature = {
-            "project": self._meta_signature(project_idx),
-            "framework": self._meta_signature(framework_idx),
-        }
-
-        self._make_index(framework_idx, "2026-01-01T00:00:00Z", extra={"refresh_marker": "framework"})
-
-        idx._ensure_loaded()
-        self.assertEqual(idx._loaded_meta_signature["framework"], self._meta_signature(framework_idx))
 
     def test_ensure_loaded_does_not_reload_when_meta_signature_unchanged(self):
         """_ensure_loaded skips reload when meta.json signature is unchanged."""
@@ -7895,15 +7924,25 @@ class CodeAskTests(unittest.TestCase):
         self.assertTrue(len(result["data"]["gaps"]) > 0)
 
     def test_confidence_agent_mode_offtopic_band_not_high(self):
-        """1p4hj: agent-mode confidence is score-aware — a flat low-cosine off-topic result
-        (top ~0.66, below CONF_AGENT_HIGH_SCORE) is NOT 'high' despite multiple citations."""
-        index = self._make_index(code_results=[self._fake_code_chunk("src/a.py", score=0.66), self._fake_code_chunk("src/b.py", score=0.66)])
+        """1p52p: when the cross-encoder ran (reranked=True), confidence is score-aware on the unified
+        sigmoid scale — an off-topic result whose top sigmoid is between CONF_AGENT_RERANK_LOW (0.1)
+        and CONF_AGENT_RERANK_HIGH (0.5) is 'medium', NOT 'high', despite multiple citations."""
+        index = self._make_index(code_results=[self._fake_code_chunk("src/a.py", score=0.30), self._fake_code_chunk("src/b.py", score=0.28)])
+        # reranked=True so _heuristic_confidence uses the sigmoid bands rather than the count rule.
+        index.search_combined.return_value = (
+            [self._fake_code_chunk("src/a.py", score=0.30), self._fake_code_chunk("src/b.py", score=0.28)],
+            True, 0, 0, [], [], "none", None,
+        )
         result = self.srv.code_ask_response(index, self.root, "kubernetes ingress blue green deploy?")
         self.assertEqual(result["data"]["confidence"], "medium")
 
     def test_confidence_agent_mode_weak_band_low(self):
-        """1p4hj: agent-mode top cosine below CONF_AGENT_LOW_SCORE → 'low' (flat/weak band, no real answer)."""
-        index = self._make_index(code_results=[self._fake_code_chunk("src/a.py", score=0.60), self._fake_code_chunk("src/b.py", score=0.58)])
+        """1p52p: reranked top sigmoid below CONF_AGENT_RERANK_LOW (0.1) → 'low' (nothing relevant retrieved)."""
+        index = self._make_index()
+        index.search_combined.return_value = (
+            [self._fake_code_chunk("src/a.py", score=0.05), self._fake_code_chunk("src/b.py", score=0.04)],
+            True, 0, 0, [], [], "none", None,
+        )
         result = self.srv.code_ask_response(index, self.root, "best sourdough bread recipe?")
         self.assertEqual(result["data"]["confidence"], "low")
 
@@ -7934,20 +7973,21 @@ class CodeAskTests(unittest.TestCase):
             {"path": "docs/agents/journals/cia-feedback-2026-05-14.md", "kind": "doc", "lines": [1, 4], "text": "feedback about tenant creation", "score": 0.99},
             self._fake_code_chunk("src/tenants.ts", score=0.95),
         ])
-        # rerank="local": this asserts the post-selection demotion in code_ask_response
-        # (mocks search_combined, so it can't exercise agent-mode's PRE-selection demotion,
-        # which lives inside search_combined and is verified on the real index instead).
-        result = self.srv.code_ask_response(index, self.root, "How does a new tenant get created?", rerank="local")
+        # Wave 1p52p: demotion is now applied PRE-selection inside search_combined (mocked here),
+        # and code_ask_response no longer re-sorts post-selection — it just reports how many of the
+        # returned candidates carry the demotion weight. So the invariant verified here is "demoted
+        # but still present", NOT a hard code-above-doc ordering (the cross-encoder can rank a
+        # strongly-relevant demoted doc high). Pre-selection ordering is verified on the real index.
+        result = self.srv.code_ask_response(index, self.root, "How does a new tenant get created?")
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"]["partition_applied"])
         self.assertEqual(result["data"]["demotion_count"], 1)
         citations = result["data"]["citations"]
         self.assertGreaterEqual(len(citations), 2)
-        # After 0.50× demotion, journal (0.99→0.495) ranks below code (0.95)
-        self.assertEqual(citations[0]["path"], "src/tenants.ts")
-        self.assertEqual(citations[0]["final_rank"], 1)
-        self.assertEqual(citations[1]["path"], "docs/agents/journals/cia-feedback-2026-05-14.md")
-        self.assertEqual(citations[1]["final_rank"], 2)
+        cited_paths = [c["path"] for c in citations]
+        # The demoted journal doc is still present (demoted, not removed).
+        self.assertIn("docs/agents/journals/cia-feedback-2026-05-14.md", cited_paths)
+        self.assertIn("src/tenants.ts", cited_paths)
 
     def test_seed_docs_are_demoted_but_not_removed(self):
         """Seeds are weighted at 0.60× — demoted below code but still present."""
@@ -7965,19 +8005,19 @@ class CodeAskTests(unittest.TestCase):
             "none",
             None,
         )
-        # rerank="local": post-selection demotion path (mocks search_combined, so agent-mode's
-        # pre-selection demotion isn't exercised here — that's verified on the real index).
-        result = self.srv.code_ask_response(index, self.root, "How does HTTP request filtering work?", rerank="local")
+        # Wave 1p52p: demotion is pre-selection inside search_combined (mocked here); code_ask_response
+        # only reports demotion_count and does not re-sort. Invariant: "demoted but still present",
+        # not a hard code-above-doc ordering.
+        result = self.srv.code_ask_response(index, self.root, "How does HTTP request filtering work?")
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"]["partition_applied"])
         self.assertEqual(result["data"]["demotion_count"], 1)
         citations = result["data"]["citations"]
         self.assertGreaterEqual(len(citations), 2)
-        # After 0.60× demotion, seed (0.99→0.594) ranks below code (0.95)
-        self.assertEqual(citations[0]["path"], "src/http_filtering.java")
-        self.assertEqual(citations[0]["final_rank"], 1)
-        self.assertEqual(citations[1]["path"], ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md")
-        self.assertEqual(citations[1]["final_rank"], 2)
+        cited_paths = [c["path"] for c in citations]
+        # The demoted seed doc is still present (demoted, not removed).
+        self.assertIn(".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md", cited_paths)
+        self.assertIn("src/http_filtering.java", cited_paths)
 
     # --- _demote_doc_results unit tests (12q5v) ---
 
@@ -9163,33 +9203,44 @@ class RerankerTests(unittest.TestCase):
         idx = self._make_index_with_docs(docs, code_chunks=code)
         mock_reranker = self._make_mock_reranker(6)
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
-            results, reranked, vector_ms, rerank_ms, _, _, _, _ = idx.search_combined("query", top_n=5, rerank="local")
+            results, reranked, vector_ms, rerank_ms, _, _, _, _ = idx.search_combined("query", top_n=5)
+        # Wave 1p52p: the single agent path runs the cross-encoder rerank-FIRST; with a reranker
+        # available, agent_reranked (the 2nd tuple element) is True.
         self.assertTrue(reranked)
-        self.assertLessEqual(len(results), 5)
+        # Wave 1p52p: the agent path's count is governed by the text budget + the AGENT_CANDIDATE_MAX
+        # backstop (max(top_n, AGENT_CANDIDATE_MAX)), not a hard top_n cap (that was the removed local
+        # path). With only 6 small candidates the count is bounded by the candidate pool.
+        self.assertLessEqual(len(results), max(5, self.srv.AGENT_CANDIDATE_MAX))
         self.assertIsInstance(vector_ms, int)
         self.assertIsInstance(rerank_ms, int)
 
-    def test_search_combined_returns_reranked_false_with_rrf_fallback(self):
-        """search_combined returns reranked=False and uses RRF when reranker unavailable."""
+    def test_search_combined_returns_reranked_false_without_reranker(self):
+        """Wave 1p52p: with NO reranker (CPU-only machine), the agent path is a no-op for the
+        cross-encoder — agent_reranked is False and results are still returned in vector/coverage
+        order. (The former RRF fallback path was removed.)"""
         docs = [self._fake_doc_chunk(f"d{i}") for i in range(3)]
         code = [self._fake_code_chunk(f"c{i}") for i in range(3)]
         idx = self._make_index_with_docs(docs, code_chunks=code)
         with patch.object(idx, "_get_reranker", return_value=None):
-            results, reranked, vector_ms, rerank_ms, _, _, _, _ = idx.search_combined("query", top_n=5, rerank="local")
+            results, reranked, vector_ms, rerank_ms, _, _, _, _ = idx.search_combined("query", top_n=5)
         self.assertFalse(reranked)
-        self.assertLessEqual(len(results), 5)
+        self.assertTrue(results, "results must still be returned without a reranker")
+        self.assertLessEqual(len(results), max(5, self.srv.AGENT_CANDIDATE_MAX))
         self.assertIsInstance(vector_ms, int)
         self.assertIsInstance(rerank_ms, int)
 
-    def test_search_combined_result_count_does_not_exceed_top_n(self):
-        """search_combined never returns more than top_n."""
+    def test_search_combined_result_count_bounded_by_agent_cap(self):
+        """Wave 1p52p: the single agent path bounds the count by the text budget + the
+        AGENT_CANDIDATE_MAX backstop (max(top_n, AGENT_CANDIDATE_MAX)), NOT a hard top_n cap — that
+        strict cap was a property of the removed "local" path. Here 10 small candidates stay under
+        the backstop."""
         docs = [self._fake_doc_chunk(f"d{i}") for i in range(5)]
         code = [self._fake_code_chunk(f"c{i}") for i in range(5)]
         idx = self._make_index_with_docs(docs, code_chunks=code)
         mock_reranker = self._make_mock_reranker(10)
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
-            results, _, _vms, _rms, _, _, _, _ = idx.search_combined("query", top_n=3, rerank="local")
-        self.assertLessEqual(len(results), 3)
+            results, _, _vms, _rms, _, _, _, _ = idx.search_combined("query", top_n=3)
+        self.assertLessEqual(len(results), max(3, self.srv.AGENT_CANDIDATE_MAX))
 
     def test_code_ask_response_includes_reranked_field(self):
         """code_ask_response includes 'reranked' and timing fields in response data."""
@@ -9232,23 +9283,25 @@ class RerankerTests(unittest.TestCase):
         _, kwargs = index.search_combined.call_args
         self.assertEqual(kwargs.get("rerank"), "agent")
 
-    def test_agent_mode_does_not_call_reranker(self):
-        """1p4hj AC-2: agent-mode invokes neither the cross-encoder nor the RRF order."""
+    def test_agent_mode_calls_reranker(self):
+        """Wave 1p52p: agent-mode (the single path) now runs the cross-encoder rerank-FIRST. With a
+        reranker available, search_combined consults it and returns agent_reranked=True. (Previously
+        agent-mode did NOT rerank — that was the pre-1p52p behavior this test inverts.)"""
         docs = [self._fake_doc_chunk(f"d{i}") for i in range(3)]
         code = [self._fake_code_chunk(f"c{i}") for i in range(3)]
         idx = self._make_index_with_docs(docs, code_chunks=code)
         mock_reranker = self._make_mock_reranker(6)
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
             results, reranked, _, _, _, _, _, _ = idx.search_combined("query", top_n=5, rerank="agent")
-        mock_reranker.rerank.assert_not_called()
-        self.assertFalse(reranked)
+        mock_reranker.rerank.assert_called()
+        self.assertTrue(reranked)
         self.assertTrue(results, "agent-mode must still return candidates")
 
-    def test_agent_mode_artifact_anchored_skips_reranker_and_labels(self):
-        """1p4hj AC-2 (regression): the artifact-anchored exact-first early-return honors
-        agent-mode — it returns the keyword candidates labeled by source WITHOUT the
-        cross-encoder. This path previously bypassed agent-mode and ran the ~30s reranker
-        (smoke test caught rerank_ms=18327 + source=null on an artifact-anchored query)."""
+    def test_agent_mode_artifact_anchored_reranks_and_labels(self):
+        """Wave 1p52p: the artifact-anchored exact-first early-return now rerank-FIRSTs the keyword
+        candidates (agent path) — it consults the cross-encoder AND returns the keyword candidates
+        labeled by source. With a reranker available, agent_reranked is True. (Pre-1p52p this path
+        skipped the reranker; 1p52p unified it onto the single rerank-first agent path.)"""
         idx = self._make_index_with_docs([self._fake_doc_chunk("d0")], code_chunks=[self._fake_code_chunk("src/a.py")])
         fake_kw_resp = {
             "status": "ok",
@@ -9264,8 +9317,8 @@ class RerankerTests(unittest.TestCase):
                     "how does build_prefix generate the +2vr8 format?",
                     top_n=5, question_type="artifact_anchored", rerank="agent",
                 )
-        mock_reranker.rerank.assert_not_called()
-        self.assertFalse(reranked)
+        mock_reranker.rerank.assert_called()
+        self.assertTrue(reranked)
         self.assertIn("artifact_anchored", definition_boosted)
         by_path = {r.get("path"): r.get("source") for r in results}
         self.assertEqual(by_path.get("scripts/lifecycle_id.py"), "code")
@@ -9487,50 +9540,62 @@ class RerankerTests(unittest.TestCase):
         self.assertEqual(idx._agent_candidate_select({"docs": [], "code": []}, top_n=5, floor_k=3), [])
 
     def test_code_ask_rerank_mode_field_values(self):
-        """1p4hj AC-7: rerank_mode is the distinct path label — agent / local / rrf_fallback,
-        NOT an overloaded `reranked: false`."""
+        """Wave 1p52p: code_ask has ONE ranking path, so rerank_mode is ALWAYS "agent" — the former
+        "local"/"rrf_fallback" labels were removed. The `reranked` bool (not rerank_mode) distinguishes
+        GPU (cross-encoder ran, True) from CPU-only (False). The `rerank` param 'local' is a deprecated
+        alias that behaves identically and still reports rerank_mode "agent"."""
         index = MagicMock()
         index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             root = _make_repo(Path(tmp))
             index.search_combined.return_value = ([], False, 0, 0, [], [], "none", None)
-            self.assertEqual(self.srv.code_ask_response(index, root, "q", rerank="agent")["data"]["rerank_mode"], "agent")
+            resp = self.srv.code_ask_response(index, root, "q", rerank="agent")["data"]
+            self.assertEqual(resp["rerank_mode"], "agent")
+            self.assertFalse(resp["reranked"])
+            # GPU: cross-encoder ran → reranked True, rerank_mode still "agent"
             index.search_combined.return_value = ([], True, 0, 0, [], [], "none", None)
-            self.assertEqual(self.srv.code_ask_response(index, root, "q", rerank="local")["data"]["rerank_mode"], "local")
+            resp = self.srv.code_ask_response(index, root, "q", rerank="agent")["data"]
+            self.assertEqual(resp["rerank_mode"], "agent")
+            self.assertTrue(resp["reranked"])
+            # 'local' is now a deprecated alias for the same single path → rerank_mode "agent"
             index.search_combined.return_value = ([], False, 0, 0, [], [], "none", None)
-            self.assertEqual(self.srv.code_ask_response(index, root, "q", rerank="local")["data"]["rerank_mode"], "rrf_fallback")
+            self.assertEqual(self.srv.code_ask_response(index, root, "q", rerank="local")["data"]["rerank_mode"], "agent")
 
     # --- _get_reranker caching ---
 
     def test_get_reranker_does_not_cache_none(self):
-        """_get_reranker must not set self._reranker when load fails (no-cache-None rule)."""
+        """Wave 1p52p: _get_reranker uses accel_embedder.make_reranker (GPU FP16 / CPU INT8). It returns
+        None only when reranking is disabled or unbuildable; in that case it must NOT cache a non-None
+        reranker, must set self._reranker_disabled (so we don't re-probe every query), and return None."""
+        import accel_embedder
         idx = self.srv.WaveIndex.__new__(self.srv.WaveIndex)
         idx._reranker = None
-        # Simulate failed load by making import fail
-        with patch.dict("sys.modules", {"fastembed.rerank.cross_encoder": None}):
-            result = idx._get_reranker()
-        # After failure, _reranker must still be None
-        self.assertIsNone(idx._reranker)
+        with patch.object(accel_embedder, "make_reranker", return_value=None) as mk:
+            with patch.object(idx, "_indexer_constant", return_value="cross-encoder/ms-marco-MiniLM-L-6-v2"):
+                with patch.object(idx, "_offline_model_env", return_value=__import__("contextlib").nullcontext()):
+                    result = idx._get_reranker()
+        mk.assert_called_once()
+        self.assertIsNone(result)
+        self.assertIsNone(idx._reranker, "must not cache a non-None reranker when make_reranker returns None")
+        self.assertTrue(getattr(idx, "_reranker_disabled", False), "must mark reranker disabled to avoid re-probing")
 
     def test_get_reranker_caches_on_success(self):
-        """_get_reranker caches the reranker on successful load."""
+        """Wave 1p52p: _get_reranker caches the StaticShapeReranker returned by
+        accel_embedder.make_reranker (GPU FP16 or CPU INT8) in self._reranker."""
+        import accel_embedder
         idx = self.srv.WaveIndex.__new__(self.srv.WaveIndex)
         idx._reranker = None
         mock_reranker = MagicMock()
-        mock_encoder_cls = MagicMock(return_value=mock_reranker)
-
-        import types
-        fake_module = types.ModuleType("fastembed.rerank.cross_encoder")
-        fake_module.TextCrossEncoder = mock_encoder_cls
-
-        with patch.dict("sys.modules", {"fastembed.rerank.cross_encoder": fake_module}):
-            with patch.object(idx, "_indexer_constant", return_value="BAAI/bge-reranker-base"):
+        mock_reranker.model_name = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        mock_reranker.provider = "CoreMLExecutionProvider"
+        with patch.object(accel_embedder, "make_reranker", return_value=mock_reranker) as mk:
+            with patch.object(idx, "_indexer_constant", return_value="cross-encoder/ms-marco-MiniLM-L-6-v2"):
                 with patch.object(idx, "_offline_model_env", return_value=__import__("contextlib").nullcontext()):
                     result = idx._get_reranker()
-
-        self.assertIsNotNone(idx._reranker)
-        self.assertEqual(idx._reranker, mock_reranker)
+        mk.assert_called_once()
+        self.assertIs(idx._reranker, mock_reranker)
+        self.assertIs(result, mock_reranker)
 
     # --- search_combined: question-type-aware retrieval ---
 
@@ -9545,17 +9610,17 @@ class RerankerTests(unittest.TestCase):
                 {"path": "scripts/lifecycle_id.py", "line": 106, "snippet": "def build_prefix("},
             ]},
         }
-        mock_reranker = MagicMock()
-        def passthrough_rerank(query, candidates, top_n):
-            return candidates[:top_n]
+        # Wave 1p52p: the exact-first pass now rerank-FIRSTs the keyword candidates via _agent_rerank
+        # (the unified single path), not the removed _rerank cross-encoder helper. With a reranker
+        # available, agent_reranked is True; the exact-first code hits are still returned.
+        mock_reranker = self._make_mock_reranker(1)
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
-            with patch.object(idx, "_rerank", side_effect=passthrough_rerank):
-                with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
-                    results, reranked, vector_ms, _, definition_boosted, _, _, _ = idx.search_combined(
-                        "how does build_prefix generate the +2vr8 format?",
-                        top_n=5,
-                        question_type="artifact_anchored", rerank="local",
-                    )
+            with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
+                results, reranked, vector_ms, _, definition_boosted, _, _, _ = idx.search_combined(
+                    "how does build_prefix generate the +2vr8 format?",
+                    top_n=5,
+                    question_type="artifact_anchored",
+                )
         self.assertTrue(reranked, "exact pass with reranker should return reranked=True")
         self.assertEqual(vector_ms, 0, "exact pass skips vector fetch; vector_ms must be 0")
         self.assertIn("artifact_anchored", definition_boosted)
@@ -9700,18 +9765,40 @@ class RerankerTests(unittest.TestCase):
 
     # --- search_combined: question-type-aware retrieval ---
 
-    def test_search_combined_navigational_applies_rrf_weight_bias(self):
-        """For navigational questions, code-index candidates receive higher RRF weight than docs."""
-        # Build an index where code and docs each have one candidate so we can detect ordering
+    def test_search_combined_navigational_tilt_only_when_reranked(self):
+        """1p4wz Fix 3: the navigational cross-source weight is only meaningful on the unified
+        post-rerank sigmoid scale, so search_combined passes it to selection ONLY when the
+        cross-encoder ran. When the reranker is unavailable the per-source scores are incomparable
+        cross-model cosines (arctic docs vs bge code) and the cross-source weight is suppressed."""
         docs = [self._fake_doc_chunk("d0")]
         code = [self._fake_code_chunk("c0")]
         idx = self._make_index_with_docs(docs, code_chunks=code)
+        captured: dict = {}
+        real_select = idx._agent_candidate_select
+
+        def _spy(sources, top_n, floor_k, weights=None, text_budget=None):
+            captured["weights"] = weights
+            return real_select(sources, top_n, floor_k, weights=weights, text_budget=text_budget)
+
+        # Length-matching mock so _agent_rerank always succeeds regardless of injected candidate count.
+        reranker = MagicMock()
+        reranker.rerank.side_effect = lambda q, docs: [0.0] * len(docs)
+
+        # Reranked → the navigational tilt is applied.
+        with patch.object(idx, "_get_reranker", return_value=reranker):
+            with patch.object(idx, "_agent_candidate_select", side_effect=_spy):
+                idx.search_combined("where is the config", top_n=5, question_type="navigational")
+        self.assertEqual(
+            captured["weights"],
+            {"code": self.srv.RRF_NAVIGATIONAL_CODE_WEIGHT, "docs": self.srv.RRF_NAVIGATIONAL_DOCS_WEIGHT},
+        )
+
+        # No reranker → tilt suppressed (would multiply incomparable cross-model cosines).
+        captured.clear()
         with patch.object(idx, "_get_reranker", return_value=None):
-            results_nav, _, _, _, _, _, _, _ = idx.search_combined("where is the config", top_n=5, question_type="navigational")
-            results_def, _, _, _, _, _, _, _ = idx.search_combined("where is the config", top_n=5, question_type="")
-        # Results should be returned without error and obey top_n
-        self.assertLessEqual(len(results_nav), 5)
-        self.assertLessEqual(len(results_def), 5)
+            with patch.object(idx, "_agent_candidate_select", side_effect=_spy):
+                idx.search_combined("where is the config", top_n=5, question_type="navigational")
+        self.assertIsNone(captured["weights"])
 
     def test_search_combined_explanatory_partitions_infra_paths_after_rerank(self):
         """For explanatory questions, results with infra path segments are moved to end of list."""
@@ -9936,8 +10023,9 @@ class RerankerTests(unittest.TestCase):
             _, _, _, _, definition_boosted, _, _, _ = idx.search_combined("where is the billing handler", top_n=5)
         self.assertEqual(definition_boosted, [])
 
-    def test_definition_boost_result_count_does_not_exceed_top_n(self):
-        """Result count never exceeds top_n even when definition-boost injects candidates."""
+    def test_definition_boost_result_count_bounded_by_agent_cap(self):
+        """Wave 1p52p: even when definition-boost injects candidates, the agent path bounds the count
+        by the text budget + AGENT_CANDIDATE_MAX backstop, not a hard top_n cap."""
         docs = [self._fake_doc_chunk(f"d{i}") for i in range(5)]
         code = [self._fake_code_chunk(f"c{i}") for i in range(5)]
         idx = self._make_index_with_docs(docs, code_chunks=code)
@@ -9946,8 +10034,8 @@ class RerankerTests(unittest.TestCase):
         fake_kw_resp = {"status": "ok", "data": {"results": sql_hits}}
         with patch.object(idx, "_get_reranker", return_value=None):
             with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
-                results, _, _, _, _, _, _, _ = idx.search_combined("how does the sql schema work", top_n=3, rerank="local")
-        self.assertLessEqual(len(results), 3)
+                results, _, _, _, _, _, _, _ = idx.search_combined("how does the sql schema work", top_n=3)
+        self.assertLessEqual(len(results), max(3, self.srv.AGENT_CANDIDATE_MAX))
 
     def test_definition_boost_second_rule_addition_requires_no_logic_change(self):
         """Adding a second rule to DEFINITION_BOOST_RULES requires only a table entry, no logic changes."""
@@ -9998,20 +10086,75 @@ class RerankerTests(unittest.TestCase):
 
     # --- Symbol injection boost (12q63 pre-slice boost inside _rerank) ---
 
-    def test_symbol_injection_boost_raises_low_score(self):
-        """Symbol-injected code chunk gets _SYMBOL_INJECTION_BOOST added to its normalized score."""
-        boost = self.srv._SYMBOL_INJECTION_BOOST
-        base_score = 0.20
-        expected = min(base_score + boost, 1.0)
+    def _reranker_with_logits(self, logits):
+        """Mock reranker whose rerank() returns the given raw logits, aligned to the passages."""
+        reranker = MagicMock()
+        reranker.rerank.side_effect = lambda query, docs: list(logits)
+        return reranker
+
+    def test_agent_rerank_writes_sigmoid_scores(self):
+        """_agent_rerank rewrites each candidate's score to sigmoid(logit) — the unified relevance scale
+        the whole rerank-FIRST design (per-index floor + confidence band) keys off. Exercises real code."""
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")], [self._fake_code_chunk("c0")])
         candidates = [
-            {"path": "docs/foo.md", "score": 0.95, "kind": "doc", "text": ""},
-            {"path": "server.py", "score": base_score, "kind": "code", "text": "", "_sym_injected": True},
+            {"path": "docs/a.md", "kind": "doc", "text": "alpha", "score": 0.11},
+            {"path": "src/b.py", "kind": "code", "text": "beta", "score": 0.22},
         ]
-        for c in candidates:
-            if c.get("_sym_injected") and c.get("kind") == "code":
-                c["score"] = min(c["score"] + boost, 1.0)
-        impl = next(c for c in candidates if c.get("_sym_injected"))
-        self.assertAlmostEqual(impl["score"], expected)
+        with patch.object(idx, "_get_reranker", return_value=self._reranker_with_logits([-2.0, 2.0])):
+            ran = idx._agent_rerank("q", candidates)
+        self.assertTrue(ran)
+        self.assertAlmostEqual(candidates[0]["score"], 1.0 / (1.0 + math.exp(2.0)))   # sigmoid(-2)
+        self.assertAlmostEqual(candidates[1]["score"], 1.0 / (1.0 + math.exp(-2.0)))  # sigmoid(2)
+
+    def test_agent_rerank_orders_highest_logit_first(self):
+        """The highest-logit candidate ends up with the highest score (rerank-first ordering signal)."""
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")])
+        candidates = [
+            {"path": "a", "kind": "code", "text": "a", "score": 0.9},
+            {"path": "b", "kind": "code", "text": "b", "score": 0.1},
+            {"path": "c", "kind": "code", "text": "c", "score": 0.5},
+        ]
+        # Pre-rerank cosine order is a,c,b; the reranker disagrees and ranks b highest.
+        with patch.object(idx, "_get_reranker", return_value=self._reranker_with_logits([-1.0, 3.0, 0.0])):
+            idx._agent_rerank("q", candidates)
+        best = max(candidates, key=lambda c: c["score"])
+        self.assertEqual(best["path"], "b")
+
+    def test_agent_rerank_noop_without_reranker(self):
+        """No reranker (CPU disabled / unbuildable) → no-op, scores untouched, returns False."""
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")])
+        candidates = [{"path": "docs/a.md", "kind": "doc", "text": "alpha", "score": 0.42}]
+        with patch.object(idx, "_get_reranker", return_value=None):
+            ran = idx._agent_rerank("q", candidates)
+        self.assertFalse(ran)
+        self.assertEqual(candidates[0]["score"], 0.42)
+
+    def test_agent_rerank_rejects_length_mismatch(self):
+        """A reranker returning the wrong logit count is rejected wholesale (no partial/corrupt scoring)."""
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")])
+        candidates = [
+            {"path": "docs/a.md", "kind": "doc", "text": "alpha", "score": 0.5},
+            {"path": "src/b.py", "kind": "code", "text": "beta", "score": 0.5},
+        ]
+        with patch.object(idx, "_get_reranker", return_value=self._reranker_with_logits([1.0])):
+            ran = idx._agent_rerank("q", candidates)
+        self.assertFalse(ran)
+        self.assertEqual([c["score"] for c in candidates], [0.5, 0.5])  # untouched
+
+    def test_symbol_injection_boost_raises_low_score(self):
+        """A symbol-injected code chunk gets _SYMBOL_INJECTION_BOOST on top of its sigmoid score —
+        asserted through real _agent_rerank (not re-implemented test arithmetic)."""
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")])
+        boost = self.srv._SYMBOL_INJECTION_BOOST
+        candidates = [
+            {"path": "docs/foo.md", "kind": "doc", "text": "", "score": 0.0},
+            {"path": "server.py", "kind": "code", "text": "", "score": 0.0, "_sym_injected": True},
+        ]
+        # Equal logits (sigmoid(0)=0.5) isolate the boost: only the code+sym chunk should rise.
+        with patch.object(idx, "_get_reranker", return_value=self._reranker_with_logits([0.0, 0.0])):
+            idx._agent_rerank("q", candidates)
+        self.assertAlmostEqual(candidates[0]["score"], 0.5)                    # doc: no boost
+        self.assertAlmostEqual(candidates[1]["score"], min(0.5 + boost, 1.0))  # code+sym: boosted
 
     def test_symbol_injection_boost_helps_mid_scoring_impl(self):
         """A reranker-relevant impl chunk (score >= 0.35) beats the worst-case demoted wave doc after boost."""
@@ -10027,20 +10170,21 @@ class RerankerTests(unittest.TestCase):
             f"Low-relevance chunk ({low_score} + {boost} = {low_score + boost}) should NOT beat demoted wave ({max_wave_demoted})")
 
     def test_symbol_injection_boost_capped_at_one(self):
-        """Score is capped at 1.0 after boost, regardless of pre-boost value."""
-        boost = self.srv._SYMBOL_INJECTION_BOOST
-        c = {"score": 0.90, "kind": "code", "_sym_injected": True}
-        c["score"] = min(c["score"] + boost, 1.0)
-        self.assertLessEqual(c["score"], 1.0)
+        """Boosted score is capped at 1.0 — asserted through real _agent_rerank."""
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")])
+        candidates = [{"path": "server.py", "kind": "code", "text": "", "score": 0.0, "_sym_injected": True}]
+        # sigmoid(8) ≈ 0.9997; + boost would exceed 1.0 → must clamp.
+        with patch.object(idx, "_get_reranker", return_value=self._reranker_with_logits([8.0])):
+            idx._agent_rerank("q", candidates)
+        self.assertEqual(candidates[0]["score"], 1.0)
 
     def test_symbol_injection_boost_not_applied_to_doc_kind(self):
-        """Boost only applies to kind='code'; injected doc chunks are not boosted."""
-        boost = self.srv._SYMBOL_INJECTION_BOOST
-        c = {"score": 0.20, "kind": "doc", "_sym_injected": True}
-        original = c["score"]
-        if c.get("_sym_injected") and c.get("kind") == "code":
-            c["score"] = min(c["score"] + boost, 1.0)
-        self.assertAlmostEqual(c["score"], original)
+        """Boost only applies to kind='code'; a _sym_injected doc chunk is not boosted — real _agent_rerank."""
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")])
+        candidates = [{"path": "docs/foo.md", "kind": "doc", "text": "", "score": 0.0, "_sym_injected": True}]
+        with patch.object(idx, "_get_reranker", return_value=self._reranker_with_logits([0.0])):
+            idx._agent_rerank("q", candidates)
+        self.assertAlmostEqual(candidates[0]["score"], 0.5)  # sigmoid(0), no boost
 
     def test_symbol_injection_marker_stripped_from_results(self):
         """_sym_injected marker is popped from every result dict before search_combined returns."""
@@ -10054,104 +10198,12 @@ class RerankerTests(unittest.TestCase):
         for r in results:
             self.assertNotIn("_sym_injected", r)
 
-    # --- Two-hop symbol expansion ---
-
-    def test_extract_symbols_python_finds_call_targets(self):
-        """_extract_symbols_python extracts function call names from Python source."""
-        text = "def handler():\n    result = createTenant(name)\n    billing.charge(amount)\n"
-        symbols = self.srv._extract_symbols_python(text)
-        self.assertIn("createTenant", symbols)
-        self.assertIn("charge", symbols)
-
-    def test_extract_symbols_python_finds_imports(self):
-        """_extract_symbols_python extracts imported names."""
-        text = "import UserService\nfrom billing import ChargeProcessor\n"
-        symbols = self.srv._extract_symbols_python(text)
-        self.assertIn("UserService", symbols)
-        self.assertIn("ChargeProcessor", symbols)
-
-    def test_extract_symbols_regex_finds_calls_and_sql(self):
-        """_extract_symbols_regex extracts function calls and SQL EXEC."""
-        text = "EXEC sp_createTenant @name; result = fetchRecord(id);"
-        symbols = self.srv._extract_symbols_regex(text)
-        self.assertIn("sp_createTenant", symbols)
-        self.assertIn("fetchRecord", symbols)
-
-    def test_extract_symbols_from_citations_filters_infra(self):
-        """_extract_symbols_from_citations skips infra-path citations."""
-        infra_citation = {
-            "path": "src/constructs/MyStack.ts",
-            "text": "createBucket(props); addLambda(handler);",
-            "language": "typescript",
-        }
-        biz_citation = {
-            "path": "src/services/billing.py",
-            "text": "def charge():\n    processPayment(amount)\n",
-            "language": "python",
-        }
-        symbols, _method = self.srv._extract_symbols_from_citations([infra_citation, biz_citation])
-        # processPayment comes from the biz citation (not filtered)
-        self.assertIn("processPayment", symbols)
-        # createBucket / addLambda come from infra citation (filtered out)
-        self.assertNotIn("createBucket", symbols)
-        self.assertNotIn("addLambda", symbols)
-
-    def test_extract_symbols_from_citations_blocklist(self):
-        """_extract_symbols_from_citations removes blocklisted generic names."""
-        citation = {
-            "path": "src/billing.py",
-            "text": "def run():\n    list(items)\n    findRecords(query)\n",
-            "language": "python",
-        }
-        symbols, _method = self.srv._extract_symbols_from_citations([citation])
-        self.assertNotIn("list", symbols)
-        self.assertNotIn("run", symbols)
-        self.assertIn("findRecords", symbols)
-
-    def test_extract_symbols_from_citations_respects_max(self):
-        """_extract_symbols_from_citations caps output at max_symbols."""
-        text = "\n".join(f"    call{i}Func(x)" for i in range(20))
-        citation = {"path": "src/billing.py", "text": text, "language": "python"}
-        symbols, _method = self.srv._extract_symbols_from_citations([citation], max_symbols=3)
-        self.assertLessEqual(len(symbols), 3)
-
-    def test_search_combined_second_hop_injects_candidates_for_explanatory(self):
-        """For explanatory questions, second-hop retrieval injects definition candidates."""
-        docs = [self._fake_doc_chunk("d0")]
-        code = [self._fake_code_chunk("billing")]
-        idx = self._make_index_with_docs(docs, code_chunks=code)
-
-        first_rerank_result = [{
-            "path": "src/billing.py",
-            "text": "def handler():\n    chargeCustomer(amount)\n",
-            "score": 0.9, "kind": "code", "language": "python", "lines": [1, 5],
-        }]
-        second_hop_result = [{
-            "path": "src/charge.py",
-            "text": "def chargeCustomer(amount): ...",
-            "score": 0.0, "kind": "code", "lines": [1, 3],
-        }]
-        fake_kw_resp = {
-            "status": "ok",
-            "data": {"results": [{"path": "src/charge.py", "line": 1, "snippet": "def chargeCustomer"}]},
-        }
-        mock_reranker = MagicMock()
-        rerank_calls = []
-
-        def capture_rerank(query, candidates, top_n):
-            rerank_calls.append(candidates)
-            return candidates[:top_n]
-
-        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
-            with patch.object(idx, "_rerank", side_effect=capture_rerank) as mock_rerank:
-                mock_rerank.side_effect = [first_rerank_result, first_rerank_result + second_hop_result]
-                with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
-                    results, reranked, _, _, _, second_hop_symbols, symbol_extraction_method, _ = idx.search_combined(
-                        "how does billing charge a customer", top_n=5, question_type="explanatory", rerank="local"
-                    )
-        self.assertTrue(second_hop_symbols, "expected second_hop_symbols to be non-empty")
-        self.assertIn(symbol_extraction_method, ("ast", "regex", "regex_fallback"),
-                      "symbol_extraction_method must be 'ast', 'regex', or 'regex_fallback' when second hop fires")
+    # Wave 1p4wz: the lexical symbol-extraction chain (`_extract_symbols_from_citations` +
+    # `_extract_symbols_ts`/`_python`/`_regex`) and its unit tests were REMOVED. It powered the old
+    # "local"-path keyword second hop (parse citation text → guess symbol names → keyword-re-search);
+    # agent mode's graph-based `graph_related` expansion (1p4hu) follows real call/import/reads edges
+    # instead. The `second_hop_symbols`/`symbol_extraction_method` return fields remain (always
+    # []/"none") and are covered by the search_combined tests below.
 
     def test_search_combined_second_hop_skipped_for_navigational(self):
         """Second hop is not triggered for navigational questions."""
@@ -10244,45 +10296,11 @@ class RerankerTests(unittest.TestCase):
         self.assertNotIn("second_hop_symbols", data)
         self.assertNotIn("symbol_extraction_method", data)
 
-    def test_symbol_extraction_method_regex_fallback_when_treesitter_unavailable(self):
-        """symbol_extraction_method='regex_fallback' when tree-sitter unavailable for TS-eligible citations."""
-        docs = [self._fake_doc_chunk("d0")]
-        code = [self._fake_code_chunk("billing")]
-        idx = self._make_index_with_docs(docs, code_chunks=code)
-        ts_result = [{
-            "path": "src/billing.ts",
-            "text": "chargeCustomer(invoice);",
-            "score": 0.9, "kind": "code", "language": "typescript", "lines": [1, 1],
-        }]
-        mock_reranker = MagicMock()
-        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
-            with patch.object(idx, "_rerank", return_value=ts_result):
-                with patch(f"{self.srv.__name__}._get_chunker_module", side_effect=Exception("no grammar")):
-                    _, _, _, _, _, _symbols, method, _ = idx.search_combined(
-                        "how does billing charge", top_n=5, question_type="explanatory", rerank="local"
-                    )
-        self.assertEqual(method, "regex_fallback",
-                         "TS-eligible citation with tree-sitter unavailable must report method='regex_fallback'")
-
-    def test_symbol_extraction_method_ast_when_python_extraction_succeeds(self):
-        """symbol_extraction_method='ast' when Python citation yields symbols via AST."""
-        docs = [self._fake_doc_chunk("d0")]
-        code = [self._fake_code_chunk("auth")]
-        idx = self._make_index_with_docs(docs, code_chunks=code)
-        # _extract_symbols_python extracts calls and imports, not definitions
-        py_result = [{
-            "path": "src/auth.py",
-            "text": "result = authenticate_user(token)\nrefreshed = refresh_token(old_token)",
-            "score": 0.9, "kind": "code", "language": "python", "lines": [1, 2],
-        }]
-        mock_reranker = MagicMock()
-        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
-            with patch.object(idx, "_rerank", return_value=py_result):
-                _, _, _, _, _, _symbols, method, _ = idx.search_combined(
-                    "how does auth work", top_n=5, question_type="explanatory", rerank="local"
-                )
-        self.assertEqual(method, "ast",
-                         "Python citation with function calls must report method='ast'")
+    # Wave 1p52p: test_symbol_extraction_method_regex_fallback_when_treesitter_unavailable and
+    # test_symbol_extraction_method_ast_when_python_extraction_succeeds were removed — they tested the
+    # removed keyword/AST second-hop's symbol extraction inside search_combined (the "local" path).
+    # Agent mode's two-hop expansion is the graph path (symbol_extraction_method="graph"); the keyword
+    # path now reports "none".
 
     def test_symbol_extraction_method_none_when_all_citations_infra_filtered(self):
         """symbol_extraction_method='none' when all non-infra citations are filtered out before extraction."""
@@ -10481,10 +10499,11 @@ class BackgroundModelDownloadTests(unittest.TestCase):
         self.assertIn("test-embedding-model", output)
 
     def test_ensure_model_cached_reranker_import_error(self):
-        """_ensure_model_cached skips gracefully when fastembed.rerank is not available."""
+        """_ensure_model_cached skips gracefully when accel_embedder is unavailable (1p52p: the
+        reranker prewarm uses accel_embedder, not fastembed.rerank)."""
         import io
 
-        with patch.dict("sys.modules", {"fastembed.rerank": None, "fastembed.rerank.cross_encoder": None}):
+        with patch.dict("sys.modules", {"accel_embedder": None}):
             buf = io.StringIO()
             with patch("sys.stderr", buf):
                 self.srv._ensure_model_cached("reranker-model", "reranker")
@@ -13930,9 +13949,8 @@ class TestGraphRebuildDiscoverability(unittest.TestCase):
         self.assertTrue(summary["project"]["present"])
         self.assertIsNotNone(summary["project"]["last_built_at"])
         self.assertEqual(summary["project"]["node_count"], 1)
-        # Framework not written — absent.
-        self.assertFalse(summary["framework"]["present"])
-        self.assertIsNone(summary["framework"]["last_built_at"])
+        # 1p4ww: single project graph — no framework layer in the summary.
+        self.assertNotIn("framework", summary)
 
     # AC-1: graph_health_summary handles missing graph artifact gracefully.
     def test_graph_health_summary_when_artifact_missing(self):
@@ -14024,38 +14042,18 @@ class TestEmptySectionDiagnosticFields(unittest.TestCase):
         self.assertEqual(data["orphan_docs"], [])
         self.assertEqual(data["orphan_docs_candidates_total"], 0)
 
-    # AC-4: cross_layer candidates_total on union layer.
-    def test_cross_layer_candidates_total_on_union(self):
-        # cross_layer only runs on union layer. Build minimal union artifact.
-        project = [
-            {"id": "src/a.py", "label": "a", "kind": "module", "source_file": "src/a.py", "layer": "project"},
-        ]
-        framework = [
-            {"id": ".wavefoundry/framework/scripts/x.py", "label": "x", "kind": "module",
-             "source_file": ".wavefoundry/framework/scripts/x.py", "layer": "framework"},
-        ]
-        edges = [
-            {"source": "src/a.py", "target": ".wavefoundry/framework/scripts/x.py",
-             "relation": "calls", "layer": "union"},
-        ]
-        self._write_graph(project, [], layer="project")
-        self._write_graph(framework, [], layer="framework")
-        # Re-write project + framework together as union for the response code path
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        import json
-        # The server loads project + framework + composes union internally. Easiest:
-        # write a project-graph that's cross-edge-bearing and use union layer.
-        union_nodes = project + framework
-        union_graph = {
-            "schema_version": "1", "builder_version": "13", "layer": "union",
-            "nodes": union_nodes, "edges": edges,
-            "counts": {"files": len(union_nodes), "nodes": len(union_nodes), "edges": len(edges)},
-        }
-        # Just test that the field shows up on a project-layer query (will be 0).
+    def test_cross_layer_section_removed_with_framework_layer(self):
+        # Wave 1p4ww: the cross_layer section required the union layer (project×framework
+        # boundary edges), which no longer exists — it is never present in a report.
+        self._write_graph(
+            [{"id": "src/a.py", "label": "a", "kind": "module", "source_file": "src/a.py"}],
+            [],
+            layer="project",
+        )
         result = self.srv.wave_graph_report_response(self.root, layer="project", limit=10)
         data = result["data"]
-        # cross_layer only included for union queries; this is project so no cross_layer key.
         self.assertNotIn("cross_layer", data)
+        self.assertNotIn("cross_layer_candidates_total", data)
         # Instead just assert the chokepoints/file_hubs/orphan_docs diagnostics are present.
         self.assertIn("chokepoints_candidates_total", data)
         self.assertIn("file_hubs_candidates_total", data)
@@ -16928,7 +16926,7 @@ class ConstantReadsBucketTests(unittest.TestCase):
         gi = importlib.util.module_from_spec(spec)
         sys.modules["graph_indexer"] = gi
         spec.loader.exec_module(gi)
-        src = ('RERANKER_MODEL = "BAAI/bge-reranker-base"\n\n'
+        src = ('RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"\n\n'
                'def get_model():\n    return RERANKER_MODEL\n\n'
                'def rerank():\n    m = RERANKER_MODEL\n    return m\n')
         f = self.root / "indexer.py"

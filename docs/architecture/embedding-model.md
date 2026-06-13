@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-14
+Last verified: 2026-06-13
 
 ## What This Document Covers
 
@@ -22,10 +22,67 @@ The trade-off is operational complexity: the model must be cached locally before
 
 | Constant | Value | Dimension | Defined in |
 |----------|-------|-----------|------------|
-| `DOCS_MODEL` | `BAAI/bge-base-en-v1.5` | 768 | `indexer.py` |
-| `CODE_MODEL` | `BAAI/bge-base-en-v1.5` | 768 | `indexer.py` |
+| `DOCS_MODEL` | `Snowflake/snowflake-arctic-embed-xs` | 384 | `indexer.py` |
+| `CODE_MODEL` | `BAAI/bge-small-en-v1.5` | 384 | `indexer.py` |
+| `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` (logical) → `Xenova/ms-marco-MiniLM-L-6-v2` `onnx/model_fp16.onnx` (GPU) | logit | `indexer.py` |
 
-Both constants currently point to the same model. They are intentionally separate to allow independent upgrades — docs search and code search have different quality/size trade-offs and may diverge in the future.
+### Reranker (cross-encoder), FP16-on-GPU / INT8-on-CPU (1p52p, ADR `1p52q`)
+
+The cross-encoder reranker scores query↔passage **pairs** on every search, embedded as a
+**rerank-FIRST** stage in `code_ask`'s agent ranking (see `search-architecture.md`)
+(`accel_embedder.StaticShapeReranker`). It runs on whatever hardware is present: **FP16 on the GPU**
+(CoreML/CUDA/ROCm/DirectML, ~350 ms/query) or **INT8 on the CPU** (`model_int8.onnx` on
+`CPUExecutionProvider`, ~960 ms/query — 2× faster than FP32, no ranking loss). Reranking is skipped
+(→ vector/coverage order) only when explicitly disabled (`WAVEFOUNDRY_DISABLE_RERANKER`) or unbuildable.
+
+**Active model: `ms-marco-MiniLM-L-6-v2`** (6-layer, 22M) via its Xenova FP16 export. It was chosen
+over the SOTA-but-heavy `bge-reranker-base` (278M) after a head-to-head on this index:
+
+| | bge-reranker-base | **ms-marco-MiniLM-L-6** |
+| --- | --- | --- |
+| Known-answer recall (mean rank) | 1.67 | **1.07** |
+| Per-query rerank (~60 cands) | ~1,650 ms | **~380 ms** |
+| Process RSS | 6.3 GB | **0.77 GB** |
+| Warm load / restart | ~26 s (cache ineffective) | **3.1 s** (cache works) |
+| CoreML cache | 2.0 GB | **0.2 GB** |
+
+ms-marco-L6 matched or beat bge on every axis here. The restart difference is structural: ORT's
+`ModelCacheDirectory` caches the ONNX→CoreML conversion, but for a 278M model CoreML re-specializes the
+2 GB MLProgram into ~6 GB of runtime every session regardless — so bge stays ~26 s/restart while
+ms-marco-L6 (small enough that the cached conversion dominates) warm-loads in 3.1 s. Newer small
+rerankers were evaluated and rejected: `gte-reranker-modernbert-base` fragments + crashes on CoreML
+(ANE error), `jina-reranker-v2` is the same size as bge, `mxbai-rerank-xsmall` ships no FP16 export.
+`bge-reranker-base` remains resolvable (`CLEAN_ONNX_SOURCES`) for back-compat. Confidence is calibrated
+on the cross-encoder `sigmoid(logit)` scale (high ≥0.5, low <0.1), unchanged by the model swap.
+
+Wave `1p4wx` **split the docs and code models** (ADR `1p50s`). Docs use the asymmetric
+`arctic-embed-xs` (best on the 45-query docs bake-off: 82% vs bge-small 67%); code stays on the
+symmetric `bge-small` (unbeaten on the 62-query code set). Both are 384-d, so there is no
+vector-dimension ripple and the docs-model swap reuses the code index unchanged. The split was
+unblocked by `1p4ww` (the framework-index fold made the docs vector space uniform).
+
+### Docs/code split and the arctic query prefix (1p4wx)
+
+`arctic-embed` is **asymmetric**: a query carries the instruction prefix
+`"Represent this sentence for searching relevant passages: "` while a document/passage carries
+none. The pipeline embeds with fastembed `.embed()`, which does **not** auto-apply prefixes, so:
+
+- The **query** prefix is applied explicitly in `server_impl._embed_query` via
+  `indexer.query_embedding_prefix(model_name)` (which reads `EMBEDDING_PREFIXES`). It is empty for
+  the symmetric code model (`bge-small`), so code queries pass through unchanged.
+- The **document** side stays prefix-free (correct for arctic). An import-time invariant,
+  `indexer._assert_active_models_have_empty_document_prefix()`, guards that no active model declares
+  a document prefix the build path would silently drop.
+
+Changing `DOCS_MODEL` trips the existing `model_versions["docs"] != DOCS_MODEL` trigger, forcing a
+docs-only re-embed; the post-edit hook's default `content='docs'` never loads the code embedder, so
+the code index is reused. The model name **is** the version — no numeric bump.
+
+### Historical: BAAI/bge-base-en-v1.5 (superseded)
+
+The sections below record the earlier `bge-base` benchmark (wave `12br9`) and the code-specific
+model research. They predate the move to `bge-small` for code and the `1p4wx` docs split, and are
+retained for the decision history.
 
 ### Why BAAI/bge-base-en-v1.5
 
