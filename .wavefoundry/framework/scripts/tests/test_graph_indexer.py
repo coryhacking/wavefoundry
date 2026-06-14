@@ -4273,7 +4273,7 @@ class ParallelExtractionSpawnModeTests(unittest.TestCase):
         graph_indexer_path = str(
             Path(self.mod.__file__).resolve()
             if hasattr(self.mod, "__file__") and self.mod.__file__
-            else Path("/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/graph_indexer.py")
+            else Path(__file__).resolve().parents[1] / "graph_indexer.py"
         )
         # Snapshot whatever's currently registered (the test runs after
         # load_graph_indexer, which uses a uniquified module name) and
@@ -4945,8 +4945,32 @@ class GraphBuilderVersionTests(unittest.TestCase):
     """Wave 1p4ls AC-3: the node/edge shape changed (constant nodes + reads edge) so the builder
     version is bumped, forcing a full re-extract against any older cache."""
 
-    def test_graph_builder_version_is_29(self):
+    def test_graph_builder_version_is_30(self):
         # 1p4ls bumped 25→26 (constant nodes + reads edge); 1p4q4 bumped 26→27 (TS enum member nodes);
         # 1p4q4 review bumped 27→28 (namespace-prefixed enum members + short-symbol-prune exemption);
-        # 1p4up bumped 28→29 (member-access constant reads — new function→constant `reads` edges).
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "29")
+        # 1p4up bumped 28→29 (member-access constant reads — new function→constant `reads` edges);
+        # 1p5c4 bumped 29→30 (oversized-file guard: files over the tree-sitter cap skip AST extraction).
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "30")
+
+
+class OversizedTreeSitterGuardTests(unittest.TestCase):
+    """Wave 1p5c4: tree-sitter graph extraction is skipped for files over the parse cap so a
+    multi-MB/GB blob cannot spin the indexer."""
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+
+    def test_ts_parse_returns_none_over_cap(self):
+        import os
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"WAVEFOUNDRY_MAX_TS_PARSE_BYTES": "100"}):
+            self.assertIsNone(self.mod._ts_parse("python", "x = 1\n" * 100))
+
+    def test_ts_parse_allows_small_when_cap_high(self):
+        import os
+        from unittest.mock import patch
+        # A tiny source under the cap is NOT short-circuited by the guard (returns a tree, or
+        # None only if tree-sitter itself is unavailable — never blocked by the size check).
+        with patch.dict(os.environ, {"WAVEFOUNDRY_MAX_TS_PARSE_BYTES": "1000000"}):
+            # The guard must not be the reason for a None here; assert it does not raise.
+            self.mod._ts_parse("python", "x = 1\n")

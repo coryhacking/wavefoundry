@@ -14,16 +14,10 @@ from textwrap import dedent
 FRAMEWORK_RENDERER_REL = ".wavefoundry/framework/scripts/render_platform_surfaces.py"
 GUARD_OVERRIDES_REL = ".wavefoundry/guard-overrides.json"
 
-_VENV_DEFAULT = Path.home() / ".wavefoundry" / "venv"
-
-
-def _venv_python_path() -> str:
-    """Return the absolute path to the venv Python for this machine."""
-    venv_base = Path(os.environ.get("WAVEFOUNDRY_TOOL_VENV", str(_VENV_DEFAULT)))
-    if os.name == "nt":
-        return str(venv_base / "Scripts" / "python.exe")
-    return str(venv_base / "bin" / "python")
-
+# Wave 1p590: the module-level absolute-venv-Python helper was removed — every surface now uses a
+# project-relative command (hooks) or the .wavefoundry/bin/mcp-server wrapper (MCP), so no tracked
+# surface embeds a machine-specific path. Hook .py sources still resolve the venv at RUN time via
+# their own inline helper (see git_hook_source / hook bundle sources), which is correct.
 
 _VENV_SH_SNIPPET = """\
 WAVEFOUNDRY_VENV="${WAVEFOUNDRY_TOOL_VENV:-$HOME/.wavefoundry/venv}"
@@ -104,12 +98,15 @@ def remove_copilot_artifacts(repo_root: Path) -> None:
     )
 
 
-def launcher_command(rel_base: str, repo_root: Path | None = None) -> str:
+def launcher_command(rel_base: str) -> str:
+    """Project-relative launcher command for a hook config.
+
+    Wave 1p590: NEVER emit a machine-absolute path — tracked surfaces must work on any clone.
+    The command is emitted relative to the project root, which the surface tools resolve against
+    the workspace (matching the portable ``.mcp.json`` / ``.wavefoundry/bin`` wrapper pattern).
+    Per-tool relative-command resolution is verified on a fresh clone (wave 1p590 AC-2)."""
     if os.name == "nt":
-        base = str(repo_root / rel_base.replace("/", os.sep)) if repo_root else rel_base.replace("/", "\\")
-        return f"cmd.exe /c {base}.cmd"
-    if repo_root is not None:
-        return str(repo_root / rel_base)
+        return f"cmd.exe /c {rel_base.replace('/', os.sep)}.cmd"
     return rel_base
 
 
@@ -671,7 +668,7 @@ def render_claude_settings(repo_root: Path) -> None:
                 "hooks": [
                     {
                         "type": "command",
-                        "command": launcher_command(".claude/hooks/pre-edit", repo_root),
+                        "command": launcher_command(".claude/hooks/pre-edit"),
                         "statusMessage": "Checking framework edit gates...",
                     }
                 ],
@@ -683,7 +680,7 @@ def render_claude_settings(repo_root: Path) -> None:
                 "hooks": [
                     {
                         "type": "command",
-                        "command": launcher_command(".claude/hooks/post-edit", repo_root),
+                        "command": launcher_command(".claude/hooks/post-edit"),
                         "statusMessage": "Running docs gates...",
                     }
                 ],
@@ -731,12 +728,16 @@ def render_mcp_json(repo_root: Path) -> None:
 
 
 def render_junie_mcp_json(repo_root: Path) -> None:
-    """Merge the Wavefoundry stdio MCP entry into the Junie ``.junie/mcp/mcp.json``."""
+    """Merge the Wavefoundry stdio MCP entry into the Junie ``.junie/mcp/mcp.json``.
+
+    Wave 1p590: uses the project-relative ``.wavefoundry/bin/mcp-server`` wrapper (parity with the
+    root ``.mcp.json``) instead of an absolute venv-Python path. The wrapper resolves the repo root
+    and venv from its own location, so the stanza embeds no machine-specific absolute path."""
     _merge_mcp_server(
         repo_root / ".junie" / "mcp" / "mcp.json",
         {
-            "command": _venv_python_path(),
-            "args": [".wavefoundry/framework/scripts/server.py", "--root", "."],
+            "command": ".wavefoundry/bin/mcp-server",
+            "args": [],
         },
     )
 
@@ -744,21 +745,17 @@ def render_junie_mcp_json(repo_root: Path) -> None:
 def render_cursor_mcp_json(repo_root: Path) -> None:
     """Merge the Wavefoundry stdio MCP entry into the Cursor ``.cursor/mcp.json``.
 
-    Uses Cursor's ``${workspaceFolder}`` interpolation token for ``--root`` so
-    the stanza is portable across machines without embedding an absolute path.
-    The ``command`` field uses the resolved venv Python because ``~`` is not
-    expanded in MCP JSON at runtime.
+    Wave 1p590: uses the project-relative ``.wavefoundry/bin/mcp-server`` wrapper (parity with the
+    root ``.mcp.json``) instead of an absolute venv-Python path; the wrapper resolves the repo root
+    and venv from its own location. ``cwd: ${workspaceFolder}`` lets Cursor resolve the relative
+    command against the workspace.
     """
     _merge_mcp_server(
         repo_root / ".cursor" / "mcp.json",
         {
             "type": "stdio",
-            "command": _venv_python_path(),
-            "args": [
-                ".wavefoundry/framework/scripts/server.py",
-                "--root",
-                "${workspaceFolder}",
-            ],
+            "command": ".wavefoundry/bin/mcp-server",
+            "args": [],
             "cwd": "${workspaceFolder}",
         },
     )
@@ -770,7 +767,7 @@ def render_cursor_hooks(repo_root: Path) -> None:
         "hooks": {
             "afterFileEdit": [
                 {
-                    "command": launcher_command(".cursor/hooks/after-file-edit", repo_root),
+                    "command": launcher_command(".cursor/hooks/after-file-edit"),
                 }
             ]
         },
@@ -785,13 +782,13 @@ def render_copilot_hooks(repo_root: Path) -> None:
             "preToolUse": [
                 {
                     "type": "command",
-                    "bash": launcher_command(".github/hooks/pre-tool-use", repo_root),
+                    "bash": launcher_command(".github/hooks/pre-tool-use"),
                 }
             ],
             "postToolUse": [
                 {
                     "type": "command",
-                    "bash": launcher_command(".github/hooks/post-tool-use", repo_root),
+                    "bash": launcher_command(".github/hooks/post-tool-use"),
                 }
             ],
         },
@@ -1002,10 +999,10 @@ def render_windsurf_hooks(repo_root: Path) -> None:
     config = {
         "hooks": {
             "pre_write_code": [
-                {"command": launcher_command(".windsurf/hooks/seed-protect", repo_root), "show_output": True}
+                {"command": launcher_command(".windsurf/hooks/seed-protect"), "show_output": True}
             ],
             "post_write_code": [
-                {"command": launcher_command(".windsurf/hooks/docs-lint", repo_root), "show_output": True}
+                {"command": launcher_command(".windsurf/hooks/docs-lint"), "show_output": True}
             ],
         }
     }

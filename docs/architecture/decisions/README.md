@@ -31,3 +31,4 @@ Copy `template.md` and fill in all sections. Link new ADRs from `docs/ARCHITECTU
 | [12tm5-adr](12tm5-adr%20python-tool-environment.md) | Python Tool Environment | accepted |
 | [1p4xx-adr](1p4xx-adr%20fold-framework-index-into-project-docs.md) | Fold the framework index into the project docs index | accepted |
 | [1p50s-adr](1p50s-adr%20docs-code-embedding-model-split.md) | Docs/code embedding-model split (arctic-embed-xs for docs) | accepted |
+| [1p5be-adr](1p5be-adr%20retire-canonical-names-rename-manifest.md) | Retire the canonical-names rename manifest (removal pulled forward to 1.6) | accepted |

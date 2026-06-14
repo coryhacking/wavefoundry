@@ -2,12 +2,8 @@
   "mcpServers": {
     "wavefoundry": {
       "type": "stdio",
-      "command": "/Users/coryhacking/.wavefoundry/venv/bin/python",
-      "args": [
-        ".wavefoundry/framework/scripts/server.py",
-        "--root",
-        "${workspaceFolder}"
-      ],
+      "command": ".wavefoundry/bin/mcp-server",
+      "args": [],
       "cwd": "${workspaceFolder}"
     }
   }

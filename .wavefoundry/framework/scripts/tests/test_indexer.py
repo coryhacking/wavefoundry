@@ -2193,5 +2193,55 @@ class LanceDriftDetectionScaleTests(unittest.TestCase):
             f"100K-row drift detection took {elapsed:.3f}s (expected < 0.2s)")
 
 
+class OversizedFileGuardTests(unittest.TestCase):
+    """Wave 1p5c4: walk_repo drops files over the hard size cap so a multi-GB blob (e.g. a SQL
+    backup) is never read or tree-sitter-parsed."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_config(self, indexing: dict) -> None:
+        (self.root / "docs" / "workflow-config.json").write_text(
+            json.dumps({"indexing": indexing}), encoding="utf-8")
+
+    def test_walk_repo_skips_oversized_files(self):
+        self._write_config({"max_file_bytes": 50})
+        (self.root / "small.md").write_text("hi\n", encoding="utf-8")
+        (self.root / "big.md").write_text("x" * 500, encoding="utf-8")
+        rels = {str(f.relative_to(self.root)).replace("\\", "/") for f in self.bi.walk_repo(self.root)}
+        self.assertIn("small.md", rels)
+        self.assertNotIn("big.md", rels)
+
+    def test_walk_repo_keeps_all_when_cap_disabled(self):
+        self._write_config({"max_file_bytes": 0})  # 0 = no cap
+        (self.root / "big.md").write_text("x" * 500, encoding="utf-8")
+        rels = {str(f.relative_to(self.root)).replace("\\", "/") for f in self.bi.walk_repo(self.root)}
+        self.assertIn("big.md", rels)
+
+    def test_default_cap_keeps_normal_files(self):
+        # No override → generous default (5 MB); ordinary source/docs are unaffected.
+        (self.root / "code.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+        rels = {str(f.relative_to(self.root)).replace("\\", "/") for f in self.bi.walk_repo(self.root)}
+        self.assertIn("code.py", rels)
+
+    def test_walk_repo_prunes_gitignored_directories(self):
+        # Wave 1p5c4: a gitignored directory (e.g. the LanceDB index dir) must never be walked —
+        # we should not even stat the files inside it.
+        (self.root / ".gitignore").write_text("ignored_index/\n", encoding="utf-8")
+        (self.root / "ignored_index").mkdir()
+        (self.root / "ignored_index" / "shard.md").write_text("data\n", encoding="utf-8")
+        (self.root / "kept.md").write_text("# Kept\n", encoding="utf-8")
+        rels = {str(f.relative_to(self.root)).replace("\\", "/") for f in self.bi.walk_repo(self.root)}
+        self.assertIn("kept.md", rels)
+        self.assertFalse(any(r.startswith("ignored_index/") for r in rels),
+                         f"gitignored dir should not be walked; got {rels}")
+
+
 if __name__ == "__main__":
     unittest.main()

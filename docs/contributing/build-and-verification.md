@@ -209,6 +209,8 @@ Agents running **Upgrade wave framework** must follow `docs/prompts/upgrade-wave
 
 **`build_pack.py` semantics:** default zip date is today (local ISO); letter suffix is the next letter after the maximum suffix already present for that date in the output directory (not the first missing gap). The script stamps `.wavefoundry/framework/VERSION` to `<date><letter>` before writing the archive, then updates and compacts `.wavefoundry/framework/index/` before zipping. Use `--date` only for tests or exceptional reissues.
 
+**Install assets:** the framework-side install assets are consolidated under `.wavefoundry/framework/install/`; where every install-related asset (templates, the release-notes install block, the format specs, the install-flow seeds) lives and the source → ship → provision role it plays is mapped in `docs/references/install-assets.md`. Each shipped format-spec template must stay byte-identical to its `docs/references/` canonical copy (guarded by `test_shipped_reference_docs.py`).
+
 ## Git Commits
 
 **Operator-owned.** Agents must not run `git commit` unless the operator explicitly instructs them to finalize that commit in the **current** request after reviewing the diff. Default agent behavior is to hand off a suggested commit message and diff for the operator to commit locally.

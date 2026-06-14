@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/coryhacking/Developer/wavefoundry/.claude/hooks/pre-edit",
+            "command": ".claude/hooks/pre-edit",
             "statusMessage": "Checking framework edit gates..."
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/coryhacking/Developer/wavefoundry/.claude/hooks/post-edit",
+            "command": ".claude/hooks/post-edit",
             "statusMessage": "Running docs gates..."
           }
         ]

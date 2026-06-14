@@ -554,7 +554,7 @@ class ReleaseNotesInstallPrependTests(unittest.TestCase):
     """Wave 1p35d (1p35p): release notes carry an `## Install` block at the
     top so an agent or operator landing on the GitHub Releases page sees the
     zip-at-root → shortcut-phrase flow alongside the download link. Source of
-    truth lives at `.wavefoundry/framework/release/install-block.md`."""
+    truth lives at `.wavefoundry/framework/install/install-block.md`."""
 
     def setUp(self):
         import tempfile
@@ -606,7 +606,7 @@ class ReleaseNotesInstallPrependTests(unittest.TestCase):
         agent-facing affordances stay present."""
         repo_block = (
             Path(__file__).resolve().parents[2]
-            / "release" / "install-block.md"
+            / "install" / "install-block.md"
         )
         self.assertTrue(repo_block.is_file(), f"missing {repo_block}")
         text = repo_block.read_text(encoding="utf-8")

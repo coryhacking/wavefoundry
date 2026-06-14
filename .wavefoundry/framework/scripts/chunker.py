@@ -134,10 +134,21 @@ def _get_ts_parser(lang_key: str):
         return None
 
 
+# Wave 1p5c4: skip tree-sitter on very large files — building a full AST over a multi-MB (or,
+# pathologically, multi-GB) file spins. Files over the cap fall back to the regex/line chunker
+# (still indexed as text). Override via WAVEFOUNDRY_MAX_TS_PARSE_BYTES, which the indexer sets from
+# `indexing.max_treesitter_parse_bytes` in workflow-config.json. 0/negative disables the cap.
+MAX_TREESITTER_PARSE_BYTES_DEFAULT = 2_000_000
+
+
 def _ts_parse(lang_key: str, source: str):
-    """Parse source with tree-sitter. Returns tree or None on failure/unavailability.
+    """Parse source with tree-sitter. Returns tree or None on failure/unavailability/oversize.
     Logs a warning on first miss so operators know which language fell back to regex.
     """
+    import os
+    _cap = int(os.environ.get("WAVEFOUNDRY_MAX_TS_PARSE_BYTES") or MAX_TREESITTER_PARSE_BYTES_DEFAULT)
+    if _cap > 0 and len(source) > _cap:
+        return None
     parser = _get_ts_parser(lang_key)
     if parser is None:
         if lang_key not in _TS_WARNED:

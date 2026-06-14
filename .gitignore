@@ -47,3 +47,6 @@ build/
 
 # slides folder
 slides/
+
+# Wave 1p590: benchmark run outputs (embed_bench.py --report); machine-specific, not tracked
+.wavefoundry/framework/scripts/benchmarks/bench_report*.json

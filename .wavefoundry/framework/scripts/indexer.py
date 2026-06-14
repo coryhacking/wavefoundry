@@ -502,9 +502,48 @@ def _matches_ignore(rel_path: str, patterns: list[str]) -> bool:
 # File walker
 # ---------------------------------------------------------------------------
 
+# Wave 1p5c4: indexing size guards. The hard cap drops a file from the index entirely (no read,
+# no parse); the tree-sitter cap (pushed to the chunker/graph extractor via env) skips only the AST
+# parse for large-but-under-hard-cap code files. Both overridable via docs/workflow-config.json.
+MAX_INDEX_FILE_BYTES_DEFAULT = 5_000_000
+MAX_TREESITTER_PARSE_BYTES_DEFAULT = 2_000_000
+
+
+def _resolve_index_size_limits(root: Path) -> tuple[int, int]:
+    """Return (max_file_bytes, max_treesitter_parse_bytes), reading optional overrides from
+    `indexing.max_file_bytes` / `indexing.max_treesitter_parse_bytes` in docs/workflow-config.json.
+    Falls back to the module defaults; a non-int / negative override is ignored. 0 means "no cap"."""
+    max_file = MAX_INDEX_FILE_BYTES_DEFAULT
+    max_ts = MAX_TREESITTER_PARSE_BYTES_DEFAULT
+    cfg = root / "docs" / "workflow-config.json"
+    if cfg.exists():
+        try:
+            data = json.loads(cfg.read_text(encoding="utf-8"))
+            indexing = data.get("indexing", {}) if isinstance(data, dict) else {}
+            if isinstance(indexing, dict):
+                mf = indexing.get("max_file_bytes")
+                mt = indexing.get("max_treesitter_parse_bytes")
+                if isinstance(mf, int) and mf >= 0:
+                    max_file = mf
+                if isinstance(mt, int) and mt >= 0:
+                    max_ts = mt
+        except (OSError, json.JSONDecodeError):
+            pass
+    return max_file, max_ts
+
+
+def _resolve_max_file_bytes(root: Path) -> int:
+    return _resolve_index_size_limits(root)[0]
+
+
 def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
-    """Return all indexable files under root, respecting ignore rules."""
+    """Return all indexable files under root, respecting ignore rules.
+
+    Wave 1p5c4: files larger than the hard size cap (`indexing.max_file_bytes`, default 5 MB) are
+    skipped entirely — a multi-GB blob (e.g. a SQL backup) would otherwise be read and
+    tree-sitter-parsed, spinning the indexer."""
     ignore_patterns = _load_ignore_patterns(root) if respect_ignore else []
+    max_file_bytes = _resolve_max_file_bytes(root)
     result: list[Path] = []
 
     for dirpath, dirnames, filenames in os.walk(root):
@@ -527,6 +566,13 @@ def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
                 child_rel == _DOT_DIR_ALLOWLIST
                 or child_rel.startswith(_DOT_DIR_ALLOWLIST_PREFIX)
             ) and dirname.startswith("."):
+                continue
+            # Wave 1p5c4: prune gitignored DIRECTORIES during the walk so we never descend into
+            # generated/binary trees — most importantly `.wavefoundry/index/` (LanceDB shards),
+            # `.wavefoundry/logs/`, and `.wavefoundry/framework/index/`. Previously these were walked
+            # and dropped per-file, which stat'd hundreds of large index shards and spammed the
+            # oversized-file skip log. (Per-file ignore matching still runs as a backstop below.)
+            if ignore_patterns and _matches_ignore(child_rel, ignore_patterns):
                 continue
             keep_dirnames.append(dirname)
         dirnames[:] = keep_dirnames
@@ -617,6 +663,21 @@ def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
             # .gitignore / .aiignore
             if _matches_ignore(rel_str, ignore_patterns):
                 continue
+
+            # Wave 1p5c4: hard size guard — skip pathologically large files (e.g. a multi-GB SQL
+            # backup) so they are never read or tree-sitter-parsed. Checked AFTER the ignore filters
+            # so generated/ignored blobs (e.g. index shards) don't trigger the skip log. Logged once.
+            if max_file_bytes > 0:
+                try:
+                    if path.stat().st_size > max_file_bytes:
+                        print(
+                            f"build_index: skipping oversized file "
+                            f"({path.stat().st_size // 1_000_000} MB > {max_file_bytes // 1_000_000} MB cap): {rel_str}",
+                            flush=True,
+                        )
+                        continue
+                except OSError:
+                    continue
 
             result.append(path)
 
@@ -2043,6 +2104,9 @@ def build_index(
     if not index_dir.is_absolute():
         index_dir = root / index_dir
     index_dir.mkdir(parents=True, exist_ok=True)
+    # Wave 1p5c4: publish the tree-sitter parse cap so the chunker and graph extractor (in-process
+    # or subprocess) skip the AST on oversized files. Resolved from indexing.max_treesitter_parse_bytes.
+    os.environ["WAVEFOUNDRY_MAX_TS_PARSE_BYTES"] = str(_resolve_index_size_limits(root)[1])
     if dry_run:
         return _build_index_locked(
             root,

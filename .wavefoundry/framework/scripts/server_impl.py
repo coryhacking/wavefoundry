@@ -1780,37 +1780,16 @@ def _read_project_required_review_lanes(root: Path) -> list[str]:
     return [str(lane).strip() for lane in raw if isinstance(lane, str) and str(lane).strip()]
 
 
-_WAVE_REVIEW_LEGACY_DEPRECATION_NOTED: bool = False
-
-
 def _read_wave_council_policy(root: Path) -> dict[str, Any]:
     """Return normalized Wave Council policy from workflow-config.json.
 
-    Wave 1p337 (1p336): reader-side back-compat for the seed-prose rename
-    ``wave_council_policy`` → ``wave_review`` (shipped in seed prose 1.3.27).
-    New-key precedence: ``wave_review`` is read first; if absent, ``wave_council_policy``
-    is read as a legacy fallback so existing consumer configs keep working.
-
-    When the legacy key is consumed (because the new key is absent), a one-time
-    deprecation note is emitted to stderr per process — discoverable for migrating
-    operators, not spammy on every read.
+    Reads the canonical ``wave_review`` key. (Wave 1p5b4: the legacy
+    ``wave_council_policy`` reader-fallback was removed along with the canonical-names
+    rename mechanism — the one-shot upgrade convergence rewrites legacy configs to
+    canonical, so the runtime only ever sees ``wave_review``.)
     """
-    global _WAVE_REVIEW_LEGACY_DEPRECATION_NOTED
     cfg = _read_workflow_config(root)
     raw = cfg.get("wave_review")
-    if raw is None:
-        raw = cfg.get("wave_council_policy", {})
-        # Fire the deprecation note only when the legacy key was the source of the
-        # returned dict AND the new key was genuinely absent (not present-but-empty).
-        # The one-shot guard prevents log noise across repeated reads in the same
-        # process; tests reset the guard via `setUp` to verify each scenario cleanly.
-        if isinstance(raw, dict) and raw and not _WAVE_REVIEW_LEGACY_DEPRECATION_NOTED:
-            print(
-                "workflow-config.json: legacy key `wave_council_policy` is deprecated; "
-                "rename to `wave_review`. The runtime accepts both for now.",
-                file=sys.stderr,
-            )
-            _WAVE_REVIEW_LEGACY_DEPRECATION_NOTED = True
     if not isinstance(raw, dict) or not bool(raw.get("enabled")):
         return {}
 

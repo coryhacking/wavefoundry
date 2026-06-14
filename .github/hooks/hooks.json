@@ -4,13 +4,13 @@
     "preToolUse": [
       {
         "type": "command",
-        "bash": "/Users/coryhacking/Developer/wavefoundry/.github/hooks/pre-tool-use"
+        "bash": ".github/hooks/pre-tool-use"
       }
     ],
     "postToolUse": [
       {
         "type": "command",
-        "bash": "/Users/coryhacking/Developer/wavefoundry/.github/hooks/post-tool-use"
+        "bash": ".github/hooks/post-tool-use"
       }
     ]
   }

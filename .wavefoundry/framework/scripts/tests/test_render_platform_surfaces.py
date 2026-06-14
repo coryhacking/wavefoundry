@@ -45,14 +45,15 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+            # Wave 1p590: hook commands are PROJECT-RELATIVE (never machine-absolute) so a clone works.
             if os.name == "nt":
-                expected_claude_command = f"cmd.exe /c {repo_root / '.claude' / 'hooks' / 'pre-edit'}.cmd"
-                expected_cursor_command = f"cmd.exe /c {repo_root / '.cursor' / 'hooks' / 'after-file-edit'}.cmd"
-                expected_copilot_command = f"cmd.exe /c {repo_root / '.github' / 'hooks' / 'pre-tool-use'}.cmd"
+                expected_claude_command = "cmd.exe /c .claude\\hooks\\pre-edit.cmd"
+                expected_cursor_command = "cmd.exe /c .cursor\\hooks\\after-file-edit.cmd"
+                expected_copilot_command = "cmd.exe /c .github\\hooks\\pre-tool-use.cmd"
             else:
-                expected_claude_command = str(repo_root / ".claude" / "hooks" / "pre-edit")
-                expected_cursor_command = str(repo_root / ".cursor" / "hooks" / "after-file-edit")
-                expected_copilot_command = str(repo_root / ".github" / "hooks" / "pre-tool-use")
+                expected_claude_command = ".claude/hooks/pre-edit"
+                expected_cursor_command = ".cursor/hooks/after-file-edit"
+                expected_copilot_command = ".github/hooks/pre-tool-use"
 
             claude_settings = json.loads((repo_root / ".claude" / "settings.json").read_text(encoding="utf-8"))
             self.assertEqual(
@@ -71,20 +72,16 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
                 copilot_hooks["hooks"]["preToolUse"][0]["bash"],
                 expected_copilot_command,
             )
-            import importlib.util as _ilu
-            _spec = _ilu.spec_from_file_location("rps", SCRIPT_PATH)
-            _rps = _ilu.module_from_spec(_spec)
-            _spec.loader.exec_module(_rps)
-            expected_venv_python = _rps._venv_python_path()
-
+            # Wave 1p590: Junie MCP uses the project-relative .wavefoundry/bin/mcp-server wrapper
+            # (parity with root .mcp.json), not an absolute venv-Python path.
             junie_mcp = json.loads((repo_root / ".junie" / "mcp" / "mcp.json").read_text(encoding="utf-8"))
             self.assertEqual(
                 junie_mcp["mcpServers"]["wavefoundry"]["command"],
-                expected_venv_python,
+                ".wavefoundry/bin/mcp-server",
             )
             self.assertEqual(
                 junie_mcp["mcpServers"]["wavefoundry"]["args"],
-                [".wavefoundry/framework/scripts/server.py", "--root", "."],
+                [],
             )
 
             self.assertTrue((repo_root / ".claude" / "hooks" / "pre-edit").exists())
@@ -332,11 +329,9 @@ class MergeMcpServerTests(unittest.TestCase):
             data = json.loads((root / ".cursor" / "mcp.json").read_text(encoding="utf-8"))
         wf = data["mcpServers"]["wavefoundry"]
         self.assertEqual(wf["type"], "stdio")
-        self.assertEqual(wf["command"], rps._venv_python_path())
-        self.assertEqual(
-            wf["args"],
-            [".wavefoundry/framework/scripts/server.py", "--root", "${workspaceFolder}"],
-        )
+        # Wave 1p590: portable wrapper, not an absolute venv-Python path.
+        self.assertEqual(wf["command"], ".wavefoundry/bin/mcp-server")
+        self.assertEqual(wf["args"], [])
         self.assertEqual(wf["cwd"], "${workspaceFolder}")
 
     def test_render_cursor_mcp_json_preserves_existing_servers(self):
@@ -354,8 +349,8 @@ class MergeMcpServerTests(unittest.TestCase):
         # Pre-existing entry preserved
         self.assertIn("other-tool", data["mcpServers"])
         self.assertEqual(data["mcpServers"]["other-tool"]["command"], "node")
-        # Wavefoundry entry written
-        self.assertEqual(data["mcpServers"]["wavefoundry"]["command"], rps._venv_python_path())
+        # Wavefoundry entry written (wave 1p590: portable wrapper, not absolute venv Python)
+        self.assertEqual(data["mcpServers"]["wavefoundry"]["command"], ".wavefoundry/bin/mcp-server")
 
     def test_render_mcp_json_uses_mcp_server_wrapper(self):
         rps = self._load_rps()
@@ -380,13 +375,17 @@ class MergeMcpServerTests(unittest.TestCase):
         self.assertIn("my-other-server", data["mcpServers"])
         self.assertIn("wavefoundry", data["mcpServers"])
 
-    def test_render_junie_mcp_json_includes_root_arg(self):
+    def test_render_junie_mcp_json_uses_portable_wrapper(self):
+        # Wave 1p590: Junie MCP uses the project-relative .wavefoundry/bin/mcp-server wrapper
+        # (which self-resolves repo root + venv), so no absolute command and no --root arg.
         rps = self._load_rps()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             rps.render_junie_mcp_json(root)
             data = json.loads((root / ".junie" / "mcp" / "mcp.json").read_text(encoding="utf-8"))
-        self.assertIn("--root", data["mcpServers"]["wavefoundry"]["args"])
+        wf = data["mcpServers"]["wavefoundry"]
+        self.assertEqual(wf["command"], ".wavefoundry/bin/mcp-server")
+        self.assertEqual(wf["args"], [])
 
     def test_merge_mcp_server_is_idempotent(self):
         rps = self._load_rps()

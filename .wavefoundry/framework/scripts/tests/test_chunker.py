@@ -4806,5 +4806,28 @@ class PhpConstantChunkTests(unittest.TestCase):
         self.assertNotIn("[const]", c.text)
         self.assertTrue(c.section.endswith(" [const]"))
 
+
+class OversizedTreeSitterGuardTests(unittest.TestCase):
+    """Wave 1p5c4: tree-sitter is skipped on files over the parse cap (a multi-MB/GB file spins
+    the AST build); oversized code still chunks via the regex/line fallback."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def test_ts_parse_returns_none_over_cap(self):
+        import os
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"WAVEFOUNDRY_MAX_TS_PARSE_BYTES": "100"}):
+            self.assertIsNone(self.chunker._ts_parse("python", "x = 1\n" * 100))
+
+    def test_chunk_file_falls_back_on_oversized_code(self):
+        import os
+        from unittest.mock import patch
+        src = "def f():\n    return 1\n" * 80  # well over a 100-byte cap
+        with patch.dict(os.environ, {"WAVEFOUNDRY_MAX_TS_PARSE_BYTES": "100"}):
+            chunks = self.chunker.chunk_file(src, "big.py")
+        self.assertTrue(chunks, "oversized code must still chunk via the regex/line fallback")
+
+
 if __name__ == "__main__":
     unittest.main()

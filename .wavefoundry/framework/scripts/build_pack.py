@@ -282,7 +282,7 @@ def check_docs_gate(repo_root: Path) -> None:
 # itself can be smoke-tested before a real release.
 
 
-RELEASE_NOTES_INSTALL_BLOCK_REL = Path(".wavefoundry/framework/release/install-block.md")
+RELEASE_NOTES_INSTALL_BLOCK_REL = Path(".wavefoundry/framework/install/install-block.md")
 
 
 def _read_release_install_block(repo_root: Path) -> str:
@@ -304,7 +304,7 @@ def _assemble_release_notes(repo_root: Path, changelog_body: str) -> str:
     Wave 1p35d (1p35p): every published release carries an `## Install` block
     at the top of its notes so an agent or operator landing on the Releases
     page sees the zip-at-root → shortcut-phrase flow alongside the download
-    link. Source of truth is `.wavefoundry/framework/release/install-block.md`.
+    link. Source of truth is `.wavefoundry/framework/install/install-block.md`.
     """
     block = _read_release_install_block(repo_root)
     if not block.strip():

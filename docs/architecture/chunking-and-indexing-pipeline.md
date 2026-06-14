@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-11
+Last verified: 2026-06-13
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -83,6 +83,15 @@ models so that framework and project content can be versioned independently.
 
 The output of this stage is two lists of absolute file paths: one for docs files and one for
 code files, each scoped to the appropriate layer.
+
+**Hard size guard (wave 1p5c4).** During the walk, any file whose size exceeds
+`indexing.max_file_bytes` (default 5 MB) is skipped entirely — never read, never parsed — and
+logged once. This stops a pathologically large file (e.g. a multi-GB SQL backup) from being read
+into memory and handed to tree-sitter, which would spin the indexer. A separate, smaller
+**tree-sitter parse cap** (`indexing.max_treesitter_parse_bytes`, default 2 MB) is published to
+the chunker and graph extractor via `WAVEFOUNDRY_MAX_TS_PARSE_BYTES`: a code file over that cap is
+still indexed as plain-text chunks but skips the AST parse (and graph extraction), degrading to the
+regex/line fallback instead of spinning. Set either key to `0` to disable that cap.
 
 ---
 

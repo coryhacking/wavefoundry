@@ -34,11 +34,11 @@ Call `wave_install_audit` after marking 2.2 done.
 
 **Expected artifact:** `docs/README.md` exists and the listed directories are present.
 
-> **Provision the install-log-format reference (once):** if `docs/references/install-log-format.md` does not already exist, copy it from the shipped framework template `.wavefoundry/framework/docs/references/install-log-format.md` (verbatim — do not author a thin version). It is the canonical install-log row format + the trustworthy-`[x]`-marker invariant that `seed-011` and `seed-010` reference; the upgrade flow (`seed-160`) refreshes it from the same template.
+> **Provision the install-log-format reference (once):** if `docs/references/install-log-format.md` does not already exist, copy it from the shipped framework template `.wavefoundry/framework/install/install-log-format.md` (verbatim — do not author a thin version). It is the canonical install-log row format + the trustworthy-`[x]`-marker invariant that `seed-011` and `seed-010` reference; the upgrade flow (`seed-160`) refreshes it from the same template.
 
 ### 2.3a — Set secrets-scan confirmation threshold in `docs/scan-rules.toml`
 
-> **Provision the findings-format reference (once):** if `docs/references/scan-findings-format.md` does not already exist, copy it from the shipped framework template `.wavefoundry/framework/docs/references/scan-findings-format.md` (verbatim — do not author a thin version). It documents the `docs/scan-findings.json` schema, the `pending → false-positive / suspected-secret / confirmed-secret` lifecycle, and the `[policy] false_positive_confirmations_required` contract this step sets; the upgrade flow (`seed-160`) refreshes it from the same template.
+> **Provision the findings-format reference (once):** if `docs/references/scan-findings-format.md` does not already exist, copy it from the shipped framework template `.wavefoundry/framework/docs/scan-findings-format.md` (verbatim — do not author a thin version). It documents the `docs/scan-findings.json` schema, the `pending → false-positive / suspected-secret / confirmed-secret` lifecycle, and the `[policy] false_positive_confirmations_required` contract this step sets; the upgrade flow (`seed-160`) refreshes it from the same template.
 
 **Action:**
 

@@ -317,12 +317,12 @@ The [full tool surface](docs/prompts/index.md) covers wave admin, code search, g
 
 ## For enterprise forks
 
-If you fork Wavefoundry for internal distribution, the upstream GitHub URLs above (`github.com/coryhacking/wavefoundry/releases`, the version badge, and the link inside the bundled `release/install-block.md`) need to point at your fork. The shortcut phrase, the install flow, and the in-zip surfaces are fork-stable; only the download/release-page links need redirecting.
+If you fork Wavefoundry for internal distribution, the upstream GitHub URLs above (`github.com/coryhacking/wavefoundry/releases`, the version badge, and the link inside the bundled `install/install-block.md`) need to point at your fork. The shortcut phrase, the install flow, and the in-zip surfaces are fork-stable; only the download/release-page links need redirecting.
 
 Specific places to update when you fork:
 
 - This `README.md` — the version badge URL (line ~3) and the Releases download link in **Quick start → (a)**.
-- `.wavefoundry/framework/release/install-block.md` — the README link near the bottom. This block is auto-prepended to every release's notes by `build_pack.py --release`, so the link follows your fork's release pages.
+- `.wavefoundry/framework/install/install-block.md` — the README link near the bottom. This block is auto-prepended to every release's notes by `build_pack.py --release`, so the link follows your fork's release pages.
 - Any internal docs or onboarding decks that quote the install steps verbatim.
 
 The framework intentionally does not auto-detect "what fork is this" — the GitHub remote URL is the source of truth, but the install surfaces are static so that an air-gapped operator can still read them. Forks own the redirection step.

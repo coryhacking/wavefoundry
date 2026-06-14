@@ -512,28 +512,28 @@ def _write_migration_preview_report(
     return report_path
 
 
-# --- Convergence migration (wave 1p3iv / 1p3j7) ----------------------------------
+# --- Convergence migration (wave 1p3iv / 1p3j7; self-contained as of 1p5b4) -------
 #
-# Reads the canonical-names manifest and rewrites legacy config keys to their
-# canonical names in `docs/workflow-config.json`. Runs on EVERY upgrade
-# (no version gate) — idempotent because already-canonical configs no-op.
-# Operators on legacy spellings (`wave_council_policy`, `wave_execution`) get
+# Rewrites legacy config keys to their canonical names in `docs/workflow-config.json`.
+# Runs on EVERY upgrade (no version gate) — idempotent because already-canonical configs
+# no-op. Operators on legacy spellings (`wave_council_policy`, `wave_execution`) get
 # auto-converted at upgrade time so the deprecation window closes.
+#
+# Wave 1p5b4: the canonical-names manifest was retired; this convergence is now the only
+# remaining piece — a self-contained hardcoded table, kept as the one-shot safety net for
+# skip-version operators. Slated for removal at 2.0.0 (by then every maintained project has
+# converged on upgrade).
+_CONFIG_KEY_RENAMES = {
+    "wave_execution": "wave_implement",
+    "wave_council_policy": "wave_review",
+}
 
 
 def _load_config_key_renames(repo_root):
-    """Load the canonical-names manifest and return {legacy: canonical} for
-    config keys. Empty dict if manifest is absent / malformed (silent — the
-    rewrite is a no-op when no renames are known)."""
-    import sys as _sys
-    scripts_dir = Path(__file__).resolve().parent
-    if str(scripts_dir) not in _sys.path:
-        _sys.path.insert(0, str(scripts_dir))
-    try:
-        from wave_lint_lib import canonical_names
-    except ImportError:
-        return {}
-    return canonical_names.config_key_alias_to_canonical(repo_root)
+    """Return {legacy: canonical} for the config-key convergence migration.
+    Self-contained (no manifest) as of wave 1p5b4; the whole migration is removed at 2.0.0.
+    ``repo_root`` is accepted for call-site compatibility and unused."""
+    return dict(_CONFIG_KEY_RENAMES)
 
 
 def _preview_legacy_config_key_rewrite(repo_root):
@@ -746,10 +746,10 @@ def post_extract(ctx):
     before committing to the real upgrade.
 
     Wave 1p3iv (1p3j7): the convergence migration runs FIRST, before the
-    1.4 → 1.5 version gate, on every upgrade. It reads the canonical-names
-    manifest and rewrites legacy config keys to canonical in
-    ``docs/workflow-config.json``. Idempotent — no-op when no legacy keys
-    are present.
+    1.4 → 1.5 version gate, on every upgrade. It rewrites legacy config keys to
+    canonical in ``docs/workflow-config.json``. Idempotent — no-op when no legacy
+    keys are present. (Wave 1p5b4: the rename map is now a self-contained hardcoded
+    table — the canonical-names manifest was retired; this convergence is removed at 2.0.0.)
     """
     # Wave 1p3iv (1p3j7): convergence half — runs on every upgrade.
     _run_convergence_migration(ctx)
