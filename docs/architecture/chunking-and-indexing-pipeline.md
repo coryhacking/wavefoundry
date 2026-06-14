@@ -361,24 +361,40 @@ and fallback reason. On NVIDIA machines, setup plans the `fastembed-gpu` depende
 installation, setup keeps CPU execution and prints remediation guidance instead of failing the
 index build.
 
-### Sliding sort buffer
+### Sliding sort buffer (incremental path)
 
-Embedding batches are assembled via a sliding sort buffer to minimise wasted computation
-caused by padding in the ONNX runtime.
+On the incremental path, embedding batches are assembled via a sliding sort buffer to
+minimise wasted computation caused by padding in the ONNX runtime.
 
 The buffer keeps a window of `SORT_WINDOW_SIZE` (2048) chunks. Within that window, chunks
 are sorted by text length, and each batch of `EMBED_BATCH_SIZE` (256) chunks is drawn from
 the shortest sequences available. This means sequences within a batch are similar in length,
 reducing the amount of zero-padding needed to make them uniform — which reduces ONNX
-inference time.
+inference time. Vectors are written to LanceDB incrementally after each batch completes; the
+entire chunk list is never loaded into memory at once.
 
-The entire chunk list is never loaded into memory at once. Vectors are written to LanceDB
-incrementally after each batch completes.
+### Bounded-buffer streaming (full rebuild)
 
-Progress is reported as:
+The full rebuild does **not** pre-accumulate the layer's chunks or count a total upfront.
+Instead it streams the whole pipeline file-by-file through a bounded buffer
+(`_run_streaming_full_rebuild` → `_StreamingLayerWriter`):
+
+1. Iterate the eligible files in walk order; chunk each file into docs/code chunks.
+2. Push chunks into a per-layer buffer. When a buffer reaches `embed_buffer_chunks`
+   (`EMBED_BUFFER_CHUNKS_DEFAULT` = `SORT_WINDOW_SIZE`, configurable via
+   `indexing.embed_buffer_chunks`, floored at `EMBED_BATCH_SIZE` (64) to keep GPU batches
+   full), embed one batch and append the rows to LanceDB, then flush the buffer.
+3. Flush the remainder at the end and build the secondary indexes **once** (see Stage 5).
+
+Peak memory is bounded by the buffer rather than the corpus, so very large repositories index
+without materializing every chunk and vector at once. The produced index is byte-identical to
+the batch path (same chunks, vectors, and rows) — guarded by an output-parity test.
+
+Progress is file-oriented (the file total is known cheaply from the walk; there is no
+total-chunk pre-count):
 
 ```
-build_index: embedding docs chunks 1–256/1500
+build_index: indexed file 50/1044 files
 ```
 
 ---
@@ -414,8 +430,12 @@ When matching is ambiguous, correctness wins and the affected chunk is re-embedd
 
 ### Full rebuild
 
-On a forced rebuild, the first batch is written with `mode="overwrite"`, which replaces the
-entire table. Subsequent batches use `.add()` to append to the now-empty table.
+On a forced rebuild, the streaming writer (`_StreamingLayerWriter`, see Stage 4) writes the
+first buffered batch with `mode="overwrite"`, which replaces the entire table, then appends
+each subsequent flush with `.add()`. The table lock is acquired lazily on the first append, so
+a layer that produces zero chunks creates no table or lock directory (this keeps the
+incremental path's missing-table handling intact). The secondary indexes are built once at
+finalize, after every flush has been appended.
 
 ### Index creation
 

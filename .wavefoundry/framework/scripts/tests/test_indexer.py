@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import types
 import textwrap
 import time
 import unittest
@@ -733,6 +734,62 @@ class IncrementalBuildTests(unittest.TestCase):
         self.assertTrue(result["up_to_date"])
         self.assertEqual(result["files_indexed"], 0)
 
+    def test_incremental_docs_only_change_skips_code_embedder(self):
+        """1p5d6: an incremental update touching only a doc file must NOT construct the code
+        embedder (no new code chunks → no model load)."""
+        _make_repo(self.root, {
+            "src/foo.py": "def f():\n    return 1\n",
+            "docs/guide.md": "## Intro\n\nHello.\n",
+        })
+        self._run_build(full=True)
+        (self.root / "docs" / "guide.md").write_text("## Intro\n\nHello changed now.\n", encoding="utf-8")
+        requested: list[str] = []
+
+        def spy(model):
+            requested.append(model)
+            return _make_embedder_mock(dim=4)
+
+        with patch.object(self.bi, "_get_embedder", side_effect=spy):
+            self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        self.assertIn(self.bi.DOCS_MODEL, requested)
+        self.assertNotIn(self.bi.CODE_MODEL, requested, "code embedder must not load for a docs-only change")
+
+    def test_incremental_code_only_change_skips_docs_embedder(self):
+        """1p5d6: the mirror — a code-only change must not construct the docs embedder."""
+        _make_repo(self.root, {
+            "src/foo.py": "def f():\n    return 1\n",
+            "docs/guide.md": "## Intro\n\nHello.\n",
+        })
+        self._run_build(full=True)
+        (self.root / "src" / "foo.py").write_text("def f():\n    return 42\n", encoding="utf-8")
+        requested: list[str] = []
+
+        def spy(model):
+            requested.append(model)
+            return _make_embedder_mock(dim=4)
+
+        with patch.object(self.bi, "_get_embedder", side_effect=spy):
+            self.bi.build_index(self.root, full=False, content="all", verbose=False)
+        self.assertIn(self.bi.CODE_MODEL, requested)
+        self.assertNotIn(self.bi.DOCS_MODEL, requested, "docs embedder must not load for a code-only change")
+
+    def test_full_rebuild_loads_both_embedders(self):
+        """1p5d6: a full rebuild always loads both layer embedders (both layers have all chunks)."""
+        _make_repo(self.root, {
+            "src/foo.py": "def f():\n    return 1\n",
+            "docs/guide.md": "## Intro\n\nHello.\n",
+        })
+        requested: list[str] = []
+
+        def spy(model):
+            requested.append(model)
+            return _make_embedder_mock(dim=4)
+
+        with patch.object(self.bi, "_get_embedder", side_effect=spy):
+            self.bi.build_index(self.root, full=True, content="all", verbose=False)
+        self.assertIn(self.bi.DOCS_MODEL, requested)
+        self.assertIn(self.bi.CODE_MODEL, requested)
+
     def test_chunker_version_bump_reuses_vectors_no_reembed(self):
         """1p4n4: a chunker-ONLY version bump re-chunks every file but reuses embeddings by
         content hash — content-identical chunks are NOT re-embedded (no full re-encode)."""
@@ -984,7 +1041,11 @@ class IncrementalBuildTests(unittest.TestCase):
         code_calls: list[list[str]] = []
         docs_mock = _make_embedder_mock(dim=4, calls=doc_calls)
         code_mock = _make_embedder_mock(dim=4, calls=code_calls)
-        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+        # 1p5d6: notes.custom is a pure line-window CODE file (no doc chunks), so the docs embedder
+        # is not loaded for this change — map by model name rather than relying on call order.
+        def _emb(model):
+            return docs_mock if model == self.bi.DOCS_MODEL else code_mock
+        with patch.object(self.bi, "_get_embedder", side_effect=_emb):
             self.bi.build_index(self.root, full=False, content="all", verbose=False)
 
         embedded_doc_texts = [text for batch in doc_calls for text in batch]
@@ -2241,6 +2302,206 @@ class OversizedFileGuardTests(unittest.TestCase):
         self.assertIn("kept.md", rels)
         self.assertFalse(any(r.startswith("ignored_index/") for r in rels),
                          f"gitignored dir should not be walked; got {rels}")
+
+
+class StreamingRebuildParityTests(unittest.TestCase):
+    """Wave 1p5ch: the streamed full-rebuild table must be row-identical regardless of buffer size.
+    Feeding every chunk in one `add()` IS the batch write (a single create_table with all rows), so
+    'one big add' vs 'tiny buffer, many flushes' is the streaming-vs-batch parity check — using only
+    the production `_StreamingLayerWriter`, with no separate reference implementation to drift."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+
+    @staticmethod
+    def _fake_embedder():
+        import numpy as np
+
+        class _Fake:
+            # Deterministic, finite per-text vector — batching boundaries cannot change it.
+            def embed(self, texts, batch_size=256):
+                import hashlib as _h
+                for t in texts:
+                    digest = _h.sha256(t.encode("utf-8")).digest()
+                    yield np.array([float(b) for b in digest[:4]], dtype=np.float32)
+
+        return _Fake()
+
+    def _chunks(self, n):
+        return [
+            {"id": f"f{i}.py::sym{i}", "path": f"f{i}.py", "kind": "code", "language": "python",
+             "section": f"sym{i}", "lines": [1, 2], "text": f"def sym{i}(): return {i}"}
+            for i in range(n)
+        ]
+
+    def test_streamed_table_is_buffer_invariant(self):
+        import tempfile
+        chunks = self._chunks(25)
+
+        with tempfile.TemporaryDirectory() as ta, tempfile.TemporaryDirectory() as tb:
+            # Batch reference: one add() with every chunk == a single create_table with all rows.
+            db_a = self.bi._get_lance_db(Path(ta))
+            w_a = self.bi._StreamingLayerWriter(db_a, "code", self._fake_embedder(), "code")
+            w_a.add([dict(c) for c in chunks])
+            w_a.finalize()
+
+            # Streamed: tiny buffer → many flushes / append calls.
+            db_b = self.bi._get_lance_db(Path(tb))
+            w_b = self.bi._StreamingLayerWriter(db_b, "code", self._fake_embedder(), "code")
+            buf = []
+            for c in chunks:
+                buf.append(dict(c))
+                if len(buf) >= 3:
+                    w_b.add(buf); buf = []
+            if buf:
+                w_b.add(buf)
+            w_b.finalize()
+
+            rows_a = {r["id"]: r for r in db_a.open_table("code").to_arrow().to_pylist()}
+            rows_b = {r["id"]: r for r in db_b.open_table("code").to_arrow().to_pylist()}
+
+        self.assertEqual(set(rows_a), set(rows_b), "streamed table must hold the same chunk ids")
+        for cid in rows_a:
+            self.assertEqual(rows_a[cid]["text"], rows_b[cid]["text"], cid)
+            self.assertEqual(rows_a[cid]["vector"], rows_b[cid]["vector"], cid)
+            self.assertEqual(rows_a[cid]["chunk_hash"], rows_b[cid]["chunk_hash"], cid)
+
+    def test_resolve_embed_buffer_chunks_override_and_floor(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            # Honors a sane override.
+            (root / "docs" / "workflow-config.json").write_text(
+                json.dumps({"indexing": {"embed_buffer_chunks": 5000}}), encoding="utf-8")
+            self.assertEqual(self.bi._resolve_embed_buffer_chunks(root), 5000)
+            # Floors at EMBED_BATCH_SIZE so GPU batches stay full.
+            (root / "docs" / "workflow-config.json").write_text(
+                json.dumps({"indexing": {"embed_buffer_chunks": 1}}), encoding="utf-8")
+            self.assertEqual(self.bi._resolve_embed_buffer_chunks(root), self.bi.EMBED_BATCH_SIZE)
+            # Default when unset.
+            (root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+            self.assertEqual(self.bi._resolve_embed_buffer_chunks(root), self.bi.EMBED_BUFFER_CHUNKS_DEFAULT)
+
+    def test_streaming_rebuild_bounds_buffer_and_reports_file_progress(self):
+        """AC-1 (memory bound) + AC-4 (file-oriented progress): driving the real
+        `_run_streaming_full_rebuild` over many files with a tiny buffer, no single
+        embed batch may approach the corpus size — each is bounded by
+        ``buffer_chunks + max(per-file chunks)`` — and progress is logged as
+        ``indexed file N/M files`` with no total-chunk pre-count."""
+        import tempfile, io, contextlib, re
+        import unittest.mock as mock
+
+        buffer_chunks = 4
+        n_files = 14
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            files = []
+            for i in range(n_files):
+                p = root / f"mod{i}.py"
+                # Two functions per file → a couple of code chunks each.
+                p.write_text(
+                    f"def alpha{i}(x):\n    return x + {i}\n\n\ndef beta{i}(y):\n    return y * {i}\n",
+                    encoding="utf-8",
+                )
+                files.append(p)
+
+            db_path = root / "lance"
+            chunks_emitted = {}
+            sizes = []  # length of every batch handed to the writer (== peak resident buffer at flush)
+            orig_add = self.bi._StreamingLayerWriter.add
+
+            def spy_add(writer_self, chunks):
+                sizes.append(len(chunks))
+                return orig_add(writer_self, chunks)
+
+            out = io.StringIO()
+            with mock.patch.object(self.bi._StreamingLayerWriter, "add", spy_add), \
+                    contextlib.redirect_stdout(out):
+                self.bi._run_streaming_full_rebuild(
+                    db_path=db_path,
+                    files_to_index=files,
+                    root=root,
+                    build_docs=False,
+                    build_code=True,
+                    docs_embedder=None,
+                    code_embedder=self._fake_embedder(),
+                    chunks_emitted_by_file=chunks_emitted,
+                    buffer_chunks=buffer_chunks,
+                    verbose=False,
+                    docs_elapsed=[],
+                    code_elapsed=[],
+                )
+            log = out.getvalue()
+
+            total_code = self.bi._get_lance_db(db_path).open_table("code").count_rows()
+
+            # AC-1: streamed, not one big write — multiple flushes, and every batch is
+            # bounded by the buffer plus a single file's chunk count (corpus-independent).
+            self.assertGreaterEqual(len(sizes), 2, "expected multiple flushes (streaming)")
+            self.assertEqual(sum(sizes), total_code, "every chunk must be written exactly once")
+            max_file_chunks = max(chunks_emitted.values())
+            self.assertLessEqual(
+                max(sizes), buffer_chunks + max_file_chunks,
+                "peak resident buffer must stay bounded by buffer + one file's chunks",
+            )
+            self.assertLess(max(sizes), total_code, "no single batch may hold the whole corpus")
+
+            # AC-4: file-oriented progress, terminating at N/N, with no total-chunk pre-count.
+            self.assertRegex(log, r"indexed file \d+/%d files" % n_files)
+            self.assertIn("indexed file %d/%d files" % (n_files, n_files), log)
+            self.assertNotIn("/%d code chunks" % total_code, log)
+            self.assertNotRegex(log, r"chunks \d+[–-]\d+/\d+")
+
+
+class CachedFirstEmbedderTests(unittest.TestCase):
+    """Wave 1p5cx: the reindex path must load fastembed models from the local HF cache first
+    (``local_files_only=True``, no network / no unauthenticated-request warning) and fall back to an
+    online download only on a genuine cache miss."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.bi._EMBEDDER_CACHE.clear()
+
+    def test_cached_first_returns_offline_construct_when_present(self):
+        calls = []
+
+        def fake_cls(model_name, providers, local_files_only=False):
+            calls.append(local_files_only)
+            return f"embedder::{model_name}::lfo={local_files_only}"
+
+        emb = self.bi._text_embedding_cached_first(fake_cls, "m", ["CPUExecutionProvider"])
+        self.assertEqual(emb, "embedder::m::lfo=True")
+        self.assertEqual(calls, [True], "no online attempt when the cached load succeeds")
+
+    def test_cached_first_falls_back_to_online_on_cache_miss(self):
+        calls = []
+
+        def fake_cls(model_name, providers, local_files_only=False):
+            calls.append(local_files_only)
+            if local_files_only:
+                raise RuntimeError("LocalEntryNotFound (simulated cold cache)")
+            return f"online::{model_name}"
+
+        emb = self.bi._text_embedding_cached_first(fake_cls, "m", ["CPUExecutionProvider"])
+        self.assertEqual(emb, "online::m")
+        self.assertEqual(calls, [True, False], "cached-first, then online download fallback")
+
+    def test_get_embedder_uses_cached_first_on_fastembed_path(self):
+        seen = []
+
+        class FakeTE:
+            def __init__(self, model_name, providers, local_files_only=False):
+                seen.append(local_files_only)
+                self.model_name = model_name
+
+        # Force the fastembed branch: no accel embedder.
+        with patch.object(self.bi, "accel_embedder", None), \
+                patch.object(self.bi, "_onnx_providers", return_value=["CPUExecutionProvider"]), \
+                patch.dict("sys.modules", {"fastembed": types.SimpleNamespace(TextEmbedding=FakeTE)}):
+            emb = self.bi._get_embedder("BAAI/bge-small-en-v1.5")
+        self.assertIsInstance(emb, FakeTE)
+        self.assertEqual(seen, [True], "fastembed path loads cached-first (local_files_only=True)")
 
 
 if __name__ == "__main__":

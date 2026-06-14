@@ -15897,11 +15897,11 @@ class TestLanceDBIndex(unittest.TestCase):
         self.assertEqual(mod.LANCEDB_REFINE_FACTOR, 10)
 
     @unittest.skipUnless(importlib.util.find_spec("lancedb"), "lancedb not installed")
-    def test_stream_embed_write_row_counts(self):
-        """_stream_embed_write creates LanceDB tables with expected row counts."""
+    def test_streaming_writer_row_counts(self):
+        """_StreamingLayerWriter creates LanceDB tables with expected row counts."""
         import importlib.util as ilu
         import numpy as np
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
         scripts_root = Path(__file__).resolve().parents[1]
         spec = ilu.spec_from_file_location("indexer_for_stream_write_test", scripts_root / "indexer.py")
         mod = ilu.module_from_spec(spec)
@@ -15922,8 +15922,12 @@ class TestLanceDBIndex(unittest.TestCase):
             embedder = MagicMock()
             embedder.embed.side_effect = _fake_embed
 
-            docs_written = mod._stream_embed_write(db, "docs", docs_chunks, embedder, "doc")
-            code_written = mod._stream_embed_write(db, "code", code_chunks, embedder, "code")
+            docs_writer = mod._StreamingLayerWriter(db, "docs", embedder, "doc")
+            docs_writer.add(docs_chunks)
+            docs_written = docs_writer.finalize()
+            code_writer = mod._StreamingLayerWriter(db, "code", embedder, "code")
+            code_writer.add(code_chunks)
+            code_written = code_writer.finalize()
 
             self.assertEqual(docs_written, 1)
             self.assertEqual(code_written, 1)

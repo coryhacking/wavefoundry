@@ -1064,82 +1064,173 @@ def _get_lance_db(db_path: Path):
     return lancedb.connect(str(db_path))
 
 
-def _stream_embed_write(
-    db,
-    table_name: str,
-    chunks: list[dict],
-    embedder,
-    label: str,
-    verbose: bool = False,
-) -> int:
-    """Embed *chunks* in sliding-sort-buffer batches and write incrementally to *db*.
+# Wave 1p5ch: streaming full-rebuild. Files are chunked into a bounded buffer that flushes
+# (embed → create/append) once it fills, so the full chunk list for a layer is never held in
+# memory — peak memory is bounded by the buffer, independent of corpus size. Rows are produced with
+# `_embed_texts` + `_make_lance_rows` and the vector + FTS index is built once at the end; the
+# produced table is independent of the buffer size (verified by a buffer-invariance test). This
+# replaced an earlier `_stream_embed_write` whose caller pre-materialized the whole chunk list.
+EMBED_BUFFER_CHUNKS_DEFAULT = SORT_WINDOW_SIZE  # max chunks buffered before a flush (memory bound)
 
-    Uses a SORT_WINDOW_SIZE-chunk buffer sorted by text length so each
-    EMBED_BATCH_SIZE batch draws the shortest available sequences, minimising
-    ONNX padding waste without buffering the full corpus in memory.
 
-    Returns the number of rows written (== len(chunks)).
-    """
-    total = len(chunks)
-    if total == 0:
-        return 0
-
-    # Initialise the sliding buffer with the first SORT_WINDOW_SIZE chunks.
-    buf_end = min(SORT_WINDOW_SIZE, total)
-    buffer: list[dict] = sorted(chunks[:buf_end], key=lambda c: len(c["text"]))
-    read_pos: int = buf_end
-    table = None
-    written = 0
-
-    while buffer:
-        # Pop the EMBED_BATCH_SIZE shortest chunks from the sorted buffer.
-        batch_chunks = buffer[:EMBED_BATCH_SIZE]
-        buffer = buffer[EMBED_BATCH_SIZE:]
-
-        # Refill from the remaining corpus and re-sort.
-        refill_end = min(read_pos + EMBED_BATCH_SIZE, total)
-        if read_pos < total:
-            buffer.extend(chunks[read_pos:refill_end])
-            read_pos = refill_end
-            buffer.sort(key=lambda c: len(c["text"]))
-
-        start = written + 1
-        end = written + len(batch_chunks)
-        # Always log per-batch progress — this is the primary status signal during
-        # a long rebuild and should appear in index-build.log regardless of --verbose.
-        print(f"build_index: embedding {label} chunks {start}–{end}/{total}", flush=True)
-
-        vecs = _embed_texts(embedder, [c["text"] for c in batch_chunks], batch_size=EMBED_BATCH_SIZE)
-        rows = _make_lance_rows(batch_chunks, vecs)
-
-        if table is None:
-            table = db.create_table(table_name, data=rows, mode="overwrite")
-        else:
-            table.add(rows)
-
-        written += len(batch_chunks)
-
-    if table is None:
-        return 0
-
-    # Create vector and FTS indexes once, after all rows are written.
-    if written >= LANCEDB_INDEX_THRESHOLD:
+def _resolve_embed_buffer_chunks(root: Path) -> int:
+    """Streaming flush threshold (chunks) — overridable via `indexing.embed_buffer_chunks` in
+    docs/workflow-config.json. Floored at EMBED_BATCH_SIZE so GPU batches stay full; defaults to
+    EMBED_BUFFER_CHUNKS_DEFAULT."""
+    cfg = root / "docs" / "workflow-config.json"
+    val = EMBED_BUFFER_CHUNKS_DEFAULT
+    if cfg.exists():
         try:
-            table.create_index(metric="cosine", index_type="IVF_HNSW_SQ", replace=True)
-            if verbose:
+            data = json.loads(cfg.read_text(encoding="utf-8"))
+            indexing = data.get("indexing", {}) if isinstance(data, dict) else {}
+            raw = indexing.get("embed_buffer_chunks") if isinstance(indexing, dict) else None
+            if isinstance(raw, int) and raw > 0:
+                val = raw
+        except (OSError, json.JSONDecodeError):
+            pass
+    return max(val, EMBED_BATCH_SIZE)
+
+
+class _StreamingLayerWriter:
+    """Wave 1p5ch: incremental writer for one layer's full rebuild. ``add(chunks)`` embeds a buffer
+    and creates-or-appends to the Lance table (the first ``add`` creates it with ``mode="overwrite"``);
+    ``finalize()`` builds the vector + FTS index once, after all rows are written. Feeding every chunk
+    in a single ``add`` is exactly the batch write, so the produced table is independent of how the
+    input is chunked across ``add`` calls — buffering bounds memory without changing output."""
+
+    def __init__(self, db, table_name: str, embedder, label: str, lock_dir: "Optional[Path]" = None) -> None:
+        self.db = db
+        self.table_name = table_name
+        self.embedder = embedder
+        self.label = label
+        self.lock_dir = lock_dir
+        self.table = None
+        self.written = 0
+        self._lock = None  # ExitStack holding the per-table lock; acquired lazily on first write
+
+    def add(self, chunks: list[dict]) -> None:
+        if not chunks:
+            return
+        vecs = _embed_texts(self.embedder, [c["text"] for c in chunks], batch_size=EMBED_BATCH_SIZE)
+        rows = _make_lance_rows(chunks, vecs)
+        if self.table is None:
+            # Acquire the per-table lock (which creates the Lance dir) ONLY on the first real write —
+            # a layer that produces 0 chunks never locks, so its dir stays absent and the incremental
+            # path's "table absent" guard fires correctly (wave 1p5ch).
+            if self.lock_dir is not None and self._lock is None:
+                import contextlib as _ctx
+                self._lock = _ctx.ExitStack()
+                self._lock.enter_context(_table_lock(self.lock_dir, create_dir=True))
+            self.table = self.db.create_table(self.table_name, data=rows, mode="overwrite")
+        else:
+            self.table.add(rows)
+        self.written += len(chunks)
+
+    def finalize(self, verbose: bool = False) -> int:
+        try:
+            return self._finalize_inner(verbose)
+        finally:
+            self.release_lock()
+
+    def release_lock(self) -> None:
+        """Release the per-table lock without building any index. ``finalize`` calls this on the
+        success path; the runner calls it in a ``finally`` so a mid-stream exception (before
+        ``finalize``) still frees the lock in-process rather than relying on subprocess exit."""
+        if self._lock is not None:
+            self._lock.close()
+            self._lock = None
+
+    def _finalize_inner(self, verbose: bool = False) -> int:
+        if self.table is None:
+            return 0
+        if self.written >= LANCEDB_INDEX_THRESHOLD:
+            try:
+                self.table.create_index(metric="cosine", index_type="IVF_HNSW_SQ", replace=True)
+                if verbose:
+                    print(
+                        f"build_index: LanceDB IVF_HNSW_SQ index created for '{self.table_name}' ({self.written} rows)",
+                        flush=True,
+                    )
+            except Exception as exc:
                 print(
-                    f"build_index: LanceDB IVF_HNSW_SQ index created for '{table_name}' ({written} rows)",
-                    flush=True,
+                    f"build_index: LanceDB index creation for '{self.table_name}' skipped ({exc})",
+                    file=sys.stderr,
                 )
-        except Exception as exc:
-            print(
-                f"build_index: LanceDB index creation for '{table_name}' skipped ({exc})",
-                file=sys.stderr,
-            )
+        _create_fts_index(self.table, self.table_name, replace=False)
+        return self.written
 
-    _create_fts_index(table, table_name, replace=False)
 
-    return written
+def _run_streaming_full_rebuild(
+    *,
+    db_path: Path,
+    files_to_index: list,
+    root: Path,
+    build_docs: bool,
+    build_code: bool,
+    docs_embedder,
+    code_embedder,
+    chunks_emitted_by_file: dict,
+    buffer_chunks: int,
+    verbose: bool,
+    docs_elapsed: list,
+    code_elapsed: list,
+) -> None:
+    """Wave 1p5ch: full rebuild as a bounded-buffer stream. Chunks each file ONCE (recording
+    ``chunks_emitted_by_file``), routes doc/code chunks to per-layer buffers, and flushes a buffer
+    (embed → create/append) once it reaches ``buffer_chunks``; the vector + FTS index is built once
+    per layer at the end. Peak memory is bounded by the buffers, independent of corpus size.
+    Progress is reported per file (``file N / M``) — no total-chunk pre-count."""
+    db = _get_lance_db(db_path)
+    # Each writer acquires its per-table lock lazily on first write (see _StreamingLayerWriter.add),
+    # so a layer that produces 0 chunks never creates its Lance dir — matching the old full path and
+    # keeping the incremental "table absent" guard correct.
+    docs_writer = _StreamingLayerWriter(db, "docs", docs_embedder, "doc", lock_dir=db_path / "docs.lance") if build_docs else None
+    code_writer = _StreamingLayerWriter(db, "code", code_embedder, "code", lock_dir=db_path / "code.lance") if build_code else None
+    docs_buf: list[dict] = []
+    code_buf: list[dict] = []
+    t_docs = 0.0
+    t_code = 0.0
+    total = len(files_to_index)
+
+    try:
+        for i, file_path in enumerate(files_to_index, 1):
+            rel = str(file_path.relative_to(root)).replace("\\", "/")
+            try:
+                source_text = file_path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            dc, cc = _chunks_for_file(rel, source_text)
+            chunks_emitted_by_file[rel] = len(dc) + len(cc)
+            if build_docs and dc:
+                docs_buf.extend(dc)
+                if len(docs_buf) >= buffer_chunks:
+                    _t = time.monotonic(); docs_writer.add(docs_buf); t_docs += time.monotonic() - _t
+                    docs_buf = []
+            if build_code and cc:
+                code_buf.extend(cc)
+                if len(code_buf) >= buffer_chunks:
+                    _t = time.monotonic(); code_writer.add(code_buf); t_code += time.monotonic() - _t
+                    code_buf = []
+            if i == total or i % 50 == 0:
+                print(f"build_index: indexed file {i}/{total} files", flush=True)
+
+        if build_docs and docs_buf:
+            _t = time.monotonic(); docs_writer.add(docs_buf); t_docs += time.monotonic() - _t
+        if build_code and code_buf:
+            _t = time.monotonic(); code_writer.add(code_buf); t_code += time.monotonic() - _t
+        if docs_writer is not None:
+            _t = time.monotonic(); docs_writer.finalize(verbose); t_docs += time.monotonic() - _t
+        if code_writer is not None:
+            _t = time.monotonic(); code_writer.finalize(verbose); t_code += time.monotonic() - _t
+    finally:
+        # finalize() releases the lock on the success path; this frees it if the loop or a flush
+        # raised before finalize ran (no-op once finalize has nulled the lock).
+        for _w in (docs_writer, code_writer):
+            if _w is not None:
+                _w.release_lock()
+
+    docs_elapsed.append(t_docs)
+    code_elapsed.append(t_code)
 
 
 def _optimize_lance_table(table) -> None:
@@ -1864,6 +1955,7 @@ def _get_embedder(model_name: str):
     providers = _onnx_providers()
     # Wave 1p517: when a GPU provider is selected, use the static-shape ONNX embedder
     # (CoreML/CUDA) if this model's graph actually runs on the GPU; else fall back to fastembed.
+    # The accel path resolves its model files cached-first internally (see accel_embedder).
     if accel_embedder is not None:
         try:
             accel = accel_embedder.make_embedder(model_name, providers)
@@ -1884,9 +1976,26 @@ def _get_embedder(model_name: str):
             file=sys.stderr,
         )
         sys.exit(1)
-    embedder = TextEmbedding(model_name=model_name, providers=providers)
+    embedder = _text_embedding_cached_first(TextEmbedding, model_name, providers)
     _EMBEDDER_CACHE[model_name] = embedder
     return embedder
+
+
+def _text_embedding_cached_first(text_embedding_cls, model_name: str, providers):
+    """Construct a fastembed ``TextEmbedding`` from the local cache first (``local_files_only=True``),
+    downloading only on a genuine cache miss.
+
+    Wave 1p5cx: ``setup_index`` already provisions the models, so the reindex path should load them
+    with no network — a plain construct makes a Hub round-trip on every build (the per-process
+    ``unauthenticated requests to the HF Hub`` warning + latency). ``local_files_only=True`` returns
+    the cached model with no request; only if it isn't cached do we fall back to an online download
+    (which then caches it). Vectors are identical either way — no parity impact. This mirrors the
+    cached-first download in ``accel_embedder`` so both the GPU and CPU embedder paths stay offline
+    on a warm cache."""
+    try:
+        return text_embedding_cls(model_name=model_name, providers=providers, local_files_only=True)
+    except Exception:
+        return text_embedding_cls(model_name=model_name, providers=providers)
 
 
 def _embed_texts(embedder, texts: list[str], batch_size: int = 256) -> "np.ndarray":
@@ -2525,42 +2634,50 @@ def _build_index_locked(
     # chunks. Missing field on a file_meta entry → unknown, included in
     # drift check (one-shot repair learns the count); explicit 0 → skipped.
     chunks_emitted_by_file: dict[str, int] = {}
-    for file_path in files_to_index:
-        rel = str(file_path.relative_to(root)).replace("\\", "/")
-        try:
-            source_text = file_path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        dc, cc = _chunks_for_file(rel, source_text)
-        chunks_emitted_by_file[rel] = len(dc) + len(cc)
-        if build_docs:
-            new_doc_chunks.extend(dc)
-        if build_code:
-            new_code_chunks.extend(cc)
+    # Wave 1p5ch: the FULL rebuild streams (chunk → buffer → embed → append) via
+    # _run_streaming_full_rebuild below, so it does NOT pre-accumulate the whole chunk list here —
+    # it chunks files and records chunks_emitted_by_file during the write, bounding memory. The
+    # incremental path still materializes the changed files' chunks (it reuses vectors by content
+    # hash and writes per-path).
+    if not full:
+        for file_path in files_to_index:
+            rel = str(file_path.relative_to(root)).replace("\\", "/")
+            try:
+                source_text = file_path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            dc, cc = _chunks_for_file(rel, source_text)
+            chunks_emitted_by_file[rel] = len(dc) + len(cc)
+            if build_docs:
+                new_doc_chunks.extend(dc)
+            if build_code:
+                new_code_chunks.extend(cc)
 
-    # Persist chunks_emitted into current_file_meta. The cache-hit path in
-    # _detect_changes preserves prior chunks_emitted for unchanged files;
-    # cache-miss (changed) entries are rebuilt fresh without the field, so
-    # this loop populates it for every file just chunked. After meta.json
-    # writes, the next incremental update's drift check sees the truth.
-    for rel, count in chunks_emitted_by_file.items():
-        entry = current_file_meta.get(rel)
-        if isinstance(entry, dict):
-            entry["chunks_emitted"] = count
+    # Wave 1p5ch: chunks_emitted_by_file is persisted into current_file_meta AFTER the write block
+    # (below) — the full rebuild only populates it during the streaming write, so persistence must
+    # wait until that has run (the incremental path populated it in the loop above).
 
     # Embed new chunks
-    _progress(
-        verbose,
-        f"build_index: chunked {len(files_to_index)} files "
-        f"into {len(new_doc_chunks)} new doc chunks and {len(new_code_chunks)} new code chunks",
-    )
+    if full:
+        _progress(verbose, f"build_index: streaming {len(files_to_index)} files into the docs/code index")
+    else:
+        _progress(
+            verbose,
+            f"build_index: chunked {len(files_to_index)} files "
+            f"into {len(new_doc_chunks)} new doc chunks and {len(new_code_chunks)} new code chunks",
+        )
+    # Wave 1p5d6: load a layer's embedder only when it has embedding work — a full rebuild always
+    # does, but an incremental update only needs the model for a layer with new/changed chunks. This
+    # spares a docs-only edit the bge (code) CoreML session init (and vice versa). Safe because
+    # `_lance_incremental_write` only touches the embedder when chunks are present (delete-only /
+    # no-op writes never embed), so a layer with no new chunks correctly receives `None`.
     docs_embedder = None
-    if build_docs:
+    if build_docs and (full or new_doc_chunks):
         _progress(verbose, f"build_index: loading docs model {DOCS_MODEL}")
         docs_embedder = _get_embedder(DOCS_MODEL)
         _progress(verbose, f"build_index: loaded docs model {DOCS_MODEL}")
     code_embedder = None
-    if build_code:
+    if build_code and (full or new_code_chunks):
         _progress(verbose, f"build_index: loading code model {CODE_MODEL}")
         code_embedder = _get_embedder(CODE_MODEL)
         _progress(verbose, f"build_index: loaded code model {CODE_MODEL}")
@@ -2634,40 +2751,11 @@ def _build_index_locked(
                 ]))
                 print(f"build_index: {layers} running concurrently ({graph_layer} layer)", flush=True)
             if full:
-                if build_docs:
-                    def _write_docs_full(
-                        _db_path=lance_db_path,
-                        _chunks=new_doc_chunks,
-                        _emb=docs_embedder,
-                        _verbose=verbose,
-                        _elapsed=_docs_elapsed,
-                    ) -> None:
-                        _t0 = time.monotonic()
-                        _db = _get_lance_db(_db_path)
-                        if _chunks:
-                            with _table_lock(_db_path / "docs.lance", create_dir=True):
-                                _stream_embed_write(_db, "docs", _chunks, _emb, "doc", verbose=_verbose)
-                        else:
-                            _stream_embed_write(_db, "docs", [], _emb, "doc", verbose=_verbose)
-                        _elapsed.append(time.monotonic() - _t0)
-                    futures.append(executor.submit(_write_docs_full))
-                if build_code:
-                    def _write_code_full(
-                        _db_path=lance_db_path,
-                        _chunks=new_code_chunks,
-                        _emb=code_embedder,
-                        _verbose=verbose,
-                        _elapsed=_code_elapsed,
-                    ) -> None:
-                        _t0 = time.monotonic()
-                        _db = _get_lance_db(_db_path)
-                        if _chunks:
-                            with _table_lock(_db_path / "code.lance", create_dir=True):
-                                _stream_embed_write(_db, "code", _chunks, _emb, "code", verbose=_verbose)
-                        else:
-                            _stream_embed_write(_db, "code", [], _emb, "code", verbose=_verbose)
-                        _elapsed.append(time.monotonic() - _t0)
-                    futures.append(executor.submit(_write_code_full))
+                # Wave 1p5ch: the full rebuild streams on the MAIN thread (see
+                # _run_streaming_full_rebuild below, after the secrets future is submitted) so it
+                # never materializes the whole chunk list. Nothing is submitted to the pool here;
+                # the secrets scan still runs concurrently as its own future.
+                pass
             else:
                 if build_docs:
                     def _write_docs_incr(
@@ -2719,6 +2807,24 @@ def _build_index_locked(
                     )
                     _elapsed.append(time.monotonic() - _t0)
                 futures.append(executor.submit(_write_secrets))
+            # Wave 1p5ch: the full rebuild streams the docs/code embed+write on the MAIN thread
+            # (bounded buffer; never holds the whole chunk list), concurrently with the in-flight
+            # secrets future. The incremental path used the docs/code futures submitted above.
+            if full:
+                _run_streaming_full_rebuild(
+                    db_path=lance_db_path,
+                    files_to_index=files_to_index,
+                    root=root,
+                    build_docs=build_docs,
+                    build_code=build_code,
+                    docs_embedder=docs_embedder,
+                    code_embedder=code_embedder,
+                    chunks_emitted_by_file=chunks_emitted_by_file,
+                    buffer_chunks=_resolve_embed_buffer_chunks(root),
+                    verbose=verbose,
+                    docs_elapsed=_docs_elapsed,
+                    code_elapsed=_code_elapsed,
+                )
             # Wave 1p2q3 (1p2wd post-ship 1.3.22 / Bug 4 part 2): graph
             # extraction runs synchronously on the main thread, concurrently
             # with the in-flight docs/code/secrets futures above. This is the
@@ -2738,6 +2844,17 @@ def _build_index_locked(
             )
             for f in futures:
                 f.result()
+
+        # Wave 1p5ch: persist chunks_emitted into current_file_meta AFTER the write — for the full
+        # rebuild the streaming pass populated chunks_emitted_by_file during the write (the
+        # incremental path populated it earlier). The cache-hit path in _detect_changes preserves
+        # prior counts for unchanged files; this populates every file just chunked so the next
+        # incremental drift check sees the truth once meta.json is written below.
+        for rel, count in chunks_emitted_by_file.items():
+            entry = current_file_meta.get(rel)
+            if isinstance(entry, dict):
+                entry["chunks_emitted"] = count
+
         # Get total chunk counts from Lance tables for the summary.
         total_doc_chunks = 0
         total_code_chunks = 0
@@ -2811,7 +2928,9 @@ def _build_index_locked(
     files_summary = f"{len(added)} added, {len(updated)} updated, {len(removed)} removed"
     if build_docs:
         if full:
-            doc_chunk_summary = f"{len(new_doc_chunks)} new"
+            # Wave 1p5ch: the streaming rebuild never materializes new_doc_chunks,
+            # so report the rows actually written (from the Lance table count above).
+            doc_chunk_summary = f"{total_doc_chunks} new"
         else:
             doc_chunk_summary = f"{doc_chunks_added} added, {doc_chunks_updated_new} updated, {doc_chunks_removed_net} removed"
         _docs_time = f" in {_docs_elapsed[0]:.1f}s" if _docs_elapsed else ""
@@ -2821,7 +2940,9 @@ def _build_index_locked(
         )
     if build_code:
         if full:
-            code_chunk_summary = f"{len(new_code_chunks)} new"
+            # Wave 1p5ch: see the docs branch above — report rows written, not the
+            # (now-unused) eager chunk list.
+            code_chunk_summary = f"{total_code_chunks} new"
         else:
             code_chunk_summary = f"{code_chunks_added} added, {code_chunks_updated_new} updated, {code_chunks_removed_net} removed"
         _code_time = f" in {_code_elapsed[0]:.1f}s" if _code_elapsed else ""

@@ -9,6 +9,7 @@ import importlib.util
 import os
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -398,6 +399,42 @@ class IndexerAccelDispatchTests(unittest.TestCase):
              patch.dict(sys.modules, {"fastembed": fake_fastembed}):
             got = self.idx._get_embedder("BAAI/bge-small-en-v1.5")
         self.assertIs(got, fake_te)
+
+
+class HfDownloadCachedFirstTests(unittest.TestCase):
+    """Wave 1p5cx: clean-ONNX / reranker resolution must hit the local cache first (no Hub
+    round-trip / no unauthenticated-request warning on a warm cache), downloading only on a miss."""
+
+    def setUp(self):
+        self.accel = load_accel()
+
+    def test_cached_first_no_network_when_present(self):
+        calls = []
+
+        def fake_dl(repo, filename, cache_dir=None, local_files_only=False):
+            calls.append(local_files_only)
+            return f"/cache/{filename}"
+
+        fake_hub = types.SimpleNamespace(hf_hub_download=fake_dl)
+        with patch.dict(sys.modules, {"huggingface_hub": fake_hub}):
+            path = self.accel._hf_download_cached_first("repo", "model.onnx", "/cache")
+        self.assertEqual(path, "/cache/model.onnx")
+        self.assertEqual(calls, [True], "cached load only; no online attempt")
+
+    def test_cached_first_falls_back_to_download_on_miss(self):
+        calls = []
+
+        def fake_dl(repo, filename, cache_dir=None, local_files_only=False):
+            calls.append(local_files_only)
+            if local_files_only:
+                raise RuntimeError("LocalEntryNotFound")
+            return f"/downloaded/{filename}"
+
+        fake_hub = types.SimpleNamespace(hf_hub_download=fake_dl)
+        with patch.dict(sys.modules, {"huggingface_hub": fake_hub}):
+            path = self.accel._hf_download_cached_first("repo", "model.onnx", "/cache")
+        self.assertEqual(path, "/downloaded/model.onnx")
+        self.assertEqual(calls, [True, False], "cached-first then online download")
 
 
 if __name__ == "__main__":

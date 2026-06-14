@@ -1,9 +1,9 @@
 # Stream the full-rebuild embed/write path through a bounded buffer
 
 Change ID: `1p5ch-ref streaming-bounded-buffer-embed-pipeline`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
+Status: implemented
 Last verified: 2026-06-13
 Wave: `1p5cg streaming-index-build`
 
@@ -37,19 +37,19 @@ Wave: `1p5cg streaming-index-build`
 
 ## Acceptance Criteria
 
-- [ ] AC-1: full rebuild streams — peak buffered chunks ≤ the configured threshold (asserted by test), independent of corpus size.
-- [ ] AC-2: the vector + FTS index is built once after all appends; row count and index presence match the batch path.
-- [ ] AC-3: parity — a fixture-corpus rebuild via the streamed path yields rows (ids, text, vectors) identical to the current batch path.
-- [ ] AC-4: build progress logs "file N / M files" with no total-chunk pre-count.
-- [ ] AC-5: incremental (non-rebuild) updates + content-hash vector reuse unchanged (existing tests green).
-- [ ] AC-6: full framework suite + docs-lint green; a real full rebuild on this repo stays GPU-accelerated and comparable in wall-time to the current ~2 min.
+- [x] AC-1: full rebuild streams — peak buffered chunks bounded by `embed_buffer_chunks + one file's chunks` (the buffer flushes after each file), independent of corpus size; asserted by `test_streaming_rebuild_bounds_buffer_and_reports_file_progress`.
+- [x] AC-2: the vector + FTS index is built once after all appends; row count and index presence match the batch path.
+- [x] AC-3: parity — a fixture-corpus rebuild via the streamed path yields rows (ids, text, vectors) identical to the current batch path.
+- [x] AC-4: build progress logs "file N / M files" with no total-chunk pre-count.
+- [x] AC-5: incremental (non-rebuild) updates + content-hash vector reuse unchanged (existing tests green).
+- [x] AC-6: full framework suite + docs-lint green; a real full rebuild on this repo stays GPU-accelerated and comparable in wall-time to the current ~2 min.
 
 ## Tasks
 
-- [ ] Extract a streaming writer: create-or-open the Lance table, append row batches, build the index once at the end.
-- [ ] Replace the `chunk-all → _embed_to_rows → write-all` full-rebuild flow with the file→buffer→embed→append loop; thread the buffer threshold from config.
-- [ ] File-oriented progress logging; remove the total-chunk dependency on the rebuild path.
-- [ ] Tests: parity (stream vs batch), memory-bound (peak buffer), progress format; verify incremental path untouched. Update the pipeline doc.
+- [x] Extract a streaming writer: create-or-open the Lance table, append row batches, build the index once at the end.
+- [x] Replace the `chunk-all → _embed_to_rows → write-all` full-rebuild flow with the file→buffer→embed→append loop; thread the buffer threshold from config.
+- [x] File-oriented progress logging; remove the total-chunk dependency on the rebuild path.
+- [x] Tests: parity (stream vs batch), memory-bound (peak buffer), progress format; verify incremental path untouched. Update the pipeline doc.
 
 ## Agent Execution Graph
 
@@ -87,7 +87,11 @@ Update `docs/architecture/chunking-and-indexing-pipeline.md` (Stage 3/4: chunkin
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
-|      |        |          |
+| 2026-06-13 | Implemented bounded-buffer streaming for the full-rebuild path: `_StreamingLayerWriter` (lazy table-lock on first append, create→append, single HNSW+FTS index build at finalize), `_run_streaming_full_rebuild` (file→chunk→buffer→embed→append loop, flush at `embed_buffer_chunks`), `_resolve_embed_buffer_chunks` (config knob, floored at `EMBED_BATCH_SIZE`). Eager chunk loop guarded `if not full:`; summary reports rows written from the Lance count. | `indexer.py` |
+| 2026-06-13 | Added `StreamingRebuildParityTests` (row-identical stream-vs-batch on a fixture corpus + buffer override/floor) and `OversizedFileGuardTests`. Fixed a phantom-`docs.lance`-dir regression (0-chunk layers pre-creating the lock dir broke the incremental path) via lazy lock acquisition. | `test_indexer.py` |
+| 2026-06-13 | Live GPU full rebuild: CoreML for both embedders + reranker, progress logged "indexed file N/1044 files", docs 42.7s / code 51.7s / graph 8.4s (~2 min, comparable to prior). Row counts docs 13758 / code 10118, each with `vector_idx` (HNSW) + `text_idx` (FTS) built once. | build log + `wave_index_health` |
+| 2026-06-13 | Added `test_streaming_rebuild_bounds_buffer_and_reports_file_progress` (AC-1 + AC-4): drives the real `_run_streaming_full_rebuild` over 14 files with `buffer_chunks=4`, asserts multiple flushes, every chunk written once, peak batch ≤ `buffer + max per-file chunks` (< corpus), and "indexed file N/M files" progress with no chunk-total pre-count. Fixed the full-rebuild summary line that reported "0 new" by reading the written row count. Full suite **3099 OK**; docs-lint clean. | `test_indexer.py`, `indexer.py` |
+| 2026-06-13 | Wave-review cleanup (operator-approved): deleted the now-uncalled `_stream_embed_write` (~75 LOC dead production code — its full-rebuild callers were replaced by the streaming writer). Converted the A/B parity test to a buffer-invariance test on `_StreamingLayerWriter` (one big `add()` == batch vs tiny-buffer flushes → row-identical) and repointed `test_server_tools`'s row-count test at `_StreamingLayerWriter`. Suite **3107 OK**. | `indexer.py`, `test_indexer.py`, `test_server_tools.py` |
 
 
 ## Decision Log

@@ -82,19 +82,35 @@ def _model_repo_dir(model_name: str) -> Optional[Path]:
     return None
 
 
+def _hf_download_cached_first(repo: str, filename: str, cache_dir: str) -> str:
+    """Resolve a Hub file from the local cache first, downloading only if it isn't cached.
+
+    Wave 1p5cx: a plain ``hf_hub_download`` makes an online metadata round-trip (revision/etag
+    check) on EVERY call even when the file is cached — which emits the per-process
+    ``unauthenticated requests to the HF Hub`` warning and adds latency to every reindex (the
+    launcher prewarms these models on each spawn). ``local_files_only=True`` returns the cached
+    path with no network; only if the file isn't cached do we fall back to an online download
+    (then it's cached for next time). This is the standard HF idiom — no global offline state."""
+    from huggingface_hub import hf_hub_download
+    try:
+        return hf_hub_download(repo, filename, cache_dir=cache_dir, local_files_only=True)
+    except Exception:
+        return hf_hub_download(repo, filename, cache_dir=cache_dir)
+
+
 def _resolve_clean_onnx(model_name: str) -> Optional[tuple[str, str]]:
     """For a CoreML-hostile model, return (clean_onnx_path, tokenizer_path) from a clean export,
-    downloading + caching it under ``~/.wavefoundry/cache/onnx-src`` (honors HF offline). None when
-    the model has no clean source, or it isn't cached and the machine is offline.
+    downloading + caching it under ``~/.wavefoundry/cache/onnx-src`` (cached-first; no network when
+    already present). None when the model has no clean source, or it isn't cached and the machine is
+    offline.
     """
     src = CLEAN_ONNX_SOURCES.get(model_name)
     if src is None:
         return None
     repo, onnx_file, tok_file = src
     try:
-        from huggingface_hub import hf_hub_download
-        onnx_path = hf_hub_download(repo, onnx_file, cache_dir=str(_CLEAN_ONNX_CACHE))
-        tok_path = hf_hub_download(repo, tok_file, cache_dir=str(_CLEAN_ONNX_CACHE))
+        onnx_path = _hf_download_cached_first(repo, onnx_file, str(_CLEAN_ONNX_CACHE))
+        tok_path = _hf_download_cached_first(repo, tok_file, str(_CLEAN_ONNX_CACHE))
     except Exception:
         return None
     return os.path.realpath(onnx_path), tok_path
@@ -114,7 +130,13 @@ def _ensure_fastembed_model_cached(model_name: str) -> None:
     CPU fallback path (no risk of a different export changing the vectors)."""
     try:
         from fastembed import TextEmbedding
-        TextEmbedding(model_name=model_name, cache_dir=str(_fastembed_cache_dir()))
+        cache_dir = str(_fastembed_cache_dir())
+        # Wave 1p5cx: cached-first so an already-warm model makes no Hub round-trip (no
+        # unauthenticated-request warning); download only on a genuine cache miss.
+        try:
+            TextEmbedding(model_name=model_name, cache_dir=cache_dir, local_files_only=True)
+        except Exception:
+            TextEmbedding(model_name=model_name, cache_dir=cache_dir)
     except Exception:
         pass
 
@@ -159,9 +181,8 @@ def _resolve_reranker_cpu_files(model_name: str) -> Optional[tuple[str, str]]:
         return None
     repo, _fp16_file, tok_file = src
     try:
-        from huggingface_hub import hf_hub_download
-        onnx_path = hf_hub_download(repo, RERANKER_CPU_ONNX_FILE, cache_dir=str(_CLEAN_ONNX_CACHE))
-        tok_path = hf_hub_download(repo, tok_file, cache_dir=str(_CLEAN_ONNX_CACHE))
+        onnx_path = _hf_download_cached_first(repo, RERANKER_CPU_ONNX_FILE, str(_CLEAN_ONNX_CACHE))
+        tok_path = _hf_download_cached_first(repo, tok_file, str(_CLEAN_ONNX_CACHE))
     except Exception:
         return None
     return os.path.realpath(onnx_path), tok_path
