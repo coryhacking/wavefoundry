@@ -4,7 +4,7 @@ Change ID: `1p5do-enh upgrade-floor-and-migration-log-surfacing`
 Change Status: `implemented`
 Owner: Engineering
 Status: implemented
-Last verified: 2026-06-13
+Last verified: 2026-06-14
 Wave: `1p5dk 1-6-release-hardening`
 
 ## Rationale
@@ -38,7 +38,7 @@ Two upgrade-flow robustness gaps surfaced in the review:
 
 ## Acceptance Criteria
 
-- [ ] AC-1: an upgrade from below 1.4.0 (and from an unparseable version) **loud-warns and proceeds** with a clear surfaced message; an upgrade from ≥ 1.4.0 (e.g. 1.5.1) does not warn; asserted by test.
+- [x] AC-1: an upgrade from below 1.4.0 (and from an unparseable version) **loud-warns and proceeds** with a clear surfaced message; an upgrade from ≥ 1.4.0 (e.g. 1.5.1) does not warn; asserted by `test_below_floor_predicate` (`_below_upgrade_floor` + `SUPPORTED_UPGRADE_FLOOR="1.4.0"`).
 - [x] AC-2: a `post_extract` migration that records an `ERROR:` causes the final summary to surface a warning pointing at the log (`_warn_if_migration_errors`, called next to `_warn_if_background_code_incomplete`), not silently "PASSED"; `.preview.log` dry-run reports are ignored. Asserted by `test_migration_errors_surface` / `_clean_log_silent` / `_preview_log_ignored`.
 - [x] AC-3: an empty pre-extract version snapshot with an existing index logs the "full re-embed / graph re-extract" signal (`_warn_if_no_version_baseline`, called in the no-transitions `else`); asserted by test.
 - [x] AC-4: a malformed `workflow-config.json` produces a convergence-migration warning on stderr (not a silent no-op); asserted by `ConvergenceParseWarningTests`. Full suite **3116 OK**.
