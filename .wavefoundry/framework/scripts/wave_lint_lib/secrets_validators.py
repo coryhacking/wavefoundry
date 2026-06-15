@@ -136,18 +136,53 @@ def _get_changed_files(root: Path) -> list[Path]:
     return paths
 
 
+def _filter_gitignored(root: Path, paths: list[Path]) -> list[Path]:
+    """Best-effort: drop paths git would ignore, via ``git check-ignore --stdin``.
+
+    Wave 1p5rd — used only by the `rglob` fallback (when `git ls-files` failed) so the
+    fallback matches the git-tracked path, which already excludes gitignored files via
+    `--exclude-standard`. Returns ``paths`` unchanged when the directory is not a git
+    worktree (check-ignore exits non-0/1) or on any failure. Never raises.
+    """
+    if not paths:
+        return paths
+    rels: list[str] = []
+    for p in paths:
+        try:
+            rels.append(str(p.relative_to(root)))
+        except ValueError:
+            rels.append(str(p))
+    try:
+        proc = subprocess.run(
+            ["git", "check-ignore", "--stdin"],
+            cwd=root, input="\n".join(rels), capture_output=True, text=True,
+        )
+    except OSError:
+        return paths
+    # exit 0 = at least one ignored (printed on stdout); 1 = none ignored; anything
+    # else (128 = not a git repo, etc.) → can't determine, keep all.
+    if proc.returncode not in (0, 1):
+        return paths
+    ignored = {line.strip() for line in proc.stdout.splitlines() if line.strip()}
+    if not ignored:
+        return paths
+    return [p for p, rel in zip(paths, rels) if rel not in ignored]
+
+
 def _get_all_files(root: Path) -> list[Path]:
     tracked = subprocess.run(
         ["git", "ls-files"],
         cwd=root, capture_output=True, text=True
     )
     if tracked.returncode != 0:
-        # Fallback: walk the tree excluding .git/
-        paths = []
-        for p in root.rglob("*"):
-            if p.is_file() and ".git" not in p.parts:
-                paths.append(p)
-        return paths
+        # Fallback (not a usable git worktree — e.g. not a repo, git unavailable, or
+        # root != worktree root): walk the tree excluding .git/, then best-effort honor
+        # .gitignore via `git check-ignore` (wave 1p5rd). If the dir IS a repo and
+        # `git ls-files` merely glitched, ignored paths are dropped; if truly non-git,
+        # check-ignore errors and the walk is kept (the [allowlist] + binary skip still
+        # exclude framework runtime artifacts before any read).
+        walked = [p for p in root.rglob("*") if p.is_file() and ".git" not in p.parts]
+        return _filter_gitignored(root, walked)
 
     untracked = subprocess.run(
         ["git", "ls-files", "--others", "--exclude-standard"],
@@ -692,6 +727,23 @@ _BINARY_SKIP_EXTENSIONS = frozenset({
     ".class", ".jar", ".war",
 })
 
+
+def _is_binary_path(file_path: Path) -> bool:
+    """True when the path's extension marks it binary/data — including VERSIONED
+    shared objects like ``libfoo.so.13`` / ``libbar.dylib.1`` (wave 1p5rd), whose
+    ``Path.suffix`` is the trailing version (``.13``) rather than ``.so``. A
+    ``.so``/``.dylib``/``.dll`` component followed only by numeric version segments
+    counts; ``foo.so.txt`` does not (still scanned)."""
+    if file_path.suffix.lower() in _BINARY_SKIP_EXTENSIONS:
+        return True
+    suffixes = [s.lower() for s in file_path.suffixes]
+    for i, s in enumerate(suffixes):
+        if s in (".so", ".dylib", ".dll"):
+            trailing = suffixes[i + 1:]
+            if all(t[1:].isdigit() for t in trailing):  # empty trailing → plain .so
+                return True
+    return False
+
 # ── Wave 1p44s (AC-9) — skip visibility ──────────────────────────────────────
 # Files skipped by the size/binary guards must be SURFACED, never silent, so a
 # real secret in a skipped file leaves a trace. Two channels:
@@ -880,8 +932,8 @@ def scan_file_raw(
     # artifacts (archives, shared objects, LanceDB segments, media, model weights)
     # never reach the per-file NUL-byte sniff. Field report 091yo: the 8 KB sniff
     # over ~300 such files made docs-lint / wave_* tools spin (~54s).
-    if file_path.suffix.lower() in _BINARY_SKIP_EXTENSIONS:
-        _record_scan_skip(rel, "binary file (extension)", file_path.suffix.lower())
+    if _is_binary_path(file_path):
+        _record_scan_skip(rel, "binary file (extension)", "".join(file_path.suffixes).lower() or file_path.name)
         return [], None, []
     # Wave 1p44s — input guards BEFORE reading the file. Each returns the same
     # ([], None, []) shape as a clean skip so phase-2 short-circuits without a

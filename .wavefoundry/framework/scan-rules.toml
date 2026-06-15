@@ -153,6 +153,13 @@ paths = [
     '''(?:^|/)scan-rules\.toml$''',
     '''(?:^|/)scan-allowlist$''',
     '''(?:^|/)scan-findings\.json$''',
+    # Wave 1p5rd — Wavefoundry runtime artifacts: never scan the framework's own
+    # runtime output (LanceDB index segments, caches, logs, built packs). These are
+    # gitignored in a normal repo, but the non-git `rglob` fallback would otherwise
+    # sweep them in. Anchored to runtime subdirs only — `.wavefoundry/framework/`
+    # (shipped source) stays scannable.
+    '''(?:^|/)\.wavefoundry/(?:index|cache|logs|dist)(?:/.*)?$''',
+    '''(?:^|/)wavefoundry-[0-9][^/]*\.zip$''',
     '''(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?)$''',
     '''(?i)\.(?:eot|[ot]tf|woff2?)$''',
     '''(?i)\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|.dll|pdb|exe|gltf|wasm|node|a|o|so|dylib|class)$''',

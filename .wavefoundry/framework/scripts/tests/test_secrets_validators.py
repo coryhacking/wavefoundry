@@ -1826,5 +1826,79 @@ class TestFrameworkRuleset(unittest.TestCase):
         self.assertIn("gitleaks", content.lower())
 
 
+# Wave 1p5rd — scanner scope: framework runtime artifacts allowlisted, rglob
+# fallback honors .gitignore, versioned shared objects skipped.
+class ScannerScopeHardeningTests(unittest.TestCase):
+    def _real_allowlist_paths(self) -> list[str]:
+        toml_path = SCRIPTS_ROOT.parent / "scan-rules.toml"
+        data = tomllib.loads(toml_path.read_text(encoding="utf-8"))
+        return list(data.get("allowlist", {}).get("paths", []))
+
+    def test_runtime_artifacts_allowlisted_framework_source_not(self):
+        # AC-1: the SHIPPED ruleset excludes framework runtime artifacts but keeps
+        # framework source scannable.
+        paths = self._real_allowlist_paths()
+        for excluded in (
+            ".wavefoundry/index/code.lance/data/x.lance",
+            ".wavefoundry/index/scan/scan-state.json",
+            ".wavefoundry/cache/onnx/model.onnx",
+            ".wavefoundry/logs/upgrade.log",
+            ".wavefoundry/dist/wavefoundry-1.6.1.p5r9.zip",
+            "wavefoundry-1.6.1.p5r9.zip",
+        ):
+            self.assertTrue(_path_matches_allowlist(excluded, paths),
+                            f"{excluded} should be allowlisted")
+        # The runtime-artifact rule must NOT catch framework SOURCE (still scannable).
+        runtime_rule = r'''(?:^|/)\.wavefoundry/(?:index|cache|logs|dist)(?:/.*)?$'''
+        self.assertFalse(re.search(runtime_rule, ".wavefoundry/framework/scripts/server_impl.py"))
+        self.assertFalse(re.search(runtime_rule, ".wavefoundry/framework/seeds/213-security-reviewer.prompt.md"))
+
+    def test_is_binary_path_versioned_shared_objects(self):
+        # AC-2: versioned .so.N / .dylib.N are binary; .so.txt and dotted source are not.
+        for binary in ("libfoo.so", "libfoo.so.13", "libbar.dylib.1", "x.dll",
+                       "data.lance", "pack.zip", "model.onnx"):
+            self.assertTrue(_sv._is_binary_path(Path(binary)), binary)
+        for text in ("module.py", "a.test.py", "foo.so.txt", "config.yaml", "readme.md"):
+            self.assertFalse(_sv._is_binary_path(Path(text)), text)
+
+    def test_filter_gitignored_drops_in_repo_keeps_when_non_git(self):
+        # AC-2: in a real git repo, check-ignore drops .gitignore'd paths; in a
+        # non-git dir the walk is kept unchanged.
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            subprocess.run(["git", "init", "-q"], cwd=tmp, check=True)
+            (tmp / ".gitignore").write_text("ignored/\n", encoding="utf-8")
+            (tmp / "ignored").mkdir()
+            (tmp / "ignored" / "secret.txt").write_text("x", encoding="utf-8")
+            (tmp / "kept.py").write_text("x", encoding="utf-8")
+            paths = [tmp / "ignored" / "secret.txt", tmp / "kept.py"]
+            filtered = _sv._filter_gitignored(tmp, paths)
+            names = {p.name for p in filtered}
+            self.assertIn("kept.py", names)
+            self.assertNotIn("secret.txt", names, "gitignored path must be dropped")
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)  # NOT a git repo
+            (tmp / "a.py").write_text("x", encoding="utf-8")
+            paths = [tmp / "a.py"]
+            self.assertEqual(_sv._filter_gitignored(tmp, paths), paths,
+                             "non-git dir: check-ignore errors → keep the walk")
+
+    def test_artifact_with_secret_not_flagged_source_is(self):
+        # AC-1 end-to-end (non-git tree → rglob fallback selects everything): a
+        # secret-looking string in a .lance is skipped; the same in a .py is flagged.
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            _make_root(tmp)
+            _write_framework_toml(tmp)
+            secret = 'key = "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX"\n'
+            (tmp / ".wavefoundry" / "index").mkdir(parents=True, exist_ok=True)
+            (tmp / ".wavefoundry" / "index" / "data.lance").write_text(secret, encoding="utf-8")
+            (tmp / "config.py").write_text(secret, encoding="utf-8")
+            errors = _run_check(tmp)
+            self.assertTrue(any("test-stripe-key" in e for e in errors), "source secret must be flagged")
+            self.assertFalse(any(".lance" in e for e in errors), "LanceDB artifact must not be flagged")
+
+
 if __name__ == "__main__":
     unittest.main()
