@@ -473,10 +473,12 @@ class FindLatestReleaseZipTests(unittest.TestCase):
         self.user_home = Path(self.tmp.name) / "home"
         self.home_dir = Path(self.tmp.name) / "home-wavefoundry"
         self.dist_dir = self.home_dir / "dist"
+        self.downloads_dir = Path(self.tmp.name) / "downloads"
         self.root.mkdir(parents=True)
         self.user_home.mkdir(parents=True)
         self.home_dir.mkdir(parents=True)
         self.dist_dir.mkdir(parents=True)
+        self.downloads_dir.mkdir(parents=True)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -493,6 +495,8 @@ class FindLatestReleaseZipTests(unittest.TestCase):
             self.mod, "_HOME_WAVEFOUNDRY_DIR", self.home_dir
         ), unittest.mock.patch.object(
             self.mod, "_DIST_DIR", self.dist_dir
+        ), unittest.mock.patch.object(
+            self.mod, "_DOWNLOADS_DIR", self.downloads_dir
         ):
             return self.mod._find_latest_release_zip(self.root)
 
@@ -505,7 +509,9 @@ class FindLatestReleaseZipTests(unittest.TestCase):
             self.mod, "_HOME_DIR", self.user_home
         ), unittest.mock.patch.object(
             self.mod, "_HOME_WAVEFOUNDRY_DIR", self.home_dir
-        ), unittest.mock.patch.object(self.mod, "_DIST_DIR", self.dist_dir):
+        ), unittest.mock.patch.object(
+            self.mod, "_DIST_DIR", self.dist_dir
+        ), unittest.mock.patch.object(self.mod, "_DOWNLOADS_DIR", self.downloads_dir):
             result = self.mod._find_latest_release_zip(self.root)
         self.assertIsNone(result)
 
@@ -518,6 +524,21 @@ class FindLatestReleaseZipTests(unittest.TestCase):
         result = self._run()
         self.assertIsNotNone(result)
         self.assertEqual(result.name, "wavefoundry-1.2.0.2abc.zip")
+
+    def test_finds_zip_in_downloads(self):
+        # 1p5dk: browser-downloaded packs commonly land in ~/Downloads — discovery must see them.
+        self._write_zip(self.downloads_dir, "wavefoundry-1.2.0.2abc.zip")
+        result = self._run()
+        self.assertIsNotNone(result)
+        self.assertEqual(result.name, "wavefoundry-1.2.0.2abc.zip")
+
+    def test_downloads_competes_on_semver(self):
+        # A higher-semver pack in Downloads wins over a lower one in dist (all paths pooled).
+        self._write_zip(self.dist_dir, "wavefoundry-1.0.0.2abc.zip")
+        self._write_zip(self.downloads_dir, "wavefoundry-1.6.0.p5ec.zip")
+        result = self._run()
+        self.assertIsNotNone(result)
+        self.assertEqual(result.name, "wavefoundry-1.6.0.p5ec.zip")
 
     def test_returns_highest_semver_zip(self):
         self._write_zip(self.root, "wavefoundry-0.8.0.2abc.zip")
@@ -576,12 +597,16 @@ class DryRunTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         # Minimal repo structure
         (self.root / ".wavefoundry" / "framework").mkdir(parents=True)
-        # Isolate from real ~/.wavefoundry/dist/ so tests are not polluted by
-        # actual release zips present on the developer's machine.
+        # Isolate from real ~/.wavefoundry/dist/ AND ~/Downloads/ so tests are not polluted by
+        # actual release zips present on the developer's machine (1p5dk added ~/Downloads to the
+        # search paths — a very common landing spot for real packs).
         self._dist_patch = patch.object(self.mod, "_DIST_DIR", Path(self.tmp.name) / "dist")
         self._dist_patch.start()
+        self._downloads_patch = patch.object(self.mod, "_DOWNLOADS_DIR", Path(self.tmp.name) / "downloads")
+        self._downloads_patch.start()
 
     def tearDown(self):
+        self._downloads_patch.stop()
         self._dist_patch.stop()
         self.mod._close_log()
         self.mod._log_file = self._saved_log_file  # restore (normally None)
@@ -2564,6 +2589,116 @@ class BackgroundCodeIncompleteWarningTests(unittest.TestCase):
 
     def test_silent_when_meta_absent(self):
         self.assertEqual(self._run_capturing(), [])  # no meta.json → no warning, no crash
+
+
+class UpgradeFloorAndMigrationSurfacingTests(unittest.TestCase):
+    """1p5do: upgrade floor (warn, not abort), migration-log ERROR surfacing, and the
+    empty-version-baseline rebuild signal."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        # _below_upgrade_floor does a call-time `from check_version import ...` (a sibling script);
+        # ensure the scripts dir is importable when this test runs standalone.
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _capture(self, fn, *args):
+        lines: list[str] = []
+        with patch.object(self.mod, "_log", side_effect=lambda *a: lines.append(" ".join(str(x) for x in a))):
+            fn(*args)
+        return lines
+
+    # AC-1 — floor is a warn at 1.4.0, never fires for >= 1.4.0, fires for below + unparseable.
+    def test_below_floor_predicate(self):
+        self.assertEqual(self.mod.SUPPORTED_UPGRADE_FLOOR, "1.4.0")
+        for below in ("1.3.0", "0.9.0", "not-a-version", ""):
+            self.assertTrue(self.mod._below_upgrade_floor(below), below)
+        for ok in ("1.4.0", "1.5.1", "1.6.0", "1.5.0+p4uw"):
+            self.assertFalse(self.mod._below_upgrade_floor(ok), ok)
+
+    # AC-3 — empty snapshot + index present → rebuild signal; otherwise silent.
+    def test_no_version_baseline_warns_when_index_exists(self):
+        (self.root / ".wavefoundry" / "index").mkdir(parents=True)
+        lines = self._capture(self.mod._warn_if_no_version_baseline, {}, self.root)
+        self.assertTrue(any("No framework version baseline" in ln for ln in lines))
+
+    def test_no_version_baseline_silent_when_baseline_present(self):
+        (self.root / ".wavefoundry" / "index").mkdir(parents=True)
+        self.assertEqual(self._capture(self.mod._warn_if_no_version_baseline, {"graph_builder": "30"}, self.root), [])
+
+    def test_no_version_baseline_silent_when_no_index(self):
+        self.assertEqual(self._capture(self.mod._warn_if_no_version_baseline, {}, self.root), [])
+
+    # AC-2 — migration-log ERROR surfacing (real logs only, not .preview).
+    def _logs_dir(self):
+        d = self.root / ".wavefoundry" / "logs"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def test_migration_errors_surface(self):
+        (self._logs_dir() / "upgrade-migration-1.5.0.log").write_text("ok\nERROR: Role backfill failed\n", encoding="utf-8")
+        self.assertTrue(any("ERROR entries" in ln for ln in self._capture(self.mod._warn_if_migration_errors, self.root)))
+
+    def test_migration_clean_log_silent(self):
+        (self._logs_dir() / "upgrade-convergence-migration.log").write_text("renamed wave_execution -> wave_implement\n", encoding="utf-8")
+        self.assertEqual(self._capture(self.mod._warn_if_migration_errors, self.root), [])
+
+    def test_migration_preview_log_ignored(self):
+        (self._logs_dir() / "upgrade-migration-1.5.0.preview.log").write_text("ERROR: would fail\n", encoding="utf-8")
+        self.assertEqual(self._capture(self.mod._warn_if_migration_errors, self.root), [])
+
+    # 1p5ik — remove the deprecated framework/index/ that manifest-prune can't.
+    def test_removes_deprecated_framework_index(self):
+        fidx = self.root / ".wavefoundry" / "framework" / "index"
+        (fidx / "docs.lance").mkdir(parents=True)
+        (fidx / "meta.json").write_text("{}", encoding="utf-8")
+        with patch.object(self.mod, "_log", side_effect=lambda *a: None):
+            removed = self.mod._remove_deprecated_framework_index(self.root)
+        self.assertTrue(removed)
+        self.assertFalse(fidx.exists(), "stale framework/index/ must be removed")
+
+    def test_remove_framework_index_absent_is_noop(self):
+        with patch.object(self.mod, "_log", side_effect=lambda *a: None):
+            removed = self.mod._remove_deprecated_framework_index(self.root)
+        self.assertFalse(removed)  # absent → False, no error
+
+
+class ConvergenceParseWarningTests(unittest.TestCase):
+    """1p5do (AC-4): a malformed workflow-config.json makes the convergence migration WARN rather
+    than no-op silently, so a later docs-gate failure is connectable to the un-migrated config."""
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("upgrade_extensions", SCRIPTS_ROOT / "upgrade_extensions.py")
+        self.ext = importlib.util.module_from_spec(spec)
+        sys.modules["upgrade_extensions"] = self.ext
+        spec.loader.exec_module(self.ext)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_malformed_config_warns_and_noops(self):
+        (self.root / "docs" / "workflow-config.json").write_text("{ this is not valid json", encoding="utf-8")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            result = self.ext._rewrite_legacy_config_keys(self.root)
+        self.assertEqual(result, [])
+        self.assertIn("WARNING", err.getvalue())
+        self.assertIn("could not read/parse", err.getvalue())
+
+    def test_valid_config_no_warning(self):
+        (self.root / "docs" / "workflow-config.json").write_text(json.dumps({"wave_implement": "x"}), encoding="utf-8")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.ext._rewrite_legacy_config_keys(self.root)
+        self.assertNotIn("WARNING", err.getvalue())
 
 
 if __name__ == "__main__":

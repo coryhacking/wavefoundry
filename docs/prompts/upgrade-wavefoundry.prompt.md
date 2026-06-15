@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-05
+Last verified: 2026-06-14
 
 Shortcut: **`Upgrade wave framework`** | Legacy: **`Upgrade Wavefoundry`** / **`Upgrade wave context`**
 
@@ -17,17 +17,19 @@ Use this prompt when the repository is already seeded and you want it to adopt a
 The expected operator flow is:
 
 1. Put the new framework in reach of this repository.
-   - Usually this means building or placing `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`.
+   - Usually this means building or placing `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`.
    - If the repository already has the desired newer `.wavefoundry/framework/` tree staged locally, the upgrade runs against that tree directly.
+   - **Never `ls` for the pack to decide whether one exists.** It almost always lives in `~/.wavefoundry/dist/`, not the repo root, so an empty `ls wavefoundry-*.zip` at the repo root does **not** mean there's no pack. Determine it only via `.wavefoundry/bin/upgrade-wavefoundry --detect-zip` / `--list-zips` / `--dry-run` (see *Agent-safe zip discovery* below).
 2. Run **Upgrade wave framework**.
    - If a root `wavefoundry-*.zip` is present, upgrade automatically unpacks the newest matching zip first.
    - It then regenerates tracked platform surfaces, reconciles docs/prompts/config, and validates drift.
-3. Restart the MCP server after the upgrade finishes.
-   - The upgraded server code and regenerated host config do not take effect until the running MCP process is restarted.
+3. Reload the MCP server **in-process** when the upgrade finishes.
+   - The upgrade reloads the server code in-process — call `wave_mcp_reload()` (or run `wave_upgrade` cleanup, which reloads automatically). A full host restart is only needed for hosts that cannot hot-reload.
    - If you use Codex, the MCP server reloads from the committed `.codex/config.toml` automatically — no re-registration needed after upgrade.
-4. Update indexes after restart.
-   - Normal framework updates: run docs-layer index updates.
-   - Chunker/schema changes: run a full rebuild instead.
+4. The index update runs **automatically** at the end of the upgrade.
+   - The upgrade always runs an index update as its final phase, and the indexer auto-escalates to a full rebuild when a version transition (chunker or graph) requires it — you do **not** run a separate index command for a normal upgrade.
+   - A manual `wave_index_build(...)` / `--update-index` call is only for re-running after the agent editing pass or recovering a backgrounded code build (see the Verification Checklist).
+   - Note: moving to 1.6.0 bumps both `CHUNKER_VERSION` and `GRAPH_BUILDER_VERSION`, so the first post-upgrade index is a full re-chunk + re-embed + graph re-extract (minutes, not incremental). This is expected and automatic.
 
 What this prompt is not:
 
@@ -43,16 +45,17 @@ What this prompt is not:
 
 **Versioning contract:** Releases use `MAJOR.MINOR.PATCH` semver. The version appears as `MAJOR.MINOR.PATCH+<build>` in `VERSION` and `framework_revision`, and as `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` in filenames. See `docs/architecture/decisions/12tm5-adr semver-versioning-contract.md` for the version bump policy.
 
-**Distribution directories:** `upgrade_wavefoundry.py` searches the repository root, `~/`, `~/.wavefoundry/`, and `~/.wavefoundry/dist/`, then picks the highest semver zip. Non-matching filenames are skipped silently.
+**Distribution directories:** `upgrade_wavefoundry.py` searches the repository root, `~/`, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, and `~/Downloads/`, then picks the highest semver zip. Non-matching filenames are skipped silently.
 
-**Agent-safe zip discovery (use these, not `ls`):** `ls -1 ~/.wavefoundry/dist/` sorts lexicographically and ranks `wavefoundry-1.3.9.*.zip` *above* `wavefoundry-1.3.30.*.zip`, which causes agents to identify and apply a stale pack. Use the script flags instead — both run the same semver comparator the upgrade itself uses:
+**Agent-safe zip discovery (use these, not `ls`):** Never use `ls`/`find` to locate or choose the pack. Two reasons it gives the wrong answer: (1) it only sees the directory you point it at — the pack usually lives in `~/.wavefoundry/dist/`, so `ls wavefoundry-*.zip` at the repo root finds nothing and an agent wrongly concludes "already current / nothing to upgrade"; (2) `ls -1 ~/.wavefoundry/dist/` sorts lexicographically and ranks `wavefoundry-1.3.9.*.zip` *above* `wavefoundry-1.3.30.*.zip`, selecting a stale pack. Use the script flags instead — all run the same semver comparator over all five search paths the upgrade itself uses:
 
 - `.wavefoundry/bin/upgrade-wavefoundry --detect-zip` — prints the absolute path of the selected pack and exits `0`. Exits `1` with empty output when no matching zip is found.
-- `.wavefoundry/bin/upgrade-wavefoundry --list-zips` — prints every match across all four search paths, semver-sorted (highest first), with `* ` on the selected pack.
+- `.wavefoundry/bin/upgrade-wavefoundry --list-zips` — prints every match across all five search paths, semver-sorted (highest first), with `* ` on the selected pack.
+- `.wavefoundry/bin/upgrade-wavefoundry --dry-run` — prints the selected pack on a `Zip to apply:` line in the same output that surfaces seed diffs and hook inventory, with zero mutations.
 
-When MCP is attached, `wave_upgrade(mode='dry_run')` is the preferred path — it prints the selected pack on a `Zip to apply:` line in the same output that surfaces seed diffs and hook inventory.
+Discovery/preview is **CLI-only**: run the flag via your shell (that is the agent-safe path — not `ls`). The MCP `wave_upgrade` tool *runs* the upgrade — its default `preflight_to_docs_gate` phase adopts the highest pack — and has **no** dry-run or discovery-only phase (its only argument is `phase=`; there is no `mode=`).
 
-**Step 0 (optional zip adoption):** If a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` is in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`, the upgrade seed stages the selected pack under `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation. Non-matching filenames are skipped. On Windows, run this flow from **WSL2** rather than native `cmd.exe` or PowerShell.
+**Step 0 (optional zip adoption):** If a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` is in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`, the upgrade seed stages the selected pack under `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation. Non-matching filenames are skipped. On Windows, run this flow from **WSL2** rather than native `cmd.exe` or PowerShell.
 
 **Full reconciliation:**
 1. Inventory current state (seed-030 in targeted mode)
@@ -89,6 +92,20 @@ python3 .wavefoundry/framework/scripts/render_agent_surfaces.py
 5. **Verify** paths listed in `docs/agents/platform-mapping.md` § Auto-Guru routing
 6. **Operator follow-up** — Codex: MCP reloads from committed `.codex/config.toml` automatically; Cursor/Claude: attach MCP and restart host; all hosts: restart MCP + project index per checklist below
 
+## Secrets scan and resume
+
+The 1.6 upgrade includes a secrets scan; understand which part blocks and how to recover:
+
+- **Full-tree baseline (automatic, records).** The upgrade's final index phase runs the indexer's secrets scan, which auto-escalates to a **full-tree** scan when `docs/scan-findings.json` is absent (always true on a 1.5→1.6 upgrade) or when the ruleset/scanner version changed. It classifies every finding into `docs/scan-findings.json` up front. This scan **records**, it does not fail the upgrade.
+- **Docs gate (incremental, blocks).** The upgrade docs gate runs an **incremental** secrets scan (changed files). A `pending` or `suspected-secret` finding in a changed file **fails the docs gate and halts the upgrade**, leaving a recoverable lock stamped `failed_phase=docs_gate`.
+- **Recovery — resume, don't restart.** When the docs gate fails on a secrets finding: classify the entries in `docs/scan-findings.json` via the security reviewer (seed-213), then resume **without a destructive re-extract**: `.wavefoundry/bin/upgrade-wavefoundry --resume-after-gate` (or `wave_upgrade(phase="resume_after_gate")`). The resume is idempotent on an already-advanced tree.
+- **Unresolved full-tree findings block the next `wave_close`** (hard-block on `pending`), so untouched-file secrets surfaced by the baseline are caught at the next close even though they don't fail the upgrade itself.
+
+## Supported version range
+
+- **Floor: 1.4.0.** Upgrading from below 1.4.0 (or from an unparseable version) prints a **warning and proceeds** — migrations for transitions older than 1.4→1.5 have been pruned, so a jump from below the floor may skip an intermediate migration. All known projects are ≥ 1.5.1, so this never fires in practice; it documents the supported range.
+- **Multi-version skips are allowed.** Only downgrades are blocked. A single-run skip (e.g. 1.4.x → 1.6) works — the version-gated 1.4→1.5 migrations still fire on the way through. The common path is 1.5.x → 1.6, a single step.
+
 ## Verification Checklist
 
 See `docs/contributing/build-and-verification.md` **Wave framework pack upgrade verification** for the ordered operator commands.
@@ -100,7 +117,7 @@ See `docs/contributing/build-and-verification.md` **Wave framework pack upgrade 
    - `.mcp.json` and `.junie/mcp/mcp.json` still include the Wavefoundry stdio entry when those hosts are used
    - `.codex/config.toml` exists at the project root and contains a `[mcp_servers.wavefoundry]` entry using the venv Python launcher
    - `.wavefoundry/bin/docs-lint` and `.wavefoundry/bin/docs-gardener` exist and point to `.wavefoundry/framework/scripts/`
-4. **Check `CHUNKER_VERSION`:** If the pack bumped `CHUNKER_VERSION`, a full index rebuild is required. Run `wave_index_health()` — a `chunker_version_mismatch` advisory confirms the rebuild is needed. Rebuild using the docs-first approach so MCP is available immediately:
+4. **Check version transitions:** If the pack bumped `CHUNKER_VERSION` or `GRAPH_BUILDER_VERSION`, a full index rebuild + graph re-extract is required (moving to 1.6 bumps both). Run `wave_index_health()` — a `chunker_version_mismatch` advisory confirms the rebuild is needed. Rebuild using the docs-first approach so MCP is available immediately:
    ```bash
    python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full
    python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --background-code --full
@@ -111,13 +128,13 @@ See `docs/contributing/build-and-verification.md` **Wave framework pack upgrade 
    - `wave_audit` returns a combined `wave` + `validation` + `index` payload
    - `wave_server_info` returns the current `repo_root` and implementation version info for the attached MCP server
    - `wave_index_build` is available for deterministic project/framework index rebuilds
-6. **Restart MCP and update indexes:** Restart the MCP server so the upgraded server and any newly rendered hook/config surfaces take effect. Then update the project index:
+6. **Reload MCP, then re-index after the editing pass:** Reload the upgraded server in-process with `wave_mcp_reload()` (or `wave_upgrade` cleanup) so the new server code and rendered host config take effect — a full host restart is only needed for hosts that cannot hot-reload. The upgrade already ran an index update as its final phase; you only need a manual re-index **after** the agent editing pass changed docs:
    ```
    wave_index_build(content="docs", mode="update")                          ← project
    ```
-   If `CHUNKER_VERSION` changed (step 4), use `mode="rebuild"` instead. The framework index is shipped inside the pack; do not rebuild it during an ordinary upgrade unless the pack itself invalidated it or you are intentionally reindexing the Wavefoundry source repo. See `docs/contributing/build-and-verification.md` **Upgrade index rule**.
+   Use `mode="rebuild"` after a version transition (moving to 1.6 bumps `CHUNKER_VERSION` and `GRAPH_BUILDER_VERSION` — see step 4). The framework index is shipped inside the pack; do not rebuild it during an ordinary upgrade unless the pack itself invalidated it or you are intentionally reindexing the Wavefoundry source repo. See `docs/contributing/build-and-verification.md` **Upgrade index rule**.
    - If the refresh is detached or backgrounded, poll `wave_index_build_status(layer?)` until it finishes before you rely on the refreshed search state.
-   - Treat the restart + project index update as part of the upgrade, not optional cleanup. Until restart happens, the repository may still be running old MCP code or stale search state.
+   - Treat the reload + post-edit re-index as part of the upgrade, not optional cleanup. Until the reload happens, the repository may still be running old MCP code or stale search state.
 7. Review diff of pack changes, hooks, `docs/prompts/`, manifests
 8. Commit (operator-owned)
 

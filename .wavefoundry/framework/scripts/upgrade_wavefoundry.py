@@ -54,6 +54,13 @@ OLD_MANIFEST_TMP = Path(
 
 UPGRADE_LOG_FILENAME = "upgrade.log"
 
+# Wave 1p5do: the lowest installed version this pack still carries migrations for. Migrations for
+# transitions older than 1.4→1.5 have been pruned, so upgrading from below this floor may silently
+# skip an intermediate migration. Enforced as a loud WARNING (not an abort): all known projects are
+# ≥ 1.5.1, so nothing is actually below it — the floor makes the published 1.5.0 "floor is 1.4.0"
+# claim real and self-documents the supported range without blocking a legitimate edge case.
+SUPPORTED_UPGRADE_FLOOR = "1.4.0"
+
 
 def upgrade_log_path(root: Path) -> Path:
     return root / ".wavefoundry" / "logs" / UPGRADE_LOG_FILENAME
@@ -155,6 +162,7 @@ _ZIP_NAME_RE = _re.compile(r"^wavefoundry-(\d+\.\d+\.\d+)\.([A-Za-z0-9]+)\.zip$"
 _HOME_DIR = Path("~")
 _HOME_WAVEFOUNDRY_DIR = Path("~/.wavefoundry")
 _DIST_DIR = Path("~/.wavefoundry/dist")
+_DOWNLOADS_DIR = Path("~/Downloads")  # 1p5dk: browser-downloaded packs commonly land here
 
 
 def _find_latest_release_zip(root: Path) -> Path | None:
@@ -165,6 +173,7 @@ def _find_latest_release_zip(root: Path) -> Path | None:
       2. ~/
       3. ~/.wavefoundry/
       4. ~/.wavefoundry/dist/
+      5. ~/Downloads/
 
     Non-matching filenames are skipped silently. When multiple zips share the
     same MAJOR.MINOR.PATCH, the file with the most recent mtime is returned
@@ -188,6 +197,7 @@ def _find_latest_release_zip(root: Path) -> Path | None:
         _HOME_DIR.expanduser(),
         _HOME_WAVEFOUNDRY_DIR.expanduser(),
         _DIST_DIR.expanduser(),
+        _DOWNLOADS_DIR.expanduser(),
     )
     for search_dir in search_dirs:
         if not search_dir.is_dir():
@@ -217,7 +227,7 @@ def _find_zip(root: Path) -> Path | None:
     """Return the best available wavefoundry zip, or None.
 
     Search order:
-      1. highest semver zip across repo root, ~/, ~/.wavefoundry/, and ~/.wavefoundry/dist/
+      1. highest semver zip across repo root, ~/, ~/.wavefoundry/, ~/.wavefoundry/dist/, and ~/Downloads/
     """
     return _find_latest_release_zip(root)
 
@@ -243,6 +253,7 @@ def _print_all_release_zips(root: Path) -> None:
         _HOME_DIR.expanduser(),
         _HOME_WAVEFOUNDRY_DIR.expanduser(),
         _DIST_DIR.expanduser(),
+        _DOWNLOADS_DIR.expanduser(),
     )
     for search_dir in search_dirs:
         if not search_dir.is_dir():
@@ -1037,6 +1048,15 @@ def phase_preflight(root: Path, yes: bool) -> tuple[str | None, str | None, Path
             )
             sys.exit(3)
 
+    # Upgrade floor (1p5do): WARN — do not block — when upgrading from below the supported floor.
+    if from_version and _below_upgrade_floor(from_version):
+        _log(
+            f"  WARNING: installed version {from_version!r} is below the supported upgrade "
+            f"floor {SUPPORTED_UPGRADE_FLOOR}. Migrations for transitions older than 1.4→1.5 "
+            "have been pruned, so this jump may skip an intermediate migration. Proceeding — "
+            "verify the result, or upgrade in steps if anything looks off."
+        )
+
     # Prompt file detection (R9)
     prompt_files = _detect_prompt_files(root)
 
@@ -1147,6 +1167,27 @@ def phase_surface_rendering(root: Path) -> None:
 
 
 # ── Phase 2 — Pruning ─────────────────────────────────────────────────────────
+
+def _remove_deprecated_framework_index(root: Path) -> bool:
+    """1p5ik: `.wavefoundry/framework/index/` is a deprecated pre-1p4ww artifact — the framework
+    index layer was removed (framework content now folds into the project docs index) and no pack
+    ships it. Manifest-prune cannot remove it (index `.lance` files were never in any MANIFEST), so
+    remove it explicitly. Called from `phase_cleanup` AFTER the index rebuild — not the prune phase —
+    because a live index `update` can run on the OLD code earlier in the upgrade (before the new code
+    is in effect) and re-create the directory; only after the rebuild lands on the new code (which
+    never touches it) is removal durable. Returns True when a directory was removed; a no-op (no
+    error) when absent. Safe: every framework-layer read path is dead, and the self-host has none."""
+    stale = root / ".wavefoundry" / "framework" / "index"
+    if not stale.is_dir():
+        return False
+    try:
+        shutil.rmtree(stale)
+        _log("  Removed stale .wavefoundry/framework/index/ (deprecated pre-1p4ww framework index).")
+        return True
+    except OSError as exc:
+        _log(f"  Could not remove stale .wavefoundry/framework/index/ ({exc}) — continuing.")
+        return False
+
 
 def phase_pruning(root: Path) -> int:
     """Run prune_framework.py.  Returns number of files pruned."""
@@ -1341,6 +1382,13 @@ def phase_cleanup(
         _log("  Upgrade lock removed — dashboard will trigger post-upgrade reindex.")
 
     _warn_if_background_code_incomplete(root)
+    _warn_if_migration_errors(root)
+    # 1p5ik: remove the deprecated framework/index/ HERE, in cleanup (after the index rebuild), not
+    # earlier in the prune phase. A live index "update" can run on the OLD code during the upgrade —
+    # before the new code is in effect — and re-create framework/index/; only after the rebuild lands
+    # on the new code (which never touches it) is removal durable. manifest-prune can't remove it
+    # (its `.lance` files were never in MANIFEST), so this explicit step is the only thing that does.
+    _remove_deprecated_framework_index(root)
 
     _print_operator_summary(
         from_version=from_version,
@@ -1371,6 +1419,59 @@ def _warn_if_background_code_incomplete(root: Path) -> None:
         _log(
             "     Check .wavefoundry/logs/project-background-build.log + project-upgrade-bgcode.log, "
             "then run: wave_index_build(content='code', mode='rebuild')"
+        )
+
+
+def _below_upgrade_floor(from_version: str) -> bool:
+    """1p5do: True when ``from_version`` is below ``SUPPORTED_UPGRADE_FLOOR`` or is unparseable
+    (``compare_versions`` raises ValueError) — in both cases we can't confirm the pruned migration
+    chain covers the transition, so the caller warns."""
+    from check_version import compare_versions
+    try:
+        return compare_versions(from_version, SUPPORTED_UPGRADE_FLOOR) == "downgrade"
+    except ValueError:
+        return True
+
+
+def _warn_if_no_version_baseline(pre_extract: dict, root: Path) -> bool:
+    """1p5do: when an index exists but there is no version baseline to compare against (index/graph
+    state absent or unreadable), _detect_version_transitions can't detect a bump and would go silent
+    exactly when the rebuild signal matters most. Surface it anyway. Returns True when it warned."""
+    if not pre_extract and (root / ".wavefoundry" / "index").is_dir():
+        _log(
+            "\n⚠  No framework version baseline found (index/graph state absent) — cannot "
+            "detect version transitions. Phase 4 may run a full re-embed / graph re-extract."
+        )
+        return True
+    return False
+
+
+def _warn_if_migration_errors(root: Path) -> None:
+    """1p5do: the post_extract migrations (convergence + 1.4→1.5) isolate their own failures to a
+    report log and continue WITHOUT setting ``failed_phase``, so the summary can read 'Docs gate:
+    PASSED' over a partially-failed migration. Scan the real (non-preview) migration logs for
+    ``ERROR:`` records and surface a warning pointing at them so a green summary can't mask them."""
+    import glob as _glob
+    logs_dir = root / ".wavefoundry" / "logs"
+    if not logs_dir.is_dir():
+        return
+    flagged: set[str] = set()
+    for pattern in ("upgrade-migration-*.log", "upgrade-convergence-migration.log"):
+        for path_str in _glob.glob(str(logs_dir / pattern)):
+            name = Path(path_str).name
+            if ".preview." in name:  # dry-run preview reports are not real migrations
+                continue
+            try:
+                text = Path(path_str).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if any("ERROR:" in line for line in text.splitlines()):
+                flagged.add(name)
+    if flagged:
+        _log(
+            "  ⚠  Migration log(s) recorded ERROR entries: " + ", ".join(sorted(flagged)) + ". "
+            "The tree may be PARTIALLY MIGRATED despite a passed docs gate — review "
+            ".wavefoundry/logs/ and resolve before treating this upgrade as complete."
         )
 
 
@@ -1602,7 +1703,7 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "Print the absolute path of the highest-semver `wavefoundry-*.zip` "
             "across all search paths (repo root, ~/, ~/.wavefoundry/, "
-            "~/.wavefoundry/dist/), then exit 0. Exit 1 with empty output if no "
+            "~/.wavefoundry/dist/, ~/Downloads/), then exit 0. Exit 1 with empty output if no "
             "matching zip is found. Use this instead of `ls -1` so the answer "
             "comes from the same semver comparator the upgrade itself uses — "
             "`ls -1` sorts lexicographically, which puts `1.3.9` after `1.3.30`."
@@ -1886,6 +1987,10 @@ def main(argv: list[str] | None = None) -> int:
                 if _chunker_transition is not None:
                     ctx.chunker_version_bumped = True
                     ctx.chunker_version_transition = _chunker_transition
+            else:
+                # 1p5do: no transitions detected — surface the rebuild signal when there was no
+                # baseline to compare against (otherwise this stays silent exactly when it matters).
+                _warn_if_no_version_baseline(_pre_extract_all_versions, root)
 
         # Phase 1
         current_phase = "surface_rendering"

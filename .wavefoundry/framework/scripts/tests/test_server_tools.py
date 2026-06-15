@@ -10971,6 +10971,29 @@ class CodeConstantsTests(unittest.TestCase):
         self.assertIsNotNone(entry["file"])
         self.assertEqual(entry["line"], 2)
 
+    def test_nested_type_constant_dotted_suffix(self):
+        """1p5k0: a constant nested in a type-within-a-type resolves by bare leaf, full qualified
+        name, AND any intermediate dotted suffix — and a bogus prefix does NOT over-match. Exercises
+        the chunker nested-type qualified-qname fix + the code_constants dotted-suffix matcher
+        end-to-end (the Swift case that missed downstream on solaris)."""
+        self._add_file("Automation.swift",
+                       "class AutomationController {\n"
+                       "    private struct RoutineConfig {\n"
+                       "        static let maxRetries = 3\n"
+                       "    }\n"
+                       "}\n")
+
+        def _value(symbol: str):
+            entries = self._call([symbol])["data"]["results"]
+            return entries[0]["value"] if entries else None
+
+        # All three name forms resolve to the same value.
+        self.assertEqual(_value("maxRetries"), "3")                                     # bare leaf
+        self.assertEqual(_value("RoutineConfig.maxRetries"), "3")                       # intermediate suffix (the fix)
+        self.assertEqual(_value("AutomationController.RoutineConfig.maxRetries"), "3")  # full qualified
+        # Negative: a wrong enclosing type must NOT over-match (resolves to no value, not 3).
+        self.assertIsNone(_value("Nope.maxRetries"))
+
     def test_two_scalar_constants(self):
         """AC-1: multiple scalar constants all returned."""
         self._add_file("consts.py", "ALPHA = 10\nBETA = 20\n")
@@ -17623,13 +17646,20 @@ class CodeRiskScoreWrapperTests(unittest.TestCase):
         resp = self._call("src/m.py", top=5)
         self.assertEqual(resp["status"], "ok")
         data = resp["data"]
-        self.assertEqual(data["score_formula"], "risk = affected_file_count * log1p(fan_in)")
-        self.assertEqual(data["score_components"], ["affected_file_count", "fan_in", "fan_out"])
+        # Wave 1p5l4: confidence-weighted composite v2.
+        self.assertEqual(data["score_formula"], "risk = weighted_affected_file_count * log1p(weighted_fan_in)")
+        self.assertEqual(data["score_components"], [
+            "weighted_affected_file_count", "weighted_fan_in", "fan_out",
+            "affected_file_count", "fan_in", "extracted_edge_fraction",
+        ])
+        self.assertIn("extracted_edge_weight", data)
         self.assertTrue(data["results"])
         top = data["results"][0]
         self.assertEqual(top["label"], "hub")
         for field in ("node_id", "label", "source_file", "kind",
-                      "affected_file_count", "fan_in", "fan_out", "risk", "hop"):
+                      "risk", "weighted_affected_file_count", "weighted_fan_in",
+                      "affected_file_count", "fan_in", "fan_out",
+                      "extracted_edge_fraction", "hop"):
             self.assertIn(field, top, f"missing documented field {field!r} through the tool boundary")
 
     def test_wrapper_empty_scope_errors(self):

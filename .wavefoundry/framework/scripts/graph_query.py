@@ -833,6 +833,31 @@ def _path_edge_cost(edge: dict[str, Any]) -> int:
     return _PATH_COST_STRUCTURAL
 
 
+# Wave 1p5l4 (Aceiss field feedback): blast-radius / risk weighting by edge
+# confidence. EXTRACTED edges are heuristic name-based fallback that cannot
+# disambiguate receiver type, so a ubiquitous accessor name (getKey/getValue/
+# toString) collects spurious in-edges from unrelated symbols (e.g.
+# Map.Entry.getKey()) and over-counts blast radius. Down-weight EXTRACTED so
+# confidence-resolved structure dominates the rank — but do NOT zero it
+# (wave 1p41l showed EXTRACTED is sometimes the only cross-file signal). The
+# factor is a single tunable constant; deterministic-attribution edges keep
+# full weight.
+_EXTRACTED_EDGE_WEIGHT = 0.25
+
+
+def _edge_confidence_weight(edge: dict[str, Any]) -> float:
+    """Return the blast-radius weight of an edge by its attribution confidence.
+
+    RECEIVER_RESOLVED / CONSTRUCTION_RESOLVED (type-resolved at the graph
+    builder) count in full; EXTRACTED (and any unknown confidence) is
+    down-weighted to ``_EXTRACTED_EDGE_WEIGHT``.
+    """
+    confidence = str(edge.get("confidence") or "")
+    if confidence in ("RECEIVER_RESOLVED", "CONSTRUCTION_RESOLVED"):
+        return 1.0
+    return _EXTRACTED_EDGE_WEIGHT
+
+
 class GraphQueryIndex:
     """In-memory adjacency index over a loaded graph payload."""
 
@@ -1231,6 +1256,27 @@ class GraphQueryIndex:
                     node_depth[src] = depth + 1
                     queue.append((src, depth + 1))
                 traversed.append(edge)
+        # Wave 1p5l4: per-affected-node blast-radius weight = the max confidence
+        # weight among the call edges that reach it (a node reached by even one
+        # type-resolved edge counts in full; one reached only via EXTRACTED
+        # name-collision edges is down-weighted). Also tally the traversal's
+        # confidence mix so consumers can discount a mostly-EXTRACTED blast
+        # radius without a second call.
+        node_weight: dict[str, float] = {}
+        confidence_counts = {"receiver_resolved": 0, "construction_resolved": 0, "extracted": 0}
+        for edge in traversed:
+            src = edge.get("source")
+            if isinstance(src, str):
+                w = _edge_confidence_weight(edge)
+                if w > node_weight.get(src, 0.0):
+                    node_weight[src] = w
+            conf = str(edge.get("confidence") or "")
+            if conf == "RECEIVER_RESOLVED":
+                confidence_counts["receiver_resolved"] += 1
+            elif conf == "CONSTRUCTION_RESOLVED":
+                confidence_counts["construction_resolved"] += 1
+            else:
+                confidence_counts["extracted"] += 1
         affected: list[dict[str, Any]] = []
         seen_files: set[str] = set()
         for nid in sorted(node_depth):
@@ -1244,6 +1290,7 @@ class GraphQueryIndex:
                 "kind": node.get("kind"),
                 "source_file": source_file,
                 "hop": node_depth[nid],
+                "confidence_weight": node_weight.get(nid, _EXTRACTED_EDGE_WEIGHT),
             }
             affected.append(entry)
             if isinstance(source_file, str):
@@ -1255,6 +1302,7 @@ class GraphQueryIndex:
             "affected": affected,
             "affected_files": sorted(seen_files),
             "edges": traversed,
+            "confidence_counts": confidence_counts,
             "has_cycles": has_cycles,
             "max_hops": max_hops,
             "relations": list(rels),
@@ -1271,15 +1319,22 @@ class GraphQueryIndex:
     ) -> dict[str, Any]:
         """Rank symbols defined in ``scope`` by how risky they are to *change*.
 
-        Composite v1 (wave 1p41o): ``risk = affected_file_count * log1p(fan_in)``
-        — blast radius (count of distinct files reachable upstream, i.e. who
-        breaks if this symbol changes) times log-dampened call-degree (to avoid
-        hub domination). ``fan_out`` (what the symbol itself calls — near-
+        Composite v2 (wave 1p5l4): ``risk = weighted_affected_file_count *
+        log1p(weighted_fan_in)`` — blast radius (distinct files reachable
+        upstream, i.e. who breaks if this symbol changes) times log-dampened
+        call-degree (to avoid hub domination), both **weighted by edge
+        attribution confidence**. ``EXTRACTED`` (heuristic name-based) edges
+        count at ``_EXTRACTED_EDGE_WEIGHT`` while ``RECEIVER_RESOLVED`` /
+        ``CONSTRUCTION_RESOLVED`` count in full, so a ubiquitous accessor name
+        (``getKey``/``getValue``) can't top the rank purely on a name collision
+        with an unrelated symbol (v1, wave 1p41o, weighted every edge equally).
+        Each result also carries the raw ``affected_file_count``/``fan_in`` and
+        an ``extracted_edge_fraction`` so a high-but-mostly-EXTRACTED score is
+        visibly discountable. ``fan_out`` (what the symbol itself calls — near-
         orthogonal to change-risk) is surfaced as an *independent* component,
         NOT multiplied into ``risk``. The response carries ``score_formula`` and
         ``score_components`` so the score is transparent, re-weightable, and
-        extensible (future signals fold into ``score_components`` without a
-        rename). ``risk`` is a *relative rank within the queried scope*, not a
+        extensible. ``risk`` is a *relative rank within the queried scope*, not a
         cross-module-comparable absolute magnitude.
 
         ``scope`` is a repo-relative file path, directory prefix, or glob
@@ -1292,6 +1347,10 @@ class GraphQueryIndex:
         """
         fan_in_counts: dict[str, int] = {}
         fan_out_counts: dict[str, int] = {}
+        # Wave 1p5l4: confidence-weighted fan_in — EXTRACTED in-edges count
+        # fractionally so a name-collision accessor (whose in-edges are mostly
+        # heuristic) doesn't earn a hub's call-degree.
+        weighted_fan_in_counts: dict[str, float] = {}
         for edge in self.edges:
             if edge.get("relation") != "calls":
                 continue
@@ -1299,6 +1358,9 @@ class GraphQueryIndex:
             src = edge.get("source")
             if isinstance(tgt, str):
                 fan_in_counts[tgt] = fan_in_counts.get(tgt, 0) + 1
+                weighted_fan_in_counts[tgt] = (
+                    weighted_fan_in_counts.get(tgt, 0.0) + _edge_confidence_weight(edge)
+                )
             if isinstance(src, str):
                 fan_out_counts[src] = fan_out_counts.get(src, 0) + 1
 
@@ -1311,8 +1373,14 @@ class GraphQueryIndex:
         candidate_count = len(candidates)
         base = {
             "scope": scope,
-            "score_formula": "risk = affected_file_count * log1p(fan_in)",
-            "score_components": ["affected_file_count", "fan_in", "fan_out"],
+            # Wave 1p5l4: rank on confidence-weighted blast radius × call-degree
+            # so EXTRACTED name-collision edges can't promote a trivial accessor.
+            "score_formula": "risk = weighted_affected_file_count * log1p(weighted_fan_in)",
+            "score_components": [
+                "weighted_affected_file_count", "weighted_fan_in", "fan_out",
+                "affected_file_count", "fan_in", "extracted_edge_fraction",
+            ],
+            "extracted_edge_weight": _EXTRACTED_EDGE_WEIGHT,
             "candidate_count": candidate_count,
             "candidate_cap": candidate_cap,
             "top": top,
@@ -1333,27 +1401,50 @@ class GraphQueryIndex:
                     a for a in affected
                     if not is_test_path(str(a.get("source_file") or ""))
                 ]
-            files = {
-                str(a.get("source_file") or "")
-                for a in affected if a.get("source_file")
-            }
-            affected_file_count = len(files)
+            # Wave 1p5l4: weighted blast radius — each affected file contributes
+            # the MAX confidence weight among its affected nodes (a file reached
+            # by even one type-resolved edge counts in full; one reached only via
+            # EXTRACTED name-collision edges is down-weighted). Raw count kept for
+            # transparency.
+            file_weights: dict[str, float] = {}
+            for a in affected:
+                sf = str(a.get("source_file") or "")
+                if not sf:
+                    continue
+                w = float(a.get("confidence_weight", _EXTRACTED_EDGE_WEIGHT))
+                if w > file_weights.get(sf, 0.0):
+                    file_weights[sf] = w
+            affected_file_count = len(file_weights)
+            weighted_affected_file_count = sum(file_weights.values())
             fan_in = fan_in_counts.get(nid, 0)
+            weighted_fan_in = weighted_fan_in_counts.get(nid, 0.0)
             fan_out = fan_out_counts.get(nid, 0)
+            conf = impact.get("confidence_counts") or {}
+            total_edges = (
+                int(conf.get("receiver_resolved", 0))
+                + int(conf.get("construction_resolved", 0))
+                + int(conf.get("extracted", 0))
+            )
+            extracted_edge_fraction = (
+                int(conf.get("extracted", 0)) / total_edges if total_edges else 0.0
+            )
             worst_hop = max((int(a.get("hop", 0)) for a in affected), default=0)
-            risk = affected_file_count * math.log1p(fan_in)
+            risk = weighted_affected_file_count * math.log1p(weighted_fan_in)
             results.append({
                 "node_id": nid,
                 "label": node.get("label", nid),
                 "source_file": node.get("source_file"),
                 "kind": node.get("kind"),
+                "risk": risk,
+                "weighted_affected_file_count": round(weighted_affected_file_count, 3),
+                "weighted_fan_in": round(weighted_fan_in, 3),
                 "affected_file_count": affected_file_count,
                 "fan_in": fan_in,
                 "fan_out": fan_out,
-                "risk": risk,
+                "extracted_edge_fraction": round(extracted_edge_fraction, 3),
                 "hop": worst_hop,
             })
-        results.sort(key=lambda r: (-r["risk"], -r["fan_in"], r["node_id"]))
+        results.sort(key=lambda r: (-r["risk"], -r["weighted_fan_in"], r["node_id"]))
         return {**base, "over_candidate_cap": False, "results": results[:top]}
 
     def callgraph(

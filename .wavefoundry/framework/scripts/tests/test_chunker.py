@@ -3236,7 +3236,7 @@ class UniversalOversizedChunkGuardTests(unittest.TestCase):
         cls.chunker = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.chunker)
 
-    def test_chunker_version_bumped_to_30(self):
+    def test_chunker_version_bumped_to_31(self):
         """Wave 1p4q4 review: CHUNKER_VERSION bumped 28 → 29 — the `module M{}` keyword form,
         non-export namespace const, `export namespace`, `declare namespace`, and `declare enum`
         members now chunk (completing the namespace/module coverage that rode 28). Chunk-set shape
@@ -3259,8 +3259,9 @@ class UniversalOversizedChunkGuardTests(unittest.TestCase):
         26 → 27 (wave 1p4hi close): all-11-language constant chunking finalized under a clean version.
         27 → 28 (wave 1p4q4): TS enum/const-enum members + namespace const + declare const chunked.
         28 → 29 (wave 1p4q4 review): module-keyword / non-export-namespace / export-&-declare-namespace / declare-enum chunking completed.
-        29 → 30 (wave 1p4u5, 1p4w9): docs chunks prepend their section breadcrumb to embedded text (docs-only; code text unchanged)."""
-        self.assertEqual(self.chunker.CHUNKER_VERSION, "30")
+        29 → 30 (wave 1p4u5, 1p4w9): docs chunks prepend their section breadcrumb to embedded text (docs-only; code text unchanged).
+        30 → 31 (wave 1p5k0): nested-type members attribute to the qualified owner (Outer.Inner.x) in the chunk lane + nested-type __decl__ chunk (code shape change → re-chunk)."""
+        self.assertEqual(self.chunker.CHUNKER_VERSION, "31")
 
     def test_split_large_chunks_is_idempotent_on_small_chunks(self):
         c = self.chunker.Chunk(id="x", path="p", kind="doc", language=None,

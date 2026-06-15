@@ -164,8 +164,12 @@ class GraphQueryRiskScoreTests(unittest.TestCase):
     def test_ranking_and_formula(self):
         out = self.index.risk_score("src/m.py")
         self.assertFalse(out["over_candidate_cap"])
-        self.assertEqual(out["score_formula"], "risk = affected_file_count * log1p(fan_in)")
-        self.assertEqual(out["score_components"], ["affected_file_count", "fan_in", "fan_out"])
+        # Wave 1p5l4: composite v2 ranks on confidence-weighted inputs.
+        self.assertEqual(out["score_formula"], "risk = weighted_affected_file_count * log1p(weighted_fan_in)")
+        self.assertEqual(out["score_components"], [
+            "weighted_affected_file_count", "weighted_fan_in", "fan_out",
+            "affected_file_count", "fan_in", "extracted_edge_fraction",
+        ])
         results = out["results"]
         # Descending by risk; hub (high fan_in + blast radius) is the top risk.
         risks = [r["risk"] for r in results]
@@ -174,8 +178,15 @@ class GraphQueryRiskScoreTests(unittest.TestCase):
         # The composite holds exactly for every entry (math, not hardcoded afc).
         for r in results:
             self.assertAlmostEqual(
-                r["risk"], r["affected_file_count"] * math.log1p(r["fan_in"]), places=9
+                r["risk"],
+                r["weighted_affected_file_count"] * math.log1p(r["weighted_fan_in"]),
+                places=9,
             )
+        # This fixture is all RECEIVER_RESOLVED → weighted == raw, no discount.
+        for r in results:
+            self.assertEqual(r["weighted_affected_file_count"], r["affected_file_count"])
+            self.assertEqual(r["weighted_fan_in"], r["fan_in"])
+            self.assertEqual(r["extracted_edge_fraction"], 0.0)
 
     def test_components_surfaced(self):
         by = self._by_label(self.index.risk_score("src/m.py")["results"])
@@ -223,6 +234,97 @@ class GraphQueryRiskScoreTests(unittest.TestCase):
         )
         self.assertEqual(with_tests["hub"]["affected_file_count"] - 1,
                          no_tests["hub"]["affected_file_count"])
+
+
+# Wave 1p5l4: confidence-weighted blast radius / risk. Mirrors the Aceiss
+# javaagent repro — a ubiquitous accessor name (`getKey`) collects 2 real
+# RECEIVER_RESOLVED callers + 6 EXTRACTED name-collision in-edges from unrelated
+# files (Map.Entry.getKey()), while a genuinely load-bearing symbol (`realCore`)
+# has 4 type-resolved callers. Under v1 (every edge weighted equally) the
+# accessor's raw blast radius (8) tops the rank; under v2 the EXTRACTED edges are
+# down-weighted so the resolved symbol wins.
+_COLLISION_FIXTURE = {
+    "present": True,
+    "layer": "project",
+    "nodes": [
+        {"id": "src/token.py::getKey", "label": "getKey", "kind": "method", "source_file": "src/token.py"},
+        {"id": "src/core.py::realCore", "label": "realCore", "kind": "function", "source_file": "src/core.py"},
+        {"id": "src/auth1.py::a1", "label": "a1", "kind": "function", "source_file": "src/auth1.py"},
+        {"id": "src/auth2.py::a2", "label": "a2", "kind": "function", "source_file": "src/auth2.py"},
+        {"id": "src/u1.py::e1", "label": "e1", "kind": "function", "source_file": "src/u1.py"},
+        {"id": "src/u2.py::e2", "label": "e2", "kind": "function", "source_file": "src/u2.py"},
+        {"id": "src/u3.py::e3", "label": "e3", "kind": "function", "source_file": "src/u3.py"},
+        {"id": "src/u4.py::e4", "label": "e4", "kind": "function", "source_file": "src/u4.py"},
+        {"id": "src/u5.py::e5", "label": "e5", "kind": "function", "source_file": "src/u5.py"},
+        {"id": "src/u6.py::e6", "label": "e6", "kind": "function", "source_file": "src/u6.py"},
+        {"id": "src/r1.py::c1", "label": "c1", "kind": "function", "source_file": "src/r1.py"},
+        {"id": "src/r2.py::c2", "label": "c2", "kind": "function", "source_file": "src/r2.py"},
+        {"id": "src/r3.py::c3", "label": "c3", "kind": "function", "source_file": "src/r3.py"},
+        {"id": "src/r4.py::c4", "label": "c4", "kind": "function", "source_file": "src/r4.py"},
+    ],
+    "edges": [
+        # getKey: 2 real (RECEIVER_RESOLVED) + 6 name-collision (EXTRACTED).
+        {"source": "src/auth1.py::a1", "target": "src/token.py::getKey", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+        {"source": "src/auth2.py::a2", "target": "src/token.py::getKey", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+        {"source": "src/u1.py::e1", "target": "src/token.py::getKey", "relation": "calls", "confidence": "EXTRACTED"},
+        {"source": "src/u2.py::e2", "target": "src/token.py::getKey", "relation": "calls", "confidence": "EXTRACTED"},
+        {"source": "src/u3.py::e3", "target": "src/token.py::getKey", "relation": "calls", "confidence": "EXTRACTED"},
+        {"source": "src/u4.py::e4", "target": "src/token.py::getKey", "relation": "calls", "confidence": "EXTRACTED"},
+        {"source": "src/u5.py::e5", "target": "src/token.py::getKey", "relation": "calls", "confidence": "EXTRACTED"},
+        {"source": "src/u6.py::e6", "target": "src/token.py::getKey", "relation": "calls", "confidence": "EXTRACTED"},
+        # realCore: 4 type-resolved callers across distinct files.
+        {"source": "src/r1.py::c1", "target": "src/core.py::realCore", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+        {"source": "src/r2.py::c2", "target": "src/core.py::realCore", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+        {"source": "src/r3.py::c3", "target": "src/core.py::realCore", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+        {"source": "src/r4.py::c4", "target": "src/core.py::realCore", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+    ],
+}
+
+
+class GraphQueryConfidenceWeightedRiskTests(unittest.TestCase):
+    """Wave 1p5l4: EXTRACTED name-collision edges must not top the risk rank."""
+
+    def setUp(self):
+        self.mod = load_graph_query()
+        self.index = self.mod.GraphQueryIndex(dict(_COLLISION_FIXTURE))
+
+    def _by_label(self, results):
+        return {r["label"]: r for r in results}
+
+    def test_resolved_symbol_outranks_collision_accessor(self):
+        by = self._by_label(self.index.risk_score("src/")["results"])
+        getkey, core = by["getKey"], by["realCore"]
+        # The RAW signal (v1) would have inverted the rank: the accessor's raw
+        # blast radius is larger purely from name-collision EXTRACTED edges.
+        self.assertGreater(getkey["affected_file_count"], core["affected_file_count"])
+        # v2: weighting flips it — the type-resolved symbol is the real risk.
+        self.assertGreater(core["risk"], getkey["risk"])
+
+    def test_extracted_edge_fraction_surfaced(self):
+        by = self._by_label(self.index.risk_score("src/")["results"])
+        # getKey: 6 of 8 blast-radius edges are heuristic → discountable.
+        self.assertAlmostEqual(by["getKey"]["extracted_edge_fraction"], 0.75, places=3)
+        # realCore: all type-resolved → nothing to discount.
+        self.assertEqual(by["realCore"]["extracted_edge_fraction"], 0.0)
+
+    def test_weighted_components_down_weight_extracted(self):
+        by = self._by_label(self.index.risk_score("src/")["results"])
+        getkey = by["getKey"]
+        # 2 resolved (1.0) + 6 extracted (0.25) = 3.5 on both axes.
+        self.assertAlmostEqual(getkey["weighted_affected_file_count"], 3.5, places=3)
+        self.assertAlmostEqual(getkey["weighted_fan_in"], 3.5, places=3)
+        # Raw counts preserved for transparency.
+        self.assertEqual(getkey["affected_file_count"], 8)
+        self.assertEqual(getkey["fan_in"], 8)
+
+    def test_graph_impact_reports_confidence_counts(self):
+        impact = self.index.graph_impact("src/token.py::getKey")
+        self.assertEqual(impact["confidence_counts"],
+                         {"receiver_resolved": 2, "construction_resolved": 0, "extracted": 6})
+        # Each affected node carries its max reaching-edge confidence weight.
+        weights = {a["node_id"]: a["confidence_weight"] for a in impact["affected"]}
+        self.assertEqual(weights["src/auth1.py::a1"], 1.0)
+        self.assertEqual(weights["src/u1.py::e1"], self.mod._EXTRACTED_EDGE_WEIGHT)
 
 
 class GraphQueryShortestPathTests(unittest.TestCase):

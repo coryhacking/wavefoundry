@@ -192,6 +192,11 @@ _GRAPH_SEED_STOPWORDS = frozenset({
     "files", "line", "lines", "text", "call", "calls", "read", "reads", "user", "users",
     "work", "works", "purpose", "build", "handler", "result", "results", "module", "overall",
     "entry", "entries",
+    # Generic English nouns that collide with real symbol names and hijack the graph seed
+    # (e.g. "what is the value of X" seeded on "value" → unrelated readers). Graph-seed scope only;
+    # NOT added to _QUERY_STOPWORDS, which keeps "value" as a content term for DEFAULT_TIMEOUT-style
+    # definition matching.
+    "value", "values", "flag", "flags", "option", "options",
 })
 # "what calls/reads/uses X", "where is X used", "callers of X", "is X called" — the user wants the
 # things pointing AT X (its callers/readers/importers). Drives direction="in" (vs. the direction-
@@ -1572,8 +1577,13 @@ class WaveIndex:
             if injected > 0:
                 definition_boosted.append(rule["label"])
 
-        # --- Symbol-first injection (explanatory only, 12q63) ---
-        if question_type == "explanatory":
+        # --- Symbol-first injection (explanatory + navigational, 12q63; widened) ---
+        # Value/where-is questions ("what is the value of X and where is it used?") classify as
+        # navigational but still NAME a symbol. The injection is the only safety net that forces a
+        # query-named declaration into the candidate pool regardless of vector top-K, so the
+        # _definition_match_boost leaf branch can lift it; gating it to explanatory left navigational
+        # value-questions dependent on raw cosine, which ranks usage chunks over a 1-line declaration.
+        if question_type in ("explanatory", "navigational"):
             sym = _extract_question_symbol(query)
             if sym:
                 existing_keys = {
@@ -9829,7 +9839,13 @@ def code_constants_response(root: Path, symbols: list[str], glob: str = "") -> d
             #      / iota block (ONE chunk, MANY members) resolves each member to its own line,
             #      not just the first (review B2).
             chunk_defs: list[tuple[str, Optional[int], bool]] = []  # (requested_symbol, line, is_primary)
-            for form in (short, leaf):
+            # Accept the bare leaf, the full qualified name, AND every intermediate dotted suffix
+            # (Outer.Inner.x → {x, Inner.x, Outer.Inner.x}) so a natural query naming the immediate
+            # enclosing type resolves — not just the leaf or the fully-qualified outermost form
+            # (1p5k0; pairs with the chunker nested-type qualification fix).
+            _segs = leaf.split(".")
+            _forms = [".".join(_segs[k:]) for k in range(len(_segs))]  # full → … → leaf
+            for form in _forms:
                 if form in symbol_set and all(form != d[0] for d in chunk_defs):
                     chunk_defs.append((form, start, True))
             # Go is the one language whose grouped `const (...)` / iota block stays a SINGLE chunk
@@ -15512,10 +15528,15 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         contrast ``code_impact``, which sizes ONE symbol's blast radius. The score is structural
         (graph-derived) — it is **not** git-commit-history churn.
 
-        Score (v1): ``risk = affected_file_count * log1p(fan_in)`` — blast radius (how many files
-        break if this symbol changes) times log-dampened incoming call-degree (so hubs don't
-        dominate). ``fan_out`` (what the symbol itself calls) is surfaced separately, NOT multiplied
-        in. The raw components are returned per symbol so the score is transparent and re-weightable.
+        Score (v2): ``risk = weighted_affected_file_count * log1p(weighted_fan_in)`` — blast radius
+        (how many files break if this symbol changes) times log-dampened incoming call-degree (so
+        hubs don't dominate), both **weighted by edge attribution confidence**. ``EXTRACTED``
+        (heuristic name-based) edges count fractionally (``extracted_edge_weight``) while
+        ``RECEIVER_RESOLVED``/``CONSTRUCTION_RESOLVED`` count in full, so a ubiquitous accessor name
+        (``getKey``/``getValue``/``toString``) can't top the rank purely on a name collision with an
+        unrelated symbol (e.g. ``Map.Entry.getKey()``). ``fan_out`` (what the symbol itself calls) is
+        surfaced separately, NOT multiplied in. Raw + weighted components are returned per symbol so
+        the score is transparent and re-weightable.
 
         Read it as a **relative rank within the queried scope**, not an absolute or
         cross-module-comparable magnitude. Signal is strongest on broad scopes (a directory) where
@@ -15524,10 +15545,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Response fields:
         - scope, layer, top, max_hops, candidate_count, candidate_cap, include_tests
         - score_formula: the composite formula string
-        - score_components: names of the raw inputs (``affected_file_count``, ``fan_in``, ``fan_out``)
+        - score_components: names of the inputs (``weighted_affected_file_count``, ``weighted_fan_in``,
+          ``fan_out``, ``affected_file_count``, ``fan_in``, ``extracted_edge_fraction``)
+        - extracted_edge_weight: the fractional weight applied to ``EXTRACTED`` edges
         - results: list ranked DESC by ``risk``, each with ``node_id``, ``label``, ``source_file``,
-          ``kind``, ``affected_file_count``, ``fan_in``, ``fan_out``, ``risk``, ``hop`` (worst-case
-          blast-radius hop distance)
+          ``kind``, ``risk``, ``weighted_affected_file_count``, ``weighted_fan_in``,
+          ``affected_file_count`` (raw), ``fan_in`` (raw), ``fan_out``, ``extracted_edge_fraction``
+          (share of blast-radius edges that are heuristic — discount a high score when near 1.0),
+          ``hop`` (worst-case blast-radius hop distance)
         - over_candidate_cap: true (with empty ``results``) when the scope has more than
           ``candidate_cap`` definitions — narrow ``scope=`` and retry
 

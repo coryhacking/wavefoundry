@@ -577,9 +577,22 @@ def _rewrite_legacy_config_keys(repo_root):
         return []
     try:
         data = json.loads(workflow_config.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as exc:
+        # 1p5do: do not no-op silently — a malformed config that can't be rewritten will later fail
+        # the docs gate with no migration-side signal, making the gate failure baffling. Warn here so
+        # the operator can connect the gate failure to the un-migrated config.
+        print(
+            f"  WARNING: convergence migration could not read/parse {workflow_config} ({exc}); "
+            "legacy config keys were NOT rewritten — the docs gate may fail until this is fixed.",
+            file=sys.stderr,
+        )
         return []
     if not isinstance(data, dict):
+        print(
+            f"  WARNING: convergence migration found {workflow_config} is not a JSON object; "
+            "legacy config keys were NOT rewritten.",
+            file=sys.stderr,
+        )
         return []
     renames = _load_config_key_renames(repo_root)
     performed = []

@@ -206,7 +206,7 @@ def _ts_collapse_body(text: str, max_lines: int = 150) -> str:
 # (b) `phase_index_rebuild` (full) running on `--update-index` instead of
 # `phase_index_update` (incremental), (c) post-condition verification confirming
 # the new version in `.wavefoundry/index/meta.json` after rebuild.
-CHUNKER_VERSION = "30"  # 1p4w9: docs chunks prepend their section breadcrumb to embedded text (NL→docs retrieval +10pp on the 32-query eval; docs-only — code chunk text unchanged, so code vectors reuse by content-hash and only docs re-embed). 1p4q4 review (C1/C2/C3): complete the TS namespace/module const-chunk coverage — the `module M{}` keyword form, NON-export namespace const, `export namespace`, `declare namespace`, and `declare enum` members now chunk. Chunk-set shape change → bump (consumer code index re-chunks). 1p4q4 (28): TS enum/const-enum members + namespace const + declare const are now constant chunks (Enum.Member). 1p4hi close (27): all-11-language constant chunking + Go short-const fix. 1p4mf (26): module/class-level constants emitted as chunks (kind="code", breadcrumb-prefixed text, merge-excluded via " [const]" section marker)
+CHUNKER_VERSION = "31"  # 1p5k0 (nested-type-const-qualification): nested types (Swift struct/enum/class in a class body; other langs' nested classes) now attribute member constants AND methods to the nested qualified owner (Outer.Inner.x) in the chunk lane — was flattened onto the outermost type — and emit a nested-type __decl__ chunk. Aligns chunk-lane qnames with the already-correct graph lane; paired with code_constants dotted-suffix matching so the natural Inner.x query resolves. Chunk-set shape change → bump (consumer code index re-chunks). 1p4w9: docs chunks prepend their section breadcrumb to embedded text (NL→docs retrieval +10pp on the 32-query eval; docs-only — code chunk text unchanged, so code vectors reuse by content-hash and only docs re-embed). 1p4q4 review (C1/C2/C3): complete the TS namespace/module const-chunk coverage — the `module M{}` keyword form, NON-export namespace const, `export namespace`, `declare namespace`, and `declare enum` members now chunk. Chunk-set shape change → bump (consumer code index re-chunks). 1p4q4 (28): TS enum/const-enum members + namespace const + declare const are now constant chunks (Enum.Member). 1p4hi close (27): all-11-language constant chunking + Go short-const fix. 1p4mf (26): module/class-level constants emitted as chunks (kind="code", breadcrumb-prefixed text, merge-excluded via " [const]" section marker)
 
 # Lines per window and overlap for the line-window fallback chunker.
 WINDOW_SIZE = 120
@@ -4640,6 +4640,18 @@ def _ts_generic_structured_chunker(
 
     def _walk_class_members(node, class_name: str) -> None:
         for child in node.children:
+            # Nested type (Swift struct/enum/class all parse as class_declaration; likewise other
+            # langs' nested classes): descend under its QUALIFIED owner so a member constant/method
+            # is attributed to the nested type (Outer.Inner.x), not flattened onto the outer type.
+            # Was: recursed with the unchanged class_name, so e.g. `static let maxRetries` inside a
+            # nested struct was recorded as Outer.maxRetries — diverging from the graph lane (which
+            # nests correctly) and making the natural Inner.x query unresolvable (1p5k0).
+            if child.type in class_node_types:
+                nested = _ts_node_name(child, source_lines)
+                nested_qname = f"{class_name}.{nested}" if nested != "anonymous" else class_name
+                _emit_code(child, nested_qname, decl_only=True)
+                _walk_class_members(child, nested_qname)
+                continue
             if const_emitter is not None:
                 const_emitter(child, class_name, emit_const)
             if child.type in method_node_types:

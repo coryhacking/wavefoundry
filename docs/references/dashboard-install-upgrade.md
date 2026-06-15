@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-31
+Last verified: 2026-06-14
 
 Reference doc covering how the local dashboard feature moves from the Wavefoundry framework pack into target repositories. Addresses packaging (build_pack.py), install (seed-010), upgrade (seed-160), and the sibling-directory runtime option.
 
@@ -73,7 +73,7 @@ If a `dashboard` block already exists in `workflow-config.json`, seed-010 preser
 
 ## Upgrade (seed-160)
 
-`seed-160` (Upgrade Wavefoundry) unpacks the new framework zip with the same `unzip -o` command, overwriting dashboard assets in place. After unpacking:
+The `Upgrade wave framework` flow (seed-160) adopts the new framework zip automatically — root-zip extraction is built into the upgrade, not a manual `unzip` step — overwriting dashboard assets in place. After the upgrade extracts the pack:
 
 1. The server script (`dashboard_server.py`) and shared reader (`dashboard_lib.py`) are replaced with the new version.
 2. The browser assets (`dashboard.js`, `dashboard.css`, `dashboard.html`, React bundles) are replaced.

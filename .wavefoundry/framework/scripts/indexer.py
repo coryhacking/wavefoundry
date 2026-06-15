@@ -456,8 +456,9 @@ _DOT_DIR_ALLOWLIST_PREFIX = ".wavefoundry/"
 # mismatch forces a full rebuild so existing indexes pick up newly-included / drop newly-excluded
 # files automatically.
 # 5 -> 6 (1p4ww): framework seeds + README are now folded into the project docs index by default;
-# existing indexes must re-walk to pull them in (the stale shipped framework/index/ is removed by
-# the manifest-prune on upgrade since the new pack no longer ships it).
+# existing indexes must re-walk to pull them in. The deprecated shipped framework/index/ is NOT
+# removed by manifest-prune (its `.lance` artifacts were never in any MANIFEST, so prune can't see
+# them) — it is removed by an explicit step in upgrade_wavefoundry.py's prune phase (wave 1p5ik).
 WALKER_VERSION = "6"
 
 # Environment variable used by the MCP server to tell the background indexer
