@@ -474,7 +474,15 @@ def _run_release_orchestration(
     *,
     dry_run: bool,
 ) -> None:
-    """Tag, push, and upload via `gh release create`. Honors `dry_run`.
+    """Commit the build stamp, tag, push main + tag, and upload via `gh release create`.
+
+    Ordering (wave 1p5l4 fix): ``build_zip`` stamps ``VERSION`` +
+    ``prompt-surface-manifest.json`` AFTER the clean-tree preflight, so those
+    edits are uncommitted when this runs. We commit them FIRST, so the
+    annotated tag lands on the stamp commit — matching the v1.4/v1.5 release
+    convention where ``vX`` points at the "Bump VERSION to X" commit, not the
+    pre-stamp commit. Then push ``main`` (so origin reflects the tagged commit)
+    and the tag, then create the Release.
 
     On any step failure, raises RuntimeError with an actionable recovery hint
     that names the exact command to re-run the failed step manually. Partial
@@ -486,9 +494,13 @@ def _run_release_orchestration(
 
     tag = f"v{version}"
     tag_message = _derive_tag_message(repo_root, version)
+    stamp = (repo_root / FRAMEWORK_REL / "VERSION").read_text(encoding="utf-8").strip()
+    stamp_message = f"Bump VERSION to {stamp} after release"
 
     if dry_run:
+        print(f"[--release-dry-run] would run: git add -A && git commit -m {stamp_message!r}", file=sys.stderr)
         print(f"[--release-dry-run] would run: git tag -a {tag} -m {tag_message!r}", file=sys.stderr)
+        print(f"[--release-dry-run] would run: git push origin HEAD:main", file=sys.stderr)
         print(f"[--release-dry-run] would run: git push origin {tag}", file=sys.stderr)
         print(
             f"[--release-dry-run] would run: gh release create {tag} "
@@ -501,7 +513,46 @@ def _run_release_orchestration(
         )
         return
 
-    # Step 1: create the annotated tag locally.
+    # Step 1: commit the build stamp so the tag lands on it (not the pre-stamp
+    # commit). Everything dirty here is build output — the preflight guaranteed a
+    # clean tree before build_zip ran — so `git add -A` captures exactly the
+    # stamp (VERSION + manifest, plus any gardener output from the docs gate).
+    add_result = subprocess.run(
+        ["git", "add", "-A"],
+        cwd=str(repo_root),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if add_result.returncode != 0:
+        raise RuntimeError(
+            f"step 1/5 (git add stamp) failed: {add_result.stderr.strip()}\n"
+            f"  recovery: investigate the error above; the local repo is untouched."
+        )
+    # Commit only if the stamp changed something (normally it does).
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--quiet"],
+        cwd=str(repo_root),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if staged.returncode != 0:
+        commit_result = subprocess.run(
+            ["git", "commit", "-m", stamp_message],
+            cwd=str(repo_root),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if commit_result.returncode != 0:
+            raise RuntimeError(
+                f"step 1/5 (git commit stamp) failed: {commit_result.stderr.strip()}\n"
+                f"  recovery: the stamp is staged; commit it manually "
+                f"(`git commit -m {stamp_message!r}`) and re-run the remaining steps."
+            )
+
+    # Step 2: create the annotated tag locally — now on the stamp commit.
     tag_result = subprocess.run(
         ["git", "tag", "-a", tag, "-m", tag_message],
         cwd=str(repo_root),
@@ -511,11 +562,29 @@ def _run_release_orchestration(
     )
     if tag_result.returncode != 0:
         raise RuntimeError(
-            f"step 1/3 (git tag) failed: {tag_result.stderr.strip()}\n"
-            f"  recovery: investigate the error above; the local repo is untouched."
+            f"step 2/5 (git tag) failed: {tag_result.stderr.strip()}\n"
+            f"  recovery: the stamp commit is in place; investigate the tag error, "
+            f"then re-run the tag + push + release steps manually."
         )
 
-    # Step 2: push the tag to origin.
+    # Step 3: push main so origin reflects the stamp commit the tag points at.
+    push_main = subprocess.run(
+        ["git", "push", "origin", "HEAD:main"],
+        cwd=str(repo_root),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if push_main.returncode != 0:
+        raise RuntimeError(
+            f"step 3/5 (git push main) failed: {push_main.stderr.strip()}\n"
+            f"  recovery: the stamp commit and local tag `{tag}` exist but nothing "
+            f"was pushed. Fix the push issue, then run `git push origin HEAD:main`, "
+            f"`git push origin {tag}`, and the gh release step manually — or delete "
+            f"the tag (`git tag -d {tag}`) and re-run --release."
+        )
+
+    # Step 4: push the tag to origin.
     push_result = subprocess.run(
         ["git", "push", "origin", tag],
         cwd=str(repo_root),
@@ -525,13 +594,12 @@ def _run_release_orchestration(
     )
     if push_result.returncode != 0:
         raise RuntimeError(
-            f"step 2/3 (git push) failed: {push_result.stderr.strip()}\n"
-            f"  recovery: local tag `{tag}` was created. Either delete it "
-            f"(`git tag -d {tag}`) and retry, or push it manually "
-            f"(`git push origin {tag}`) once the underlying issue is fixed."
+            f"step 4/5 (git push tag) failed: {push_result.stderr.strip()}\n"
+            f"  recovery: main is pushed and local tag `{tag}` was created. Push it "
+            f"manually (`git push origin {tag}`) once the underlying issue is fixed."
         )
 
-    # Step 3: create the GitHub Release with the local zip as the asset.
+    # Step 5: create the GitHub Release with the local zip as the asset.
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".md", delete=False, encoding="utf-8"
     ) as notes_file:
@@ -558,7 +626,7 @@ def _run_release_orchestration(
 
     if release_result.returncode != 0:
         raise RuntimeError(
-            f"step 3/3 (gh release create) failed: {release_result.stderr.strip()}\n"
+            f"step 5/5 (gh release create) failed: {release_result.stderr.strip()}\n"
             f"  recovery: tag `{tag}` is already on origin. Re-run only the "
             f"release-create step:\n"
             f"    gh release create {tag} --title {version} "

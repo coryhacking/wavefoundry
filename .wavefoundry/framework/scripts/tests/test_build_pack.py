@@ -733,6 +733,106 @@ class TagMessageDerivationTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Release orchestration ordering (wave 1p5l4): the build stamp must be committed
+# BEFORE tagging, so the tag lands on the stamp commit (matching the v1.4/v1.5
+# convention), and main must be pushed so origin reflects the tagged commit.
+# ---------------------------------------------------------------------------
+
+
+class ReleaseOrchestrationOrderingTests(unittest.TestCase):
+    """`_run_release_orchestration` commits the stamp, then tags, then pushes main + tag."""
+
+    def _repo_with_version(self, stamp="1.6.0+ptest"):
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        vfile = root / build_pack.FRAMEWORK_REL / "VERSION"
+        vfile.parent.mkdir(parents=True, exist_ok=True)
+        vfile.write_text(stamp + "\n", encoding="utf-8")
+        return root
+
+    class _Recorder:
+        """Records argv of each subprocess.run and returns success for all."""
+        def __init__(self):
+            self.calls = []
+
+        def __call__(self, argv, **kwargs):
+            self.calls.append(list(argv))
+
+            class _CP:
+                def __init__(self, rc, out="", err=""):
+                    self.returncode = rc
+                    self.stdout = out
+                    self.stderr = err
+
+            # `git diff --cached --quiet` → rc=1 means there ARE staged changes
+            # (the stamp), so the commit step proceeds.
+            if argv[:3] == ["git", "diff", "--cached"]:
+                return _CP(1)
+            # `git log -1 --format=%s` (tag-message derivation): non-close subject.
+            if argv[:2] == ["git", "log"]:
+                return _CP(0, "Close wave 1p5dk and ship 1.5.1 -> 1.6.0\n")
+            return _CP(0, "ok")
+
+    def _verbs(self, calls):
+        """Reduce recorded argv lists to comparable verb tuples."""
+        verbs = []
+        for c in calls:
+            if c[:2] == ["git", "commit"]:
+                verbs.append("commit")
+            elif c[:2] == ["git", "tag"]:
+                verbs.append("tag")
+            elif c[:1] == ["git"] and "push" in c and "HEAD:main" in c:
+                verbs.append("push-main")
+            elif c[:1] == ["git"] and "push" in c and any(x == "v1.6.0" for x in c):
+                verbs.append("push-tag")
+            elif c[:2] == ["gh", "release"]:
+                verbs.append("gh-release")
+        return verbs
+
+    def test_commit_precedes_tag_and_main_is_pushed(self):
+        root = self._repo_with_version()
+        rec = self._Recorder()
+        with patch("build_pack.subprocess.run", rec):
+            build_pack._run_release_orchestration(
+                root, "1.6.0", Path("/tmp/wavefoundry-1.6.0.ptest.zip"),
+                "notes", dry_run=False,
+            )
+        verbs = self._verbs(rec.calls)
+        # The exact release-action sequence.
+        self.assertEqual(verbs, ["commit", "tag", "push-main", "push-tag", "gh-release"])
+        # And specifically: the stamp commit lands before the tag.
+        self.assertLess(verbs.index("commit"), verbs.index("tag"))
+
+    def test_commit_message_carries_the_version_stamp(self):
+        root = self._repo_with_version("1.6.0+ptest")
+        rec = self._Recorder()
+        with patch("build_pack.subprocess.run", rec):
+            build_pack._run_release_orchestration(
+                root, "1.6.0", Path("/tmp/x.zip"), "notes", dry_run=False,
+            )
+        commit_call = next(c for c in rec.calls if c[:2] == ["git", "commit"])
+        self.assertIn("Bump VERSION to 1.6.0+ptest after release", commit_call)
+
+    def test_dry_run_takes_no_side_effects_and_shows_commit_before_tag(self):
+        import io, contextlib
+        root = self._repo_with_version()
+        rec = self._Recorder()
+        buf = io.StringIO()
+        with patch("build_pack.subprocess.run", rec), contextlib.redirect_stderr(buf):
+            build_pack._run_release_orchestration(
+                root, "1.6.0", Path("/tmp/x.zip"), "notes", dry_run=True,
+            )
+        # No git/gh side-effects beyond the tag-message git-log lookup.
+        side_effects = [c for c in rec.calls if c[:2] in (["git", "commit"], ["git", "tag"], ["gh", "release"])]
+        self.assertEqual(side_effects, [], "dry-run must not commit/tag/release")
+        out = buf.getvalue()
+        self.assertLess(out.index("git commit"), out.index(f"git tag -a v1.6.0"))
+        self.assertIn("git push origin HEAD:main", out)
+
+
+# ---------------------------------------------------------------------------
 # Install-log / install-entry-doc templates (wave 1p35d / change 1p35f)
 # ---------------------------------------------------------------------------
 
