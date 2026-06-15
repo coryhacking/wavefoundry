@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import glob
 import os
+import sys
 from pathlib import Path
 from typing import Iterable, Iterator, Optional
 
@@ -350,6 +351,41 @@ def _available_gpu_providers() -> list[str]:
     return [p for p in GPU_PROVIDERS if p in available]
 
 
+# Wave 1p5py (revised 1p5qp per field report 091yp/091yn): CUDA 12-vs-13 ABI gap.
+# On Arch/CachyOS-style hosts onnxruntime-gpu is built for the CUDA 12 ABI but the
+# system has only CUDA 13, so the CUDA provider can't load and the GPU sits idle.
+# We do NOT attempt a symlink shim — CUDA 13's cuBLAS exports different ELF version
+# symbols (VERNEED) than CUDA 12, so a .so.13→.so.12 symlink is rejected by the
+# loader (091yp). Instead we detect the gap on the FILESYSTEM (not via the linker
+# path) and surface a loud, accurate one-time warning so the install/upgrade agent
+# never sees a silent CPU fallback — even when ORT doesn't list CUDA at all (091yn).
+_cuda12_gap_warned = False
+
+
+def _warn_cuda12_gap_once(remediation: str) -> None:
+    global _cuda12_gap_warned
+    if _cuda12_gap_warned:
+        return
+    _cuda12_gap_warned = True
+    print(f"[wavefoundry][GPU] WARNING: {remediation}", file=sys.stderr, flush=True)
+
+
+def _warn_cuda12_gap_if_present() -> None:
+    """Filesystem-probe for the CUDA 12-ABI gap and surface a one-time warning. Never raises.
+
+    Detection is filesystem-based (`provider_policy.detect_cuda12_abi_gap`), so it fires even
+    when the CUDA libs aren't on the linker path and ORT doesn't list CUDAExecutionProvider at
+    all (091yn — the silent-on-fresh-Arch case). No shim is attempted (091yp).
+    """
+    try:
+        import provider_policy as pp
+        gap = pp.detect_cuda12_abi_gap()
+    except Exception:
+        return
+    if gap is not None:
+        _warn_cuda12_gap_once(gap.remediation)
+
+
 def make_embedder(model_name: str, providers: Iterable[str]):
     """Return a ``StaticShapeEmbedder`` when a GPU runs this model's graph faster than CPU;
     otherwise ``None`` so the caller falls back to fastembed.
@@ -357,13 +393,18 @@ def make_embedder(model_name: str, providers: Iterable[str]):
     The GPU provider is taken from ``providers`` (the 1p4u5 selection) if present, else from what's
     actually AVAILABLE — so a transient fastembed-probe failure (e.g. fresh cache) doesn't disable
     acceleration. Never raises — any failure (no GPU, missing ``onnx``/model, fragmented graph)
-    degrades to ``None`` (fastembed CPU path).
+    degrades to ``None`` (fastembed CPU path). When an NVIDIA GPU is present but CUDA can't load
+    (the CUDA 12-vs-13 ABI gap), surfaces a loud warning instead of a silent CPU fallback (wave
+    1p5py/1p5qp) — including when CUDA isn't selected at all (091yn).
     """
     provider_list = list(providers)
     gpu = [p for p in provider_list if p in GPU_PROVIDERS]
     if not gpu:
         gpu = _available_gpu_providers()
     if not gpu:
+        # 091yn: on a fresh CUDA-13 host ORT may not even list CUDA, so we'd never
+        # reach the CUDA-selected path below — probe + warn proactively here.
+        _warn_cuda12_gap_if_present()
         return None
     try:
         import onnx  # noqa: F401  (static-shape pin dependency)
@@ -375,10 +416,14 @@ def make_embedder(model_name: str, providers: Iterable[str]):
         embedder = StaticShapeEmbedder(model_name, gpu + ["CPUExecutionProvider"])
         # Only use it if the model's graph actually runs on the GPU; otherwise a
         # fragmented CoreML graph is no faster than fastembed → fall back.
-        if not embedder.offloads_to_gpu():
-            return None
-        return embedder
+        if embedder.offloads_to_gpu():
+            return embedder
+        if CUDA_PROVIDER in gpu:
+            _warn_cuda12_gap_if_present()  # CUDA selected but didn't offload — surface the gap
+        return None
     except Exception:
+        if CUDA_PROVIDER in gpu:
+            _warn_cuda12_gap_if_present()
         return None
 
 

@@ -437,5 +437,96 @@ class HfDownloadCachedFirstTests(unittest.TestCase):
         self.assertEqual(calls, [True, False], "cached-first then online download")
 
 
+# Wave 1p5py: CUDA 12-vs-13 ABI gap detection + venv-local shim (hardware-free).
+
+
+def load_provider_policy():
+    spec = importlib.util.spec_from_file_location("provider_policy", SCRIPTS / "provider_policy.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["provider_policy"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class ProviderPolicyCuda12GapTests(unittest.TestCase):
+    def setUp(self):
+        self.pp = load_provider_policy()
+
+    def test_no_gap_off_linux(self):
+        self.assertIsNone(self.pp.detect_cuda12_abi_gap(is_linux=False, has_nvidia=True))
+
+    def test_no_gap_without_nvidia(self):
+        self.assertIsNone(self.pp.detect_cuda12_abi_gap(is_linux=True, has_nvidia=False))
+
+    def test_no_gap_when_so12_present(self):
+        # every required .so.12 resolves → no gap
+        gap = self.pp.detect_cuda12_abi_gap(
+            is_linux=True, has_nvidia=True,
+            find_lib=lambda name: f"/usr/lib/{name}" if name.endswith(".12") else None,
+        )
+        self.assertIsNone(gap)
+
+    def test_gap_when_so12_missing_so13_present(self):
+        def find_lib(name):
+            return f"/opt/cuda/lib64/{name}" if name.endswith(".13") else None
+        gap = self.pp.detect_cuda12_abi_gap(is_linux=True, has_nvidia=True, find_lib=find_lib)
+        self.assertIsNotNone(gap)
+        self.assertEqual(set(gap.missing), {"libcublasLt.so.12", "libcublas.so.12"})
+        self.assertEqual(gap.so13_by_target["libcublasLt.so.12"], "/opt/cuda/lib64/libcublasLt.so.13")
+        self.assertIn("CUDA 13", gap.remediation)
+        self.assertIn("libcublasLt.so.12", gap.remediation)
+        # 091yp: remediation must NOT suggest the (broken) soname symlink, and must
+        # point at the real fix (build from source / await a CUDA-13 wheel).
+        self.assertNotIn("ln -s", gap.remediation)
+        self.assertIn("VERNEED", gap.remediation)
+        self.assertIn("build", gap.remediation.lower())
+
+    def test_partial_gap_only_missing_lib(self):
+        # libcublasLt.so.12 present, libcublas.so.12 missing (.13 present) → gap for the one
+        def find_lib(name):
+            if name == "libcublasLt.so.12":
+                return "/usr/lib/libcublasLt.so.12"
+            if name == "libcublas.so.13":
+                return "/opt/cuda/lib64/libcublas.so.13"
+            return None
+        gap = self.pp.detect_cuda12_abi_gap(is_linux=True, has_nvidia=True, find_lib=find_lib)
+        self.assertIsNotNone(gap)
+        self.assertEqual(gap.missing, ("libcublas.so.12",))
+
+class AccelCuda12WarnTests(unittest.TestCase):
+    def setUp(self):
+        self.accel = load_accel()
+        self.accel._cuda12_gap_warned = False
+
+    def _fake_pp(self, gap):
+        # No ensure_cuda12_abi_shim — the symlink shim was removed (091yp).
+        return types.SimpleNamespace(detect_cuda12_abi_gap=lambda **kw: gap)
+
+    def test_no_gap_is_silent(self):
+        with patch.dict(sys.modules, {"provider_policy": self._fake_pp(None)}):
+            with patch("sys.stderr") as err:
+                err.write = MagicMock()
+                self.accel._warn_cuda12_gap_if_present()
+                err.write.assert_not_called()
+
+    def test_gap_warns_once_no_shim(self):
+        gap = types.SimpleNamespace(remediation="CUDA 13 gap — build onnxruntime-gpu from source")
+        out = []
+        with patch.dict(sys.modules, {"provider_policy": self._fake_pp(gap)}):
+            with patch("sys.stderr") as err:
+                err.write = lambda s: out.append(s)
+                self.accel._warn_cuda12_gap_if_present()
+                self.accel._warn_cuda12_gap_if_present()  # once-guard
+        joined = "".join(out)
+        self.assertIn("CUDA 13 gap", joined)
+        self.assertEqual(joined.count("CUDA 13 gap"), 1, "warning must fire at most once")
+
+    def test_shim_helper_is_gone(self):
+        # 091yp: the symlink shim must not exist on either module.
+        self.assertFalse(hasattr(self.accel, "_handle_cuda12_gap"))
+        self.assertFalse(hasattr(self.accel, "_onnxruntime_lib_dir"))
+        self.assertFalse(hasattr(load_provider_policy(), "ensure_cuda12_abi_shim"))
+
+
 if __name__ == "__main__":
     unittest.main()

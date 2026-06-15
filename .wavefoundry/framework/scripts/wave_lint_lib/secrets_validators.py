@@ -676,6 +676,21 @@ MAX_LINE_BYTES = 32 * 1024
 MAX_FILE_BYTES = 5 * 1024 * 1024
 # Bytes sniffed from the file head for NUL-byte binary detection.
 BINARY_SNIFF_BYTES = 8192
+# Wave 1p5qp: extension-based fast-skip — checked BEFORE stat/read so known-binary
+# and data artifacts (LanceDB segments, archives, shared objects, media, model
+# weights) never reach the per-file NUL-byte sniff. Field report (091yo): the
+# 8 KB-per-file sniff over ~300 such files made docs-lint / wave_* tools spin (~54s).
+_BINARY_SKIP_EXTENSIONS = frozenset({
+    ".zip", ".gz", ".tar", ".tgz", ".bz2", ".xz", ".7z", ".rar", ".zst",
+    ".so", ".dylib", ".dll", ".a", ".o", ".obj", ".lib", ".node", ".wasm",
+    ".lance",  # LanceDB segment files
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".tif", ".tiff", ".svgz",
+    ".pdf", ".woff", ".woff2", ".ttf", ".otf", ".eot",
+    ".mp3", ".mp4", ".mov", ".avi", ".mkv", ".wav", ".flac", ".ogg", ".webm",
+    ".pyc", ".pyo", ".whl", ".egg", ".bin", ".dat", ".db", ".sqlite", ".sqlite3",
+    ".onnx", ".pt", ".pth", ".safetensors", ".npy", ".npz", ".parquet", ".arrow", ".feather",
+    ".class", ".jar", ".war",
+})
 
 # ── Wave 1p44s (AC-9) — skip visibility ──────────────────────────────────────
 # Files skipped by the size/binary guards must be SURFACED, never silent, so a
@@ -860,6 +875,13 @@ def scan_file_raw(
     Cleanly suppressed lines (wavefoundry-ignore with a reason) are excluded entirely.
     """
     if _path_matches_allowlist(rel, global_allowlist_paths):
+        return [], None, []
+    # Wave 1p5qp — extension fast-skip BEFORE any stat/read: known-binary/data
+    # artifacts (archives, shared objects, LanceDB segments, media, model weights)
+    # never reach the per-file NUL-byte sniff. Field report 091yo: the 8 KB sniff
+    # over ~300 such files made docs-lint / wave_* tools spin (~54s).
+    if file_path.suffix.lower() in _BINARY_SKIP_EXTENSIONS:
+        _record_scan_skip(rel, "binary file (extension)", file_path.suffix.lower())
         return [], None, []
     # Wave 1p44s — input guards BEFORE reading the file. Each returns the same
     # ([], None, []) shape as a clean skip so phase-2 short-circuits without a
@@ -1156,10 +1178,19 @@ def check_hardcoded_secrets(
     files: list[Path] | None = None,
     max_workers: int = 1,
     as_of: datetime | None = None,
+    record_only: bool = False,
 ) -> list[str]:
     """Scan tracked/changed files for secrets matching the merged ruleset.
 
     Returns a list of error strings (empty = clean).
+
+    record_only: wave 1p5pz — when True, secret *findings* (new/pending/suspected/
+        confirmed/under-confirmed-false-positive, all tagged ``[secrets]``) are still
+        detected and recorded to scan-findings.json, but are NOT returned as failures
+        — only genuine lint errors (a bare ``wavefoundry-ignore`` directive) are. The
+        secrets gate is enforced solely at ``wave_close`` (`_check_secrets_gate`), so
+        docs-lint (post-edit hook, ``wave_validate``, the upgrade docs gate) must not
+        block on secret findings. A non-fatal stderr notice surfaces the recorded count.
 
     files: when provided, scan exactly these files instead of calling get_scan_files().
            Used by the incremental indexer path to pass pre-computed changed-file sets.
@@ -1370,5 +1401,22 @@ def check_hardcoded_secrets(
 
     if exceptions_changed:
         save_exceptions(root, exceptions)
+
+    # Wave 1p5pz — record-only mode (docs-lint / hook / upgrade docs gate): secret
+    # findings are tagged "[secrets]" by _match_hits_for_file; a bare-suppression
+    # lint error is not. Detection still recorded the findings to scan-findings.json
+    # above; here we strip the finding messages from the returned failures so they
+    # don't block, leaving only genuine lint errors. wave_close is the sole gate.
+    if record_only:
+        findings = [f for f in failures if "[secrets]" in f]
+        lint_errors = [f for f in failures if "[secrets]" not in f]
+        if findings:
+            print(
+                f"[secrets] {len(findings)} finding(s) recorded in {SCAN_FINDINGS_PATH} "
+                "— not blocking (the secrets gate runs at wave_close); run the security "
+                "reviewer to classify pending entries.",
+                file=sys.stderr, flush=True,
+            )
+        return lint_errors
 
     return failures

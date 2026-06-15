@@ -84,7 +84,11 @@ def main() -> int:
         print("docs/: missing repository docs root", file=sys.stderr)
         return 1
 
-    failures.extend(check_hardcoded_secrets(root, scan_all=args.scan_all))
+    # Wave 1p5pz: docs-lint detects + records secret findings but does NOT block on
+    # them (record_only) — the secrets gate is enforced solely at wave_close. This keeps
+    # the post-edit hook, wave_validate, and the upgrade docs gate from blocking on a
+    # found secret; only a malformed inline-suppression directive (a real lint error) fails.
+    failures.extend(check_hardcoded_secrets(root, scan_all=args.scan_all, record_only=True))
     failures.extend(check_required_files(root))
     failures.extend(check_forbidden_root_wrappers(root))
     failures.extend(check_prompt_file_extensions(root))

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-08
+Last verified: 2026-06-15
 
 The canonical schema for **`docs/scan-findings.json`** — the committed ledger the
 hardcoded-secrets scanner uses to record, classify, and gate every match. It is
@@ -40,8 +40,8 @@ Each array element is one finding. Scanner-written fields are created by
 | `status` | string | Lifecycle status (see below). New matches are appended as `pending`. |
 | `in_comment` | bool | *(optional)* True when the match is on a leading-comment line — triage context only; a commented secret is still flagged, never auto-suppressed. |
 | `exp_date` | string | *(optional, JWT findings)* Human-readable UTC `exp` claim, suffixed `(EXPIRED)` when past. Surfacing only. |
-| `override_reason` | string | *(optional)* A non-empty operator reason dismisses a `false-positive` finding even below the confirmation count, and is required to acknowledge a `confirmed-secret` / `suspected-secret` for a wave. |
-| `acknowledged_for_wave` | string | *(optional)* Wave id this finding is acknowledged for. `wave_close` soft-blocks a `confirmed-secret`/`suspected-secret` whose value ≠ the closing wave id (wave-scoped — re-acknowledge per wave). |
+| `override_reason` | string | *(optional)* A non-empty operator reason dismisses a `false-positive` finding even below the confirmation count. **Wave 1p5pz:** no longer used to acknowledge a `confirmed-secret`/`suspected-secret` (that soft-block was dropped). |
+| `acknowledged_for_wave` | string | *(optional, legacy — no longer consulted)* Wave id a finding was acknowledged for under the pre-1p5pz per-wave soft-block. `wave_close` no longer reads this field; tolerated if present on legacy findings, but unused. |
 | `confirmations` | array | *(optional)* Reviewer confirmations of a `false-positive` (see below). |
 
 ### `confirmations[]` sub-schema
@@ -61,15 +61,34 @@ Each confirmation (appended by the security reviewer per
 
 Per `213-security-reviewer.prompt.md`:
 
-- `pending` — a new, unclassified match. `wave_close` **hard-blocks** on any
-  `pending` entry. The security reviewer classifies each into one of the below.
+- `pending` — a new, unclassified match. `wave_close` **hard-blocks**. The
+  security reviewer classifies each into one of the below.
 - `false-positive` — not a real secret. Cleared once it has enough valid
   confirmations (see policy), an `override_reason`, or the effective threshold is
-  met. Still flagged by the gate until cleared.
-- `suspected-secret` — needs human analysis; the reviewer must reclassify it as
-  `false-positive` or `confirmed-secret`. `wave_close` soft-blocks until resolved.
-- `confirmed-secret` — a real secret. Remediate (rotate + remove), then re-scan.
-  `wave_close` soft-blocks until `acknowledged_for_wave` matches the closing wave.
+  met. Non-blocking once cleared.
+- `suspected-secret` — looks real, unconfirmed; the reviewer must reclassify it as
+  `false-positive` or `confirmed-secret`. `wave_close` **hard-blocks** (unresolved)
+  until reclassified.
+- `confirmed-secret` — a real secret. `wave_close` **does NOT block** (wave 1p5pz):
+  classification is the acknowledgment. Instead **every** close surfaces a
+  non-blocking standing reminder (`confirmed_secrets` + `secrets_reminder` in the
+  `wave_close` response `data`) listing all confirmed secrets, for the agent to
+  present to the operator. Remediate (rotate + remove) before distribution; re-scan
+  to clear.
+
+**`wave_close` status × gate (wave 1p5pz):**
+
+| status | `wave_close` |
+| ------ | ------------ |
+| `pending` | **hard-block** until classified |
+| `suspected-secret` | **hard-block** (unresolved) until reclassified |
+| `confirmed-secret` | **non-blocking** — standing reminder surfaced on every close |
+| `false-positive` (cleared) | clears (silent) |
+
+> **Never** label a real secret `false-positive` to clear a gate — `false-positive`
+> means "not a real credential" (env-var read, placeholder, test fixture). A known
+> real secret is `confirmed-secret`, which does not block close, so there is no
+> reason to mislabel it.
 
 **Full-scan reconciliation of `pending` entries.** On a **full** scan, a `pending`
 entry whose line still exists but which the current ruleset no longer produces as a
@@ -93,7 +112,8 @@ From `.wavefoundry/framework/scan-rules.toml` `[policy]` (overridable in
   currently-confirmable (recent, non-bot) reviewers, so a lone active maintainer
   is never deadlocked. It never rises above the policy value.
 - **`override_reason`** — a non-empty value dismisses a `false-positive`
-  regardless of count (operator escape, parity with the confirmed-secret path).
+  regardless of count (operator escape). *(It no longer participates in the
+  `confirmed-secret` path — that soft-block was dropped in wave 1p5pz.)*
 - **`confirmation_valid_days`** (default `365`; `0` disables) — a confirmation
   counts only while its `confirmed_at` is within this window of the scan's "now"
   (per-confirmation clock). Expired/undated confirmations are ignored for the

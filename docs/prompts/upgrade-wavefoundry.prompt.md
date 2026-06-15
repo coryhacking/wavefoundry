@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-14
+Last verified: 2026-06-15
 
 Shortcut: **`Upgrade wave framework`** | Legacy: **`Upgrade Wavefoundry`** / **`Upgrade wave context`**
 
@@ -97,9 +97,8 @@ python3 .wavefoundry/framework/scripts/render_agent_surfaces.py
 The 1.6 upgrade includes a secrets scan; understand which part blocks and how to recover:
 
 - **Full-tree baseline (automatic, records).** The upgrade's final index phase runs the indexer's secrets scan, which auto-escalates to a **full-tree** scan when `docs/scan-findings.json` is absent (always true on a 1.5→1.6 upgrade) or when the ruleset/scanner version changed. It classifies every finding into `docs/scan-findings.json` up front. This scan **records**, it does not fail the upgrade.
-- **Docs gate (incremental, blocks).** The upgrade docs gate runs an **incremental** secrets scan (changed files). A `pending` or `suspected-secret` finding in a changed file **fails the docs gate and halts the upgrade**, leaving a recoverable lock stamped `failed_phase=docs_gate`.
-- **Recovery — resume, don't restart.** When the docs gate fails on a secrets finding: classify the entries in `docs/scan-findings.json` via the security reviewer (seed-213), then resume **without a destructive re-extract**: `.wavefoundry/bin/upgrade-wavefoundry --resume-after-gate` (or `wave_upgrade(phase="resume_after_gate")`). The resume is idempotent on an already-advanced tree.
-- **Unresolved full-tree findings block the next `wave_close`** (hard-block on `pending`), so untouched-file secrets surfaced by the baseline are caught at the next close even though they don't fail the upgrade itself.
+- **Docs gate (incremental, records — does NOT block).** The upgrade docs gate runs an **incremental** secrets scan (changed files) in **record-only** mode (wave 1p5pz): a `pending`/`suspected-secret` finding is recorded to `docs/scan-findings.json` and surfaced as a non-fatal `[secrets]` notice, but it **does not fail the docs gate or halt the upgrade**. (Only a malformed inline-suppression directive is a lint error.) So a found secret never blocks an upgrade.
+- **Enforcement is at `wave_close`, not the upgrade.** Unresolved findings (`pending`/`suspected-secret`) **hard-block the next `wave_close`** until classified via the security reviewer (seed-213); `confirmed-secret` is non-blocking + reminded. Classify the baseline + incremental findings before your next wave close — the upgrade itself proceeds regardless.
 
 ## Supported version range
 

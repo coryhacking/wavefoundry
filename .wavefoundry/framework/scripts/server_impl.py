@@ -8338,72 +8338,84 @@ def _load_scan_findings(root: Path) -> list[dict]:
 
 
 def _check_secrets_gate(root: Path, canonical_wave_id: str) -> list[dict]:
-    """Return diagnostic dicts for the wave_close secrets gate.
+    """Return blocking diagnostic dicts for the wave_close secrets gate.
 
-    Hard-block: any entry with status 'pending'.
-    Soft-block: any 'confirmed-secret' or 'suspected-secret' entry without
-    acknowledged_for_wave matching the wave ID.
+    Hard-block (must be classified before close): any entry with status
+    'pending' or 'suspected-secret' — these are unresolved and must be
+    classified to 'confirmed-secret' (real) or 'false-positive' (not real).
+
+    Wave 1p5pz: 'confirmed-secret' findings no longer block close — they are a
+    real, classified, tracked secret surfaced as a non-blocking standing
+    reminder (see _confirmed_secret_notice). The per-wave acknowledged_for_wave
+    / override_reason soft-block was dropped; classification IS the
+    acknowledgment. 'false-positive' clears silently. Legacy findings that still
+    carry acknowledged_for_wave / override_reason are tolerated (ignored).
     """
     diagnostics: list[dict] = []
     exceptions = _load_scan_findings(root)
     if not exceptions:
         return diagnostics
 
-    pending = [e for e in exceptions if e.get("status") == "pending"]
-    if pending:
+    # Fail-closed: only 'false-positive' (not a real secret) and 'confirmed-secret'
+    # (real, classified — non-blocking + reminded) clear close. 'pending',
+    # 'suspected-secret', and any unknown/missing status are unresolved and
+    # hard-block — an unrecognized status must never slip through unblocked.
+    unresolved = [
+        e for e in exceptions
+        if e.get("status") not in ("false-positive", "confirmed-secret")
+    ]
+    if unresolved:
         lines = "\n".join(
-            f"  [{e.get('id', '?')}] {e.get('file', '?')}:{e.get('line', '?')}  rule: {e.get('rule_id', '?')}"
-            for e in pending
+            f"  [{e.get('id', '?')}] {e.get('file', '?')}:{e.get('line', '?')}  rule: {e.get('rule_id', '?')}  status: {e.get('status', '?')}"
+            for e in unresolved
         )
         diagnostics.append(_diagnostic(
-            "secrets_gate_pending",
+            "secrets_gate_unresolved",
             (
-                f"SECRETS GATE — {len(pending)} pending finding(s) must be resolved before close:\n\n"
+                f"SECRETS GATE — {len(unresolved)} unresolved finding(s) must be classified before close:\n\n"
                 f"{lines}\n\n"
-                "To proceed: run the security reviewer (seed-213), which will classify each "
-                "pending entry as 'false-positive', 'suspected-secret', or 'confirmed-secret'. "
-                "Then re-run wave_close."
-            ),
-            recovery_tools=["wave_review"],
-            recovery_usage=f"wave_review(wave_id={canonical_wave_id!r})",
-        ))
-
-    unacknowledged = [
-        e for e in exceptions
-        if e.get("status") in ("confirmed-secret", "suspected-secret")
-        and e.get("acknowledged_for_wave", "") != canonical_wave_id
-    ]
-    if unacknowledged:
-        lines_parts = []
-        for e in unacknowledged:
-            status = e.get("status", "?")
-            override = e.get("override_reason", "") or "(none)"
-            has_override = bool(e.get("override_reason", "").strip())
-            line = (
-                f"  [{e.get('id', '?')}] {e.get('file', '?')}:{e.get('line', '?')}  rule: {e.get('rule_id', '?')}  status: {status}\n"
-                f"  Matched: {e.get('matched_text', '?')}\n"
-                f"  Override reason: {override}"
-            )
-            if not has_override:
-                line += " ← add an override_reason before acknowledging"
-            lines_parts.append(line)
-        body = "\n\n".join(lines_parts)
-        diagnostics.append(_diagnostic(
-            "secrets_gate_confirmed_secret",
-            (
-                f"SECRETS GATE — {len(unacknowledged)} unresolved secret finding(s) require acknowledgment "
-                f"for wave {canonical_wave_id}:\n\n"
-                f"{body}\n\n"
-                "To proceed: run the security reviewer, which will present each entry for "
-                "operator acceptance. The security reviewer will write "
-                f"acknowledged_for_wave: \"{canonical_wave_id}\" to docs/scan-findings.json "
-                "for each entry the operator accepts. Then re-run wave_close."
+                "To proceed: run the security reviewer (seed-213), which will classify each as "
+                "'confirmed-secret' (a real secret — tracked, non-blocking) or 'false-positive' "
+                "(not a real secret). Then re-run wave_close. Never label a real secret "
+                "'false-positive'."
             ),
             recovery_tools=["wave_review"],
             recovery_usage=f"wave_review(wave_id={canonical_wave_id!r})",
         ))
 
     return diagnostics
+
+
+def _confirmed_secret_notice(root: Path) -> dict[str, Any] | None:
+    """Build a non-blocking standing reminder of 'confirmed-secret' findings.
+
+    Wave 1p5pz: confirmed secrets do not block wave_close; instead EVERY close
+    surfaces this reminder in the response ``data`` so the agent presents it to
+    the operator. Returns None when there are no confirmed-secret findings.
+    """
+    confirmed = [
+        e for e in _load_scan_findings(root)
+        if e.get("status") == "confirmed-secret"
+    ]
+    if not confirmed:
+        return None
+    items = [
+        {
+            "id": e.get("id", "?"),
+            "file": e.get("file", "?"),
+            "line": e.get("line", "?"),
+            "rule_id": e.get("rule_id", "?"),
+        }
+        for e in confirmed
+    ]
+    lines = "\n".join(f"  [{i['id']}] {i['file']}:{i['line']}  rule: {i['rule_id']}" for i in items)
+    reminder = (
+        f"NOTE — {len(confirmed)} confirmed secret(s) are tracked in this project "
+        "(docs/scan-findings.json). These do NOT block wave close; this is a standing "
+        "reminder to rotate/remove them before distribution. Present this to the operator:\n\n"
+        f"{lines}"
+    )
+    return {"confirmed_secrets": items, "secrets_reminder": reminder}
 
 
 def _generate_wave_close_summary(wave_id: str, wave_text: str, wave_md: Path) -> str:
@@ -8614,11 +8626,13 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
             )
     if not lint_result["passed"]:
         diagnostics.extend([_diagnostic("docs_lint_error", err, recovery_tools=["wave_validate"]) for err in lint_result["errors"]])
-    # Wave 1p3rm (1p3rp): secrets gate — pending entries hard-block; confirmed-secret entries
-    # soft-block until acknowledged by the security reviewer for this specific wave.
+    # Wave 1p3rm (1p3rp) + 1p5pz: secrets gate — 'pending'/'suspected-secret' entries
+    # hard-block until classified; 'confirmed-secret' entries do NOT block but are surfaced
+    # as a non-blocking standing reminder (secrets_notice) on every close (success + error).
     canonical_wave_id_m = _WAVE_ID_PATTERN.search(text)
     canonical_wave_id = canonical_wave_id_m.group(1) if canonical_wave_id_m else wave_id
     diagnostics.extend(_check_secrets_gate(root, canonical_wave_id))
+    secrets_notice = _confirmed_secret_notice(root) or {}
     # Wave 1p31b (1p32k): close-time hard gate — every AC and task across admitted changes
     # must be `[x]` (done) or `[~]` (intentionally deferred). Silent `[ ]` items block close.
     silent_unchecked = _collect_silent_unchecked_items_for_close(wave_md, text)
@@ -8647,7 +8661,7 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
     # create mode) even when other diagnostics cause an early return.
     gate_diagnostics = _force_gates_closed(root, mode_s)
     if diagnostics:
-        return _response("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed, "required_council_signoffs": required_council_signoffs}, diagnostics=diagnostics + gate_diagnostics, next_tools=["wave_validate", "wave_current"], usage="wave_validate()")
+        return _response("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed, "required_council_signoffs": required_council_signoffs, **secrets_notice}, diagnostics=diagnostics + gate_diagnostics, next_tools=["wave_validate", "wave_current"], usage="wave_validate()")
     # Generate the wave summary from structured change doc fields (12sq4).
     wave_summary = _generate_wave_close_summary(wave_id, text, wave_md)
     updated = False
@@ -8676,7 +8690,7 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
             _trigger_background_index_refresh_for_paths(root, refresh_paths)
     envelope = _response(
         "dry_run" if mode_s == "dry_run" else "ok",
-        {"wave_id": wave_id, "mode": mode_s, "updated": updated, "handoff_path": handoff_rel, "wave_summary": wave_summary},
+        {"wave_id": wave_id, "mode": mode_s, "updated": updated, "handoff_path": handoff_rel, "wave_summary": wave_summary, **secrets_notice},
         diagnostics=gate_diagnostics if gate_diagnostics else None,
         next_tools=["wave_current"],
         usage="wave_current()",
@@ -16136,19 +16150,19 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def wave_close(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Dry-run or close a wave after validation passes.
 
-        Secrets gate (wave 1p3rm): Before close mutations are written, wave_close reads
-        docs/scan-findings.json and enforces two gates:
-          - HARD BLOCK: any entry with status 'pending' blocks close with no override.
-            Run the security reviewer (seed-213) to classify pending entries first.
-          - SOFT BLOCK: any entry with status 'suspected-secret' (unresolved) or
-            'confirmed-secret' whose acknowledged_for_wave field does not match the current
-            wave ID blocks close. Run the security reviewer (seed-213) to resolve
-            suspected-secret entries (reclassify as false-positive or confirmed-secret) and
-            to present confirmed-secret entries to the operator for per-wave acknowledgment.
-            Upon acceptance, the reviewer writes acknowledged_for_wave: "<wave_id>" and
-            override_reason to docs/scan-findings.json. Then re-run wave_close.
-            Acknowledgment is wave-scoped: a different wave requires re-acknowledgment even
-            if the entry was acknowledged for a prior wave.
+        Secrets gate (wave 1p3rm, updated 1p5pz): Before close mutations are written,
+        wave_close reads docs/scan-findings.json:
+          - HARD BLOCK: any entry with status 'pending' or 'suspected-secret' blocks close
+            (unresolved). Run the security reviewer (seed-213) to classify each as
+            'confirmed-secret' (a real secret) or 'false-positive' (not a real secret).
+            Then re-run wave_close. Never label a real secret 'false-positive'.
+          - NON-BLOCKING REMINDER: 'confirmed-secret' entries do NOT block close —
+            classification is the acknowledgment. Every close (success and error) returns a
+            'confirmed_secrets' list + a 'secrets_reminder' string in the response data
+            listing all confirmed secrets; the agent must present this reminder to the
+            operator so known secrets stay visible. Remediate (rotate/remove) before
+            distribution. The pre-1p5pz per-wave acknowledged_for_wave / override_reason
+            soft-block was dropped; those fields are tolerated on legacy findings but unused.
 
         Args:
             wave_id: Wave ID or unique prefix.

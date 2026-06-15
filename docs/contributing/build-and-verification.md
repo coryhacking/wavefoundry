@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-13
+Last verified: 2026-06-15
 
 ## Verification Commands
 
@@ -137,7 +137,7 @@ Same checks whether you run **`wave_validate`** / **`wave_garden`** over MCP or 
 
 `.wavefoundry/bin/docs-gardener` refreshes stale metadata timestamps.
 
-**Secrets scanning** is also part of the docs gate. `docs-lint` runs `wave_lint_lib/secrets_validators.py` against the merged ruleset (`.wavefoundry/scan-rules.toml` + `docs/scan-rules.toml`) and fails on any `pending` or unconfirmed finding in `docs/scan-findings.json`. For an on-demand scan use `wave_scan_secrets(mode="full")` (MCP) — incremental mode auto-escalates to full when either TOML file changed since the last scan. The `wave_close` secrets gate enforces resolution before a wave can close: pending entries hard-block; `suspected-secret` and `confirmed-secret` entries require per-wave operator acknowledgment via the security reviewer (`seed-213`).
+**Secrets scanning** runs in the docs gate, but in **record-only** mode (wave 1p5pz). `docs-lint` runs `wave_lint_lib/secrets_validators.py` against the merged ruleset (`.wavefoundry/scan-rules.toml` + `docs/scan-rules.toml`) and **records** new matches to `docs/scan-findings.json` as `pending` — but it does **not** fail on secret findings (only a malformed inline-suppression directive is a lint error). So the post-edit hook, `wave_validate`, and the upgrade docs gate never block on a found secret. For an on-demand scan use `wave_scan_secrets(mode="full")` (MCP) — incremental mode auto-escalates to full when either TOML file changed since the last scan. **The `wave_close` secrets gate is the sole enforcement point**: `pending` and `suspected-secret` entries hard-block close until classified (via the security reviewer, `seed-213`); `confirmed-secret` is **non-blocking** and surfaces a standing reminder; `false-positive` (cleared) passes.
 
 Both launchers live under `.wavefoundry/bin/` and delegate to `.wavefoundry/framework/scripts/`. This repository does not ship repo-root `./docs-lint` or `./docs-gardener` shims. **Agents should use MCP `wave_validate` and `wave_garden` first**; reserve **`.wavefoundry/bin/docs-lint`** / **`.wavefoundry/bin/docs-gardener`** for hooks, CI, and hosts without MCP.
 

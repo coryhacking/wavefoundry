@@ -298,6 +298,43 @@ class TestMatchDetection(unittest.TestCase):
             errors = _run_check(tmp)
             self.assertEqual(errors, [])
 
+    def test_record_only_records_but_does_not_fail(self) -> None:
+        # 1p5pz: record_only (docs-lint / hook / upgrade gate) — a found secret is
+        # recorded to scan-findings.json but NOT returned as a failure; the secrets
+        # gate is enforced solely at wave_close. Default mode still returns it.
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            _make_root(tmp)
+            _write_framework_toml(tmp)
+            (tmp / "config.py").write_text('key = "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX"\n', encoding="utf-8")
+            with patch("wave_lint_lib.secrets_validators.get_current_git_user_email", return_value="t@x.com"):
+                rec = check_hardcoded_secrets(tmp, scan_all=True, record_only=True)
+            self.assertEqual(rec, [], "record_only must not return secret findings as failures")
+            findings = json.loads((tmp / "docs" / "scan-findings.json").read_text())
+            self.assertTrue(any(f.get("status") == "pending" for f in findings),
+                            "the finding must still be recorded to scan-findings.json")
+            # control: default mode DOES surface it as a failure (so wave_close-era callers see it)
+            with patch("wave_lint_lib.secrets_validators.get_current_git_user_email", return_value="t@x.com"):
+                default = check_hardcoded_secrets(tmp, scan_all=True)
+            self.assertTrue(any("test-stripe-key" in e for e in default), default)
+
+    def test_binary_extension_files_are_skipped(self) -> None:
+        # 091yo: a secret-looking string inside a binary-extension file (LanceDB
+        # segment, zip, .so) must be skipped by extension BEFORE the per-file sniff,
+        # so a repo full of such files doesn't spin. Control: the same content in a
+        # .py source file IS flagged.
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            _make_root(tmp)
+            _write_framework_toml(tmp)
+            secret = 'key = "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX"\n'
+            for name in ("data.lance", "pack.zip", "lib.so"):
+                (tmp / name).write_text(secret, encoding="utf-8")
+            self.assertEqual(_run_check(tmp), [], "binary-extension files must be skipped")
+            (tmp / "config.py").write_text(secret, encoding="utf-8")
+            self.assertTrue(any("test-stripe-key" in e for e in _run_check(tmp)),
+                            "a real source file with the same content must still be flagged")
+
     def test_error_contains_rule_id_and_redacted_text(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = Path(tmp_str)
@@ -723,8 +760,10 @@ class TestScanFileRawGuards(unittest.TestCase):
 
     # AC-3: NUL-byte binary detection.
     def test_binary_file_skipped_and_secret_not_reported(self):
+        # Non-binary extension (.txt) so the NUL-byte content sniff path is exercised
+        # rather than the 1p5qp extension fast-skip (which preempts .dat/.bin/etc.).
         blob = b"\x00\x01" + f'key="{self._SECRET}"'.encode() + b"\x00" * 8
-        lines, sha, hits = self._scan("blob.dat", raw=blob)
+        lines, sha, hits = self._scan("blob.txt", raw=blob)
         self.assertEqual((lines, sha, hits), ([], None, []))
         self.assertTrue(any(s["reason"] == "binary file" for s in _sv._SCANNER_SKIPS))
 

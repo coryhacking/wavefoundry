@@ -7,6 +7,7 @@ import os
 import platform
 import shutil
 import subprocess
+from pathlib import Path
 from typing import Callable, Iterable
 
 CPU_PROVIDER = "CPUExecutionProvider"
@@ -199,6 +200,126 @@ def select_embedding_providers(
     if probe_failures:
         reason = f"{reason} ({'; '.join(probe_failures)})"
     return _cpu_decision(available, reason, remediation)
+
+
+# --- CUDA 12-vs-13 ABI gap (wave 1p5py) -----------------------------------
+# PyPI onnxruntime-gpu (<=1.26) is built against the CUDA 12 ABI and hard-links
+# libcublasLt.so.12 / libcublas.so.12. Arch/CachyOS/Manjaro ship only CUDA 13
+# (libcublasLt.so.13), so ORT's CUDAExecutionProvider is *listed* (compiled in)
+# but fails to dlopen at session creation → silent CPU fallback. We detect the
+# gap (NVIDIA present + .so.12 absent + .so.13 present) and surface a loud,
+# accurate remediation rather than falling back silently. NOTE (1p5qp/091yp): a
+# soname symlink (.so.13 → .so.12) does NOT work — CUDA 13's cuBLAS exports
+# different ELF VERNEED version symbols, so the loader rejects it. The shim was
+# removed; this is detection + warning only (build-from-source is the real fix).
+_CUDA12_REQUIRED_STEMS: tuple[str, ...] = ("libcublasLt.so", "libcublas.so")
+_CUDA_LIB_SEARCH_DIRS: tuple[str, ...] = (
+    "/opt/cuda/lib64",
+    "/opt/cuda/targets/x86_64-linux/lib",
+    "/usr/local/cuda/lib64",
+    "/usr/local/cuda/targets/x86_64-linux/lib",
+    "/usr/lib64",
+    "/usr/lib",
+    "/usr/lib/x86_64-linux-gnu",
+)
+
+
+@dataclass(frozen=True)
+class Cuda12AbiGap:
+    """A detected CUDA 12-ABI gap: ORT needs `.so.12` libs the system only has as `.so.13`."""
+    missing: tuple[str, ...]              # e.g. ("libcublasLt.so.12", "libcublas.so.12")
+    so13_by_target: dict[str, str]        # {"libcublasLt.so.12": "/opt/cuda/lib64/libcublasLt.so.13"}
+    remediation: str
+
+
+def _ldconfig_lib_paths() -> dict[str, str]:
+    """Best-effort {basename: path} from `ldconfig -p`. Empty on any failure."""
+    ldconfig = shutil.which("ldconfig") or "/sbin/ldconfig"
+    try:
+        result = subprocess.run(
+            [ldconfig, "-p"], capture_output=True, text=True, timeout=3, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    out: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        # "\tlibcublasLt.so.12 (libc6,x86-64) => /usr/lib/libcublasLt.so.12"
+        if "=>" not in line:
+            continue
+        left, _, path = line.partition("=>")
+        name = left.strip().split(" ", 1)[0]
+        path = path.strip()
+        if name and path and name not in out:
+            out[name] = path
+    return out
+
+
+def _find_versioned_lib(name: str, ldcache: dict[str, str]) -> str | None:
+    """Resolve a versioned lib basename (e.g. libcublasLt.so.12) to a path, or None."""
+    if name in ldcache:
+        return ldcache[name]
+    for d in _CUDA_LIB_SEARCH_DIRS:
+        candidate = Path(d) / name
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
+def detect_cuda12_abi_gap(
+    *,
+    is_linux: bool | None = None,
+    has_nvidia: bool | None = None,
+    find_lib: Callable[[str], str | None] | None = None,
+) -> Cuda12AbiGap | None:
+    """Detect the CUDA 12-vs-13 ABI gap. Returns a Cuda12AbiGap, or None when not applicable.
+
+    Linux + NVIDIA only. The gap exists when a required `.so.12` cublas lib is absent
+    but its `.so.13` counterpart is present. Params are injectable for testing.
+    """
+    if is_linux is None:
+        is_linux = platform.system() == "Linux"
+    if not is_linux:
+        return None
+    if has_nvidia is None:
+        has_nvidia = nvidia_gpu_present()
+    if not has_nvidia:
+        return None
+    if find_lib is None:
+        ldcache = _ldconfig_lib_paths()
+        find_lib = lambda name: _find_versioned_lib(name, ldcache)
+
+    missing: list[str] = []
+    so13_by_target: dict[str, str] = {}
+    for stem in _CUDA12_REQUIRED_STEMS:
+        if find_lib(f"{stem}.12") is not None:
+            continue  # .so.12 present — no gap for this lib
+        so13 = find_lib(f"{stem}.13")
+        if so13:
+            target = f"{stem}.12"
+            missing.append(target)
+            so13_by_target[target] = so13
+    if not missing:
+        return None
+    found = ", ".join(sorted(so13_by_target.values()))
+    remediation = (
+        "NVIDIA GPU detected but the CUDA execution provider cannot load: onnxruntime-gpu (PyPI) is "
+        f"built against the CUDA 12 ABI ({', '.join(missing)}) and this system has only the CUDA 13 "
+        f"runtime ({found}). A soname symlink (.so.13 → .so.12) does NOT fix this — CUDA 13's cuBLAS "
+        "exports different ELF version symbols (VERNEED), so the dynamic loader rejects the mismatched "
+        "library. Embedding/indexing is running on CPU (5–10× slower on large repos). To use the GPU: "
+        "build onnxruntime-gpu from source against CUDA 13, or install a CUDA-13-built wheel once one is "
+        "published. Set WAVEFOUNDRY_EMBED_PROVIDER=cpu to silence this and run on CPU intentionally."
+    )
+    return Cuda12AbiGap(tuple(missing), so13_by_target, remediation)
+
+
+# Wave 1p5py / 1p5qp: the venv-local `.so.12 → .so.13` symlink shim was REMOVED.
+# Field validation (091yp, RTX 5070 Ti / CUDA 13.3) confirmed CUDA 13's cuBLAS
+# exports different ELF version symbols (VERNEED) than CUDA 12, so a soname
+# symlink is rejected by the loader — it cannot work and risks loading a
+# mismatched library. The detection (`detect_cuda12_abi_gap`) remains and now
+# drives a loud, accurate operator warning only (build-from-source / await a
+# CUDA-13 wheel). See `accel_embedder._warn_cuda12_gap_if_present`.
 
 
 def format_provider_decision(decision: ProviderDecision) -> str:

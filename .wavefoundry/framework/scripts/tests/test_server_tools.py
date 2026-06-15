@@ -17457,69 +17457,110 @@ class WaveCloseSecretsGateTests(unittest.TestCase):
         return {d["code"] for d in result.get("diagnostics", [])}
 
     def test_no_exceptions_file_passes_gate(self):
-        # AC-1: absent file passes silently
+        # absent file: no block, no reminder
         result = self._close()
-        codes = self._diagnostic_codes(result)
-        self.assertNotIn("secrets_gate_pending", codes)
-        self.assertNotIn("secrets_gate_confirmed_secret", codes)
+        self.assertNotIn("secrets_gate_unresolved", self._diagnostic_codes(result))
+        self.assertNotIn("confirmed_secrets", result["data"])
 
     def test_empty_exceptions_file_passes_gate(self):
         self._write_exceptions([])
         result = self._close()
-        codes = self._diagnostic_codes(result)
-        self.assertNotIn("secrets_gate_pending", codes)
-        self.assertNotIn("secrets_gate_confirmed_secret", codes)
+        self.assertNotIn("secrets_gate_unresolved", self._diagnostic_codes(result))
+        self.assertNotIn("confirmed_secrets", result["data"])
 
     def test_pending_entry_hard_blocks(self):
-        # AC-2: pending hard-block
         self._write_exceptions([{
             "id": "exc-001", "file": "config.py", "line": 1,
             "rule_id": "test-rule", "matched_text": "sk_l****5678",
-            "status": "pending", "override_reason": "",
-            "acknowledged_for_wave": "", "confirmations": [],
+            "status": "pending", "confirmations": [],
         }])
         result = self._close()
         self.assertEqual(result["status"], "error")
-        self.assertIn("secrets_gate_pending", self._diagnostic_codes(result))
+        self.assertIn("secrets_gate_unresolved", self._diagnostic_codes(result))
 
     def test_pending_hard_block_lists_entry_details(self):
         self._write_exceptions([{
             "id": "exc-001", "file": "config.py", "line": 5,
             "rule_id": "stripe-key", "matched_text": "sk_l****5678",
-            "status": "pending", "override_reason": "",
-            "acknowledged_for_wave": "", "confirmations": [],
+            "status": "pending", "confirmations": [],
         }])
         result = self._close()
-        msg = next(d["message"] for d in result["diagnostics"] if d["code"] == "secrets_gate_pending")
+        msg = next(d["message"] for d in result["diagnostics"] if d["code"] == "secrets_gate_unresolved")
         self.assertIn("config.py", msg)
         self.assertIn("stripe-key", msg)
 
-    def test_confirmed_secret_without_ack_soft_blocks(self):
-        # AC-3: soft-block when acknowledged_for_wave doesn't match
+    def test_suspected_secret_hard_blocks(self):
+        # 1p5pz: suspected-secret is unresolved → hard-block until reclassified
         self._write_exceptions([{
-            "id": "exc-002", "file": "secret.py", "line": 3,
-            "rule_id": "aws-key", "matched_text": "AKIA****WXYZ",
-            "status": "confirmed-secret", "override_reason": "rotating next sprint",
-            "acknowledged_for_wave": "", "confirmations": [],
+            "id": "exc-005", "file": "auth.py", "line": 7,
+            "rule_id": "github-token", "matched_text": "ghp_****ABCD",
+            "status": "suspected-secret", "confirmations": [],
         }])
         result = self._close()
         self.assertEqual(result["status"], "error")
-        self.assertIn("secrets_gate_confirmed_secret", self._diagnostic_codes(result))
+        self.assertIn("secrets_gate_unresolved", self._diagnostic_codes(result))
 
-    def test_confirmed_secret_with_matching_ack_passes(self):
-        # AC-4 + AC-6: acknowledged for this wave passes
+    def test_suspected_secret_blocks_even_with_legacy_ack(self):
+        # legacy acknowledged_for_wave must NOT unblock an unresolved suspected-secret
         self._write_exceptions([{
-            "id": "exc-002", "file": "secret.py", "line": 3,
-            "rule_id": "aws-key", "matched_text": "AKIA****WXYZ",
-            "status": "confirmed-secret", "override_reason": "rotating next sprint",
+            "id": "exc-005", "file": "auth.py", "line": 7,
+            "rule_id": "github-token", "matched_text": "ghp_****ABCD",
+            "status": "suspected-secret", "override_reason": "old",
             "acknowledged_for_wave": self.wave_id, "confirmations": [],
         }])
         result = self._close()
-        codes = self._diagnostic_codes(result)
-        self.assertNotIn("secrets_gate_confirmed_secret", codes)
+        self.assertEqual(result["status"], "error")
+        self.assertIn("secrets_gate_unresolved", self._diagnostic_codes(result))
 
-    def test_confirmed_secret_with_different_wave_ack_still_blocks(self):
-        # AC-5: acknowledged for a different wave still blocks
+    def test_unknown_status_fails_closed(self):
+        # fail-closed: an unrecognized/typo status must hard-block, not slip through
+        self._write_exceptions([{
+            "id": "exc-009", "file": "x.py", "line": 1, "rule_id": "r",
+            "matched_text": "****", "status": "totally-bogus", "confirmations": [],
+        }])
+        result = self._close()
+        self.assertEqual(result["status"], "error")
+        self.assertIn("secrets_gate_unresolved", self._diagnostic_codes(result))
+
+    def test_confirmed_secret_does_not_block(self):
+        # 1p5pz: confirmed-secret no longer blocks close
+        self._write_exceptions([{
+            "id": "exc-002", "file": "secret.py", "line": 3,
+            "rule_id": "aws-key", "matched_text": "AKIA****WXYZ",
+            "status": "confirmed-secret", "confirmations": [],
+        }])
+        result = self._close()
+        self.assertNotEqual(result["status"], "error")
+        self.assertNotIn("secrets_gate_unresolved", self._diagnostic_codes(result))
+
+    def test_confirmed_secret_reminder_on_success_path(self):
+        # the standing reminder rides the (non-error) close response data
+        self._write_exceptions([{
+            "id": "exc-002", "file": "secret.py", "line": 3,
+            "rule_id": "aws-key", "matched_text": "AKIA****WXYZ",
+            "status": "confirmed-secret", "confirmations": [],
+        }])
+        result = self._close()
+        self.assertNotEqual(result["status"], "error")
+        self.assertEqual([i["id"] for i in result["data"]["confirmed_secrets"]], ["exc-002"])
+        self.assertIn("confirmed secret", result["data"]["secrets_reminder"].lower())
+        self.assertIn("secret.py", result["data"]["secrets_reminder"])
+
+    def test_confirmed_secret_reminder_also_on_error_path(self):
+        # a separate blocking finding errors the close, but the reminder still surfaces
+        self._write_exceptions([
+            {"id": "exc-001", "file": "config.py", "line": 1, "rule_id": "r",
+             "matched_text": "****", "status": "pending", "confirmations": []},
+            {"id": "exc-002", "file": "secret.py", "line": 3, "rule_id": "aws-key",
+             "matched_text": "AKIA****WXYZ", "status": "confirmed-secret", "confirmations": []},
+        ])
+        result = self._close()
+        self.assertEqual(result["status"], "error")
+        self.assertIn("secrets_gate_unresolved", self._diagnostic_codes(result))
+        self.assertEqual([i["id"] for i in result["data"]["confirmed_secrets"]], ["exc-002"])
+
+    def test_confirmed_secret_legacy_ack_fields_tolerated(self):
+        # legacy acknowledged_for_wave / override_reason are ignored, not errored
         self._write_exceptions([{
             "id": "exc-002", "file": "secret.py", "line": 3,
             "rule_id": "aws-key", "matched_text": "AKIA****WXYZ",
@@ -17527,28 +17568,15 @@ class WaveCloseSecretsGateTests(unittest.TestCase):
             "acknowledged_for_wave": "1100z some-other-wave", "confirmations": [],
         }])
         result = self._close()
-        self.assertIn("secrets_gate_confirmed_secret", self._diagnostic_codes(result))
-
-    def test_confirmed_secret_no_override_reason_still_blocks(self):
-        # AC-7: no override_reason still soft-blocks (gate notes the absence)
-        self._write_exceptions([{
-            "id": "exc-003", "file": "app.py", "line": 10,
-            "rule_id": "github-token", "matched_text": "ghp_****ABCD",
-            "status": "confirmed-secret", "override_reason": "",
-            "acknowledged_for_wave": "", "confirmations": [],
-        }])
-        result = self._close()
-        self.assertIn("secrets_gate_confirmed_secret", self._diagnostic_codes(result))
-        msg = next(d["message"] for d in result["diagnostics"] if d["code"] == "secrets_gate_confirmed_secret")
-        self.assertIn("override_reason", msg)
+        self.assertNotEqual(result["status"], "error")
+        self.assertIn("confirmed_secrets", result["data"])
 
     def test_gate_does_not_run_after_mutations(self):
-        # AC-8: gate blocks before mutations; wave.md stays unchanged on block
+        # unresolved finding blocks before mutations; wave.md stays unchanged on block
         self._write_exceptions([{
             "id": "exc-001", "file": "x.py", "line": 1,
             "rule_id": "r", "matched_text": "****",
-            "status": "pending", "override_reason": "",
-            "acknowledged_for_wave": "", "confirmations": [],
+            "status": "pending", "confirmations": [],
         }])
         wave_md = self.root / "docs" / "waves" / self.wave_id / "wave.md"
         before = wave_md.read_text(encoding="utf-8")
@@ -17557,13 +17585,11 @@ class WaveCloseSecretsGateTests(unittest.TestCase):
         self.assertEqual(before, after, "wave.md was mutated despite gate block")
 
     def test_false_positive_status_does_not_trigger_gate(self):
-        # false-positive entries are not a gate concern
+        # false-positive entries are not a gate concern and produce no reminder
         self._write_exceptions([{
             "id": "exc-004", "file": "test_x.py", "line": 2,
             "rule_id": "stripe-key", "matched_text": "sk_l****test",
-            "status": "false-positive", "override_reason": "",
-            "acknowledged_for_wave": "",
-            "confirmations": [
+            "status": "false-positive", "confirmations": [
                 {"git_user_name": "A", "git_user_email": "a@x.com",
                  "verdict": "false-positive", "reason": "fixture",
                  "confirmed_at": "2026-06-06T10:00:00Z"},
@@ -17573,32 +17599,8 @@ class WaveCloseSecretsGateTests(unittest.TestCase):
             ],
         }])
         result = self._close()
-        codes = self._diagnostic_codes(result)
-        self.assertNotIn("secrets_gate_pending", codes)
-        self.assertNotIn("secrets_gate_confirmed_secret", codes)
-
-    def test_suspected_secret_without_ack_soft_blocks(self):
-        # suspected-secret without acknowledgment is treated same as confirmed-secret
-        self._write_exceptions([{
-            "id": "exc-005", "file": "auth.py", "line": 7,
-            "rule_id": "github-token", "matched_text": "ghp_****ABCD",
-            "status": "suspected-secret", "override_reason": "",
-            "acknowledged_for_wave": "", "confirmations": [],
-        }])
-        result = self._close()
-        self.assertEqual(result["status"], "error")
-        self.assertIn("secrets_gate_confirmed_secret", self._diagnostic_codes(result))
-
-    def test_suspected_secret_with_matching_ack_passes(self):
-        # suspected-secret acknowledged for this wave passes
-        self._write_exceptions([{
-            "id": "exc-005", "file": "auth.py", "line": 7,
-            "rule_id": "github-token", "matched_text": "ghp_****ABCD",
-            "status": "suspected-secret", "override_reason": "reviewed: env-var pattern",
-            "acknowledged_for_wave": self.wave_id, "confirmations": [],
-        }])
-        result = self._close()
-        self.assertNotIn("secrets_gate_confirmed_secret", self._diagnostic_codes(result))
+        self.assertNotIn("secrets_gate_unresolved", self._diagnostic_codes(result))
+        self.assertNotIn("confirmed_secrets", result["data"])
 
 
 # Wave 1p41o: code_risk_score MCP wrapper-layer regression (AC-7) — assert the

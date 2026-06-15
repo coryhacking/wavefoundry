@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-14
+Last verified: 2026-06-15
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -416,7 +416,7 @@ for the project layer, or rerun the framework-targeted `indexer.py` command if a
 - **Confirmation expiry:** `false-positive` confirmations are time-bounded — each counts only while its `confirmed_at` is within `confirmation_valid_days` (`[policy]`, default 365; `0` disables) of the scan's now (per-confirmation clock). Expired confirmations are ignored for the count but left in `confirmations[]`; re-verification appends a new dated entry. The effective threshold also clamps down to the count of confirmable (recent, non-bot) reviewers, and a non-empty `override_reason` dismisses a false positive.
 - Response includes `mode`, `effective_mode` (reflects auto-escalation), `rules_hash_changed`, `escalated_to_full`, `clean` (boolean), `elapsed_s`, `total_findings`, `by_status` (count per status value), `failures_total`, and `failures` (first 20 lint-blocking entries).
 - Runs in a subprocess so `ProcessPoolExecutor` workers and the multiprocessing `resource_tracker` exit with the scan process rather than accumulating in the MCP server. Falls back to an in-process serial scan when the subprocess path is unavailable.
-- **`wave_close` gate:** `wave_close` hard-blocks on any `pending` entry. `wave_close` soft-blocks on any `suspected-secret` or `confirmed-secret` entry whose `acknowledged_for_wave` field does not match the current wave ID. Run the security reviewer (`seed-213`) to resolve entries; re-run `wave_close` after resolution.
+- **`wave_close` gate:** `wave_close` hard-blocks on any `pending` or `suspected-secret` entry (unresolved — classify via the security reviewer, `seed-213`). `confirmed-secret` entries do **not** block (wave 1p5pz); every close returns a non-blocking `confirmed_secrets` list + `secrets_reminder` string in `data` for the agent to surface to the operator. Re-run `wave_close` after classifying unresolved entries.
 
 `wave_upgrade(phase: str = "preflight_to_docs_gate")`
 

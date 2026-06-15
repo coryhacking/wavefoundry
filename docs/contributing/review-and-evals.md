@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-08
+Last verified: 2026-06-15
 
 ## Review Lane Summary
 
@@ -43,7 +43,7 @@ Before implementation begins, the wave-coordinator confirms:
 
 **Closure is blocked until all eight items above are explicitly recorded in the wave record.**
 
-**Secrets gate (enforced by `wave_close`):** Before calling `wave_close`, check `docs/scan-findings.json`. Any `pending` entry hard-blocks close — run the security reviewer (`seed-213`) to classify it. Any `suspected-secret` or `confirmed-secret` entry soft-blocks close until the security reviewer presents it to the operator and writes `acknowledged_for_wave: "<wave_id>"` to the entry. Acknowledgment is wave-scoped: a different wave requires re-acknowledgment. If the file is absent or has no actionable entries, the gate passes automatically.
+**Secrets gate (enforced by `wave_close`):** Before calling `wave_close`, check `docs/scan-findings.json`. Any `pending` or `suspected-secret` entry **hard-blocks** close — run the security reviewer (`seed-213`) to classify each as `confirmed-secret` or `false-positive`. `confirmed-secret` entries do **not** block close (wave 1p5pz — classification is the acknowledgment); instead every close returns a non-blocking standing reminder (`confirmed_secrets` + `secrets_reminder` in the response `data`) that the agent presents to the operator. If the file is absent or has no unresolved entries, the gate passes automatically.
 
 ## Wave Council
 
