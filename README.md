@@ -1,6 +1,8 @@
 # Wavefoundry
 
-[![Version](https://img.shields.io/github/v/release/coryhacking/wavefoundry?label=version&color=purple)](https://github.com/coryhacking/wavefoundry/releases)
+[![Version](https://img.shields.io/badge/version-1.6.2-purple)](https://github.com/coryhacking/wavefoundry/releases)
+[![MCP](https://img.shields.io/badge/MCP-local_server-0a7ea4)](https://modelcontextprotocol.io)
+[![Hosts](https://img.shields.io/badge/hosts-Claude_Code_%C2%B7_Cursor_%C2%B7_Codex_%C2%B7_Junie-blue)](https://github.com/coryhacking/wavefoundry)
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.11-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
@@ -317,11 +319,11 @@ The [full tool surface](docs/prompts/index.md) covers wave admin, code search, g
 
 ## For enterprise forks
 
-If you fork Wavefoundry for internal distribution, the upstream GitHub URLs above (`github.com/coryhacking/wavefoundry/releases`, the version badge, and the link inside the bundled `install/install-block.md`) need to point at your fork. The shortcut phrase, the install flow, and the in-zip surfaces are fork-stable; only the download/release-page links need redirecting.
+If you fork Wavefoundry for internal distribution, the upstream GitHub URLs above (`github.com/coryhacking/wavefoundry/releases`, the version badge's **link target**, and the link inside the bundled `install/install-block.md`) need to point at your fork. The version badge **image** is now a static shields badge whose value `build_pack.py --release` stamps automatically, so it's fork-stable — only its link target needs redirecting. The shortcut phrase, the install flow, and the in-zip surfaces are fork-stable; only the download/release-page links need redirecting.
 
 Specific places to update when you fork:
 
-- This `README.md` — the version badge URL (line ~3) and the Releases download link in **Quick start → (a)**.
+- This `README.md` — the version badge's **link target** (line ~3; the badge image is static and its version is auto-stamped by `build_pack --release`) and the Releases download link in **Quick start → (a)**.
 - `.wavefoundry/framework/install/install-block.md` — the README link near the bottom. This block is auto-prepended to every release's notes by `build_pack.py --release`, so the link follows your fork's release pages.
 - Any internal docs or onboarding decks that quote the install steps verbatim.
 

@@ -466,6 +466,33 @@ def _derive_tag_message(repo_root: Path, version: str) -> str:
     return f"Release v{version}"
 
 
+# Wave 1p5s1: the README version badge is a STATIC shields badge stamped at
+# release (no dynamic GitHub-API dependency). This rewrites its version to the
+# release version, alongside the VERSION/manifest stamp.
+_README_VERSION_BADGE_RE = re.compile(r"(img\.shields\.io/badge/version-)[0-9][^-)\s]*(-purple)")
+
+
+def _stamp_readme_version_badge(repo_root: Path, version: str) -> bool:
+    """Rewrite the static README version badge to ``version``. Returns True if changed.
+
+    Idempotent; no-ops (returns False) when README.md is absent or has no matching badge.
+    Never raises.
+    """
+    readme = repo_root / "README.md"
+    try:
+        text = readme.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    new = _README_VERSION_BADGE_RE.sub(rf"\g<1>{version}\g<2>", text)
+    if new == text:
+        return False
+    try:
+        readme.write_text(new, encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
 def _run_release_orchestration(
     repo_root: Path,
     version: str,
@@ -498,6 +525,7 @@ def _run_release_orchestration(
     stamp_message = f"Bump VERSION to {stamp} after release"
 
     if dry_run:
+        print(f"[--release-dry-run] would run: stamp README version badge -> {version}", file=sys.stderr)
         print(f"[--release-dry-run] would run: git add -A && git commit -m {stamp_message!r}", file=sys.stderr)
         print(f"[--release-dry-run] would run: git tag -a {tag} -m {tag_message!r}", file=sys.stderr)
         print(f"[--release-dry-run] would run: git push origin HEAD:main", file=sys.stderr)
@@ -512,6 +540,10 @@ def _run_release_orchestration(
             file=sys.stderr,
         )
         return
+
+    # Wave 1p5s1: stamp the static README version badge to this release, so it's
+    # captured in the same stamp commit below (before the tag).
+    _stamp_readme_version_badge(repo_root, version)
 
     # Step 1: commit the build stamp so the tag lands on it (not the pre-stamp
     # commit). Everything dirty here is build output — the preflight guaranteed a

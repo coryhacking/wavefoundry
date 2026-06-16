@@ -932,5 +932,48 @@ class InstallTemplateInjectionTests(unittest.TestCase):
         self.assertIn("install-log.template.md", body)
 
 
+class ReadmeVersionBadgeStampTests(unittest.TestCase):
+    """Wave 1p5s1: _stamp_readme_version_badge rewrites the static version badge."""
+
+    def _repo(self, readme_text):
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "README.md").write_text(readme_text, encoding="utf-8")
+        return root
+
+    _BADGE = "[![Version](https://img.shields.io/badge/version-1.0.0-purple)](url)\n"
+    _OTHER = (
+        "[![MCP](https://img.shields.io/badge/MCP-local_server-0a7ea4)](m)\n"
+        "[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](L)\n"
+    )
+
+    def test_rewrites_version(self):
+        root = self._repo(self._BADGE + self._OTHER)
+        self.assertTrue(build_pack._stamp_readme_version_badge(root, "1.6.3"))
+        text = (root / "README.md").read_text()
+        self.assertIn("badge/version-1.6.3-purple", text)
+        self.assertNotIn("version-1.0.0-purple", text)
+        # other badges untouched
+        self.assertIn("badge/MCP-local_server-0a7ea4", text)
+        self.assertIn("badge/License-Apache_2.0-blue.svg", text)
+
+    def test_idempotent(self):
+        root = self._repo(self._BADGE)
+        build_pack._stamp_readme_version_badge(root, "1.6.3")
+        # second call: already at 1.6.3 → no change
+        self.assertFalse(build_pack._stamp_readme_version_badge(root, "1.6.3"))
+
+    def test_noop_when_no_badge(self):
+        root = self._repo("# Project\n\nNo version badge here.\n")
+        self.assertFalse(build_pack._stamp_readme_version_badge(root, "1.6.3"))
+
+    def test_noop_when_readme_absent(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertFalse(build_pack._stamp_readme_version_badge(Path(tmp), "1.6.3"))
+
+
 if __name__ == "__main__":
     unittest.main()
