@@ -4,6 +4,10 @@ Owner: wave-coordinator
 Status: active
 Last verified: 2026-06-17
 
+## Stage-gate waiver (2026-06-17)
+
+**Operator-approved, no-wave change to `.wavefoundry/framework/install/install-block.md`** — added an `## Upgrade` section (the "Upgrade wave framework" path) to the GitHub Release notes header, alongside the existing `## Install` block. Operator explicitly waived the wave requirement ("just do it. don't create a wave for it."). Content-only (no `build_pack.py` logic change); the block flows into release notes above the CHANGELOG body via `_assemble_release_notes`. +2 `test_build_pack` tests (shipped block has both sections; upgrade block reaches assembled notes); suite green, docs-lint ok. Applies from the next release (v1.7.1 already published). UNCOMMITTED.
+
 ## Last Closed Wave
 
 `1p47e cross-file-resolution-and-risk-score` — **closed 2026-06-09** (3 changes; UNCOMMITTED). Prior: `1p44n` (2026-06-09, secrets hardening), `1p41l`, `1p45n`.

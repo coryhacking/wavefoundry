@@ -573,6 +573,25 @@ class ReleaseNotesInstallPrependTests(unittest.TestCase):
             content, encoding="utf-8"
         )
 
+    def test_shipped_block_has_install_and_upgrade_sections(self):
+        # The shipped release-notes header must carry BOTH a fresh-install path AND an
+        # upgrade path (an existing consumer needs "Upgrade wave framework", not Install).
+        repo_root = Path(build_pack.__file__).resolve().parents[3]
+        block = (repo_root / build_pack.RELEASE_NOTES_INSTALL_BLOCK_REL).read_text(encoding="utf-8")
+        self.assertIn("## Install", block)
+        self.assertIn("## Upgrade", block)
+        self.assertIn("Upgrade wave framework", block)
+        # Install precedes Upgrade in document order.
+        self.assertLess(block.index("## Install"), block.index("## Upgrade"))
+
+    def test_upgrade_block_flows_into_assembled_notes(self):
+        # The upgrade block reaches the assembled release notes, above the changelog body.
+        self._write_block("## Install\n\nfresh.\n\n## Upgrade\n\nUpgrade wave framework\n\n---\n\n")
+        notes = build_pack._assemble_release_notes(self.tmp, "### Changed\n\n- thing\n")
+        self.assertIn("## Upgrade", notes)
+        self.assertIn("Upgrade wave framework", notes)
+        self.assertLess(notes.index("## Upgrade"), notes.index("### Changed"))
+
     def test_install_block_is_prepended_to_changelog_body(self):
         self._write_block("## Install\n\nDrop the zip.\n\n---\n\n")
         notes = build_pack._assemble_release_notes(
