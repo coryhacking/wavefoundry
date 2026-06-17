@@ -6,7 +6,7 @@
     "wave_lifecycle",
     "platform_hooks"
   ],
-  "framework_revision": "1.6.2+p5rf",
+  "framework_revision": "1.7.0+p664",
   "generated_artifacts": [
     "docs/prompts/prompt-surface-manifest.json",
     "docs/agents/session-handoff.md",
@@ -20,7 +20,7 @@
     "docs/agents/personas/wave-coordinator.md"
   ],
   "journal_root": "docs/agents/journals/",
-  "last_gardened_at": "2026-06-15",
+  "last_gardened_at": "2026-06-17",
   "public_prompt_surface": [
     {
       "doc": "docs/prompts/install-wavefoundry.prompt.md",

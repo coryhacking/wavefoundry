@@ -1711,6 +1711,33 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertFalse(staged_doc.exists())
         trigger.assert_called_once()
 
+    def test_wave_prepare_create_regenerates_codebase_map(self):
+        # Wave 1p601 AC-2b: a successful prepare (mode=create) refreshes the
+        # codebase map at the prepare-wave lifecycle checkpoint, fail-safe.
+        self.srv.wave_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
+        wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8")
+            + f"\n## Review Checkpoints\n\n{_prepare_council_verdict_line()}\n",
+            encoding="utf-8",
+        )
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                with patch.object(self.srv, "_trigger_background_index_refresh_for_paths"):
+                    with patch.object(self.srv, "_regenerate_codebase_map_safe", return_value=True) as regen:
+                        result = self.srv.wave_prepare_response(self.root, "1200a test-wave", mode="create")
+        self.assertEqual(result["status"], "ok")
+        regen.assert_called_once_with(self.root)
+
+    def test_wave_prepare_dry_run_does_not_regenerate_codebase_map(self):
+        # Lifecycle regen fires only on the actual prepare (create), not dry_run.
+        self.srv.wave_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                with patch.object(self.srv, "_regenerate_codebase_map_safe", return_value=True) as regen:
+                    self.srv.wave_prepare_response(self.root, "1200a test-wave", mode="dry_run")
+        regen.assert_not_called()
+
     def test_wave_prepare_reports_duplicate_change_doc_locations(self):
         self.srv.wave_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
         wave_doc = self.root / "docs" / "waves" / "1200a test-wave" / "1200a-feat sample.md"
@@ -2141,6 +2168,32 @@ class OperatorSignoffTests(unittest.TestCase):
                 result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="create")
         self.assertEqual(result["status"], "ok")
         self.assertIn("Status: closed", self.wave_md.read_text(encoding="utf-8"))
+
+    def test_wave_close_create_regenerates_codebase_map(self):
+        # Wave 1p601 AC-2b: a successful close (mode=create) refreshes the
+        # codebase map at the close-wave lifecycle checkpoint, fail-safe.
+        self.wave_md.write_text(self._base_wave(with_operator_signoff=True), encoding="utf-8")
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                with patch.object(self.srv, "_regenerate_codebase_map_safe", return_value=True) as regen:
+                    result = self.srv.wave_close_response(self.root, "1200a test-wave", mode="create")
+        self.assertEqual(result["status"], "ok")
+        regen.assert_called_once_with(self.root)
+
+    def test_wave_close_dry_run_does_not_regenerate_codebase_map(self):
+        # Lifecycle regen fires only on the actual close (create), not dry_run.
+        self.wave_md.write_text(self._base_wave(with_operator_signoff=True), encoding="utf-8")
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                with patch.object(self.srv, "_regenerate_codebase_map_safe", return_value=True) as regen:
+                    self.srv.wave_close_response(self.root, "1200a test-wave", mode="dry_run")
+        regen.assert_not_called()
+
+    def test_regenerate_codebase_map_safe_swallows_generator_error(self):
+        # Fail-safe contract: the lifecycle regen helper must never raise, even if
+        # loading the generator fails — so it can never break prepare/close.
+        with patch.object(self.srv, "_load_script", side_effect=RuntimeError("boom")):
+            self.assertFalse(self.srv._regenerate_codebase_map_safe(self.root))
 
     def test_placeholder_signoff_does_not_count_as_approval(self):
         # Regression: "<approved when operator confirms closure>" contains "approved"
@@ -2782,6 +2835,18 @@ class RunIndexRebuildTests(unittest.TestCase):
     def test_invalid_content_raises(self):
         with self.assertRaises(ValueError):
             self.srv.run_index_rebuild(self.root, content="bad")
+
+    def test_content_map_runs_generator_only_no_subprocess(self):
+        # Wave 1p601: content="map" runs the codebase-map generator only (no full
+        # rebuild, no subprocess spawn) and is fail-safe.
+        with patch("subprocess.Popen") as popen:
+            result = self.srv.run_index_rebuild(self.root, content="map")
+            popen.assert_not_called()
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["content"], "map")
+        self.assertEqual(result["mode"], "map-refresh")
+        self.assertEqual(result["index_scope"], "codebase_map_only")
+        self.assertIn("map_path", result)
 
     def test_invalid_layer_raises(self):
         with self.assertRaises(ValueError):
@@ -5408,6 +5473,7 @@ class McpResourceRegistrationTests(unittest.TestCase):
             "wavefoundry://prompt/{slug}",
             "wavefoundry://seed/{slug}",
             "wavefoundry://architecture/{slug}",
+            "wavefoundry://area/{area}",
         }
         self.assertTrue(
             expected.issubset(uri_templates),
@@ -5460,6 +5526,35 @@ class McpResourceReadTests(unittest.TestCase):
     def test_prompt_index_returns_not_found_when_missing(self):
         text = self._read_resource("wavefoundry://prompts")
         self.assertIn("Not Found", text)
+
+    def _write_area_graph(self):
+        """Minimal graph+cluster so compute_areas yields one area at rep dir `svc`."""
+        gd = self.root / ".wavefoundry" / "index" / "graph"
+        gd.mkdir(parents=True, exist_ok=True)
+        nodes = [
+            {"id": "svc/a.py::run", "kind": "function", "label": "run", "layer": "project", "source_file": "svc/a.py"},
+            {"id": "svc/b.py::go", "kind": "function", "label": "go", "layer": "project", "source_file": "svc/b.py"},
+        ]
+        (gd / "project-graph.json").write_text(json.dumps(
+            {"schema_version": "1", "builder_version": "1", "layer": "project", "nodes": nodes, "edges": []}), encoding="utf-8")
+        (gd / "project-graph-clusters.json").write_text(json.dumps(
+            {"cluster_schema_version": "1", "cluster_builder_version": "10", "layer": "project",
+             "communities": [{"community_id": "project:c0", "label": "svc", "seed_node_id": "svc/a.py::run",
+                              "node_ids": [n["id"] for n in nodes], "node_count": 2, "boundary_node_count": 0}],
+             "community_count": 1}), encoding="utf-8")
+
+    def test_area_resource_returns_authored_agents_md(self):
+        # 1p662: wavefoundry://area/{area_id} returns the on-disk AGENTS.md.
+        self._write_area_graph()
+        (self.root / "svc").mkdir(parents=True, exist_ok=True)
+        (self.root / "svc" / "AGENTS.md").write_text("# svc\n\nLocal conventions for svc.\n", encoding="utf-8")
+        text = self._read_resource("wavefoundry://area/svc")  # area_id == 'svc'
+        self.assertIn("Local conventions for svc", text)
+
+    def test_area_resource_not_found_when_unauthored_or_unknown(self):
+        self._write_area_graph()  # area 'svc' exists but no AGENTS.md authored
+        self.assertIn("Not Found", self._read_resource("wavefoundry://area/svc"))
+        self.assertIn("Not Found", self._read_resource("wavefoundry://area/nonexistent"))
 
     def test_architecture_current_state_returns_not_found_when_missing(self):
         text = self._read_resource("wavefoundry://architecture/current-state")
@@ -7269,6 +7364,133 @@ class BackgroundRefreshActiveTests(unittest.TestCase):
         self.assertEqual(data["state"], "idle")
         self.assertNotIn("stale_locks_cleaned", data)
         self.assertTrue(lock_path.exists())
+
+
+class MaybeRefreshIfStaleTests(unittest.TestCase):
+    """Wave 1p5xu: _maybe_refresh_if_stale single-flight trigger (AC-2)."""
+
+    def setUp(self):
+        self.server = load_server()
+        self._td = tempfile.TemporaryDirectory()
+        self.root = Path(self._td.name)
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def test_stale_and_idle_triggers_refresh(self):
+        started = []
+        with patch.object(self.server, "_index_inputs_stale", return_value=True), \
+             patch.object(self.server, "_background_refresh_active", return_value=False), \
+             patch.object(self.server, "_start_background_index_refresh",
+                          side_effect=lambda root, layer="project": started.append((root, layer)) or True):
+            result = self.server._maybe_refresh_if_stale(self.root)
+        self.assertTrue(result)
+        self.assertEqual(started, [(self.root, "project")])
+
+    def test_fresh_does_not_trigger(self):
+        started = []
+        with patch.object(self.server, "_index_inputs_stale", return_value=False), \
+             patch.object(self.server, "_start_background_index_refresh",
+                          side_effect=lambda *a, **k: started.append(a) or True):
+            result = self.server._maybe_refresh_if_stale(self.root)
+        self.assertFalse(result)
+        self.assertEqual(started, [])
+
+    def test_already_active_does_not_trigger_second_build(self):
+        started = []
+        with patch.object(self.server, "_index_inputs_stale", return_value=True), \
+             patch.object(self.server, "_background_refresh_active", return_value=True), \
+             patch.object(self.server, "_start_background_index_refresh",
+                          side_effect=lambda *a, **k: started.append(a) or True):
+            result = self.server._maybe_refresh_if_stale(self.root)
+        self.assertFalse(result)
+        self.assertEqual(started, [], "must not spawn a second builder while one is active")
+
+    def test_index_inputs_stale_treats_none_as_not_stale(self):
+        # No built index -> indexer returns None -> treated as not stale.
+        self.assertFalse(self.server._index_inputs_stale(self.root))
+
+
+class MonitorConfigTests(unittest.TestCase):
+    """Wave 1p5xu: _read_monitor_config framework-owned defaults (AC-4)."""
+
+    def setUp(self):
+        self.server = load_server()
+        self._td = tempfile.TemporaryDirectory()
+        self.root = Path(self._td.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def _write_cfg(self, cfg: dict) -> None:
+        (self.root / "docs" / "workflow-config.json").write_text(json.dumps(cfg), encoding="utf-8")
+
+    def test_defaults_when_no_config(self):
+        cfg = self.server._read_monitor_config(self.root)
+        self.assertTrue(cfg["enabled"])
+        self.assertEqual(cfg["interval_seconds"], self.server._MONITOR_DEFAULT_INTERVAL_SECONDS)
+
+    def test_disabled_via_config(self):
+        self._write_cfg({"indexing": {"monitor": {"enabled": False}}})
+        self.assertFalse(self.server._read_monitor_config(self.root)["enabled"])
+
+    def test_interval_override_and_clamp(self):
+        self._write_cfg({"indexing": {"monitor": {"interval_seconds": 45}}})
+        self.assertEqual(self.server._read_monitor_config(self.root)["interval_seconds"], 45.0)
+        self._write_cfg({"indexing": {"monitor": {"interval_seconds": 1}}})
+        self.assertEqual(
+            self.server._read_monitor_config(self.root)["interval_seconds"],
+            self.server._MONITOR_MIN_INTERVAL_SECONDS,
+        )
+
+
+class StalenessMonitorLifecycleTests(unittest.TestCase):
+    """Wave 1p5xu: ImplHandler daemon monitor start/stop (AC-3, AC-4)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self._td = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self._td.name))
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def _write_monitor_cfg(self, monitor: dict) -> None:
+        cfg = {
+            "lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0},
+            "indexing": {"monitor": monitor},
+        }
+        (self.root / "docs" / "workflow-config.json").write_text(json.dumps(cfg), encoding="utf-8")
+
+    def test_thread_starts_when_enabled_and_stops_on_close(self):
+        self._write_monitor_cfg({"enabled": True, "interval_seconds": 5})
+        handler = self.srv.build_handler(self.root)
+        try:
+            self.assertIsNotNone(handler._monitor_thread)
+            self.assertTrue(handler._monitor_thread.is_alive())
+            self.assertTrue(handler._monitor_thread.daemon)
+        finally:
+            handler.close()
+        self.assertFalse(handler._monitor_thread is not None and handler._monitor_thread.is_alive())
+
+    def test_no_thread_when_disabled_by_config(self):
+        self._write_monitor_cfg({"enabled": False})
+        handler = self.srv.build_handler(self.root)
+        try:
+            self.assertIsNone(handler._monitor_thread)
+        finally:
+            handler.close()
+
+    def test_close_is_safe_when_monitor_never_started(self):
+        self._write_monitor_cfg({"enabled": False})
+        handler = self.srv.build_handler(self.root)
+        # close() must not raise even though no monitor thread exists.
+        handler.close()
 
 
 class WaveIndexAutoReloadTests(unittest.TestCase):
@@ -15984,7 +16206,7 @@ class WaveDashboardOpenTests(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        self._meta_path = self.root / ".wavefoundry" / "dashboard-server.json"
+        self._meta_path = self.root / ".wavefoundry" / "dashboard-server.lock"
         self._prev_browser_suppress = os.environ.get("WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER")
         os.environ["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = "0"
         self._meta_path.parent.mkdir(parents=True, exist_ok=True)
@@ -16042,6 +16264,7 @@ class WaveDashboardOpenTests(unittest.TestCase):
         mock_lib = _make_mock_dashboard_lib(self._meta_path)
         import server_impl
         with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
+             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[12345]), \
              patch.object(server_impl, "_pid_is_running", return_value=True):
             result = self.srv.wave_dashboard_start_response(self.root)
         self.assertEqual(result["status"], "ok")
@@ -16072,6 +16295,149 @@ class WaveDashboardOpenTests(unittest.TestCase):
         self.assertEqual(result["diagnostics"][0]["code"], "dashboard_start_in_progress")
 
 
+class WaveDashboardTransientStartLockTests(unittest.TestCase):
+    """1p5ya: dashboard-start.lock is transient — unlinked only after a confirmed start."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        self._prev_browser_suppress = os.environ.get("WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER")
+        os.environ["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = "1"
+        import dashboard_lib
+        self.lib = dashboard_lib
+        self.start_lock_path = dashboard_lib.dashboard_lock_path(
+            self.root, dashboard_lib.DASHBOARD_START_LOCK_NAME
+        )
+        self.server_lock_path = dashboard_lib.dashboard_lock_path(
+            self.root, dashboard_lib.DASHBOARD_SERVER_LOCK_NAME
+        )
+        self.meta_path = self.root / ".wavefoundry" / "dashboard-server.lock"
+
+    def tearDown(self):
+        if self._prev_browser_suppress is None:
+            os.environ.pop("WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER", None)
+        else:
+            os.environ["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = self._prev_browser_suppress
+        self.tmp.cleanup()
+
+    def _spawn_child(self, child_lock_holder, *, hold_lock: bool, write_meta: bool):
+        """Return a Popen side-effect that simulates the spawned dashboard child.
+
+        The fake child optionally acquires the lifetime lock (so the parent's
+        flock-try sees it as busy=alive) and writes metadata with its own pid.
+        """
+        fake_pid = 99999
+
+        def _side_effect(cmd, **kwargs):
+            if hold_lock:
+                lock_cm = self.lib.dashboard_server_lock(self.root)
+                lock_cm.__enter__()
+                child_lock_holder.append(lock_cm)
+            if write_meta:
+                self.lib.write_dashboard_metadata(
+                    self.root,
+                    {"pid": fake_pid, "url": "http://127.0.0.1:43127/dashboard.html"},
+                )
+            return MagicMock(pid=fake_pid)
+
+        return _side_effect, fake_pid
+
+    def test_successful_start_unlinks_start_lock(self):
+        # AC-2: after a confirmed start (meta written + child holds server lock),
+        # dashboard-start.lock is unlinked; dashboard-server.lock remains held.
+        import server_impl
+        holders: list = []
+        side_effect, fake_pid = self._spawn_child(holders, hold_lock=True, write_meta=True)
+        try:
+            with patch("subprocess.Popen", side_effect=side_effect), \
+                 patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
+                 patch.object(server_impl, "_pid_is_running", return_value=True):
+                result = self.srv.wave_dashboard_start_response(self.root)
+            self.assertEqual(result["status"], "ok")
+            self.assertTrue(result["data"].get("started"))
+            self.assertFalse(
+                self.start_lock_path.exists(),
+                "start.lock must be unlinked after a confirmed start",
+            )
+            self.assertTrue(
+                self.server_lock_path.exists(),
+                "dashboard-server.lock remains (held by the child)",
+            )
+        finally:
+            for cm in holders:
+                cm.__exit__(None, None, None)
+
+    def test_failed_start_does_not_unlink_start_lock(self):
+        # AC-2: if the child never comes up (no meta, no lock held), leave start.lock.
+        import server_impl
+        holders: list = []
+        side_effect, _ = self._spawn_child(holders, hold_lock=False, write_meta=False)
+        with patch("subprocess.Popen", side_effect=side_effect), \
+             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
+             patch.object(server_impl, "_pid_is_running", return_value=False), \
+             patch.object(server_impl, "DASHBOARD_START_WAIT_SECONDS", 0.0):
+            result = self.srv.wave_dashboard_start_response(self.root)
+        # url never confirmed → url_not_ready diagnostic; start.lock left in place.
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(
+            self.start_lock_path.exists(),
+            "a failed/timed-out start must leave start.lock for the next attempt",
+        )
+
+    def test_meta_written_but_lock_not_held_does_not_unlink(self):
+        # AC-2/AC-3: url confirmed but the child has not yet flocked the lifetime
+        # lock → no unlink (avoid a double-spawn window).
+        import server_impl
+        holders: list = []
+        side_effect, _ = self._spawn_child(holders, hold_lock=False, write_meta=True)
+        with patch("subprocess.Popen", side_effect=side_effect), \
+             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
+             patch.object(server_impl, "_pid_is_running", return_value=True):
+            result = self.srv.wave_dashboard_start_response(self.root)
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"].get("started"))
+        self.assertTrue(
+            self.start_lock_path.exists(),
+            "without an observably held server lock the start.lock must remain",
+        )
+
+    def test_crash_leftover_start_lock_is_reacquirable(self):
+        # AC-2: a leftover start.lock from a prior crash is harmless (flock, not
+        # existence) and the next start re-acquires it.
+        self.start_lock_path.parent.mkdir(parents=True, exist_ok=True)
+        self.start_lock_path.write_text("{}", encoding="utf-8")
+        # Re-acquire succeeds despite the leftover file.
+        with self.lib.dashboard_start_lock(self.root):
+            pass
+        self.assertTrue(self.start_lock_path.exists())
+
+    def test_concurrent_start_loser_aborts_without_spawning(self):
+        # AC-3: while start.lock is held by another starter, a second start is
+        # gated (no double spawn) and reports the in-progress dashboard.
+        import dashboard_lib
+        import server_impl
+
+        class BusyLock:
+            def __enter__(self):
+                raise dashboard_lib.DashboardLockBusy("busy")
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        with patch.object(dashboard_lib, "dashboard_start_lock", return_value=BusyLock()), \
+             patch.object(server_impl, "DASHBOARD_START_WAIT_SECONDS", 0.0), \
+             patch("subprocess.Popen") as popen:
+            result = self.srv.wave_dashboard_start_response(self.root)
+        popen.assert_not_called()
+        self.assertTrue(result["data"].get("already_running"))
+        self.assertTrue(result["data"].get("starting"))
+
+
 class WaveDashboardBrowserSuppressTests(unittest.TestCase):
     """Dashboard browser must not open during the default test harness."""
 
@@ -16090,14 +16456,16 @@ class WaveDashboardBrowserSuppressTests(unittest.TestCase):
 
     def test_start_spawns_without_open_flag_when_suppressed(self):
         import server_impl
-        with patch("subprocess.Popen") as popen, patch.object(server_impl, "_pid_is_running", return_value=False):
+        with patch("subprocess.Popen") as popen, \
+             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
+             patch.object(server_impl, "_pid_is_running", return_value=False):
             popen.return_value = MagicMock(pid=99999)
             self.srv.wave_dashboard_start_response(self.root)
         cmd = popen.call_args.args[0]
         self.assertNotIn("--open", cmd)
 
     def test_open_when_running_does_not_call_webbrowser_when_suppressed(self):
-        meta_path = self.root / ".wavefoundry" / "dashboard-server.json"
+        meta_path = self.root / ".wavefoundry" / "dashboard-server.lock"
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         meta_path.write_text(
             json.dumps({"pid": os.getpid(), "url": "http://127.0.0.1:9/dashboard.html"}),
@@ -16161,6 +16529,7 @@ class PreferredPythonSubprocessTests(unittest.TestCase):
         import server_impl
         with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
              patch("subprocess.Popen", return_value=MagicMock(pid=99999)) as popen_mock, \
+             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
              patch.object(server_impl, "_pid_is_running", return_value=False):
             self.srv.wave_dashboard_start_response(self.root)
         called_cmd = popen_mock.call_args.args[0]
@@ -16252,7 +16621,7 @@ class WaveDashboardRestartUpgradeGuardTests(unittest.TestCase):
         """AC-4 (revised): restart is not blocked during upgrade — dashboard comes up in upgrade_paused."""
         self._write_lock()
         import sys
-        mock_lib = _make_mock_dashboard_lib(self.root / ".wavefoundry" / "dashboard-server.json")
+        mock_lib = _make_mock_dashboard_lib(self.root / ".wavefoundry" / "dashboard-server.lock")
         with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
              patch.object(self.srv, "_pid_is_running", return_value=False), \
              patch.object(self.srv, "wave_dashboard_start_response",
@@ -16266,7 +16635,7 @@ class WaveDashboardRestartUpgradeGuardTests(unittest.TestCase):
         # No lock file — restart should attempt to stop/start (both will find nothing running).
         # Mock wave_dashboard_start_response to avoid spawning a real dashboard process.
         import sys
-        mock_lib = _make_mock_dashboard_lib(self.root / ".wavefoundry" / "dashboard-server.json")
+        mock_lib = _make_mock_dashboard_lib(self.root / ".wavefoundry" / "dashboard-server.lock")
         with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
              patch.object(self.srv, "_pid_is_running", return_value=False), \
              patch.object(self.srv, "wave_dashboard_start_response",

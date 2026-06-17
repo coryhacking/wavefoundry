@@ -13,6 +13,15 @@ PROJECT_ROOT = TESTS_ROOT.parents[2]
 SCRIPT_PATH = PROJECT_ROOT / "framework" / "scripts" / "render_platform_surfaces.py"
 
 
+def _load_render_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("render_platform_surfaces_canonical", SCRIPT_PATH)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 class RenderPlatformSurfacesScriptTests(unittest.TestCase):
     def test_renders_python_hook_entrypoints_and_configs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -61,6 +70,18 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
                 expected_claude_command,
             )
 
+            # Wave 1p5ti: session-end capture hook is rendered for Stop + SubagentStop.
+            if os.name == "nt":
+                expected_stop_command = "cmd.exe /c .claude\\hooks\\session-capture.cmd"
+            else:
+                expected_stop_command = ".claude/hooks/session-capture"
+            self.assertEqual(
+                claude_settings["hooks"]["Stop"][0]["hooks"][0]["command"],
+                expected_stop_command,
+            )
+            # Stop only — SubagentStop would fire on every subagent completion (noise).
+            self.assertNotIn("SubagentStop", claude_settings["hooks"])
+
             cursor_hooks = json.loads((repo_root / ".cursor" / "hooks.json").read_text(encoding="utf-8"))
             self.assertEqual(
                 cursor_hooks["hooks"]["afterFileEdit"][0]["command"],
@@ -87,6 +108,10 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             self.assertTrue((repo_root / ".claude" / "hooks" / "pre-edit").exists())
             self.assertTrue((repo_root / ".claude" / "hooks" / "pre-edit.py").exists())
             self.assertTrue((repo_root / ".claude" / "hooks" / "pre-edit.cmd").exists())
+            # Wave 1p5ti: the session-capture hook bundle (launcher + .py + .cmd).
+            self.assertTrue((repo_root / ".claude" / "hooks" / "session-capture").exists())
+            self.assertTrue((repo_root / ".claude" / "hooks" / "session-capture.py").exists())
+            self.assertTrue((repo_root / ".claude" / "hooks" / "session-capture.cmd").exists())
             self.assertTrue((repo_root / ".cursor" / "hooks" / "framework-plan-warn.py").exists())
             self.assertTrue((repo_root / ".cursor" / "hooks" / "framework-plan-warn").exists())
             self.assertFalse((repo_root / ".wavefoundry" / "bin" / "register-codex-mcp").exists())
@@ -398,6 +423,122 @@ class MergeMcpServerTests(unittest.TestCase):
             rps._merge_mcp_server(target, stanza)
             second = target.read_text(encoding="utf-8")
         self.assertEqual(first, second)
+
+
+class SessionCaptureHookTests(unittest.TestCase):
+    """Wave 1p5ti: the generated session-end capture script is fast, fail-safe,
+    always exits 0, captures open-wave/AC state, and never writes memory/commits."""
+
+    def setUp(self) -> None:
+        self.mod = _load_render_module()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.script = Path(self._tmp.name) / "session-capture.py"
+        self.script.write_text(self.mod.claude_stop_source(), encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _run(self, cwd: Path):
+        return subprocess.run(
+            ["python3", str(self.script)],
+            cwd=str(cwd), text=True, capture_output=True, input="{}", timeout=15,
+        )
+
+    def test_captures_active_wave_and_ac_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            wave_dir = root / "docs" / "waves" / "1abc demo"
+            wave_dir.mkdir(parents=True)
+            (wave_dir / "wave.md").write_text(
+                "# Wave Record\nStatus: active\nwave-id: `1abc demo`\n", encoding="utf-8"
+            )
+            (wave_dir / "1abc-enh thing.md").write_text(
+                "- [x] AC-1: done\n- [ ] AC-2: todo\n", encoding="utf-8"
+            )
+            res = self._run(root)
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            capture = root / ".wavefoundry" / "logs" / "last-session-capture.md"
+            self.assertTrue(capture.exists())
+            text = capture.read_text(encoding="utf-8")
+            self.assertIn("1abc demo", text)
+            self.assertIn("1/2", text)
+            self.assertIn("memory candidate", text)
+
+    def test_no_active_wave_is_clean_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            (root / "docs" / "waves").mkdir(parents=True)
+            res = self._run(root)
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            self.assertIn("No active wave", (root / ".wavefoundry" / "logs" / "last-session-capture.md").read_text())
+
+    def test_not_a_repo_is_fail_safe(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            # No docs/waves and no .wavefoundry: must still exit 0, never raise.
+            res = self._run(Path(d).resolve())
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+
+    def test_never_writes_memory_or_commits(self) -> None:
+        # The capture source must not write memory files or invoke git commit.
+        src = self.mod.claude_stop_source()
+        self.assertNotIn("git commit", src)
+        self.assertNotIn("/memory/", src)
+
+
+class ClaudeHookSimulateParityTests(unittest.TestCase):
+    """Wave 1p607: the simulate-hooks HOOKS map and the hooks rendered into
+    .claude/settings.json must derive from one shared source so they cannot drift.
+    Every Claude hook rendered into settings must be dry-runnable via simulate-hooks.
+    """
+
+    def setUp(self) -> None:
+        self.mod = _load_render_module()
+
+    @staticmethod
+    def _settings_hook_names(settings: dict) -> set[str]:
+        """Script basenames referenced by every hook entry in .claude/settings.json.
+
+        e.g. command ".claude/hooks/session-capture" (or the Windows
+        "cmd.exe /c .claude\\hooks\\session-capture.cmd" form) -> "session-capture".
+        """
+        names: set[str] = set()
+        for entries in settings.get("hooks", {}).values():
+            for entry in entries:
+                for hook in entry.get("hooks", []):
+                    command = hook["command"]
+                    token = command.split()[-1]  # drop "cmd.exe /c " prefix on Windows
+                    base = token.replace("\\", "/").rsplit("/", 1)[-1]
+                    if base.endswith(".cmd"):
+                        base = base[: -len(".cmd")]
+                    names.add(base)
+        return names
+
+    def test_every_rendered_settings_hook_is_in_simulate_map(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            self.mod.render_claude_settings(root)
+            settings = json.loads((root / ".claude" / "settings.json").read_text(encoding="utf-8"))
+
+        rendered = self._settings_hook_names(settings)
+        self.assertTrue(rendered, "expected at least one rendered Claude hook")
+
+        simulate_src = self.mod.claude_simulate_hooks_source()
+        for name in sorted(rendered):
+            # The simulate HOOKS map keys each rendered hook by its script basename.
+            self.assertIn(
+                f'"{name}": REPO_ROOT / ".claude" / "hooks" / "{name}.py"',
+                simulate_src,
+                f"hook {name!r} is rendered into .claude/settings.json but is missing "
+                f"from the simulate-hooks HOOKS map (drift)",
+            )
+
+    def test_session_capture_is_simulatable(self) -> None:
+        simulate_src = self.mod.claude_simulate_hooks_source()
+        self.assertIn(
+            '"session-capture": REPO_ROOT / ".claude" / "hooks" / "session-capture.py"',
+            simulate_src,
+            "the Stop session-capture hook must be present in the simulate HOOKS map",
+        )
 
 
 if __name__ == "__main__":

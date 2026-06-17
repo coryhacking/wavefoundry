@@ -26,6 +26,7 @@ Use this execution contract for all later prompts in the Wave Framework.
 - When stuck or uncertain, diagnose and explain before trying a different approach — do not retry blindly or abandon a viable path after a single failure.
 - Prefer one precise clarifying question over proceeding on a wrong assumption.
 - After making changes, reason through whether they actually address the stated problem before declaring done; consider edge cases and failure modes as part of normal analysis, not as an afterthought.
+- Before working in an area of the codebase, consult that area's `AGENTS.md` if one is present (vendor-neutral per-area context — local conventions, gotchas, and intent). Orient first from the generated codebase map (`docs/references/codebase-map.md`), which routes you to the right area and links its `AGENTS.md` when one exists; there are no per-folder `CLAUDE.md` bridge files — the only `@import` is the root `CLAUDE.md` → `AGENTS.md` bridge.
 
 ## Prompt Preflight
 

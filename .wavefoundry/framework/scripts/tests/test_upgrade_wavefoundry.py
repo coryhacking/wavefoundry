@@ -930,6 +930,30 @@ class PhaseCleanupLockStateTests(unittest.TestCase):
         self.assertIn("FAILED", out)
         self.assertIn("failure marker", out)
 
+    def test_successful_cleanup_regenerates_codebase_map(self):
+        # Wave 1p601: a clean upgrade regenerates the codebase map once, after the
+        # index phase (so a fresh install has it — teton's "not generated" report).
+        self.lib.write_upgrade_lock(self.root, "2026-05-10a", "2026-05-19a")
+        with patch.object(self.mod, "_regenerate_codebase_map_on_upgrade") as regen:
+            self._capture_cleanup(failed_phase=None, lock_present=True)
+        regen.assert_called_once_with(self.root)
+
+    def test_failed_cleanup_does_not_regenerate_codebase_map(self):
+        # A half-replaced tree (failed phase) must NOT regenerate the map.
+        self.lib.write_upgrade_lock(self.root, "2026-05-10a", "2026-05-19a")
+        self.lib.update_upgrade_lock(self.root, failed_phase="docs_gate")
+        with patch.object(self.mod, "_regenerate_codebase_map_on_upgrade") as regen:
+            self._capture_cleanup(failed_phase="docs_gate", lock_present=True)
+        regen.assert_not_called()
+
+    def test_regenerate_codebase_map_on_upgrade_is_fail_safe(self):
+        # Fail-safe contract: a generator error must never propagate out of the
+        # upgrade. Force the generator to be unavailable and assert no raise.
+        with patch.object(self.mod, "SCRIPTS_DIR", self.root / "no-such-dir"):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                self.mod._regenerate_codebase_map_on_upgrade(self.root)  # must not raise
+
 
 class ReadInstalledRevisionDelegationTests(unittest.TestCase):
     """Wave 1p44p — upgrade_wavefoundry._read_installed_revision routes through the
@@ -2699,6 +2723,96 @@ class ConvergenceParseWarningTests(unittest.TestCase):
         with contextlib.redirect_stderr(err):
             self.ext._rewrite_legacy_config_keys(self.root)
         self.assertNotIn("WARNING", err.getvalue())
+
+
+class ConfigReviewRecommendationTests(unittest.TestCase):
+    """Wave 1p5tk: the config-review recommendation is surfaced on every major/minor
+    upgrade (stateless), silent on patch/downgrade/same, and fully fail-safe."""
+
+    def setUp(self):
+        # `_is_major_or_minor_upgrade` does `from check_version import _to_version`
+        # at call time; make sure the scripts dir is importable.
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        self.mod = load_upgrade_module()
+
+    def test_minor_bump_recommends(self):
+        lines = self.mod._config_review_recommendation_lines("1.5.0", "1.6.0")
+        self.assertTrue(lines)
+        self.assertTrue(any("framework-config-review.prompt.md" in ln for ln in lines))
+
+    def test_major_bump_recommends(self):
+        lines = self.mod._config_review_recommendation_lines("1.6.0", "2.0.0")
+        self.assertTrue(lines)
+
+    def test_build_suffix_stripped_minor_recommends(self):
+        lines = self.mod._config_review_recommendation_lines("1.5.0+abc", "1.6.0+def")
+        self.assertTrue(lines)
+
+    def test_patch_bump_silent(self):
+        self.assertEqual(self.mod._config_review_recommendation_lines("1.6.0", "1.6.1"), [])
+
+    def test_same_version_silent(self):
+        self.assertEqual(self.mod._config_review_recommendation_lines("1.6.0", "1.6.0"), [])
+
+    def test_downgrade_silent(self):
+        self.assertEqual(self.mod._config_review_recommendation_lines("1.6.0", "1.5.0"), [])
+
+    def test_unparseable_is_silent_not_fatal(self):
+        self.assertEqual(self.mod._config_review_recommendation_lines("garbage", "1.6.0"), [])
+
+    def test_missing_version_silent(self):
+        self.assertEqual(self.mod._config_review_recommendation_lines(None, "1.6.0"), [])
+        self.assertEqual(self.mod._config_review_recommendation_lines("1.6.0", None), [])
+
+    def test_is_major_or_minor_classification(self):
+        self.assertTrue(self.mod._is_major_or_minor_upgrade("1.5.0", "1.6.0"))
+        self.assertTrue(self.mod._is_major_or_minor_upgrade("1.6.0", "2.0.0"))
+        self.assertFalse(self.mod._is_major_or_minor_upgrade("1.6.0", "1.6.1"))
+        self.assertFalse(self.mod._is_major_or_minor_upgrade("1.6.0", "1.6.0"))
+
+
+class DetectDashboardLivenessTests(unittest.TestCase):
+    """Wave 1p654 review follow-up: upgrade dashboard detection cmdline-verifies the
+    recorded PID (a bare os.kill accepts a zombie / recycled PID)."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        import dashboard_lib
+        self.dashboard_lib = dashboard_lib
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / ".wavefoundry").mkdir(parents=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_lock(self, pid):
+        (self.root / ".wavefoundry" / "dashboard-server.lock").write_text(
+            json.dumps({"pid": pid, "url": "http://127.0.0.1:43127/dashboard.html"}),
+            encoding="utf-8",
+        )
+
+    def test_recycled_pid_rejected_by_cmdline_scan(self):
+        self._write_lock(999999)
+        with patch.object(self.dashboard_lib, "dashboard_cmdline_pids", return_value=[]):
+            self.assertEqual(self.mod._detect_dashboard(self.root), (False, None, None))
+
+    def test_matched_live_pid_detected(self):
+        self._write_lock(os.getpid())
+        with patch.object(self.dashboard_lib, "dashboard_cmdline_pids", return_value=[os.getpid()]):
+            running, pid, url = self.mod._detect_dashboard(self.root)
+        self.assertTrue(running)
+        self.assertEqual(pid, os.getpid())
+
+    def test_scan_unavailable_falls_back_to_oskill(self):
+        # Windows / ps-error → scan None → unchanged bare-liveness behavior.
+        self._write_lock(os.getpid())
+        with patch.object(self.dashboard_lib, "dashboard_cmdline_pids", return_value=None):
+            running, _pid, _url = self.mod._detect_dashboard(self.root)
+        self.assertTrue(running)
 
 
 if __name__ == "__main__":

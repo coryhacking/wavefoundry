@@ -29,6 +29,7 @@ It typically includes:
 - **Auto-memory captures both corrections and confirmations.** If only corrections are saved, the memory skews toward avoidance and loses the positive signal of validated patterns. Record non-obvious approaches that worked, not just things that went wrong.
 - **Wave close is the primary knowledge-capture moment.** A retrospective step at closure — "what was non-obvious in this wave that a future session should know?" — is the most reliable trigger for surfacing architectural decisions, validated patterns, and workflow discoveries into durable memory.
 - **Idle handoff preserves recent history.** When no wave is active, `docs/agents/session-handoff.md` must record the last-closed wave ID and a one-line summary of what shipped so the next session has recent history without running `wave_list_waves`.
+- **Session-end capture is a safety net, not a substitute.** The rendered session-end hook (`.claude/hooks/session-capture`, Claude `Stop`) writes a capture summary to `.wavefoundry/logs/last-session-capture.md` — open wave + AC progress, uncommitted-work and handoff-staleness signals, and a nudge to record new quirks/decisions as **memory candidates**. It captures and nudges only: it never writes memory or commits, so the agent/operator still curates handoff and memory deliberately.
 
 ## Relationship To Other Framework Systems
 

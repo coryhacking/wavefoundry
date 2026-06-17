@@ -1433,7 +1433,7 @@ class DashboardProcessControlTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _write_dashboard_metadata(self, root: Path, *, pid: int = 4321, url: str = "http://127.0.0.1:43127/dashboard.html") -> Path:
-        meta_path = root / ".wavefoundry" / "dashboard-server.json"
+        meta_path = self.srv.dashboard_lib.dashboard_metadata_path(root)
         self.srv.dashboard_lib.write_dashboard_metadata(
             root,
             {
@@ -1446,6 +1446,85 @@ class DashboardProcessControlTests(unittest.TestCase):
             },
         )
         return meta_path
+
+    # ---- Wave 1p654: process-cmdline reconciliation ----
+
+    def test_pid_is_live_requires_cmdline_match(self):
+        # AC-1: a recorded PID that is os.kill-alive but NOT a dashboard for this
+        # root (recycled/zombie) must read as not-live.
+        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[111]), \
+             patch.object(self.server, "_pid_is_running", return_value=True):
+            self.assertTrue(self.server._dashboard_pid_is_live(111, self.root))
+            self.assertFalse(self.server._dashboard_pid_is_live(999, self.root))
+        # Scan unavailable (None) → fall back to the bare liveness check.
+        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=None), \
+             patch.object(self.server, "_pid_is_running", return_value=True):
+            self.assertTrue(self.server._dashboard_pid_is_live(999, self.root))
+
+    def test_stop_kills_orphans_with_absent_metadata(self):
+        # AC-2: no recorded PID, but a live dashboard for this root exists → stop
+        # must find and terminate it (orphan), not return already_stopped.
+        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[5555]), \
+             patch.object(self.server, "_pid_is_running", return_value=True), \
+             patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
+            env = self.server.wave_dashboard_stop_response(self.root)
+        term.assert_any_call(5555)
+        self.assertTrue(env["data"].get("stopped"))
+        self.assertEqual(env["data"].get("orphans_terminated"), 1)
+
+    def test_stop_kills_recorded_pid_and_orphans(self):
+        self._write_dashboard_metadata(self.root, pid=4321)
+        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[4321, 6666]), \
+             patch.object(self.server, "_pid_is_running", return_value=True), \
+             patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
+            env = self.server.wave_dashboard_stop_response(self.root)
+        terminated = {c.args[0] for c in term.call_args_list}
+        self.assertEqual(terminated, {4321, 6666})
+        self.assertEqual(env["data"].get("orphans_terminated"), 1)  # 6666 (non-recorded)
+
+    def test_cmdline_scan_parses_and_matches_root(self):
+        # Direct test of the kill-decision logic (delivery-review gap): the ps parse
+        # must match ONLY dashboards whose --root resolves to this root, exclude the
+        # current process, other repos, and non-dashboard lines, and handle --root=.
+        import os
+        from types import SimpleNamespace
+        root_str = str(Path(self.root).resolve())
+        self_pid = os.getpid()
+        synthetic = "\n".join([
+            f" 1001 python /x/.wavefoundry/framework/scripts/dashboard_server.py --root {root_str}",
+            " 1002 python /y/dashboard_server.py --root /some/other/repo",
+            f" 1003 python /z/server.py --root {root_str}",  # not a dashboard
+            f" {self_pid} python /w/dashboard_server.py --root {root_str}",  # self → excluded
+            f" 1005 python /v/dashboard_server.py --root={root_str}",  # --root= form
+            "garbage line without pid",
+        ])
+        with patch("subprocess.run", return_value=SimpleNamespace(stdout=synthetic)):
+            pids = self.server._dashboard_cmdline_pids(self.root)
+        self.assertEqual(sorted(pids), [1001, 1005])
+
+    def test_cmdline_scan_returns_none_on_scan_failure(self):
+        from types import SimpleNamespace
+        # Non-string stdout (e.g. mocked subprocess) → None → callers fall back.
+        with patch("subprocess.run", return_value=SimpleNamespace(stdout=object())):
+            self.assertIsNone(self.server._dashboard_cmdline_pids(self.root))
+        with patch("subprocess.run", side_effect=OSError("boom")):
+            self.assertIsNone(self.server._dashboard_cmdline_pids(self.root))
+
+    def test_start_reconciles_orphans_before_spawn(self):
+        # AC-3: no valid recorded instance + a live orphan → start terminates the
+        # orphan (replace, not spawn-alongside) and emits dashboard_orphan_detected.
+        self._write_dashboard_metadata(self.root, pid=8888)  # the (fake) spawned pid
+
+        class _FakeProc:
+            pid = 8888
+
+        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[7777]), \
+             patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term, \
+             patch("subprocess.Popen", return_value=_FakeProc()):
+            env = self.server.wave_dashboard_start_response(self.root)
+        term.assert_any_call(7777)
+        codes = [d.get("code") for d in (env.get("diagnostics") or [])]
+        self.assertIn("dashboard_orphan_detected", codes)
 
     def test_dashboard_stop_removes_only_current_repo_metadata(self):
         current_meta = self._write_dashboard_metadata(self.root, pid=4321)
@@ -1493,7 +1572,7 @@ class DashboardProcessControlTests(unittest.TestCase):
         stop.assert_called_once_with(self.root)
         start.assert_called_once_with(self.root, port=None)
 
-    def test_dashboard_main_exits_when_process_lock_is_busy(self):
+    def test_dashboard_main_exits_when_server_lock_is_busy(self):
         self._write_dashboard_metadata(self.root, pid=4321, url="http://127.0.0.1:43127/dashboard.html")
         lock_busy = self.srv.dashboard_lib.DashboardLockBusy
 
@@ -1504,12 +1583,91 @@ class DashboardProcessControlTests(unittest.TestCase):
             def __exit__(self, exc_type, exc, tb):
                 return False
 
-        with patch.object(self.srv.dashboard_lib, "dashboard_process_lock", return_value=BusyLock()), \
+        with patch.object(self.srv.dashboard_lib, "dashboard_server_lock", return_value=BusyLock()), \
              patch("sys.stdout", new=io.StringIO()) as stdout:
             rc = self.srv.main(["--root", str(self.root)])
 
         self.assertEqual(rc, 0)
         self.assertIn("http://127.0.0.1:43127/dashboard.html", stdout.getvalue())
+
+
+class DashboardServerLockTests(unittest.TestCase):
+    """1p5ya: dedicated lifetime lock `dashboard-server.lock` + flock-try liveness."""
+
+    def setUp(self):
+        self.lib, self.srv = load_dashboard_modules()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _server_lock_path(self) -> Path:
+        return self.root / ".wavefoundry" / "dashboard-server.lock"
+
+    def _flock_try_busy(self) -> bool:
+        """Non-blocking flock-try on dashboard-server.lock: busy => alive."""
+        try:
+            probe = self.lib.dashboard_server_lock(self.root)
+            probe.__enter__()
+        except self.lib.DashboardLockBusy:
+            return True
+        probe.__exit__(None, None, None)
+        return False
+
+    def test_lock_name_renamed_and_no_process_lock(self):
+        # AC-1: the constant + helper carry the new name; the old name is gone.
+        self.assertEqual(self.lib.DASHBOARD_SERVER_LOCK_NAME, "dashboard-server.lock")
+        self.assertTrue(hasattr(self.lib, "dashboard_server_lock"))
+        self.assertFalse(hasattr(self.lib, "dashboard_process_lock"))
+        self.assertFalse(hasattr(self.lib, "DASHBOARD_PROCESS_LOCK_NAME"))
+
+    def test_lock_file_uses_server_lock_name(self):
+        with self.lib.dashboard_server_lock(self.root):
+            self.assertTrue(self._server_lock_path().exists())
+            self.assertFalse((self.root / ".wavefoundry" / "dashboard-process.lock").exists())
+
+    def test_flock_try_busy_when_held(self):
+        # AC-1: busy => alive while a holder keeps the flock.
+        with self.lib.dashboard_server_lock(self.root):
+            self.assertTrue(self._flock_try_busy())
+
+    def test_flock_try_acquired_when_not_held(self):
+        # AC-1: acquired => not running once the holder releases.
+        with self.lib.dashboard_server_lock(self.root):
+            pass
+        self.assertFalse(self._flock_try_busy())
+
+    def test_stale_metadata_after_exit_is_not_running(self):
+        # AC-1: stale server.json content after exit is overridden by the flock-try.
+        self.lib.write_dashboard_metadata(
+            self.root,
+            {"pid": 999999, "url": "http://127.0.0.1:43127/dashboard.html"},
+        )
+        with self.lib.dashboard_server_lock(self.root):
+            pass
+        # Metadata still present but the lock is free => not running.
+        self.assertTrue(self.lib.dashboard_metadata_path(self.root).exists())
+        self.assertFalse(self._flock_try_busy())
+
+    def test_lock_file_is_the_metadata_store(self):
+        # Wave 1p64x: ONE sidecar — the server lock file holds the startup metadata.
+        # (Replaces test_json_is_not_flocked, which asserted the now-removed split.)
+        self.assertEqual(
+            self.lib.dashboard_metadata_path(self.root).name, "dashboard-server.lock"
+        )
+        with self.lib.dashboard_server_lock(self.root):
+            # Metadata is written + read IN PLACE while the lifetime lock is held
+            # (in-place truncate, never a rename that would orphan the lock).
+            self.lib.write_dashboard_metadata(self.root, {"pid": 1, "url": "x"})
+            self.assertEqual(self.lib.read_dashboard_metadata(self.root).get("url"), "x")
+            # It is a real lock: a second acquire on the same file is rejected.
+            with self.assertRaises(self.lib.DashboardLockBusy):
+                with self.lib.dashboard_server_lock(self.root):
+                    pass
+        # Reading the metadata never required holding the lock.
+        self.assertEqual(self.lib.read_dashboard_metadata(self.root).get("url"), "x")
 
 
 class DashboardReadOnlyTests(_HandlerHarnessMixin, unittest.TestCase):
@@ -2796,7 +2954,7 @@ class IndexStalenessTests(unittest.TestCase):
         self.assertTrue(result)
 
     def test_project_not_stale_when_only_dashboard_runtime_state_differs_from_file_meta(self):
-        runtime_file = self.root / ".wavefoundry" / "dashboard-server.json"
+        runtime_file = self.root / ".wavefoundry" / "dashboard-server.lock"
         runtime_file.parent.mkdir(parents=True, exist_ok=True)
         runtime_file.write_text('{"pid": 1}\n', encoding="utf-8")
         stat = runtime_file.stat()
@@ -2804,7 +2962,7 @@ class IndexStalenessTests(unittest.TestCase):
             {
                 "built_at": "2026-01-01T00:00:00+00:00",
                 "file_meta": {
-                    ".wavefoundry/dashboard-server.json": {
+                    ".wavefoundry/dashboard-server.lock": {
                         "hash": "stale-hash",
                         "mtime": stat.st_mtime - 1,
                         "size": max(stat.st_size - 1, 0),
@@ -3036,53 +3194,102 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         self.assertIn(str(self.root / ".wavefoundry" / "logs" / "project-index-build.log"), watched)
         self.assertIn(str(self.root / ".wavefoundry" / "logs" / "project-background-build.log"), watched)
 
-    def test_periodic_staleness_check_triggers_rebuild_when_stale(self):
-        """When _index_is_stale returns True, the watch loop should signal the IndexBuilder."""
+    def test_no_periodic_staleness_build_trigger(self):
+        """Wave 1p5xw (AC-2): the dashboard no longer runs a continuous staleness
+        monitor. Even with a persistently stale index, the watch loop must NOT
+        signal the IndexBuilder to build (continuous monitoring is now owned by the
+        MCP server, 1p5xu). Regression guard against reintroducing the #2 path.
+        """
         self._enable_auto_index()
         store = self._track(self.srv.SnapshotStore(self.root))
         if store._index_builder is None:
             self.skipTest("auto_index not enabled")
 
-        signalled = threading.Event()
-        original_signal = store._index_builder.signal_change
-
-        def tracking_signal(**kwargs):
-            signalled.set()
-            original_signal(**kwargs)
-
-        store._index_builder.signal_change = tracking_signal
-        # Seed as not-stale so the False→True transition triggers signal_change.
-        store._index_stale = {"project": False, "framework": False}
-        # Force the staleness check to run on the next loop iteration.
-        store._last_staleness_check = 0.0
-
-        with patch.object(self.srv, "_index_is_stale", return_value=True):
-            signalled.wait(timeout=self.srv._WATCH_INTERVAL * 3)
-
-        self.assertTrue(signalled.is_set(), "IndexBuilder.signal_change not called after stale detection")
-
-    def test_periodic_staleness_check_skipped_while_running(self):
-        """Staleness check must not fire while a build is already in progress."""
-        self._enable_auto_index()
-        store = self._track(self.srv.SnapshotStore(self.root))
-        if store._index_builder is None:
-            self.skipTest("auto_index not enabled")
-
-        store._index_builder._running = True
-        store._last_staleness_check = 0.0
         signalled = [False]
+        signalled_reasons: list[str] = []
         original_signal = store._index_builder.signal_change
 
         def tracking_signal(layer="project", reason="change signal"):
             signalled[0] = True
+            signalled_reasons.append(reason)
             original_signal(layer=layer, reason=reason)
 
         store._index_builder.signal_change = tracking_signal
+        # Seed as not-stale so any periodic check would see a False→True transition.
+        store._index_stale = {"project": False}
 
         import time as _time
-        _time.sleep(self.srv._WATCH_INTERVAL * 2)
-        self.assertFalse(signalled[0], "signal_change fired while build was running")
-        store._index_builder._running = False  # cleanup
+        with patch.object(self.srv, "_index_is_stale", return_value=True):
+            # Let several watch cycles run while the index reports stale.
+            _time.sleep(self.srv._WATCH_INTERVAL * 3)
+
+        self.assertFalse(
+            signalled[0],
+            f"dashboard triggered a build from a staleness check (reasons={signalled_reasons}); "
+            "the #2 periodic monitor must be gone",
+        )
+        self.assertNotIn("periodic stale check", signalled_reasons)
+
+    def test_staleness_display_computed_on_demand(self):
+        """Wave 1p5xw: the dashboard still DISPLAYS index staleness, computed on
+        demand when the snapshot is rebuilt (read-only), without a continuous poll.
+        """
+        store = self._track(self.srv.SnapshotStore(self.root))
+        # The on-demand compute is rate-limited (Wave 1p5xw): force the throttle
+        # window to have elapsed so the rebuild recomputes staleness for display.
+        store._last_display_staleness_at = 0.0
+        with patch.object(self.srv, "_index_is_stale", return_value=True):
+            store._rebuild(force_git=False)
+        snap = store.get()
+        proj = snap.get("health", {}).get("index", {}).get("project", {})
+        self.assertTrue(proj.get("stale"), "snapshot should reflect on-demand staleness")
+
+        # Within the throttle window a rebuild reuses the cached value (no repo walk).
+        with patch.object(self.srv, "_index_is_stale", return_value=False):
+            store._rebuild(force_git=False)
+        snap = store.get()
+        proj = snap.get("health", {}).get("index", {}).get("project", {})
+        self.assertTrue(proj.get("stale"), "within-throttle rebuild should reuse cached staleness")
+
+        # Past the throttle window it recomputes and refreshes.
+        store._last_display_staleness_at = 0.0
+        with patch.object(self.srv, "_index_is_stale", return_value=False):
+            store._rebuild(force_git=False)
+        snap = store.get()
+        proj = snap.get("health", {}).get("index", {}).get("project", {})
+        self.assertFalse(proj.get("stale"), "post-throttle rebuild should refresh staleness on demand")
+
+    def test_post_upgrade_reindex_fires_on_lock_removal(self):
+        """Wave 1p5xw (AC-3, regression guard): when the upgrade lock is removed
+        while the dashboard is paused, the watch loop must still trigger the
+        post-upgrade reindex via signal_startup(reason="post-upgrade reindex").
+        This path is INDEPENDENT of the removed staleness monitor and must NOT
+        regress.
+        """
+        self._enable_auto_index()
+        store = self._track(self.srv.SnapshotStore(self.root))
+        if store._index_builder is None:
+            self.skipTest("auto_index not enabled")
+
+        fired = threading.Event()
+        fired_reasons: list[str] = []
+        original_startup = store._index_builder.signal_startup
+
+        def tracking_startup(*args, **kwargs):
+            fired_reasons.append(kwargs.get("reason", ""))
+            fired.set()
+            # Do not actually spawn a build process in the test.
+
+        store._index_builder.signal_startup = tracking_startup
+
+        # Simulate "upgrade in progress" → dashboard paused, then lock removed.
+        store._upgrade_paused = True
+        with patch.object(store, "_check_upgrade_lock", return_value=False):
+            fired.wait(timeout=self.srv._WATCH_INTERVAL * 4)
+
+        self.assertTrue(fired.is_set(), "post-upgrade reindex did not fire on lock removal")
+        self.assertIn("post-upgrade reindex", fired_reasons)
+        self.assertFalse(store._upgrade_paused, "dashboard should resume after lock removal")
 
     def test_external_build_mtime_triggers_snapshot_refresh(self):
         """Writing index-build-stats.json should cause _rebuild to pick up the new mtime."""

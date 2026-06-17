@@ -2767,6 +2767,22 @@ def _load_script(name: str) -> Any:
     return mod
 
 
+def _regenerate_codebase_map_safe(root: Path) -> bool:
+    """Fail-safe codebase-map regen for lifecycle checkpoints (wave 1p601).
+
+    Map regen is decoupled from the index build; instead it fires at the
+    prepare-wave / close-wave lifecycle checkpoints so the committed artifact
+    stays fresh. ``generate_safe`` is change-only/idempotent (an unchanged
+    codebase is a no-op). All exceptions are swallowed — regenerating the map
+    must NEVER fail prepare or close.
+    """
+    try:
+        gen = _load_script("gen_codebase_map")
+        return bool(gen.generate_safe(root))
+    except Exception:  # noqa: BLE001 — fail-safe: never break prepare/close
+        return False
+
+
 def _run_post_write_lint(root: Path) -> dict[str, Any]:
     """Run docs-lint and return a bounded summary for write-tool responses.
 
@@ -3232,11 +3248,40 @@ def run_index_rebuild(
     """
     import subprocess
     import time
-    if content not in {"docs", "code", "all", "graph"}:
+    if content not in {"docs", "code", "all", "graph", "map"}:
         raise ValueError(f"Unsupported content '{content}'.")
     # Wave 1p4ww: single project index — the framework layer is folded in.
     if layer != "project":
         raise ValueError(f"Unsupported layer '{layer}'.")
+
+    # Wave 1p601: content="map" is a map-only refresh — run the ~0.09s codebase
+    # map generator (change-only/idempotent) WITHOUT a full index rebuild. No
+    # subprocess, fail-safe (never raises into the tool).
+    if content == "map":
+        regenerated = False
+        try:
+            gen = _load_script("gen_codebase_map")
+            regenerated = bool(gen.generate_safe(root, force=True))
+        except Exception:
+            regenerated = False
+        out_rel = "docs/references/codebase-map.md"
+        return {
+            "passed": True,
+            "already_running": False,
+            "up_to_date": False,
+            "content": "map",
+            "full": False,
+            "mode": "map-refresh",
+            "index_scope": "codebase_map_only",
+            "layer": layer,
+            "regenerated": regenerated,
+            "notice": (
+                f"Codebase map refreshed → {out_rel}."
+                if regenerated
+                else "Codebase map refresh skipped (no artifacts yet or generator unavailable)."
+            ),
+            "map_path": out_rel,
+        }
 
     if _index_build_active(root, layer):
         log_path = _index_build_log_path(root, layer)
@@ -4614,6 +4659,67 @@ def _trigger_background_index_refresh_for_paths(root: Path, paths: Iterable[str 
     return {
         "project": _start_background_index_refresh(root, "project") if project_needed else False,
     }
+
+
+# ── In-session index-staleness monitor (wave 1p5xu) ─────────────────────────────
+#
+# A daemon thread owned by ImplHandler periodically checks whether the project
+# index inputs are stale and, if so, triggers a refresh via the existing
+# single-flight path. This makes continuous freshness independent of the
+# dashboard process. All pieces are fail-safe: detection errors degrade to
+# "no auto-refresh", never to a broken server.
+
+_MONITOR_MIN_INTERVAL_SECONDS = 5.0
+_MONITOR_DEFAULT_INTERVAL_SECONDS = 20.0
+
+
+def _index_inputs_stale(root: Path) -> bool:
+    """Cheap stat-fast-path staleness check for the project index.
+
+    Delegates to ``indexer.project_index_inputs_stale``. ``None`` (no built
+    index / cannot determine) is treated as not stale so the monitor never
+    triggers a build on an absent or unreadable index.
+    """
+    try:
+        result = _load_script("indexer").project_index_inputs_stale(root)
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(result) if result is not None else False
+
+
+def _maybe_refresh_if_stale(root: Path) -> bool:
+    """Trigger a single-flight background refresh iff the index is stale and no
+    refresh is already in flight. Pure + directly testable. Returns True when a
+    refresh was started, False otherwise.
+    """
+    if not _index_inputs_stale(root):
+        return False
+    state_path = _background_refresh_state_path(root, "project")
+    if _background_refresh_active(state_path):
+        return False
+    return _start_background_index_refresh(root, "project")
+
+
+def _read_monitor_config(root: Path) -> dict[str, Any]:
+    """Read ``indexing.monitor`` from docs/workflow-config.json with
+    framework-owned defaults. Never raises; missing/invalid config falls back to
+    the defaults (enabled, 20s interval clamped to a 5s minimum).
+    """
+    enabled = True
+    interval = _MONITOR_DEFAULT_INTERVAL_SECONDS
+    try:
+        cfg = json.loads((root / "docs" / "workflow-config.json").read_text(encoding="utf-8"))
+        monitor = (cfg.get("indexing") or {}).get("monitor", {})
+        if isinstance(monitor, dict):
+            if "enabled" in monitor:
+                enabled = bool(monitor.get("enabled"))
+            raw_interval = monitor.get("interval_seconds")
+            if isinstance(raw_interval, (int, float)):
+                interval = float(raw_interval)
+    except Exception:  # noqa: BLE001
+        pass
+    interval = max(_MONITOR_MIN_INTERVAL_SECONDS, interval)
+    return {"enabled": enabled, "interval_seconds": interval}
 
 
 def _change_location_state(root: Path, wave_md: Path, change_id: str) -> dict[str, Any]:
@@ -6373,7 +6479,7 @@ def wave_dashboard_start_response(root: Path, port: int | None = None) -> dict[s
     import time as _time
     import dashboard_lib
 
-    meta_path = root / ".wavefoundry" / "dashboard-server.json"
+    meta_path = dashboard_lib.dashboard_metadata_path(root)  # 1p64x: the server lock file
 
     def running_meta() -> dict[str, Any] | None:
         if not meta_path.exists():
@@ -6382,7 +6488,9 @@ def wave_dashboard_start_response(root: Path, port: int | None = None) -> dict[s
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             pid = meta.get("pid")
             url = meta.get("url", "")
-            if isinstance(pid, int) and _pid_is_running(pid) and url:
+            # Wave 1p654: require the PID be a live dashboard for THIS root, not
+            # merely os.kill-alive — a recycled/zombie PID must not read as running.
+            if isinstance(pid, int) and _dashboard_pid_is_live(pid, root) and url:
                 return {"pid": pid, "url": url}
         except (OSError, json.JSONDecodeError):
             pass
@@ -6434,10 +6542,42 @@ def wave_dashboard_start_response(root: Path, port: int | None = None) -> dict[s
             usage="wave_dashboard_open()",
         )
 
+    def server_lock_held() -> bool:
+        """Best-effort flock-try on the lifetime lock: busy => the child holds it."""
+        try:
+            probe = dashboard_lib.dashboard_server_lock(root)
+            probe.__enter__()
+        except dashboard_lib.DashboardLockBusy:
+            return True
+        except Exception:
+            return False
+        # We acquired it ourselves => the child does NOT hold it; release immediately.
+        try:
+            probe.__exit__(None, None, None)
+        except Exception:
+            pass
+        return False
+
+    start_succeeded = False
     try:
         meta = running_meta()
         if meta is not None:
             return already_running(meta)
+
+        # Wave 1p654: no valid recorded instance — but orphaned dashboards for this
+        # root may still be alive (drifted/removed metadata). Terminate them so we
+        # converge to exactly one instance instead of spawning alongside (the cause
+        # of orphan accumulation + port climb). A genuinely-live instance was
+        # already adopted by running_meta() above; this only fires on real drift.
+        orphan_diags: list[dict[str, Any]] = []
+        _orphans = _dashboard_cmdline_pids(root) or []
+        if _orphans:
+            for _op in _orphans:
+                _terminate_dashboard_pid(_op)
+            orphan_diags.append(_diagnostic(
+                "dashboard_orphan_detected",
+                f"Terminated {len(_orphans)} orphaned dashboard process(es) for this repository before starting.",
+            ))
 
         scripts_dir = Path(__file__).resolve().parent
         cmd = [_preferred_python(), str(scripts_dir / "dashboard_server.py"), "--root", str(root)]
@@ -6483,15 +6623,36 @@ def wave_dashboard_start_response(root: Path, port: int | None = None) -> dict[s
             return _response(
                 "ok",
                 {"started": True, "pid": proc.pid, "url": None},
-                diagnostics=[_diagnostic(
+                diagnostics=[*orphan_diags, _diagnostic(
                     "url_not_ready",
                     "Dashboard spawned but URL not yet available — it may still be binding.",
                 )],
             )
 
-        return _response("ok", {"started": True, "pid": proc.pid, "url": url}, usage=url)
+        # Confirm the child holds the lifetime lock before declaring success so the
+        # transient start.lock is only unlinked once another file (dashboard-server.lock)
+        # gates concurrent starts — no double-spawn window.
+        if server_lock_held():
+            start_succeeded = True
+        return _response(
+            "ok",
+            {"started": True, "pid": proc.pid, "url": url},
+            diagnostics=orphan_diags or None,
+            usage=url,
+        )
     finally:
         start_lock.__exit__(None, None, None)
+        # PART B: make dashboard-start.lock transient. Unlink it ONLY after the child
+        # is confirmed up and holding dashboard-server.lock. On a failed/timed-out start
+        # we leave start.lock in place (its flock is already released by __exit__ above,
+        # so a leftover file is harmless and re-acquirable). Best-effort; never raises.
+        if start_succeeded:
+            try:
+                dashboard_lib.dashboard_lock_path(
+                    root, dashboard_lib.DASHBOARD_START_LOCK_NAME
+                ).unlink()
+            except OSError:
+                pass
 
 
 def wave_dashboard_open_response(root: Path) -> dict[str, Any]:
@@ -6520,6 +6681,31 @@ def wave_dashboard_open_response(root: Path) -> dict[str, Any]:
 
     # Dashboard not running — delegate to start (which spawns with --open).
     return wave_dashboard_start_response(root)
+
+
+def _dashboard_cmdline_pids(root: Path) -> list[int] | None:
+    """Live dashboard PIDs for ``root`` by cmdline scan — delegates to the shared
+    ``dashboard_lib.dashboard_cmdline_pids`` (1p654; relocated to the shared module
+    in the 1p654 review follow-up so upgrade dashboard detection reuses it)."""
+    import dashboard_lib
+
+    return dashboard_lib.dashboard_cmdline_pids(root)
+
+
+def _dashboard_pid_is_live(pid: int, root: Path) -> bool:
+    """True only if ``pid`` is running AND is a dashboard for ``root`` (1p654).
+
+    Hardens the bare ``_pid_is_running`` (a zombie or recycled PID passes
+    ``os.kill(pid, 0)``) by requiring a cmdline match. When the scan is
+    unavailable (``_dashboard_cmdline_pids`` returns None), falls back to the bare
+    liveness check so unsupported platforms keep their current behavior.
+    """
+    if not _pid_is_running(pid):
+        return False
+    live = _dashboard_cmdline_pids(root)
+    if live is None:
+        return True
+    return pid in live
 
 
 def _dashboard_process_metadata(root: Path) -> tuple[Path, dict[str, Any]]:
@@ -6614,23 +6800,32 @@ def wave_dashboard_stop_response(root: Path) -> dict[str, Any]:
         "pid": pid if isinstance(pid, int) else None,
         "url": url if isinstance(url, str) else "",
     }
-    if not isinstance(pid, int):
+
+    # Wave 1p654: reconcile against ALL live dashboards for this root — not just the
+    # recorded PID — so a drifted/removed metadata file can't leave an orphan alive.
+    scanned = _dashboard_cmdline_pids(root)
+    targets: set[int] = set(scanned or [])
+    if isinstance(pid, int) and pid > 0 and _pid_is_running(pid):
+        targets.add(pid)
+
+    if not targets:
         summary.update({"already_stopped": True, "metadata_removed": _remove_dashboard_metadata(meta_path)})
         return _response("ok", summary, usage="wave_dashboard_stop()")
 
-    if not _pid_is_running(pid):
-        summary.update({"already_stopped": True, "metadata_removed": _remove_dashboard_metadata(meta_path)})
-        return _response("ok", summary, usage="wave_dashboard_stop()")
-
-    if not _terminate_dashboard_pid(pid):
+    failed = [p for p in sorted(targets) if not _terminate_dashboard_pid(p)]
+    stopped = [p for p in sorted(targets) if p not in failed]
+    if failed:
         return _response(
             "error",
-            summary,
-            diagnostics=[_diagnostic("stop_failed", f"Dashboard process {pid} for this repository did not exit cleanly.")],
+            {**summary, "stopped_pids": stopped},
+            diagnostics=[_diagnostic("stop_failed", f"Dashboard process(es) {failed} for this repository did not exit cleanly.")],
             usage="wave_dashboard_stop()",
         )
 
-    summary.update({"stopped": True, "metadata_removed": _remove_dashboard_metadata(meta_path)})
+    orphan_count = len([p for p in stopped if p != pid])
+    summary.update({"stopped": True, "stopped_pids": stopped, "metadata_removed": _remove_dashboard_metadata(meta_path)})
+    if orphan_count:
+        summary["orphans_terminated"] = orphan_count
     return _response("ok", summary, usage="wave_dashboard_stop()")
 
 
@@ -7984,6 +8179,10 @@ def wave_prepare_response(root: Path, wave_id: str, mode: str = "dry_run", cache
             root,
             [wave_md, *(_wave_change_doc_path(root, wave_md, change_id) for change_id in change_ids)],
         )
+    # Wave 1p601: refresh the codebase map at the prepare-wave lifecycle
+    # checkpoint (fail-safe — never affects the prepare result).
+    if mode_s == "create":
+        _regenerate_codebase_map_safe(root)
     resp_data = {"wave_id": wave_id, "mode": mode_s, "readied": mode_s == "ready", "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired, "required_council_signoffs": required_council_signoffs, "council_brief": council_brief, "council_verdict_present": verdict_present, "council_verdict_valid": verdict_valid}
     envelope = _response("dry_run" if mode_s == "dry_run" else "ok", resp_data, diagnostics=_ac_advisories if _ac_advisories else None, next_tools=["wave_current"], usage="wave_current()")
     return _attach_lint_to_response(envelope, root, mode_s)
@@ -8688,6 +8887,10 @@ def wave_close_response(root: Path, wave_id: str, mode: str = "dry_run", cache: 
             if handoff_rel:
                 refresh_paths.append(handoff)
             _trigger_background_index_refresh_for_paths(root, refresh_paths)
+    # Wave 1p601: refresh the codebase map at the close-wave lifecycle
+    # checkpoint (fail-safe — never affects the close result).
+    if mode_s == "create":
+        _regenerate_codebase_map_safe(root)
     envelope = _response(
         "dry_run" if mode_s == "dry_run" else "ok",
         {"wave_id": wave_id, "mode": mode_s, "updated": updated, "handoff_path": handoff_rel, "wave_summary": wave_summary, **secrets_notice},
@@ -15246,8 +15449,60 @@ class ImplHandler:
         self.index = WaveIndex(self.root)
         self.index._start_background_model_downloads()
         self.cache = McpRepoCache(self.root, index=self.index)
+        # Wave 1p5xu: in-session index-staleness monitor. Fail-safe + daemon;
+        # never blocks __init__/close, swallows all errors, config-gated.
+        self._monitor_stop: Any | None = None
+        self._monitor_thread: Any | None = None
+        try:
+            self._start_staleness_monitor()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _start_staleness_monitor(self) -> None:
+        import threading
+
+        cfg = _read_monitor_config(self.root)
+        if not cfg.get("enabled", True):
+            return
+        interval = float(cfg.get("interval_seconds", _MONITOR_DEFAULT_INTERVAL_SECONDS))
+        stop_event = threading.Event()
+        root = self.root
+
+        def _loop() -> None:
+            while not stop_event.wait(interval):
+                try:
+                    _maybe_refresh_if_stale(root)
+                except Exception:  # noqa: BLE001
+                    pass
+
+        thread = threading.Thread(
+            target=_loop, name="wavefoundry-index-monitor", daemon=True
+        )
+        self._monitor_stop = stop_event
+        self._monitor_thread = thread
+        thread.start()
+
+    def _stop_staleness_monitor(self) -> None:
+        stop_event = self._monitor_stop
+        thread = self._monitor_thread
+        self._monitor_stop = None
+        self._monitor_thread = None
+        if stop_event is not None:
+            try:
+                stop_event.set()
+            except Exception:  # noqa: BLE001
+                pass
+        if thread is not None:
+            try:
+                thread.join(timeout=1.0)
+            except Exception:  # noqa: BLE001
+                pass
 
     def close(self) -> None:
+        try:
+            self._stop_staleness_monitor()
+        except Exception:  # noqa: BLE001
+            pass
         self.cache.invalidate()
         self.index._loaded = False
         self.index._docs_lance_table = None
@@ -16401,6 +16656,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           by ``wave_graph_report``, ``code_impact``, ``code_callhierarchy``, ``code_graph_path``,
           and ``code_graph_community`` lives in the graph layer. Pass ``content='graph'`` to
           refresh it (the semantic ``docs``/``code`` rebuilds do NOT touch the graph).
+        - ``map`` — regenerate **only the codebase map** (``docs/references/codebase-map.md``)
+          from the existing graph/cluster artifacts (wave 1p601). The ~0.09 s map-only refresh;
+          no full index rebuild, fail-safe, and change-only (a no-op when nothing changed).
+          The map also regenerates automatically on every other rebuild path. New MCP
+          resources/tool options require a **server reconnect** to appear (FastMCP limitation).
 
         Response fields:
         - ``mode`` — the resolved build mode (``update`` or ``rebuild``).
@@ -16414,8 +16674,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           notice surfaces inline so operators know the graph layer was not touched by this call.
 
         Args:
-            content: One of `docs`, `code`, `all`, or `graph`.
-            mode: `update` (incremental) or `rebuild` (full). For `graph`, always use `rebuild`.
+            content: One of `docs`, `code`, `all`, `graph`, or `map`.
+            mode: `update` (incremental) or `rebuild` (full). For `graph`, always use `rebuild`. Ignored for `map`.
             layer: `project` (the only layer; the framework layer was removed in 1p4ww).
         """
         bad = _ensure_no_extra_args("wave_index_build", kwargs)
@@ -17519,6 +17779,94 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                         lines.append(f"  - `{nid}` (degree {deg})\n")
             lines.append("\n")
         return "".join(lines)
+
+    @mcp.resource(
+        "wavefoundry://codebase-map",
+        name="codebase_map",
+        description=(
+            "Generated orientation map of this project's codebase — bounded areas "
+            "(domain/package/directory), key files, entry points, and code_* "
+            "drill-in handles. The index to the index."
+        ),
+        mime_type="text/markdown",
+    )
+    def resource_codebase_map() -> str:
+        """Serve docs/references/codebase-map.md, regenerating fail-safe if missing.
+
+        Mirrors the wavefoundry://graph/* resource pattern. The map is normally
+        kept fresh by the index build (every rebuild path regenerates it); if the
+        file is missing we regenerate on demand (fail-safe — never raises)."""
+        _root = get_handler().root
+        try:
+            gen = _load_script("gen_codebase_map")
+        except Exception as exc:
+            return f"# Codebase Map\n\nGenerator unavailable: {exc}\n"
+        out = _root / gen.OUTPUT_REL_PATH
+        if not out.is_file():
+            try:
+                gen.generate_safe(_root)
+            except Exception:
+                pass
+        if out.is_file():
+            try:
+                return out.read_text(encoding="utf-8")
+            except Exception as exc:
+                return f"# Codebase Map\n\nFailed to read map: {exc}\n"
+        return (
+            "# Codebase Map\n\n"
+            "No map available yet. Build the index "
+            "(`wave_index_build(content='all', mode='rebuild')`) or refresh just "
+            "the map (`wave_index_build(content='map')`).\n"
+        )
+
+    @mcp.resource(
+        "wavefoundry://area/{area}",
+        name="area_context",
+        description=(
+            "Read a major area's per-area AGENTS.md (local conventions / gotchas / "
+            "intent) by area_id or representative path, as shown in the codebase map. "
+            "Read wavefoundry://codebase-map first to discover area keys. Returns the "
+            "on-disk file (the source of truth — also indexed for code_ask/docs_search); "
+            "never synthesized."
+        ),
+        mime_type="text/markdown",
+    )
+    def resource_area_context(area: str) -> str:
+        """Wave 1p662: serve a major area's on-disk `AGENTS.md` by area_id or
+        representative path. Convenience read layer OVER the file (the file stays the
+        indexed, vendor-neutral source of truth); never synthesizes content. Fail-safe
+        — a missing area or un-authored file returns a `# Not Found` message."""
+        _root = get_handler().root
+        try:
+            gen = _load_script("gen_codebase_map")
+            model = gen.compute_areas(_root)
+        except Exception as exc:  # noqa: BLE001 — fail-safe resource
+            return f"# Not Found\n\nCould not resolve area `{area}` (codebase map unavailable: {exc}).\n"
+        key = (area or "").strip().strip("/")
+        match = None
+        for a in getattr(model, "areas", ()):
+            rep = (getattr(a, "representative_path", "") or "").strip("/")
+            if key and key in (getattr(a, "area_id", None), rep):
+                match = a
+                break
+        if match is None:
+            return (
+                f"# Not Found\n\nNo codebase-map area matches `{area}`. Read "
+                "`wavefoundry://codebase-map` to see area ids / representative paths.\n"
+            )
+        rel = gen._area_context_rel_path(match)
+        path = _root / rel
+        if not path.is_file():
+            return (
+                f"# Not Found\n\nArea `{match.name}` (`{match.representative_path}`) has no "
+                f"`AGENTS.md` yet at `{rel}`. Author one — purpose, key conventions, gotchas, "
+                "entry points — to give agents local context here; it is indexed for "
+                "`code_ask`/`docs_search`.\n"
+            )
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError as exc:
+            return f"# Not Found\n\nCould not read `{rel}`: {exc}\n"
 
     @mcp.resource(
         "wavefoundry://waves",

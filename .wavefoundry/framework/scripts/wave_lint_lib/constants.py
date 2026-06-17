@@ -106,7 +106,16 @@ PERSONA_REQUIRED_SECTIONS = (
 )
 
 # Root wrapper names that must not exist at the repository root.
-# RETIRED: no replacement — these have been removed entirely.
+# RETIRED: no replacement — these legacy launcher *executables* have been removed
+# entirely. This denylist is a persistent lint guard (a tombstone) whose job is to
+# keep the old root-level launcher scripts from creeping back in; it is NOT a
+# prompt-surface artifact and must not be "retired" itself.
+#
+# Do not confuse `package-wave-framework` here (a forbidden root-wrapper file) with
+# the documented legacy *phrase alias* "Package wave framework" → "Package
+# Wavefoundry" in docs/prompts/index.md / package-wavefoundry.prompt.md / AGENTS.md.
+# Same spelling, unrelated concerns: the phrase alias is an intentional backward-compat
+# routing entry; this tuple guards against a stale launcher file at the repo root.
 FORBIDDEN_ROOT_WRAPPERS_RETIRED = (
     "package-wave-framework",
     "install-wave-framework",

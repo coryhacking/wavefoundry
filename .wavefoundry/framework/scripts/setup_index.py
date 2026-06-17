@@ -905,6 +905,11 @@ def build_index(
         project_include_prefixes=prefixes,
         rechunk=rechunk,
     )
+    # Wave 1p601: the codebase map is decoupled from the index build (it lives in
+    # the indexed docs/references/ tree, so regenerating on every build would
+    # create a write→reindex loop). No map regen here. The map is refreshed at
+    # lifecycle (prepare/close), on upgrade, on-demand (wave_index_build
+    # content="map" / CLI), and lazily on resource read.
 
 
 def _coerce_prefix_list(raw: object) -> tuple[str, ...]:

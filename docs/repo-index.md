@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-26
+Last verified: 2026-06-17
 
 ## Repository Summary
 
@@ -23,6 +23,39 @@ Wavefoundry is the canonical home for the Wave Framework and its future local MC
 | `docs/design-system/`                     | Design-system extraction contract hub (seeded by wave `12as1`; machine-readable token/spec tree + operator-owned `design-language.md`) | Seeded; not yet populated |
 | `docs/architecture/design-system.md` | Design-system architecture hub: extraction philosophy, regeneration semantics, semantic index relationship | Seeded by wave `12as1` |
 
+
+The table above is human/agent-authored. The structural module list below is
+generated from the codebase map (Option A, wave `1p5x8`) — only the content
+between the markers is machine-maintained; the surrounding narrative is not.
+
+### Generated structural areas (from the codebase map)
+
+<!-- waveframework:repo-index-modules begin -->
+<!-- Generated from the codebase map (.wavefoundry/framework/scripts/gen_codebase_map.py). The narrative outside these markers is human/agent-authored and never touched. -->
+
+| Area | Path | Kind | Size (nodes) |
+| ---- | ---- | ---- | ------------ |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 5277 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 616 |
+| graph | `.wavefoundry/framework/scripts` | code | 213 |
+| dashboard | `.wavefoundry/framework/dashboard` | code | 196 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 177 |
+| chunker | `.wavefoundry/framework/scripts` | code | 161 |
+| dashboard_lib | `.wavefoundry/framework/scripts` | code | 134 |
+| indexer | `.wavefoundry/framework/scripts` | code | 102 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 79 |
+| setup | `.wavefoundry/framework/scripts` | code | 65 |
+| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 55 |
+| render_platform_surfaces | `.wavefoundry/framework/scripts` | code | 53 |
+| build_pack | `.wavefoundry/framework/scripts` | code | 48 |
+| graph_cluster | `.wavefoundry/framework/scripts` | code | 36 |
+| server | `.wavefoundry/framework/scripts` | code | 34 |
+| accel_embedder | `.wavefoundry/framework/scripts` | code | 25 |
+| upgrade_extensions | `.wavefoundry/framework/scripts` | code | 21 |
+| docs_gardener | `.wavefoundry/framework/scripts` | code | 17 |
+| docs | `docs` | config | 188 |
+| design-system | `docs/design-system` | config | 13 |
+<!-- waveframework:repo-index-modules end -->
 
 No shipped product implementation sources exist yet. The MCP Python package (`src/wavefoundry/`) is planned but not scaffolded.
 

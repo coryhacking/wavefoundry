@@ -89,6 +89,16 @@ Tasks:
 
  Emit one `## Module:` section per top-level module, package, service, or app. When the repository has fewer than three source files, record a single `## Module: (root)` entry rather than omitting the section.
 
+ **Generated structural-area block (codebase-map feed, Option A).** In the top-level modules section of `docs/repo-index.md`, include the marker pair below. The codebase-map generator (`gen_codebase_map.py`, run on every index build) fills the content **between** the markers from the graph/cluster artifacts (a bounded area table: area name, representative path, kind, size). The human/agent narrative **outside** the markers is never touched. Leave the markers empty on first authoring — the next index build populates them; the block is change-only/idempotent (rewritten only when the structural content changes) and fail-safe (a missing block is a safe no-op, never created or corrupted).
+
+ ```markdown
+ ### Generated structural areas (from the codebase map)
+
+ <!-- waveframework:repo-index-modules begin --><!-- waveframework:repo-index-modules end -->
+ ```
+
+ **Vendored / third-party path detection (codebase-map signal).** Identify any **bundled / vendored / third-party** trees — a checked-in copy of an external library, dependency, or generated SDK that nobody navigates to as product logic (e.g. a vendored expression-language implementation, a bundled minified library, copied upstream source) — and record them as a glob list under `vendored_paths` in `docs/repo-profile.json` (e.g. `"vendored_paths": ["**/vendor/**", "**/third_party/**", "**/*.min.js"]`). Also honor the ecosystem-standard `.gitattributes` `linguist-vendored=true` marker, which the map reads as the same signal. The codebase-map generator (`gen_codebase_map.py`) excludes vendored-dominated areas from the orientation tier into a collapsed "Vendored / third-party" footer so a cold-start agent is routed to the product, not the dependency; the trees stay fully `code_*`-searchable. **Use explicit path/marker evidence — do not guess from names:** a first-party file with a library-ish name (a product `JSON.java` carrying your copyright) is NOT vendored. When unsure, leave it out (the map keeps it visible rather than wrongly hiding product). Generated code is detected automatically (`.gitattributes linguist-generated`, generated dir/suffix names, header signatures) and needs no entry here.
+
 10. **Architecture handoff for `seed-060`** — In `docs/repo-index.md` (or a clearly labeled subsection), make the following **easy for a downstream prompt to quote** without re-scanning the whole tree:
 
  - **Deployable units** — apps, daemons, libraries, CLIs, and how they are built or packaged (paths to build scripts or manifests).
@@ -98,6 +108,8 @@ Tasks:
  - **Concurrency / single-lane hints** — subtrees that are safe for parallel feature work vs areas that routinely conflict.
 
  When evidence is missing, add **`TBD`** or **`Unknown`** entries so `seed-060` can record explicit gaps instead of silent omissions.
+
+ **Per-area `AGENTS.md` for major subsystems (codebase-map content lever).** For each **major** subsystem — the deployable units above and the bounded top-tier areas the codebase map identifies (`gen_codebase_map.py:compute_areas`) — author a concise vendor-neutral `AGENTS.md` at that area's representative directory capturing what you OBSERVED: a one-line purpose/responsibility, the key local conventions/patterns, non-obvious gotchas or intent, and the main entry points. This is the codebase map's highest-value content — the part the `code_*` tools cannot synthesize — and it is indexed so it surfaces in `code_ask`/`docs_search` when an agent works in that area. **Guardrails (quality over coverage):** major areas only (NOT every area); every line grounded in evidence from the code, not boilerplate; if an area has no real local context beyond what the map already shows, **leave it unwritten** rather than pad; **never overwrite** an existing `AGENTS.md`; mark each as an initial draft for human refinement. This is one-time inventory authoring (a grounded first draft like `docs/repo-index.md`), NOT regenerated on every build. The opt-in `gen_codebase_map.py --scaffold-area-contexts` remains available to create empty slots without drafts.
 
 11. **Persona candidate evidence** — Identify evidence for project-specific personas and record under `persona_candidates` in `docs/repo-profile.json` as a list of objects. Consumed by `seed-120` (project persona synthesis) as a starting shortlist; `seed-120` still performs its own evidence scan and user-confirmation pass before generating persona docs. Each candidate object has:
 

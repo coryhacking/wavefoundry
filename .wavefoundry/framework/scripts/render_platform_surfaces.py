@@ -110,6 +110,40 @@ def launcher_command(rel_base: str) -> str:
     return rel_base
 
 
+# Single source of truth for Claude hooks. Both the settings renderer
+# (render_claude_settings) and the dry-run simulate map (claude_simulate_hooks_source)
+# derive from this list so they can NOT drift: every hook rendered into
+# .claude/settings.json is also dry-runnable through .claude/hooks/simulate-hooks.py.
+# A parity test in tests/test_render_platform_surfaces.py enforces this.
+#   name:  the hook script basename under .claude/hooks/ (also the simulate entrypoint key)
+#   event: the Claude settings event ("PreToolUse" / "PostToolUse" / "Stop")
+#   matcher: tool matcher for the settings entry, or None for unmatched events (Stop)
+#   status_message: statusMessage shown by Claude while the hook runs
+CLAUDE_HOOKS: tuple[dict[str, object], ...] = (
+    {
+        "name": "pre-edit",
+        "event": "PreToolUse",
+        "matcher": "Edit|Write",
+        "status_message": "Checking framework edit gates...",
+    },
+    {
+        "name": "post-edit",
+        "event": "PostToolUse",
+        "matcher": "Edit|Write",
+        "status_message": "Running docs gates...",
+    },
+    # Wave 1p5ti — session-end capture (capture/nudge only; never blocks).
+    # Stop only: SubagentStop would fire on every subagent completion (noise +
+    # redundant captures); the meaningful capture point is the main session end.
+    {
+        "name": "session-capture",
+        "event": "Stop",
+        "matcher": None,
+        "status_message": "Capturing session state...",
+    },
+)
+
+
 def posix_launcher_source(script_name: str) -> str:
     return dedent(
         f"""#!/usr/bin/env sh
@@ -408,8 +442,14 @@ def claude_post_edit_source() -> str:
 
 
 def claude_simulate_hooks_source() -> str:
-    return compose_script(
-        """
+    # Derive the simulate HOOKS map from the shared CLAUDE_HOOKS registry so a hook
+    # rendered into .claude/settings.json is always dry-runnable (no drift).
+    # 4-space indent: matches the final (post-dedent) body indentation level.
+    hook_lines = "\n".join(
+        '    "{name}": REPO_ROOT / ".claude" / "hooks" / "{name}.py",'.format(name=hook["name"])
+        for hook in CLAUDE_HOOKS
+    )
+    source = """
         from __future__ import annotations
 
         import os
@@ -419,8 +459,7 @@ def claude_simulate_hooks_source() -> str:
 
         REPO_ROOT = Path(__file__).resolve().parents[2]
         HOOKS = {
-            "pre-edit": REPO_ROOT / ".claude" / "hooks" / "pre-edit.py",
-            "post-edit": REPO_ROOT / ".claude" / "hooks" / "post-edit.py",
+            __HOOK_LINES__
         }
 
 
@@ -455,9 +494,11 @@ def claude_simulate_hooks_source() -> str:
 
         if __name__ == "__main__":
             raise SystemExit(main(sys.argv[1:]))
-        """,
-        include_helpers=False,
-    )
+        """
+    # Replace after compose_script so the placeholder line is dedented to its final
+    # 4-space indent; hook_lines are emitted at that same level.
+    composed = compose_script(source, include_helpers=False)
+    return composed.replace("    __HOOK_LINES__", hook_lines)
 
 
 def cursor_seed_warn_source() -> str:
@@ -650,6 +691,159 @@ def windsurf_docs_lint_source() -> str:
     )
 
 
+def claude_stop_source() -> str:
+    """Session-end capture hook (wave 1p5ti).
+
+    Host-agnostic in intent; this is the Claude `Stop` rendering (main session
+    end only — not SubagentStop, which would spam on every subagent completion).
+    On session end it writes a capture summary (open wave + AC progress,
+    uncommitted-work signal, handoff staleness, and a learnings/memory-candidate
+    nudge) to a predictable gitignored location and prints one short line.
+
+    Hard contract: fast, fully fail-safe, ALWAYS exits 0, and NEVER writes
+    memory or commits — capture/nudge only, so it can never block session end.
+    """
+    return dedent(
+        '''
+        """Wavefoundry session-end capture hook. Capture/nudge only; never blocks."""
+        from __future__ import annotations
+
+        import os
+        import subprocess
+        import sys
+        from pathlib import Path
+
+
+        def _find_repo_root(start: Path) -> Path | None:
+            cur = start.resolve()
+            for cand in [cur, *cur.parents]:
+                if (cand / "docs" / "waves").is_dir() or (cand / ".wavefoundry").is_dir():
+                    return cand
+            return None
+
+
+        def _active_wave(root: Path):
+            waves = root / "docs" / "waves"
+            if not waves.is_dir():
+                return None
+            for wave_dir in sorted(waves.iterdir()):
+                wave_md = wave_dir / "wave.md"
+                if not wave_md.is_file():
+                    continue
+                try:
+                    text = wave_md.read_text(encoding="utf-8")
+                except Exception:
+                    continue
+                status = ""
+                wave_id = wave_dir.name
+                for line in text.splitlines():
+                    s = line.strip()
+                    if s.lower().startswith("status:"):
+                        status = s.split(":", 1)[1].strip().lower()
+                    elif s.startswith("wave-id:"):
+                        wave_id = s.split(":", 1)[1].strip().strip("`")
+                if status in ("active", "implementing"):
+                    return (wave_id, wave_dir)
+            return None
+
+
+        def _ac_progress(wave_dir: Path):
+            done = total = 0
+            for md in sorted(wave_dir.glob("*.md")):
+                if md.name == "wave.md":
+                    continue
+                try:
+                    for line in md.read_text(encoding="utf-8").splitlines():
+                        st = line.strip()
+                        if st.startswith("- [ ] AC") or st.startswith("- [] AC"):
+                            total += 1
+                        elif st.startswith("- [x] AC") or st.startswith("- [X] AC"):
+                            total += 1
+                            done += 1
+                except Exception:
+                    continue
+            return done, total
+
+
+        def _git_dirty_count(root: Path) -> int | None:
+            try:
+                out = subprocess.run(
+                    ["git", "-C", str(root), "status", "--porcelain"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if out.returncode != 0:
+                    return None
+                return len([ln for ln in out.stdout.splitlines() if ln.strip()])
+            except Exception:
+                return None
+
+
+        def _handoff_stale(root: Path, wave_dir: Path | None) -> bool | None:
+            handoff = root / "docs" / "agents" / "session-handoff.md"
+            if not handoff.is_file() or wave_dir is None:
+                return None
+            try:
+                hf = handoff.stat().st_mtime
+                newest = max(
+                    (p.stat().st_mtime for p in wave_dir.glob("*.md")), default=0.0
+                )
+                return newest > hf
+            except Exception:
+                return None
+
+
+        def main() -> int:
+            try:
+                # Drain stdin so the host never blocks on the pipe; payload unused.
+                try:
+                    sys.stdin.read()
+                except Exception:
+                    pass
+                root = _find_repo_root(Path(os.getcwd()))
+                if root is None:
+                    return 0
+                wave = _active_wave(root)
+                lines = ["# Session capture", ""]
+                if wave:
+                    wave_id, wave_dir = wave
+                    done, total = _ac_progress(wave_dir)
+                    lines.append(f"- Open wave: {wave_id}")
+                    if total:
+                        lines.append(f"- AC progress: {done}/{total} checked")
+                    stale = _handoff_stale(root, wave_dir)
+                    if stale is True:
+                        lines.append("- Session handoff looks STALE vs the wave — update it before stopping.")
+                else:
+                    lines.append("- No active wave.")
+                dirty = _git_dirty_count(root)
+                if dirty:
+                    lines.append(f"- Uncommitted changes: {dirty} path(s).")
+                lines.append("")
+                lines.append("Learnings: record any new build/test quirk or decision discovered this")
+                lines.append("session as a memory candidate (confirm before writing — never auto-saved).")
+                lines.append("")
+                try:
+                    cache_dir = root / ".wavefoundry" / "logs"
+                    cache_dir.mkdir(parents=True, exist_ok=True)
+                    (cache_dir / "last-session-capture.md").write_text(
+                        "\\n".join(lines) + "\\n", encoding="utf-8"
+                    )
+                except Exception:
+                    pass
+                summary = wave[0] if wave else "no active wave"
+                print(f"[wavefoundry] session capture saved ({summary}); review learnings before next session.")
+                return 0
+            except Exception:
+                # Never let a capture error block the session from ending.
+                return 0
+
+
+        if __name__ == "__main__":
+            raise SystemExit(main())
+        '''
+    )
+
+
 def render_claude_settings(repo_root: Path) -> None:
     settings_path = repo_root / ".claude" / "settings.json"
     existing: dict[str, object] = {}
@@ -661,32 +855,20 @@ def render_claude_settings(repo_root: Path) -> None:
         except json.JSONDecodeError:
             existing = {}
 
-    existing["hooks"] = {
-        "PreToolUse": [
-            {
-                "matcher": "Edit|Write",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": launcher_command(".claude/hooks/pre-edit"),
-                        "statusMessage": "Checking framework edit gates...",
-                    }
-                ],
-            }
-        ],
-        "PostToolUse": [
-            {
-                "matcher": "Edit|Write",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": launcher_command(".claude/hooks/post-edit"),
-                        "statusMessage": "Running docs gates...",
-                    }
-                ],
-            },
-        ],
-    }
+    # Derive the hooks dict from the shared CLAUDE_HOOKS registry so the rendered
+    # settings can never drift from the simulate map (claude_simulate_hooks_source).
+    hooks: dict[str, list] = {}
+    for hook in CLAUDE_HOOKS:
+        entry_hook = {
+            "type": "command",
+            "command": launcher_command(f".claude/hooks/{hook['name']}"),
+            "statusMessage": hook["status_message"],
+        }
+        entry: dict[str, object] = {"hooks": [entry_hook]}
+        if hook["matcher"] is not None:
+            entry = {"matcher": hook["matcher"], **entry}
+        hooks.setdefault(str(hook["event"]), []).append(entry)
+    existing["hooks"] = hooks
     write_text(settings_path, json.dumps(existing, indent=2) + "\n")
 
 
@@ -1124,6 +1306,7 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
         write_hook_bundle(repo_root / ".claude" / "hooks" / "pre-edit", claude_pre_edit_source())
         write_hook_bundle(repo_root / ".claude" / "hooks" / "post-edit", claude_post_edit_source())
         write_hook_bundle(repo_root / ".claude" / "hooks" / "simulate-hooks", claude_simulate_hooks_source())
+        write_hook_bundle(repo_root / ".claude" / "hooks" / "session-capture", claude_stop_source())
         render_claude_settings(repo_root)
         render_mcp_json(repo_root)
         render_upgrade_skill(repo_root)

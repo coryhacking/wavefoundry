@@ -369,7 +369,7 @@ HARDCODED_EXCLUDE_PREFIXES = (
     ".wavefoundry/logs/",
 )
 HARDCODED_EXCLUDE_PATHS = frozenset({
-    ".wavefoundry/dashboard-server.json",
+    ".wavefoundry/dashboard-server.lock",  # 1p64x: merged lock + startup-metadata sidecar
     ".wavefoundry/guard-overrides.json",
 })
 # Wave 1p2q3 (1p2qd): consumer project indexes exclude `.wavefoundry/` blanket.
@@ -396,6 +396,20 @@ FRAMEWORK_FOLD_DOCS_PREFIXES = (
     ".wavefoundry/framework/seeds",
     ".wavefoundry/framework/README.md",
 )
+
+# Canonical home (moved from dashboard_server.py). Paths that should never mark
+# the project index stale even though they live under ``.wavefoundry/`` and may
+# be churned by the running tooling itself.
+_PROJECT_STALE_IGNORE_PATHS = {
+    ".wavefoundry/dashboard-server.lock",  # 1p64x: merged lock + startup-metadata sidecar
+    ".wavefoundry/guard-overrides.json",
+    ".wavefoundry/logs/dashboard.log",
+    # Wave 1p601: the generated codebase map is a regenerated artifact written at
+    # lifecycle/on-demand/on-read moments. It must NOT drive index staleness, or
+    # writing it (at prepare/close/upgrade/resource-read) would trigger a reindex —
+    # the write→reindex coupling the decoupling is meant to eliminate.
+    "docs/references/codebase-map.md",
+}
 
 BINARY_EXTENSIONS = frozenset({
     # Compiled / native
@@ -1018,6 +1032,59 @@ def _load_meta(index_dir: Path) -> dict:
 
 def _save_meta(index_dir: Path, meta: dict) -> None:
     _atomic_write_text(index_dir / META_JSON, json.dumps(meta, indent=2))
+
+
+def project_index_inputs_stale(root: Path, meta: dict | None = None) -> bool | None:
+    """Cheap stat-fast-path staleness check for the project index.
+
+    Returns True/False when a determination is possible, or ``None`` when it
+    cannot be made (no built index / no ``file_meta`` snapshot, or any error).
+    Canonical home for the check previously inlined in
+    ``dashboard_server.py::_project_index_inputs_stale``.
+
+    Uses the same primitives as the indexer build: walk the repo, filter to the
+    project-index include set, then ``_detect_changes`` (mtime+size+inode
+    pre-filter, hashing only on stat mismatch). No full SHA256 walk per call.
+    """
+    try:
+        index_dir = root / ".wavefoundry" / "index"
+        if meta is None:
+            meta = _load_meta(index_dir)
+        file_meta = meta.get("file_meta") if isinstance(meta, dict) else None
+        if not isinstance(file_meta, dict) or not file_meta:
+            return None
+        # Read configured include prefixes so the staleness check matches what
+        # the indexer actually indexes.
+        code_prefixes: tuple[str, ...] = ()
+        try:
+            wf_cfg = json.loads((root / "docs" / "workflow-config.json").read_text(encoding="utf-8"))
+            raw = (wf_cfg.get("indexing") or {}).get("project_include_prefixes", {})
+            if isinstance(raw, dict):
+                raw = raw.get("code") or []
+            if isinstance(raw, list):
+                code_prefixes = tuple(str(p) for p in raw if p)
+        except Exception:
+            pass
+        files = walk_repo(root, respect_ignore=True)
+        files = [path for path in files if not _is_relative_to(path, index_dir)]
+        # The project docs index folds the framework seeds + README, so they
+        # must survive the ``.wavefoundry/`` blanket exclusion here too.
+        include_prefixes = (*code_prefixes, *FRAMEWORK_FOLD_DOCS_PREFIXES)
+        files = _filter_project_index_excludes(files, root, (), project_include_prefixes=include_prefixes)
+        files = [
+            path
+            for path in files
+            if str(path.relative_to(root)).replace("\\", "/") not in _PROJECT_STALE_IGNORE_PATHS
+        ]
+        filtered_file_meta = {
+            rel_path: entry
+            for rel_path, entry in file_meta.items()
+            if rel_path not in _PROJECT_STALE_IGNORE_PATHS
+        }
+        _, changed, removed = _detect_changes(files, root, filtered_file_meta)
+        return bool(changed or removed)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -2951,6 +3018,14 @@ def _build_index_locked(
             f"build_index: finished code files: {files_summary} | chunks: {code_chunk_summary}{_code_time}",
             flush=True,
         )
+
+    # Wave 1p601 (1p5x8): the codebase map is NOT regenerated here. The map lives
+    # in the indexed docs/references/ tree, so regenerating it on every index
+    # build creates a self-referential write→reindex loop. Map regen is decoupled
+    # from the build and triggered at lifecycle (prepare/close), on upgrade,
+    # on-demand (wave_index_build content="map" / CLI), and lazily on resource
+    # read (regenerate-if-stale) instead.
+
     return summary
 
 

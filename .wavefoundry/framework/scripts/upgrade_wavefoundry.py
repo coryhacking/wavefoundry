@@ -137,7 +137,8 @@ def _err(msg: str) -> None:
 
 def _detect_dashboard(root: Path) -> tuple[bool, int | None, str | None]:
     """Return (running, pid, url) for the local dashboard."""
-    meta = root / ".wavefoundry" / "dashboard-server.json"
+    # Wave 1p64x: dashboard metadata now lives in the server lock file (one sidecar).
+    meta = root / ".wavefoundry" / "dashboard-server.lock"
     if not meta.exists():
         return False, None, None
     try:
@@ -145,7 +146,18 @@ def _detect_dashboard(root: Path) -> tuple[bool, int | None, str | None]:
         pid = data.get("pid")
         url = data.get("url")
         if isinstance(pid, int) and pid > 0:
-            # Quick liveness check
+            # Wave 1p654 (review follow-up): harden the liveness check to match the
+            # lifecycle tools — a bare os.kill(pid, 0) accepts a zombie or a recycled
+            # PID. Verify the recorded PID is actually a live dashboard for THIS root
+            # via the shared cmdline scan; fall back to os.kill when the scan is
+            # unavailable (Windows / ps error) so behavior is unchanged there.
+            try:
+                import dashboard_lib
+                live = dashboard_lib.dashboard_cmdline_pids(root)
+            except Exception:  # noqa: BLE001 — best-effort; fall back to os.kill
+                live = None
+            if live is not None and pid not in live:
+                return False, None, None
             try:
                 os.kill(pid, 0)
                 return True, pid, url
@@ -1390,6 +1402,13 @@ def phase_cleanup(
     # (its `.lance` files were never in MANIFEST), so this explicit step is the only thing that does.
     _remove_deprecated_framework_index(root)
 
+    # Wave 1p601: map regen is decoupled from the index build, so a fresh upgrade
+    # would otherwise never generate docs/references/codebase-map.md (teton report).
+    # Regenerate it once here, after the index phase, fail-safe — a generator error
+    # must never fail the upgrade. ``generate_safe`` is change-only/idempotent.
+    if not failed_phase:
+        _regenerate_codebase_map_on_upgrade(root)
+
     _print_operator_summary(
         from_version=from_version,
         to_version=to_version,
@@ -1398,6 +1417,33 @@ def phase_cleanup(
         ran_index_rebuild=ran_index_rebuild,
         failed_phase=failed_phase,
     )
+
+
+def _regenerate_codebase_map_on_upgrade(root: Path) -> None:
+    """Fail-safe one-shot codebase-map regen on upgrade (wave 1p601).
+
+    Map regen is decoupled from the index build, so a fresh upgrade would never
+    produce docs/references/codebase-map.md without this explicit call. Loaded via
+    importlib (registered in sys.modules so dataclass annotations resolve); all
+    exceptions are swallowed — regenerating the map must NEVER fail the upgrade.
+    """
+    try:
+        import importlib.util as _ilu
+
+        mod = sys.modules.get("gen_codebase_map")
+        if mod is None:
+            spec = _ilu.spec_from_file_location(
+                "gen_codebase_map", SCRIPTS_DIR / "gen_codebase_map.py"
+            )
+            if not (spec and spec.loader):
+                return
+            mod = _ilu.module_from_spec(spec)
+            sys.modules["gen_codebase_map"] = mod
+            spec.loader.exec_module(mod)
+        if mod.generate_safe(root):
+            _log("  Codebase map refreshed → docs/references/codebase-map.md")
+    except Exception as exc:  # noqa: BLE001 — fail-safe: never break the upgrade
+        _log(f"  Codebase map refresh skipped ({exc}).")
 
 
 def _warn_if_background_code_incomplete(root: Path) -> None:
@@ -1492,6 +1538,48 @@ def _docs_gate_summary_line(failed_phase: str | None) -> str:
     return f"NOT RUN (upgrade failed at phase: {failed_phase})"
 
 
+def _is_major_or_minor_upgrade(from_version: str | None, to_version: str | None) -> bool:
+    """True when ``from_version`` → ``to_version`` is a major or minor bump.
+
+    Wave 1p5tk. Fully fail-safe: any unparseable/absent version returns False so
+    the caller stays quiet rather than recommending on noise. Never raises.
+    """
+    if not from_version or not to_version:
+        return False
+    try:
+        from check_version import _to_version
+
+        old = _to_version(from_version)
+        new = _to_version(to_version)
+    except Exception:
+        return False
+    # major or minor changed (patch-only bumps and downgrades are excluded).
+    return new[:2] != old[:2] and new > old
+
+
+def _config_review_recommendation_lines(
+    from_version: str | None, to_version: str | None
+) -> list[str]:
+    """Recommendation to evaluate the Framework Config Review on a major/minor upgrade.
+
+    Wave 1p5tk. Stateless (no marker/threshold) — surfaced on every major/minor
+    upgrade; the owner decides each time. Recommend-only; never blocks the upgrade.
+    Returns [] (silent) on patch upgrades or any parse failure.
+    """
+    try:
+        if not _is_major_or_minor_upgrade(from_version, to_version):
+            return []
+        return [
+            "",
+            f"Config review recommended (major/minor upgrade {from_version} → {to_version}):",
+            "  A senior/principal architect or engineer should evaluate whether to run the",
+            "  Framework Config Review (docs/prompts/framework-config-review.prompt.md) to audit",
+            "  and retire stale agent config. Optional, human-initiated — it does not block anything.",
+        ]
+    except Exception:
+        return []
+
+
 def _print_operator_summary(
     from_version: str | None,
     to_version: str | None,
@@ -1524,6 +1612,11 @@ def _print_operator_summary(
     _log("Dashboard:          lock removed; auto-reindex will trigger on lock removal")
     _log("MCP reload: call wave_mcp_reload() (or wave_upgrade cleanup) to load upgraded server code in-process")
     _log("")
+    # Wave 1p5tk — on a major/minor upgrade, recommend (don't run) the Framework
+    # Config Review for a senior/principal owner to evaluate. Stateless + fail-safe.
+    if not failed_phase:
+        for line in _config_review_recommendation_lines(from_version, to_version):
+            _log(line)
     # Wave 1p454 — defer to seed-160 as the authoritative editing-pass checklist
     # (do NOT enumerate its step-8 backfills here — they drift); fix the journal
     # label; prepend a secrets-resolution step before the docs-gate re-run.

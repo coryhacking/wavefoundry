@@ -25,7 +25,7 @@ Source of truth: `LINT_EXCLUDED_TRANSIENT_DIRS` in `.wavefoundry/framework/scrip
 
 The exclusion above is **targeted**, not a blanket bypass of "should not be checked in" classification:
 
-- **Retired root wrappers** — `package-wave-framework`, `install-wave-framework`, `upgrade-wave-framework`, and other legacy launchers at the repository root still fail lint when found. See `FORBIDDEN_ROOT_WRAPPERS_RETIRED` in `wave_lint_lib/constants.py`.
+- **Retired root wrappers** — `package-wave-framework`, `install-wave-framework`, `upgrade-wave-framework`, and other legacy launcher *executables* at the repository root still fail lint when found. See `FORBIDDEN_ROOT_WRAPPERS_RETIRED` in `wave_lint_lib/constants.py`. This denylist is a persistent tombstone (it guards against stale launcher files), not a prompt-surface artifact — do not confuse it with the documented legacy phrase alias **`Package wave framework`** → **`Package Wavefoundry`**, which is an intentional backward-compat routing entry in `docs/prompts/index.md`.
 - **Relocated root wrappers** — `docs-lint`, `docs-gardener` etc. at the repository root still fail lint when found; their canonical location is `.wavefoundry/bin/`. See `FORBIDDEN_ROOT_WRAPPERS_RELOCATED`.
 - **All other doc-shape checks** — wave-record headers, change-doc Decision Logs, persona doc structure, agent role docs missing `Role:` / `Category:` frontmatter, prompt-file extensions, journal salience markers, AC progression rules, wave dependency consistency, and dozens of other validators. Run `docs-lint --help` or read `wave_lint_lib/` to enumerate.
 

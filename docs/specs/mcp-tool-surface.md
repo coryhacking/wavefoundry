@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-15
+Last verified: 2026-06-17
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -508,8 +508,9 @@ Parameterized reads — supply the URI variable to select a specific document:
 | `wavefoundry://prompt/{slug}` | `text/markdown` | Prompt doc matching slug or shortcut | `wave_get_prompt(shortcut=…)` |
 | `wavefoundry://seed/{slug}` | `text/markdown` | Seed doc matching slug or name | `seed_get(name=…)` |
 | `wavefoundry://architecture/{slug}` | `text/markdown` | Architecture doc matching slug (e.g. `domain-map`) | — |
+| `wavefoundry://area/{area_id}` | `text/markdown` | A major area's per-area `AGENTS.md` (local conventions/gotchas/intent) by `area_id` (the URI-safe key shown in the codebase map; resolves via `gen_codebase_map.compute_areas`). Serves the on-disk file (also indexed for `code_ask`/`docs_search`); never synthesizes content. | — |
 
-Missing resources return a `# Not Found` markdown message rather than raising an error.
+Missing resources return a `# Not Found` markdown message rather than raising an error. (For `wavefoundry://area/{area_id}`, an un-authored area returns `# Not Found` with a prompt to author its `AGENTS.md` — the resource only serves the on-disk file, it does not generate content.)
 
 ## Tool Selection Guide
 

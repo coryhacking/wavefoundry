@@ -23,6 +23,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/session-capture",
+            "statusMessage": "Capturing session state..."
+          }
+        ]
+      }
     ]
   },
   "enabledPlugins": {

@@ -5,11 +5,14 @@
 Read in this order at the start of every session:
 
 1. `docs/references/project-overview.md` — project orientation, workflow, roles
-2. `docs/prompts/index.md` — shortcut phrase catalog (public command surface)
-3. `docs/ARCHITECTURE.md` — architecture hub and child doc index
-4. `docs/agents/session-handoff.md` — current session state (if work is in progress)
+2. `docs/references/codebase-map.md` — generated, graceful-scaling map of this project's own code (areas → key files/entry points → `code_*` drill-in); orient here before grep-thrashing
+3. `docs/prompts/index.md` — shortcut phrase catalog (public command surface)
+4. `docs/ARCHITECTURE.md` — architecture hub and child doc index
+5. `docs/agents/session-handoff.md` — current session state (if work is in progress)
 
 Before editing any repository code or framework seeds, read the **Stage Gate (repository code)** and **Framework Script Hygiene** sections below.
+
+**Before working in an area of the codebase, consult that area's `AGENTS.md` if one is present** (vendor-neutral per-area context — local conventions, gotchas, intent). Orient first from `docs/references/codebase-map.md`, which routes you to the right area and links its `AGENTS.md` when one exists. There are no per-folder `CLAUDE.md` bridge files; the only `@import` is the root `CLAUDE.md` → `AGENTS.md` bridge.
 
 ## Codebase and documentation questions (auto-Guru)
 
@@ -299,6 +302,7 @@ Full resource documentation: `docs/specs/mcp-tool-surface.md` → **MCP Resource
 - `wavefoundry://prompt/{slug}` — prompt doc by slug
 - `wavefoundry://seed/{slug}` — seed doc by slug
 - `wavefoundry://architecture/{slug}` — architecture doc by slug
+- `wavefoundry://area/{area_id}` — a major area's per-area `AGENTS.md` (local conventions/gotchas/intent) by `area_id` (the URI-safe key shown in the codebase map; read `wavefoundry://codebase-map` first to discover area ids). Serves the on-disk file (also indexed for `code_ask`/`docs_search`); a missing/un-authored area returns a `# Not Found` message — never synthesized.
 
 **When to use resources vs tools:**
 

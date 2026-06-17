@@ -76,6 +76,41 @@ For each finding, name the edge case or failure mode that produces the wrong out
 - Check seed prompt changes for accidental project-specific guidance, product names, or hardcoded paths.
 - Verify new seeds remain generic and follow the harness extension boundary rule.
 
+## Maintainability & Dead-Code
+
+A senior-engineer pass that simplifies the codebase and reduces technical debt: find dead code, duplication, over-complexity, abandoned files, and redundant work — and recommend their removal. **Aggressive but safe**: the goal is to remove anything that provides no value, while never deleting something that is actually load-bearing.
+
+This runs in **two modes**:
+
+- **Scoped (every close review).** For the change under review, flag maintainability debt **in or adjacent to** the diff: dead code introduced or left behind, duplicated logic, an over-complex implementation, an abandoned/disconnected file. Route findings through the **Fix-Now Threshold** (small removals in-session; larger cleanups → a follow-on wave). Stay within `files_in_scope`.
+- **Whole-codebase sweep (explicit / periodic).** A full audit across the codebase, run only when invoked (operator or the "Codebase cleanup review" command) — recommended on the same cadence as the **Framework Config Review** (at major/minor upgrade). Do **not** run a full sweep on every wave (expensive + noisy).
+
+### What to find
+
+Dead code (unused functions, files, components, routes, APIs, variables, imports, dependencies); duplicate logic that should be consolidated; unused UI components; overly complex implementations that can be simplified; legacy / no-longer-needed code; **redundant expensive operations** (repeated reads/fetches or recomputation in a loop or per-tick that could be cached or hoisted); files that appear abandoned or disconnected from the application; general technical-debt reduction.
+
+### Detect with the graph, not grep
+
+When the MCP is attached, use the index — it is far more reliable than scanning:
+
+- **Dead symbols:** `code_references(symbol)` and `code_callhierarchy(symbol, direction="incoming")`. Zero/near-zero results are *candidates*, not conclusions (see the guard below).
+- **Abandoned / disconnected areas:** `code_graph_community` and the generated **codebase map** (`docs/references/codebase-map.md`) — areas with no inbound edges from the rest of the application.
+- **Duplication:** structural/community overlap between modules implementing the same policy.
+- **Blast radius before recommending removal:** `code_impact` / `code_callgraph`.
+
+### Aggressive but SAFE — the false-positive guard (mandatory)
+
+**Zero static references does NOT mean dead.** Before recommending any deletion, rule out the generic surfaces that are invisible to static analysis:
+
+- framework **registration / decorators / dependency injection**; reflection; **plugin / entry-point / hook** registration; callbacks; symbols referenced by **string or serialized name** (config, dispatch tables, templates); **test fixtures**; the **public API surface** (anything an external consumer imports).
+- Corroborate an empty graph result with `code_references` / `code_keyword` — an empty `code_callhierarchy` with hits from `code_references` is a **coverage gap, not authoritative absence** (per the rule in *Reviewer-side graph queries* below). Treat **EXTRACTED graph edges as heuristic/confidence-weighted** — never recommend deletion on a single zeroed edge. (Language advice/AOP exceptions per seed-211 still apply.)
+
+### Output (recommend-only — never delete)
+
+For each finding: **target** (file + symbol/line) · **verdict** (`keep` / `simplify` / `remove`) · **why** it is unnecessary · **impact** of removing it · **risks** (the dynamic-surface checks above) · **cleanup plan**. The reviewer recommends; removals land through a normal reviewed wave. Lead with `remove`/`simplify`, and end with a one-line summary (counts + the single highest-value cleanup).
+
+> **Boundary with the Framework Config Review:** that review prunes the **agent-operating surface** (seeds, prompts, config, docs); this prunes **code**. Use the config review for surface bloat, this for code debt.
+
 ## Verdict Format
 
 Return one of: `approved`, `approved-with-notes`, or `needs-revision` with:

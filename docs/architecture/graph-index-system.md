@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-13
+Last verified: 2026-06-17
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
@@ -476,6 +476,18 @@ Additionally, when code files change, doc artifacts that referenced changed symb
 | MCP: definition narrowing | `_graph_definition_candidate_files()` | `server_impl.py` |
 | MCP resource: graph status | `wavefoundry://graph/status` | `server_impl.py` |
 | MCP resource: community catalog | `wavefoundry://graph/communities` | `server_impl.py` |
+
+## Codebase Map (`gen_codebase_map.py`)
+
+The **codebase map** (`docs/references/codebase-map.md`) is a generated, read-only consumer of the graph + cluster artifacts (wave 1p5tl). `gen_codebase_map.py` runs **offline** — no live server, no re-parse — and collapses the flat Leiden/label-prop communities to their representative package/directory so the top tier stays **bounded regardless of repo size** (a small repo is near-flat; a monorepo with hundreds of communities yields a capped, paged top tier with leveled per-area drill-down). Each area carries a one-line responsibility, key files + entry-point symbols, and a drill-in handle using the **stable `hub_node_id`** (never the renumbering `community_id`) for `code_graph_community`. It is a read-only consumer (no `GRAPH_BUILDER_VERSION` bump) and records `CLUSTER_BUILDER_VERSION` for staleness. `compute_areas(root, layer)` returns the structured area model (reused by per-area `AGENTS.md` scaffolding); `render_markdown(model)` produces the docs-lint-clean markdown.
+
+**Ranking and labeling signals (wave `1p5zr`).** Entry points are ranked by **cross-area/cross-file fan-in** (callers outside the symbol's own file) rather than raw degree, so the map surfaces real entry points/chokepoints, not ubiquitous leaf helpers; trivial private helpers and config-key nodes are filtered. Config-only areas (predominantly `.json`/`.yaml`/etc. members) are demoted and rendered files-only (no fake entry points). An oversized representative directory is subdivided into its contributing communities. Labels are **tiered**: Tier-1 auto (a meaningful directory segment → dominant shared code token → central code symbol, never a doc/spec/config representative); Tier-2 authoritative (when the area's `representative_path/AGENTS.md` exists, its first `# heading` becomes the label and its first content line the responsibility, overriding the auto-label — re-read every generation, so human knowledge in `AGENTS.md` is folded in without ever living in the generated map). Symbol-kind tags are accurate or **omitted** (never a blanket `(function)`); non-code (`.html`/styleguide/asset) files are excluded from areas; each `hub_node_id` is a member of the area's representative package and appears in its key-files.
+
+**repo-index feed (Option A, wave `1p5zr`).** The generator also refreshes a marker-delimited structural block (`<!-- waveframework:repo-index-modules begin/end -->`) in `docs/repo-index.md` from the area data, keeping the structural module list fresh; the human/agent narrative outside the markers is untouched. The marker is seed-rooted (`seed-030`) so any consuming project carries it. Idempotent + fail-safe (a missing file/markers is a safe no-op).
+
+**Regeneration hook + MCP surface + idempotence (wave `1p601`).** Regeneration is hooked fail-safe into **`indexer.py::build_index`** (after the graph/cluster write), so **every** rebuild path — the freshness monitor, git hooks, background refresh, and `wave_index_build content="docs"/"code"/"all"`/upgrade — refreshes the map (the old `setup_index` hook was relocated here). It is **change-only / idempotent**: a regeneration with unchanged inputs writes nothing — the render is skipped when a fingerprint over the graph + cluster artifacts **and** the per-area `AGENTS.md` is unchanged, and the write is skipped when the rendered content (ignoring the `Last verified` date line) matches the existing file (preserving the date). The map is exposed over MCP as the resource **`wavefoundry://codebase-map`** (served fresh from the generated file, regenerated fail-safe if missing) and refreshable on demand via **`wave_index_build(content="map")`** (map-only, no full rebuild). New MCP resources/tool options require a **server reconnect** to appear (FastMCP limitation). Also available as a CLI: `python3 .wavefoundry/framework/scripts/gen_codebase_map.py --root .`.
+
+**Per-area `AGENTS.md` context (wave 1p5xc).** Vendor-neutral per-area context files live at major areas' representative paths. `gen_codebase_map.py --scaffold-area-contexts` is an **opt-in** command that scaffolds an empty **stub** `AGENTS.md` for each major area (idempotent; never overwrites an existing file; never auto-authors conventions — humans write the content). `render_markdown` links each area to its `AGENTS.md` when one exists. Discovery is agent-agnostic: the map link, a standing convention line woven into the run-contract seed (`020`) and rendered into every host agent surface, and the doc index (a subdirectory `AGENTS.md` is a normal `.md` file, picked up by the index walk and surfaced in `docs_search` / `code_ask`). The only `@import` the framework adopts is the root `CLAUDE.md` → `@AGENTS.md` bridge (rendered by `render_agent_surfaces.py`); there are no per-folder `CLAUDE.md` bridge files and no nested `@import`.
 
 ## Related Docs
 

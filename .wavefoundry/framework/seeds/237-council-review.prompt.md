@@ -101,6 +101,7 @@ The council reviews what you give it. If the artifact is ambiguous, the red-team
 | **Review wave** | Lifecycle gate — council delivery pass is embedded; records `wave-council-delivery` signoff |
 | **Evaluate decision** | Architecture/technology decision specifically — produces an ADR |
 | **Interrogate this plan** | Stress-test a plan's unresolved decision branches before admission |
+| **Framework config review** | Removal-biased audit of the agent operating surface (config/seeds/prompts/constraints/docs) — not an artifact review. Seed: `238-framework-config-review.prompt.md` |
 
 ## Project Harness Extensions
 

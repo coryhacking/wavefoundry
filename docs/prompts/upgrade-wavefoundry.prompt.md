@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-15
+Last verified: 2026-06-17
 
 Shortcut: **`Upgrade wave framework`** | Legacy: **`Upgrade Wavefoundry`** / **`Upgrade wave context`**
 
@@ -104,6 +104,10 @@ The 1.6 upgrade includes a secrets scan; understand which part blocks and how to
 
 - **Floor: 1.4.0.** Upgrading from below 1.4.0 (or from an unparseable version) prints a **warning and proceeds** — migrations for transitions older than 1.4→1.5 have been pruned, so a jump from below the floor may skip an intermediate migration. All known projects are ≥ 1.5.1, so this never fires in practice; it documents the supported range.
 - **Multi-version skips are allowed.** Only downgrades are blocked. A single-run skip (e.g. 1.4.x → 1.6) works — the version-gated 1.4→1.5 migrations still fire on the way through. The common path is 1.5.x → 1.6, a single step.
+
+## Config review recommendation (major/minor upgrades)
+
+On a **major or minor** upgrade (e.g. 1.5 → 1.6), the upgrade summary surfaces a one-line recommendation that a **senior / principal architect or engineer** evaluate whether to run the **Framework Config Review** (`docs/prompts/framework-config-review.prompt.md`) — a removal-biased audit of the agent operating surface (AGENTS.md/CLAUDE.md, seeds, prompts, constraints, memory, doc-sync). It is **recommend-only and human-initiated**: it never runs automatically and never blocks the upgrade. Patch upgrades do not surface it. There is no state/threshold — the cadence is simply "evaluate it at each major/minor upgrade."
 
 ## Verification Checklist
 

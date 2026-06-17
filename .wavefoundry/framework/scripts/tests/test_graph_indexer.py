@@ -218,6 +218,81 @@ class GraphIndexerTests(unittest.TestCase):
         self.assertIn("calls", relations)
         self.assertIn("imports", relations)
 
+    def test_ts_type_members_and_aliases_are_not_function(self):
+        # Wave 1p61v Issue 1: a pure-type TS file must produce ZERO kind="function"
+        # nodes — data members are `property`, type aliases are `type`, and only a
+        # method signature stays callable.
+        if getattr(self.mod, "_ts_get_parser", lambda *_: None)("typescript") is None:
+            self.skipTest("tree-sitter typescript grammar unavailable")
+        payload = self._build_file(
+            "report.types.ts",
+            "export interface Report {\n"
+            "  run_key: string;\n"
+            "  updated_at: string;\n"
+            "  describe(): string;\n"
+            "}\n"
+            "export type AppSource = {\n"
+            "  appKey: string;\n"
+            "};\n"
+            "export type Status = 'a' | 'b';\n",
+        )
+        kinds = {n["id"]: n["kind"] for n in payload["nodes"] if "::" in n["id"]}
+        # Data members → property (NOT function).
+        self.assertEqual(kinds.get("report.types.ts::Report.run_key"), "property")
+        self.assertEqual(kinds.get("report.types.ts::Report.updated_at"), "property")
+        self.assertEqual(kinds.get("report.types.ts::appKey"), "property")
+        # Type aliases → type (NOT function).
+        self.assertEqual(kinds.get("report.types.ts::AppSource"), "type")
+        self.assertEqual(kinds.get("report.types.ts::Status"), "type")
+        # The interface itself stays class; its method signature stays callable.
+        self.assertEqual(kinds.get("report.types.ts::Report"), "class")
+        self.assertEqual(kinds.get("report.types.ts::Report.describe"), "function")
+        # The core invariant: no data field / type alias leaked as `function`.
+        self.assertNotIn(
+            "function",
+            {kinds[k] for k in kinds if k.rsplit(".", 1)[-1] not in ("describe",)},
+        )
+
+    def test_ts_real_callables_still_emitted(self):
+        # Wave 1p61v faithfulness (AC-2): the fix must not drop real callables.
+        if getattr(self.mod, "_ts_get_parser", lambda *_: None)("typescript") is None:
+            self.skipTest("tree-sitter typescript grammar unavailable")
+        payload = self._build_file(
+            "app.ts",
+            "export const makeLogger = (name: string) => name;\n"
+            "export function helper(x: number): number {\n"
+            "  return x + 1;\n"
+            "}\n"
+            "const computeTotal = () => 1;\n",
+        )
+        kinds = {n["id"]: n["kind"] for n in payload["nodes"] if "::" in n["id"]}
+        self.assertEqual(kinds.get("app.ts::makeLogger"), "function")
+        self.assertEqual(kinds.get("app.ts::helper"), "function")
+        # Arrow-const callable still emitted (the v21/v22 arrow-const path).
+        self.assertEqual(kinds.get("app.ts::computeTotal"), "function")
+
+    def test_ts_anonymous_function_keyword_not_registered(self):
+        # Wave 1p61v Issue 2: a parser-artifact name (`function`, `/`) is never
+        # registered as a symbol. The guard is construct-agnostic.
+        self.assertFalse(self.mod._ts_is_emittable_symbol_name("function", "code"))
+        self.assertFalse(self.mod._ts_is_emittable_symbol_name("/", "code"))
+        self.assertFalse(self.mod._ts_is_emittable_symbol_name("/users", "code"))
+        self.assertFalse(self.mod._ts_is_emittable_symbol_name("", "code"))
+        # Real identifiers (incl. contextual keywords) are kept — no callable dropped.
+        for ok in ("myFn", "fn", "func", "type", "async", "await", "Type.Method"):
+            self.assertTrue(self.mod._ts_is_emittable_symbol_name(ok, "code"), ok)
+        # Markup names legitimately contain non-identifier characters.
+        self.assertTrue(self.mod._ts_is_emittable_symbol_name("my-element", "markup"))
+        # Integration: no graph node is literally named `function`.
+        if getattr(self.mod, "_ts_get_parser", lambda *_: None)("javascript") is not None:
+            payload = self._build_file(
+                "anon.js",
+                "export default function () { return 1; }\n"
+                "[1, 2].map(function (x) { return x + 1; });\n",
+            )
+            labels = {n.get("label") for n in payload["nodes"]}
+            self.assertNotIn("function", labels)
+
     def test_tree_sitter_markup_and_sql_extract_symbols(self):
         if getattr(self.mod, "_ts_get_parser", lambda *_: None)("html") is None:
             self.skipTest("tree-sitter html grammar unavailable")
@@ -4945,12 +5020,14 @@ class GraphBuilderVersionTests(unittest.TestCase):
     """Wave 1p4ls AC-3: the node/edge shape changed (constant nodes + reads edge) so the builder
     version is bumped, forcing a full re-extract against any older cache."""
 
-    def test_graph_builder_version_is_30(self):
+    def test_graph_builder_version_is_31(self):
         # 1p4ls bumped 25→26 (constant nodes + reads edge); 1p4q4 bumped 26→27 (TS enum member nodes);
         # 1p4q4 review bumped 27→28 (namespace-prefixed enum members + short-symbol-prune exemption);
         # 1p4up bumped 28→29 (member-access constant reads — new function→constant `reads` edges);
-        # 1p5c4 bumped 29→30 (oversized-file guard: files over the tree-sitter cap skip AST extraction).
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "30")
+        # 1p5c4 bumped 29→30 (oversized-file guard: files over the tree-sitter cap skip AST extraction);
+        # 1p61v bumped 30→31 (TS type-alias→`type`, property_signature→`property`; `function`-keyword /
+        # non-identifier name guard — node KIND-set + node-set shape change).
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "31")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):

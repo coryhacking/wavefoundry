@@ -10,7 +10,13 @@ from pathlib import Path
 from typing import Any
 
 CLUSTER_SCHEMA_VERSION = "1"
-CLUSTER_BUILDER_VERSION = "9"  # Wave 1p4ls: exclude constant nodes + `reads` edges from clustering
+CLUSTER_BUILDER_VERSION = "10"  # Wave 1p65m (clustering cohesion + determinism): (1) seed igraph's global RNG before Leiden partitioning so clustering is reproducible across rebuilds even on a leidenalg lacking the `seed=` kwarg (the old unseeded fallback caused identical-input area-count churn, teton 221/224); (2) a conservative, deterministic post-cluster split of cross-directory GRAB-BAG communities — a community scattered across >= GRABBAG_MIN_DIRS distinct module-dirs with NO dominant home (incidental weak/util edges) is split per module-dir, with an anti-over-split dominant-share guard so a cohesive module with a few strays is left intact. Community-shape change → consumer caches re-cluster. Previous: 1p4ls (exclude constant nodes + `reads` edges from clustering).
+# Wave 1p65m (#2): cross-directory grab-bag split thresholds (conservative — only
+# egregious grab-bags; teton-validated tuning may adjust). A community is a grab-bag
+# when its members span at least this many distinct module-dirs (first 2 path
+# segments) AND no single module-dir holds >= GRABBAG_DOMINANT_SHARE of them.
+GRABBAG_MIN_DIRS = 4
+GRABBAG_DOMINANT_SHARE = 0.5
 
 # Document node kinds. These are pre-assigned to a single fixed "Documentation"
 # community (like Tests/Configuration) before Leiden runs, so docs stay visible
@@ -405,6 +411,17 @@ def _build_leiden_clusters(
             graph.es["weight"] = edge_weights
         except Exception:
             pass
+    # Wave 1p65m: seed igraph's global RNG (version-agnostic) BEFORE partitioning so
+    # clustering is reproducible across rebuilds even on a leidenalg too old for the
+    # `seed=` kwarg — the unseeded `except TypeError` fallbacks below otherwise ran
+    # UNSEEDED, producing non-reproducible communities (teton: identical-input area
+    # count churned 221/224). Best-effort: if the igraph RNG API is unavailable the
+    # `seed=0` kwarg path (modern leidenalg) still gives determinism.
+    try:
+        import random as _random
+        igraph.set_random_number_generator(_random.Random(0))
+    except Exception:
+        pass
     partition = None
     try:
         partition = leidenalg.find_partition(
@@ -514,6 +531,56 @@ def _label_propagation(adjacency: dict[str, dict[str, int]], nodes_by_id: dict[s
             "_seed_sort": seed_node_id,
         })
     return cluster_records, "label-propagation"
+
+
+def _module_dir(source_file: str) -> str:
+    """The module-dir of a file for grab-bag detection (wave 1p65m): the first 1-2
+    leading directory segments (e.g. `libs/utils/src/x.ts` → `libs/utils`,
+    `backend/apis/ldap.ts` → `backend/apis`). Top-level files → `(root)`."""
+    parts = [p for p in str(source_file or "").replace("\\", "/").strip("/").split("/") if p]
+    dirs = parts[:-1]  # drop the filename
+    if not dirs:
+        return "(root)"
+    return "/".join(dirs[:2])
+
+
+def _split_cross_directory_grabbags(
+    communities: list[dict[str, Any]],
+    nodes_by_id: dict[str, dict[str, Any]],
+    adjacency: dict[str, dict[str, int]],
+) -> list[dict[str, Any]]:
+    """Wave 1p65m (#2): split a cross-directory GRAB-BAG community — members scattered
+    across many unrelated module-dirs with no dominant home, joined only by incidental
+    weak/util edges — into one community per module-dir. Conservative + deterministic:
+    fires ONLY when the community spans >= GRABBAG_MIN_DIRS distinct module-dirs AND no
+    single module-dir holds >= GRABBAG_DOMINANT_SHARE of the nodes (anti-over-split:
+    a cohesive module with a few strays is left intact). Fixed communities untouched.
+    """
+    out: list[dict[str, Any]] = []
+    for c in communities:
+        node_ids = list(c.get("node_ids") or [])
+        if c.get("kind") == "fixed" or len(node_ids) < GRABBAG_MIN_DIRS:
+            out.append(c)
+            continue
+        by_dir: dict[str, list[str]] = defaultdict(list)
+        for nid in node_ids:
+            by_dir[_module_dir(nodes_by_id.get(nid, {}).get("source_file") or "")].append(nid)
+        total = sum(len(v) for v in by_dir.values())
+        dominant = max((len(v) for v in by_dir.values()), default=0)
+        if len(by_dir) < GRABBAG_MIN_DIRS or not total or dominant / total >= GRABBAG_DOMINANT_SHARE:
+            out.append(c)  # not a grab-bag, or cohesive (one module-dir dominates)
+            continue
+        for d in sorted(by_dir):  # deterministic
+            ids = sorted(by_dir[d])
+            seed = _community_seed(set(ids), nodes_by_id, adjacency)
+            out.append({
+                "seed_node_id": seed,
+                "label": _community_label(seed, nodes_by_id),
+                "node_ids": ids,
+                "node_count": len(ids),
+                "boundary_node_count": 0,
+            })
+    return out
 
 
 def _read_existing_clusters(path: Path) -> dict[str, Any]:
@@ -821,6 +888,9 @@ def update_graph_clusters(
             "falling back to label-propagation clustering",
             flush=True,
         )
+    # Wave 1p65m (#2): break up cross-directory grab-bag communities before the merge
+    # passes (so split fragments can re-merge deterministically where appropriate).
+    prod_communities = _split_cross_directory_grabbags(prod_communities, prod_nodes, prod_adjacency)
     communities = prod_communities + fixed_communities
     previous = _read_existing_clusters(cluster_path(root, layer))
     remapped = _remap_clusters(layer=layer, new_clusters=communities, previous=previous)

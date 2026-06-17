@@ -293,14 +293,14 @@ class TimestampedLogTests(unittest.TestCase):
 
     def test_excludes_wavefoundry_runtime_state_files(self):
         _make_repo(self.root, {"src/foo.py": "x = 1\n"})
-        (self.root / ".wavefoundry" / "dashboard-server.json").parent.mkdir(parents=True, exist_ok=True)
-        (self.root / ".wavefoundry" / "dashboard-server.json").write_text('{"pid": 1}\n', encoding="utf-8")
+        (self.root / ".wavefoundry" / "dashboard-server.lock").parent.mkdir(parents=True, exist_ok=True)
+        (self.root / ".wavefoundry" / "dashboard-server.lock").write_text('{"pid": 1}\n', encoding="utf-8")
         (self.root / ".wavefoundry" / "logs").mkdir(parents=True, exist_ok=True)
         (self.root / ".wavefoundry" / "logs" / "dashboard.log").write_text("started\n", encoding="utf-8")
         (self.root / ".wavefoundry" / "guard-overrides.json").write_text('{"seed_edit_allowed": {"enabled": false}}\n', encoding="utf-8")
         files = self.bi.walk_repo(self.root)
         rel_strs = {str(f.relative_to(self.root)).replace("\\", "/") for f in files}
-        self.assertNotIn(".wavefoundry/dashboard-server.json", rel_strs)
+        self.assertNotIn(".wavefoundry/dashboard-server.lock", rel_strs)
         self.assertNotIn(".wavefoundry/logs/dashboard.log", rel_strs)
         self.assertNotIn(".wavefoundry/guard-overrides.json", rel_strs)
 
@@ -538,6 +538,67 @@ class HashTests(unittest.TestCase):
         self.assertEqual(result["c.py"], self.bi._sha256(p))
 
 
+class ProjectIndexInputsStaleTests(unittest.TestCase):
+    """Wave 1p5xu: indexer.project_index_inputs_stale cheap stat-fast-path check."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root, {"docs/guide.md": "# Guide\n\nOriginal.\n"})
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build_meta(self) -> dict:
+        """Compute a current file_meta snapshot using the indexer's own primitives."""
+        files = self.bi.walk_repo(self.root, respect_ignore=True)
+        files = [p for p in files if not self.bi._is_relative_to(p, self.index_dir)]
+        files = self.bi._filter_project_index_excludes(
+            files, self.root, (),
+            project_include_prefixes=self.bi.FRAMEWORK_FOLD_DOCS_PREFIXES,
+        )
+        current, _, _ = self.bi._detect_changes(files, self.root, {})
+        return {"built_at": "2026-06-16T00:00:00Z", "file_meta": current}
+
+    def test_returns_none_when_no_file_meta(self):
+        self.assertIsNone(self.bi.project_index_inputs_stale(self.root, {}))
+        self.assertIsNone(self.bi.project_index_inputs_stale(self.root, {"file_meta": {}}))
+
+    def test_returns_false_when_inputs_unchanged(self):
+        meta = self._build_meta()
+        self.assertFalse(self.bi.project_index_inputs_stale(self.root, meta))
+
+    def test_returns_true_when_file_content_changes(self):
+        meta = self._build_meta()
+        (self.root / "docs" / "guide.md").write_text("# Guide\n\nChanged.\n", encoding="utf-8")
+        self.assertTrue(self.bi.project_index_inputs_stale(self.root, meta))
+
+    def test_generated_codebase_map_does_not_drive_staleness(self):
+        # Wave 1p601: writing the regenerated codebase map (at prepare/close/upgrade/
+        # resource-read) must NOT mark the index stale — otherwise it would trigger
+        # a reindex (the write→reindex coupling the decoupling eliminates).
+        meta = self._build_meta()
+        map_path = self.root / "docs" / "references" / "codebase-map.md"
+        map_path.parent.mkdir(parents=True, exist_ok=True)
+        map_path.write_text("# Codebase Map\n\nbrand new generated content\n", encoding="utf-8")
+        self.assertFalse(self.bi.project_index_inputs_stale(self.root, meta))
+
+    def test_returns_true_when_indexed_file_removed(self):
+        meta = self._build_meta()
+        (self.root / "docs" / "guide.md").unlink()
+        self.assertTrue(self.bi.project_index_inputs_stale(self.root, meta))
+
+    def test_loads_meta_from_disk_when_not_passed(self):
+        meta = self._build_meta()
+        (self.index_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        self.assertFalse(self.bi.project_index_inputs_stale(self.root))
+        (self.root / "docs" / "guide.md").write_text("# Guide\n\nChanged.\n", encoding="utf-8")
+        self.assertTrue(self.bi.project_index_inputs_stale(self.root))
+
+
 class IndexBuildLockTests(unittest.TestCase):
     def setUp(self):
         self.bi = load_build_index()
@@ -726,10 +787,22 @@ class IncrementalBuildTests(unittest.TestCase):
         self.assertTrue(has_index)
         self.assertFalse(result["up_to_date"])
 
+    def test_build_does_not_write_codebase_map(self):
+        # Wave 1p601 AC-2b: map regen is DECOUPLED from the index build — an
+        # indexer-driven build must NOT write docs/references/codebase-map.md
+        # (that would create a write→reindex loop into the indexed docs tree).
+        _make_repo(self.root, {
+            "src/foo.py": "def f(): pass\n",
+            "docs/guide.md": "## Intro\n\nHello.\n",
+        })
+        self._run_build(full=True)
+        map_path = self.root / "docs" / "references" / "codebase-map.md"
+        self.assertFalse(map_path.exists(), "indexer build must NOT regenerate the codebase map")
+
     def test_second_run_is_up_to_date(self):
         _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
         self._run_build(full=True)
-        # Second run — no changes, no embedder calls needed
+        # Next run — no changes, no embedder calls needed; a true no-op.
         result = self.bi.build_index(self.root, full=False, content="all", verbose=False)
         self.assertTrue(result["up_to_date"])
         self.assertEqual(result["files_indexed"], 0)
@@ -1313,7 +1386,7 @@ class IncrementalBuildTests(unittest.TestCase):
         index_dir = self.root / ".wavefoundry" / "index"
         folded = {".wavefoundry/framework/README.md", ".wavefoundry/framework/seeds/100-x.prompt.md"}
 
-        # Run 1: docs only
+        # Run 1: docs only.
         with patch.object(self.bi, "_get_embedder", return_value=_make_embedder_mock(dim=4)):
             self.bi.build_index(self.root, full=True, content="docs", verbose=False)
         meta_after_docs = json.loads((index_dir / "meta.json").read_text())["file_meta"]

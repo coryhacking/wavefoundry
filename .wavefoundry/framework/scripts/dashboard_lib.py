@@ -27,7 +27,7 @@ _SECTION_RE = re.compile(r"^##\s+(.+)$", re.MULTILINE)
 _TASK_RE = re.compile(r"^\s*-\s+(?:(?:\[(?P<mark>[ xX~])\])\s+)?(?P<label>.+?)\s*$", re.MULTILINE)
 _ACTIVE_WAVE_RE = re.compile(r"^\*\*Active wave:\*\*\s+(.+)$", re.MULTILINE)
 DASHBOARD_START_LOCK_NAME = "dashboard-start.lock"
-DASHBOARD_PROCESS_LOCK_NAME = "dashboard-process.lock"
+DASHBOARD_SERVER_LOCK_NAME = "dashboard-server.lock"
 GRAPH_DIRNAME = "graph"
 # Wave 1p4ww: single project graph — the framework graph layer was removed.
 GRAPH_FILENAMES = {
@@ -149,7 +149,11 @@ def read_dashboard_config(root: Path) -> dict[str, Any]:
 
 
 def dashboard_metadata_path(root: Path) -> Path:
-    return root / ".wavefoundry" / "dashboard-server.json"
+    # Wave 1p64x: the server lock file IS the startup-metadata store — one sidecar,
+    # not two. `flock` is advisory and per-open-file-description, so the lock holder
+    # can rewrite this file's content in place (see write_dashboard_metadata) while
+    # keeping its lifetime lock. (Was a separate `dashboard-server.json`.)
+    return root / ".wavefoundry" / DASHBOARD_SERVER_LOCK_NAME
 
 
 def dashboard_lock_path(root: Path, name: str) -> Path:
@@ -204,8 +208,8 @@ def dashboard_start_lock(root: Path):
     return dashboard_lock(root, DASHBOARD_START_LOCK_NAME)
 
 
-def dashboard_process_lock(root: Path):
-    return dashboard_lock(root, DASHBOARD_PROCESS_LOCK_NAME)
+def dashboard_server_lock(root: Path):
+    return dashboard_lock(root, DASHBOARD_SERVER_LOCK_NAME)
 
 
 def read_dashboard_metadata(root: Path) -> dict[str, Any]:
@@ -214,9 +218,80 @@ def read_dashboard_metadata(root: Path) -> dict[str, Any]:
 
 
 def write_dashboard_metadata(root: Path, payload: dict[str, Any]) -> None:
+    # Wave 1p64x: this writes the server LOCK file's content (the lock and the
+    # metadata are one file). The write MUST stay an in-place truncate-write — do
+    # NOT switch to a temp-file + os.replace/rename: a rename points the path at a
+    # new inode, orphaning the lifetime `flock` the running server holds on the old
+    # inode, which would let a second server acquire the lock and run concurrently.
+    # In-place truncate keeps the holder's per-open-file-description lock intact.
     path = dashboard_metadata_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def dashboard_cmdline_pids(root: Path) -> list[int] | None:
+    """Live `dashboard_server.py --root <root>` PIDs, by process-cmdline scan (1p654).
+
+    Reconciliation against actual processes — not just the recorded-PID metadata —
+    so a drifted/removed metadata file can't hide an orphaned dashboard, and a
+    recycled/zombie PID can't masquerade as the running server. POSIX-only (`ps`,
+    dependency-free); returns ``None`` when a scan is unavailable/failed (Windows,
+    or `ps` error) so callers fall back to the bare liveness check (no regression).
+    Matches ONLY processes whose `--root` resolves to this exact root; the current
+    process is excluded. Shared home (1p654 review follow-up): consumed by both the
+    server lifecycle (server_impl) and upgrade dashboard detection.
+    """
+    if os.name == "nt":
+        return None
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["ps", "-axww", "-o", "pid=,command="],
+            capture_output=True, text=True, check=False,
+        ).stdout
+    except Exception:  # noqa: BLE001 — best-effort scan; any failure → fall back
+        return None
+    if not isinstance(out, str):
+        return None
+    try:
+        target = Path(root).resolve()
+    except OSError:
+        target = Path(root)
+    self_pid = os.getpid()
+    pids: list[int] = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line or "dashboard_server.py" not in line:
+            continue
+        head, _, rest = line.partition(" ")
+        try:
+            pid = int(head)
+        except ValueError:
+            continue
+        if pid == self_pid:
+            continue
+        toks = rest.split()
+        matched = False
+        for i, tok in enumerate(toks):
+            cand: str | None = None
+            if tok == "--root" and i + 1 < len(toks):
+                cand = toks[i + 1]
+            elif tok.startswith("--root="):
+                cand = tok[len("--root="):]
+            if cand is None:
+                continue
+            try:
+                if Path(cand).resolve() == target:
+                    matched = True
+                    break
+            except OSError:
+                if cand == str(target):
+                    matched = True
+                    break
+        if matched:
+            pids.append(pid)
+    return pids
 
 
 def graph_path(root: Path, layer: str = "project") -> Path:

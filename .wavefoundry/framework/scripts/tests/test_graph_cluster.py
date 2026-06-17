@@ -739,7 +739,9 @@ class ConstantClusterExclusionTests(unittest.TestCase):
         self.mod = load_graph_cluster()
 
     def test_cluster_builder_version_bumped(self):
-        self.assertEqual(self.mod.CLUSTER_BUILDER_VERSION, "9")
+        # 1p4ls bumped 8→9 (constant/reads exclusion); 1p65m bumped 9→10 (Leiden RNG
+        # seeding for reproducibility + cross-directory grab-bag split).
+        self.assertEqual(self.mod.CLUSTER_BUILDER_VERSION, "10")
 
     def test_reads_and_constants_excluded_from_projection(self):
         payload = {
@@ -757,6 +759,69 @@ class ConstantClusterExclusionTests(unittest.TestCase):
         self.assertNotIn("m.py::CONST", nodes_by_id, "constant node excluded from clustering")
         self.assertNotIn("m.py::CONST", adjacency.get("m.py::funcA", {}), "reads edge excluded from clustering")
         self.assertIn("m.py::funcB", adjacency.get("m.py::funcA", {}), "calls edge still clusters")
+
+
+class ClusteringCohesionDeterminismTests(unittest.TestCase):
+    """Wave 1p65m: cross-directory grab-bag split (#2) + reproducible clustering (#4)."""
+
+    def setUp(self):
+        self.mod = load_graph_cluster()
+
+    @staticmethod
+    def _n(nid, sf):
+        return {"id": nid, "kind": "function", "label": nid.split("::")[-1], "source_file": sf}
+
+    def test_grabbag_splits_by_module_dir(self):
+        ids = [
+            "libs/utils/src/a.ts::a", "libs/utils/src/e.ts::e",
+            "libs/ui/render/b.ts::b", "backend/apis/c.ts::c",
+            "backend/apis/f.ts::f", "apps/aceiss/assets/d.ts::d",
+        ]
+        nodes = {x: self._n(x, x.split("::")[0]) for x in ids}
+        comm = [{"community_id": "project:c0", "label": "spinner", "seed_node_id": ids[0],
+                 "node_ids": ids, "node_count": len(ids), "boundary_node_count": 0}]
+        out = self.mod._split_cross_directory_grabbags(comm, nodes, {})
+        # 4 distinct module-dirs (libs/utils, libs/ui, backend/apis, apps/aceiss), none
+        # dominant → split into 4.
+        self.assertEqual(len(out), 4)
+
+    def test_cohesive_community_not_split(self):
+        # libs/utils dominates (5 of 6) → anti-over-split keeps it as one community.
+        ids = [f"libs/utils/src/f{i}.ts::f{i}" for i in range(5)] + ["backend/apis/x.ts::x"]
+        nodes = {x: self._n(x, x.split("::")[0]) for x in ids}
+        comm = [{"community_id": "project:c0", "label": "utils", "seed_node_id": ids[0],
+                 "node_ids": ids, "node_count": len(ids), "boundary_node_count": 0}]
+        out = self.mod._split_cross_directory_grabbags(comm, nodes, {})
+        self.assertEqual(len(out), 1)
+
+    def test_clustering_reproducible_on_fixed_graph(self):
+        # #4: identical input graph → identical communities, labels, and count.
+        import itertools
+        nodes = {
+            f"d{d}/f{i}.py::s{d}_{i}": {
+                "id": f"d{d}/f{i}.py::s{d}_{i}", "kind": "function",
+                "label": f"s{d}_{i}", "source_file": f"d{d}/f{i}.py",
+            }
+            for d in range(4) for i in range(12)
+        }
+        ids = sorted(nodes)
+        adj: dict = {}
+
+        def add(a, b, w):
+            adj.setdefault(a, {})[b] = adj.setdefault(a, {}).get(b, 0) + w
+            adj.setdefault(b, {})[a] = adj.setdefault(b, {}).get(a, 0) + w
+
+        for d in range(4):
+            grp = [x for x in ids if x.startswith(f"d{d}/")]
+            for a, b in itertools.combinations(grp, 2):
+                add(a, b, 3)
+
+        def sig(res):
+            return (res[1], [(c["label"], tuple(c["node_ids"])) for c in res[0]])
+
+        r1 = self.mod._run_clustering(adj, nodes)
+        r2 = self.mod._run_clustering(adj, nodes)
+        self.assertEqual(sig(r1), sig(r2))
 
 
 if __name__ == "__main__":

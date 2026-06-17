@@ -30,15 +30,12 @@ ASSET_ROOT = Path(__file__).resolve().parent.parent / "dashboard"
 _GIT_INTERVAL = 60       # seconds between git stat rebuilds
 _WATCH_INTERVAL = 3.0    # seconds between mtime polls
 _SSE_HEARTBEAT = 15      # seconds between SSE keep-alive comments
-_STALENESS_CHECK_INTERVAL = 60.0  # seconds between periodic meta-based index staleness checks
 # Wave 1p4ww: single project index — the framework layer is folded in.
 _INDEX_LAYERS = ("project",)
+# Wave 1p5xw: the on-demand staleness display is rate-limited so a busy repo can't
+# trigger a full repo-walk on every snapshot rebuild (mtime change / git tick).
+_DISPLAY_STALENESS_MIN_INTERVAL = 30.0
 _INDEXER_MOD = None
-_PROJECT_STALE_IGNORE_PATHS = {
-    ".wavefoundry/dashboard-server.json",
-    ".wavefoundry/guard-overrides.json",
-    ".wavefoundry/logs/dashboard.log",
-}
 
 
 def _get_indexer():
@@ -345,42 +342,11 @@ def _graph_neighbors_payload(root: Path, *, layer: str, symbol: str) -> dict[str
 
 
 def _project_index_inputs_stale(root: Path, meta: dict[str, Any]) -> bool | None:
-    file_meta = meta.get("file_meta")
-    if not isinstance(file_meta, dict) or not file_meta:
-        return None
+    # Canonical implementation now lives in indexer.project_index_inputs_stale
+    # (moved in wave 1p5xu so the MCP in-session monitor and the dashboard share
+    # one cheap stat-fast-path check). Behavior is unchanged.
     try:
-        indexer = _get_indexer()
-        project_index_dir = root / ".wavefoundry" / "index"
-        # Read configured include prefixes so the staleness check matches what the indexer actually indexes.
-        code_prefixes: tuple[str, ...] = ()
-        try:
-            wf_cfg = json.loads((root / "docs" / "workflow-config.json").read_text(encoding="utf-8"))
-            raw = (wf_cfg.get("indexing") or {}).get("project_include_prefixes", {})
-            if isinstance(raw, dict):
-                raw = raw.get("code") or []
-            if isinstance(raw, list):
-                code_prefixes = tuple(str(p) for p in raw if p)
-        except Exception:
-            pass
-        files = indexer.walk_repo(root, respect_ignore=True)
-        files = [path for path in files if not indexer._is_relative_to(path, project_index_dir)]
-        # Wave 1p4ww: the project docs index folds the framework seeds + README, so they must
-        # survive the ``.wavefoundry/`` blanket exclusion here too (a seed change marks the
-        # project layer stale; MANIFEST/VERSION are not folded and stay excluded).
-        include_prefixes = (*code_prefixes, *indexer.FRAMEWORK_FOLD_DOCS_PREFIXES)
-        files = indexer._filter_project_index_excludes(files, root, (), project_include_prefixes=include_prefixes)
-        files = [
-            path
-            for path in files
-            if str(path.relative_to(root)).replace("\\", "/") not in _PROJECT_STALE_IGNORE_PATHS
-        ]
-        filtered_file_meta = {
-            rel_path: entry
-            for rel_path, entry in file_meta.items()
-            if rel_path not in _PROJECT_STALE_IGNORE_PATHS
-        }
-        _, changed, removed = indexer._detect_changes(files, root, filtered_file_meta)
-        return bool(changed or removed)
+        return _get_indexer().project_index_inputs_stale(root, meta)
     except Exception:  # noqa: BLE001
         return None
 
@@ -441,7 +407,6 @@ class SnapshotStore:
         self._last_git_at: float = 0.0
         self._cached_git: dict[str, Any] = {}
         self._content_hash: str = ""
-        self._last_staleness_check: float = 0.0
         self._upgrade_paused: bool = False  # R2: True while upgrade lock file is present
 
         cfg = dashboard_lib.read_dashboard_config(root)
@@ -458,6 +423,7 @@ class SnapshotStore:
         self._index_stale: dict[str, bool | None] = {
             layer: _index_is_stale(root, layer) for layer in _INDEX_LAYERS
         }
+        self._last_display_staleness_at: float = time.monotonic()
 
         # R2: Check for upgrade lock at startup — if present, enter upgrade_paused
         # immediately and skip the startup stale check / index build scheduling.
@@ -556,6 +522,17 @@ class SnapshotStore:
                 proj.pop("build_status", None)
         if self._index_builder is not None and proj.get("build_status") is None:
             proj["build_status"] = "idle"
+        # Wave 1p5xw: the dashboard no longer runs a continuous staleness poll.
+        # Compute index staleness on demand here (read-only, for display only) using
+        # the shared cheap stat-fast-path check, so the UI reflects current state
+        # without a background monitor. Skip while a build is running to avoid
+        # flapping the indicator mid-build (the build-done callback resets it).
+        building = self._index_builder is not None and self._index_builder._running
+        now = time.monotonic()
+        if not building and (now - self._last_display_staleness_at) >= _DISPLAY_STALENESS_MIN_INTERVAL:
+            self._last_display_staleness_at = now
+            for layer in _INDEX_LAYERS:
+                self._index_stale[layer] = _index_is_stale(self._root, layer)
         if self._index_stale.get("project") is not None:
             proj["stale"] = self._index_stale["project"]
         # R2: surface upgrade_paused state in snapshot so the UI can show the right message.
@@ -688,26 +665,13 @@ class SnapshotStore:
                     # Git timer expired — refresh git stats, notify only if they changed.
                     if self._rebuild(force_git=True):
                         self._notify_sse()
-                # Periodic meta-based staleness check: compares indexed inputs against
-                # the layer's file_meta snapshot in meta.json.
-                now = time.monotonic()
-                if now - self._last_staleness_check >= _STALENESS_CHECK_INTERVAL and (
-                    self._index_builder is None or not self._index_builder._running
-                ):
-                    self._last_staleness_check = now
-                    stale_changed = False
-                    for layer in _INDEX_LAYERS:
-                        stale = _index_is_stale(self._root, layer)
-                        if stale != self._index_stale.get(layer):
-                            self._index_stale[layer] = stale
-                            stale_changed = True
-                            if stale and self._index_builder is not None:
-                                self._index_builder.signal_change(layer=layer, reason="periodic stale check")
-                        else:
-                            self._index_stale[layer] = stale
-                    if stale_changed:
-                        self._rebuild(force_git=False)
-                        self._notify_sse()
+                # NOTE (wave 1p5xt / 1p5xw): the dashboard no longer runs a continuous
+                # staleness monitor or trigger index builds on a periodic recheck.
+                # Continuous index-freshness monitoring now lives in the MCP server
+                # (1p5xu), which is the index's query consumer. The dashboard is a
+                # read-only health UI: index staleness for display is computed on
+                # demand when the snapshot is built (see _rebuild) and refreshed by the
+                # one-shot startup check (#1) and post-upgrade reindex (#3) paths.
             except Exception as exc:  # noqa: BLE001
                 _dashboard_log(f"watcher error: {exc}")
 
@@ -999,8 +963,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     root = dashboard_lib.discover_root(args.root)
     try:
-        process_lock = dashboard_lib.dashboard_process_lock(root)
-        process_lock.__enter__()
+        server_lock = dashboard_lib.dashboard_server_lock(root)
+        server_lock.__enter__()
     except dashboard_lib.DashboardLockBusy:
         meta = dashboard_lib.read_dashboard_metadata(root)
         url = str(meta.get("url") or "")
@@ -1047,7 +1011,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\nDashboard server stopped.", file=sys.stderr)
     finally:
         httpd.server_close()
-        process_lock.__exit__(None, None, None)
+        server_lock.__exit__(None, None, None)
     return 0
 
 
