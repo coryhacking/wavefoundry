@@ -5027,7 +5027,9 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # 1p5c4 bumped 29→30 (oversized-file guard: files over the tree-sitter cap skip AST extraction);
         # 1p61v bumped 30→31 (TS type-alias→`type`, property_signature→`property`; `function`-keyword /
         # non-identifier name guard — node KIND-set + node-set shape change).
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "31")
+        # 1p66e bumped 31→32 (edge-extraction determinism: order-independent cross-file resolution
+        # tie-breaks + input fingerprint — resolved edge-set shape stabilizes across rebuilds).
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "32")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):
@@ -5051,3 +5053,95 @@ class OversizedTreeSitterGuardTests(unittest.TestCase):
         with patch.dict(os.environ, {"WAVEFOUNDRY_MAX_TS_PARSE_BYTES": "1000000"}):
             # The guard must not be the reason for a None here; assert it does not raise.
             self.mod._ts_parse("python", "x = 1\n")
+
+
+class EdgeExtractionDeterminismTests(unittest.TestCase):
+    """1p66e: identical input → identical resolved edge set + input fingerprint.
+
+    The double/shuffled-input builds lock the end-to-end determinism + fingerprint
+    contract; `test_pick_shorter_node_id_is_order_independent` is the non-vacuous
+    unit lock on the primary tie-break (order-dependent in the pre-fix inline rule).
+    """
+
+    FIXTURE = {
+        "src/a.py": "def foo():\n    return 42\n",
+        "src/b.py": "from src.a import foo\n\n\ndef caller():\n    return foo()\n",
+        "src/c.py": "from src.a import foo\n\n\ndef other():\n    return foo()\n",
+        "pkg/d.py": "def helper():\n    return 1\n",
+        "pkg/e.py": "from pkg.d import helper\n\n\ndef use():\n    return helper()\n",
+    }
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+
+    def _build_in(self, root, files, order):
+        (root / "docs").mkdir(parents=True, exist_ok=True)
+        (root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+        rels = order if order is not None else list(files.keys())
+        paths = []
+        meta = {}
+        for rel in rels:
+            content = files[rel]
+            p = root / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+            paths.append(p)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=root,
+            index_dir=root / ".wavefoundry" / "index",
+            layer="project",
+            files=paths,
+            current_file_meta=meta,
+            changed=set(meta.keys()),
+            removed=set(),
+            walker_version="1",
+            chunker_version="1",
+            verbose=False,
+        )
+
+    def _edge_set(self, payload):
+        return sorted(
+            (e.get("source"), e.get("target"), e.get("relation"), e.get("confidence"))
+            for e in payload["edges"]
+        )
+
+    def test_double_build_identical_edge_set_and_fingerprint(self):
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            p1 = self._build_in(Path(a), self.FIXTURE, None)
+            p2 = self._build_in(Path(b), self.FIXTURE, None)
+            self.assertEqual(self._edge_set(p1), self._edge_set(p2))
+            self.assertTrue(p1.get("input_fingerprint"))
+            self.assertEqual(p1["input_fingerprint"], p2["input_fingerprint"])
+
+    def test_shuffled_input_order_identical_edge_set_and_fingerprint(self):
+        order1 = list(self.FIXTURE.keys())
+        order2 = list(reversed(order1))
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            p1 = self._build_in(Path(a), self.FIXTURE, order1)
+            p2 = self._build_in(Path(b), self.FIXTURE, order2)
+            self.assertEqual(self._edge_set(p1), self._edge_set(p2))
+            self.assertEqual(p1["input_fingerprint"], p2["input_fingerprint"])
+
+    def test_pick_shorter_node_id_is_order_independent(self):
+        pick = self.mod._pick_shorter_node_id
+        self.assertEqual(pick(None, "x"), "x")
+        # Shortest wins regardless of argument order.
+        self.assertEqual(pick("aa", "b"), "b")
+        self.assertEqual(pick("b", "aa"), "b")
+        # Length tie → lexicographically smaller, commutatively (the pre-fix inline
+        # `len(a) < len(b)` rule kept first-seen here → order-dependent).
+        self.assertEqual(pick("ab", "aa"), "aa")
+        self.assertEqual(pick("aa", "ab"), "aa")
+        for x, y in [("f/a::x", "g/b::x"), ("m::Foo.bar", "n::Foo.baz"), ("z", "a")]:
+            self.assertEqual(pick(x, y), pick(y, x))
+
+    def test_cross_file_resolution_still_faithful(self):
+        # No-regression: the cross-file call still resolves to the project node.
+        with tempfile.TemporaryDirectory() as a:
+            p = self._build_in(Path(a), self.FIXTURE, None)
+            calls = [e for e in p["edges"] if e.get("relation") == "calls"]
+            targets = [
+                e["target"] for e in calls if e.get("source", "").endswith("::caller")
+            ]
+            self.assertIn("src/a.py::foo", targets)

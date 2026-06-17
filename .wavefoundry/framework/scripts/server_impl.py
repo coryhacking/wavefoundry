@@ -129,6 +129,10 @@ _DEMOTION_WAVES = 0.75  # docs/waves/ — historical change docs
 _DEMOTION_PLANS = 0.60  # docs/plans/ — pre-admission drafts
 _DEMOTION_SEEDS = 0.60  # kind=seed or .wavefoundry/framework/seeds/ — framework guidance
 _DEMOTION_JRNLS = 0.50  # journals/reports/feedback — observational notes
+# Wave 1p66s: reference prose (architecture docs, specs, ADRs) is legitimate secondary
+# context for a code question but must not OUTRANK the implementing source — a gentler
+# down-weight than the narrative/historical tiers above (which are weaker evidence).
+_DEMOTION_REFDOCS = 0.80  # docs/architecture/, docs/specs/, ADRs
 # Post-normalization score boost for symbol-injected code chunks (12q63).
 _SYMBOL_INJECTION_BOOST = 0.40
 # Definition-file boosting: vocabulary-triggered keyword augmentation for schema languages.
@@ -162,6 +166,8 @@ AGENT_RELEVANCE_DROPOFF = 0.85     # quality cutoff: fill stops past the top clu
 # — NOT mixed into citations with a 0.0 score. A match that is also a citation is text-deduped.
 AGENT_GRAPH_SIGNAL_CAP = 3         # max structural matches in the graph_related section (bounded — never pulls the subgraph)
 AGENT_GRAPH_DEF_WINDOW = 24        # source lines read per graph neighbor to form its candidate text
+AGENT_GRAPH_CITATION_CAP = 2       # wave 1p66t: max cross-file graph neighbors merged INTO citations (additive, floor-gated, reranked) so a cross-file chain reaches the answer surface, not only graph_related
+AGENT_ENUMERATION_BUDGET_MULT = 2.0  # wave 1p66t: text-budget multiplier for enumeration ("which/all X") queries — lets more of the full set through the selection cutoff instead of a reranked top-k that silently truncates
 _GRAPH_SIGNAL_RELATIONS = ("calls", "imports", "reads")  # 1-hop edge types followed for the structural signal
 _GRAPH_SIGNAL_SEED_KINDS = frozenset({"function", "method", "class", "constant", "module"})
 # Kinds a graph NEIGHBOR may be SURFACED as a candidate. Excludes "module" — a whole-file module
@@ -1016,6 +1022,34 @@ class WaveIndex:
             "_graph_kind": node.get("kind"),
         }
 
+    def _merge_graph_into_citations(self, query: str, graph_src: list[dict], results: list[dict], *, reranked: bool) -> int:
+        """Wave 1p66t: append the strongest cross-file graph neighbors to the citation list so a
+        cross-file chain reaches the answer surface (not only the ``graph_related`` section).
+
+        The graph rescue fires ONLY for neighbors the semantic pass MISSED (not already cited) — the
+        vector-miss/graph-hit case. Each candidate carries a real on-disk ``file:line`` + text window
+        (``_node_def_candidate``), so it is reranked on the unified cross-encoder scale, kept only if it
+        clears the relevance floor, and appended (additive — never reorders the semantic citations),
+        bounded by ``AGENT_GRAPH_CITATION_CAP``. Skipped when the reranker did not run (scores are not
+        comparable for the floor gate then). Returns the number merged. Mutates ``results`` in place.
+        """
+        if not graph_src or not reranked:
+            return 0
+        cited_keys = {(r.get("path"), (r.get("lines") or [None])[0]) for r in results}
+        pool = [c for c in graph_src
+                if (c.get("path"), (c.get("lines") or [None])[0]) not in cited_keys]
+        if not pool:
+            return 0
+        self._agent_rerank(query, pool)
+        pool.sort(key=lambda c: c.get("score") or 0.0, reverse=True)
+        merged = 0
+        for c in pool[:AGENT_GRAPH_CITATION_CAP]:
+            if (c.get("score") or 0.0) >= CONF_AGENT_RERANK_LOW:
+                c["from_graph"] = True
+                results.append(c)
+                merged += 1
+        return merged
+
     def _graph_signal_candidates(self, query: str, semantic_results: list[dict], *, cap: int) -> list[dict]:
         """Wave 1p4hu: structural graph-signal candidates that feed the dedicated ``graph_related``
         response section (via ``_build_graph_related``), each carrying its ``_relationship`` to the
@@ -1632,10 +1666,12 @@ class WaveIndex:
         # cross-encoder path and the `rrf_fallback` path were REMOVED here — `docs_search`/`code_search`
         # keep their own independent rerank. (`rerank` param retained for API compat; ignored.)
         agent_reranked = self._agent_rerank(query, all_candidates)
-        # Apply the explanatory doc-type relevance prior BEFORE selection — a validated signal (code >
-        # narrative docs for "how does X work"); applied up front so the floor + drop-off operate on the
-        # adjusted relevance and the demoted narrative tail falls below the cutoff.
-        if question_type == "explanatory":
+        # Apply the doc-type relevance prior BEFORE selection — a validated signal (code >
+        # reference/narrative docs for code-implementation questions); applied up front so the floor +
+        # drop-off operate on the adjusted relevance and the demoted prose tail falls below the cutoff.
+        # Wave 1p66s: extended from explanatory-only to navigational ("where is X implemented") and to
+        # architecture/spec/ADR paths, so a spec no longer outranks the implementing source.
+        if question_type in _DOC_DEMOTION_INTENTS:
             all_candidates, _ = _demote_doc_results(all_candidates, question_type)
         # Wave 1p4lr: candidate-side definition-match boost. A DEFINITION chunk whose declared-name
         # tokens ALL appear in the query gets a bounded multiplier on the fill ORDER (cutoff uses
@@ -1670,16 +1706,25 @@ class WaveIndex:
         # dedicated relationship-grouped ``graph_related`` section, bounded by AGENT_GRAPH_SIGNAL_CAP.
         _agent_sources = {"docs": _docs_src, "code": _code_src}
         _graph_src = self._graph_signal_candidates(query, all_candidates, cap=AGENT_GRAPH_SIGNAL_CAP)
+        # Wave 1p66t: enumeration queries ("which/all X") need the full set, not a reranked top-k —
+        # widen the text budget so more of the set clears the selection cutoff (bounded by the mult).
+        _enum_query = _is_enumeration_query(query)
+        _text_budget = int(AGENT_TEXT_BUDGET_CHARS * AGENT_ENUMERATION_BUDGET_MULT) if _enum_query else AGENT_TEXT_BUDGET_CHARS
         results = self._agent_candidate_select(
             _agent_sources,
             max(top_n, AGENT_CANDIDATE_MAX),
             AGENT_PER_INDEX_FLOOR_K,
             weights=_agent_weights,
-            text_budget=AGENT_TEXT_BUDGET_CHARS,
+            text_budget=_text_budget,
         )
+        # Wave 1p66t: surface the strongest cross-file graph neighbors INTO citations (not only the
+        # graph_related section), so an agent reading citations sees the load-bearing cross-file files
+        # for a cross-file chain. Extracted to _merge_graph_into_citations for direct testability.
+        self._merge_graph_into_citations(query, _graph_src, results, reranked=agent_reranked)
         if _graph_src:
-            # Build the structural section AFTER citation selection so a structural match that is also a
-            # citation is text-deduped (flagged also_cited, excerpt dropped) — never sent twice.
+            # Build the structural section AFTER citation selection (+ the graph→citation merge above)
+            # so a structural match that is also a citation is text-deduped (flagged also_cited, excerpt
+            # dropped) — never sent twice.
             graph_related = self._build_graph_related(_graph_src, results)
             second_hop_symbols = [c.get("_symbol") or str(c.get("text", "")).split("\n", 1)[0].strip()
                                   for c in _graph_src]
@@ -14988,12 +15033,25 @@ def _doc_demotion_weight(path: str, kind: str) -> float:
     name = Path(normalized).name.lower()
     if any(seg in parts for seg in ("journals", "reports")) or "feedback" in name or "journal" in name:
         return _DEMOTION_JRNLS
+    # Wave 1p66s: reference prose — architecture docs, specs, and ADRs. ADRs live under
+    # docs/architecture/decisions/ (covered by the architecture prefix); docs/specs/ added
+    # explicitly. Gentler than the narrative tiers — still valid context, just not ahead of code.
+    if normalized.startswith("docs/architecture/") or normalized.startswith("docs/specs/"):
+        return _DEMOTION_REFDOCS
     return 1.0
 
 
+# Wave 1p66s: code-implementation intents whose answer should lead with implementing
+# source, so reference prose (specs/ADRs/architecture/narrative) is demoted below code.
+_DOC_DEMOTION_INTENTS = ("explanatory", "navigational")
+
+
 def _demote_doc_results(results: list[dict], question_type: str) -> tuple[list[dict], int]:
-    """Apply weighted score demotion to narrative/feedback sources for explanatory queries."""
-    if question_type != "explanatory":
+    """Down-weight narrative/reference doc sources for code-implementation intents so the
+    implementing source is not outranked by prose (1p66s extends this from explanatory-only
+    to navigational "where is X" and to architecture/spec/ADR paths). Demotion is a
+    down-weight, never an exclusion — a genuinely doc-answerable result still surfaces."""
+    if question_type not in _DOC_DEMOTION_INTENTS:
         return results, 0
 
     demotion_count = 0
@@ -15007,6 +15065,25 @@ def _demote_doc_results(results: list[dict], question_type: str) -> tuple[list[d
         results.sort(key=lambda x: x.get("score") or 0.0, reverse=True)
 
     return results, demotion_count
+
+
+# Wave 1p66r (teton downstream finding): English interrogatives / leading question words that
+# the bare-word symbol fallbacks below would otherwise pick as a "symbol" (e.g. a capitalized
+# "Which"/"Where") — symbol-first injection then keyword-boosts off-topic citations above the
+# relevance floor and DEFEATS abstention (the lowercase form, not matched by the capitalized
+# fallback, abstains correctly). Skip these so a capitalized question abstains like its lowercase
+# form; an actual symbol later in the question is still found (re.findall, not re.search).
+_QUESTION_NONSYMBOLS = frozenset({
+    # interrogatives + auxiliaries
+    "which", "where", "what", "when", "why", "how", "who", "whose", "whom",
+    "does", "do", "did", "is", "are", "was", "were", "can", "could", "should",
+    "would", "will", "the", "this", "that", "these", "those",
+    # conversational lead-ins ("Tell me about how X works", "Show/Explain/Describe/Walk …",
+    # "I want to understand …") — capitalized at sentence start, they'd otherwise be picked as
+    # symbols by the capitalized fallback, same class as the interrogative bug.
+    "tell", "show", "explain", "describe", "walk", "give", "list", "find", "please",
+    "about", "me", "through", "understand", "want", "need", "into", "regarding", "also",
+})
 
 
 def _extract_question_symbol(question: str) -> Optional[str]:
@@ -15031,15 +15108,17 @@ def _extract_question_symbol(question: str) -> Optional[str]:
     m = re.search(r'\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b', question)
     if m:
         return m.group(1)
-    m = re.search(r'\b([a-z][a-z0-9]+(?:_[a-z0-9]+)+)\b', question)
-    if m:
-        return m.group(1)
-    m = re.search(r'\b([a-z][a-z0-9]*(?:[A-Z][a-zA-Z0-9]*)+)\b', question)
-    if m:
-        return m.group(1)
-    m = re.search(r'\b([A-Z][a-zA-Z0-9]{3,})\b', question)
-    if m:
-        return m.group(1)
+    # Bare-word fallbacks (snake_case, camelCase, Capitalized) can match plain English words —
+    # iterate and skip interrogatives/leading stopwords so "Which …"/"How does Foo work" yields
+    # the real symbol (or nothing) rather than the question word.
+    for pat in (
+        r'\b([a-z][a-z0-9]+(?:_[a-z0-9]+)+)\b',
+        r'\b([a-z][a-z0-9]*(?:[A-Z][a-zA-Z0-9]*)+)\b',
+        r'\b([A-Z][a-zA-Z0-9]{3,})\b',
+    ):
+        for cand in re.findall(pat, question):
+            if cand.lower() not in _QUESTION_NONSYMBOLS:
+                return cand
     return None
 
 
@@ -15067,6 +15146,31 @@ def _extract_artifact_cue(question: str) -> str:
     """Return the first concrete artifact cue token in question, or empty string."""
     m = _ARTIFACT_CUE_RE.search(question)
     return m.group(0) if m else ""
+
+
+_ENUMERATION_RE = re.compile(
+    # A collection word (which/what/all/every/each) followed (within a short span) by a
+    # set-membership verb. Requires BOTH so "what IS the value of X" (a single-value lookup)
+    # does not match — only genuine "which/what/all … are/registered/defined/…" enumerations.
+    r"\b(?:which|what|all|every|each)\b.{0,40}"
+    r"\b(?:are|registered|defined|declared|supported|available|exist|configured|"
+    r"implemented|handled|subscribed|listed|enabled)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_ENUMERATION_LEAD_RE = re.compile(r"^\s*(?:list|enumerate|how many)\b", re.IGNORECASE)
+
+
+def _is_enumeration_query(question: str) -> bool:
+    """Wave 1p66t: heuristic for "enumerate all X" intent ("which handlers are registered",
+    "list all providers", "what events are subscribed", "how many ..."). Enumerations need the
+    full set, not a reranked top-k — so we widen retrieval and flag incompleteness rather than
+    silently truncate. Conservative: a plain "where is X" / "how does X work" is NOT enumeration."""
+    q = (question or "").strip()
+    if not q:
+        return False
+    if _ENUMERATION_LEAD_RE.search(q):
+        return True
+    return bool(_ENUMERATION_RE.search(q))
 
 
 def _classify_question(question: str) -> str:
@@ -15106,7 +15210,15 @@ def _heuristic_confidence(citations: list[dict], reranked: bool = False) -> str:
         if top < CONF_AGENT_RERANK_LOW:
             return "low"
         return "medium"
-    return "high" if n >= 2 else "medium"
+    # Wave 1p66r: no-reranker path — the per-citation scores are mixed-model cosine
+    # (arctic-doc vs bge-code) on incomparable scales, so an absolute floor here is
+    # miscalibrated and the prior count-based "high" was relevance-blind (the
+    # per-index floor guarantees n >= 2 on any non-empty index → always "high").
+    # Cap at "medium": without the cross-encoder we cannot certify a "high"
+    # relevance band, but a non-empty retrieval is still a usable lead. The
+    # fine-grained relevance signal lives in the abstention floor on the
+    # post-rerank scores; here we simply never over-claim.
+    return "medium"
 
 
 def _tokenize_identifier(name: str) -> list[str]:
@@ -15282,7 +15394,7 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
     demotion_count = (
         sum(1 for r in broad_hits
             if _doc_demotion_weight(r.get("path", ""), str(r.get("kind") or "").strip().lower()) < 1.0)
-        if question_type == "explanatory" else 0
+        if question_type in _DOC_DEMOTION_INTENTS else 0
     )
     partition_applied = bool(demotion_count)
     citations = []
@@ -15321,6 +15433,50 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
 
     for final_rank, citation in enumerate(citations, start=1):
         citation["final_rank"] = final_rank
+
+    # Wave 1p66r: relevance-gated abstention. The per-index anti-starvation floor
+    # always returns ~6 citations even when every cross-encoder score is ~0.001
+    # (zero-signal retrieval), which previously read as confident evidence. When
+    # the reranker ran, mark each sub-floor citation `weak` (a navigation lead, not
+    # answer-bearing) and — if even the BEST candidate is below the relevance floor
+    # — surface an explicit "no confident match" gap so a consumer does not treat
+    # the result as load-bearing. Citations are still returned (anti-starvation
+    # preserved) and fidelity is untouched — this only labels weak results honestly.
+    # No absolute floor in the no-reranker path: mixed-model cosine (arctic-doc vs
+    # bge-code) is not a calibrated band (see `_heuristic_confidence`), so the
+    # no-reranker confidence cap is the signal there.
+    if citations and combined_reranked:
+        top_score = max((c.get("score") or 0.0) for c in citations)
+        for c in citations:
+            if (c.get("score") or 0.0) < CONF_AGENT_RERANK_LOW:
+                c["weak"] = True
+        if top_score < CONF_AGENT_RERANK_LOW:
+            gaps.append(
+                "no confident match — all retrieval scores are below the relevance "
+                "floor; treat the citations as weak navigation leads and verify with "
+                "code_keyword / code_search / grep before relying on them"
+            )
+    elif citations and not combined_reranked:
+        # Wave 1p66r: the cross-encoder is the single intended ranking path; a
+        # False here means it did not run (disabled via WAVEFOUNDRY_DISABLE_RERANKER
+        # or the reranker model could not be built/loaded), so ranking is vector-only
+        # and degraded. Make that degradation LOUD rather than silently returning
+        # count-capped confidence — a healthy install always reranks.
+        gaps.append(
+            "reranker unavailable — ranking is vector-only and degraded; the "
+            "cross-encoder did not run (disabled via WAVEFOUNDRY_DISABLE_RERANKER, "
+            "or the reranker model could not be built/loaded). Confidence is capped "
+            "at 'medium'; verify the reranker setup if you expect reranking."
+        )
+
+    # Wave 1p66t: enumeration intent ("which/all X are …") — semantic retrieval returns a reranked
+    # top-k, which under-counts a full set. Retrieval was widened (text budget), but flag that the
+    # list may be incomplete and route to an exact pass rather than implying completeness.
+    if citations and _is_enumeration_query(question):
+        gaps.append(
+            "enumeration query — citations are a ranked sample and may be INCOMPLETE; for the full "
+            "set use an exact pass (code_keyword / code_references / code_pattern) or grep."
+        )
 
     confidence = _heuristic_confidence(citations, combined_reranked)
 
@@ -17854,15 +18010,20 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 f"# Not Found\n\nNo codebase-map area matches `{area}`. Read "
                 "`wavefoundry://codebase-map` to see area ids / representative paths.\n"
             )
-        rel = gen._area_context_rel_path(match)
-        path = _root / rel
-        if not path.is_file():
+        # Resolve by walking UP to the nearest ancestor AGENTS.md (1p66d) so a
+        # conventionally project-root-placed file is found even when the area's
+        # representative path is a deep subdirectory.
+        rel = gen._resolve_area_context_rel_path(_root, match)
+        if rel is None:
+            author_at = gen._area_context_rel_path(match)
             return (
                 f"# Not Found\n\nArea `{match.name}` (`{match.representative_path}`) has no "
-                f"`AGENTS.md` yet at `{rel}`. Author one — purpose, key conventions, gotchas, "
-                "entry points — to give agents local context here; it is indexed for "
+                f"`AGENTS.md` in its path (none found walking up from `{author_at}`). Author one "
+                f"at the area's project root or at `{author_at}` — purpose, key conventions, "
+                "gotchas, entry points — to give agents local context here; it is indexed for "
                 "`code_ask`/`docs_search`.\n"
             )
+        path = _root / rel
         try:
             return path.read_text(encoding="utf-8")
         except OSError as exc:

@@ -516,12 +516,117 @@ class MapLinkHrefTests(unittest.TestCase):
         rel = self.gen._area_context_rel_path(area)
         (self.root / rel).parent.mkdir(parents=True, exist_ok=True)
         (self.root / rel).write_text("# stub\n", encoding="utf-8")
-        href = self.gen._area_context_link_href(area)
+        href = self.gen._area_context_link_href(rel)
         md = self.gen.render_markdown(model, root=self.root)
         self.assertIn(f"]({href})", md)
         # The href is map-relative (starts with ../), never a bare repo-root path
         # that docs-lint would resolve under docs/references/ and flag as broken.
         self.assertTrue(href.startswith("../"), href)
+
+
+class AreaContextWalkUpResolverTests(unittest.TestCase):
+    """1p66d — per-area AGENTS.md resolution walks UP to the nearest ancestor."""
+
+    def setUp(self):
+        self.gen = load_gen()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _area(self, rep_path):
+        return self.gen.CodebaseArea(
+            area_id="buttons",
+            name="buttons",
+            representative_path=rep_path,
+            responsibility="buttons",
+            key_files=(),
+            key_symbols=(),
+            hub_node_id="hub",
+            community_ids=("c1",),
+            node_count=1,
+            boundary_node_count=0,
+        )
+
+    def _write(self, rel):
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("# ctx\n", encoding="utf-8")
+
+    def test_resolves_to_ancestor_when_not_at_rep_path(self):
+        # Conventional project-root placement; rep path is a deep subdir.
+        self._write("libs/ui/AGENTS.md")
+        area = self._area("libs/ui/src/components/buttons")
+        self.assertEqual(
+            self.gen._resolve_area_context_rel_path(self.root, area),
+            "libs/ui/AGENTS.md",
+        )
+
+    def test_nearest_ancestor_wins(self):
+        self._write("libs/ui/AGENTS.md")
+        self._write("libs/ui/src/components/AGENTS.md")
+        area = self._area("libs/ui/src/components/buttons")
+        self.assertEqual(
+            self.gen._resolve_area_context_rel_path(self.root, area),
+            "libs/ui/src/components/AGENTS.md",
+        )
+
+    def test_exact_rep_path_still_resolves(self):
+        self._write("libs/ui/src/components/buttons/AGENTS.md")
+        area = self._area("libs/ui/src/components/buttons")
+        self.assertEqual(
+            self.gen._resolve_area_context_rel_path(self.root, area),
+            "libs/ui/src/components/buttons/AGENTS.md",
+        )
+
+    def test_root_area_resolves_repo_root_agents(self):
+        self._write("AGENTS.md")
+        area = self._area("(root)")
+        self.assertEqual(
+            self.gen._resolve_area_context_rel_path(self.root, area), "AGENTS.md"
+        )
+
+    def test_repo_root_excluded_for_non_root_area(self):
+        # Only the repo-root AGENTS.md exists — a non-root area must NOT link it.
+        self._write("AGENTS.md")
+        area = self._area("libs/ui/src/components/buttons")
+        self.assertIsNone(self.gen._resolve_area_context_rel_path(self.root, area))
+
+    def test_none_when_no_ancestor_has_one(self):
+        area = self._area("libs/ui/src/components/buttons")
+        self.assertIsNone(self.gen._resolve_area_context_rel_path(self.root, area))
+
+    def test_deterministic_repeat(self):
+        self._write("libs/ui/AGENTS.md")
+        area = self._area("libs/ui/src/components/buttons")
+        first = self.gen._resolve_area_context_rel_path(self.root, area)
+        for _ in range(5):
+            self.assertEqual(
+                self.gen._resolve_area_context_rel_path(self.root, area), first
+            )
+
+    def test_render_links_ancestor_file(self):
+        # End-to-end: a deep area links its project-root AGENTS.md in the map.
+        self._write("libs/ui/AGENTS.md")
+        area = self._area("libs/ui/src/components/buttons")
+        model = self.gen.CodebaseMapModel(
+            present=True,
+            reason="",
+            layer="project",
+            areas=(area,),
+            total_area_count=1,
+            truncated=False,
+            grouping="package-directory",
+            cluster_builder_version="10",
+            cluster_schema_version="1",
+            graph_builder_version="31",
+            file_count=1,
+            symbol_count=1,
+        )
+        md = self.gen.render_markdown(model, root=self.root)
+        self.assertIn("Area context:", md)
+        self.assertIn("libs/ui/AGENTS.md", md)
 
 
 class DeterminismTests(unittest.TestCase):

@@ -134,7 +134,7 @@ class MapLinkTests(unittest.TestCase):
             model = gen.compute_areas(root)
             area = model.areas[0]
             rel = gen._area_context_rel_path(area)
-            href = gen._area_context_link_href(area)  # map-relative (resolves under docs-lint)
+            href = gen._area_context_link_href(rel)  # map-relative (resolves under docs-lint)
 
             # Without the file: no link.
             md_no = gen.render_markdown(model, root=root)

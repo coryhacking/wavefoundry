@@ -302,7 +302,7 @@ Full resource documentation: `docs/specs/mcp-tool-surface.md` → **MCP Resource
 - `wavefoundry://prompt/{slug}` — prompt doc by slug
 - `wavefoundry://seed/{slug}` — seed doc by slug
 - `wavefoundry://architecture/{slug}` — architecture doc by slug
-- `wavefoundry://area/{area_id}` — a major area's per-area `AGENTS.md` (local conventions/gotchas/intent) by `area_id` (the URI-safe key shown in the codebase map; read `wavefoundry://codebase-map` first to discover area ids). Serves the on-disk file (also indexed for `code_ask`/`docs_search`); a missing/un-authored area returns a `# Not Found` message — never synthesized.
+- `wavefoundry://area/{area_id}` — a major area's per-area `AGENTS.md` (local conventions/gotchas/intent) by `area_id` (the URI-safe key shown in the codebase map; read `wavefoundry://codebase-map` first to discover area ids). Resolves by walking **up** from the area's representative path to the nearest ancestor `AGENTS.md` (so a conventionally project-root-placed file is found even when the area is a deep subdirectory). Serves the on-disk file (also indexed for `code_ask`/`docs_search`); a missing/un-authored area returns a `# Not Found` message — never synthesized.
 
 **When to use resources vs tools:**
 

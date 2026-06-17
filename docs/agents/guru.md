@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: guru
 Category: specialist
-Last verified: 2026-06-14
+Last verified: 2026-06-17
 
 Shortcut: **`Guru`** | MCP tool: **`code_ask`**
 
@@ -460,6 +460,7 @@ Apply the same pattern for non-SQL schema languages: GraphQL types, protobuf mes
 - **Every substantive claim needs a citation** from a `code_read` (or test read), not from a `doc-summary` alone.
 - **Cover the full mechanism** when the question is "how does X work" — partial coverage of one function when dispatch, summary chunks, and fallbacks exist elsewhere in the module is a failure mode.
 - **Surface gaps explicitly** — if a branch could not be read, say what was not verified rather than omitting it silently.
+- **Honor `code_ask` uncertainty signals (waves 1p66r/1p66t)** — a `confidence=low` with a `gaps` "no confident match" entry, or citations flagged `weak: true`, means retrieval found no confident match: treat those citations as navigation leads only and verify with `code_keyword`/`code_search`/`grep` before making a claim. A `gaps` "reranker unavailable" entry means ranking ran in a degraded vector-only fallback (`reranked=false`) — confidence is capped at `medium` and the ordering is weaker; corroborate, and flag the degraded setup. A `gaps` "enumeration query … may be incomplete" entry means the citations are a ranked sample of a set — for an exhaustive list ("all the X") run an exact pass (`code_keyword`/`code_references`/`code_pattern`), never report the sample as complete. Citations flagged `from_graph: true` are cross-file structural neighbors merged from the code graph (real `file:line`) — trustworthy, but note they came from structure, not semantic match. Never report a `confidence=low`/`weak`/reranker-unavailable/enumeration result as a settled answer.
 - **Null results are evidence** — when an angle from the Question Decomposition step produced no results, state it explicitly: *"Found no [env-var / config-key / CLI-flag] path for this setting."* Do not omit null angles.
 - **Contradicting findings must be surfaced** — when two angles produce conflicting answers (e.g. angle 1 says "configured in X", angle 2 says "defaults to Y in code"), present both findings, the conditions under which each applies, and the confidence level of each. Do not silently resolve the contradiction by choosing one.
 

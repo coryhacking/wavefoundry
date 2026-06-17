@@ -35,14 +35,14 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 5277 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 616 |
-| graph | `.wavefoundry/framework/scripts` | code | 213 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 5328 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 622 |
+| graph | `.wavefoundry/framework/scripts` | code | 214 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 196 |
 | wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 177 |
 | chunker | `.wavefoundry/framework/scripts` | code | 161 |
-| dashboard_lib | `.wavefoundry/framework/scripts` | code | 134 |
-| indexer | `.wavefoundry/framework/scripts` | code | 102 |
+| dashboard_lib | `.wavefoundry/framework/scripts` | code | 132 |
+| indexer | `.wavefoundry/framework/scripts` | code | 101 |
 | upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 79 |
 | setup | `.wavefoundry/framework/scripts` | code | 65 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 55 |

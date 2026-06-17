@@ -167,6 +167,10 @@ Written by `_write_json()` as pretty-printed JSON with sorted keys (`graph_index
 | Project graph | `.wavefoundry/index/graph/project-graph.json` |
 | Project state | `.wavefoundry/index/graph/project-graph-state.json` |
 
+### Determinism and the input fingerprint (wave 1p66e)
+
+Graph extraction is **reproducible**: the same source tree yields the same resolved node/edge set across from-scratch rebuilds. Artifacts are assembled in sorted path order, and the cross-file resolution pass is order-independent — every binding requires a *unique* (`len == 1`) candidate, and the three sites that pick among ties use explicit stable tie-breaks rather than dict/set iteration order: the per-`(file, simple_name)` choice (`_pick_shorter_node_id` — shortest then lexicographic), the per-file import-collision choice (lexicographically smallest FQN), and the rewrite-collapse apply order (sorted by `(new_key, old_key)`). The graph payload and state carry an `input_fingerprint` (sha256 over the sorted node-set + sorted resolved edge-set, excluding the volatile `generated_at`); two identical-input rebuilds produce the same fingerprint, so non-reproducibility is observable. Faithfulness is preserved — the tie-breaks only stabilize genuinely-ambiguous choices and never change a `len == 1` resolution or bind a wrong same-name twin.
+
 ### `read_graph_payload()` (`graph_indexer.py:8079`)
 
 Returns a dict with: `layer`, `schema_version`, `nodes` (list), `edges` (list), `counts` (files/nodes/edges ints), `present` (bool), `graph_path` (repo-relative string). When the file is absent or empty: `present=False`, empty `nodes`/`edges`.

@@ -1251,10 +1251,13 @@ def _today() -> str:
 
 
 def _area_context_rel_path(area: CodebaseArea) -> str:
-    """The conventional per-area ``AGENTS.md`` location for an area (1p5xc).
+    """The conventional per-area ``AGENTS.md`` *authoring* location for an area.
 
-    Vendor-neutral: lives at the area's representative path. The synthetic
-    ``(root)`` bucket maps to the repository root.
+    Vendor-neutral: the area's representative path (the ``(root)`` bucket maps to
+    the repository root). This is where the scaffold writes a stub and what the
+    "author one" hint points at — NOT necessarily where an authored file is read
+    from. Reading/linking uses :func:`_resolve_area_context_rel_path`, which walks
+    UP to the nearest existing ancestor ``AGENTS.md`` (1p66d).
     """
     rep = (area.representative_path or "").strip("/")
     if not rep or rep == "(root)":
@@ -1262,22 +1265,58 @@ def _area_context_rel_path(area: CodebaseArea) -> str:
     return f"{rep}/{AREA_CONTEXT_FILENAME}"
 
 
-def _area_context_exists(root: Path | None, area: CodebaseArea) -> bool:
+def _resolve_area_context_rel_path(root: Path | None, area: CodebaseArea) -> str | None:
+    """The repo-root-relative path of the ``AGENTS.md`` that an area should LINK to.
+
+    Walks UP from the area's representative-path directory toward the repo root and
+    returns the **nearest existing** ``AGENTS.md`` (1p66d). Conventional per-area
+    files live at project roots (e.g. ``libs/ui/AGENTS.md``) while an area's
+    representative path is a deep subdirectory (``libs/ui/src/components/buttons``),
+    and a single project spawns several areas at different deep paths — so resolving
+    only the exact representative path misses the file. Walking up also makes the
+    link robust to representative-path churn across rebuilds.
+
+    Bound (Requirement 4): for a non-root area the repo-root ``AGENTS.md`` is NOT a
+    fallback — the global operating guide is surfaced by the synthetic ``(root)``
+    area and ``wavefoundry://agents``, and linking it from every unrelated area is
+    noise. The walk therefore stops above the top-level segment and never reaches
+    the repo root for a non-root area.
+
+    Deterministic: nearest-ancestor-first over a path-segment walk; independent of
+    any dict/set iteration order. Returns ``None`` when no ancestor has one.
+    """
     if root is None:
-        return False
-    return (Path(root) / _area_context_rel_path(area)).is_file()
+        return None
+    root = Path(root)
+    rep = (area.representative_path or "").strip("/")
+    if not rep or rep == "(root)":
+        cand = root / AREA_CONTEXT_FILENAME
+        return AREA_CONTEXT_FILENAME if cand.is_file() else None
+    segs = [s for s in rep.split("/") if s]
+    # Nearest-first: rep dir, then each ancestor down to the top-level segment.
+    # ``segs[:0]`` (the repo root) is intentionally excluded for non-root areas.
+    for i in range(len(segs), 0, -1):
+        rel = "/".join(segs[:i]) + "/" + AREA_CONTEXT_FILENAME
+        if (root / rel).is_file():
+            return rel
+    return None
 
 
-def _area_context_link_href(area: CodebaseArea) -> str:
+def _area_context_exists(root: Path | None, area: CodebaseArea) -> bool:
+    return _resolve_area_context_rel_path(root, area) is not None
+
+
+def _area_context_link_href(rel_path: str) -> str:
     """The per-area ``AGENTS.md`` href RELATIVE TO THE RENDERED MAP FILE.
 
     The map lives at ``OUTPUT_REL_PATH`` (``docs/references/codebase-map.md``);
     docs-lint resolves markdown links against the file's own directory, so a
-    repo-root-relative href (e.g. ``docs/design-system/AGENTS.md``) would be a
-    broken link. This returns the href relative to the map's directory.
+    repo-root-relative href (e.g. ``libs/ui/AGENTS.md``) would be a broken link.
+    This returns the href relative to the map's directory. ``rel_path`` is the
+    resolved repo-root-relative path from :func:`_resolve_area_context_rel_path`.
     """
     map_dir = PurePosixPath(OUTPUT_REL_PATH).parent
-    target = PurePosixPath(_area_context_rel_path(area))
+    target = PurePosixPath(rel_path)
     return os.path.relpath(target.as_posix(), map_dir.as_posix())
 
 
@@ -1294,9 +1333,10 @@ def render_markdown(
     ignores them. No timestamps that churn beyond the docs-lint-required
     ``Last verified`` date.
 
-    When ``root`` is supplied, each area that has a per-area ``AGENTS.md`` at its
-    representative path (1p5xc) is linked to it, so an agent routed to the area
-    can pick up its local conventions/gotchas on demand.
+    When ``root`` is supplied, each area is linked to the nearest ancestor
+    ``AGENTS.md`` (1p66d — resolved by walking up from the representative path),
+    so an agent routed to the area can pick up its local conventions/gotchas on
+    demand even when the file lives at the conventional project root.
     """
     lv = last_verified or _today()
     lines: list[str] = []
@@ -1420,12 +1460,13 @@ def render_markdown(
         if area.key_files:
             files = ", ".join(f"`{f}`" for f in area.key_files)
             lines.append(f"- Key files: {files}")
-        # Per-area AGENTS.md link ONLY when the file actually exists on disk
+        # Per-area AGENTS.md link ONLY when a file actually exists on disk
         # (1p5xc map-link bug fix: never link a non-existent file → docs-lint
-        # broken-link failure).
-        if _area_context_exists(root, area):
-            ctx_rel = _area_context_rel_path(area)  # repo-root path (display)
-            ctx_href = _area_context_link_href(area)  # map-relative href (resolves)
+        # broken-link failure). Resolution walks UP to the nearest ancestor
+        # AGENTS.md (1p66d) so conventionally project-root-placed files are found.
+        ctx_rel = _resolve_area_context_rel_path(root, area)
+        if ctx_rel:
+            ctx_href = _area_context_link_href(ctx_rel)  # map-relative href (resolves)
             lines.append(
                 f"- Area context: [{ctx_rel}]({ctx_href}) — conventions/gotchas; "
                 "consult before working in this area."
@@ -1579,11 +1620,16 @@ def _fingerprint_inputs(root: Path, layer: str, model: CodebaseMapModel) -> str:
                 h.update(f"{p.name}:{st.st_size}:{int(st.st_mtime_ns)}".encode())
             except OSError:
                 h.update(f"{p.name}:absent".encode())
-        # Per-area AGENTS.md content (Tier-2 carry-forward input).
+        # Per-area AGENTS.md content (Tier-2 carry-forward input). Hash the
+        # actually-linked file (nearest ancestor, 1p66d) so an edit to a
+        # project-root AGENTS.md re-renders the areas that link it.
         for area in model.areas:
-            ctx = Path(root) / _area_context_rel_path(area)
+            ctx_rel = _resolve_area_context_rel_path(Path(root), area)
+            if ctx_rel is None:
+                h.update(b"\0")
+                continue
             try:
-                h.update(ctx.read_bytes())
+                h.update((Path(root) / ctx_rel).read_bytes())
             except OSError:
                 h.update(b"\0")
         return h.hexdigest()

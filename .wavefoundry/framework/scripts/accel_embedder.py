@@ -25,6 +25,17 @@ from pathlib import Path
 from typing import Iterable, Iterator, Optional
 
 STATIC_BATCH = 64
+# Wave 1p66v: the reranker's static batch is decoupled from the embedder's. The embedder
+# bulk-processes many chunks at index time (64 amortizes well); the cross-encoder reranker
+# scores a query-time pool that maxes at the code_ask candidate ceiling (AGENT_CANDIDATE_MAX
+# = 40). Benchmarked {24,32,40} × pool {24,32,40} on M2 Max CoreML — 40 wins decisively
+# (single pass at ~107ms for ANY pool ≤ 40), because the moment a smaller batch is exceeded
+# by the pool it pays a second forward pass (~255–295ms) that dwarfs the padding it saves;
+# 40 also beats the old shared 64 (~167ms — 64 pads 40→64, more wasted rows). So size the
+# reranker batch to exactly cover the ceiling in one pass. Batch is a latency/compute knob
+# only — ranking output is identical across sizes (the same pairs get the same logits). The
+# static-graph cache key includes the batch dim, so changing this builds its own cached graph.
+RERANK_STATIC_BATCH = 40
 STATIC_SEQ = 512
 
 COREML_PROVIDER = "CoreMLExecutionProvider"
@@ -430,10 +441,12 @@ def make_embedder(model_name: str, providers: Iterable[str]):
 class StaticShapeReranker:
     """Cross-encoder reranker on a static-shape ONNX (1p52p). Dual precision by provider:
 
-    - **GPU** (CoreML/CUDA/ROCm/DirectML): the **FP16** export → ~350 ms/query.
-    - **CPU** (no GPU available): the **INT8** export on ``CPUExecutionProvider`` (``ORT_ENABLE_ALL``)
-      → ~960 ms/query, ~2x faster than FP32 with no ranking loss. The FP16 export is NOT used on the
-      CPU EP (it fails to init at ``ORT_ENABLE_ALL`` — a SimplifiedLayerNormFusion cast bug).
+    - **GPU** (CoreML/CUDA/ROCm/DirectML): the **FP16** export → ~107 ms/query (M2 Max CoreML, wave
+      1p66v: a single ``RERANK_STATIC_BATCH``=40 pass covering the full candidate ceiling; was ~167 ms
+      at the old shared 64-batch, which padded the 40-pool to 64).
+    - **CPU** (no GPU available): the **INT8** export on ``CPUExecutionProvider`` (``ORT_ENABLE_ALL``),
+      ~6x slower than the GPU path (was ~960 ms at batch 64) with no ranking loss. The FP16 export is
+      NOT used on the CPU EP (it fails to init at ``ORT_ENABLE_ALL`` — a SimplifiedLayerNormFusion cast bug).
 
     ``rerank(query, passages)`` returns one **raw relevance logit per passage** (the server applies a
     sigmoid). The cross-encoder graph (ms-marco-MiniLM = BERT; bge-reranker = XLM-RoBERTa) takes
@@ -458,9 +471,9 @@ class StaticShapeReranker:
             if files is None:
                 raise FileNotFoundError(f"No cached FP16 ONNX/tokenizer for reranker {model_name!r}")
             src_onnx, tok_path = files
-            static_path = _ONNX_CACHE / _safe(model_name) / f"rerank_static_{STATIC_BATCH}x{STATIC_SEQ}.onnx"
+            static_path = _ONNX_CACHE / _safe(model_name) / f"rerank_static_{RERANK_STATIC_BATCH}x{STATIC_SEQ}.onnx"
             if not static_path.exists():
-                build_static_onnx(src_onnx, str(static_path), output_is_logit=True)
+                build_static_onnx(src_onnx, str(static_path), output_is_logit=True, batch=RERANK_STATIC_BATCH)
             provs: list = []
             if gpu == COREML_PROVIDER:
                 coreml_cache = _COREML_CACHE / _safe(model_name) / "MLProgram_ALL"
@@ -480,9 +493,9 @@ class StaticShapeReranker:
             if files is None:
                 raise FileNotFoundError(f"No cached INT8 ONNX/tokenizer for reranker {model_name!r}")
             src_onnx, tok_path = files
-            static_path = _ONNX_CACHE / _safe(model_name) / f"rerank_cpu_int8_static_{STATIC_BATCH}x{STATIC_SEQ}.onnx"
+            static_path = _ONNX_CACHE / _safe(model_name) / f"rerank_cpu_int8_static_{RERANK_STATIC_BATCH}x{STATIC_SEQ}.onnx"
             if not static_path.exists():
-                build_static_onnx(src_onnx, str(static_path), output_is_logit=True)
+                build_static_onnx(src_onnx, str(static_path), output_is_logit=True, batch=RERANK_STATIC_BATCH)
             provs = ["CPUExecutionProvider"]
             self.provider = "CPUExecutionProvider"
 
@@ -500,12 +513,12 @@ class StaticShapeReranker:
 
         docs = [p if isinstance(p, str) else str(p) for p in passages]
         scores: list = []
-        for start in range(0, len(docs), STATIC_BATCH):
-            chunk = docs[start:start + STATIC_BATCH]
+        for start in range(0, len(docs), RERANK_STATIC_BATCH):
+            chunk = docs[start:start + RERANK_STATIC_BATCH]
             real = len(chunk)
             pairs = [(query, d) for d in chunk]
-            if real < STATIC_BATCH:                       # pad the batch dim; sliced off below
-                pairs = pairs + [(query, "")] * (STATIC_BATCH - real)
+            if real < RERANK_STATIC_BATCH:                # pad the batch dim; sliced off below
+                pairs = pairs + [(query, "")] * (RERANK_STATIC_BATCH - real)
             enc = self.tokenizer.encode_batch(pairs)
             feats = {
                 "input_ids": np.array([e.ids for e in enc], dtype=np.int64),
@@ -513,7 +526,7 @@ class StaticShapeReranker:
                 "token_type_ids": np.array([e.type_ids for e in enc], dtype=np.int64),
             }
             feed = {n: feats[n] for n in self.input_names}   # roberta reranker omits token_type_ids
-            out = np.asarray(self.session.run([self.output_name], feed)[0]).reshape(STATIC_BATCH, -1)
+            out = np.asarray(self.session.run([self.output_name], feed)[0]).reshape(RERANK_STATIC_BATCH, -1)
             for r in range(real):
                 scores.append(float(out[r, 0]))
         return scores
@@ -523,7 +536,7 @@ class StaticShapeReranker:
         embedder probe; the first call pays the one-time CoreML compile (warmup)."""
         import time
 
-        probe = ["warmup probe passage for reranker hardware offload measurement"] * STATIC_BATCH
+        probe = ["warmup probe passage for reranker hardware offload measurement"] * RERANK_STATIC_BATCH
         self.rerank("warmup query", probe)  # warmup / compile
         wall0, cpu0 = time.time(), time.process_time()
         for _ in range(2):

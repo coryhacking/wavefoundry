@@ -127,7 +127,7 @@ class AccelEmbedderTests(unittest.TestCase):
     # ── 1p52p: cross-encoder reranker ───────────────────────────────────────────
 
     def test_rerank_returns_one_logit_per_passage(self):
-        # rerank pads the batch to STATIC_BATCH internally and slices back to the real count;
+        # rerank pads the batch to RERANK_STATIC_BATCH internally and slices back to the real count;
         # row r's logit = r (per _FakeRerankSession), so 3 passages → [0, 1, 2].
         rr = _make_reranker(self.ae)
         scores = rr.rerank("q", ["a", "b", "c"])
@@ -135,12 +135,63 @@ class AccelEmbedderTests(unittest.TestCase):
         self.assertTrue(all(isinstance(s, float) for s in scores))  # raw logits, fastembed scale
 
     def test_rerank_batches_across_static_batch_boundary(self):
+        # 1p66v: the reranker chunks by RERANK_STATIC_BATCH (decoupled from the embedder's STATIC_BATCH).
         rr = _make_reranker(self.ae)
-        n = self.ae.STATIC_BATCH + 5  # forces 2 internal batches
+        b = self.ae.RERANK_STATIC_BATCH
+        n = b + 5  # forces 2 internal batches
         scores = rr.rerank("q", [f"p{i}" for i in range(n)])
         self.assertEqual(len(scores), n)
-        self.assertEqual(scores[:3], [0.0, 1.0, 2.0])                       # batch 1, rows 0..2
-        self.assertEqual(scores[self.ae.STATIC_BATCH:self.ae.STATIC_BATCH + 3], [0.0, 1.0, 2.0])  # batch 2
+        self.assertEqual(scores[:3], [0.0, 1.0, 2.0])          # batch 1, rows 0..2
+        self.assertEqual(scores[b:b + 3], [0.0, 1.0, 2.0])     # batch 2, rows 0..2
+
+    def test_reranker_batch_decoupled_from_embedder(self):
+        # 1p66v: the reranker has its OWN static batch, sized to the code_ask candidate ceiling,
+        # independent of the embedder's index-time STATIC_BATCH.
+        self.assertEqual(self.ae.RERANK_STATIC_BATCH, 40)
+        self.assertEqual(self.ae.STATIC_BATCH, 64)
+        self.assertNotEqual(self.ae.RERANK_STATIC_BATCH, self.ae.STATIC_BATCH)
+
+    def test_rerank_ranking_identical_across_batch_sizes(self):
+        # 1p66v faithfulness guard: batch size is a latency knob ONLY — the per-passage logit is
+        # identical regardless of RERANK_STATIC_BATCH, including when the pool spans multiple chunks
+        # (the same (query,passage) pair gets the same score wherever it lands in the batching).
+        ae = self.ae
+
+        class _ContentTok:
+            def enable_truncation(self, **_): pass
+            def enable_padding(self, **_): pass
+            def encode_batch(self, pairs):
+                out = []
+                for _q, p in pairs:
+                    e = _Enc(8)
+                    v = int(p) if isinstance(p, str) and p.isdigit() else 0
+                    e.ids = [v] * 8
+                    out.append(e)
+                return out
+
+        class _ContentSess:
+            def get_inputs(self):
+                return [type("I", (), {"name": n}) for n in ("input_ids", "attention_mask")]
+            def get_outputs(self):
+                return [type("O", (), {"name": "logits"})]
+            def run(self, _o, feed):
+                ids = feed["input_ids"]
+                b = ids.shape[0]
+                return [np.asarray([[float(ids[r, 0])] for r in range(b)], dtype=np.float32)]
+
+        rr = ae.StaticShapeReranker.__new__(ae.StaticShapeReranker)
+        rr.model_name = "fake"; rr.provider = "CPUExecutionProvider"
+        rr.session = _ContentSess()
+        rr.input_names = ["input_ids", "attention_mask"]; rr.output_name = "logits"
+        rr.tokenizer = _ContentTok()
+        passages = [str(i) for i in range(6)]  # content-deterministic logit per passage
+        results = {}
+        for batch in (2, 4, 40):
+            with patch.object(ae, "RERANK_STATIC_BATCH", batch):
+                results[batch] = rr.rerank("q", passages)
+        self.assertEqual(results[2], results[4])    # multi-chunk vs multi-chunk
+        self.assertEqual(results[4], results[40])    # multi-chunk vs single-pass
+        self.assertEqual(results[40], [0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
 
     def test_make_reranker_cpu_int8_when_no_gpu(self):
         # No GPU → build the CPU INT8 reranker on CPUExecutionProvider (not None — CPU machines rerank).

@@ -5556,6 +5556,46 @@ class McpResourceReadTests(unittest.TestCase):
         self.assertIn("Not Found", self._read_resource("wavefoundry://area/svc"))
         self.assertIn("Not Found", self._read_resource("wavefoundry://area/nonexistent"))
 
+    def _write_deep_area_graph(self):
+        """Graph whose area's representative path is a deep subdirectory, so the
+        conventional AGENTS.md sits at an ANCESTOR (project root), not the rep path."""
+        gd = self.root / ".wavefoundry" / "index" / "graph"
+        gd.mkdir(parents=True, exist_ok=True)
+        base = "libs/ui/src/components/buttons"
+        nodes = [
+            {"id": f"{base}/a.py::run", "kind": "function", "label": "run", "layer": "project", "source_file": f"{base}/a.py"},
+            {"id": f"{base}/b.py::go", "kind": "function", "label": "go", "layer": "project", "source_file": f"{base}/b.py"},
+        ]
+        (gd / "project-graph.json").write_text(json.dumps(
+            {"schema_version": "1", "builder_version": "1", "layer": "project", "nodes": nodes, "edges": []}), encoding="utf-8")
+        (gd / "project-graph-clusters.json").write_text(json.dumps(
+            {"cluster_schema_version": "1", "cluster_builder_version": "10", "layer": "project",
+             "communities": [{"community_id": "project:c0", "label": "buttons", "seed_node_id": f"{base}/a.py::run",
+                              "node_ids": [n["id"] for n in nodes], "node_count": 2, "boundary_node_count": 0}],
+             "community_count": 1}), encoding="utf-8")
+
+    def _load_gen_for_areas(self):
+        import importlib.util as _ilu
+        import sys as _sys
+        scripts = Path(__file__).resolve().parent.parent
+        spec = _ilu.spec_from_file_location("gen_codebase_map", scripts / "gen_codebase_map.py")
+        mod = _ilu.module_from_spec(spec)
+        _sys.modules[spec.name] = mod  # frozen-dataclass resolution needs this
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_area_resource_walks_up_to_ancestor_agents_md(self):
+        # 1p66d: AGENTS.md at the project root (an ancestor) is served for a deep area.
+        self._write_deep_area_graph()
+        (self.root / "libs" / "ui").mkdir(parents=True, exist_ok=True)
+        (self.root / "libs" / "ui" / "AGENTS.md").write_text(
+            "# ui\n\nUI project conventions live here.\n", encoding="utf-8"
+        )
+        gen = self._load_gen_for_areas()
+        area = gen.compute_areas(self.root).areas[0]
+        text = self._read_resource(f"wavefoundry://area/{area.area_id}")
+        self.assertIn("UI project conventions live here", text)
+
     def test_architecture_current_state_returns_not_found_when_missing(self):
         text = self._read_resource("wavefoundry://architecture/current-state")
         self.assertIn("Not Found", text)
@@ -8134,10 +8174,23 @@ class CodeAskTests(unittest.TestCase):
         """_extract_artifact_cue returns empty string when no cue is present."""
         self.assertEqual(self.srv._extract_artifact_cue("how is the build number generated?"), "")
 
-    def test_confidence_high_with_multiple_citations(self):
+    def test_confidence_no_reranker_capped_at_medium(self):
+        # 1p66r: without the cross-encoder (reranked=False) confidence is capped at
+        # 'medium' — the prior count-based 'high' was relevance-blind (the per-index
+        # floor guarantees n>=2 on any non-empty index → always 'high'). Mixed-model
+        # cosine is not a calibrated band, so we never over-claim 'high' here.
         index = self._make_index(code_results=[self._fake_code_chunk("src/a.py"), self._fake_code_chunk("src/b.py")])
         result = self.srv.code_ask_response(index, self.root, "billing?")
-        self.assertEqual(result["data"]["confidence"], "high")
+        self.assertEqual(result["data"]["confidence"], "medium")
+
+    def test_no_reranker_emits_loud_degraded_gap(self):
+        # 1p66r: reranked=False is a degraded vector-only fallback (a healthy install
+        # always reranks) — it must be surfaced loudly, not silently handled.
+        index = self._make_index(code_results=[self._fake_code_chunk("src/a.py"), self._fake_code_chunk("src/b.py")])
+        result = self.srv.code_ask_response(index, self.root, "billing?")
+        self.assertFalse(result["data"]["reranked"])
+        self.assertTrue(any("reranker unavailable" in g for g in result["data"]["gaps"]),
+                        result["data"]["gaps"])
 
     def test_confidence_low_with_no_citations(self):
         index = self._make_index()
@@ -8168,19 +8221,117 @@ class CodeAskTests(unittest.TestCase):
         result = self.srv.code_ask_response(index, self.root, "best sourdough bread recipe?")
         self.assertEqual(result["data"]["confidence"], "low")
 
-    def test_confidence_agent_mode_keyword_path_count_based(self):
-        """1p4hj: the keyword/exact path scores 0 (a STRONG signal, not weak) — confidence stays
-        count-based there, not forced 'low' by the agent cosine gate."""
+    def test_confidence_no_reranker_keyword_path_capped_medium(self):
+        """1p66r: the keyword/exact path runs without the cross-encoder (reranked=False),
+        so confidence is capped at 'medium' — the prior count-based 'high' over-claimed."""
         index = self._make_index(code_results=[self._fake_code_chunk("src/a.py", score=0.0), self._fake_code_chunk("src/b.py", score=0.0)])
         result = self.srv.code_ask_response(index, self.root, "what generates +2vr8?")
-        self.assertEqual(result["data"]["confidence"], "high")
+        self.assertEqual(result["data"]["confidence"], "medium")
 
-    def test_confidence_local_mode_count_based(self):
-        """1p4hj: local (cross-encoder) scores are a different scale — confidence stays count-based
-        in local mode, NOT gated by the agent cosine thresholds."""
-        index = self._make_index(code_results=[self._fake_code_chunk("src/a.py", score=0.66), self._fake_code_chunk("src/b.py", score=0.66)])
-        result = self.srv.code_ask_response(index, self.root, "billing?", rerank="local")
+    def test_reranked_zero_signal_abstains_and_marks_weak(self):
+        """1p66r: reranked=True but every score below CONF_AGENT_RERANK_LOW (the ~0.001
+        zero-signal case) → confidence 'low', a 'no confident match' gap, and citations
+        marked weak (anti-starvation preserved — citations still returned)."""
+        index = self._make_index()
+        index.search_combined.return_value = (
+            [self._fake_code_chunk("src/a.py", score=0.002), self._fake_code_chunk("src/b.py", score=0.001)],
+            True, 0, 0, [], [], "none", None,
+        )
+        result = self.srv.code_ask_response(index, self.root, "totally unrelated query")
+        self.assertEqual(result["data"]["confidence"], "low")
+        self.assertTrue(result["data"]["citations"], "anti-starvation: citations still returned")
+        self.assertTrue(all(c.get("weak") for c in result["data"]["citations"]))
+        self.assertTrue(any("no confident match" in g for g in result["data"]["gaps"]),
+                        result["data"]["gaps"])
+
+    def test_reranked_strong_match_no_abstention(self):
+        """1p66r: a genuinely strong reranked result (top sigmoid >= HIGH, n>=2) stays
+        'high' with no abstention gap and no weak markers — no over-correction."""
+        index = self._make_index()
+        index.search_combined.return_value = (
+            [self._fake_code_chunk("src/a.py", score=0.92), self._fake_code_chunk("src/b.py", score=0.88)],
+            True, 0, 0, [], [], "none", None,
+        )
+        result = self.srv.code_ask_response(index, self.root, "billing failed payments?")
         self.assertEqual(result["data"]["confidence"], "high")
+        self.assertFalse(any("no confident match" in g for g in result["data"]["gaps"]))
+        self.assertFalse(any(c.get("weak") for c in result["data"]["citations"]))
+
+    def test_refdocs_demotion_weight(self):
+        # 1p66s: architecture docs, specs, and ADRs are down-weighted (gentler than the
+        # narrative tiers) so they don't outrank implementing code; code is never demoted.
+        self.assertEqual(self.srv._doc_demotion_weight("docs/architecture/current-state.md", "doc"), self.srv._DEMOTION_REFDOCS)
+        self.assertEqual(self.srv._doc_demotion_weight("docs/specs/mcp-tool-surface.md", "doc"), self.srv._DEMOTION_REFDOCS)
+        self.assertEqual(self.srv._doc_demotion_weight("docs/architecture/decisions/1p5be.md", "doc"), self.srv._DEMOTION_REFDOCS)
+        self.assertEqual(self.srv._doc_demotion_weight("src/auth.py", "code"), 1.0)
+
+    def test_demotion_applies_to_navigational(self):
+        # 1p66s: demotion extended from explanatory-only to navigational; a spec no longer
+        # outranks the implementing source.
+        results = [
+            {"path": "docs/specs/x.md", "kind": "doc", "score": 0.90},
+            {"path": "src/impl.py", "kind": "code", "score": 0.80},
+        ]
+        out, n = self.srv._demote_doc_results(results, "navigational")
+        self.assertEqual(n, 1)
+        self.assertEqual(out[0]["path"], "src/impl.py")  # 0.90*0.80=0.72 < 0.80 → code leads
+
+    def test_demotion_is_downweight_not_exclusion(self):
+        # A doc-answerable result is down-weighted, never dropped.
+        results = [{"path": "docs/specs/x.md", "kind": "doc", "score": 0.90}]
+        out, n = self.srv._demote_doc_results(results, "explanatory")
+        self.assertEqual(len(out), 1)
+        self.assertAlmostEqual(out[0]["score"], 0.90 * self.srv._DEMOTION_REFDOCS)
+
+    def test_demotion_skips_non_code_intents(self):
+        # instructional / artifact_anchored are not code-implementation intents → untouched.
+        results = [{"path": "docs/specs/x.md", "kind": "doc", "score": 0.90}]
+        out, n = self.srv._demote_doc_results(results, "instructional")
+        self.assertEqual(n, 0)
+        self.assertEqual(out[0]["score"], 0.90)
+
+    def test_extract_question_symbol_skips_interrogatives(self):
+        # 1p66r (teton downstream finding): a capitalized leading interrogative must NOT be
+        # picked as a symbol — symbol-first injection would keyword-boost off-topic citations
+        # above the floor and defeat abstention for the capitalized phrasing.
+        srv = self.srv
+        self.assertIsNone(srv._extract_question_symbol("Which providers are registered?"))
+        self.assertIsNone(srv._extract_question_symbol("Where is the config loaded?"))
+        self.assertIsNone(srv._extract_question_symbol("What happens on startup?"))
+        self.assertIsNone(srv._extract_question_symbol("Why does the cache expire?"))
+        # Conversational lead-ins ("Tell me about …", "Explain …", "Walk me through …") are
+        # skipped too — same bug class as interrogatives.
+        self.assertIsNone(srv._extract_question_symbol("Tell me about how startup works"))
+        self.assertIsNone(srv._extract_question_symbol("Explain the request flow"))
+        # A real symbol after the lead-in is still found (re.findall, not re.search).
+        self.assertEqual(srv._extract_question_symbol("How does Resolver work"), "Resolver")
+        self.assertEqual(srv._extract_question_symbol("Tell me about how ChunkerV2 works"), "ChunkerV2")
+        # Explicit backtick / qualified symbols are unaffected.
+        self.assertEqual(srv._extract_question_symbol("what does `getUserId` do"), "getUserId")
+        self.assertEqual(srv._extract_question_symbol("explain auth.resolveToken"), "resolveToken")
+
+    def test_is_enumeration_query(self):
+        # 1p66t: enumeration intent detection. Positive: collection word + set-membership verb,
+        # or a list/enumerate/how-many lead. Negative: single-value lookups and how/where questions.
+        srv = self.srv
+        for q in ["which event handlers are registered?", "list all providers",
+                  "what commands are supported", "how many retries are configured",
+                  "enumerate the middleware", "what events are subscribed to"]:
+            self.assertTrue(srv._is_enumeration_query(q), f"should be enumeration: {q!r}")
+        for q in ["where is the rate limiter defined?", "how does authentication work?",
+                  "what is the value of MAX_RETRIES", "explain the request flow"]:
+            self.assertFalse(srv._is_enumeration_query(q), f"should NOT be enumeration: {q!r}")
+
+    def test_enumeration_query_flags_incompleteness(self):
+        # 1p66t: an enumeration result is a ranked sample → flag it may be incomplete.
+        index = self._make_index(code_results=[self._fake_code_chunk("src/a.py"), self._fake_code_chunk("src/b.py")])
+        result = self.srv.code_ask_response(index, self.root, "which handlers are registered?")
+        self.assertTrue(any("enumeration query" in g for g in result["data"]["gaps"]), result["data"]["gaps"])
+
+    def test_non_enumeration_no_incompleteness_gap(self):
+        index = self._make_index(code_results=[self._fake_code_chunk("src/a.py")])
+        result = self.srv.code_ask_response(index, self.root, "where is the billing module?")
+        self.assertFalse(any("enumeration query" in g for g in result["data"]["gaps"]))
 
     def test_citations_have_ref_and_path(self):
         index = self._make_index(code_results=[self._fake_code_chunk()])
@@ -8275,29 +8426,32 @@ class CodeAskTests(unittest.TestCase):
         self.assertEqual(count, 1)
         self.assertAlmostEqual(demoted[0]["score"], 0.50)
 
-    def test_demote_navigational_passthrough(self):
-        """No demotion applied for navigational question type."""
+    def test_demote_navigational_now_applies(self):
+        """1p66s: navigational ("where is X") is a code-implementation intent and NOW demotes
+        narrative/reference prose (was passthrough before this wave)."""
         srv = self.srv
         results = [
             {"path": "docs/waves/12pn3/change.md", "kind": "doc", "score": 1.0},
             {"path": "docs/agents/journals/wave-coordinator.md", "kind": "doc", "score": 0.9},
         ]
         demoted, count = srv._demote_doc_results(results, "navigational")
-        self.assertEqual(count, 0)
-        self.assertEqual(demoted[0]["score"], 1.0)
-        self.assertEqual(demoted[1]["score"], 0.9)
+        self.assertEqual(count, 2)
+        self.assertEqual(demoted[0]["score"], 1.0 * srv._DEMOTION_WAVES)
+        self.assertEqual(demoted[1]["score"], 0.9 * srv._DEMOTION_JRNLS)
 
-    def test_demote_architecture_not_demoted(self):
-        """Architecture docs and implementation code are not demoted."""
+    def test_demote_architecture_now_demoted(self):
+        """1p66s: architecture docs (and specs/ADRs) are now down-weighted so prose does not
+        outrank the implementing code; implementation code is still never demoted."""
         srv = self.srv
         results = [
             {"path": "docs/architecture/current-state.md", "kind": "doc", "score": 0.9},
             {"path": "src/server.py", "kind": "code", "score": 0.8},
         ]
         demoted, count = srv._demote_doc_results(results, "explanatory")
-        self.assertEqual(count, 0)
-        self.assertEqual(demoted[0]["score"], 0.9)
-        self.assertEqual(demoted[1]["score"], 0.8)
+        self.assertEqual(count, 1)  # the architecture doc is demoted; code is not
+        # 0.9 * 0.80 = 0.72 < 0.80 → implementing code now leads
+        self.assertEqual(demoted[0]["path"], "src/server.py")
+        self.assertEqual(demoted[1]["score"], 0.9 * srv._DEMOTION_REFDOCS)
 
     def test_demote_resorts_by_score(self):
         """After demotion, results are re-sorted descending by score."""
@@ -17350,6 +17504,59 @@ class GraphSignalTests(unittest.TestCase):
 
     def _heads(self, cands):
         return {c["text"].split("\n", 1)[0] for c in cands}
+
+    # ── 1p66t: graph-rescue-into-citations (teton finding #2 — positively exercised here) ──
+
+    @staticmethod
+    def _set_scores(score):
+        def _rerank(_q, cands):
+            for c in cands:
+                c["score"] = score
+            return True
+        return _rerank
+
+    def test_graph_merge_rescues_vector_missed_file(self):
+        """A graph-reachable file the SEMANTIC pass MISSED (not already cited) is rescued into
+        citations, reranked + floor-clearing, flagged from_graph. This is the vector-miss/graph-hit
+        case teton could not trigger (its vector recall was always sufficient)."""
+        idx = self._idx()
+        results = [{"path": "src/a.py", "lines": [1, 5], "score": 0.70, "kind": "code", "text": "a"}]
+        graph_src = [{"path": "src/b.py", "lines": [10, 20], "score": 0.0, "kind": "code",
+                      "text": "b > helper\n\ndef helper(): ...", "_relationship": "callee"}]
+        with patch.object(idx, "_agent_rerank", side_effect=self._set_scores(0.8)):
+            merged = idx._merge_graph_into_citations("q", graph_src, results, reranked=True)
+        self.assertEqual(merged, 1)
+        self.assertEqual(results[-1]["path"], "src/b.py")
+        self.assertTrue(results[-1].get("from_graph"))
+
+    def test_graph_merge_skips_already_cited(self):
+        """A graph neighbor the semantic pass ALREADY cited is not duplicated (no rescue needed)."""
+        idx = self._idx()
+        results = [{"path": "src/b.py", "lines": [10, 20], "score": 0.70, "kind": "code", "text": "b"}]
+        graph_src = [{"path": "src/b.py", "lines": [10, 20], "score": 0.0, "kind": "code", "text": "b"}]
+        with patch.object(idx, "_agent_rerank", side_effect=self._set_scores(0.9)):
+            merged = idx._merge_graph_into_citations("q", graph_src, results, reranked=True)
+        self.assertEqual(merged, 0)
+        self.assertEqual(len(results), 1)
+
+    def test_graph_merge_below_floor_not_merged(self):
+        """A rescued neighbor that does NOT clear the relevance floor is dropped (no noise)."""
+        idx = self._idx()
+        results = [{"path": "src/a.py", "lines": [1, 5], "score": 0.70, "kind": "code", "text": "a"}]
+        graph_src = [{"path": "src/b.py", "lines": [10, 20], "score": 0.0, "kind": "code", "text": "b"}]
+        with patch.object(idx, "_agent_rerank", side_effect=self._set_scores(0.05)):
+            merged = idx._merge_graph_into_citations("q", graph_src, results, reranked=True)
+        self.assertEqual(merged, 0)
+        self.assertEqual(len(results), 1)
+
+    def test_graph_merge_skipped_when_not_reranked(self):
+        """No merge on the degraded no-reranker path (scores are not comparable for the floor gate)."""
+        idx = self._idx()
+        results = [{"path": "src/a.py", "lines": [1, 5], "score": 0.70, "kind": "code", "text": "a"}]
+        graph_src = [{"path": "src/b.py", "lines": [10, 20], "score": 0.9, "kind": "code", "text": "b"}]
+        merged = idx._merge_graph_into_citations("q", graph_src, results, reranked=False)
+        self.assertEqual(merged, 0)
+        self.assertEqual(len(results), 1)
 
     def test_reader_surfaced_via_reads_edge(self):
         """AC-1/AC-2: a constant's readers surface via the 1p4ls reads edge (structural, not text)."""
