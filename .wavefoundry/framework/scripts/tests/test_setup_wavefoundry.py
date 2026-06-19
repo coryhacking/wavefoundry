@@ -161,3 +161,92 @@ class SetupWavefoundryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GpuDoctorCheckTests(unittest.TestCase):
+    """1p6et: `setup_wavefoundry --check` prints the GPU/provider diagnostic and skips setup;
+    provider_policy.diagnostic_report() is pure-introspection and reflects the probes."""
+
+    def setUp(self):
+        self.mod = load_setup_wavefoundry()
+
+    def test_check_gpu_flag_short_circuits_setup(self):
+        # `--check-gpu` routes to _run_gpu_check and runs NONE of the 3 setup steps. (_run_gpu_check
+        # is mocked here so the test doesn't load a model; its probe behaviour is covered by
+        # test_diagnostic_report_with_probe_selects_probed_provider + the live smoke.)
+        flags = {"gpu": False}
+        steps: list[str] = []
+
+        def fake_gpu_check():
+            flags["gpu"] = True
+            return 0
+
+        with patch.object(self.mod, "_run_gpu_check", side_effect=fake_gpu_check), \
+             patch.object(self.mod, "_load_setup_index", side_effect=lambda: steps.append("setup_index")), \
+             patch.object(self.mod, "_run_render_platform_surfaces", side_effect=lambda: (steps.append("render"), 0)[1]), \
+             patch.object(self.mod, "_run_mcp_server_dry_run", side_effect=lambda: (steps.append("dryrun"), 0)[1]):
+            rc = self.mod.main(["--check-gpu"])
+        self.assertEqual(rc, 0)
+        self.assertTrue(flags["gpu"])
+        self.assertEqual(steps, [])  # no setup step ran — short-circuited
+
+    def test_diagnostic_report_with_probe_selects_probed_provider(self):
+        # 1p6et accuracy fix: with a probe, a probe-required provider (CoreML on Apple Silicon) is
+        # CONFIRMED and selected — matching runtime — rather than falling back to CPU (the no-probe view).
+        import os
+        pp = self.mod._load_provider_policy()
+
+        def fake_probe(provider, **_kw):
+            return pp.ProviderProbeResult(provider, True, "probe ok")
+
+        # Clear any setup-cached / requested provider env (can leak from other test files in the
+        # shared run_tests process — select_embedding_providers short-circuits to a cached provider
+        # before probing) so this test deterministically exercises the probe path.
+        with patch.dict(os.environ, clear=False):
+            os.environ.pop(pp.SETUP_SELECTED_ENV, None)
+            os.environ.pop(pp.REQUESTED_PROVIDER_ENV, None)
+            with patch.object(pp, "nvidia_gpu_present", return_value=False), \
+                 patch.object(pp, "apple_silicon_present", return_value=True), \
+                 patch.object(pp, "available_onnx_providers", return_value=("CoreMLExecutionProvider", "CPUExecutionProvider")), \
+                 patch.object(pp, "detect_cuda12_abi_gap", return_value=None):
+                report = pp.diagnostic_report(provider_probe=fake_probe)
+        self.assertEqual(report["selected_provider"], "CoreMLExecutionProvider")
+
+    def test_diagnostic_report_shape_and_reflects_probes(self):
+        pp = self.mod._load_provider_policy()
+        fake = pp.ProviderDecision(
+            selected_provider="CUDAExecutionProvider",
+            providers=("CUDAExecutionProvider", "CPUExecutionProvider"),
+            available_providers=("CUDAExecutionProvider", "CPUExecutionProvider"),
+            reason="cuda available",
+            remediation=None,
+        )
+        with patch.object(pp, "nvidia_gpu_present", return_value=True), \
+             patch.object(pp, "apple_silicon_present", return_value=False), \
+             patch.object(pp, "available_onnx_providers", return_value=("CUDAExecutionProvider", "CPUExecutionProvider")), \
+             patch.object(pp, "select_embedding_providers", return_value=fake), \
+             patch.object(pp, "detect_cuda12_abi_gap", return_value=None):
+            report = pp.diagnostic_report()
+        self.assertTrue(report["nvidia_gpu_present"])
+        self.assertFalse(report["apple_silicon_present"])
+        self.assertIn("CUDAExecutionProvider", report["available_onnx_providers"])
+        self.assertEqual(report["selected_provider"], "CUDAExecutionProvider")
+        self.assertIsNone(report["cuda12_abi_gap"])
+        self.assertIn("platform", report)
+        text = pp.format_diagnostic_report(report)
+        self.assertIn("would select", text)
+        self.assertIn("CUDAExecutionProvider", text)
+
+    def test_diagnostic_report_filters_remote_azure_provider(self):
+        # 1p6et follow-up: AzureExecutionProvider is a remote/inert EP Wavefoundry never selects;
+        # it must not appear in the diagnostic's available_onnx_providers (local backends only).
+        pp = self.mod._load_provider_policy()
+        with patch.object(pp, "nvidia_gpu_present", return_value=False), \
+             patch.object(pp, "apple_silicon_present", return_value=True), \
+             patch.object(pp, "available_onnx_providers",
+                          return_value=("CoreMLExecutionProvider", "AzureExecutionProvider", "CPUExecutionProvider")), \
+             patch.object(pp, "detect_cuda12_abi_gap", return_value=None):
+            report = pp.diagnostic_report()
+        self.assertNotIn("AzureExecutionProvider", report["available_onnx_providers"])
+        self.assertIn("CoreMLExecutionProvider", report["available_onnx_providers"])
+        self.assertIn("CPUExecutionProvider", report["available_onnx_providers"])

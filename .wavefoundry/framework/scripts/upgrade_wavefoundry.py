@@ -36,6 +36,7 @@ import datetime
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import types
@@ -1192,8 +1193,19 @@ def _remove_deprecated_framework_index(root: Path) -> bool:
     stale = root / ".wavefoundry" / "framework" / "index"
     if not stale.is_dir():
         return False
+    # Wave 1p6d6: on Windows a read-only (or memory-mapped) child file makes shutil.rmtree raise,
+    # so the bare rmtree left the deprecated dir in place. Clear the read-only attribute and retry
+    # the failing op. POSIX is unaffected (no read-only-blocks-delete semantics there).
+    def _clear_readonly_and_retry(func, path, _exc):
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except OSError:
+            pass
+    _rm_kw = ({"onexc": _clear_readonly_and_retry} if sys.version_info >= (3, 12)
+              else {"onerror": _clear_readonly_and_retry})
     try:
-        shutil.rmtree(stale)
+        shutil.rmtree(stale, **_rm_kw)
         _log("  Removed stale .wavefoundry/framework/index/ (deprecated pre-1p4ww framework index).")
         return True
     except OSError as exc:

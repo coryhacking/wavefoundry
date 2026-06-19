@@ -250,18 +250,18 @@ def gardener_run(root: Path, args: argparse.Namespace) -> tuple[int, list[str]]:
     targets = resolve_metadata_targets(root, args)
     for path in targets:
         if refresh_last_verified(path, date_value):
-            rel = str(path.relative_to(root))
+            rel = path.relative_to(root).as_posix()  # Wave 1p6dx: forward-slash in the reindex report
             updated_paths.append(rel)
             stamped_paths.append(rel)
 
     bump_manifest = bool(updated_paths)
     manifest_p, manifest_wrote = ensure_manifest(root, date_value, bump_last_gardened=bump_manifest)
     if manifest_wrote:
-        updated_paths.append(str(manifest_p.relative_to(root)))
+        updated_paths.append(manifest_p.relative_to(root).as_posix())  # Wave 1p6dx: forward-slash
 
     sh_path, sh_created = ensure_session_handoff(root, date_value)
     if sh_created:
-        updated_paths.append(str(sh_path.relative_to(root)))
+        updated_paths.append(sh_path.relative_to(root).as_posix())  # Wave 1p6dx: forward-slash
 
     if not stamped_paths:
         print("docs-gardener: ok (nothing to report)")

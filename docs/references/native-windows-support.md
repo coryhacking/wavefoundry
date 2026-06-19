@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: scoping (not yet admitted to a wave)
-Last verified: 2026-06-17
+Last verified: 2026-06-18
 
 ## Context
 
@@ -52,7 +52,7 @@ The floor is not zero. The work is finishing and verifying, not starting from sc
 | ID | Gap | Evidence | Note |
 | --- | --- | --- | --- |
 | L-1 | No `.gitattributes` for line-ending control | repo root (absent) | With git-for-Windows `core.autocrlf=true`, CRLF can corrupt `#!/usr/bin/env bash` shebangs and is fragile for scripts that read their own source |
-| L-2 | Secrets scan is a no-op off macOS: `if sys.platform != "darwin": return` | `scan_secrets.py:45`, `run_secrets_scan.py:33` | Affects **Windows and Linux** — broader than this initiative; track separately |
+| ~~L-2~~ | ~~Secrets scan is a no-op off macOS~~ — **CORRECTED (wave 1p6d5): not a bug.** The `if sys.platform != "darwin": return` at the cited lines is inside `_physical_perf_core_count()` (a perf-core-count helper that gracefully returns `None` off macOS so the scan uses a default core count). The **secrets scan itself runs on Linux, WSL2, and Windows** — it is not gated by platform. | `scan_secrets.py:40-45`, `run_secrets_scan.py:32-33` (the helper, verified) | No action — the original claim misread the perf helper as a scan gate. |
 | L-3 | DirectML accepted but never auto-detected/installed; `_should_plan_gpu_accel_dependencies` only checks Apple Silicon / NVIDIA | `setup_index.py:168`; `provider_policy.py:93` (`apple_silicon_present`, no `windows_gpu_present`) | Windows-GPU users fall to CPU unless they set `WAVEFOUNDRY_EMBED_PROVIDER=dml` manually |
 | L-4 | `PurePosixPath` used on real filesystem path strings | `chunker.py:10` and call sites | Functional **only because** callers route through `_normalize_path` first; fragile if a raw Windows path ever bypasses it |
 

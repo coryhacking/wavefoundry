@@ -465,8 +465,10 @@ def _probe_embedding_provider(provider: str, *, model_name: str | None = None) -
         return provider_policy.ProviderProbeResult(
             provider,
             True,
-            f"{provider} accepted as the Apple Silicon provider path (correct embeddings; unsupported "
-            f"ops fall back to CPU; probe {candidate_seconds:.3f}s vs CPU {cpu_seconds:.3f}s — not a speedup gate)",
+            f"{provider} accepted as the Apple Silicon provider path on correctness alone (valid "
+            f"embeddings; unsupported ops fall back to CPU; not a speedup gate). NOTE: the times below are "
+            f"a tiny correctness micro-benchmark, NOT representative throughput — the accelerated "
+            f"FP16/static-shape path runs at index time (probe {candidate_seconds:.3f}s vs CPU {cpu_seconds:.3f}s)",
             candidate_seconds=candidate_seconds,
             cpu_seconds=cpu_seconds,
         )
@@ -572,8 +574,20 @@ def _model_cache_corruption_reason(model_name: str) -> str | None:
                     onnx_dir = snapshot_dir / "onnx"
                     if not onnx_dir.is_dir():
                         continue
-                    if not any(onnx_dir.rglob("*.onnx")):
+                    onnx_files = list(onnx_dir.rglob("*.onnx"))
+                    if not onnx_files:
                         return f"missing onnx model artifact: {snapshot_dir.relative_to(model_dir)}"
+                    # Wave 1p6d6: validate the artifact is non-empty even when it is a PLAIN file,
+                    # not a symlink. HF materializes the cache as symlinks only with Developer Mode /
+                    # admin on Windows; otherwise it COPIES real files, so the symlink-gated zero-byte
+                    # checks above never fire — a truncated/zero-byte .onnx would slip through on a
+                    # typical native-Windows cache.
+                    for onnx_file in onnx_files:
+                        try:
+                            if onnx_file.is_file() and onnx_file.stat().st_size == 0:
+                                return f"zero-byte onnx model artifact: {onnx_file.relative_to(model_dir)}"
+                        except OSError:
+                            return f"onnx model artifact unreadable: {onnx_file.relative_to(model_dir)}"
             except OSError:
                 return "snapshot onnx directory unreadable"
     return None

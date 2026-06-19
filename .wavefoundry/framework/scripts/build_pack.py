@@ -801,10 +801,23 @@ def _reexec_with_venv_if_needed() -> None:
         return
     except ImportError:
         pass
-    venv_python = Path.home() / ".wavefoundry" / "venv" / "bin" / "python"
+    # Wave 1p6d6: branch the venv interpreter path on os.name (Windows is
+    # Scripts\python.exe, not bin/python) and honor WAVEFOUNDRY_TOOL_VENV — otherwise on
+    # Windows .exists() is always False and the re-exec silently no-ops, running the build
+    # under system Python without numpy/lancedb.
+    venv_base = Path(os.path.expanduser(
+        os.environ.get("WAVEFOUNDRY_TOOL_VENV") or str(Path.home() / ".wavefoundry" / "venv")
+    ))
+    venv_python = venv_base / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     if not venv_python.exists():
         return  # no venv available; let the error surface naturally
     script_path = str(Path(__file__).resolve())
+    if os.name == "nt":
+        # os.execv on Windows spawns a child and exits the parent with code 0, losing the
+        # child's exit code — mirror the setup_index.py oracle and use subprocess+sys.exit.
+        import subprocess
+        result = subprocess.run([str(venv_python), script_path, *sys.argv[1:]], check=False)
+        sys.exit(result.returncode)
     os.execv(str(venv_python), [str(venv_python), script_path, *sys.argv[1:]])
 
 

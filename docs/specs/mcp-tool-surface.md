@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-17
+Last verified: 2026-06-18
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -81,6 +81,7 @@ Initial core set:
 | `wave_index_health`  | Check semantic index health and surface stale/missing layers                                    |
 | `wave_index_build_status` | Poll a detached background index refresh                                                    |
 | `wave_index_build`   | Run a synchronous index build: `**mode='update'**` (incremental) or `**mode='rebuild'**` (full) |
+| `wave_gpu_doctor`    | Embedding-provider / GPU capability diagnostic — platform, onnxruntime, GPU detection (nvidia/apple), available ONNX providers, the provider Wavefoundry would select (+ reason/remediation), CUDA 12/13 ABI-gap. Read-only; same report as `setup-wavefoundry --check-gpu` |
 
 
 The `wave_new_<kind>` family covers all ten change kinds. Use the kind-specific tool that matches the change; `wave_new_change` is the general fallback.

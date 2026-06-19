@@ -308,20 +308,20 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     if (repo_root / ".cursor").exists():
         cursor_rule = repo_root / ".cursor" / "rules" / "auto-guru.mdc"
         write_text(cursor_rule, CURSOR_AUTO_GURU_MDC)
-        written.append(str(cursor_rule.relative_to(repo_root)))
+        written.append(cursor_rule.relative_to(repo_root).as_posix())  # Wave 1p6dx: forward-slash
 
     if (repo_root / ".claude").exists():
         claude_agent = repo_root / ".claude" / "agents" / "guru.md"
         write_text(claude_agent, CLAUDE_GURU_AGENT)
-        written.append(str(claude_agent.relative_to(repo_root)))
+        written.append(claude_agent.relative_to(repo_root).as_posix())  # Wave 1p6dx: forward-slash
 
     codex_skill = repo_root / ".codex" / "skills" / "auto-guru" / "SKILL.md"
     write_text(codex_skill, CODEX_AUTO_GURU_SKILL)
-    written.append(str(codex_skill.relative_to(repo_root)))
+    written.append(codex_skill.relative_to(repo_root).as_posix())  # Wave 1p6dx: forward-slash
 
     codex_mcp_config = repo_root / ".codex" / "config.toml"
     write_text(codex_mcp_config, CODEX_MCP_CONFIG_TOML)
-    written.append(str(codex_mcp_config.relative_to(repo_root)))
+    written.append(codex_mcp_config.relative_to(repo_root).as_posix())  # Wave 1p6dx: forward-slash
 
     # Root @import bridge — make CLAUDE.md a real @AGENTS.md import (1p5xc).
     # The single, contained @import; replaces the prose "read AGENTS.md first"
@@ -364,7 +364,7 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     ]
     for path, heading in pointer_specs:
         if patch_thin_pointer(path, AUTO_GURU_BULLET, after_heading=heading):
-            written.append(str(path.relative_to(repo_root)))
+            written.append(path.relative_to(repo_root).as_posix())  # Wave 1p6dx: forward-slash
 
     cursor_ctx = repo_root / ".cursor" / "rules" / "project-context.mdc"
     if cursor_ctx.is_file():
@@ -374,7 +374,7 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
         updated = upsert_marked_region(text, CURSOR_PROJECT_CONTEXT_BLOCK.strip())
         if updated != cursor_ctx.read_text(encoding="utf-8"):
             cursor_ctx.write_text(updated, encoding="utf-8")
-            written.append(str(cursor_ctx.relative_to(repo_root)))
+            written.append(cursor_ctx.relative_to(repo_root).as_posix())  # Wave 1p6dx: forward-slash
 
     # Dedupe while preserving order (CLAUDE.md may be touched by both the
     # root-bridge step and the auto-Guru tier-2 step).

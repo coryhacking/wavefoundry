@@ -1321,3 +1321,17 @@ class GeneratorAreaSelectionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AreaContextHrefPortabilityTests(unittest.TestCase):
+    """1p6d6: _area_context_link_href emits forward-slash hrefs on EVERY OS (posixpath, not
+    os.path.relpath which is ntpath.relpath on Windows -> backslash href that breaks the map
+    link + docs-lint)."""
+
+    def test_href_is_forward_slash_on_all_os(self):
+        gen = load_gen()
+        href = gen._area_context_link_href("libs/ui/AGENTS.md")
+        self.assertNotIn("\\", href)
+        self.assertIn("/", href)
+        # docs/references/codebase-map.md -> two levels up to the repo-root path
+        self.assertEqual(href, "../../libs/ui/AGENTS.md")

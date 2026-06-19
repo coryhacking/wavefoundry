@@ -2,7 +2,11 @@
 
 Owner: wave-coordinator
 Status: active
-Last verified: 2026-06-17
+Last verified: 2026-06-18
+
+## Hotfix — Claude hook commands anchored on $CLAUDE_PROJECT_DIR (2026-06-18)
+
+**Operator-requested fix ("fix the stop hook error"), no-wave (hotfix waiver).** Root cause: Claude Code runs hook commands via `/bin/sh -c` from a cwd not guaranteed to be the repo root, so the bare-relative `command: ".claude/hooks/session-capture"` failed every Stop with `/bin/sh: .claude/hooks/session-capture: No such file or directory` (reproduced from a non-repo cwd; exec bit fine — pure cwd/relative-path issue). Fix: `render_platform_surfaces.launcher_command` gained a `project_dir_var` param; the Claude caller now emits the quoted, anchored form `"$CLAUDE_PROJECT_DIR/.claude/hooks/<hook>"` (POSIX) / `cmd.exe /c "%CLAUDE_PROJECT_DIR%\.claude\hooks\<hook>.cmd"` (nt). Regenerated `.claude/settings.json` (plugins preserved); test command-assertions + the simulate-map name-extraction helper updated; full suite 3315 green. **Scope:** Claude only (confirmed). Cursor/Copilot/Windsurf still emit relative commands (their project-root var is unverified — `${workspaceFolder}` may not expand in a command field) — likely the same latent issue, tracked as a follow-up. **Takes effect on the next Claude Code session / settings reload** (the current session loaded the old command). UNCOMMITTED.
 
 ## Stage-gate waiver (2026-06-17)
 

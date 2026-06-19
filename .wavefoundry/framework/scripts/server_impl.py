@@ -2745,10 +2745,11 @@ def _background_build_status(root: Path) -> str:
         return "none"
     try:
         pid = int(pid_path.read_text(encoding="utf-8").strip())
-        os.kill(pid, 0)
-        return "running"
     except (ValueError, OSError):
         return "completed"
+    # Wave 1p6d6: route through the guarded _pid_is_running (Windows-correct via tasklist)
+    # instead of an inline os.kill that misjudges liveness on native Windows.
+    return "running" if _pid_is_running(pid) else "completed"
 
 
 def _background_build_progress(root: Path) -> str:
@@ -4556,6 +4557,20 @@ def _indexable_refresh_path(rel_path: str) -> bool:
 def _pid_is_running(pid: int) -> bool:
     if pid <= 0:
         return False
+    # Wave 1p6d6: os.kill(pid, 0) is unreliable on native Windows; use tasklist there (mirrors
+    # the already-guarded copies in indexer.py / upgrade_lib.py). This was the ONLY unguarded
+    # liveness check, and it is called from 12+ sites incl. the dashboard 1p654 reconciliation —
+    # the bare os.kill misjudged live/dead PIDs on Windows. POSIX branch is unchanged.
+    if os.name == "nt":
+        import subprocess  # local import — server_impl imports subprocess per-function (convention)
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
+                capture_output=True, text=True, check=False,
+            )
+            return str(pid) in result.stdout
+        except OSError:
+            return False
     try:
         os.kill(pid, 0)
     except OSError:
@@ -4666,13 +4681,21 @@ def _start_background_index_refresh(root: Path, layer: str = "project") -> bool:
     # Project layer: indexer.py reads workflow-config project include-prefixes
     # itself (docs+code merged for the co-running graph extraction), so the
     # background refresh launches it bare.
+    # Wave 1p6d6: detach the background reindex correctly per-OS — on Windows start_new_session
+    # is a no-op, so without creationflags the child stays in the server's process group and dies
+    # with it. Mirror the three sibling spawns (server_impl.py:3487, :6654, setup_index.py).
+    detach_kwargs = {}
+    if os.name == "nt":
+        detach_kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        detach_kwargs["start_new_session"] = True
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         cwd=str(root),
-        start_new_session=True,
         close_fds=os.name != "nt",
+        **detach_kwargs,
     )
     import time
     state_path.write_text(
@@ -15534,7 +15557,7 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         top_path = citations[0].get("path", "")
         if top_path:
             try:
-                with (root / top_path).open() as _f:
+                with (root / top_path).open(encoding="utf-8", errors="replace") as _f:
                     line_count = sum(1 for _ in _f)
                 if line_count > 300:
                     next_tools = ["code_outline", "code_read"]
@@ -15681,6 +15704,24 @@ def wave_server_info_response(root: Path, *, server_runner_version: str | None =
         usage="wave_server_info()",
     )
 
+
+def wave_gpu_doctor_response(root: Path) -> dict[str, Any]:
+    """Wave 1p6et: embedding-provider / GPU capability diagnostic (read-only). Runs setup's bounded
+    provider probe so the selected provider matches runtime (CoreML on Apple Silicon, etc.). The probe
+    loads a model, so stdout is redirected to stderr to keep the MCP stdio stream clean."""
+    import contextlib
+    import sys as _sys
+    import provider_policy
+    import setup_index
+    with contextlib.redirect_stdout(_sys.stderr):
+        report = provider_policy.diagnostic_report(provider_probe=setup_index._probe_embedding_provider)
+    return _response(
+        "ok",
+        report,
+        next_tools=["wave_index_health", "wave_server_info"],
+        usage="wave_gpu_doctor()",
+    )
+
 def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     """Register tools and resources; resolve state via get_handler() for hot reload."""
     # Wave 1p2q3 (131hh): stash the FastMCP instance and register the post-rebuild
@@ -15724,6 +15765,18 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         return wave_server_info_response(get_handler().root)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def wave_gpu_doctor(**kwargs: Any) -> dict[str, Any]:
+        """Embedding-provider / GPU capability diagnostic — platform, onnxruntime, GPU detection
+        (nvidia/apple), available ONNX execution providers, the provider Wavefoundry would select
+        (+ reason/remediation), and the CUDA 12/13 ABI-gap check. Read-only, pure introspection
+        (no model load / index build). Same report as the `setup-wavefoundry --check-gpu` CLI.
+        """
+        bad = _ensure_no_extra_args("wave_gpu_doctor", kwargs)
+        if bad is not None:
+            return bad
+        return wave_gpu_doctor_response(get_handler().root)
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def docs_search(

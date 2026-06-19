@@ -81,7 +81,10 @@ def build_allowlist(root: Path) -> None:
 
     seen_keys: set[str] = set()
     for entry in sorted(framework_entries, key=lambda e: (e.get("file", ""), e.get("rule_id", ""), e.get("line", 0))):
-        rel = entry["file"]
+        # Wave 1p6dx: defense-in-depth — normalize a legacy/backslash allowlist input to forward
+        # slashes (the source in secrets_validators now emits `/`). Keeps the `root / rel` lookup,
+        # the `framework_rel` prefix slice, and the emitted `<sha256>:<rel>:…` key all consistent.
+        rel = entry["file"].replace("\\", "/")
         rule_id = entry["rule_id"]
         file_path = root / rel
         if not file_path.is_file():

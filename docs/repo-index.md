@@ -35,21 +35,22 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 5328 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 622 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 5363 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 591 |
 | graph | `.wavefoundry/framework/scripts` | code | 214 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 196 |
 | wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 177 |
 | chunker | `.wavefoundry/framework/scripts` | code | 161 |
-| dashboard_lib | `.wavefoundry/framework/scripts` | code | 132 |
+| dashboard_lib | `.wavefoundry/framework/scripts` | code | 121 |
 | indexer | `.wavefoundry/framework/scripts` | code | 101 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 79 |
-| setup | `.wavefoundry/framework/scripts` | code | 65 |
-| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 55 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 80 |
+| setup | `.wavefoundry/framework/scripts` | code | 75 |
+| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 54 |
 | render_platform_surfaces | `.wavefoundry/framework/scripts` | code | 53 |
+| dashboard_server | `.wavefoundry/framework/scripts` | code | 50 |
 | build_pack | `.wavefoundry/framework/scripts` | code | 48 |
-| graph_cluster | `.wavefoundry/framework/scripts` | code | 36 |
 | server | `.wavefoundry/framework/scripts` | code | 34 |
+| graph_query | `.wavefoundry/framework/scripts` | code | 26 |
 | accel_embedder | `.wavefoundry/framework/scripts` | code | 25 |
 | upgrade_extensions | `.wavefoundry/framework/scripts` | code | 21 |
 | docs_gardener | `.wavefoundry/framework/scripts` | code | 17 |

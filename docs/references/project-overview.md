@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-17
+Last verified: 2026-06-18
 
 ## What Wavefoundry Is
 
@@ -18,6 +18,25 @@ As a project, Wavefoundry is the canonical repository for the Wave Framework and
 4. **Local dashboard surface** — a loopback-only operational dashboard served from `.wavefoundry/framework/dashboard/` by `.wavefoundry/framework/scripts/dashboard_server.py`.
 
 For a full conceptual overview see `docs/references/wavefoundry-overview.md`.
+
+## Supported Platforms
+
+Wavefoundry is local-only and runs wherever a supported Python and AI host run. The single source of truth for platform support:
+
+| Platform | Status | Notes |
+| --- | --- | --- |
+| **macOS** (Apple Silicon + Intel) | **Supported** | Primary dev platform. Apple Silicon gets CoreML/GPU embedding acceleration; Intel runs CPU. |
+| **Linux** (x86_64 / arm64) | **Supported** | Continuously exercised (dev/CI). CPU embedding by default; NVIDIA CUDA used when present. |
+| **Windows via WSL2** | **Supported** | WSL2 **is** Linux — it runs the identical POSIX code path (`os.name == 'posix'`, `bin/python`, `fcntl`, `os.kill`, shebang launchers) with no separate install and no special flags. CUDA works via WSL2 GPU passthrough; CoreML/DirectML do not apply (CPU otherwise). See the WSL2 gotchas below. |
+| **Native Windows** (Terminal / PowerShell / cmd) | **Not yet supported — planned** | The agent entry points (MCP launcher, `bin/` launchers) are not yet Windows-runnable. Roadmap + scoping: `docs/references/native-windows-support.md`. The Python execution layer has been pre-hardened (wave `1p6d5`), but end-to-end native-Windows support awaits the launcher work. |
+
+**WSL2 gotchas** (the few that matter — all are environment setup, not framework config):
+
+1. **Keep the repo on the Linux filesystem** (`~/projects/...`), **not** a Windows drive mount (`/mnt/c/...`). DrvFs cross-OS I/O is dramatically slower and will make index builds and file-watching crawl.
+2. **The tool venv lives inside the WSL2 distro** at `~/.wavefoundry/venv` — not under the Windows `%USERPROFILE%`. Run setup from inside WSL2.
+3. **GPU:** NVIDIA CUDA works via WSL2 GPU passthrough (`nvidia_gpu_present` detects it); CoreML (macOS) and DirectML (native Windows) do not apply under WSL2.
+
+**Validation status:** the Linux/POSIX path is exercised continuously (the framework is POSIX; dev and CI run on macOS/Linux), and WSL2 runs that same path. A dedicated WSL2 smoke pass is published as a reproducible runbook at `docs/reports/wsl2-smoke-checklist.md` — a real WSL2 user (or a WSL2 box) can run it to confirm the blessed-target claim end to end.
 
 ## Orient with the codebase map first
 

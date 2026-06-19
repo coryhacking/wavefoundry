@@ -65,7 +65,36 @@ def _run_mcp_server_dry_run() -> int:
     return result.returncode
 
 
+def _load_provider_policy():
+    # Plain import (not importlib spec): registers as "provider_policy" in sys.modules so the
+    # frozen @dataclass annotation evaluation resolves; provider_policy imports onnxruntime lazily
+    # so this is cheap and works pre-setup.
+    if str(_SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(_SCRIPTS_DIR))
+    import provider_policy
+    return provider_policy
+
+
+def _run_gpu_check() -> int:
+    """Wave 1p6et: print the embedding-provider / GPU capability diagnostic and exit (no setup).
+
+    Does NOT run the venv/dep/index setup steps. Invoked via ``setup_wavefoundry.py --check-gpu``
+    (or ``.wavefoundry/bin/setup-wavefoundry --check-gpu``).
+    """
+    provider_policy = _load_provider_policy()
+    setup_index = _load_setup_index()
+    # Pass setup's bounded probe so the report's selected provider matches what setup/runtime pick
+    # (e.g. CoreML on Apple Silicon). The probe loads a model; absent a cached model it degrades to CPU.
+    report = provider_policy.diagnostic_report(provider_probe=setup_index._probe_embedding_provider)
+    print(provider_policy.format_diagnostic_report(report))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    # Wave 1p6et: `--check-gpu` prints the GPU/provider diagnostic and exits WITHOUT running setup.
+    args = list(sys.argv[1:] if argv is None else argv)
+    if "--check-gpu" in args:
+        return _run_gpu_check()
     # Step 1: venv + framework deps + semantic indexes (via setup_index.py).
     # argv is forwarded so operators can pass --root, --full, etc.
     _print_step("Step 1/3: venv + framework deps + semantic indexes (setup_index.py)")

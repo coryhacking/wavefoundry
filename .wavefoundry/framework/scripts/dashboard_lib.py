@@ -229,29 +229,59 @@ def write_dashboard_metadata(root: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+def _windows_process_cmdlines() -> str | None:
+    """Wave 1p6eq: best-effort ``<pid> <command line>`` listing on native Windows, one process per
+    line, via PowerShell + CIM (``Get-CimInstance Win32_Process`` — the only built-in that exposes a
+    process's full CommandLine; ``tasklist`` does not). Pre-filtered to dashboard_server.py. Returns
+    None on ANY failure so the caller falls back to bare recorded-PID liveness (no regression).
+    FORWARD-COMPAT: unverified on a real Windows host (native Windows is Area-1) — Windows-smoke-deferred.
+    """
+    import subprocess
+
+    ps_script = (
+        "Get-CimInstance Win32_Process | "
+        "Where-Object { $_.CommandLine -and $_.CommandLine -like '*dashboard_server.py*' } | "
+        "ForEach-Object { \"$($_.ProcessId) $($_.CommandLine)\" }"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+    except Exception:  # noqa: BLE001 — best-effort; any failure → fall back to bare-PID liveness
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
 def dashboard_cmdline_pids(root: Path) -> list[int] | None:
     """Live `dashboard_server.py --root <root>` PIDs, by process-cmdline scan (1p654).
 
     Reconciliation against actual processes — not just the recorded-PID metadata —
     so a drifted/removed metadata file can't hide an orphaned dashboard, and a
-    recycled/zombie PID can't masquerade as the running server. POSIX-only (`ps`,
-    dependency-free); returns ``None`` when a scan is unavailable/failed (Windows,
-    or `ps` error) so callers fall back to the bare liveness check (no regression).
+    recycled/zombie PID can't masquerade as the running server. Uses `ps` on POSIX
+    and a best-effort PowerShell/CIM scan on native Windows (1p6eq); returns ``None``
+    when a scan is unavailable/failed (PowerShell or `ps` error) so callers fall back
+    to the bare liveness check (no regression).
     Matches ONLY processes whose `--root` resolves to this exact root; the current
     process is excluded. Shared home (1p654 review follow-up): consumed by both the
     server lifecycle (server_impl) and upgrade dashboard detection.
     """
+    # Wave 1p6eq: native Windows now gets a cmdline scan too (was `return None`, which disabled the
+    # 1p654 orphan reconciliation on Windows). Best-effort — the helper returns None on any failure,
+    # so the isinstance guard below falls back to bare recorded-PID liveness (no regression).
     if os.name == "nt":
-        return None
-    import subprocess
-
-    try:
-        out = subprocess.run(
-            ["ps", "-axww", "-o", "pid=,command="],
-            capture_output=True, text=True, check=False,
-        ).stdout
-    except Exception:  # noqa: BLE001 — best-effort scan; any failure → fall back
-        return None
+        out = _windows_process_cmdlines()
+    else:
+        import subprocess
+        try:
+            out = subprocess.run(
+                ["ps", "-axww", "-o", "pid=,command="],
+                capture_output=True, text=True, check=False,
+            ).stdout
+        except Exception:  # noqa: BLE001 — best-effort scan; any failure → fall back
+            return None
     if not isinstance(out, str):
         return None
     try:

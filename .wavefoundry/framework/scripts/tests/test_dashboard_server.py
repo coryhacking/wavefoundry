@@ -1510,6 +1510,33 @@ class DashboardProcessControlTests(unittest.TestCase):
         with patch("subprocess.run", side_effect=OSError("boom")):
             self.assertIsNone(self.server._dashboard_cmdline_pids(self.root))
 
+    def test_windows_process_cmdlines_helper(self):
+        # 1p6eq: the PowerShell/CIM helper returns stdout on success and None on any failure. Its
+        # output feeds the SAME matching loop the POSIX `ps` path uses — and that parse/match is
+        # covered by test_cmdline_scan_parses_and_matches_root. The nt-branch end-to-end (selection
+        # + matching under os.name='nt') can't run on a POSIX host because the loop's
+        # Path(...).resolve() instantiates WindowsPath — so it is Windows-smoke-deferred.
+        from types import SimpleNamespace
+        ok = "1001 C:\\py\\python.exe C:\\x\\dashboard_server.py --root C:\\r\n"
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=ok)) as run:
+            self.assertEqual(self.lib._windows_process_cmdlines(), ok)
+            argv = run.call_args[0][0]
+            self.assertEqual(argv[0], "powershell")
+            self.assertIn("Get-CimInstance Win32_Process", " ".join(argv))
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=1, stdout="")):
+            self.assertIsNone(self.lib._windows_process_cmdlines())
+        with patch("subprocess.run", side_effect=OSError("powershell missing")):
+            self.assertIsNone(self.lib._windows_process_cmdlines())
+
+    def test_cmdline_scan_windows_returns_none_on_failure(self):
+        # 1p6eq: any PowerShell failure → None → caller falls back to bare-PID liveness (no regression).
+        from types import SimpleNamespace
+        with patch.object(self.lib.os, "name", "nt"):
+            with patch("subprocess.run", return_value=SimpleNamespace(returncode=1, stdout="")):
+                self.assertIsNone(self.server._dashboard_cmdline_pids(self.root))
+            with patch("subprocess.run", side_effect=OSError("powershell missing")):
+                self.assertIsNone(self.server._dashboard_cmdline_pids(self.root))
+
     def test_start_reconciles_orphans_before_spawn(self):
         # AC-3: no valid recorded instance + a live orphan → start terminates the
         # orphan (replace, not spawn-alongside) and emits dashboard_orphan_detected.

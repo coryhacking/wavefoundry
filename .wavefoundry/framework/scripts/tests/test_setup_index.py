@@ -437,6 +437,7 @@ class SetupIndexTests(unittest.TestCase):
             other = self.mod._probe_embedding_provider("OpenVINOExecutionProvider", model_name="m")
         self.assertTrue(coreml.ok, coreml.reason)
         self.assertIn("not a speedup gate", coreml.reason)
+        self.assertIn("micro-benchmark", coreml.reason)  # 1p6et: timing labelled non-representative
         self.assertFalse(other.ok, other.reason)
         self.assertIn("did not beat CPU", other.reason)
 
@@ -590,6 +591,31 @@ class SetupIndexTests(unittest.TestCase):
                 reason = self.mod._model_cache_corruption_reason("org/model")
         self.assertIsNotNone(reason)
         self.assertIn("missing onnx model artifact", reason)
+
+    def test_model_cache_corruption_reason_detects_zero_byte_plain_onnx(self):
+        # 1p6d6: Windows COPIES the HF cache (symlinks need Developer Mode / admin), so a truncated
+        # artifact is a PLAIN zero-byte .onnx — the symlink-gated zero-byte checks never fire. The
+        # snapshot check must validate plain files too, else a corrupt cache passes on Windows.
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_root = Path(tmp)
+            onnx_dir = cache_root / "models--org--model" / "snapshots" / "rev1" / "onnx"
+            onnx_dir.mkdir(parents=True, exist_ok=True)
+            (onnx_dir / "model.onnx").write_bytes(b"")  # plain zero-byte file, NOT a symlink
+            with patch.dict(os.environ, {"FASTEMBED_CACHE_PATH": str(cache_root)}):
+                reason = self.mod._model_cache_corruption_reason("org/model")
+        self.assertIsNotNone(reason)
+        self.assertIn("zero-byte onnx model artifact", reason)
+
+    def test_model_cache_corruption_reason_accepts_nonempty_plain_onnx(self):
+        # No false positive: a real (non-empty) plain-file .onnx cache is clean.
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_root = Path(tmp)
+            onnx_dir = cache_root / "models--org--model" / "snapshots" / "rev1" / "onnx"
+            onnx_dir.mkdir(parents=True, exist_ok=True)
+            (onnx_dir / "model.onnx").write_bytes(b"onnxdata")
+            with patch.dict(os.environ, {"FASTEMBED_CACHE_PATH": str(cache_root)}):
+                reason = self.mod._model_cache_corruption_reason("org/model")
+        self.assertIsNone(reason)
 
     def test_prewarm_required_model_quarantines_and_retries_once(self):
         calls = {"count": 0}

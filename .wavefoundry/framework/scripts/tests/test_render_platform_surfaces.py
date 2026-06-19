@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -55,12 +56,17 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
             # Wave 1p590: hook commands are PROJECT-RELATIVE (never machine-absolute) so a clone works.
+            # 1p6dx: Claude hook commands are anchored on $CLAUDE_PROJECT_DIR (quoted) so they
+            # resolve regardless of the host's cwd. Cursor/Copilot keep the relative form (their
+            # project-root var is unverified — tracked as a follow-up).
             if os.name == "nt":
-                expected_claude_command = "cmd.exe /c .claude\\hooks\\pre-edit.cmd"
-                expected_cursor_command = "cmd.exe /c .cursor\\hooks\\after-file-edit.cmd"
-                expected_copilot_command = "cmd.exe /c .github\\hooks\\pre-tool-use.cmd"
+                # 1p6dx: forward slashes everywhere, including the cmd.exe form; the bare
+                # (no project-dir-var) form is now quoted too.
+                expected_claude_command = 'cmd.exe /c "%CLAUDE_PROJECT_DIR%/.claude/hooks/pre-edit.cmd"'
+                expected_cursor_command = 'cmd.exe /c ".cursor/hooks/after-file-edit.cmd"'
+                expected_copilot_command = 'cmd.exe /c ".github/hooks/pre-tool-use.cmd"'
             else:
-                expected_claude_command = ".claude/hooks/pre-edit"
+                expected_claude_command = '"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-edit"'
                 expected_cursor_command = ".cursor/hooks/after-file-edit"
                 expected_copilot_command = ".github/hooks/pre-tool-use"
 
@@ -72,9 +78,9 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
 
             # Wave 1p5ti: session-end capture hook is rendered for Stop + SubagentStop.
             if os.name == "nt":
-                expected_stop_command = "cmd.exe /c .claude\\hooks\\session-capture.cmd"
+                expected_stop_command = 'cmd.exe /c "%CLAUDE_PROJECT_DIR%/.claude/hooks/session-capture.cmd"'
             else:
-                expected_stop_command = ".claude/hooks/session-capture"
+                expected_stop_command = '"$CLAUDE_PROJECT_DIR/.claude/hooks/session-capture"'
             self.assertEqual(
                 claude_settings["hooks"]["Stop"][0]["hooks"][0]["command"],
                 expected_stop_command,
@@ -499,14 +505,14 @@ class ClaudeHookSimulateParityTests(unittest.TestCase):
         """Script basenames referenced by every hook entry in .claude/settings.json.
 
         e.g. command ".claude/hooks/session-capture" (or the Windows
-        "cmd.exe /c .claude\\hooks\\session-capture.cmd" form) -> "session-capture".
+        'cmd.exe /c ".claude/hooks/session-capture.cmd"' form) -> "session-capture".
         """
         names: set[str] = set()
         for entries in settings.get("hooks", {}).values():
             for entry in entries:
                 for hook in entry.get("hooks", []):
                     command = hook["command"]
-                    token = command.split()[-1]  # drop "cmd.exe /c " prefix on Windows
+                    token = command.split()[-1].strip('"')  # drop "cmd.exe /c " prefix + quotes (1p6dx $CLAUDE_PROJECT_DIR anchoring)
                     base = token.replace("\\", "/").rsplit("/", 1)[-1]
                     if base.endswith(".cmd"):
                         base = base[: -len(".cmd")]
@@ -543,3 +549,61 @@ class ClaudeHookSimulateParityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ForwardSlashPolicyTests(unittest.TestCase):
+    """1p6dx: every path we WRITE uses forward slashes — including the operator-directed launcher/
+    cmd command strings. cmd.exe accepts `/` in a quoted, env-rooted path (the path is kept quoted);
+    forward-slash cmd.exe *execution* is Windows-smoke-deferred (native Windows is Area-1)."""
+
+    def setUp(self):
+        self.mod = _load_render_module()
+
+    def test_launcher_command_nt_uses_forward_slashes_and_is_quoted(self):
+        mod = self.mod
+        with patch.object(mod.os, "name", "nt"):
+            anchored = mod.launcher_command(".claude/hooks/session-capture", "CLAUDE_PROJECT_DIR")
+            self.assertNotIn("\\", anchored)
+            self.assertIn("/", anchored)
+            self.assertEqual(
+                anchored,
+                'cmd.exe /c "%CLAUDE_PROJECT_DIR%/.claude/hooks/session-capture.cmd"',
+            )
+            # bare (no project-dir var) form is quoted too, with forward slashes
+            bare = mod.launcher_command(".cursor/hooks/after-file-edit")
+            self.assertNotIn("\\", bare)
+            self.assertEqual(bare, 'cmd.exe /c ".cursor/hooks/after-file-edit.cmd"')
+
+    def test_launcher_command_posix_unchanged(self):
+        mod = self.mod
+        with patch.object(mod.os, "name", "posix"):
+            self.assertEqual(
+                mod.launcher_command(".claude/hooks/session-capture", "CLAUDE_PROJECT_DIR"),
+                '"$CLAUDE_PROJECT_DIR/.claude/hooks/session-capture"',
+            )
+            self.assertEqual(mod.launcher_command(".cursor/hooks/after-file-edit"), ".cursor/hooks/after-file-edit")
+
+    def test_windows_launcher_source_has_no_backslashes(self):
+        src = self.mod.windows_launcher_source("docs-lint")
+        self.assertNotIn("\\", src)
+        self.assertIn("%WAVEFOUNDRY_TOOL_VENV%/Scripts/python.exe", src)
+        self.assertIn("%USERPROFILE%/.wavefoundry/venv/Scripts/python.exe", src)
+
+
+class GpuDoctorLauncherTests(unittest.TestCase):
+    """1p6et: there is NO dedicated GPU-doctor bin launcher — the diagnostic is reached via
+    `setup-wavefoundry --check-gpu` and the `wave_gpu_doctor` MCP tool (regression guard against
+    re-adding a launcher)."""
+
+    def setUp(self):
+        self.mod = _load_render_module()
+
+    def test_no_dedicated_gpu_doctor_launcher_rendered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self.mod.render_bin_launchers(repo_root)
+            bin_dir = repo_root / ".wavefoundry" / "bin"
+            self.assertFalse((bin_dir / "wave-gpu-doctor").exists())
+            self.assertFalse((bin_dir / "wave-doctor").exists())
+            # the canonical setup-wavefoundry launcher (which accepts --check-gpu) is still rendered
+            self.assertTrue((bin_dir / "setup-wavefoundry").exists())

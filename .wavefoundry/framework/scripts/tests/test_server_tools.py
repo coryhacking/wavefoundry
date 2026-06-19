@@ -18305,3 +18305,82 @@ class CodeImpactErgonomicsTests(unittest.TestCase):
         d = resp["data"]
         self.assertEqual(d["resolved"], True, "graph-mode `resolved` must be True (was null)")
         self.assertEqual(d["node_id"], "m.py::hub")
+
+
+class WindowsLivenessGuardTests(unittest.TestCase):
+    """1p6d6: _pid_is_running uses tasklist on native Windows (the formerly-unguarded check called
+    from 12+ sites incl. the dashboard 1p654 reconciliation); the POSIX path stays os.kill (byte-
+    identical). _background_build_status routes through the guard instead of an inline os.kill."""
+
+    def setUp(self):
+        self.srv = load_server()
+
+    def test_pid_non_positive_is_false(self):
+        self.assertFalse(self.srv._pid_is_running(0))
+        self.assertFalse(self.srv._pid_is_running(-5))
+
+    def test_posix_uses_os_kill_unchanged(self):
+        srv = self.srv
+        with patch.object(srv.os, "name", "posix"):
+            with patch.object(srv.os, "kill") as killed:
+                self.assertTrue(srv._pid_is_running(4321))
+                killed.assert_called_once_with(4321, 0)
+            with patch.object(srv.os, "kill", side_effect=OSError()):
+                self.assertFalse(srv._pid_is_running(4321))
+
+    def test_windows_uses_tasklist(self):
+        srv = self.srv
+        with patch.object(srv.os, "name", "nt"):
+            present = MagicMock(stdout='"python.exe","4321","Console","1","50,000 K"\r\n')
+            with patch("subprocess.run", return_value=present) as run:
+                self.assertTrue(srv._pid_is_running(4321))
+                argv = run.call_args[0][0]
+                self.assertEqual(argv[0], "tasklist")
+                self.assertIn("PID eq 4321", argv)
+            absent = MagicMock(stdout="INFO: No tasks are running which match the specified criteria.\r\n")
+            with patch("subprocess.run", return_value=absent):
+                self.assertFalse(srv._pid_is_running(4321))
+            with patch("subprocess.run", side_effect=OSError()):
+                self.assertFalse(srv._pid_is_running(4321))
+
+    def test_background_build_status_routes_through_guard(self):
+        srv = self.srv
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".wavefoundry" / "index").mkdir(parents=True)
+            (root / ".wavefoundry" / "index" / "background-build.pid").write_text("4321", encoding="utf-8")
+            with patch.object(srv, "_pid_is_running", return_value=True):
+                self.assertEqual(srv._background_build_status(root), "running")
+            with patch.object(srv, "_pid_is_running", return_value=False):
+                self.assertEqual(srv._background_build_status(root), "completed")
+        # absent pid file -> "none"
+        with tempfile.TemporaryDirectory() as tmp2:
+            self.assertEqual(srv._background_build_status(Path(tmp2)), "none")
+
+
+class GpuDoctorToolTests(unittest.TestCase):
+    """1p6et: wave_gpu_doctor_response wraps the provider diagnostic in the read-only envelope."""
+
+    def setUp(self):
+        self.srv = load_server()
+
+    def test_response_envelope_wraps_diagnostic_report(self):
+        # wave_gpu_doctor_response now runs setup's bounded probe; mock select_embedding_providers so
+        # the unit test doesn't load a model (probe-selection itself is covered in test_setup_wavefoundry).
+        import provider_policy
+        fake = provider_policy.ProviderDecision(
+            selected_provider="CPUExecutionProvider",
+            providers=("CPUExecutionProvider",),
+            available_providers=("CPUExecutionProvider",),
+            reason="test",
+            remediation=None,
+        )
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("provider_policy.select_embedding_providers", return_value=fake):
+            resp = self.srv.wave_gpu_doctor_response(Path(tmp))
+        self.assertEqual(resp["status"], "ok")
+        data = resp["data"]
+        for key in ("platform", "onnxruntime_version", "nvidia_gpu_present", "apple_silicon_present",
+                    "available_onnx_providers", "selected_provider", "selection_reason", "cuda12_abi_gap"):
+            self.assertIn(key, data)
+        self.assertEqual(resp["usage"], "wave_gpu_doctor()")

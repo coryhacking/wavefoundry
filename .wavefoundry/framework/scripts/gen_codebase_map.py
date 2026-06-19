@@ -35,6 +35,7 @@ import argparse
 import importlib.util
 import json
 import os
+import posixpath
 import re
 import sys
 from collections import defaultdict
@@ -1317,7 +1318,11 @@ def _area_context_link_href(rel_path: str) -> str:
     """
     map_dir = PurePosixPath(OUTPUT_REL_PATH).parent
     target = PurePosixPath(rel_path)
-    return os.path.relpath(target.as_posix(), map_dir.as_posix())
+    # Wave 1p6d6: use posixpath.relpath, NOT os.path.relpath — on Windows the latter is
+    # ntpath.relpath, which joins its result with `\` regardless of forward-slash inputs,
+    # emitting a backslash href (`..\..\libs\ui\AGENTS.md`) that breaks the markdown link +
+    # docs-lint on a Windows-generated map. posixpath keeps `/` on every OS.
+    return posixpath.relpath(target.as_posix(), map_dir.as_posix())
 
 
 def render_markdown(

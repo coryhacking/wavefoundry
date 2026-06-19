@@ -332,3 +332,68 @@ def format_provider_decision(decision: ProviderDecision) -> str:
     if decision.remediation:
         parts.append(f"remediation={decision.remediation}")
     return "; ".join(parts)
+
+
+# Wave 1p6et: REMOTE / inert ORT execution providers that Wavefoundry never selects (local-only).
+# AzureExecutionProvider proxies inference to a cloud Azure ML endpoint; it ships compiled into the
+# stock onnxruntime wheel so it appears in get_available_providers() even with no Azure config.
+# Excluded from the diagnostic's `available_onnx_providers` DISPLAY so it isn't mistaken for a usable
+# local backend. Selection already ignores it (not in PROVIDER_PRIORITY / PROVIDER_REQUESTS).
+_REMOTE_INERT_PROVIDERS = frozenset({"AzureExecutionProvider"})
+
+
+def diagnostic_report(provider_probe: "ProviderProbe | None" = None) -> dict:
+    """Wave 1p6et: structured embedding-provider / GPU capability snapshot for the `setup-wavefoundry --check-gpu`
+    CLI and the `wave_gpu_doctor` MCP tool.
+
+    When ``provider_probe`` is supplied (the CLI + MCP pass setup's ``_probe_embedding_provider``),
+    the selection runs the SAME bounded model probe setup uses — so probe-required providers
+    (CoreML / ROCm / OpenVINO / DML) are confirmed and ``selected_provider`` matches what setup/runtime
+    actually pick (e.g. CoreML on Apple Silicon). This LOADS a model (~seconds; needs the model cached,
+    else it degrades gracefully to CPU). Without a probe it is the fast no-probe view (CUDA/CPU exact;
+    probe-required providers visible only via ``available_onnx_providers``). Pre-setup safe: onnxruntime
+    absent → ``onnxruntime_version`` None and the provider set degrades to CPU.
+    """
+    ort_version = None
+    try:
+        import onnxruntime as _ort
+        ort_version = getattr(_ort, "__version__", None)
+    except Exception:  # noqa: BLE001 — ORT may be absent (pre-setup); report None, don't raise
+        ort_version = None
+    decision = select_embedding_providers(provider_probe=provider_probe)
+    gap = detect_cuda12_abi_gap()
+    available = [p for p in available_onnx_providers() if p not in _REMOTE_INERT_PROVIDERS]
+    return {
+        "platform": {"system": platform.system(), "machine": platform.machine()},
+        "onnxruntime_version": ort_version,
+        "requested_provider_env": os.environ.get(REQUESTED_PROVIDER_ENV, ""),
+        "nvidia_gpu_present": nvidia_gpu_present(),
+        "apple_silicon_present": apple_silicon_present(),
+        "available_onnx_providers": available,
+        "selected_provider": decision.selected_provider,
+        "providers": list(decision.providers),
+        "selection_reason": decision.reason,
+        "selection_remediation": decision.remediation,
+        "cuda12_abi_gap": str(gap) if gap else None,
+    }
+
+
+def format_diagnostic_report(report: dict) -> str:
+    """Human-readable rendering of :func:`diagnostic_report` for the `setup-wavefoundry --check-gpu` CLI."""
+    plat = report.get("platform", {})
+    lines = [
+        "Wavefoundry embedding-provider / GPU diagnostic",
+        f"  platform                  : {plat.get('system')} {plat.get('machine')}",
+        f"  onnxruntime               : {report.get('onnxruntime_version') or 'NOT INSTALLED'}",
+        f"  WAVEFOUNDRY_EMBED_PROVIDER : {report.get('requested_provider_env') or '(auto)'}",
+        f"  nvidia GPU                : {report.get('nvidia_gpu_present')}",
+        f"  apple silicon             : {report.get('apple_silicon_present')}",
+        f"  ORT providers             : {', '.join(report.get('available_onnx_providers') or [])}",
+        f"  would select              : {report.get('selected_provider')}",
+        f"    reason                  : {report.get('selection_reason')}",
+    ]
+    if report.get("selection_remediation"):
+        lines.append(f"    remediation             : {report['selection_remediation']}")
+    gap = report.get("cuda12_abi_gap")
+    lines.append(f"  CUDA 12/13 ABI gap        : {('DETECTED -> ' + gap) if gap else 'no'}")
+    return "\n".join(lines)

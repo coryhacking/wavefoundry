@@ -98,15 +98,30 @@ def remove_copilot_artifacts(repo_root: Path) -> None:
     )
 
 
-def launcher_command(rel_base: str) -> str:
-    """Project-relative launcher command for a hook config.
+def launcher_command(rel_base: str, project_dir_var: str | None = None) -> str:
+    """Launcher command for a hook config.
 
     Wave 1p590: NEVER emit a machine-absolute path — tracked surfaces must work on any clone.
-    The command is emitted relative to the project root, which the surface tools resolve against
-    the workspace (matching the portable ``.mcp.json`` / ``.wavefoundry/bin`` wrapper pattern).
-    Per-tool relative-command resolution is verified on a fresh clone (wave 1p590 AC-2)."""
+
+    ``project_dir_var`` (1p6dx): a host's project-root env var (e.g. ``"CLAUDE_PROJECT_DIR"``) to
+    ANCHOR the command so it resolves regardless of the host's working directory. A host runs the
+    hook command through a shell (``/bin/sh -c`` / ``cmd /c``) from a cwd that is NOT guaranteed to
+    be the repo root, so a BARE relative command fails with ``No such file or directory`` (observed
+    on Claude Code Stop hooks). The anchored form is quoted so a repo path with spaces still works.
+    ``None`` keeps the legacy project-relative form for hosts whose project-root var is unverified
+    (Cursor/Copilot/Windsurf) — those likely have the same latent issue and should each be anchored
+    on their own var once verified."""
     if os.name == "nt":
-        return f"cmd.exe /c {rel_base.replace('/', os.sep)}.cmd"
+        # Wave 1p6dx: operator policy — emit forward slashes everywhere, including the cmd.exe form
+        # (no os.sep). cmd.exe accepts `/` in a quoted, env-rooted path, and the path is kept quoted
+        # below. NOTE: forward-slash cmd.exe *execution* is unverified on a real Windows host (native
+        # Windows is Area-1/not-yet-running) — deferred to the Windows-smoke wave with the other nt branches.
+        win = rel_base + ".cmd"
+        if project_dir_var:
+            return f'cmd.exe /c "%{project_dir_var}%/{win}"'
+        return f'cmd.exe /c "{win}"'
+    if project_dir_var:
+        return f'"${project_dir_var}/{rel_base}"'
     return rel_base
 
 
@@ -158,14 +173,18 @@ def posix_launcher_source(script_name: str) -> str:
 
 
 def windows_launcher_source(script_name: str) -> str:
+    # Wave 1p6dx: the venv interpreter-path literals use forward slashes (operator policy — `/`
+    # everywhere we write a path). Windows accepts `/` in a quoted path and tolerates mixed
+    # separators with the cmd-expanded %SCRIPT_DIR% (%~dp0). cmd.exe-forward-slash execution is
+    # unverified on a real Windows host (native Windows is Area-1) — Windows-smoke-deferred.
     return dedent(
         f"""@echo off
         setlocal
         set "SCRIPT_DIR=%~dp0"
         if defined WAVEFOUNDRY_TOOL_VENV (
-          set "PYTHON=%WAVEFOUNDRY_TOOL_VENV%\\Scripts\\python.exe"
+          set "PYTHON=%WAVEFOUNDRY_TOOL_VENV%/Scripts/python.exe"
         ) else (
-          set "PYTHON=%USERPROFILE%\\.wavefoundry\\venv\\Scripts\\python.exe"
+          set "PYTHON=%USERPROFILE%/.wavefoundry/venv/Scripts/python.exe"
         )
         if not exist "%PYTHON%" set "PYTHON=python3"
         "%PYTHON%" "%SCRIPT_DIR%{script_name}.py" %*
@@ -861,7 +880,10 @@ def render_claude_settings(repo_root: Path) -> None:
     for hook in CLAUDE_HOOKS:
         entry_hook = {
             "type": "command",
-            "command": launcher_command(f".claude/hooks/{hook['name']}"),
+            # 1p6dx: anchor on $CLAUDE_PROJECT_DIR — Claude Code runs hooks via /bin/sh from a cwd
+            # that is not guaranteed to be the repo root, so a bare relative command fails with
+            # "No such file or directory" (observed on the Stop hook every turn).
+            "command": launcher_command(f".claude/hooks/{hook['name']}", "CLAUDE_PROJECT_DIR"),
             "statusMessage": hook["status_message"],
         }
         entry: dict[str, object] = {"hooks": [entry_hook]}

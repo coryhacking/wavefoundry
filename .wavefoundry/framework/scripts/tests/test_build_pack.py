@@ -996,3 +996,23 @@ class ReadmeVersionBadgeStampTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BuildPackVenvReexecTests(unittest.TestCase):
+    """1p6d6: _reexec_with_venv_if_needed keeps bin/python + os.execv on POSIX (no-regression).
+
+    The Windows branch (Scripts\\python.exe + subprocess.run, mirroring the setup_index.py:341
+    oracle) is NOT unit-tested here: patching os.name='nt' makes pathlib instantiate WindowsPath,
+    which raises UnsupportedOperation on a POSIX runner the moment the function builds the venv
+    Path — the same reason the oracle isn't nt-unit-tested. Verified by code review + the shared
+    oracle; end-to-end execution is Windows-deferred.
+    """
+
+    def test_posix_uses_bin_python_and_execv(self):
+        with patch.dict(sys.modules, {"numpy": None}), \
+             patch.object(build_pack.os, "name", "posix"), \
+             patch.object(build_pack.Path, "exists", return_value=True), \
+             patch.object(build_pack.os, "execv") as execv:
+            build_pack._reexec_with_venv_if_needed()
+            execv.assert_called_once()
+            self.assertTrue(execv.call_args[0][0].endswith("bin/python"), execv.call_args[0][0])

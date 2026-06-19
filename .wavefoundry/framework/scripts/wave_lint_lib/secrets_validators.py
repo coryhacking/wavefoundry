@@ -1376,9 +1376,12 @@ def check_hardcoded_secrets(
     file_scan_list: list[tuple[Path, str]] = []
     for file_path in files:
         try:
-            rel = str(file_path.relative_to(root))
+            # Wave 1p6dx: forward-slash the rel path (.as_posix(), not str() which is `\`-separated
+            # on Windows) so a Windows-generated findings JSON / shipped scan-allowlist matches a
+            # POSIX scan's entries — the allowlist keys on `<sha256>:<rel>:…`.
+            rel = file_path.relative_to(root).as_posix()
         except ValueError:
-            rel = str(file_path)
+            rel = file_path.as_posix()
         file_scan_list.append((file_path, rel))
 
     # Phase 1: parallel file scanning via ProcessPoolExecutor (spawn + initializer).
