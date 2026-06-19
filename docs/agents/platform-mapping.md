@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-26
+Last verified: 2026-06-19
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -28,6 +28,7 @@ Maps Wave Framework agent docs, personas, specialists, and factor agents to nati
 | Warp | `WARP.md` |
 | Windsurf | `AGENTS.md` (no separate guidelines file in default seed) |
 | Air | `AGENTS.md` (provider MCP config per `AGENTS.md` MCP table) |
+| Antigravity | `AGENTS.md` (Tier-1 native; no separate file; MCP via `.agents/mcp_config.json` — workspace-local configuration) |
 
 ### Tier 3 — optional native (enhances tier 1)
 

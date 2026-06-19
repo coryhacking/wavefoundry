@@ -2,7 +2,7 @@
 
 [![Version](https://img.shields.io/badge/version-1.7.2-purple)](https://github.com/coryhacking/wavefoundry/releases)
 [![MCP](https://img.shields.io/badge/MCP-local_server-0a7ea4)](https://modelcontextprotocol.io)
-[![Hosts](https://img.shields.io/badge/hosts-Claude_Code_%C2%B7_Cursor_%C2%B7_Codex_%C2%B7_Junie-blue)](https://github.com/coryhacking/wavefoundry)
+[![Hosts](https://img.shields.io/badge/hosts-Claude_Code_%C2%B7_Codex_%C2%B7_Antigravity_%C2%B7_Cursor-blue)](https://github.com/coryhacking/wavefoundry)
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.11-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
@@ -57,7 +57,7 @@ Three hard prerequisites. Do not run any install command until all three resolve
 
 2. **A supported host OS** — **macOS** (Apple Silicon or Intel), **Linux** (x86_64/arm64), or **Windows via WSL2**. WSL2 is Linux: it runs the identical POSIX code path as native Linux, so there is no separate install. Native Windows (Terminal/PowerShell/cmd) is **not yet supported** — it is on the roadmap; see [Native Windows support](docs/references/native-windows-support.md).
 
-3. **An MCP-aware agent host.** **Claude Code** or **Codex CLI** is recommended for first install — both auto-load MCP from on-disk config (`.mcp.json` / `.codex/config.toml`), so the install flow runs with no manual UI step. **Cursor**, **Junie**, **GitHub Copilot**, **Windsurf**, **Air**, and **Warp** also attach via their own MCP surfaces — see [Host support](#host-support).
+3. **An MCP-aware agent host.** **Claude Code** or **Codex CLI** is recommended for first install — both auto-load MCP from on-disk config (`.mcp.json` / `.codex/config.toml`), so the install flow runs with no manual UI step. **Cursor**, **Junie**, and **Antigravity** also auto-load MCP from a rendered config; **GitHub Copilot**, **Windsurf**, **Air**, and **Warp** attach by pasting the stdio entry into the host's own MCP settings — see [Host support](#host-support).
 
 ---
 
@@ -84,7 +84,7 @@ Install Wavefoundry
 This is a **chat message** to your AI agent, not a shell command. The agent must already be open in your repository (the repo set as the working directory) and connected to a supported AI host:
 
 - **Recommended for first install:** **Claude Code** or **Codex CLI** — both auto-load MCP from on-disk config, so the install runs with no manual UI step.
-- **Also supported:** **Cursor**, **Junie**, **GitHub Copilot**, **Windsurf**, **Air**, **Warp** — see [Host support](#host-support) for the per-host attachment.
+- **Also supported:** **Cursor**, **Junie**, **GitHub Copilot**, **Windsurf**, **Air**, **Warp**, **Antigravity** — see [Host support](#host-support) for the per-host attachment.
 
 ---
 
@@ -299,6 +299,7 @@ Any MCP-aware host can attach to the local Wavefoundry server. For some hosts, `
 | **Cursor** | `render_platform_surfaces.py --platform cursor` |
 | **Junie** | `render_platform_surfaces.py --platform junie` |
 | **GitHub Copilot · Windsurf · Air · Warp** | Paste the stdio entry from [`docs/prompts/install-wavefoundry.prompt.md`](docs/prompts/install-wavefoundry.prompt.md) into your host's MCP settings |
+| **Antigravity** | `render_platform_surfaces.py --platform antigravity` |
 
 ---
 

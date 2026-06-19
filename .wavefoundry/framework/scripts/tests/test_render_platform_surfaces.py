@@ -430,6 +430,16 @@ class MergeMcpServerTests(unittest.TestCase):
             second = target.read_text(encoding="utf-8")
         self.assertEqual(first, second)
 
+    def test_render_antigravity_mcp_json_uses_portable_wrapper(self):
+        rps = self._load_rps()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rps.render_antigravity_mcp_json(root)
+            data = json.loads((root / ".agents" / "mcp_config.json").read_text(encoding="utf-8"))
+        wf = data["mcpServers"]["wavefoundry"]
+        self.assertEqual(wf["command"], ".wavefoundry/bin/mcp-server")
+        self.assertEqual(wf["args"], [])
+
 
 class SessionCaptureHookTests(unittest.TestCase):
     """Wave 1p5ti: the generated session-end capture script is fast, fail-safe,

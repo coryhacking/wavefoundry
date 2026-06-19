@@ -62,6 +62,8 @@ def detect_platforms(repo_root: Path) -> set[str]:
         platforms.add("junie")
     if (repo_root / ".windsurf").exists():
         platforms.add("windsurf")
+    if (repo_root / ".agents").exists():
+        platforms.add("antigravity")
     return platforms
 
 
@@ -965,6 +967,21 @@ def render_cursor_mcp_json(repo_root: Path) -> None:
     )
 
 
+def render_antigravity_mcp_json(repo_root: Path) -> None:
+    """Merge the Wavefoundry stdio MCP entry into the Antigravity workspace-local config.
+
+    Uses the project-relative ``.wavefoundry/bin/mcp-server`` wrapper (parity with Claude/Junie)
+    instead of absolute paths.
+    """
+    _merge_mcp_server(
+        repo_root / ".agents" / "mcp_config.json",
+        {
+            "command": ".wavefoundry/bin/mcp-server",
+            "args": [],
+        },
+    )
+
+
 def render_cursor_hooks(repo_root: Path) -> None:
     config = {
         "version": 1,
@@ -1182,7 +1199,7 @@ def render_bin_launchers(repo_root: Path) -> None:
     write_text(bin_dir / "mcp-server", mcp_server_src, executable=True)
     write_text(bin_dir / "wave-gate", wave_gate_src, executable=True)
     write_text(bin_dir / "lifecycle-id", lifecycle_id_src, executable=True)
-    for stale in ["upgrade-wavefoundry.bat", "wave_dashboard", "register-codex-mcp", "wave-id"]:
+    for stale in ["upgrade-wavefoundry.bat", "wave_dashboard", "register-codex-mcp", "wave-id", "register-antigravity-mcp"]:
         stale_path = bin_dir / stale
         if stale_path.exists():
             stale_path.unlink()
@@ -1379,12 +1396,14 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
     elif platform == "junie":
         render_aiignore(repo_root)
         render_junie_mcp_json(repo_root)
+    elif platform == "antigravity":
+        render_antigravity_mcp_json(repo_root)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Render repo-local hook/config surfaces from the wave framework.")
     parser.add_argument("--repo-root", default="", help="Override the repository root.")
-    parser.add_argument("--platform", action="append", choices=("claude", "cursor", "copilot", "junie", "windsurf"))
+    parser.add_argument("--platform", action="append", choices=("claude", "cursor", "copilot", "junie", "windsurf", "antigravity"))
     return parser.parse_args(argv)
 
 
