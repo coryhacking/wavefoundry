@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-09
+Last verified: 2026-06-21
 
 Reference doc for the local dashboard's shared UI contract. Covers CSS custom property tokens, shell layout, typography scale, spacing, status-color semantics, component rules, and state treatments. Assets live under `.wavefoundry/framework/dashboard/`; this doc is the governance home for seeded-repo UI consistency.
 
@@ -124,9 +124,38 @@ Collapses to single column at `≤ 1080px`.
 | `≤ 720px` | Shell padding reduced; panels use `--radius-md`; metrics → 2 columns; status-row stacks vertically; footer stacks |
 | `≤ 480px` | Metrics → 2×1fr grid; header framework string hidden |
 
-### Sticky Header
+### Header (removed in 1p6nl)
 
-`.site-header` is sticky at `z-index: 100` with frosted glass (`backdrop-filter: blur(16px) saturate(1.2)`) and 92% opacity on the panel-bg background. Do not increase `z-index` past 100 unless creating a modal layer above it.
+The dashboard no longer renders a top header. The brand (logo + repo name) and the light/dark toggle moved into the sidebar; the former `.site-header` / `.header-*` rules are unused. (Historic note: it was a sticky frosted bar at `z-index: 100` — keep any modal layer above 100 if a header is ever reintroduced.)
+
+### Navigation shell (sidebar + views)
+
+Wave `1p6nl` made the dashboard a navigable shell rather than one long scroll and removed the separate top header. The app is `.app-body` (a flex row: sidebar + `.app-main`); the brand and theme toggle live in the sidebar, and the main content is **view-switched by hash route**.
+
+- **Sidebar** (`.sidebar`) — a full-height sticky left rail (`top: 0`, `height: 100vh`), **default-collapsed** to `--rail-w` (56px, icons only), expanding to 232px (labels). The Wavefoundry mark (`WaveMark` — a sine wave between `< >` brackets with an AI node) + repo name sit at the top and **double as the collapse/expand toggle**. The sidebar **footer** (`.sidebar-footer`) holds the project footer meta (`.sidebar-footer-meta`: Wavefoundry version + `Live`/next-refresh + last-updated — shown only when expanded) above the always-visible light/dark toggle; the dashboard no longer renders a footer bar under the main content. Collapse state persists in `localStorage` (`wf-sidebar-collapsed`). Nav items **and** routing derive from the `NAV_SECTIONS` registry (`{id, label, icon, group}`) — add a section by registering an entry + a view branch; do not hard-code per-view nav. `group` is carried for future grouped rendering (~5+ sections).
+- **Routing** — hash-based (`#/work` default, `#/graph`). `GraphPanel` keeps its own History-*state* breadcrumbs (guarded on `e.state.wfGraph`); page routing stays on `location.hash`, so the two history mechanisms don't collide.
+- **Work view** (`.app-main-inner`, contained) — hero (metrics, progress, flow, agents) + the two-column content grid. **The graph is no longer here.**
+- **Graph view** (`.app-graph`, wide) — the relocated `GraphPanel`. The tree-nav + canvas **flow to natural height** (no fixed scroll band); the page scrolls as one. The WebGL render path keeps its own tall `min-height` (a GL canvas can't size to content).
+
+See ADR `1p6q5-adr dashboard-navigation-shell.md`.
+
+### View Layout Standard
+
+Every section view (Work, Graph, and future Config/Secrets/Docs) is composed the same way so the views read as sibling pages regardless of their width or content. Conform new views to this contract rather than styling each one ad hoc.
+
+1. **View container.** A view's content lives in a centered container with a shared top offset — `padding: var(--space-3) var(--space-4) var(--space-4)` and `margin: 0 auto`. Two width caps, by token:
+   - **Contained** — `width: min(var(--view-max), 100%)` (`--view-max` = 1760px). Default; use for content-dense views (`.app-main-inner`: Work, and later Config/Secrets/Docs).
+   - **Wide** — `width: min(var(--view-max-wide), 100%)` (`--view-max-wide` = 1760px). Opt-in for canvas-style views (`.app-graph`: the Graph node visualization). Same top padding and centering as contained.
+
+   Both caps are **1760px** today (kept as two tokens so a future content-dense view could narrow `--view-max` without touching the graph). The cap was raised from 1360px so that collapsing the icon rail on a wide display doesn't leave large dead margins around centered content — on a 1920px screen the content fills to 1760px with small symmetric margins instead of sitting at 1360px with ~250px gutters. On laptop widths the content is ~100% either way.
+
+2. **Top-level card chrome (theme-aware).** A view's primary content sits in a **framed panel** that matches `.hero-card` in **both** themes — a visible surface with a border, radius, shadow, and `var(--space-6)` padding, so the content reads as enclosed:
+   - **Light:** `background: var(--panel-bg)`, `border: 1px solid var(--panel-border)`, `border-radius: var(--radius-lg)`, `box-shadow: var(--shadow)`, `padding: var(--space-6)`.
+   - **Dark:** a solid dark panel — `background: #212428`, `border-color: #30353c`, `box-shadow: 0 8px 32px rgba(0,0,0,.45), 0 1px 4px rgba(0,0,0,.3)` (the dark theme does **not** redefine `--panel-bg`/`--panel-border`, so panels hardcode this palette; `.hero-card` and `.app-graph .graph-card` both use it). Do **not** leave a view's top-level card transparent in dark mode — it must frame its content the same as Work.
+
+3. **View header.** Each view opens with a consistent header — either the hero meta-pill row (Work) or an `h2` panel-heading title plus a `--muted` subtitle/meta line (Graph: "Graph" + node/edge counts). Same type scale across views; don't introduce per-view heading sizes.
+
+The result: switching sections changes the content, not the surface. A new view is a registry entry (`NAV_SECTIONS`) + a view branch that drops its content into a contained-or-wide container with the card chrome above.
 
 ## Status Semantics
 

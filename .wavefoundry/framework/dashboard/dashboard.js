@@ -137,17 +137,6 @@ function badgeClass(status) {
   return "status-badge status-unknown";
 }
 
-function computeState(snapshot) {
-  const waves = snapshot.waves || [];
-  const health = snapshot.health || {};
-  const hasActive = activeWaves(waves).length > 0;
-  const indexMissing = !health.index?.project?.present;
-  const lintFailed = ["error", "fail"].includes(health.docs_lint?.status);
-  if (lintFailed || indexMissing) return { label: "BLOCKED", cls: "state-blocked" };
-  if (hasActive) return { label: "LIVE", cls: "state-live" };
-  return { label: "IDLE", cls: "state-idle" };
-}
-
 function computeProgress(changes) {
   const total = (changes || []).length;
   if (!total) return { done: 0, total: 0, pct: 0 };
@@ -410,33 +399,6 @@ function GitPills({ git }) {
   if (git.ahead > 0)  pills.push(h("span", { key: "ahead",  className: "meta-pill git-ahead-pill",  title: "Commits ahead of upstream"  }, `↑${git.ahead} ahead`));
   if (git.behind > 0) pills.push(h("span", { key: "behind", className: "meta-pill git-behind-pill", title: "Commits behind upstream" }, `↓${git.behind} behind`));
   return h(React.Fragment, null, ...pills);
-}
-
-function StateBadge({ snapshot }) {
-  const state = computeState(snapshot);
-  return h("div", {
-    className: `state-badge ${state.cls}`,
-    role: "status",
-    "aria-label": `Project state: ${state.label}`,
-  },
-    h("span", { className: "state-dot", "aria-hidden": "true" }),
-    state.label,
-  );
-}
-
-function Header({ snapshot, dark, onToggleDark }) {
-  const project = snapshot.project || {};
-  return h("header", { className: "site-header" },
-    h("div", { className: "header-brand" },
-      h("div", { className: "header-logo", "aria-hidden": "true" },
-        h("div", { className: "header-logo-mark" }),
-      ),
-      h("span", { className: "header-repo" }, project.name || project.repo_basename || "Repository"),
-    ),
-    h("div", { className: "header-actions" },
-      h(ThemeToggle, { dark, onToggle: onToggleDark }),
-    ),
-  );
 }
 
 function ProgressRow({ label, done, total, variant }) {
@@ -4469,6 +4431,140 @@ function Agents({ agents, onSelectAgent }) {
   );
 }
 
+// ── Navigation shell: section registry + hash routing + collapsible sidebar ───
+// Wave 1p6nl. The registry decouples nav chrome from views; page routing keys off
+// location.hash (the 'hashchange' event). GraphPanel keeps its own History-*state*
+// breadcrumbs, guarded on `e.state.wfGraph` (dashboard.js popstate handler), so they
+// are isolated from this URL-hash routing — no namespacing needed.
+
+const NAV_SECTIONS = [
+  { id: "work",  label: "Work",  group: "Work",    icon: "work"  },
+  { id: "graph", label: "Graph", group: "Inspect", icon: "graph" },
+  // Roadmap (drop-in later): { id: "config", group: "Configure", ... },
+  //                          { id: "secrets", group: "Configure", ... },
+  //                          { id: "docs", group: "Inspect", ... }.
+  // The `group` field is carried now but rendered flat until the set grows (~5+).
+];
+const NAV_SECTION_IDS = NAV_SECTIONS.map(s => s.id);
+
+function NavIcon({ name }) {
+  const kids = name === "graph"
+    ? [
+        h("circle", { cx: 5,  cy: 6,  r: 2 }),
+        h("circle", { cx: 18, cy: 8,  r: 2 }),
+        h("circle", { cx: 9,  cy: 18, r: 2 }),
+        h("line", { x1: 6.7,  y1: 7,   x2: 16.4, y2: 7.6 }),
+        h("line", { x1: 6,    y1: 7.8, x2: 8.4,  y2: 16.3 }),
+        h("line", { x1: 10.8, y1: 17,  x2: 16.5, y2: 9.5 }),
+      ]
+    : [ // "work"
+        h("rect", { x: 3,  y: 3,  width: 7, height: 9,  rx: 1.5 }),
+        h("rect", { x: 14, y: 3,  width: 7, height: 5,  rx: 1.5 }),
+        h("rect", { x: 14, y: 11, width: 7, height: 10, rx: 1.5 }),
+        h("rect", { x: 3,  y: 15, width: 7, height: 6,  rx: 1.5 }),
+      ];
+  return h("svg", {
+    className: "nav-icon", viewBox: "0 0 24 24", width: 20, height: 20,
+    "aria-hidden": "true", fill: "none", stroke: "currentColor",
+    strokeWidth: 1.9, strokeLinecap: "round", strokeLinejoin: "round",
+  }, ...kids);
+}
+
+function WaveMark() {
+  // Wavefoundry mark: a sine wave between code brackets `< >` with an AI node on
+  // the crest — wave + software-engineering + AI. Rendered white on the accent tile.
+  return h("svg", {
+    className: "wave-mark", viewBox: "0 0 24 24", width: "100%", height: "100%",
+    fill: "none", stroke: "currentColor", strokeWidth: 2,
+    strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true",
+  },
+    h("polyline", { points: "7 5 3.5 12 7 19" }),                // <  software
+    h("polyline", { points: "17 5 20.5 12 17 19" }),             // >
+    h("path", { d: "M8.2 13.9 Q10.1 8.4 12 13.9 T15.8 13.9" }),  // wave
+    h("circle", { cx: 10.05, cy: 9.4, r: 1.5, fill: "currentColor", stroke: "none" }), // AI node
+  );
+}
+
+function parseHashView() {
+  const raw = (window.location.hash || "").replace(/^#\/?/, "").trim();
+  return raw || "work";
+}
+
+function useHashRoute(validIds) {
+  const [raw, setRaw] = useState(parseHashView);
+  useEffect(() => {
+    const onHash = () => setRaw(parseHashView());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  const view = validIds.includes(raw) ? raw : "work";
+  const navigate = useCallback((id) => {
+    if (parseHashView() === id) return;
+    window.location.hash = `#/${id}`;
+  }, []);
+  return [view, navigate];
+}
+
+function useSidebarCollapsed() {
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      const v = localStorage.getItem("wf-sidebar-collapsed");
+      return v === null ? true : v === "1";   // default collapsed
+    } catch (_e) { return true; }
+  });
+  const toggle = useCallback(() => {
+    setCollapsed(prev => {
+      const next = !prev;
+      try { localStorage.setItem("wf-sidebar-collapsed", next ? "1" : "0"); } catch (_e) {}
+      return next;
+    });
+  }, []);
+  return [collapsed, toggle];
+}
+
+function Sidebar({ sections, current, collapsed, onToggle, onNavigate, project, dark, onToggleDark, frameworkVersion, sseConnected, pollIdx, generatedAt }) {
+  const repoName = (project && (project.name || project.repo_basename)) || "Repository";
+  return h("aside", {
+    className: `sidebar ${collapsed ? "sidebar--collapsed" : "sidebar--expanded"}`,
+    "aria-label": "Primary navigation",
+  },
+    // The brand (logo + repo name) doubles as the collapse/expand toggle.
+    h("button", {
+      type: "button", className: "sidebar-brand", onClick: onToggle,
+      "aria-label": collapsed ? `${repoName} — expand navigation` : `${repoName} — collapse navigation`,
+      "aria-expanded": collapsed ? "false" : "true",
+      "data-tooltip": collapsed ? repoName : undefined,
+    },
+      h("span", { className: "sidebar-brand-logo", "aria-hidden": "true" }, h(WaveMark)),
+      h("span", { className: "sidebar-brand-name" }, repoName),
+    ),
+    h("nav", { className: "sidebar-nav", "aria-label": "Sections" },
+      sections.map(s =>
+        h("button", {
+          key: s.id, type: "button",
+          className: `nav-item ${current === s.id ? "nav-item--active" : ""}`,
+          onClick: () => onNavigate(s.id),
+          "aria-label": s.label,
+          "aria-current": current === s.id ? "page" : undefined,
+          "data-tooltip": collapsed ? s.label : undefined,
+        },
+          h("span", { className: "nav-item-icon" }, h(NavIcon, { name: s.icon })),
+          h("span", { className: "nav-item-label" }, s.label),
+        ),
+      ),
+    ),
+    h("div", { className: "sidebar-footer" },
+      h(ThemeToggle, { dark, onToggle: onToggleDark }),
+      h("div", { className: "sidebar-footer-meta" },
+        sseConnected
+          ? h("span", { className: "sse-live", title: generatedAt ? `Updated ${localDateTime(generatedAt)}` : "Server-sent events connected — updates are pushed in real time" }, "Live")
+          : h("span", { className: "site-footer-refresh", title: generatedAt ? `Updated ${localDateTime(generatedAt)}` : undefined }, `Next refresh in ${POLL_STEPS[pollIdx] / 1000}s`),
+        h("span", { className: "site-footer-brand" }, `Wavefoundry v${frameworkVersion}`),
+      ),
+    ),
+  );
+}
+
 function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [selectedFrameworkProcess, setSelectedFrameworkProcess] = useState(null);
@@ -4479,6 +4575,8 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
   const [showIndex, setShowIndex] = useState(false);
   const [showAllFiles, setShowAllFiles] = useState(false);
   const [docView, setDocView] = useState(null); // { title, url }
+  const [view, navigate] = useHashRoute(NAV_SECTION_IDS);
+  const [sidebarCollapsed, toggleSidebar] = useSidebarCollapsed();
 
   const openWaveDoc = useCallback((wave) => {
     const url = `/api/doc?type=wave&id=${encodeURIComponent(wave.wave_id)}`;
@@ -4514,50 +4612,52 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
     : pendingChanges;
 
   return h(React.Fragment, null,
-    h(Header, { snapshot, dark, onToggleDark }),
-    h("main", { className: "shell" },
-      h("section", { className: "hero", "aria-label": "Project overview" },
-        h("article", { className: "hero-card" },
-          h("div", { className: "hero-meta" },
-            h("span", { className: "meta-pill" }, `Repository: ${project.repo_basename || ""}`),
-            h(GitPills, { git: snapshot.git }),
-          ),
-          h(Metrics, { snapshot, scopeChanges,
-            onWavesClick:   () => setShowWaves(true),
-            onChangesClick: () => setShowChanges(true),
-            onAcsClick:     () => setShowAcs(true),
-            onTasksClick:   () => setShowTasks(true),
-            onFilesClick:   () => setShowAllFiles(true),
-            onIndexClick:   () => setShowIndex(true),
-          }),
-          h(ProgressCard, { snapshot, scopeChanges }),
-          h(FrameworkFlow, { onSelectProcess: setSelectedFrameworkProcess }),
-          h(Agents, { agents, onSelectAgent: setSelectedAgent }),
-          h(GraphPanel, { snapshot }),
-        ),
-      ),
+    h("div", { className: "app-body" },
+      h(Sidebar, {
+        sections: NAV_SECTIONS, current: view, collapsed: sidebarCollapsed,
+        onToggle: toggleSidebar, onNavigate: navigate,
+        project, dark, onToggleDark,
+        frameworkVersion, sseConnected, pollIdx, generatedAt: snapshot.generated_at,
+      }),
+      h("main", { className: "app-main" },
+        view === "graph"
+          ? h("section", { className: "app-graph", "aria-label": "Graph index" },
+              h(GraphPanel, { snapshot }),
+            )
+          : h("div", { className: "app-main-inner" },
+              h("section", { className: "hero", "aria-label": "Project overview" },
+                h("article", { className: "hero-card" },
+                  h("div", { className: "hero-meta" },
+                    h("span", { className: "meta-pill" }, `Repository: ${project.repo_basename || ""}`),
+                    h(GitPills, { git: snapshot.git }),
+                  ),
+                  h(Metrics, { snapshot, scopeChanges,
+                    onWavesClick:   () => setShowWaves(true),
+                    onChangesClick: () => setShowChanges(true),
+                    onAcsClick:     () => setShowAcs(true),
+                    onTasksClick:   () => setShowTasks(true),
+                    onFilesClick:   () => setShowAllFiles(true),
+                    onIndexClick:   () => setShowIndex(true),
+                  }),
+                  h(ProgressCard, { snapshot, scopeChanges }),
+                  h(FrameworkFlow, { onSelectProcess: setSelectedFrameworkProcess }),
+                  h(Agents, { agents, onSelectAgent: setSelectedAgent }),
+                ),
+              ),
 
-      h("section", { className: "content-grid", "aria-label": "Project details" },
-        h("div", { className: "card-grid" },
-          h(WavesCard, { waves, allChanges, handoffWaveId, onWaveClick: openWaveDoc, onChangeClick: openChangeDoc }),
-          h(ChangesTable, { changes: [...pendingChanges].reverse(), title: p(pendingChanges.length, "Pending change", "Pending changes"), onChangeClick: openChangeDoc }),
-        ),
-        h("div", { className: "card-grid" },
-          h("article", { className: "timeline-card", "aria-label": "Recent activity" },
-            h("h2", { className: "panel-heading" }, "Recent changes"),
-            h(Activity, { activity: snapshot.activity, onChangeClick: openChangeDoc }),
-          ),
-        ),
-      ),
-
-      h("footer", { className: "site-footer" },
-        h("div", { className: "site-footer-left" },
-          h("span", { className: "site-footer-brand" }, `Wavefoundry v${frameworkVersion}`),
-          sseConnected
-            ? h("span", { className: "sse-live", title: "Server-sent events connected — updates are pushed in real time" }, "Live")
-            : h("span", { className: "site-footer-refresh" }, `Next refresh in ${POLL_STEPS[pollIdx] / 1000}s`),
-        ),
-        h("span", { className: "site-footer-updated" }, `Updated ${localDateTime(snapshot.generated_at)}`),
+              h("section", { className: "content-grid", "aria-label": "Project details" },
+                h("div", { className: "card-grid" },
+                  h(WavesCard, { waves, allChanges, handoffWaveId, onWaveClick: openWaveDoc, onChangeClick: openChangeDoc }),
+                  h(ChangesTable, { changes: [...pendingChanges].reverse(), title: p(pendingChanges.length, "Pending change", "Pending changes"), onChangeClick: openChangeDoc }),
+                ),
+                h("div", { className: "card-grid" },
+                  h("article", { className: "timeline-card", "aria-label": "Recent activity" },
+                    h("h2", { className: "panel-heading" }, "Recent changes"),
+                    h(Activity, { activity: snapshot.activity, onChangeClick: openChangeDoc }),
+                  ),
+                ),
+              ),
+            ),
       ),
     ),
     selectedFrameworkProcess ? h(FrameworkProcessDialog, {

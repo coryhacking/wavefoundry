@@ -1391,8 +1391,12 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         self.assertIn('.graph-canvas-column {', css)
         self.assertIn('html[data-theme="dark"] .graph-webgl-wrap {', css)
         self.assertIn('.graph-tree-nav-item--active {', css)
-        self.assertIn('align-items: stretch;', css)
-        self.assertIn('--graph-band-height: min(85vh, 920px)', css)
+        # Graph view flows to natural height — the fixed 85vh scroll band was removed
+        # (wave 1p6nl); the tree-nav + canvas align to the top of the row instead of
+        # stretching to a fixed band, so the page scrolls as one.
+        self.assertIn('.graph-shell--with-tree {', css)
+        self.assertNotIn('--graph-band-height', css)
+        self.assertIn('align-items: start;', css)
         self.assertIn('.graph-tree-nav-header {', css)
         self.assertIn('graph-svg-banner', js)
         self.assertNotIn('max-height: min(60vh, 600px)', css)

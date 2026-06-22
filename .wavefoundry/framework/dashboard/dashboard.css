@@ -32,6 +32,9 @@
   --font-body: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   --font-heading: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+  --rail-w: 56px;     /* collapsed sidebar icon-rail width */
+  --view-max: 1760px; /* contained view max-width (Work, future Config/Secrets/Docs) — wide enough to avoid large dead margins when the rail is collapsed */
+  --view-max-wide: 1760px; /* wide view max-width (Graph canvas) */
 }
 
 * { box-sizing: border-box; }
@@ -58,126 +61,235 @@ a { color: inherit; }
   border-radius: var(--radius-sm);
 }
 
-/* ── Site header ──────────────────────────────────────────────────────────── */
-
-.site-header {
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-3) var(--space-6);
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(16px) saturate(1.4);
-  -webkit-backdrop-filter: blur(16px) saturate(1.4);
-  border-bottom: 1px solid rgba(222, 226, 230, 0.8);
-}
-
-.header-brand {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.header-logo {
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  background: var(--accent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.header-logo-mark {
-  width: 14px;
-  height: 14px;
-  border: 2.5px solid rgba(255,255,255,0.9);
-  border-radius: 3px;
-  transform: rotate(15deg);
-}
-
-.header-repo {
-  font-weight: 600;
-  font-size: 0.95rem;
-  color: var(--ink);
-  letter-spacing: -0.01em;
-}
-
-.header-sep {
-  color: var(--panel-border);
-  font-size: 1.2rem;
-  font-weight: 200;
-  margin: 0 var(--space-1);
-  user-select: none;
-}
-
-.header-framework {
-  font-size: 0.78rem;
-  color: var(--muted);
-  font-family: var(--font-mono);
-}
-
-/* ── State badge (LIVE / IDLE / BLOCKED) ─────────────────────────────────── */
-
-.state-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 5px var(--space-3);
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 800;
-  font-family: var(--font-mono);
-  letter-spacing: 0.12em;
-  border: 1.5px solid transparent;
-  transition: opacity 0.2s;
-}
-
-.state-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.state-live {
-  color: #1e4d00;
-  background: #E8F5D9;
-  border-color: #93C947;
-}
-.state-live .state-dot {
-  background: #53AC04;
-  animation: pulse 2.4s ease-in-out infinite;
-}
-
-.state-idle {
-  color: var(--muted);
-  background: var(--neutral-soft);
-  border-color: var(--panel-border);
-}
-.state-idle .state-dot { background: var(--muted); }
-
-.state-blocked {
-  color: var(--danger);
-  background: var(--danger-soft);
-  border-color: #e0a8a0;
-}
-.state-blocked .state-dot { background: var(--danger); }
-
-@keyframes pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(83, 172, 4, 0.4); }
-  50%       { box-shadow: 0 0 0 4px rgba(83, 172, 4, 0.0); }
-}
-
 /* ── Shell / layout ──────────────────────────────────────────────────────── */
 
 .shell {
   width: min(1360px, calc(100vw - 2rem));
   margin: 0 auto;
   padding: var(--space-3) 0 var(--space-4);
+}
+
+/* ── App layout: collapsible sidebar nav shell (wave 1p6nl) ──────────────────
+   The sidebar is a sticky icon rail (default-collapsed); expanding widens the
+   flex slot and pushes content (the graph SVG scales via its viewBox). Page
+   routing is hash-based; GraphPanel keeps its own History-state breadcrumbs. */
+
+.app-body {
+  display: flex;
+  align-items: flex-start;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  flex: 0 0 var(--rail-w);
+  width: var(--rail-w);
+  height: 100vh;
+  background: var(--panel-bg);
+  border-right: 1px solid var(--panel-border);
+  z-index: 40;
+  overflow: visible;  /* let collapsed-rail tooltips escape to the right */
+  transition: flex-basis 0.15s ease, width 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-2) var(--space-4);
+}
+
+.sidebar--expanded {
+  flex-basis: 232px;
+  width: 232px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 0.55rem 0.6rem;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.92rem;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.nav-item:hover {
+  background: var(--neutral-soft);
+  color: var(--ink);
+}
+
+.nav-item--active,
+.nav-item--active:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.nav-item-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+}
+
+.nav-item-label { transition: opacity 0.12s ease; }
+
+/* Collapsed rail: hide the labels (aria-label on the button keeps them for AX)
+   and center the icons. */
+.sidebar--collapsed .nav-item-label {
+  display: none;
+}
+
+.sidebar--collapsed .nav-item {
+  justify-content: center;
+  gap: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* Brand row (logo + repo name) doubles as the collapse/expand toggle. */
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  margin-bottom: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.sidebar-brand:hover { background: var(--neutral-soft); }
+
+.sidebar-brand-logo {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-brand-name {
+  font-weight: 700;
+  font-size: 0.98rem;
+  letter-spacing: -0.01em;
+}
+
+/* Footer (version + live/refresh + updated) and theme toggle, pinned to the
+   bottom of the rail. The meta hides when collapsed; the toggle stays. */
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.sidebar-footer-meta {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: 0.76rem;
+  line-height: 1.3;
+  color: var(--muted);
+}
+
+.sidebar--collapsed .sidebar-footer-meta { display: none; }
+
+.sidebar--collapsed .sidebar-brand {
+  justify-content: center;
+  gap: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.sidebar--collapsed .sidebar-brand-name {
+  display: none;
+}
+
+.sidebar--collapsed .sidebar-footer { justify-content: center; }
+
+/* Collapsed-rail tooltips — instant label on hover/focus, escaping the rail.
+   (Only shown while collapsed; expanded items show their own labels. The theme
+   button keeps its native `title` since it stays icon-only in both states.) */
+.sidebar [data-tooltip] { position: relative; }
+
+.sidebar--collapsed [data-tooltip]:hover::after,
+.sidebar--collapsed [data-tooltip]:focus-visible::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--ink);
+  color: var(--page-bg);
+  padding: 4px 9px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 60;
+  box-shadow: var(--shadow);
+}
+
+.app-main {
+  flex: 1 1 0%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Contained view container: centered, capped width, shared top padding.
+   Used by Work and (later) Config/Secrets/Docs. See the View Layout Standard
+   in docs/design-system/foundations/dashboard.md. */
+.app-main-inner {
+  width: min(var(--view-max), 100%);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
+/* Wide view container: same top padding/centering as .app-main-inner but a
+   larger cap so the Graph canvas gains width (esp. when the sidebar collapses)
+   while staying visually a sibling of the contained views. */
+.app-graph {
+  width: min(var(--view-max-wide), 100%);
+  margin: 0 auto;
+  min-width: 0;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
+/* The graph card was a hero-card section-divider when it lived inside the hero;
+   standalone it adopts the full hero-card chrome (panel in light, transparent in
+   dark — see the dark override below) so both views frame their content alike. */
+.app-graph .graph-card {
+  margin-top: 0;
+  padding: var(--space-6);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
 }
 
 .hero {
@@ -1430,7 +1542,7 @@ html[data-theme="dark"] .metric-diff-removed { color: #f87171; }
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-2);
-  padding: var(--space-3) 0;
+  padding: var(--space-3) 0 var(--space-1);
   margin-top: var(--space-3);
   border-top: 1px solid var(--panel-border);
   font-size: 1rem;
@@ -1479,7 +1591,7 @@ html[data-theme="dark"] .metric-diff-removed { color: #f87171; }
 }
 
 .graph-header h2 {
-  margin-bottom: 0;
+  margin: 0;
 }
 
 .graph-subtitle {
@@ -1731,33 +1843,29 @@ html[data-theme="dark"] .graph-filter-pill--kind {
 }
 
 .graph-shell {
-  margin-top: var(--space-4);
+  margin-top: var(--space-2);
   display: grid;
   gap: var(--space-3);
 }
 
+/* Wave 1p6nl: the graph view is no longer a fixed-height scroll band — the tree
+   nav + canvas flow to their natural height so the page scrolls as one. */
 .graph-shell--with-tree {
   grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-  align-items: stretch;
-  --graph-band-height: min(85vh, 920px);
-  height: var(--graph-band-height);
-  min-height: 420px;
+  align-items: start;
 }
 
 .graph-canvas-column {
   min-width: 0;
   min-height: 0;
-  height: 100%;
   display: flex;
   flex-direction: column;
 }
 
 .graph-svg-wrap {
   width: 100%;
-  flex: 1 1 auto;
-  height: 100%;
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
   border: 1px solid var(--panel-border);
   border-radius: 8px;
   background:
@@ -1791,11 +1899,9 @@ html[data-theme="dark"] .graph-svg-wrap {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: var(--space-3);
-  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
   background: var(--panel-bg);
 }
 
@@ -1820,7 +1926,11 @@ html[data-theme="dark"] .graph-svg-wrap {
   padding: 0;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  /* Long identifiers (e.g. _annotate_java_call_sites_with_receiver_type) can't
+     line-break, so keep items on one line and scroll horizontally rather than
+     letting them spill out of the panel. Vertical flows to natural height. */
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 .graph-tree-nav-focus-title {
@@ -1840,7 +1950,9 @@ html[data-theme="dark"] .graph-svg-wrap {
 
 .graph-tree-nav-item {
   display: block;
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
+  white-space: nowrap;
   text-align: left;
   padding: 0.35rem 0.25rem;
   border: none;
@@ -1875,7 +1987,9 @@ html[data-theme="dark"] .graph-svg-wrap {
 .graph-webgl-wrap {
   width: 100%;
   max-width: 100%;
-  min-height: 420px;
+  /* WebGL needs an explicit pixel height (canvas is absolutely positioned); since the
+     graph view no longer uses a fixed band, give the WebGL viewport its own tall height. */
+  min-height: min(78vh, 780px);
   border-radius: 8px;
   border: 1px solid var(--border);
   background:
@@ -1908,7 +2022,7 @@ html[data-theme="dark"] .graph-webgl-wrap {
 .graph-overview-svg-wrap .graph-svg--overview {
   display: block;
   width: 100%;
-  height: 100%;
+  height: auto;
   min-height: 420px;
 }
 
@@ -2101,6 +2215,18 @@ html[data-theme="dark"] .hero-card {
 html[data-theme="dark"] .graph-card,
 html[data-theme="dark"] .graph-selection {
   background: transparent;
+}
+
+/* Match .hero-card's real dark treatment (the framed panel at the
+   `html[data-theme="dark"] .hero-card` rule below): the standalone graph card is a
+   solid dark panel in dark mode so the Graph view frames its content like Work.
+   (The earlier `.graph-card { background: transparent }` rule applied when the card
+   lived inside the hero-card; standalone it needs its own panel — this wins on
+   specificity.) */
+html[data-theme="dark"] .app-graph .graph-card {
+  background: #212428;
+  border-color: #30353c;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 html[data-theme="dark"] .graph-layer-pill--active {
@@ -2412,27 +2538,7 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
   margin-top: var(--space-3);
 }
 
-/* ── Footer ──────────────────────────────────────────────────────────────── */
-
-.site-footer {
-  margin-top: var(--space-5);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-4) 0 var(--space-2);
-  border-top: 1px solid rgba(222, 226, 230, 0.72);
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-
-.site-footer-left {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-  flex: 1 1 auto;
-}
+/* ── Footer (rendered inside the sidebar — see .sidebar-footer / .sidebar-footer-meta) ── */
 
 .site-footer-brand {
   display: inline-flex;
@@ -2440,19 +2546,11 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
   color: var(--footer-accent);
   font-weight: 600;
   letter-spacing: -0.01em;
-  font-size: 0.82rem;
 }
 
-.site-footer-refresh,
-.site-footer-updated {
+.site-footer-refresh {
   color: var(--muted);
-  white-space: nowrap;
   font-variant-numeric: tabular-nums;
-}
-
-.site-footer-updated {
-  text-align: right;
-  flex-shrink: 0;
 }
 
 .sse-live {
@@ -2954,7 +3052,6 @@ html[data-theme="dark"] .diff-line--removed { color: #f87171; background: rgba(2
     width: min(100vw - 1rem, 100%);
     padding-top: var(--space-4);
   }
-  .site-header { padding: var(--space-3) var(--space-4); }
   .hero-card,
   .panel,
   .table-card,
@@ -2963,21 +3060,10 @@ html[data-theme="dark"] .diff-line--removed { color: #f87171; background: rgba(2
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .status-row { flex-direction: column; align-items: flex-start; }
   .progress-pct { font-size: 2rem; }
-  .site-footer { flex-direction: column; gap: var(--space-2); align-items: stretch; }
-  .site-footer-updated { text-align: left; }
 }
 
 @media (max-width: 480px) {
   .metrics { grid-template-columns: 1fr 1fr; }
-  .header-framework { display: none; }
-}
-
-/* ── Header actions (state badge + theme toggle) ─────────────────────────── */
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
 }
 
 /* ── Theme toggle button ─────────────────────────────────────────────────── */
@@ -3034,11 +3120,6 @@ html[data-theme="dark"] body {
 
 html[data-theme="dark"] {
   --footer-accent: #7FB2F0;
-}
-
-html[data-theme="dark"] .site-header {
-  background: rgba(17, 18, 20, 0.94);
-  border-bottom-color: rgba(46, 50, 56, 0.9);
 }
 
 html[data-theme="dark"] .hero-card {
@@ -3350,16 +3431,6 @@ html[data-theme="dark"] .hero-agent-pill--persona:hover {
 
 html[data-theme="dark"] tbody tr:hover td {
   background: rgba(64, 163, 233, 0.07);
-}
-
-html[data-theme="dark"] .state-live {
-  color: #86e040;
-  background: #0d2200;
-  border-color: #2a5010;
-}
-
-html[data-theme="dark"] .state-live .state-dot {
-  background: #74c92f;
 }
 
 html[data-theme="dark"] .progress-bar-fill {
