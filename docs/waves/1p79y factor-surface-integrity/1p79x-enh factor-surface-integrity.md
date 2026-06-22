@@ -1,11 +1,11 @@
 # Factor-surface integrity — declared-but-missing validator + seed reconciliation
 
 Change ID: `1p79x-enh factor-surface-integrity`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
+Status: implemented
 Last verified: 2026-06-22
-Wave: TBD
+Wave: `1p79y`
 
 ## Rationale
 
@@ -51,24 +51,25 @@ The highest-leverage fix is the validator (#1): it converts a silent broken stat
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `docs-lint`, keyed off `repo-profile.json` `factor_review`, fails when an `applicable` factor lacks its canonical `docs/agents/factor-<nn>-<name>.md` (with `Role:` + `Category: factor`). The static 4-factor list is no longer the source of truth.
-- [ ] AC-2: `docs-lint` flags a `.claude/agents/factor-*.md` wrapper that has no matching canonical source (orphan wrapper).
-- [ ] AC-3: `docs-lint` flags a factor wrapper missing YAML frontmatter (not subagent-loadable).
-- [ ] AC-4: a correct canonical+wrapper pair for an `applicable` factor passes; a `not-applicable`/`partial` factor with no docs passes (no false positive). Verified including against this repo's own `factor_review` (self-hosting — no regression on wavefoundry's `03/05/12/13`).
-- [ ] AC-5: `seed-238` treats factor docs as a governed canonical+wrapper pair — excludes them from the generic orphan-retire path, directs regenerate-not-relocate on wrappers-without-sources/frontmatter, and never suggests `docs/agents/factors/`.
-- [ ] AC-6: `seed-160` has a merge-safe factor-surface backfill (regenerate missing canonical from the `seed-050` template + evidence; re-render wrappers for valid frontmatter; never overwrite operator-refined content).
-- [ ] AC-7: `render_platform_surfaces.py` audited for factor-wrapper frontmatter — fixed if broken, else the audit result is recorded (already-correct).
-- [ ] AC-8: framework tests cover the validator (missing-canonical / orphan-wrapper / missing-frontmatter → fail; correct pair + not-applicable → pass), bytecode-free; `docs-lint` / `wave_validate` clean.
-- [ ] AC-9: all edits under the appropriate gates; no external-project names introduced (grep `aceiss|teton|solaris` over changed files = 0).
+- [x] AC-1: `docs-lint`, keyed off `repo-profile.json` `factor_review`, fails when an `applicable` factor lacks its canonical `docs/agents/factor-<nn>-<name>.md` (with `Role:` + `Category: factor`). The static 4-factor list is no longer the source of truth. (New `check_factor_surface` in `wave_validators.py`; static factor entries removed from `_AGENT_ROLE_REQUIRED_PATHS`. Test: `test_factor_surface_applicable_missing_canonical_fails`.)
+- [x] AC-2: `docs-lint` flags a `.claude/agents/factor-*.md` wrapper that has no matching canonical source (orphan wrapper). (Test: `test_factor_surface_orphan_wrapper_fails`.)
+- [x] AC-3: `docs-lint` flags a factor wrapper missing YAML frontmatter (not subagent-loadable). (Test: `test_factor_surface_wrapper_missing_frontmatter_fails`.)
+- [x] AC-4: a correct canonical+wrapper pair for an `applicable` factor passes; a `not-applicable`/`partial` factor with no docs passes (no false positive). Verified including against this repo's own `factor_review` (self-hosting). Discovered + fixed a self-host gap: this repo marks `03/05/07/12/13` applicable but only `03/05/12/13` had canonical docs — authored `docs/agents/factor-07-port-binding.md` so the gate stays green. (Tests: `test_factor_surface_correct_canonical_only_passes`, `test_factor_surface_correct_canonical_with_wrapper_passes`, `test_factor_surface_not_applicable_no_docs_passes`; self-host `docs-lint: ok`.)
+- [x] AC-5: `seed-238` treats factor docs as a governed canonical+wrapper pair — excludes them from the generic orphan-retire path, directs regenerate-not-relocate on wrappers-without-sources/frontmatter, and never suggests `docs/agents/factors/`. (New "Factor-review docs are a governed pair — not orphans" section.)
+- [x] AC-6: `seed-160` has a merge-safe factor-surface backfill (regenerate missing canonical from the `seed-050` template + evidence; re-render wrappers for valid frontmatter; never overwrite operator-refined content). (New backfill action-item in the editing-pass list.)
+- [x] AC-7: `render_platform_surfaces.py` audited for factor-wrapper frontmatter. Verdict: the renderer (and its delegate `render_agent_surfaces.py`) does NOT render factor wrappers at all — they are authored by `seed-050` task 5 generation; the renderer emits only hooks/MCP/auto-Guru surfaces. Nothing in the renderer to fix; the downstream symptom is a never-(re)generated seed-050 pair, repaired by R3's backfill. Recorded in `seed-160` + `seed-050` text and the progress log; no fabricated renderer change.
+- [x] AC-8: framework tests cover the validator (missing-canonical / orphan-wrapper / missing-frontmatter → fail; correct pair + not-applicable → pass), bytecode-free; `docs-lint` / `wave_validate` clean. (7 new tests in `test_docs_lint.py`; full suite 3388 green bytecode-free; `docs-lint: ok`.)
+- [x] AC-9: all edits under the appropriate gates; no external-project names introduced (grep `aceiss|teton|solaris` over changed files = 0). (`framework_edit_allowed` for validator/cli/tests; `seed_edit_allowed` for seeds 238/160/050; factor-07 doc + platform-mapping under `docs/`, no framework gate. All gates closed.)
 
 ## Tasks
 
-- [ ] Open gates per scope (`framework_edit_allowed` for validators/renderer/tests; `seed_edit_allowed` for seeds); close after each.
-- [ ] Make the factor validator `factor_review`-keyed; add orphan-wrapper + frontmatter checks (reuse the `1p799` declared-but-missing shape).
-- [ ] Add framework tests (fail + pass cases incl. the self-hosting `factor_review`).
-- [ ] Audit `render_platform_surfaces.py` factor-wrapper frontmatter; fix if broken.
-- [ ] Edit `seed-238` (factor-aware reconciliation), `seed-160` (factor backfill), `seed-050` (gate pointer if warranted).
-- [ ] Run framework tests bytecode-free; `wave_validate` clean; grep external-names = 0; close gates.
+- [x] Open gates per scope (`framework_edit_allowed` for validators/renderer/tests; `seed_edit_allowed` for seeds); close after each.
+- [x] Make the factor validator `factor_review`-keyed; add orphan-wrapper + frontmatter checks (reuse the `1p799` declared-but-missing shape).
+- [x] Add framework tests (fail + pass cases incl. the self-hosting `factor_review`).
+- [x] Audit `render_platform_surfaces.py` factor-wrapper frontmatter; fix if broken. (Audit verdict: renderer does not author factor wrappers — seed-050 does; no fix needed.)
+- [x] Edit `seed-238` (factor-aware reconciliation), `seed-160` (factor backfill), `seed-050` (gate pointer).
+- [x] Author `docs/agents/factor-07-port-binding.md` (self-host backfill) + record canonical row in `platform-mapping.md`.
+- [x] Run framework tests bytecode-free; `docs-lint` clean; grep external-names = 0; close gates.
 
 ## Agent Execution Graph
 
@@ -114,6 +115,7 @@ The highest-leverage fix is the validator (#1): it converts a silent broken stat
 | Date       | Update                                                                 | Evidence                          |
 | ---------- | --------------------------------------------------------------------- | --------------------------------- |
 | 2026-06-22 | Plan created from downstream field feedback (Java-agent consumer, pack `1.8.0+p79p`). All three reported issues verified against the code: `wave_validators.py:58-75` static 4-factor list (no `factor_review` keying, no wrapper validation); `seed-238` has zero factor-awareness; `seed-160` has factor generation/relocation notes but no missing-canonical/malformed-wrapper repair. | `wave_validators.py:58-75`, `seed-050` task 5 (line 48), `seed-238` (0 factor mentions), `seed-160` (lines 101/333/467) |
+| 2026-06-22 | Implemented. Added `check_factor_surface` (`factor_review`-keyed canonical existence + orphan-wrapper + frontmatter; ERROR severity, recovery points at `seed-050` task 5 / Upgrade reconciliation) and removed the static factor entries from `_AGENT_ROLE_REQUIRED_PATHS`; wired into `cli.py`. **Self-host gap discovered + fixed:** this repo marks `03/05/07/12/13` applicable but canonical docs existed only for `03/05/12/13` — the new gate (correctly) fired on `factor-07`; authored evidence-grounded `docs/agents/factor-07-port-binding.md` (dashboard loopback port binding: `choose_port`/`_is_port_free`/`read_dashboard_config` evidence) and added its canonical row to `platform-mapping.md` (canonical-only, no wrapper). **R4 renderer audit verdict:** `render_platform_surfaces.py` (and `render_agent_surfaces.py`) do NOT render factor wrappers — they are authored by `seed-050` task 5; the renderer emits only hooks/MCP/auto-Guru surfaces. No renderer fix; the downstream symptom is a never-(re)generated seed-050 pair, repaired by the seed-160 backfill. Reconciled `seed-238` (governed-pair section), `seed-160` (merge-safe backfill), `seed-050` (gate pointer). 7 new tests; full suite 3388 (was 3367) green bytecode-free; self-host `docs-lint: ok`; `aceiss\|teton\|solaris` grep = 0; gates opened/closed per scope, all closed. | `wave_validators.py` `check_factor_surface`, `cli.py`, `tests/test_docs_lint.py`, `docs/agents/factor-07-port-binding.md`, `docs/agents/platform-mapping.md`, `seeds/238`, `seeds/160`, `seeds/050` |
 
 
 ## Decision Log

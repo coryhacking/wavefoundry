@@ -115,8 +115,8 @@
     },
     "07": {
       "name": "Port binding",
-      "status": "applicable",
-      "rationale": "The optional local dashboard server binds loopback HTTP ports per repository. Preferred/fallback port behavior is now part of the framework contract."
+      "status": "partial",
+      "rationale": "The optional local dashboard server binds loopback HTTP ports per repository (preferred/fallback behavior). This is an optional local surface, not an active review lane: workflow-config.json factor_review_policy.applicable_factors is 03/05/12/13 (07 sits in partial_factors). Aligned to `partial` so the assessment matches the operational lane set (no active port-binding lane, no canonical factor-07 doc required)."
     },
     "08": {
       "name": "Concurrency",

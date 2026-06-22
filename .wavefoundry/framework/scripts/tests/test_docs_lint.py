@@ -512,6 +512,220 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("docs/agents/factor-03-config.md: missing required `Role:` metadata", result.stderr)
 
+    # ------------------------------------------------------------------
+    # Wave 1p79x / 1p7ac — factor-surface declared-but-missing gate.
+    # 1p7ac re-keys the canonical-doc requirement off the operational
+    # active-lane set (workflow-config.json factor_review_policy.applicable_factors),
+    # not the repo-profile.json factor_review applicability assessment. The
+    # assessment-vs-lane drift surfaces as a non-blocking WARNING.
+    # ------------------------------------------------------------------
+
+    def _write_repo_profile(self, root: Path, factor_review: dict) -> None:
+        profile = {
+            "schema_version": "1.0",
+            "factor_review": factor_review,
+        }
+        profile_path = root / "docs" / "repo-profile.json"
+        profile_path.parent.mkdir(parents=True, exist_ok=True)
+        profile_path.write_text(json.dumps(profile, indent=2), encoding="utf-8")
+
+    def _set_applicable_factors(self, root: Path, applicable_factors: list[str]) -> None:
+        """Set the operational active-lane set in the fixture's workflow-config.json."""
+        config_path = root / "docs" / "workflow-config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        policy = config.get("factor_review_policy")
+        if not isinstance(policy, dict):
+            policy = {}
+            config["factor_review_policy"] = policy
+        policy["applicable_factors"] = applicable_factors
+        config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    def _write_factor_canonical(self, root: Path, slug: str) -> None:
+        doc = root / "docs" / "agents" / f"{slug}.md"
+        doc.parent.mkdir(parents=True, exist_ok=True)
+        doc.write_text(
+            f"# {slug}\n\nOwner: Engineering\nStatus: active\n"
+            f"Role: {slug}\nCategory: factor\nLast verified: 2026-06-22\n\n"
+            "## What This Factor Covers\n\nGeneric factor coverage for the fixture.\n",
+            encoding="utf-8",
+        )
+
+    def _write_factor_wrapper(self, root: Path, slug: str, *, frontmatter: bool = True) -> None:
+        wrapper = root / ".claude" / "agents" / f"{slug}.md"
+        wrapper.parent.mkdir(parents=True, exist_ok=True)
+        if frontmatter:
+            body = (
+                f"---\nname: {slug}\ndescription: PROACTIVELY use for factor review.\n"
+                f"tools: Read, Grep, Glob, Bash\nmodel: sonnet\n---\n\n"
+                f"# {slug} (Wrapper)\n\nCanonical factor doc: `docs/agents/{slug}.md`.\n"
+            )
+        else:
+            body = (
+                f"# {slug} (Wrapper)\n\nCanonical factor doc: `docs/agents/{slug}.md`.\n"
+                "No frontmatter — cannot load as a subagent.\n"
+            )
+        wrapper.write_text(body, encoding="utf-8")
+
+    def test_factor_surface_lane_active_missing_canonical_fails(self) -> None:
+        """Lane-active: a factor in applicable_factors with no canonical doc -> ERROR."""
+        root = self.copy_fixture()
+        self._set_applicable_factors(root, ["07"])
+        self._write_repo_profile(
+            root,
+            {"07": {"name": "Port binding", "status": "applicable", "rationale": "binds loopback ports"}},
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("factor `07` is an active review lane", result.stderr)
+        self.assertIn("seed-050", result.stderr)
+
+    def test_factor_surface_lane_active_correct_canonical_only_passes(self) -> None:
+        """Self-host shape: an active-lane canonical with NO wrapper passes."""
+        root = self.copy_fixture()
+        self._set_applicable_factors(root, ["07"])
+        self._write_repo_profile(
+            root,
+            {"07": {"name": "Port binding", "status": "applicable", "rationale": "binds loopback ports"}},
+        )
+        self._write_factor_canonical(root, "factor-07-port-binding")
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_factor_surface_lane_active_correct_canonical_with_wrapper_passes(self) -> None:
+        root = self.copy_fixture()
+        self._set_applicable_factors(root, ["07"])
+        self._write_repo_profile(
+            root,
+            {"07": {"name": "Port binding", "status": "applicable", "rationale": "binds loopback ports"}},
+        )
+        self._write_factor_canonical(root, "factor-07-port-binding")
+        self._write_factor_wrapper(root, "factor-07-port-binding", frontmatter=True)
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_factor_surface_retired_lane_repo_profile_applicable_passes(self) -> None:
+        """Retired lane (empty applicable_factors) with repo-profile factors still
+        `applicable` -> PASS without falsifying the assessment. Assessed factors
+        surface only as non-blocking WARNINGS, not ERRORS."""
+        root = self.copy_fixture()
+        self._set_applicable_factors(root, [])
+        self._write_repo_profile(
+            root,
+            {
+                "07": {"name": "Port binding", "status": "applicable", "rationale": "binds loopback ports"},
+                "12": {"name": "Admin processes", "status": "applicable", "rationale": "CLI admin"},
+            },
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # No canonical docs required; assessed factors are non-blocking warnings.
+        self.assertNotIn("ERROR:", result.stderr)
+        self.assertIn("WARNING:", result.stderr)
+        self.assertIn("no active review lane", result.stderr)
+
+    def test_factor_surface_assessment_only_factor_warns_not_errors(self) -> None:
+        """Assessment-only: a factor `applicable` in repo-profile but NOT in
+        applicable_factors -> WARNING, not ERROR (does not block the gate)."""
+        root = self.copy_fixture()
+        # Active lane is 03 (with its doc); 07 is assessed applicable but not a lane.
+        self._set_applicable_factors(root, ["03"])
+        self._write_repo_profile(
+            root,
+            {
+                "03": {"name": "Config", "status": "applicable", "rationale": "config"},
+                "07": {"name": "Port binding", "status": "applicable", "rationale": "binds loopback ports"},
+            },
+        )
+        self._write_factor_canonical(root, "factor-03-config")
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        # The drift is visible but unblocked: passes, and 07 surfaces as a WARNING only.
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("ERROR:", result.stderr)
+        self.assertIn("WARNING:", result.stderr)
+        self.assertIn("factor `07`", result.stderr)
+        self.assertIn("no active review lane", result.stderr)
+
+    def test_factor_surface_self_host_shape_passes(self) -> None:
+        """Self-host shape: applicable_factors 03/05/12/13 with their canonical docs -> PASS,
+        no residual drift WARNING."""
+        root = self.copy_fixture()
+        self._set_applicable_factors(root, ["03", "05", "12", "13"])
+        self._write_repo_profile(
+            root,
+            {
+                "03": {"name": "Config", "status": "applicable", "rationale": "config"},
+                "05": {"name": "Build / release / run", "status": "applicable", "rationale": "build"},
+                "07": {"name": "Port binding", "status": "partial", "rationale": "optional dashboard"},
+                "12": {"name": "Admin processes", "status": "applicable", "rationale": "CLI admin"},
+                "13": {"name": "API first", "status": "applicable", "rationale": "MCP surface"},
+            },
+        )
+        self._write_factor_canonical(root, "factor-03-config")
+        self._write_factor_canonical(root, "factor-05-build-release-run")
+        self._write_factor_canonical(root, "factor-12-admin-processes")
+        self._write_factor_canonical(root, "factor-13-api-first")
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # No residual factor assessment-vs-lane drift WARNING for the self-host shape.
+        self.assertNotIn("no active review lane", result.stderr)
+
+    def test_factor_surface_orphan_wrapper_fails_regardless_of_lane_set(self) -> None:
+        """A wrapper with no matching canonical source is an orphan wrapper, even with an
+        empty (retired) lane set."""
+        root = self.copy_fixture()
+        self._set_applicable_factors(root, [])
+        # Wrapper exists but no canonical docs/agents/factor-07-port-binding.md.
+        self._write_factor_wrapper(root, "factor-07-port-binding", frontmatter=True)
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("orphan wrapper", result.stderr)
+
+    def test_factor_surface_wrapper_missing_frontmatter_fails(self) -> None:
+        root = self.copy_fixture()
+        self._set_applicable_factors(root, ["07"])
+        self._write_factor_canonical(root, "factor-07-port-binding")
+        self._write_factor_wrapper(root, "factor-07-port-binding", frontmatter=False)
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("missing YAML frontmatter", result.stderr)
+
+    def test_factor_surface_no_active_lanes_no_repo_profile_is_noop(self) -> None:
+        """No applicable_factors + no repo-profile -> the existence/drift halves are a no-op
+        (base fixture stays green); a clean canonical+wrapper pair still passes."""
+        root = self.copy_fixture()
+        self._set_applicable_factors(root, [])
+        self._write_factor_canonical(root, "factor-07-port-binding")
+        self._write_factor_wrapper(root, "factor-07-port-binding", frontmatter=True)
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_role_metadata_required_for_arbitrary_specialist_doc(self) -> None:
         """Wave 1p35d (1p35l): the Role: rule covers every agent doc, not just the canonical allow-list."""
         root = self.copy_fixture()

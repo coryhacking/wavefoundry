@@ -61,10 +61,15 @@ _AGENT_ROLE_REQUIRED_PATHS = frozenset(
         "docs/agents/code-reviewer.md",
         "docs/agents/specialists/wave-council.md",
         "docs/agents/docs-contract-reviewer.md",
-        "docs/agents/factor-03-config.md",
-        "docs/agents/factor-05-build-release-run.md",
-        "docs/agents/factor-12-admin-processes.md",
-        "docs/agents/factor-13-api-first.md",
+        # NOTE: factor canonical docs (factor-<nn>-<name>.md) are NOT listed here.
+        # Their required-existence is derived dynamically from `docs/workflow-config.json`
+        # `factor_review_policy.applicable_factors` (the operational active-lane set —
+        # each lane requires its canonical source) by `check_factor_surface` below. The
+        # static-list approach was wrong because it demanded a fixed `03/05/12/13` set
+        # regardless of a repo's actual lanes; keying off `repo-profile.json`
+        # `factor_review` (1p79x) was also wrong because that is the broader applicability
+        # *assessment*, not the operational lane set, so it false-blocked retired-lane
+        # repos and over-required docs for assessment-only factors. Wave 1p7ac.
         "docs/agents/guru.md",
         "docs/agents/implementer.md",
         "docs/agents/performance-reviewer.md",
@@ -406,6 +411,168 @@ def _check_agent_category_metadata(root: Path) -> list[str]:
         if expected is not None and category != expected:
             failures.append(f"{rel}: `Category:` must be `{expected}`")
     return failures
+
+
+_FACTOR_ID_RE = re.compile(r"^\d{2}$")
+_FACTOR_CANONICAL_RE = re.compile(r"^factor-(\d{2})-[a-z0-9][a-z0-9\-]*$")
+# A YAML frontmatter block is a `---` fence on the very first line, a body, and a
+# closing `---` fence. A factor wrapper missing this block cannot load as a
+# native subagent (Claude Code requires the frontmatter to register the agent).
+_FRONTMATTER_RE = re.compile(r"\A---\s*\n.*?\n---\s*(?:\n|$)", re.DOTALL)
+_FACTOR_RECOVERY = (
+    "regenerate the canonical+wrapper pair via `seed-050` task 5 "
+    "(or an `Upgrade wave framework` reconciliation) — do not hand-relocate or retire the wrapper, "
+    "and keep the canonical home flat at `docs/agents/` (never `docs/agents/factors/`)"
+)
+
+
+def _factor_canonical_for(root: Path, factor_id: str) -> Path | None:
+    """Return the canonical `docs/agents/factor-<nn>-*.md` for a factor number, if one exists.
+
+    The kebab-case name segment is not 1:1 with the repo-profile `name` field
+    (e.g. "Build / release / run" -> `build-release-run`), so the canonical doc
+    is located by its zero-padded two-digit number prefix.
+    """
+    agents_root = root / "docs" / "agents"
+    if not agents_root.is_dir():
+        return None
+    matches = sorted(agents_root.glob(f"factor-{factor_id}-*.md"))
+    return matches[0] if matches else None
+
+
+def check_factor_surface(root: Path) -> tuple[list[str], list[str]]:
+    """Wave 1p79x / 1p7ac — the declared-but-missing gate for the factor-review surface.
+
+    Wave 1p7ac re-keys the canonical-doc requirement off the **operational active-lane
+    set** — `docs/workflow-config.json` `factor_review_policy.applicable_factors` — NOT
+    the broader `docs/repo-profile.json` `factor_review` applicability *assessment* that
+    `1p79x` keyed off. The canonical factor docs are the review-LANE artifacts, so they
+    must be required for the lanes a repo actually runs, not for every factor merely
+    assessed relevant. `repo-profile` answers "is this factor relevant?";
+    `workflow-config.applicable_factors` answers "do we run a lane for it?" — only the
+    latter implies a canonical doc.
+
+    Returns ``(failures, warnings)``:
+
+      ERRORS (failures, block the gate):
+      (a) each factor in `applicable_factors` must have its canonical
+          `docs/agents/factor-<nn>-<name>.md` with `Role: factor-<nn>-<name>` +
+          `Category: factor` headers — a missing/malformed canonical for an ACTIVE
+          lane is the real defect;
+      (b) a `.claude/agents/factor-*.md` wrapper with NO matching canonical source
+          is an orphan wrapper (wrappers are optional rendered copies, never the
+          source of truth), regardless of the lane set;
+      (c) a factor wrapper present but missing YAML frontmatter cannot load as a
+          native subagent, regardless of the lane set.
+
+      WARNINGS (non-blocking, surfaced for operator reconciliation):
+      (d) a factor marked `applicable` in `repo-profile.json` `factor_review` but NOT
+          present in `applicable_factors` — assessed-relevant with no active review
+          lane. Visible but unblocked (no forced doc over-generation).
+
+    An absent/empty `applicable_factors` (retired lane) requires NO canonical docs even
+    when `repo-profile` still marks factors `applicable` (those surface as (d) warnings).
+    """
+    failures: list[str] = []
+    warnings: list[str] = []
+
+    # The operational active-lane set drives the canonical-doc requirement.
+    active_factors: set[str] = set()
+    config_path = root / "docs" / "workflow-config.json"
+    if config_path.is_file():
+        config, cfg_err = load_json(config_path)
+        if cfg_err is None and isinstance(config, dict):
+            policy = config.get("factor_review_policy")
+            if isinstance(policy, dict):
+                raw_active = policy.get("applicable_factors")
+                if isinstance(raw_active, list):
+                    active_factors = {
+                        str(fid) for fid in raw_active if _FACTOR_ID_RE.match(str(fid))
+                    }
+
+    # (a) Each active-lane factor must have a canonical doc with the factor headers.
+    for factor_id in sorted(active_factors):
+        canonical = _factor_canonical_for(root, factor_id)
+        if canonical is None:
+            failures.append(
+                f"docs/agents/: factor `{factor_id}` is an active review lane in "
+                f"docs/workflow-config.json `factor_review_policy.applicable_factors` but "
+                f"has no canonical `docs/agents/factor-{factor_id}-<name>.md` — "
+                f"{_FACTOR_RECOVERY}"
+            )
+            continue
+        rel = relative_to_root(root, canonical)
+        text = read_text(canonical)
+        role_match = _ROLE_RE.search(text)
+        if not role_match:
+            failures.append(
+                f"{rel}: active-lane factor `{factor_id}` canonical doc is missing the "
+                f"`Role: {canonical.stem}` header — {_FACTOR_RECOVERY}"
+            )
+        elif role_match.group(1).strip() != canonical.stem:
+            failures.append(
+                f"{rel}: factor canonical `Role:` must match filename slug `{canonical.stem}`"
+            )
+        category_match = _CATEGORY_RE.search(text)
+        if not category_match:
+            failures.append(
+                f"{rel}: active-lane factor `{factor_id}` canonical doc is missing the "
+                f"`Category: factor` header — {_FACTOR_RECOVERY}"
+            )
+        elif category_match.group(1).strip() != "factor":
+            failures.append(f"{rel}: factor canonical `Category:` must be `factor`")
+
+    # (d) Assessment-vs-lane drift WARNING (non-blocking): a factor assessed
+    # `applicable` in repo-profile that has no active review lane. Surfaces the gap
+    # for operator reconciliation without forcing doc over-generation or blocking.
+    profile_path = root / "docs" / "repo-profile.json"
+    if profile_path.is_file():
+        data, err = load_json(profile_path)
+        if err is None and isinstance(data, dict):
+            factor_review = data.get("factor_review")
+            if isinstance(factor_review, dict):
+                for factor_id, entry in sorted(factor_review.items()):
+                    if not _FACTOR_ID_RE.match(str(factor_id)):
+                        continue
+                    if not isinstance(entry, dict):
+                        continue
+                    status = str(entry.get("status", "")).strip().casefold()
+                    if status != "applicable":
+                        continue
+                    if str(factor_id) in active_factors:
+                        continue
+                    warnings.append(
+                        f"docs/repo-profile.json: factor `{factor_id}` is marked "
+                        f"`applicable` (assessment) but is not in docs/workflow-config.json "
+                        f"`factor_review_policy.applicable_factors` (no active review lane) — "
+                        f"reconcile: add it to `applicable_factors` to run a lane (which "
+                        f"requires its canonical doc), or align the assessment to `partial` "
+                        f"if it is not an active lane. No canonical doc is required while it "
+                        f"is not an active lane."
+                    )
+
+    # (b)/(c) Validate any `.claude/agents/factor-*.md` wrappers: orphan + frontmatter.
+    # These run regardless of the lane set — a malformed wrapper is always a defect.
+    claude_agents = root / ".claude" / "agents"
+    if claude_agents.is_dir():
+        for wrapper in sorted(claude_agents.glob("factor-*.md")):
+            id_match = _FACTOR_CANONICAL_RE.match(wrapper.stem)
+            wrapper_rel = relative_to_root(root, wrapper)
+            factor_id = id_match.group(1) if id_match else None
+            canonical = _factor_canonical_for(root, factor_id) if factor_id else None
+            if canonical is None:
+                failures.append(
+                    f"{wrapper_rel}: factor wrapper has no matching canonical source "
+                    f"`docs/agents/{wrapper.stem}.md` (orphan wrapper) — {_FACTOR_RECOVERY}"
+                )
+            wrapper_text = read_text(wrapper)
+            if not _FRONTMATTER_RE.match(wrapper_text):
+                failures.append(
+                    f"{wrapper_rel}: factor wrapper is missing YAML frontmatter "
+                    f"(no leading `---` fenced block) so it cannot load as a native subagent — "
+                    f"{_FACTOR_RECOVERY}"
+                )
+    return failures, warnings
 
 
 def _is_activated_wave(text: str) -> bool:

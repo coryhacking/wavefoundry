@@ -44,7 +44,7 @@ When the answer is yes (or when the message is primarily about **understanding, 
 | "Run the test suite" | No | Operational. |
 | "What's the value of `MAX_RETRIES` in this file?" | No | Trivial lookup; targeted read suffices, no investigation needed. |
 
-**Retrieval-intent backstop — late-detect signal:** if you find yourself about to call `code_search`, `code_keyword`, `code_read`, `code_definition`, `code_outline`, `code_callhierarchy`, `code_references`, or `code_pattern` in service of a user question, **stop**. That retrieval IS Guru's job. Route to Guru instead of doing the retrieval yourself. The tool reach-for catches misses the pre-flight skipped.
+**Retrieval-intent backstop — late-detect signal:** if you find yourself about to call `code_search`, `code_keyword`, `code_read`, `code_definition`, `code_outline`, `code_callhierarchy`, `code_references`, or `code_pattern` in service of a user question, **stop**. That retrieval IS Guru's job. Route to Guru instead of doing the retrieval yourself. The tool reach-for catches misses the pre-flight skipped. **This applies to delegated work too:** when you spawn a subagent for code investigation or implementation, route it through a role-typed agent (`implementer`/`guru`) or carry the MCP-first directive in its prompt — Task-spawned subagents inherit the parent's MCP tools, so a bare general-purpose subagent grepping by habit is the same defect (the exploration order lives in `seed-180`/`seed-211` — do not restate it).
 
 Explicit shortcut **Guru** remains available in `docs/prompts/index.md` when the operator wants to name the mode.
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-21
+Last verified: 2026-06-22
 
 ## Repository Summary
 
@@ -35,17 +35,17 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 5409 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 637 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 5419 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 644 |
 | graph | `.wavefoundry/framework/scripts` | code | 214 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 213 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 179 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 181 |
 | chunker | `.wavefoundry/framework/scripts` | code | 161 |
-| dashboard_lib | `.wavefoundry/framework/scripts` | code | 120 |
+| dashboard_lib | `.wavefoundry/framework/scripts` | code | 115 |
 | indexer | `.wavefoundry/framework/scripts` | code | 102 |
 | upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 80 |
 | setup | `.wavefoundry/framework/scripts` | code | 75 |
-| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 56 |
+| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 54 |
 | render_platform_surfaces | `.wavefoundry/framework/scripts` | code | 54 |
 | build_pack | `.wavefoundry/framework/scripts` | code | 48 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 36 |
@@ -57,7 +57,7 @@ between the markers is machine-maintained; the surrounding narrative is not.
 | tokens | `docs/design-system/tokens` | config | 320 |
 | docs | `docs` | config | 188 |
 | modes | `docs/design-system/tokens/modes` | config | 150 |
-| json | `docs/design-system/exports/json` | config | 75 |
+| json | `docs/design-system/exports/json` | config | 86 |
 | nav-sidebar | `docs/design-system/components/nav-sidebar` | config | 32 |
 <!-- waveframework:repo-index-modules end -->
 

@@ -4,24 +4,29 @@ Owner: Engineering
 Status: active
 Last verified: 2026-06-22
 
-## Just closed — `1p75h design-system-foundation` (CLOSED 2026-06-22)
-4 changes delivered: `1p6z6` (token extraction), `12atj` (token build pipeline), `1p72v` (WFDS primitive module + dashboard tokenization + operator nav polish), `1p799` (design-system adopt-existing / `external-reference` mode). Both councils recorded (readiness + delivery, incl. `1p799` addenda). Suite was 3367 green at close.
+## `1p79y factor-surface-integrity` (OPEN / close-eligible) — 3 changes, all IMPLEMENTED + delivery-reviewed
+- **`1p79x-enh`** — `check_factor_surface` declared-but-missing factor gate + seed-238/160 reconciliation + renderer audit.
+- **`1p7ac-enh`** — re-keyed the gate to `workflow-config factor_review_policy.applicable_factors` (operational lane set); retired-lane=no docs; assessment-vs-lane drift = non-blocking WARNING (`(failures, warnings)` tuple); reconciled self-host `07` (→partial, removed factor-07 doc).
+- **`1p7bi-enh`** — delegation-layer MCP-first rule (route code subagents through role-typed agents or carry the directive; subagents inherit MCP tools) in `seed-180`/`seed-100`/`seed-050` + `AGENTS.md`; references the existing exploration order, no restate. Prompt-only.
+- Readiness + delivery councils recorded for all three (with `1p7ac`/`1p7bi` addenda). **Close dry-run GREEN.** Suite **3394 green**; docs-lint clean.
 
-## Vendor-neutrality scrub — DONE (operator-directed, separate concern)
-External consumer-project names (`aceiss`/`teton`/`solaris`/project-`javaagent`) removed from the **packaged + live surface** (`.wavefoundry/framework/**`, `docs/design-system/**`, `docs/architecture/design-system.md`) **and the repo-root `CHANGELOG.md`** (which build_pack ships into every package at `.wavefoundry/CHANGELOG.md` — caught by grepping the built zip). Historical `docs/waves`/`docs/plans`/`docs/agents/journals` intentionally left intact. Built-zip grep gate = 0.
+## Full 1.8.0 release scope (ready, HELD)
+1.8.0 = `1p75h` design-system foundation (closed/pushed) + `1p79y` factor-surface integrity (gate + lane-aware re-key + delegation rule) + vendor-neutrality scrub. Downstream-validated across Java (happy path), solaris (retired-lane), RDS (10-vs-7) consumers; `1p7ac`/`1p7bi` correct the gaps those surfaced.
 
-## Local downstream test build
-`~/.wavefoundry/dist/wavefoundry-1.8.0.p79q.zip` — version `1.8.0+p79p/q`, **local only** (not tagged/pushed). Verified ships zero external-project names. `framework/VERSION` reverted to `1.7.3+p6n0` (no release). Operator was validating it against a Java-agent consumer → produced the factor-surface feedback that became `1p79y`.
+## Finalize sequence (operator-owned — explicit go on each)
+1. **Commit + push `1p79y`** (uncommitted since `63121a9`) — `coryhacking` gh account.
+2. **Close `1p79y`** (`wave_close mode=create`).
+3. Optional: a fresh local `1.8.0` build with `1p7ac`+`1p7bi` for one more downstream pass.
+4. **Cut the real `1.8.0`**: VERSION `1.7.3→1.8.0`, CHANGELOG `1.8.0` section, `build_pack --version 1.8.0 --release` (clean tree + main + `coryhacking`). Real publish — needs explicit go.
 
-## NEW wave — `1p79y factor-surface-integrity` (PLANNED, not started)
-One change `1p79x-enh factor-surface-integrity`, admitted. From downstream feedback (pack `1.8.0+p79p`); a **pre-existing** gap (~1.6.x), independent of `1p75h`. All 3 reported issues verified against code. Fixes: (1) `factor_review`-keyed declared-but-missing validator in `wave_lint_lib/wave_validators.py` (canonical-existence + orphan-wrapper + wrapper-frontmatter, replacing the static 4-factor list — reuses the `1p799` pattern); (2) `seed-238` factor-aware reconciliation; (3) `seed-160` factor backfill; (4) `render_platform_surfaces.py` frontmatter audit. 9 ACs, priorities proposed. `next_action: prepare_wave`. NOT yet prepared/implemented.
+## Constraints
+- `~/.wavefoundry/venv/bin/python`; tests bytecode-free. Gates open-before/close-after. Wave-record fields `;`-delimited, no `<`. Commit msgs: no AI attribution / no `Co-Authored-By`. No `git commit`/`wave_close(create)`/release without explicit operator request this turn.
+- Behavioral adoption (1p7bi): delegate code work via role-typed agents or carry the MCP-first directive; require the `Gapfill:` note.
 
-## Commit / push state (operator-owned — NOT yet requested)
-Everything since `origin/main` `64b340f` is **uncommitted**: all of `1p75h` (4 changes + close status) + the vendor scrub + `CHANGELOG.md` + the `1p79y`/`1p79x` plan+wave. Push needs the **`coryhacking`** gh account (`gh auth switch --user coryhacking`, push, switch back). No `git commit` without explicit operator request in the current turn.
+## Other
+- Closed/pushed: `1p75h` + scrub (`6f228b4`, `63121a9` on origin/main). Memory: `project_factor_gate_keying_and_1p8_validation`, `project_mcp_code_tool_quality_log` (session 12).
+- Planned, not started: `1p6lp cross-host-skills`.
 
-## Standing constraints
-- `~/.wavefoundry/venv/bin/python`; tests bytecode-free. Gates open-before/close-after (`framework_edit_allowed`, `seed_edit_allowed`). Signoff/wave-record lines: no `<` angle brackets. Commit msgs: no AI attribution / no `Co-Authored-By`. Wave watchpoints must contain a marker word (`watchpoint`/`follow-up`/`block`/`retry`/`defer`/`move`).
-- Dashboard served off-disk at `http://127.0.0.1:8821/dashboard.html`.
+## Current Session
 
-## Other planned, not started
-- `1p6lp cross-host-skills` (`1p6lo` + `1p6lw`).
+**Active wave:** *(none)*

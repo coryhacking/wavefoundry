@@ -17,6 +17,7 @@ from .secrets_validators import check_hardcoded_secrets
 from .wave_validators import (
     check_closed_wave_requirements,
     check_cross_artifact_consistency,
+    check_factor_surface,
     check_prepare_council_verdict,
     _check_agent_category_metadata,
     _check_agent_role_metadata,
@@ -102,6 +103,9 @@ def main() -> int:
     failures.extend(check_plan_filenames(root))
     failures.extend(_check_agent_role_metadata(root))
     failures.extend(_check_agent_category_metadata(root))
+    factor_failures, factor_warnings = check_factor_surface(root)
+    failures.extend(factor_failures)
+    warnings.extend(factor_warnings)
     failures.extend(check_journal_docs(root))
     failures.extend(check_persona_docs(root))
     failures.extend(check_cross_artifact_consistency(root))

@@ -43,6 +43,20 @@ For each item, look for:
 5. **Stale cross-references** — links/pointers to files, tools, or sections that have moved or been removed. Fix or cut.
 6. **Context bloat** — oversized root `AGENTS.md`/`CLAUDE.md` that wastes tokens and degrades decisions. Flag content that belongs in a per-area file, or that should simply be cut. Smaller, scoped context beats a giant root file.
 
+## Factor-review docs are a governed pair — not orphans
+
+Factor-review agent docs are **framework-governed**, not free-floating primitives. Per `seed-050` task 5, each factor in the operational active-lane set — `docs/workflow-config.json` `factor_review_policy.applicable_factors` — is a **canonical+wrapper pair**: the canonical source is `docs/agents/factor-<nn>-<name>.md` (flat under `docs/agents/`, with `Role: factor-<nn>-<name>` + `Category: factor` headers) and the optional rendered wrapper is the native subagent copy (e.g. `.claude/agents/factor-<nn>-<name>.md`). Both are recorded in `docs/agents/platform-mapping.md`. `docs/repo-profile.json` `factor_review` records the broader applicability *assessment* ("is this factor relevant?"); `applicable_factors` records the operational lane decision ("do we run a review lane for it?"). Only the active-lane set implies a canonical doc.
+
+Apply these rules during the audit — they **override** the generic check 2 (orphaned primitives → relocate/retire) for factor docs:
+
+- **Never treat a factor wrapper as an orphan to relocate or retire.** A `.claude/agents/factor-*.md` wrapper without its canonical source is not a stray primitive — it is a **half-built governed pair**. The real defect is the **missing canonical source**, not the wrapper. Name that defect.
+- **Never suggest a `docs/agents/factors/` subdirectory.** The canonical home is `docs/agents/` **flat**. Relocating factor docs into a subdir breaks the renderer/validator contract.
+- **On wrappers-without-sources or frontmatter-less wrappers, direct regenerate — not relocate/retire.** The fix is to **regenerate the canonical+wrapper pair via `seed-050` task 5** (or an `Upgrade wave framework` reconciliation — see `seed-160`). The docs-lint factor-surface gate (`check_factor_surface`) already flags these states as ERRORs; this review should echo the gate's recovery, not contradict it.
+- **A canonical-only factor surface (no wrappers) is valid.** Wrappers are optional rendered copies; do not flag their absence.
+- **A factor with no active lane and no docs is correct.** Do not recommend generating factor docs for factors that are not in `applicable_factors` (including `partial` / `not-applicable` / assessment-only factors). A **retired or narrower lane set** — an emptied or reduced `applicable_factors` even while `repo-profile.json` still assesses factors `applicable` — is a **legitimate operator choice**, not drift to "retire/relocate": do not flag it as a missing surface, and do not push to regenerate docs for retired lanes. The assessment-vs-lane gap (a factor `applicable` in `repo-profile` but absent from `applicable_factors`) is surfaced by the gate as a **non-blocking WARNING** for the operator to reconcile (add a lane, or align the assessment to `partial`) — echo that, never escalate it to an error or a forced regeneration.
+
+When a finding touches a factor doc, its **Verdict** is `revise` (regenerate the missing/malformed half via `seed-050` task 5) — never `retire` the wrapper as if it were an orphan.
+
 ## Doc-sync verification
 
 Self-updating docs are unreliable; **verifying sync is the reliable move.** For planning / spec / architecture docs and per-area `AGENTS.md`, check that each load-bearing section still matches the code it describes. Surface drifted sections as findings (`revise`) — do **not** auto-rewrite them. Spot-check against the actual code (use the `code_*` tools / `code_ask`); a doc that confidently describes a structure that no longer exists is worse than no doc.
