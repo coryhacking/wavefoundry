@@ -89,7 +89,7 @@ class GraphQueryTraversalTests(unittest.TestCase):
         into the file id (`Foo.swift` is now `kind: class, label: Foo, collapsed_pair: True`),
         querying the natural qualified form `Foo.swift::Foo` should alias to the
         file id rather than returning graph_symbol_not_found. Confirmed-design
-        outcome from Solaris field validation on wave 131bt 1319v."""
+        outcome from field validation on wave 131bt 1319v."""
         idx = self.mod.GraphQueryIndex({
             "present": True,
             "nodes": [
@@ -236,8 +236,8 @@ class GraphQueryRiskScoreTests(unittest.TestCase):
                          no_tests["hub"]["affected_file_count"])
 
 
-# Wave 1p5l4: confidence-weighted blast radius / risk. Mirrors the Aceiss
-# javaagent repro — a ubiquitous accessor name (`getKey`) collects 2 real
+# Wave 1p5l4: confidence-weighted blast radius / risk. Mirrors the field
+# reproducer — a ubiquitous accessor name (`getKey`) collects 2 real
 # RECEIVER_RESOLVED callers + 6 EXTRACTED name-collision in-edges from unrelated
 # files (Map.Entry.getKey()), while a genuinely load-bearing symbol (`realCore`)
 # has 4 type-resolved callers. Under v1 (every edge weighted equally) the
@@ -365,7 +365,7 @@ class GraphQueryShortestPathTests(unittest.TestCase):
         """131bu polish 2: when BFS finds multiple paths of equal hop count from
         source to destination, prefer paths through deterministic-attribution
         edges (CONSTRUCTION_RESOLVED / RECEIVER_RESOLVED) over EXTRACTED. From
-        Solaris field validation: a construction edge would tie with an
+        Field validation: a construction edge would tie with an
         EXTRACTED import-placeholder edge; the construction edge is the more
         useful path to surface."""
         idx = self.mod.GraphQueryIndex({
@@ -579,7 +579,7 @@ class GraphAugmentationExplicitOptOutTests(unittest.TestCase):
 
 
 class GraphQueryShortestPathWeightedCostTests(unittest.TestCase):
-    """Wave 1p2q3 (1p2q4): Aceiss reproducer for spurious 2-hop paths via shared
+    """Wave 1p2q3 (1p2q4): field reproducer for spurious 2-hop paths via shared
     external::* bridges. Weighted-cost Dijkstra-equivalent BFS + non-transitive
     external intermediates must surface the real call chain over the phantom."""
 
@@ -595,7 +595,7 @@ class GraphQueryShortestPathWeightedCostTests(unittest.TestCase):
                       "kind": "external" if nid.startswith("external::") else "function"} for nid in ids]
         return self.mod.GraphQueryIndex({"present": True, "nodes": nodes, "edges": edges})
 
-    def test_aceiss_reproducer_calls_chain_beats_external_bridge(self):
+    def test_field_reproducer_calls_chain_beats_external_bridge(self):
         edges = [
             {"source": "A", "target": "B", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
             {"source": "B", "target": "C", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
@@ -722,7 +722,7 @@ class GraphQueryAutoRebuildCallbackTests(unittest.TestCase):
         call that arrives while another rebuild is in-flight must defer with
         a `graph_auto_rebuild_in_progress` diagnostic instead of racing for
         the index-build flock. Reproduces the noisy
-        `graph_auto_rebuild_failed` spam Teton observed during the v22→v23
+        `graph_auto_rebuild_failed` spam observed in the field during the v22→v23
         auto-rebuild window."""
         self._seed_stale_graph()
         cache_key = (str(self.root.resolve()), "project")

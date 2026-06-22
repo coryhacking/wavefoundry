@@ -690,7 +690,7 @@ class UpgradeContext:
         # (chunker_version_bumped, chunker_version_transition) so Phase 4 can
         # route to phase_index_rebuild instead of phase_index_update when the
         # consumer's existing index was built with an older CHUNKER_VERSION.
-        # Closes the Solaris field failure mode where 1.5.0's chunker bump
+        # Closes the field failure mode where 1.5.0's chunker bump
         # didn't trigger a rebuild because the auto-escalate in build_index
         # was silent (no operator-visible decision) and unverified.
         self.pre_extract_chunker_versions: dict[str, str] = {}
@@ -1415,7 +1415,7 @@ def phase_cleanup(
     _remove_deprecated_framework_index(root)
 
     # Wave 1p601: map regen is decoupled from the index build, so a fresh upgrade
-    # would otherwise never generate docs/references/codebase-map.md (teton report).
+    # would otherwise never generate docs/references/codebase-map.md (field report).
     # Regenerate it once here, after the index phase, fail-safe — a generator error
     # must never fail the upgrade. ``generate_safe`` is change-only/idempotent.
     if not failed_phase:

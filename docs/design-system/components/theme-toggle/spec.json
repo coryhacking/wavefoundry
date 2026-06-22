@@ -1,0 +1,41 @@
+{
+  "id": "theme-toggle",
+  "name": "ThemeToggle",
+  "category": "action",
+  "status": "stable",
+  "description": "Light/dark theme switch button; shows the opposite-mode icon.",
+  "extractedFrom": ".wavefoundry/framework/dashboard/ds/wfds.js (ThemeToggle)",
+  "figma": null,
+  "codeConnect": "ds/wfds.js",
+  "anatomy": [
+    "button.theme-toggle > Icon"
+  ],
+  "variants": [],
+  "props": [
+    {
+      "name": "dark",
+      "type": "boolean",
+      "note": "current theme is dark"
+    },
+    {
+      "name": "onToggle",
+      "type": "function",
+      "note": "click handler"
+    }
+  ],
+  "slots": [],
+  "tokens": {
+    "className": "theme-toggle"
+  },
+  "doNotUse": [],
+  "preferOver": [],
+  "states": null,
+  "responsive": null,
+  "motion": null,
+  "accessibility": {
+    "ariaLabel": "Switch to light/dark mode",
+    "title": "Switch to light/dark mode",
+    "keyboard": "Enter/Space activates (native button)"
+  },
+  "content": null
+}

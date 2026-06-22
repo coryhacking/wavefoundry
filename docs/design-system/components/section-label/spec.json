@@ -1,0 +1,42 @@
+{
+  "id": "section-label",
+  "name": "SectionLabel",
+  "category": "typography",
+  "status": "stable",
+  "description": "Small uppercase section label / eyebrow (alias Eyebrow).",
+  "extractedFrom": ".wavefoundry/framework/dashboard/ds/wfds.js (SectionLabel/Eyebrow); from wip-section-label",
+  "figma": null,
+  "codeConnect": "ds/wfds.js",
+  "anatomy": [
+    "div.section-label"
+  ],
+  "variants": [
+    "eyebrow"
+  ],
+  "props": [
+    {
+      "name": "className",
+      "type": "string"
+    },
+    {
+      "name": "children",
+      "type": "node"
+    }
+  ],
+  "slots": [
+    "children"
+  ],
+  "tokens": {
+    "text": "color.ink.muted",
+    "font": "font.body"
+  },
+  "doNotUse": [],
+  "preferOver": [],
+  "states": null,
+  "responsive": null,
+  "motion": null,
+  "accessibility": {
+    "keyboard": null
+  },
+  "content": null
+}

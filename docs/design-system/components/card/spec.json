@@ -1,0 +1,51 @@
+{
+  "id": "card",
+  "name": "Card",
+  "category": "layout",
+  "status": "stable",
+  "description": "Surface container (article/div) for panel, hero, and table-card chrome.",
+  "extractedFrom": ".wavefoundry/framework/dashboard/ds/wfds.js (Card); unifies panel / hero / table-card surfaces",
+  "figma": null,
+  "codeConnect": "ds/wfds.js",
+  "anatomy": [
+    "article.card | <as>.card"
+  ],
+  "variants": [
+    "panel",
+    "hero",
+    "table-card"
+  ],
+  "props": [
+    {
+      "name": "as",
+      "type": "string",
+      "note": "element tag (default article)"
+    },
+    {
+      "name": "className",
+      "type": "string"
+    },
+    {
+      "name": "children",
+      "type": "node"
+    }
+  ],
+  "slots": [
+    "children"
+  ],
+  "tokens": {
+    "surface": "color.surface.panel",
+    "border": "color.surface.border",
+    "radius": "radius.lg",
+    "elevation": "elevation.base"
+  },
+  "doNotUse": [],
+  "preferOver": [],
+  "states": null,
+  "responsive": null,
+  "motion": null,
+  "accessibility": {
+    "keyboard": null
+  },
+  "content": null
+}

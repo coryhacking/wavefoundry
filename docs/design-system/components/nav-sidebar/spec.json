@@ -1,0 +1,100 @@
+{
+  "id": "nav-sidebar",
+  "name": "NavSidebar",
+  "category": "navigation",
+  "status": "stable",
+  "description": "Collapsible left navigation shell: brand-as-toggle, registry-driven nav items, theme toggle, and live/refresh footer (dashboard navigation shell, ADR 1p6q5).",
+  "extractedFrom": ".wavefoundry/framework/dashboard/ds/wfds.js (NavSidebar); from dashboard Sidebar (ADR 1p6q5)",
+  "figma": null,
+  "codeConnect": "ds/wfds.js",
+  "anatomy": [
+    "aside.sidebar.sidebar--collapsed|--expanded > (button.sidebar-brand > (.sidebar-brand-logo > WaveMark, .sidebar-brand-name), nav.sidebar-nav > button.nav-item[.--active], .sidebar-footer > (ThemeToggle, .sidebar-footer-meta))"
+  ],
+  "variants": [
+    "collapsed",
+    "expanded"
+  ],
+  "props": [
+    {
+      "name": "sections",
+      "type": "array",
+      "note": "registry {id,label,icon,group}"
+    },
+    {
+      "name": "current",
+      "type": "string"
+    },
+    {
+      "name": "collapsed",
+      "type": "boolean"
+    },
+    {
+      "name": "onToggle",
+      "type": "function"
+    },
+    {
+      "name": "onNavigate",
+      "type": "function"
+    },
+    {
+      "name": "project",
+      "type": "object"
+    },
+    {
+      "name": "dark",
+      "type": "boolean"
+    },
+    {
+      "name": "onToggleDark",
+      "type": "function"
+    },
+    {
+      "name": "frameworkVersion",
+      "type": "string"
+    },
+    {
+      "name": "sseConnected",
+      "type": "boolean"
+    },
+    {
+      "name": "pollIdx",
+      "type": "number"
+    },
+    {
+      "name": "generatedAt",
+      "type": "string"
+    },
+    {
+      "name": "pollSteps",
+      "type": "array",
+      "note": "host-injected POLL_STEPS"
+    },
+    {
+      "name": "localDateTime",
+      "type": "function",
+      "note": "host-injected formatter"
+    }
+  ],
+  "slots": [],
+  "tokens": {
+    "surface": "color.surface.panel",
+    "border": "color.surface.border",
+    "railWidth": "layout.rail.w"
+  },
+  "doNotUse": [],
+  "preferOver": [
+    "Sidebar"
+  ],
+  "states": null,
+  "responsive": null,
+  "motion": null,
+  "accessibility": {
+    "ariaLabel": "Primary navigation",
+    "navAriaLabel": "Sections",
+    "ariaExpanded": "on brand toggle",
+    "ariaCurrent": "page on active item",
+    "tooltip": "data-tooltip when collapsed",
+    "keyboard": "Tab to nav items; Enter/Space activates (native buttons)"
+  },
+  "content": null
+}

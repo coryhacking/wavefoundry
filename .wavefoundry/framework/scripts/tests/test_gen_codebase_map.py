@@ -323,7 +323,7 @@ class NameResponsibilityConsistencyTests(unittest.TestCase):
 
     Regression (wave 1p60q): the tiered-label work made ``name`` directory-first
     but left ``responsibility`` falling back to the graph ``cluster_label`` — an
-    unrelated high-fan-in symbol. teton p60n field re-test saw name (`packages`)
+    unrelated high-fan-in symbol. A p60n field re-test saw name (`packages`)
     and Responsibility (`logger`) disagree in 14/24 areas.
     """
 
@@ -772,7 +772,7 @@ class TieredLabelTests(unittest.TestCase):
 # --------------------------------------------------------------------------- #
 # 1p5zr req 7: kind tags, same-package collapse, hub membership, non-code.
 # --------------------------------------------------------------------------- #
-class TetonDefectTests(unittest.TestCase):
+class FieldDefectTests(unittest.TestCase):
     def setUp(self):
         self.gen = load_gen()
         self.tmp = tempfile.TemporaryDirectory()
@@ -999,7 +999,7 @@ class RepoIndexFeedTests(unittest.TestCase):
 
 
 class GeneratorAreaSelectionTests(unittest.TestCase):
-    """Wave 1p61w (javaagent field test): area selection consumes the generated
+    """Wave 1p61w (field test): area selection consumes the generated
     signal, floors per-module, keeps hubs on real code, and disambiguates labels."""
 
     def setUp(self):
@@ -1271,7 +1271,7 @@ class GeneratorAreaSelectionTests(unittest.TestCase):
 
     def test_buried_module_surfaced_as_area(self):
         # inst/hibernate is absorbed into the serialization community but clears the
-        # file floor → it must surface as its own area (javaagent #2).
+        # file floor → it must surface as its own area (field finding #2).
         self._write_absorbed_module_fixture(hibernate_files=3)
         model = self.gen.compute_areas(self.root)
         reps = {a.representative_path for a in model.areas}

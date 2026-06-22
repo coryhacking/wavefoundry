@@ -1,0 +1,157 @@
+// generated — do not edit directly
+// Typed design token constants generated from the DTCG source.
+
+export type TokenMode = "dark" | "light";
+export type TokenName =
+  | "color.accent.base"
+  | "color.accent.footer"
+  | "color.accent.mid"
+  | "color.accent.soft"
+  | "color.feedback.danger"
+  | "color.feedback.dangersoft"
+  | "color.feedback.draft"
+  | "color.feedback.draftsoft"
+  | "color.feedback.neutral"
+  | "color.feedback.neutralsoft"
+  | "color.feedback.warn"
+  | "color.feedback.warnsoft"
+  | "color.ink.muted"
+  | "color.ink.primary"
+  | "color.surface.border"
+  | "color.surface.page"
+  | "color.surface.panel"
+  | "color.surface.rail"
+  | "color.surface.railborder"
+  | "elevation.base"
+  | "elevation.lg"
+  | "elevation.sm"
+  | "font.body"
+  | "font.heading"
+  | "font.mono"
+  | "radius.lg"
+  | "radius.md"
+  | "radius.sm"
+  | "space.1"
+  | "space.2"
+  | "space.3"
+  | "space.4"
+  | "space.5"
+  | "space.6"
+  | "space.7";
+
+export type TokenMap = Record<TokenName, string>;
+
+export const tokens: TokenMap = {
+  "color.accent.base": "#1976d2",
+  "color.accent.footer": "#2B6CB0",
+  "color.accent.mid": "#91C2F2",
+  "color.accent.soft": "#E3F0FC",
+  "color.feedback.danger": "#C62828",
+  "color.feedback.dangersoft": "#FFEBEE",
+  "color.feedback.draft": "#1565C0",
+  "color.feedback.draftsoft": "#E3F2FD",
+  "color.feedback.neutral": "#495057",
+  "color.feedback.neutralsoft": "#F1F3F5",
+  "color.feedback.warn": "#C25800",
+  "color.feedback.warnsoft": "#FEF3E8",
+  "color.ink.muted": "#6C757D",
+  "color.ink.primary": "#212529",
+  "color.surface.border": "#DEE2E6",
+  "color.surface.page": "#F8F9FA",
+  "color.surface.panel": "#FFFFFF",
+  "color.surface.rail": "#FFFFFF",
+  "color.surface.railborder": "#DEE2E6",
+  "elevation.base": "0 1px 4px rgba(33, 37, 41, 0.12), 0 2px 8px rgba(33, 37, 41, 0.07)",
+  "elevation.lg": "0 4px 16px rgba(33, 37, 41, 0.14), 0 1px 4px rgba(33, 37, 41, 0.08)",
+  "elevation.sm": "0 1px 3px rgba(33, 37, 41, 0.10)",
+  "font.body": "-apple-system, BlinkMacSystemFont, \"Inter\", \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif",
+  "font.heading": "-apple-system, BlinkMacSystemFont, \"Inter\", \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif",
+  "font.mono": "ui-monospace, \"SF Mono\", \"Cascadia Code\", \"Fira Code\", \"Consolas\", monospace",
+  "radius.lg": "8px",
+  "radius.md": "6px",
+  "radius.sm": "4px",
+  "space.1": "0.25rem",
+  "space.2": "0.5rem",
+  "space.3": "0.75rem",
+  "space.4": "1rem",
+  "space.5": "1.5rem",
+  "space.6": "2rem",
+  "space.7": "3rem",
+};
+
+export const tokensByMode: Record<TokenMode, TokenMap> = {
+  "dark": {
+    "color.accent.base": "#40A3E9",
+    "color.accent.footer": "#7FB2F0",
+    "color.accent.mid": "#142a48",
+    "color.accent.soft": "#0a1a2e",
+    "color.feedback.danger": "#d86b62",
+    "color.feedback.dangersoft": "#2a0f0e",
+    "color.feedback.draft": "#7ab0d8",
+    "color.feedback.draftsoft": "#0f1e30",
+    "color.feedback.neutral": "#495057",
+    "color.feedback.neutralsoft": "#22262c",
+    "color.feedback.warn": "#e09040",
+    "color.feedback.warnsoft": "#2a1a06",
+    "color.ink.muted": "#8a929e",
+    "color.ink.primary": "#e4e2de",
+    "color.surface.border": "#3a4150",
+    "color.surface.page": "#111214",
+    "color.surface.panel": "#151719",
+    "color.surface.rail": "#1b1e23",
+    "color.surface.railborder": "#2f3744",
+    "elevation.base": "0 8px 24px rgba(0, 0, 0, 0.50), 0 1px 3px rgba(0, 0, 0, 0.30)",
+    "elevation.lg": "0 20px 48px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(0, 0, 0, 0.40)",
+    "elevation.sm": "0 2px 8px rgba(0, 0, 0, 0.35)",
+    "font.body": "-apple-system, BlinkMacSystemFont, \"Inter\", \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif",
+    "font.heading": "-apple-system, BlinkMacSystemFont, \"Inter\", \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif",
+    "font.mono": "ui-monospace, \"SF Mono\", \"Cascadia Code\", \"Fira Code\", \"Consolas\", monospace",
+    "radius.lg": "8px",
+    "radius.md": "6px",
+    "radius.sm": "4px",
+    "space.1": "0.25rem",
+    "space.2": "0.5rem",
+    "space.3": "0.75rem",
+    "space.4": "1rem",
+    "space.5": "1.5rem",
+    "space.6": "2rem",
+    "space.7": "3rem",
+  },
+  "light": {
+    "color.accent.base": "#1976d2",
+    "color.accent.footer": "#2B6CB0",
+    "color.accent.mid": "#91C2F2",
+    "color.accent.soft": "#E3F0FC",
+    "color.feedback.danger": "#C62828",
+    "color.feedback.dangersoft": "#FFEBEE",
+    "color.feedback.draft": "#1565C0",
+    "color.feedback.draftsoft": "#E3F2FD",
+    "color.feedback.neutral": "#495057",
+    "color.feedback.neutralsoft": "#F1F3F5",
+    "color.feedback.warn": "#C25800",
+    "color.feedback.warnsoft": "#FEF3E8",
+    "color.ink.muted": "#6C757D",
+    "color.ink.primary": "#212529",
+    "color.surface.border": "#DEE2E6",
+    "color.surface.page": "#F8F9FA",
+    "color.surface.panel": "#FFFFFF",
+    "color.surface.rail": "#FFFFFF",
+    "color.surface.railborder": "#DEE2E6",
+    "elevation.base": "0 1px 4px rgba(33, 37, 41, 0.12), 0 2px 8px rgba(33, 37, 41, 0.07)",
+    "elevation.lg": "0 4px 16px rgba(33, 37, 41, 0.14), 0 1px 4px rgba(33, 37, 41, 0.08)",
+    "elevation.sm": "0 1px 3px rgba(33, 37, 41, 0.10)",
+    "font.body": "-apple-system, BlinkMacSystemFont, \"Inter\", \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif",
+    "font.heading": "-apple-system, BlinkMacSystemFont, \"Inter\", \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif",
+    "font.mono": "ui-monospace, \"SF Mono\", \"Cascadia Code\", \"Fira Code\", \"Consolas\", monospace",
+    "radius.lg": "8px",
+    "radius.md": "6px",
+    "radius.sm": "4px",
+    "space.1": "0.25rem",
+    "space.2": "0.5rem",
+    "space.3": "0.75rem",
+    "space.4": "1rem",
+    "space.5": "1.5rem",
+    "space.6": "2rem",
+    "space.7": "3rem",
+  },
+};

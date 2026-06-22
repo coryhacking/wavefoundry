@@ -1,1 +1,55 @@
-{}
+{
+  "color": {
+    "surface": {
+      "page": { "$value": "{color.page.bg}", "$type": "color", "$description": "App page background." },
+      "panel": { "$value": "{color.panel.bg}", "$type": "color", "$description": "Card / panel surface." },
+      "border": { "$value": "{color.panel.border}", "$type": "color", "$description": "Card borders and dividers." },
+      "rail": { "$value": "{color.rail.surface}", "$type": "color", "$description": "Sidebar rail surface (elevated in dark for separation)." },
+      "railborder": { "$value": "{color.rail.border}", "$type": "color", "$description": "Sidebar rail right border." }
+    },
+    "ink": {
+      "primary": { "$value": "{color.ink}", "$type": "color", "$description": "Primary text." },
+      "muted": { "$value": "{color.muted}", "$type": "color", "$description": "Secondary text, labels, footnotes." }
+    },
+    "accent": {
+      "base": { "$value": "{color.accent.base}", "$type": "color", "$description": "Primary action / healthy state." },
+      "soft": { "$value": "{color.accent.soft}", "$type": "color", "$description": "Accent fill (badges, progress track)." },
+      "mid": { "$value": "{color.accent.mid}", "$type": "color", "$description": "Hover border accent." },
+      "footer": { "$value": "{color.footer.accent}", "$type": "color", "$description": "Footer / branding accent." }
+    },
+    "feedback": {
+      "danger": { "$value": "{color.danger.base}", "$type": "color", "$description": "Danger / blocked text." },
+      "dangersoft": { "$value": "{color.danger.soft}", "$type": "color", "$description": "Danger fill." },
+      "warn": { "$value": "{color.warn.base}", "$type": "color", "$description": "Warning text." },
+      "warnsoft": { "$value": "{color.warn.soft}", "$type": "color", "$description": "Warning fill." },
+      "draft": { "$value": "{color.draft.base}", "$type": "color", "$description": "Draft / planned state text." },
+      "draftsoft": { "$value": "{color.draft.soft}", "$type": "color", "$description": "Draft state fill." },
+      "neutral": { "$value": "{color.neutral.base}", "$type": "color", "$description": "Neutral informational text." },
+      "neutralsoft": { "$value": "{color.neutral.soft}", "$type": "color", "$description": "Neutral fill." }
+    }
+  },
+  "space": {
+    "1": { "$value": "{space.1}", "$type": "dimension", "$description": "Smallest gap / padding." },
+    "2": { "$value": "{space.2}", "$type": "dimension", "$description": "Small gap, badge padding." },
+    "3": { "$value": "{space.3}", "$type": "dimension", "$description": "Section gap, timeline item padding." },
+    "4": { "$value": "{space.4}", "$type": "dimension", "$description": "Compact card padding." },
+    "5": { "$value": "{space.5}", "$type": "dimension", "$description": "Default panel padding." },
+    "6": { "$value": "{space.6}", "$type": "dimension", "$description": "Hero card padding." },
+    "7": { "$value": "{space.7}", "$type": "dimension", "$description": "Page bottom margin." }
+  },
+  "radius": {
+    "sm": { "$value": "{radius.sm}", "$type": "dimension", "$description": "Chips, badges, table cells, focus ring." },
+    "md": { "$value": "{radius.md}", "$type": "dimension", "$description": "Metric tiles, wave cards." },
+    "lg": { "$value": "{radius.lg}", "$type": "dimension", "$description": "Hero card, full panels, dialog." }
+  },
+  "elevation": {
+    "sm": { "$value": "{shadow.sm}", "$type": "shadow", "$description": "Hover lift." },
+    "base": { "$value": "{shadow.base}", "$type": "shadow", "$description": "Default panel elevation." },
+    "lg": { "$value": "{shadow.lg}", "$type": "shadow", "$description": "Modal / dialog overlay." }
+  },
+  "font": {
+    "body": { "$value": "{font.body}", "$type": "fontFamily", "$description": "Body text, meta labels." },
+    "heading": { "$value": "{font.heading}", "$type": "fontFamily", "$description": "Headings (system-sans)." },
+    "mono": { "$value": "{font.mono}", "$type": "fontFamily", "$description": "IDs, version strings, code." }
+  }
+}

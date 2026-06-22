@@ -1,0 +1,62 @@
+{
+  "id": "badge",
+  "name": "Badge",
+  "category": "data-display",
+  "status": "stable",
+  "description": "Lifecycle-status pill; badgeClass maps a status string to a .status-badge variant.",
+  "extractedFrom": ".wavefoundry/framework/dashboard/ds/wfds.js (Badge); unifies the inline StateBadge / .status-badge convention",
+  "figma": null,
+  "codeConnect": "ds/wfds.js",
+  "anatomy": [
+    "span.status-badge.status-<variant>"
+  ],
+  "variants": [
+    "ok",
+    "neutral",
+    "warn",
+    "draft",
+    "blocked",
+    "unknown"
+  ],
+  "props": [
+    {
+      "name": "status",
+      "type": "string",
+      "note": "lifecycle status; drives variant"
+    },
+    {
+      "name": "label",
+      "type": "node",
+      "note": "display text (defaults to status)"
+    },
+    {
+      "name": "title",
+      "type": "string"
+    },
+    {
+      "name": "className",
+      "type": "string"
+    }
+  ],
+  "slots": [],
+  "tokens": {
+    "colorOk": "color.accent.base",
+    "colorWarn": "color.feedback.warn",
+    "colorDanger": "color.feedback.danger",
+    "colorDraft": "color.feedback.draft",
+    "colorNeutral": "color.feedback.neutral",
+    "radius": "radius.sm"
+  },
+  "doNotUse": [],
+  "preferOver": [
+    "inline h(span,{className:badgeClass(s)})"
+  ],
+  "states": null,
+  "responsive": null,
+  "motion": null,
+  "accessibility": {
+    "keyboard": null,
+    "note": "decorative status text; readable as inline text"
+  },
+  "content": null
+}

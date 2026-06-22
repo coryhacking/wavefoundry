@@ -1184,17 +1184,17 @@ class SqlChunkerTests(unittest.TestCase):
 
     def test_sql_schema_qualified_definition_uses_qualified_chunk_name(self):
         source = textwrap.dedent("""\
-            CREATE OR REPLACE PROCEDURE aceiss.create_schema_objects(_tenant text)
+            CREATE OR REPLACE PROCEDURE app.create_schema_objects(_tenant text)
             LANGUAGE plpgsql
             AS $$
             BEGIN
-                CALL aceiss.create_schema_objects(_tenant);
+                CALL app.create_schema_objects(_tenant);
             END;
             $$;
         """)
         chunks = self.chunker.chunk_sql(source, "db/migrations.sql")
         code = [c for c in chunks if c.kind == "code" and c.language == "sql"]
-        self.assertTrue(any("aceiss.create_schema_objects" in c.id for c in code))
+        self.assertTrue(any("app.create_schema_objects" in c.id for c in code))
 
     def test_sql_comment_before_ddl_is_doc_chunk(self):
         # AC-20: comment immediately before DDL → doc chunk

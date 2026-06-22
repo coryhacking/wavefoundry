@@ -833,7 +833,7 @@ def _path_edge_cost(edge: dict[str, Any]) -> int:
     return _PATH_COST_STRUCTURAL
 
 
-# Wave 1p5l4 (Aceiss field feedback): blast-radius / risk weighting by edge
+# Wave 1p5l4 (field feedback): blast-radius / risk weighting by edge
 # confidence. EXTRACTED edges are heuristic name-based fallback that cannot
 # disambiguate receiver type, so a ubiquitous accessor name (getKey/getValue/
 # toString) collects spurious in-edges from unrelated symbols (e.g.
@@ -1224,7 +1224,7 @@ class GraphQueryIndex:
         if node_id is None:
             return {"symbol": symbol, "resolved": False, "affected": [], "edges": []}
         rels = tuple(relations) if relations is not None else _DEFAULT_IMPACT_RELATIONS
-        # Per-node hop distance (wave 130rj — Aceiss field feedback §2.4):
+        # Per-node hop distance (wave 130rj — field feedback §2.4):
         # the existing traverse() doesn't expose per-node depth, so do our
         # own BFS to record the minimum hop count to each visited node.
         # Edges are deduplicated by (source, target, relation) for parity

@@ -2321,7 +2321,7 @@ class LanceDriftDetectionScaleTests(unittest.TestCase):
 
     def test_100k_rows_under_200ms(self):
         """AC-9 / MF-1: 100K Lance rows + ~1000 drifted paths → < 200ms.
-        Enterprise-scale bound for Teton-shape monorepos."""
+        Enterprise-scale bound for large-monorepo-shape repos."""
         elapsed = self._run_with_n_rows(100_000)
         self.assertLess(elapsed, 0.2,
             f"100K-row drift detection took {elapsed:.3f}s (expected < 0.2s)")

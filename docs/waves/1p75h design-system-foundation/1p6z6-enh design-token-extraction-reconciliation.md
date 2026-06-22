@@ -1,11 +1,11 @@
 # Design Token Extraction + Reconciliation
 
 Change ID: `1p6z6-enh design-token-extraction-reconciliation`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
 Status: planned
 Last verified: 2026-06-20
-Wave: `1p6xb design-system-foundation`
+Wave: `1p75h design-system-foundation`
 
 ## Rationale
 
@@ -52,25 +52,25 @@ This change runs the deferred extraction from the live CSS evidence and reconcil
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `tokens/primitives.tokens.json` contains every `dashboard.css` `:root` custom property as a DTCG token with the correct resolved value; a diff check against the CSS shows no missing or mismatched value.
-- [ ] AC-2: `tokens/semantic.tokens.json` defines semantic tokens for color (surface, ink, accent, feedback danger/warn/draft/neutral), spacing, radius, elevation, and typography, each aliasing a primitive (no raw values).
-- [ ] AC-3: `tokens/modes/light.tokens.json` and `dark.tokens.json` capture all per-mode overrides; light/dark parity report exists and every divergence is intentional or a recorded gap.
-- [ ] AC-4: `foundations/dashboard.md` value tables and principles match the live `dashboard.css` palette; no warm-parchment/teal/serif values remain.
-- [ ] AC-5: `foundations/{color,typography,spacing,radius,elevation,motion}.md` are populated from evidence or carry explicit `null` + `gaps.md` entries.
-- [ ] AC-6: `gaps.md` records the undefined `--text/--border/--surface` family, the hardcoded Aceiss palette / dark hex overrides, and the `--footer-accent/--header-h/--rail-w` tokens, each scoped to `1p72v-ref`.
-- [ ] AC-7: `manifest.json` has a non-null `extractedAt`, `sourceStrategy: "repo-evidence-only"`, populated `evidenceTypes`/`artifactCounts`/`validationSummary`; `source-map.json` maps tokens to evidence with confidence.
-- [ ] AC-8: `docs-lint` / `wave_validate` pass; applicable design-system validators pass or failures are recorded gaps.
+- [x] AC-1: `tokens/primitives.tokens.json` contains every `dashboard.css` `:root` custom property as a DTCG token with the correct resolved value; a diff check against the CSS shows no missing or mismatched value. (Evidence: scripted diff — 36 `:root` props ↔ 36 primitive leaves, 0 mismatches.)
+- [x] AC-2: `tokens/semantic.tokens.json` defines semantic tokens for color (surface, ink, accent, feedback danger/warn/draft/neutral), spacing, radius, elevation, and typography, each aliasing a primitive (no raw values). (29 semantic tokens, all `{primitive.path}` aliases; CORE validator: 0 broken aliases, 0 orphans.)
+- [x] AC-3: `tokens/modes/light.tokens.json` and `dark.tokens.json` capture all per-mode overrides; light/dark parity report exists and every divergence is intentional or a recorded gap. (19 themed keys each; mode-parity validator passes; scripted diff confirms 19 dark CSS overrides match exactly; `--neutral` confirmed not re-themed — carried forward + noted in modes/dark + color.md + gaps.)
+- [x] AC-4: `foundations/dashboard.md` value tables and principles match the live `dashboard.css` palette; no warm-parchment/teal/serif values remain. (Color/shadow/radius/typography tables + principles reconciled to cool-gray/blue/system-sans; stale-palette grep returns only `sans-serif` substring matches.)
+- [x] AC-5: `foundations/{color,typography,spacing,radius,elevation,motion}.md` are populated from evidence or carry explicit `null` + `gaps.md` entries. (All six populated; `motion.md` records null — no motion tokens in source.)
+- [x] AC-6: `gaps.md` records the undefined `--text/--border/--surface` family, the hardcoded Aceiss palette / dark hex overrides, and the `--footer-accent/--header-h/--rail-w` tokens, each scoped to `1p72v-ref`. (G1 undefined family · G2 Aceiss palette + ~120 dark hex overrides · G3 `--footer-accent/--rail-w/--view-max/--view-max-wide` · G4 `--header-h` recorded absent — not in source since header removed in 1p6nl.)
+- [x] AC-7: `manifest.json` has a non-null `extractedAt`, `sourceStrategy: "repo-evidence-only"`, populated `evidenceTypes`/`artifactCounts`/`validationSummary`; `source-map.json` maps tokens to evidence with confidence. (`extractedAt: 2026-06-21`; 36 source-map entries with CSS line evidence + confidence.)
+- [x] AC-8: `docs-lint` / `wave_validate` pass; applicable design-system validators pass or failures are recorded gaps. (`docs-lint: ok`; CORE/SURFACE/GOVERNANCE validators: 0 failures, 0 warnings; 118 design-system unit tests pass.)
 
 ## Tasks
 
-- [ ] Extract `:root` custom properties → `primitives.tokens.json` (DTCG), grouped by category.
-- [ ] Author `semantic.tokens.json` dot-path mappings to primitives.
-- [ ] Populate `modes/light.tokens.json` + `modes/dark.tokens.json`; produce light/dark parity report.
-- [ ] Rewrite `foundations/dashboard.md` to the shipped palette; remove drifted content.
-- [ ] Populate stub `foundations/*.md` from evidence; null + gap where absent.
-- [ ] Write `gaps.md` entries for the three CSS gap classes, scoped to `1p72v-ref`.
-- [ ] Update `manifest.json` + `source-map.json`.
-- [ ] Run `docs-lint` / design-system validators; resolve or record findings.
+- [x] Extract `:root` custom properties → `primitives.tokens.json` (DTCG), grouped by category.
+- [x] Author `semantic.tokens.json` dot-path mappings to primitives.
+- [x] Populate `modes/light.tokens.json` + `modes/dark.tokens.json`; produce light/dark parity report.
+- [x] Rewrite `foundations/dashboard.md` to the shipped palette; remove drifted content.
+- [x] Populate stub `foundations/*.md` from evidence; null + gap where absent.
+- [x] Write `gaps.md` entries for the three CSS gap classes, scoped to `1p72v-ref`.
+- [x] Update `manifest.json` + `source-map.json`.
+- [x] Run `docs-lint` / design-system validators; resolve or record findings.
 
 ## Agent Execution Graph
 
@@ -96,12 +96,16 @@ This change runs the deferred extraction from the live CSS evidence and reconcil
 
 ## AC Priority
 
-(Populated at Prepare wave.)
-
-
-| AC   | Priority                                             | Rationale |
-| ---- | ---------------------------------------------------- | --------- |
-| AC-1 | required / important / nice-to-have / not-this-scope |           |
+| AC   | Priority  | Rationale |
+| ---- | --------- | --------- |
+| AC-1 | required  | Primitives extraction is the core token contract; diff-verified against the live CSS. |
+| AC-2 | required  | The semantic layer is what consumers reference — the whole point of populating the contract. |
+| AC-3 | required  | Dark mode ships, so mode coverage + the light/dark parity report are core, not optional. |
+| AC-4 | required  | The drifted `foundations/dashboard.md` actively misleads agents; reconciliation is load-bearing. |
+| AC-5 | important | Stub-foundation population; `null` + recorded gaps is an acceptable floor where evidence is absent. |
+| AC-6 | required  | `gaps.md` is the explicit handoff that scopes `1p72v`; without it that change has no gap list. |
+| AC-7 | important | `manifest.json` / `source-map.json` provenance — valuable traceability, not a blocker on token use. |
+| AC-8 | required  | Validation gate: docs-lint + the design-system validators. |
 
 
 ## Progress Log
@@ -110,6 +114,7 @@ This change runs the deferred extraction from the live CSS evidence and reconcil
 | Date       | Update                                                        | Evidence                          |
 | ---------- | ------------------------------------------------------------ | --------------------------------- |
 | 2026-06-20 | Plan created — token extraction/reconciliation from live CSS | Operator direction; repo analysis |
+| 2026-06-21 | Implemented — extracted 36 primitives + 29 semantic tokens + light/dark modes from `dashboard.css`; reconciled `foundations/dashboard.md`; populated 6 foundation docs; recorded 4 gaps (G1–G4); updated manifest + 36-entry source-map | docs-lint ok; CORE/SURFACE/GOVERNANCE validators 0 fail/0 warn; 118 unit tests pass; scripted CSS↔token diff 0 mismatches |
 
 
 ## Decision Log

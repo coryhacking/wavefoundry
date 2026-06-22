@@ -1,0 +1,88 @@
+/* generated — do not edit directly */
+:root {
+  --ds-color-accent-base: #1976d2;
+  --ds-color-accent-footer: #2B6CB0;
+  --ds-color-accent-mid: #91C2F2;
+  --ds-color-accent-soft: #E3F0FC;
+  --ds-color-feedback-danger: #C62828;
+  --ds-color-feedback-dangersoft: #FFEBEE;
+  --ds-color-feedback-draft: #1565C0;
+  --ds-color-feedback-draftsoft: #E3F2FD;
+  --ds-color-feedback-neutral: #495057;
+  --ds-color-feedback-neutralsoft: #F1F3F5;
+  --ds-color-feedback-warn: #C25800;
+  --ds-color-feedback-warnsoft: #FEF3E8;
+  --ds-color-ink-muted: #6C757D;
+  --ds-color-ink-primary: #212529;
+  --ds-color-surface-border: #DEE2E6;
+  --ds-color-surface-page: #F8F9FA;
+  --ds-color-surface-panel: #FFFFFF;
+  --ds-color-surface-rail: #FFFFFF;
+  --ds-color-surface-railborder: #DEE2E6;
+  --ds-elevation-base: 0 1px 4px rgba(33, 37, 41, 0.12), 0 2px 8px rgba(33, 37, 41, 0.07);
+  --ds-elevation-lg: 0 4px 16px rgba(33, 37, 41, 0.14), 0 1px 4px rgba(33, 37, 41, 0.08);
+  --ds-elevation-sm: 0 1px 3px rgba(33, 37, 41, 0.10);
+  --ds-font-body: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --ds-font-heading: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --ds-font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+  --ds-radius-lg: 8px;
+  --ds-radius-md: 6px;
+  --ds-radius-sm: 4px;
+  --ds-space-1: 0.25rem;
+  --ds-space-2: 0.5rem;
+  --ds-space-3: 0.75rem;
+  --ds-space-4: 1rem;
+  --ds-space-5: 1.5rem;
+  --ds-space-6: 2rem;
+  --ds-space-7: 3rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ds-color-accent-base: #40A3E9;
+    --ds-color-accent-footer: #7FB2F0;
+    --ds-color-accent-mid: #142a48;
+    --ds-color-accent-soft: #0a1a2e;
+    --ds-color-feedback-danger: #d86b62;
+    --ds-color-feedback-dangersoft: #2a0f0e;
+    --ds-color-feedback-draft: #7ab0d8;
+    --ds-color-feedback-draftsoft: #0f1e30;
+    --ds-color-feedback-neutralsoft: #22262c;
+    --ds-color-feedback-warn: #e09040;
+    --ds-color-feedback-warnsoft: #2a1a06;
+    --ds-color-ink-muted: #8a929e;
+    --ds-color-ink-primary: #e4e2de;
+    --ds-color-surface-border: #3a4150;
+    --ds-color-surface-page: #111214;
+    --ds-color-surface-panel: #151719;
+    --ds-color-surface-rail: #1b1e23;
+    --ds-color-surface-railborder: #2f3744;
+    --ds-elevation-base: 0 8px 24px rgba(0, 0, 0, 0.50), 0 1px 3px rgba(0, 0, 0, 0.30);
+    --ds-elevation-lg: 0 20px 48px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(0, 0, 0, 0.40);
+    --ds-elevation-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
+  }
+}
+
+[data-theme="dark"] {
+  --ds-color-accent-base: #40A3E9;
+  --ds-color-accent-footer: #7FB2F0;
+  --ds-color-accent-mid: #142a48;
+  --ds-color-accent-soft: #0a1a2e;
+  --ds-color-feedback-danger: #d86b62;
+  --ds-color-feedback-dangersoft: #2a0f0e;
+  --ds-color-feedback-draft: #7ab0d8;
+  --ds-color-feedback-draftsoft: #0f1e30;
+  --ds-color-feedback-neutralsoft: #22262c;
+  --ds-color-feedback-warn: #e09040;
+  --ds-color-feedback-warnsoft: #2a1a06;
+  --ds-color-ink-muted: #8a929e;
+  --ds-color-ink-primary: #e4e2de;
+  --ds-color-surface-border: #3a4150;
+  --ds-color-surface-page: #111214;
+  --ds-color-surface-panel: #151719;
+  --ds-color-surface-rail: #1b1e23;
+  --ds-color-surface-railborder: #2f3744;
+  --ds-elevation-base: 0 8px 24px rgba(0, 0, 0, 0.50), 0 1px 3px rgba(0, 0, 0, 0.30);
+  --ds-elevation-lg: 0 20px 48px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(0, 0, 0, 0.40);
+  --ds-elevation-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
+}

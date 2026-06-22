@@ -1,0 +1,39 @@
+{
+  "id": "prose",
+  "name": "Prose",
+  "category": "typography",
+  "status": "stable",
+  "description": "Markdown-ish renderer (headings, lists, tables, fenced code, inline bold/code/links). Alias Markdown.",
+  "extractedFrom": ".wavefoundry/framework/dashboard/ds/wfds.js (Prose/Markdown + renderInline/renderMarkdownish)",
+  "figma": null,
+  "codeConnect": "ds/wfds.js",
+  "anatomy": [
+    "h1/h2/h3, p, ul>li, table>thead/tbody, pre>code, strong, code, a"
+  ],
+  "variants": [
+    "table--nowrap-first"
+  ],
+  "props": [
+    {
+      "name": "text",
+      "type": "string",
+      "note": "markdown source"
+    }
+  ],
+  "slots": [],
+  "tokens": {
+    "text": "color.ink.primary",
+    "code": "color.feedback.neutralsoft",
+    "link": "color.accent.base"
+  },
+  "doNotUse": [],
+  "preferOver": [],
+  "states": null,
+  "responsive": null,
+  "motion": null,
+  "accessibility": {
+    "keyboard": null,
+    "links": "external links open in new tab with rel=noopener noreferrer"
+  },
+  "content": null
+}

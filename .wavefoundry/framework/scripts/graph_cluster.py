@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any
 
 CLUSTER_SCHEMA_VERSION = "1"
-CLUSTER_BUILDER_VERSION = "10"  # Wave 1p65m (clustering cohesion + determinism): (1) seed igraph's global RNG before Leiden partitioning so clustering is reproducible across rebuilds even on a leidenalg lacking the `seed=` kwarg (the old unseeded fallback caused identical-input area-count churn, teton 221/224); (2) a conservative, deterministic post-cluster split of cross-directory GRAB-BAG communities — a community scattered across >= GRABBAG_MIN_DIRS distinct module-dirs with NO dominant home (incidental weak/util edges) is split per module-dir, with an anti-over-split dominant-share guard so a cohesive module with a few strays is left intact. Community-shape change → consumer caches re-cluster. Previous: 1p4ls (exclude constant nodes + `reads` edges from clustering).
+CLUSTER_BUILDER_VERSION = "10"  # Wave 1p65m (clustering cohesion + determinism): (1) seed igraph's global RNG before Leiden partitioning so clustering is reproducible across rebuilds even on a leidenalg lacking the `seed=` kwarg (the old unseeded fallback caused identical-input area-count churn, a consumer's 221/224); (2) a conservative, deterministic post-cluster split of cross-directory GRAB-BAG communities — a community scattered across >= GRABBAG_MIN_DIRS distinct module-dirs with NO dominant home (incidental weak/util edges) is split per module-dir, with an anti-over-split dominant-share guard so a cohesive module with a few strays is left intact. Community-shape change → consumer caches re-cluster. Previous: 1p4ls (exclude constant nodes + `reads` edges from clustering).
 # Wave 1p65m (#2): cross-directory grab-bag split thresholds (conservative — only
-# egregious grab-bags; teton-validated tuning may adjust). A community is a grab-bag
+# egregious grab-bags; field-validated tuning may adjust). A community is a grab-bag
 # when its members span at least this many distinct module-dirs (first 2 path
 # segments) AND no single module-dir holds >= GRABBAG_DOMINANT_SHARE of them.
 GRABBAG_MIN_DIRS = 4
@@ -121,7 +121,7 @@ def _is_barrel_file(source_file: str) -> bool:
     selecting community seed nodes — barrels accumulate high in-degree because
     every aliased import resolves to them, but their label (``"index"``,
     transformed to ``"src/index"``) carries no semantic meaning. Wave 1p2q3
-    (1p2tz post-ship per Teton labeling-regression feedback).
+    (1p2tz post-ship per labeling-regression field feedback).
     """
     if not source_file:
         return False
@@ -414,7 +414,7 @@ def _build_leiden_clusters(
     # Wave 1p65m: seed igraph's global RNG (version-agnostic) BEFORE partitioning so
     # clustering is reproducible across rebuilds even on a leidenalg too old for the
     # `seed=` kwarg — the unseeded `except TypeError` fallbacks below otherwise ran
-    # UNSEEDED, producing non-reproducible communities (teton: identical-input area
+    # UNSEEDED, producing non-reproducible communities (field report: identical-input area
     # count churned 221/224). Best-effort: if the igraph RNG API is unavailable the
     # `seed=0` kwarg path (modern leidenalg) still gives determinism.
     try:
@@ -897,7 +897,7 @@ def update_graph_clusters(
     remapped = _merge_same_stem_communities(remapped, nodes_by_id, adjacency)
     remapped = _merge_small_communities(remapped, nodes_by_id, adjacency)
     _disambiguate_labels(remapped, nodes_by_id)
-    # Wave 130rj — Aceiss field feedback §6.5: per-community generated_node_fraction.
+    # Wave 130rj — field feedback §6.5: per-community generated_node_fraction.
     # Lets `wave_graph_report` flag communities dominated by generated code without
     # callers re-walking nodes_by_id. Computed as count(generated nodes) / total
     # node_count; zero when no nodes are tagged generated.

@@ -1,12 +1,18 @@
 """Design-system bootstrap and governance validators (Requirement 13).
 
 Runs only when docs/design-system/manifest.json exists. Validates:
-- sourceStrategy enum value
+- sourceStrategy enum value (incl. external-reference / adopt-in-place)
 - targetSurfaces non-empty (with repo-inferred suggestion when missing)
 - platformStandards referenceVersion presence
 - visual-bootstrap proposal guard (proposed tokens merged into semantic)
 - Deprecated component supersededBy/sunset requirement
 - platformStandards overrides path existence
+
+Also exposes ``classify_design_system_mode(design_evidence)`` — a pure,
+deterministic helper that derives the design-system mode (bootstrap /
+extract-mirror / adopt / ambiguous) from the agent-authored
+``repo-profile.json`` ``design_system.design_evidence`` block. The seeds record
+the evidence and set ``design_system.mode`` from this classifier.
 """
 from __future__ import annotations
 
@@ -29,7 +35,103 @@ def _load_json(path: Path) -> tuple[dict | list | None, str | None]:
 # Allowed enum values
 # ---------------------------------------------------------------------------
 
-_SOURCE_STRATEGY_ENUM = {"figma-extract", "repo-evidence-only", "visual-bootstrap", "hybrid"}
+_SOURCE_STRATEGY_ENUM = {
+    "figma-extract",
+    "repo-evidence-only",
+    "visual-bootstrap",
+    "hybrid",
+    "external-reference",
+}
+
+
+# ---------------------------------------------------------------------------
+# Design-system mode classification (interrogation C2/C3/C4)
+# ---------------------------------------------------------------------------
+#
+# `repo-profile.json` is agent-authored (seed-030), so there is no code path
+# that *generates* the design_system block. This pure function lets the agent
+# (and the validator) deterministically derive the mode from the recorded
+# `design_system.design_evidence` rather than rely on agent judgment.
+#
+# The evidence bar that separates the three real modes:
+#   - bootstrap       — no design system found (no evidence) -> emit the nulls skeleton.
+#   - extract-mirror  — in-repo design *evidence* (CSS custom properties, stylesheet
+#                       tokens, in-repo theme files) but NO maintained external system
+#                       with its own source-of-truth/build -> extract into docs/design-system/.
+#   - adopt           — a DECLARED source of truth WITH its own build: a published/
+#                       packaged token package, a Style-Dictionary/DTCG source dir + build,
+#                       or Figma library links -> emit the thin external-reference index.
+#   - ambiguous       — genuinely weak / mixed signals -> the seeds tell the agent to
+#                       ask the operator (never silently adopt OR mirror on weak evidence).
+
+# Token-package marker keys that, when set truthy in design_evidence, indicate a
+# DECLARED external source-of-truth (not merely in-repo CSS).
+_EXTERNAL_SOURCE_OF_TRUTH_KEYS = (
+    "external_token_package",  # a published/packaged token dependency (e.g. @scope/tokens)
+    "style_dictionary_build",  # a Style-Dictionary / DTCG source dir + build command
+    "figma_library_links",     # Figma library/variable links declared as source of truth
+)
+
+
+def classify_design_system_mode(
+    design_evidence: dict | None,
+) -> str:
+    """Deterministically classify the design-system mode from `design_evidence`.
+
+    Returns one of: ``"bootstrap"``, ``"extract-mirror"``, ``"adopt"``,
+    ``"ambiguous"``. Pure function — no filesystem or I/O. Consumed by the
+    seeds (which record evidence + set ``design_system.mode``) and re-derivable
+    by the validator.
+
+    Evidence bar (interrogation C2/C4):
+      - A *declared source of truth with its own build* (a published/packaged
+        token package, a Style-Dictionary/DTCG source dir + build, or Figma
+        library links) -> ``adopt``. CSS custom properties or a stray Tailwind
+        theme do NOT qualify on their own.
+      - In-repo design evidence (design tokens / token files / a methodology)
+        with NO such external source -> ``extract-mirror`` (this is the
+        Wavefoundry self-hosting case: in-repo ``dashboard.css`` -> extract-mirror,
+        never adopt).
+      - No coherent design system at all -> ``bootstrap``.
+      - Genuinely weak / mixed signals -> ``ambiguous`` (seeds: ask the operator).
+    """
+    if not isinstance(design_evidence, dict):
+        return "bootstrap"
+
+    detected = bool(design_evidence.get("detected"))
+
+    # Does the evidence declare an EXTERNAL maintained source of truth with its
+    # own build? This is the adopt gate — it must be more than in-repo CSS.
+    has_external_source = any(
+        bool(design_evidence.get(key)) for key in _EXTERNAL_SOURCE_OF_TRUTH_KEYS
+    )
+
+    # In-repo design evidence: tokens / token files / a detected CSS methodology.
+    token_files = design_evidence.get("token_files") or []
+    has_token_files = isinstance(token_files, list) and len(token_files) > 0
+    methodology = design_evidence.get("detected_methodology") or []
+    has_methodology = isinstance(methodology, list) and len(methodology) > 0
+    has_in_repo_evidence = (
+        bool(design_evidence.get("has_design_tokens"))
+        or has_token_files
+        or has_methodology
+        or bool(design_evidence.get("has_component_library"))
+        or bool(design_evidence.get("has_typography_system"))
+    )
+
+    if has_external_source:
+        return "adopt"
+
+    if not detected and not has_in_repo_evidence:
+        return "bootstrap"
+
+    if has_in_repo_evidence:
+        # In-repo evidence but no declared external source-of-truth -> mirror.
+        return "extract-mirror"
+
+    # detected is truthy but no concrete in-repo evidence and no external
+    # source-of-truth: signals are genuinely weak / mixed -> ask the operator.
+    return "ambiguous"
 
 
 # ---------------------------------------------------------------------------

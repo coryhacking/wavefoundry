@@ -646,7 +646,7 @@ class FixedCommunityClassifierTests(unittest.TestCase):
 
     def test_multi_language_test_detection(self):
         cases = [
-            ("SolarisMonitor/Tests/HueAuthorizationTests.swift", True),
+            ("AppMonitor/Tests/HueAuthorizationTests.swift", True),
             ("scripts/tests/test_chunker.py", True),
             ("internal/api/handler_test.go", True),
             ("src/test/java/com/example/UserServiceTest.java", True),
@@ -675,7 +675,7 @@ class FixedCommunityClassifierTests(unittest.TestCase):
 
 
 class BarrelDeprioritizedInCommunityLabelsTests(unittest.TestCase):
-    """Wave 1p2q3 (1p2tz post-ship per Teton labeling-regression feedback):
+    """Wave 1p2q3 (1p2tz post-ship per labeling-regression field feedback):
     barrel files (`libs/<x>/src/index.ts` and similar) accumulate high
     in-degree once tsconfig.paths aliases resolve to them, which makes them
     the highest-degree node in their community. Without deprioritization,
@@ -775,13 +775,13 @@ class ClusteringCohesionDeterminismTests(unittest.TestCase):
         ids = [
             "libs/utils/src/a.ts::a", "libs/utils/src/e.ts::e",
             "libs/ui/render/b.ts::b", "backend/apis/c.ts::c",
-            "backend/apis/f.ts::f", "apps/aceiss/assets/d.ts::d",
+            "backend/apis/f.ts::f", "apps/web/assets/d.ts::d",
         ]
         nodes = {x: self._n(x, x.split("::")[0]) for x in ids}
         comm = [{"community_id": "project:c0", "label": "spinner", "seed_node_id": ids[0],
                  "node_ids": ids, "node_count": len(ids), "boundary_node_count": 0}]
         out = self.mod._split_cross_directory_grabbags(comm, nodes, {})
-        # 4 distinct module-dirs (libs/utils, libs/ui, backend/apis, apps/aceiss), none
+        # 4 distinct module-dirs (libs/utils, libs/ui, backend/apis, apps/web), none
         # dominant → split into 4.
         self.assertEqual(len(out), 4)
 

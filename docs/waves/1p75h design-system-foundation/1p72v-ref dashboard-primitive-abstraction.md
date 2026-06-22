@@ -1,11 +1,11 @@
 # Dashboard Primitive Abstraction + Token Consumption
 
 Change ID: `1p72v-ref dashboard-primitive-abstraction`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-06-20
-Wave: `1p6xb design-system-foundation`
+Status: implemented
+Last verified: 2026-06-22
+Wave: `1p75h design-system-foundation`
 
 ## Rationale
 
@@ -50,27 +50,28 @@ This change abstracts the reusable layer into a maintained, exportable primitive
 
 ## Acceptance Criteria
 
-- [ ] AC-1: A primitive module exists under `.wavefoundry/framework/dashboard/`, exports the ~16 named primitives, and builds via esbuild exposing them on a global.
-- [ ] AC-2: `dashboard.js` consumes the shared primitives (no duplicated inline copies of the abstracted components remain) and the dashboard renders with no behavioral regression.
-- [ ] AC-3: The `--text/--border/--surface/--surface-raised` family is defined in `dashboard.css`; no dangling `var(--…)` references remain (grep-verified).
-- [ ] AC-4: The "Aceiss" brand palette and agent-role category colors are tokenized; per-component dark hex overrides route through tokens where feasible; remaining cases recorded as gaps with rationale.
-- [ ] AC-5: `components/_index.json` and per-primitive `spec.json` are populated (props, variants, states, token bindings, a11y); net-new abstractions recorded appropriately.
-- [ ] AC-6: The duplicate `_graphEdgeLineOpacity` definition is removed; surviving behavior confirmed intended.
-- [ ] AC-7: Visual parity demonstrated pre/post in light and dark for affected surfaces.
-- [ ] AC-8: All framework edits done under `framework_edit_allowed`; framework tests pass bytecode-free; `docs-lint`/`wave_validate` clean for contract files.
+- [x] AC-1: A primitive module exists under `.wavefoundry/framework/dashboard/` (`ds/wfds.js`), exports the ~16 named primitives on `window.WFDS`, and is esbuild-bundlable (single `defineWFDS(React)` factory) for downstream sync. Per locked operator decision the consumption model is no-build script-tag global — esbuild bundling is available for the future sync but **not** required for the dashboard to run.
+- [x] AC-2: `dashboard.js` consumes the shared primitives from `window.WFDS`; inlined copies of every abstracted function were removed (icons, ThemeToggle, MiniGraph, ProgressRow body, DialogFrame, FileTree/buildFileTree, DiffView core, NavIcon, WaveMark, Sidebar body, renderInline/renderMarkdownish, badgeClass). `node --check` passes; full suite green (3347).
+- [x] AC-3: The `--text/--border/--surface/--surface-raised` family is defined in `dashboard.css` (aliased to `--ink`/`--panel-border`/`--panel-bg`/`--neutral-soft`); grep-verified no dangling token-family `var(--…)` remain (only the deliberately inline-set `--kind-bg`/`--kind-color` per-element props with fallbacks).
+- [x] AC-4: The Aceiss brand palette and all 8 agent-role category colors are tokenized (light `:root` + dark override block, exact prior hex, no drift); every `.hero-agent-pill--*` / `.hero-agent-label--*` rule routes through tokens. Remaining un-tokenizable `rgba(brand, α)` fills/shadows and the general component-scoped dark overrides recorded in `gaps.md` G2 with rationale.
+- [x] AC-5: `components/_index.json` (16 entries) and per-primitive `spec.json` (full identity + behavioral schema) populated with props/variants/states/token-bindings/a11y; real extracted functions recorded as extracted-from-usage, unified-from-convention abstractions recorded in `proposed-additions.md`.
+- [x] AC-6: The duplicate (dead, shadowed) `_graphEdgeLineOpacity` definition was removed; the surviving higher-contrast definition (the one actually in effect at the call site via hoisting) is confirmed intended.
+- [x] AC-7: Visual parity demonstrated pre/post in light and dark for affected surfaces. **OPERATOR-CONFIRMED 2026-06-22** — the operator reviewed the running dashboard in both themes ("sidebar looks great", "looks good otherwise") and approved the affected surfaces plus the follow-on nav-shell refinements (dark-rail separation, theme-toggle sizing/placement, footer version/Live layout, dark nav-active highlight) across several review rounds. Self-verification (node --check + served-asset 200 smoke + structural equivalence) also complete.
+- [x] AC-8: All framework edits done under `framework_edit_allowed`; framework tests pass bytecode-free (3347, unchanged); `wave_validate` clean (docs-lint: ok) for contract files.
 
 ## Tasks
 
-- [ ] Open `framework_edit_allowed` gate.
-- [ ] Scaffold the primitive module (`ds/`) + esbuild build exposing a global.
-- [ ] Extract primitives incrementally (icons → Badge/Pill/Chip → ProgressBar/Sparkline → Card/Dialog/Table → FileTree/DiffView/EmptyState/SectionLabel/NavSidebar/Prose), verifying render per step.
-- [ ] Define `--text/--border/--surface/--surface-raised` in `dashboard.css`; grep for dangling refs.
-- [ ] Tokenize Aceiss palette + agent-role category colors; route dark overrides through tokens where feasible.
-- [ ] Refactor `dashboard.js` to consume the module; remove inlined duplicates.
-- [ ] Remove duplicate `_graphEdgeLineOpacity`.
-- [ ] Populate `components/_index.json` + `spec.json`; `proposed-additions.md` for net-new.
-- [ ] Visual-parity check (light + dark) on affected surfaces.
-- [ ] Run framework tests; close `framework_edit_allowed` gate.
+- [x] Open `framework_edit_allowed` gate.
+- [x] Scaffold the primitive module (`ds/wfds.js`) exposing a `window.WFDS` global; esbuild-bundlable factory (no build step for the dashboard per locked decision).
+- [x] Extract primitives (Icon glyphs, ThemeToggle, Badge/Pill/Chip, ProgressBar/Sparkline, Card/Dialog/Table, FileTree/DiffView/EmptyState/SectionLabel/NavSidebar/Prose); wired `dashboard.html` to load `/ds/wfds.js` before `/dashboard.js`.
+- [x] Define `--text/--border/--surface/--surface-raised` in `dashboard.css`; grep-verified no dangling token-family refs.
+- [x] Tokenize Aceiss palette + agent-role category colors (light + dark, exact hex); remaining rgba/component one-offs recorded in gaps.md G2.
+- [x] Refactor `dashboard.js` to consume the module; removed inlined duplicates (ProgressRow/Sidebar kept as thin delegators — ProgressRow signature preserved for the pinned test).
+- [x] Remove duplicate `_graphEdgeLineOpacity` (dead shadowed copy).
+- [x] Populate `components/_index.json` + 16 `spec.json`; `proposed-additions.md` for unified-from-convention abstractions.
+- [~] Visual-parity check (light + dark) on affected surfaces — **deferred to operator** (AC-7 pending; self-check via node --check + 200 smoke + structural equivalence done).
+- [x] Run framework tests (3347, green, bytecode-free); gate close pending end-of-session.
+- [x] Nav-shell visual refinements (operator-directed, post-parity review): dark-mode sidebar separation (elevated rail surface + brighter border — the rail no longer reads as flat black); moved the theme toggle from the footer to the top-right of the project title when expanded (drops to the footer when collapsed so it stays reachable); footer meta now shows version on the left + `Live`/refresh on the right; version displays `major.minor` with the full build in the tooltip.
 
 ## Agent Execution Graph
 
@@ -98,12 +99,16 @@ This change abstracts the reusable layer into a maintained, exportable primitive
 
 ## AC Priority
 
-(Populated at Prepare wave.)
-
-
-| AC   | Priority                                             | Rationale |
-| ---- | ---------------------------------------------------- | --------- |
-| AC-1 | required / important / nice-to-have / not-this-scope |           |
+| AC   | Priority  | Rationale |
+| ---- | --------- | --------- |
+| AC-1 | required  | The exportable primitive module is the deliverable. |
+| AC-2 | required  | The dashboard must consume the module with no behavioral/visual regression. |
+| AC-3 | required  | Defines the referenced-but-undefined `--text/--border/--surface` family (latent rendering bug). |
+| AC-4 | important | Tokenize the brand + agent-role palettes and route dark overrides where feasible; remainder recorded as gaps. |
+| AC-5 | important | Component contract specs (`_index.json` + `spec.json`) — supporting documentation of the module. |
+| AC-6 | required  | Removes a real duplicate-`_graphEdgeLineOpacity` definition (dead-code bug). |
+| AC-7 | required  | Visual-parity (light + dark) is the no-regression guard for this large refactor. |
+| AC-8 | required  | `framework_edit_allowed` gate + bytecode-free framework tests + clean validation. |
 
 
 ## Progress Log
@@ -112,6 +117,9 @@ This change abstracts the reusable layer into a maintained, exportable primitive
 | Date       | Update                                                                 | Evidence                          |
 | ---------- | --------------------------------------------------------------------- | --------------------------------- |
 | 2026-06-20 | Plan created — abstract dashboard reusable layer into a token-bound module | Operator direction; repo analysis |
+| 2026-06-22 | Implemented. Created `ds/wfds.js` (no-build `window.WFDS` global, esbuild-bundlable factory) with 16 primitives; wired `dashboard.html` to load it before `dashboard.js`; refactored `dashboard.js` to consume WFDS and removed all inlined copies (ProgressRow/Sidebar kept as thin delegators to preserve the pinned ProgressRow test signature). Defined the `--text/--border/--surface/--surface-raised` family (AC-3); tokenized the Aceiss brand palette + 8 agent-role category colors light+dark with exact hex (AC-4); populated `components/_index.json` + 16 `spec.json` + `proposed-additions.md` (AC-5); removed the dead duplicate `_graphEdgeLineOpacity` (AC-6); updated architecture `design-system.md` and `gaps.md` (G1 resolved, G2 partially resolved, G3/G4 decisions). Verified: `node --check` (both files), full framework suite 3347 green bytecode-free (unchanged), `wave_validate` clean, served-asset 200 smoke on `/dashboard.html` `/dashboard.js` `/dashboard.css` `/ds/wfds.js`, grep-verified no dangling token-family `var(--…)`. **AC-7 (light+dark visual parity) pending operator visual check** — not self-verifiable; screenshots flaky here. Set to `implemented`. | `node --check`; `run_tests.py` (3347 OK); `wave_validate` (docs-lint: ok); urllib 200 smoke |
+| 2026-06-22 | Delivery review (operator-directed) — tokenized the dark-rail surface instead of leaving it hardcoded: added `--rail-surface`/`--rail-border` to `dashboard.css` `:root` (light = panel) + the dark token block (`#1b1e23`/`#2f3744`), `.sidebar` consumes the vars (dropped the one-off `html[data-theme="dark"] .sidebar` override); extended the DTCG contract (`color.rail.*` primitives, `modes/{light,dark}` overrides, `color.surface.rail`/`railBorder` semantics); regenerated exports via `bin/build-tokens` (`--ds-color-surface-rail` carries the dark override); `gaps.md` G2 marked RESOLVED. Verified: suite 3347 green, `wave_validate` clean, served CSS markers confirmed. | `dashboard.css`; `tokens/*.json`; `exports/*`; `run_tests.py`; `wave_validate` |
+| 2026-06-22 | Operator-directed nav-shell polish during the visual-parity review (`NavSidebar` in `ds/wfds.js` + `dashboard.css`): (1) dark-mode sidebar separation — the rail bg `--panel-bg #151719` was nearly identical to content `--page-bg #111214`, so it read as flat black; gave the dark rail an elevated `#1b1e23` surface + brighter `#2f3744` border (knowingly hardcoded — candidate to tokenize as a rail surface); (2) moved `ThemeToggle` from the footer to a new `.sidebar-brand-row` at the top-right of the project title when expanded (drops to the footer centered when collapsed so it stays reachable); (3) footer `.sidebar-footer-meta` is now `space-between` with version on the left + `Live`/refresh on the right; (4) version shows `v{major.minor}` with the full build in the `title` tooltip. Verified: `node --check` both files, suite 3347 green bytecode-free, served markers live on `:8821`. | `node --check`; `run_tests.py` (3347 OK); urllib served-marker smoke |
 
 
 ## Decision Log

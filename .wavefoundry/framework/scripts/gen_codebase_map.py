@@ -55,18 +55,18 @@ MAX_TOP_AREAS = 24
 # A repo at or below this many areas is "small" — rendered near-flat (no paging
 # note, no "more areas" overflow line).
 NEAR_FLAT_AREA_THRESHOLD = 8
-# Wave 1p61w (javaagent field test): a community whose node set is more than this
+# Wave 1p61w (field test): a community whose node set is more than this
 # fraction generated code (per-node `generated` tag — set from `.gitattributes
 # linguist-generated`, header signatures, generated dir/suffix names) is NOT an
 # orientation target and is excluded from the primary area tier. 0.4 matches the
 # `generated_node_fraction` threshold `wave_graph_report(exclude_generated=…)` uses.
 GENERATED_AREA_FRACTION = 0.4
-# Wave 1p64t (javaagent 1b): a community more than this fraction VENDORED (matched by
+# Wave 1p64t (field finding 1b): a community more than this fraction VENDORED (matched by
 # an explicit `docs/repo-profile.json` `vendored_paths` glob or a `.gitattributes`
 # `linguist-vendored` marker — never a name heuristic) is third-party, not product,
 # and is excluded from the primary area tier (mirrors the generated axis).
 VENDORED_AREA_FRACTION = 0.4
-# Wave 1p64u (javaagent 2): a directory whose files are absorbed into a larger
+# Wave 1p64u (field finding 2): a directory whose files are absorbed into a larger
 # community (so it never becomes that community's dominant dir) is surfaced as its
 # own area only when it clears this distinct-source-file floor — so the map gains
 # buried product modules without fragmenting into one area per stray file.
@@ -381,7 +381,7 @@ def _kind_tag(node: dict[str, Any]) -> str:
 
 
 def _is_doc_spec_config_label(label: str, node_ids: list[str]) -> bool:
-    """True when a cluster label derives from doc/spec/config files (Solaris fix).
+    """True when a cluster label derives from doc/spec/config files (field fix).
 
     A community whose members predominantly live in doc/spec/config sources yields
     a wrong-category label (`repo-index`, `current-state`, `manual-override-
@@ -539,7 +539,7 @@ def _area_module_key(area: "CodebaseArea") -> str:
 def _select_with_module_floor(areas: list["CodebaseArea"], cap: int) -> list["CodebaseArea"]:
     """Cap the area list while guaranteeing each top-level module at least one slot.
 
-    Wave 1p61w (javaagent 2): pure size-ranked truncation let a large vendored /
+    Wave 1p61w (field finding 2): pure size-ranked truncation let a large vendored /
     generated subtree consume the whole cap and drop small product modules to
     incidental key-files. Here the best-ranked area of each distinct module is
     reserved first (in rank order), then any remaining slots fill by overall rank.
@@ -564,7 +564,7 @@ def _select_with_module_floor(areas: list["CodebaseArea"], cap: int) -> list["Co
 
 
 def _disambiguate_area_names(areas: list["CodebaseArea"]) -> list["CodebaseArea"]:
-    """Strip ordinal noise and disambiguate colliding area titles (1p61w / javaagent 3).
+    """Strip ordinal noise and disambiguate colliding area titles (1p61w / field finding 3).
 
     Cluster-label disambiguation appends trailing ordinals (``Foo 1`` / ``Foo 2``);
     those are dropped. Titles that then collide across distinct representative paths
@@ -588,7 +588,7 @@ def _disambiguate_area_names(areas: list["CodebaseArea"]) -> list["CodebaseArea"
             out.append(replace(a, name=disamb) if disamb and disamb != a.name else a)
         else:
             out.append(a)
-    # Final pass (1p64u / javaagent 3): subdivisions of ONE oversized directory
+    # Final pass (1p64u / field finding 3): subdivisions of ONE oversized directory
     # share a representative path, so the path-based pass leaves them colliding
     # (4×`el/javax`). Append a third distinguisher — the area's top entry-point
     # symbol if it has one, else its node count — so each title is unique and the
@@ -742,9 +742,9 @@ def compute_areas(root: Path, layer: str = DEFAULT_LAYER) -> CodebaseMapModel:
             node_ids = [_norm(str(n)) for n in (c.get("node_ids") or []) if _norm(str(n)) in nodes_by_id]
             if not node_ids:
                 continue
-            # Wave 1p61w (javaagent 1a): drop generated-dominated communities (e.g. a
+            # Wave 1p61w (field finding 1a): drop generated-dominated communities (e.g. a
             # 99%-generated JavaCC parser that otherwise renders as a prominent area).
-            # Prefer the persisted per-community `generated_node_fraction` (Aceiss §6.5);
+            # Prefer the persisted per-community `generated_node_fraction` (field feedback §6.5);
             # fall back to recomputing from per-node `generated` tags.
             gen_fraction = c.get("generated_node_fraction")
             if gen_fraction is None:
@@ -752,7 +752,7 @@ def compute_areas(root: Path, layer: str = DEFAULT_LAYER) -> CodebaseMapModel:
             if float(gen_fraction) > GENERATED_AREA_FRACTION:
                 generated_omitted.append(label or "area")
                 continue
-            # Wave 1p64t (javaagent 1b): drop vendored-dominated communities (e.g. a
+            # Wave 1p64t (field finding 1b): drop vendored-dominated communities (e.g. a
             # bundled third-party EL implementation) — third-party, not product.
             if _vendored_fraction(node_ids) > VENDORED_AREA_FRACTION:
                 vendored_omitted.append(label or "area")
@@ -949,7 +949,7 @@ def compute_areas(root: Path, layer: str = DEFAULT_LAYER) -> CodebaseMapModel:
         is_config = config_members >= max(1, round(CONFIG_AREA_NODE_SHARE * len(node_ids)))
 
         # Tier-1 auto label (req 4): NEVER a doc/spec/config node as the
-        # representative (Solaris fix). Prefer, in order: a meaningful directory
+        # representative (field fix). Prefer, in order: a meaningful directory
         # segment (skipping generic roots), then the dominant shared code token,
         # then the most-central code symbol — disambiguated by path, never a bare
         # `N` suffix (the slugger handles uniqueness).
@@ -960,7 +960,7 @@ def compute_areas(root: Path, layer: str = DEFAULT_LAYER) -> CodebaseMapModel:
             seg = ""
         generic = {"", "scripts", "src", "lib", "app", "source", "code", "pkg", "internal", "lib"}
         # The cluster label is usable only when it is not a doc/spec/config-derived
-        # name (those are the wrong-category Solaris labels) and not generic.
+        # name (those are the wrong-category field-reported labels) and not generic.
         cluster_label_ok = bool(
             cluster_label
             and cluster_label.casefold() not in generic
@@ -1095,7 +1095,7 @@ def compute_areas(root: Path, layer: str = DEFAULT_LAYER) -> CodebaseMapModel:
             if _representative_dir(str(nodes_by_id[n].get("source_file") or "")) == rep_path
         ]
         hub_pool = in_rep_and_keyfiles or in_keyfiles or in_rep or node_ids
-        # Wave 1p61w (teton Issue 3): a drill-in hub must be actionable first-party
+        # Wave 1p61w (field Issue 3): a drill-in hub must be actionable first-party
         # source — never a `.json`/data node (`…json::map`) or other non-code asset.
         # Prefer code candidates; fall back to the full pool only if none remain.
         # Wave 1p65l #1: also exclude vendored/generated from the hub — `otel.cjs`
@@ -1130,10 +1130,10 @@ def compute_areas(root: Path, layer: str = DEFAULT_LAYER) -> CodebaseMapModel:
         # to the graph ``cluster_label`` — when ``name`` is directory-derived, an
         # unrelated high-fan-in cluster symbol (`logger`, `BackendApi`) disagrees
         # with the directory name (`packages`, `lambdas`) and reads as a broken /
-        # inconsistent area (teton p60n field re-test: name ≠ Responsibility in
+        # inconsistent area (p60n field re-test: name ≠ Responsibility in
         # 14/24 areas). The name/Responsibility derivations must never contradict.
         #
-        # Wave 1p64u (teton p64p): a CONFIG area must NOT adopt an AGENTS.md prose
+        # Wave 1p64u (p64p): a CONFIG area must NOT adopt an AGENTS.md prose
         # instruction that merely landed in the same community ("If the user's
         # request matches a phrase below…") as its responsibility — describe the
         # config files instead. (The AGENTS.md title is likewise not the config
@@ -1213,12 +1213,12 @@ def compute_areas(root: Path, layer: str = DEFAULT_LAYER) -> CodebaseMapModel:
     # Rank areas: code areas before config areas, then by size, then path.
     raw_areas.sort(key=lambda a: (a.is_config, -a.node_count, a.representative_path))
     total = len(raw_areas)
-    # Wave 1p61w (javaagent 2): per-module area floor — guarantee each distinct
+    # Wave 1p61w (field finding 2): per-module area floor — guarantee each distinct
     # top-level module/source-root at least one slot before remaining slots fill by
     # rank, so a large vendored/generated subtree can't consume the whole cap and
     # starve small product modules (e.g. instrumentation/<module>).
     capped = _select_with_module_floor(raw_areas, MAX_TOP_AREAS)
-    # Wave 1p61w (javaagent 3): disambiguate colliding area titles + drop ordinal
+    # Wave 1p61w (field finding 3): disambiguate colliding area titles + drop ordinal
     # noise so the area list doesn't read as a wall of near-duplicates.
     capped = _disambiguate_area_names(capped)
 
@@ -1410,7 +1410,7 @@ def render_markdown(
         f"{model.file_count}; symbols: {model.symbol_count}._"
     )
     lines.append("")
-    # Wave 1p61w (javaagent 1a): never silently drop — surface the count of
+    # Wave 1p61w (field finding 1a): never silently drop — surface the count of
     # generated-dominated communities excluded from the area tier so coverage stays
     # honest (they remain searchable via the `code_*` tools).
     _gen_omitted = int((model.extra or {}).get("generated_areas_omitted") or 0)
@@ -1423,7 +1423,7 @@ def render_markdown(
             f"{_eg} — still searchable via the `code_*` tools._"
         )
         lines.append("")
-    # Wave 1p64t (javaagent 1b): same honest footer for vendored / third-party.
+    # Wave 1p64t (field finding 1b): same honest footer for vendored / third-party.
     _ven_omitted = int((model.extra or {}).get("vendored_areas_omitted") or 0)
     if _ven_omitted:
         _vsample = [s for s in (model.extra or {}).get("vendored_omitted_sample") or [] if s]

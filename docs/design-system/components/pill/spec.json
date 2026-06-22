@@ -1,0 +1,55 @@
+{
+  "id": "pill",
+  "name": "Pill",
+  "category": "data-display",
+  "status": "stable",
+  "description": "Compact rounded meta label (meta-pill convention) used for git/index/handoff metadata.",
+  "extractedFrom": ".wavefoundry/framework/dashboard/ds/wfds.js (Pill); unifies meta / git / index / handoff pills",
+  "figma": null,
+  "codeConnect": "ds/wfds.js",
+  "anatomy": [
+    "span.meta-pill[.<variant>]"
+  ],
+  "variants": [
+    "git-branch-pill",
+    "git-commit-pill",
+    "git-ahead-pill",
+    "git-behind-pill",
+    "meta-pill"
+  ],
+  "props": [
+    {
+      "name": "variant",
+      "type": "string",
+      "note": "modifier class"
+    },
+    {
+      "name": "className",
+      "type": "string"
+    },
+    {
+      "name": "title",
+      "type": "string"
+    },
+    {
+      "name": "children",
+      "type": "node"
+    }
+  ],
+  "slots": [
+    "children"
+  ],
+  "tokens": {
+    "radius": "radius.sm",
+    "border": "color.surface.border"
+  },
+  "doNotUse": [],
+  "preferOver": [],
+  "states": null,
+  "responsive": null,
+  "motion": null,
+  "accessibility": {
+    "keyboard": null
+  },
+  "content": null
+}

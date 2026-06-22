@@ -1,0 +1,12 @@
+{
+  "$schema-note": "Tool-agnostic token-build contract consumed by docs/design-system/bin/build-tokens. See wave 12atj-feat design-token-build-pipeline.",
+  "tool": "builtin",
+  "version": "1.0.0",
+  "comment": "The seed-emitted default stub uses tool='style-dictionary'. This repo has no Node/Style-Dictionary install (CI has no Node), so it uses the bundled pure-Python transform (tool='builtin'), which deterministically derives every export from the DTCG token source. Switch tool to 'style-dictionary' and run `npm install -D style-dictionary` to use Style Dictionary instead, or tool='custom' with a 'command' for any other pipeline.",
+  "targets": [
+    { "format": "css", "outputDir": "exports/css", "options": { "prefix": "ds", "selector": ":root" } },
+    { "format": "tailwind", "outputDir": "exports/tailwind", "options": { "darkMode": "class" } },
+    { "format": "ts", "outputDir": "exports/ts", "options": { "perMode": true } },
+    { "format": "json", "outputDir": "exports/json", "options": { "resolveAliases": true } }
+  ]
+}

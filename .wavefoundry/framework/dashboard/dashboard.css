@@ -35,6 +35,48 @@
   --rail-w: 56px;     /* collapsed sidebar icon-rail width */
   --view-max: 1760px; /* contained view max-width (Work, future Config/Secrets/Docs) — wide enough to avoid large dead margins when the rail is collapsed */
   --view-max-wide: 1760px; /* wide view max-width (Graph canvas) */
+
+  /* Semantic surface/text/border aliases (1p72v / DS gap G1). These were
+     referenced but never defined — the doc-dialog and graph chrome that use
+     them silently rendered with currentColor borders / inherited text /
+     transparent surfaces. Alias to the canonical tokens so they resolve to
+     the same values the sibling agent-dialog code/pre surfaces already use,
+     and re-theme automatically in dark mode (the aliased tokens carry dark
+     overrides). */
+  --surface: var(--panel-bg);            /* card/panel surface */
+  --surface-raised: var(--neutral-soft); /* raised surface (code, pre, table head) */
+  --border: var(--panel-border);         /* borders, dividers */
+  --text: var(--ink);                    /* primary text */
+
+  /* Sidebar rail surface — matches the panel in light; the dark block below
+     redefines these so the rail separates from the near-identical content bg. */
+  --rail-surface: var(--panel-bg);
+  --rail-border: var(--panel-border);
+
+  /* ── agent-role brand palette + agent-role category colors (1p72v / DS gap G2) ──
+     Brand accents are theme-invariant (same hex in light and dark — only the
+     derived tints flip). Per-category light tints live here; the matching dark
+     tints live in the html[data-theme="dark"] block. Values are the exact hex
+     previously hardcoded in the .hero-agent-pill / .hero-agent-label rules — no
+     color drift. */
+  --agent-build:       #FF9100; /* orange */
+  --agent-review:      #4844C5; /* purple */
+  --agent-coordinate:  #40A3E9; /* blue */
+  --agent-operate:     #D7271E; /* red */
+  --agent-specialist:  #53AC04; /* green */
+  --agent-factor:      #6f42c1; /* indigo */
+  --agent-journal:     #607D8B; /* slate blue-gray */
+  --agent-persona:     #14B8A6; /* teal */
+
+  /* Per-category light tints: border / text / hover-border / hover-text / label */
+  --agent-build-border: #ffc480; --agent-build-text: #b45000; --agent-build-hover-border: #FF9100; --agent-build-hover-text: #b45000; --agent-build-label: #b45000;
+  --agent-review-border: #b8b5f0; --agent-review-text: #4844C5; --agent-review-hover-border: #4844C5; --agent-review-hover-text: #4844C5; --agent-review-label: #4844C5;
+  --agent-coordinate-border: #91C2F2; --agent-coordinate-text: #1565C0; --agent-coordinate-hover-border: #40A3E9; --agent-coordinate-hover-text: #1565C0; --agent-coordinate-label: #1565C0;
+  --agent-operate-border: #f5a8a0; --agent-operate-text: #C62828; --agent-operate-hover-border: #D7271E; --agent-operate-hover-text: #C62828; --agent-operate-label: #C62828;
+  --agent-specialist-border: #a5d46a; --agent-specialist-text: #2d6a00; --agent-specialist-hover-border: #53AC04; --agent-specialist-hover-text: #2d6a00; --agent-specialist-label: #2d6a00;
+  --agent-factor-border: #c5b3ff; --agent-factor-text: #6f42c1; --agent-factor-hover-border: #6f42c1; --agent-factor-hover-text: #6f42c1; --agent-factor-label: #6f42c1;
+  --agent-journal-border: #b0bec5; --agent-journal-text: #455A64; --agent-journal-hover-border: #607D8B; --agent-journal-hover-text: #455A64; --agent-journal-label: #455A64;
+  --agent-persona-border: #7edece; --agent-persona-text: #0F766E; --agent-persona-hover-border: #14B8A6; --agent-persona-hover-text: #0F766E; --agent-persona-label: #0F766E;
 }
 
 * { box-sizing: border-box; }
@@ -86,8 +128,8 @@ a { color: inherit; }
   flex: 0 0 var(--rail-w);
   width: var(--rail-w);
   height: 100vh;
-  background: var(--panel-bg);
-  border-right: 1px solid var(--panel-border);
+  background: var(--rail-surface);
+  border-right: 1px solid var(--rail-border);
   z-index: 40;
   overflow: visible;  /* let collapsed-rail tooltips escape to the right */
   transition: flex-basis 0.15s ease, width 0.15s ease;
@@ -131,6 +173,14 @@ a { color: inherit; }
   font-weight: 600;
 }
 
+/* Dark mode: --accent-soft (#0a1a2e) is nearly invisible against the rail, so
+   derive a clearly-visible translucent accent fill from the accent token. */
+html[data-theme="dark"] .nav-item--active,
+html[data-theme="dark"] .nav-item--active:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+
 .nav-item-icon {
   flex: 0 0 auto;
   display: inline-flex;
@@ -151,14 +201,22 @@ a { color: inherit; }
   padding-right: 0;
 }
 
-/* Brand row (logo + repo name) doubles as the collapse/expand toggle. */
+/* Brand row: the brand button + (expanded) the theme toggle to its right. */
+.sidebar-brand-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+/* Brand (logo + repo name) doubles as the collapse/expand toggle. */
 .sidebar-brand {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   padding: 0.4rem 0.5rem;
-  margin-bottom: var(--space-2);
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
@@ -2297,14 +2355,14 @@ html[data-theme="dark"] .graph-filter-pill--kind {
 }
 
 /* Category-specific label colors — must follow .hero-agent-label to win on specificity tie */
-.hero-agent-label--build      { color: #b45000; }
-.hero-agent-label--review     { color: #4844C5; }
-.hero-agent-label--coordinate { color: #1565C0; }
-.hero-agent-label--operate    { color: #C62828; }
-.hero-agent-label--specialist { color: #2d6a00; }
-.hero-agent-label--factor     { color: #6f42c1; }
-.hero-agent-label--journal    { color: #455A64; }
-.hero-agent-label--persona    { color: #0F766E; }
+.hero-agent-label--build      { color: var(--agent-build-label); }
+.hero-agent-label--review     { color: var(--agent-review-label); }
+.hero-agent-label--coordinate { color: var(--agent-coordinate-label); }
+.hero-agent-label--operate    { color: var(--agent-operate-label); }
+.hero-agent-label--specialist { color: var(--agent-specialist-label); }
+.hero-agent-label--factor     { color: var(--agent-factor-label); }
+.hero-agent-label--journal    { color: var(--agent-journal-label); }
+.hero-agent-label--persona    { color: var(--agent-persona-label); }
 
 .hero-agent-pills {
   display: flex;
@@ -2332,107 +2390,108 @@ html[data-theme="dark"] .graph-filter-pill--kind {
   box-shadow: 0 2px 8px rgba(25, 118, 210, 0.14);
 }
 
-/* Build — Aceiss orange #FF9100 */
+/* Build — orange (var --agent-build). rgba() fills/shadows stay literal
+   (rgba-of-brand at alpha is not cleanly tokenizable — recorded in gaps.md G2). */
 .hero-agent-pill--build {
-  border-color: #ffc480;
-  color: #b45000;
+  border-color: var(--agent-build-border);
+  color: var(--agent-build-text);
   background: rgba(255, 145, 0, 0.07);
 }
 .hero-agent-pill--build:hover {
-  background: color-mix(in srgb, #FF9100 12%, white);
-  border-color: #FF9100;
-  color: #b45000;
+  background: color-mix(in srgb, var(--agent-build) 12%, white);
+  border-color: var(--agent-build-hover-border);
+  color: var(--agent-build-hover-text);
   box-shadow: 0 2px 8px rgba(255, 145, 0, 0.18);
 }
 
-/* Review — Aceiss purple #4844C5 */
+/* Review — purple (var --agent-review) */
 .hero-agent-pill--review {
-  border-color: #b8b5f0;
-  color: #4844C5;
+  border-color: var(--agent-review-border);
+  color: var(--agent-review-text);
   background: rgba(72, 68, 197, 0.07);
 }
 .hero-agent-pill--review:hover {
-  background: color-mix(in srgb, #4844C5 12%, white);
-  border-color: #4844C5;
-  color: #4844C5;
+  background: color-mix(in srgb, var(--agent-review) 12%, white);
+  border-color: var(--agent-review-hover-border);
+  color: var(--agent-review-hover-text);
   box-shadow: 0 2px 8px rgba(72, 68, 197, 0.18);
 }
 
-/* Coordinate — Aceiss blue #40A3E9 */
+/* Coordinate — blue (var --agent-coordinate) */
 .hero-agent-pill--coordinate {
-  border-color: #91C2F2;
-  color: #1565C0;
+  border-color: var(--agent-coordinate-border);
+  color: var(--agent-coordinate-text);
   background: rgba(64, 163, 233, 0.07);
 }
 .hero-agent-pill--coordinate:hover {
-  background: color-mix(in srgb, #40A3E9 12%, white);
-  border-color: #40A3E9;
-  color: #1565C0;
+  background: color-mix(in srgb, var(--agent-coordinate) 12%, white);
+  border-color: var(--agent-coordinate-hover-border);
+  color: var(--agent-coordinate-hover-text);
   box-shadow: 0 2px 8px rgba(64, 163, 233, 0.18);
 }
 
-/* Operate — Aceiss red #D7271E */
+/* Operate — red (var --agent-operate) */
 .hero-agent-pill--operate {
-  border-color: #f5a8a0;
-  color: #C62828;
+  border-color: var(--agent-operate-border);
+  color: var(--agent-operate-text);
   background: rgba(215, 39, 30, 0.07);
 }
 .hero-agent-pill--operate:hover {
-  background: color-mix(in srgb, #D7271E 12%, white);
-  border-color: #D7271E;
-  color: #C62828;
+  background: color-mix(in srgb, var(--agent-operate) 12%, white);
+  border-color: var(--agent-operate-hover-border);
+  color: var(--agent-operate-hover-text);
   box-shadow: 0 2px 8px rgba(215, 39, 30, 0.18);
 }
 
-/* Specialist — Aceiss green #53AC04 */
+/* Specialist — green (var --agent-specialist) */
 .hero-agent-pill--specialist {
-  border-color: #a5d46a;
-  color: #2d6a00;
+  border-color: var(--agent-specialist-border);
+  color: var(--agent-specialist-text);
   background: rgba(83, 172, 4, 0.07);
 }
 .hero-agent-pill--specialist:hover {
-  background: color-mix(in srgb, #53AC04 12%, white);
-  border-color: #53AC04;
-  color: #2d6a00;
+  background: color-mix(in srgb, var(--agent-specialist) 12%, white);
+  border-color: var(--agent-specialist-hover-border);
+  color: var(--agent-specialist-hover-text);
   box-shadow: 0 2px 8px rgba(83, 172, 4, 0.18);
 }
 
-/* Factors — indigo */
+/* Factors — indigo (var --agent-factor) */
 .hero-agent-pill--factor {
-  border-color: #c5b3ff;
-  color: #6f42c1;
+  border-color: var(--agent-factor-border);
+  color: var(--agent-factor-text);
   background: rgba(111, 66, 193, 0.07);
 }
 .hero-agent-pill--factor:hover {
-  background: color-mix(in srgb, #6f42c1 12%, white);
-  border-color: #6f42c1;
-  color: #6f42c1;
+  background: color-mix(in srgb, var(--agent-factor) 12%, white);
+  border-color: var(--agent-factor-hover-border);
+  color: var(--agent-factor-hover-text);
   box-shadow: 0 2px 8px rgba(111, 66, 193, 0.18);
 }
 
-/* Journal — slate blue-gray */
+/* Journal — slate blue-gray (var --agent-journal) */
 .hero-agent-pill--journal {
-  border-color: #b0bec5;
-  color: #455A64;
+  border-color: var(--agent-journal-border);
+  color: var(--agent-journal-text);
   background: rgba(96, 125, 139, 0.07);
 }
 .hero-agent-pill--journal:hover {
-  background: color-mix(in srgb, #607D8B 12%, white);
-  border-color: #607D8B;
-  color: #455A64;
+  background: color-mix(in srgb, var(--agent-journal) 12%, white);
+  border-color: var(--agent-journal-hover-border);
+  color: var(--agent-journal-hover-text);
   box-shadow: 0 2px 8px rgba(96, 125, 139, 0.18);
 }
 
-/* Persona — teal */
+/* Persona — teal (var --agent-persona) */
 .hero-agent-pill--persona {
-  border-color: #7edece;
-  color: #0F766E;
+  border-color: var(--agent-persona-border);
+  color: var(--agent-persona-text);
   background: rgba(20, 184, 166, 0.07);
 }
 .hero-agent-pill--persona:hover {
-  background: color-mix(in srgb, #14B8A6 12%, white);
-  border-color: #14B8A6;
-  color: #0F766E;
+  background: color-mix(in srgb, var(--agent-persona) 12%, white);
+  border-color: var(--agent-persona-hover-border);
+  color: var(--agent-persona-hover-text);
   box-shadow: 0 2px 8px rgba(20, 184, 166, 0.18);
 }
 
@@ -2557,7 +2616,7 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--accent);
+  color: var(--footer-accent);
   font-weight: 600;
   font-size: inherit;
   letter-spacing: 0.03em;
@@ -2569,7 +2628,7 @@ tbody tr:hover td { background: rgba(25, 118, 210, 0.04); }
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--footer-accent);
   animation: sse-pulse 2s ease-in-out infinite;
 }
 @keyframes sse-pulse {
@@ -3072,8 +3131,8 @@ html[data-theme="dark"] .diff-line--removed { color: #f87171; background: rgba(2
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-sm);
@@ -3084,6 +3143,8 @@ html[data-theme="dark"] .diff-line--removed { color: #f87171; background: rgba(2
   font-family: inherit;
   flex-shrink: 0;
 }
+
+.theme-toggle svg { width: 12px; height: 12px; }
 
 .theme-toggle:hover {
   background: var(--neutral-soft);
@@ -3097,6 +3158,8 @@ html[data-theme="dark"] {
   --page-bg:      #111214;
   --panel-bg:     #151719;
   --panel-border: #3a4150;
+  --rail-surface: #1b1e23;  /* elevated rail surface — separates from #111214 content */
+  --rail-border:  #2f3744;
   --ink:          #e4e2de;
   --muted:        #8a929e;
   --accent:       #40A3E9;
@@ -3120,6 +3183,17 @@ html[data-theme="dark"] body {
 
 html[data-theme="dark"] {
   --footer-accent: #7FB2F0;
+
+  /* Agent-role category dark tints (1p72v / DS gap G2) — exact prior dark hex,
+     no drift. Brand accents (--agent-*) are theme-invariant and stay in :root. */
+  --agent-build-border: #7a4400; --agent-build-text: #ffb74d; --agent-build-hover-border: #FF9100; --agent-build-hover-text: #ffd080;
+  --agent-review-border: #2e2a80; --agent-review-text: #9e9ced; --agent-review-hover-border: #7a78e0; --agent-review-hover-text: #c0bef8;
+  --agent-coordinate-border: #0d3a60; --agent-coordinate-text: #64b5f6; --agent-coordinate-hover-border: #40A3E9; --agent-coordinate-hover-text: #90c8f8;
+  --agent-operate-border: #7a1010; --agent-operate-text: #ef9a9a; --agent-operate-hover-border: #e05050; --agent-operate-hover-text: #f8b8b8;
+  --agent-specialist-border: #1e4800; --agent-specialist-text: #a5d46a; --agent-specialist-hover-border: #6cc020; --agent-specialist-hover-text: #c0e880;
+  --agent-factor-border: #5c3f99; --agent-factor-text: #d2b8ff; --agent-factor-hover-border: #9f7ae6; --agent-factor-hover-text: #eadcff;
+  --agent-journal-border: #2a3a40; --agent-journal-text: #90a4ae; --agent-journal-hover-border: #78909c; --agent-journal-hover-text: #b0c4cc;
+  --agent-persona-border: #003d38; --agent-persona-text: #5eead4; --agent-persona-hover-border: #2dd4bf; --agent-persona-hover-text: #99f6e4;
 }
 
 html[data-theme="dark"] .hero-card {
@@ -3334,98 +3408,98 @@ html[data-theme="dark"] .hero-agent-pill--agent:hover {
 }
 
 html[data-theme="dark"] .hero-agent-pill--build {
-  border-color: #7a4400;
-  color: #ffb74d;
+  border-color: var(--agent-build-border);
+  color: var(--agent-build-text);
   background: rgba(255, 145, 0, 0.12);
 }
 html[data-theme="dark"] .hero-agent-pill--build:hover {
-  background: color-mix(in srgb, #FF9100 16%, #141820);
-  border-color: #FF9100;
-  color: #ffd080;
+  background: color-mix(in srgb, var(--agent-build) 16%, #141820);
+  border-color: var(--agent-build-hover-border);
+  color: var(--agent-build-hover-text);
   box-shadow: 0 2px 8px rgba(255, 145, 0, 0.20);
 }
 
 html[data-theme="dark"] .hero-agent-pill--review {
-  border-color: #2e2a80;
-  color: #9e9ced;
+  border-color: var(--agent-review-border);
+  color: var(--agent-review-text);
   background: rgba(72, 68, 197, 0.12);
 }
 html[data-theme="dark"] .hero-agent-pill--review:hover {
-  background: color-mix(in srgb, #4844C5 16%, #141820);
-  border-color: #7a78e0;
-  color: #c0bef8;
+  background: color-mix(in srgb, var(--agent-review) 16%, #141820);
+  border-color: var(--agent-review-hover-border);
+  color: var(--agent-review-hover-text);
   box-shadow: 0 2px 8px rgba(72, 68, 197, 0.20);
 }
 
 html[data-theme="dark"] .hero-agent-pill--coordinate {
-  border-color: #0d3a60;
-  color: #64b5f6;
+  border-color: var(--agent-coordinate-border);
+  color: var(--agent-coordinate-text);
   background: rgba(64, 163, 233, 0.12);
 }
 html[data-theme="dark"] .hero-agent-pill--coordinate:hover {
-  background: color-mix(in srgb, #40A3E9 16%, #141820);
-  border-color: #40A3E9;
-  color: #90c8f8;
+  background: color-mix(in srgb, var(--agent-coordinate) 16%, #141820);
+  border-color: var(--agent-coordinate-hover-border);
+  color: var(--agent-coordinate-hover-text);
   box-shadow: 0 2px 8px rgba(64, 163, 233, 0.20);
 }
 
 html[data-theme="dark"] .hero-agent-pill--operate {
-  border-color: #7a1010;
-  color: #ef9a9a;
+  border-color: var(--agent-operate-border);
+  color: var(--agent-operate-text);
   background: rgba(215, 39, 30, 0.12);
 }
 html[data-theme="dark"] .hero-agent-pill--operate:hover {
-  background: color-mix(in srgb, #D7271E 16%, #141820);
-  border-color: #e05050;
-  color: #f8b8b8;
+  background: color-mix(in srgb, var(--agent-operate) 16%, #141820);
+  border-color: var(--agent-operate-hover-border);
+  color: var(--agent-operate-hover-text);
   box-shadow: 0 2px 8px rgba(215, 39, 30, 0.20);
 }
 
 html[data-theme="dark"] .hero-agent-pill--specialist {
-  border-color: #1e4800;
-  color: #a5d46a;
+  border-color: var(--agent-specialist-border);
+  color: var(--agent-specialist-text);
   background: rgba(83, 172, 4, 0.12);
 }
 html[data-theme="dark"] .hero-agent-pill--specialist:hover {
-  background: color-mix(in srgb, #53AC04 16%, #141820);
-  border-color: #6cc020;
-  color: #c0e880;
+  background: color-mix(in srgb, var(--agent-specialist) 16%, #141820);
+  border-color: var(--agent-specialist-hover-border);
+  color: var(--agent-specialist-hover-text);
   box-shadow: 0 2px 8px rgba(83, 172, 4, 0.20);
 }
 
 html[data-theme="dark"] .hero-agent-pill--factor {
-  border-color: #5c3f99;
-  color: #d2b8ff;
+  border-color: var(--agent-factor-border);
+  color: var(--agent-factor-text);
   background: rgba(111, 66, 193, 0.12);
 }
 html[data-theme="dark"] .hero-agent-pill--factor:hover {
-  background: color-mix(in srgb, #6f42c1 16%, #141820);
-  border-color: #9f7ae6;
-  color: #eadcff;
+  background: color-mix(in srgb, var(--agent-factor) 16%, #141820);
+  border-color: var(--agent-factor-hover-border);
+  color: var(--agent-factor-hover-text);
   box-shadow: 0 2px 8px rgba(111, 66, 193, 0.20);
 }
 
 html[data-theme="dark"] .hero-agent-pill--journal {
-  border-color: #2a3a40;
-  color: #90a4ae;
+  border-color: var(--agent-journal-border);
+  color: var(--agent-journal-text);
   background: rgba(96, 125, 139, 0.12);
 }
 html[data-theme="dark"] .hero-agent-pill--journal:hover {
-  background: color-mix(in srgb, #607D8B 16%, #141820);
-  border-color: #78909c;
-  color: #b0c4cc;
+  background: color-mix(in srgb, var(--agent-journal) 16%, #141820);
+  border-color: var(--agent-journal-hover-border);
+  color: var(--agent-journal-hover-text);
   box-shadow: 0 2px 8px rgba(96, 125, 139, 0.20);
 }
 
 html[data-theme="dark"] .hero-agent-pill--persona {
-  border-color: #003d38;
-  color: #5eead4;
+  border-color: var(--agent-persona-border);
+  color: var(--agent-persona-text);
   background: rgba(20, 184, 166, 0.12);
 }
 html[data-theme="dark"] .hero-agent-pill--persona:hover {
-  background: color-mix(in srgb, #14B8A6 16%, #141820);
-  border-color: #2dd4bf;
-  color: #99f6e4;
+  background: color-mix(in srgb, var(--agent-persona) 16%, #141820);
+  border-color: var(--agent-persona-hover-border);
+  color: var(--agent-persona-hover-text);
   box-shadow: 0 2px 8px rgba(20, 184, 166, 0.20);
 }
 

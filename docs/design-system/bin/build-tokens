@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""build-tokens — design-system token build wrapper (wave 12atj).
+
+Reads ``docs/design-system/build.config.json`` and invokes the configured
+token-build tool, emitting framework-specific outputs under
+``docs/design-system/exports/``.
+
+Supported ``tool`` values (see build.config.json):
+
+* ``style-dictionary`` — runs Style Dictionary via ``npx style-dictionary``.
+  Requires a local install (``npm install -D style-dictionary``). When the
+  binary is absent the wrapper exits non-zero with an actionable message.
+* ``token-pipeline`` — reserved tool slot; treated like ``custom`` (requires a
+  ``command``).
+* ``custom``   — runs the shell ``command`` from the config verbatim.
+* ``builtin``  — runs the bundled pure-Python DTCG transform
+  (``.wavefoundry/framework/scripts/design_token_build.py``). No Node needed.
+
+Exit codes:
+  0  success
+  1  config / dependency / transform error (actionable message on stderr)
+
+Usage:
+  docs/design-system/bin/build-tokens [--root <repo-root>] [--check]
+
+  --root    Repo root (defaults to walking up from this script).
+  --check   Validate config + token refs and report staleness WITHOUT writing
+            exports (dry run). Exits non-zero on broken refs.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+def _err(msg: str) -> int:
+    print(f"build-tokens: error: {msg}", file=sys.stderr)
+    return 1
+
+
+def _find_repo_root(start: Path) -> Path:
+    # Layout: <repo>/docs/design-system/bin/build-tokens
+    p = start.resolve()
+    for cand in [p] + list(p.parents):
+        if (cand / "docs" / "design-system").is_dir() and (cand / ".wavefoundry").is_dir():
+            return cand
+    # Fallback: three levels up from bin/.
+    return start.resolve().parents[2]
+
+
+def _load_config(design_root: Path) -> dict:
+    cfg_path = design_root / "build.config.json"
+    if not cfg_path.exists():
+        raise SystemExit(_err(
+            f"missing {cfg_path.name} at {cfg_path}. Run install/upgrade to emit "
+            "the default stub, or create it with tool='style-dictionary' and the "
+            "four standard targets (css/tailwind/ts/json)."
+        ))
+    try:
+        data = json.loads(cfg_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(_err(f"invalid JSON in {cfg_path}: {exc}"))
+    if not isinstance(data, dict) or "tool" not in data:
+        raise SystemExit(_err(f"{cfg_path}: must be a JSON object with a 'tool' field"))
+    return data
+
+
+def _import_builtin(repo_root: Path):
+    # The bundled transform ships alongside this wrapper's own repo, so prefer
+    # the framework scripts dir relative to THIS file (stable even when --root
+    # points the design tree elsewhere, e.g. in tests). Fall back to repo_root.
+    here = Path(__file__).resolve()
+    candidates = []
+    for anc in here.parents:
+        cand = anc / ".wavefoundry" / "framework" / "scripts"
+        if (cand / "design_token_build.py").exists():
+            candidates.append(cand)
+            break
+    candidates.append(repo_root / ".wavefoundry" / "framework" / "scripts")
+    for scripts in candidates:
+        if (scripts / "design_token_build.py").exists():
+            sys.path.insert(0, str(scripts))
+            try:
+                import design_token_build as dtb  # type: ignore
+                return dtb
+            except Exception as exc:  # noqa: BLE001
+                raise SystemExit(_err(
+                    f"could not load the bundled token transform ({scripts}): {exc}"))
+    raise SystemExit(_err(
+        "could not locate the bundled token transform "
+        "(.wavefoundry/framework/scripts/design_token_build.py). "
+        "Set tool='custom' with a 'command', or run from a Wavefoundry repo."
+    ))
+
+
+def _run_builtin(repo_root: Path, design_root: Path, config: dict, check: bool) -> int:
+    dtb = _import_builtin(repo_root)
+    targets = config.get("targets") or None
+    try:
+        if check:
+            # Resolve the model (raises on broken refs) but write nothing.
+            dtb.ResolvedTokens(design_root)
+            print("build-tokens: token references resolve cleanly (no write — --check).")
+            return 0
+        written = dtb.build(design_root, targets)
+    except dtb.TokenBuildError as exc:
+        return _err(str(exc))
+    for p in written:
+        print(f"build-tokens: wrote {p.relative_to(repo_root)}")
+    return 0
+
+
+def _run_custom(design_root: Path, config: dict) -> int:
+    command = config.get("command")
+    if not command:
+        return _err("tool='custom'/'token-pipeline' requires a 'command' field in build.config.json")
+    print(f"build-tokens: running custom command: {command}")
+    result = subprocess.run(command, shell=True, cwd=str(design_root))
+    if result.returncode != 0:
+        return _err(f"custom command exited {result.returncode}")
+    return 0
+
+
+def _run_style_dictionary(design_root: Path, config: dict) -> int:
+    sd = shutil.which("style-dictionary")
+    npx = shutil.which("npx")
+    if sd is None and npx is None:
+        return _err(
+            "style-dictionary is not installed. Install it with "
+            "`npm install -D style-dictionary` (then re-run), or set tool='builtin' "
+            "in build.config.json to use the bundled pure-Python transform."
+        )
+    argv = [sd, "build"] if sd else [npx, "style-dictionary", "build"]
+    print(f"build-tokens: running {' '.join(argv)}")
+    result = subprocess.run(argv, cwd=str(design_root))
+    if result.returncode != 0:
+        return _err(
+            f"style-dictionary exited {result.returncode}. Check your "
+            "style-dictionary config and that the token source has no broken refs."
+        )
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="build-tokens", add_help=True)
+    parser.add_argument("--root", default=None)
+    parser.add_argument("--check", action="store_true")
+    args = parser.parse_args(argv)
+
+    here = Path(__file__).resolve().parent
+    repo_root = Path(args.root).resolve() if args.root else _find_repo_root(here)
+    design_root = repo_root / "docs" / "design-system"
+    if not design_root.is_dir():
+        return _err(f"docs/design-system not found under {repo_root}")
+
+    config = _load_config(design_root)
+    tool = config.get("tool")
+
+    if tool == "builtin":
+        return _run_builtin(repo_root, design_root, config, args.check)
+    if tool in ("custom", "token-pipeline"):
+        if args.check:
+            print("build-tokens: --check is a no-op for custom/token-pipeline tools.")
+            return 0
+        return _run_custom(design_root, config)
+    if tool == "style-dictionary":
+        if args.check:
+            # We can still validate refs via the builtin resolver.
+            return _run_builtin(repo_root, design_root, {"targets": config.get("targets")}, True)
+        return _run_style_dictionary(design_root, config)
+
+    return _err(
+        f"unknown tool '{tool}' in build.config.json — "
+        "expected one of: style-dictionary, token-pipeline, custom, builtin"
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -25,7 +25,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "32"  # Wave 1p66e (graph-edge-extraction-determinism): cross-file resolution made order-independent so identical input yields an identical resolved edge set across from-scratch rebuilds (teton observed 75068 vs 74890 edges on identical source). Three order-dependent sites fixed with explicit stable tie-breaks: (a) `per_file_simple` length-tie now breaks on the lexicographically smaller node_id (was first-seen by node_map iteration order); (b) `imports_by_file` final-segment collision now keeps the lexicographically smallest FQN (was "later import wins" by edge_map order); (c) cross-file edge rewrites are applied sorted by (new_key, old_key) so a `setdefault` collapse onto the same new_key keeps a stable survivor. Plus a persisted `input_fingerprint` (sha256 over the sorted node-set + sorted resolved edge-set) in the graph payload + state for downstream reproducibility verification. Edge-set shape stabilizes → bump so consumer caches re-extract. Faithfulness preserved: every resolution branch still requires a UNIQUE (`len==1`) match, so no `len==1` outcome changes and no wrong same-name twin is newly bound — only genuinely-ambiguous tie choices are made deterministic. Previous bump (1p61v, ts-symbol-kind-extraction-faithfulness): TS/JS type-shape members are no longer mislabeled `function`. A `type_alias_declaration` now extracts as kind="type" and an interface/object-type `property_signature` (a `: T` data member) as kind="property" (method *signatures* keep `function`) — previously both fell through to the default `function`, so `code_outline`-invisible `: string` fields and `export type` aliases rendered as `(function)` entry points in the codebase map (teton p60n field trace, Issue 1). Plus a registration-site faithfulness guard (`_ts_is_emittable_symbol_name`): a definition whose picked name is the reserved word `function` (anonymous `function (…){}` expressions) or a non-identifier route-path token (`/`) is no longer registered as a junk symbol (Issue 2). Node KIND-set + node-set shape change → bump (consumer graph caches re-extract). Conservative: contextual keywords that are legal identifiers (`type`, `async`, `fn`, …) are NOT rejected, so no real callable is dropped. Previous bump (1p5c4, guard-oversized-files-indexing): files over the tree-sitter parse cap (default 2 MB; override WAVEFOUNDRY_MAX_TS_PARSE_BYTES / `indexing.max_treesitter_parse_bytes`) now SKIP AST graph extraction, and files over the hard size cap are dropped from the walk entirely — so oversized files contribute no graph nodes. Bump forces re-extraction so any large file parsed under v29 has its stale nodes pruned. Wave 1p4up (member-access-constant-reads): a CONSTANT accessed via a qualified member expression (`Status.ACTIVE`, `SolarisConstants.Network.userAgent`, `Outer.Inner.TOKEN`, Ruby/PHP `A::B::C`) now produces a function→constant `reads` edge by EXACT qualified-name match (const-kind-gated; the qualifier disambiguates so a same-leaf param/import/bare-call can't match). Faithfulness guards: F1 full-qname (not `_simple_name` partial key), F2 reject `this`/`self`/`super`/`cls`, F4 qualifier-shadow (a member-access read whose head is a function param/local is dropped — `func_locals` from per-language binding nodes) + the property/trailing leaf of a member access is no longer also buffered as a bare read (member-path resolves it instead). New `reads` edges → node/edge-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 review (28) (D1/D2): namespace-scoped enum member nodes now carry the enclosing namespace prefix (`NSA.Inner.AAA` vs `NSB.Inner.AAA` — no cross-namespace collision/clobber), and constant nodes are EXEMPT from the ≤2-char short-symbol prune so short members (`Status.OK`/`Dir.Up`) resolve. Node-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 (27): TS `enum`/`const enum` members are now `kind="constant"` graph nodes (`Enum.Member`), child of the enum type node. Wave 1p4ls (26) (graph-constant-nodes-and-references): module-/type-level CONSTANT declarations are now graph nodes (kind="constant", carrying a simple-literal `value` where the RHS is a literal) across all core languages, plus a faithfulness-gated function→constant `reads` edge (same-scope + explicitly-imported only; never binds a coincidental same-name twin — symbol_lookup uniqueness + a const-kind gate + a local-shadow guard). Consumers surface them: code_definition resolves a constant name; code_references lists readers in a distinct `reads` bucket (NOT merged into callers); graph_neighbors includes constants when `reads` is requested. `reads` is OPT-IN for default 1-hop traversal (excluded when no explicit relations are passed, so a hot constant does not balloon neighbor sets / 1p4hu expansion) and stays OUT of the impact/call default relations; constant nodes + `reads` edges are excluded from clustering (CLUSTER_BUILDER_VERSION 8→9, no community-label shift). resolve_symbol is kind-aware (a constant sharing a simple name no longer shadows a callable lookup). Detection reuses the 1p4mf chunk-lane per-language predicates (one detector, two consumers — Req-7); the graph lane is BROADER where it lands naturally (class/type-level constants; Swift enum cases; Go grouped-const per member). NOTE: TS `enum`/`const enum` members ARE emitted as constant nodes (`Enum.Member`) — delivered in 1p4q4 (see the v27 line at the top). Kotlin bare top-level/object `val` (no `const`) stays `kind="variable"` (an immutable binding is not a compile-time constant — won't-do). Previous bump (1p4eq, cross-file-resolution-followups): one consolidated bump covering five graph-shaping changes: (1p4ef) fix a leaked `qualified` loop var that injected phantom qualified_index candidates for collapsed/basename-merged nodes (C#/Swift/Rust/Ruby) and silently suppressed unique cross-file resolution; (1p4er) same-package/same-directory disambiguation fallback for ambiguous receivers used WITHOUT an import (Java field miss, `JreCompat.canAccess`), GATED to Java/Kotlin/Go (same-dir ⇒ same-package visibility; Python/JS/TS/Rust/C# excluded); (1p4et) Go methods now keyed `Type.method` (was bare `method`) + package-qualified receiver inference (`var h foo.Helper` → `foo.Helper`, package PRESERVED and resolved by the candidate's package directory); (1p4eu) Rust `Type::assoc_fn()` resolution + struct-literal/`::new()` let-binding type inference; (1p4ev) C# namespace-membership disambiguation (own-namespace ∪ `using`), the namespace derived from each file's DECLARED namespace nodes by longest-prefix (nesting-proof), NOT by fixed-segment qname stripping. FAITHFULNESS FIXES (1p4eq adversarial verification): the 1p4et/1p4ev paths above already incorporate the over-resolution fixes the verification caught — dropping the Go package qualifier bound a co-located cross-package twin, and fixed-segment C# namespace stripping mis-derived a nested-class caller's namespace and bound a coincident sibling twin; both now stay external unless a unique package/namespace-faithful candidate matches. COVERAGE SCOPE — synthetic-fixture tests only, NOT yet validated against a real consumer project: same-package = Java; cross-file method/assoc-fn = Go + Rust; ambiguous-receiver namespace membership = C#. Each carries an adversarial "never binds the wrong twin / stays external" test. **Correction to the v24 line below:** v24 advertised its `imports`-edge disambiguation as "language-agnostic (Python + Java/Kotlin/C#/Go)" — that was over-stated; it fired ONLY for Python + Java (per-type imports), and was dead code for C#/Go/Rust (their import heads are namespaces/packages, not type names) until v25 supplied the per-language mechanisms above. Previous bump (1p47e 1p470): Python sibling-loader return-type inference + cross-file import disambiguation. v24 resolves the lazy-loader blast-radius hole — `gq = _load_graph_query()` (→ `_load_script("graph_query")`) and direct `v = _load_script("mod")` now bind `v.Class.method()` / `v.func()` to the loaded module's symbols (previously emitted NO edge because `v` had no known type; e.g. `GraphQueryIndex.from_root` was called from 14 sites with 0 incoming edges). Also adds import-edge-based disambiguation in the cross-file rewrite pass: an ambiguous `external::Type.method` (multiple same-simple-name candidates) is disambiguated via the source file's `imports` edge for `Type`, language-agnostically (Python + Java/Kotlin/C#/Go). Previous bump (1p2q3 / 1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Teton field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges Teton observed in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (Teton-confirmed: ALL backend functions on their 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per Teton estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
+GRAPH_BUILDER_VERSION = "32"  # Wave 1p66e (graph-edge-extraction-determinism): cross-file resolution made order-independent so identical input yields an identical resolved edge set across from-scratch rebuilds (a consumer observed 75068 vs 74890 edges on identical source). Three order-dependent sites fixed with explicit stable tie-breaks: (a) `per_file_simple` length-tie now breaks on the lexicographically smaller node_id (was first-seen by node_map iteration order); (b) `imports_by_file` final-segment collision now keeps the lexicographically smallest FQN (was "later import wins" by edge_map order); (c) cross-file edge rewrites are applied sorted by (new_key, old_key) so a `setdefault` collapse onto the same new_key keeps a stable survivor. Plus a persisted `input_fingerprint` (sha256 over the sorted node-set + sorted resolved edge-set) in the graph payload + state for downstream reproducibility verification. Edge-set shape stabilizes → bump so consumer caches re-extract. Faithfulness preserved: every resolution branch still requires a UNIQUE (`len==1`) match, so no `len==1` outcome changes and no wrong same-name twin is newly bound — only genuinely-ambiguous tie choices are made deterministic. Previous bump (1p61v, ts-symbol-kind-extraction-faithfulness): TS/JS type-shape members are no longer mislabeled `function`. A `type_alias_declaration` now extracts as kind="type" and an interface/object-type `property_signature` (a `: T` data member) as kind="property" (method *signatures* keep `function`) — previously both fell through to the default `function`, so `code_outline`-invisible `: string` fields and `export type` aliases rendered as `(function)` entry points in the codebase map (p60n field trace, Issue 1). Plus a registration-site faithfulness guard (`_ts_is_emittable_symbol_name`): a definition whose picked name is the reserved word `function` (anonymous `function (…){}` expressions) or a non-identifier route-path token (`/`) is no longer registered as a junk symbol (Issue 2). Node KIND-set + node-set shape change → bump (consumer graph caches re-extract). Conservative: contextual keywords that are legal identifiers (`type`, `async`, `fn`, …) are NOT rejected, so no real callable is dropped. Previous bump (1p5c4, guard-oversized-files-indexing): files over the tree-sitter parse cap (default 2 MB; override WAVEFOUNDRY_MAX_TS_PARSE_BYTES / `indexing.max_treesitter_parse_bytes`) now SKIP AST graph extraction, and files over the hard size cap are dropped from the walk entirely — so oversized files contribute no graph nodes. Bump forces re-extraction so any large file parsed under v29 has its stale nodes pruned. Wave 1p4up (member-access-constant-reads): a CONSTANT accessed via a qualified member expression (`Status.ACTIVE`, `AppConstants.Network.userAgent`, `Outer.Inner.TOKEN`, Ruby/PHP `A::B::C`) now produces a function→constant `reads` edge by EXACT qualified-name match (const-kind-gated; the qualifier disambiguates so a same-leaf param/import/bare-call can't match). Faithfulness guards: F1 full-qname (not `_simple_name` partial key), F2 reject `this`/`self`/`super`/`cls`, F4 qualifier-shadow (a member-access read whose head is a function param/local is dropped — `func_locals` from per-language binding nodes) + the property/trailing leaf of a member access is no longer also buffered as a bare read (member-path resolves it instead). New `reads` edges → node/edge-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 review (28) (D1/D2): namespace-scoped enum member nodes now carry the enclosing namespace prefix (`NSA.Inner.AAA` vs `NSB.Inner.AAA` — no cross-namespace collision/clobber), and constant nodes are EXEMPT from the ≤2-char short-symbol prune so short members (`Status.OK`/`Dir.Up`) resolve. Node-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 (27): TS `enum`/`const enum` members are now `kind="constant"` graph nodes (`Enum.Member`), child of the enum type node. Wave 1p4ls (26) (graph-constant-nodes-and-references): module-/type-level CONSTANT declarations are now graph nodes (kind="constant", carrying a simple-literal `value` where the RHS is a literal) across all core languages, plus a faithfulness-gated function→constant `reads` edge (same-scope + explicitly-imported only; never binds a coincidental same-name twin — symbol_lookup uniqueness + a const-kind gate + a local-shadow guard). Consumers surface them: code_definition resolves a constant name; code_references lists readers in a distinct `reads` bucket (NOT merged into callers); graph_neighbors includes constants when `reads` is requested. `reads` is OPT-IN for default 1-hop traversal (excluded when no explicit relations are passed, so a hot constant does not balloon neighbor sets / 1p4hu expansion) and stays OUT of the impact/call default relations; constant nodes + `reads` edges are excluded from clustering (CLUSTER_BUILDER_VERSION 8→9, no community-label shift). resolve_symbol is kind-aware (a constant sharing a simple name no longer shadows a callable lookup). Detection reuses the 1p4mf chunk-lane per-language predicates (one detector, two consumers — Req-7); the graph lane is BROADER where it lands naturally (class/type-level constants; Swift enum cases; Go grouped-const per member). NOTE: TS `enum`/`const enum` members ARE emitted as constant nodes (`Enum.Member`) — delivered in 1p4q4 (see the v27 line at the top). Kotlin bare top-level/object `val` (no `const`) stays `kind="variable"` (an immutable binding is not a compile-time constant — won't-do). Previous bump (1p4eq, cross-file-resolution-followups): one consolidated bump covering five graph-shaping changes: (1p4ef) fix a leaked `qualified` loop var that injected phantom qualified_index candidates for collapsed/basename-merged nodes (C#/Swift/Rust/Ruby) and silently suppressed unique cross-file resolution; (1p4er) same-package/same-directory disambiguation fallback for ambiguous receivers used WITHOUT an import (Java field miss, `JreCompat.canAccess`), GATED to Java/Kotlin/Go (same-dir ⇒ same-package visibility; Python/JS/TS/Rust/C# excluded); (1p4et) Go methods now keyed `Type.method` (was bare `method`) + package-qualified receiver inference (`var h foo.Helper` → `foo.Helper`, package PRESERVED and resolved by the candidate's package directory); (1p4eu) Rust `Type::assoc_fn()` resolution + struct-literal/`::new()` let-binding type inference; (1p4ev) C# namespace-membership disambiguation (own-namespace ∪ `using`), the namespace derived from each file's DECLARED namespace nodes by longest-prefix (nesting-proof), NOT by fixed-segment qname stripping. FAITHFULNESS FIXES (1p4eq adversarial verification): the 1p4et/1p4ev paths above already incorporate the over-resolution fixes the verification caught — dropping the Go package qualifier bound a co-located cross-package twin, and fixed-segment C# namespace stripping mis-derived a nested-class caller's namespace and bound a coincident sibling twin; both now stay external unless a unique package/namespace-faithful candidate matches. COVERAGE SCOPE — synthetic-fixture tests only, NOT yet validated against a real consumer project: same-package = Java; cross-file method/assoc-fn = Go + Rust; ambiguous-receiver namespace membership = C#. Each carries an adversarial "never binds the wrong twin / stays external" test. **Correction to the v24 line below:** v24 advertised its `imports`-edge disambiguation as "language-agnostic (Python + Java/Kotlin/C#/Go)" — that was over-stated; it fired ONLY for Python + Java (per-type imports), and was dead code for C#/Go/Rust (their import heads are namespaces/packages, not type names) until v25 supplied the per-language mechanisms above. Previous bump (1p47e 1p470): Python sibling-loader return-type inference + cross-file import disambiguation. v24 resolves the lazy-loader blast-radius hole — `gq = _load_graph_query()` (→ `_load_script("graph_query")`) and direct `v = _load_script("mod")` now bind `v.Class.method()` / `v.func()` to the loaded module's symbols (previously emitted NO edge because `v` had no known type; e.g. `GraphQueryIndex.from_root` was called from 14 sites with 0 incoming edges). Also adds import-edge-based disambiguation in the cross-file rewrite pass: an ambiguous `external::Type.method` (multiple same-simple-name candidates) is disambiguated via the source file's `imports` edge for `Type`, language-agnostically (Python + Java/Kotlin/C#/Go). Previous bump (1p2q3 / 1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges observed in the field in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (field-confirmed: ALL backend functions on a 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per field estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
 GRAPH_DIRNAME = "graph"
 
 
@@ -488,7 +488,7 @@ def _gitignored_paths(root: Path) -> frozenset[str]:
 
 
 # ---------------------------------------------------------------------------
-# Generated-code classifier (wave 130rj — Aceiss field feedback §6)
+# Generated-code classifier (wave 130rj — field feedback §6)
 # ---------------------------------------------------------------------------
 #
 # Tags graph nodes from machine-generated source files with `generated: true`.
@@ -1166,7 +1166,7 @@ def _ts_language_key_for_path(rel_path: str) -> str | None:
 # Nx and other monorepos configure cross-package import aliases via the
 # `compilerOptions.paths` field. The graph indexer previously dropped those
 # imports to `external::*` because the resolver treated specifiers literally;
-# Aceiss / Teton field validation surfaced this as near-zero per-function
+# field validation surfaced this as near-zero per-function
 # `calls` coverage on TypeScript monorepos. This block discovers the nearest
 # tsconfig with `paths`, applies the alias substitution, and probes the
 # resolved candidate against project files so the import edge binds to the
@@ -1186,7 +1186,7 @@ def _strip_jsonc_comments(text: str) -> str:
 
     Handles /* */ block and // line comments. Both strips track string-literal
     state so `/*` or `//` appearing inside `"..."` (e.g. tsconfig path patterns
-    like `"@aceiss/*"`, URLs like `"https://..."`) are preserved verbatim.
+    like `"@scope/*"`, URLs like `"https://..."`) are preserved verbatim.
     """
     out: list[str] = []
     in_str = False
@@ -1500,7 +1500,7 @@ def _resolve_relative_ts_import(specifier: str, from_file: Path, root: Path) -> 
 # names per file (keyed on path + mtime) so `_file_declares_name` becomes a
 # hash-set membership check after the first parse rather than re-reading the
 # file and re-running the regex for every name. On barrel-export-heavy codebases
-# (Teton: 14 aliases, each pointing at a barrel that re-exports 10–100 symbols,
+# (field report: 14 aliases, each pointing at a barrel that re-exports 10–100 symbols,
 # each re-export potentially walking through 2–3 hops to reach a definition
 # file), the prior implementation triggered tens of thousands of redundant file
 # reads + regex runs during a single graph build.
@@ -1695,10 +1695,10 @@ def _ts_clean_name(text: str) -> str:
     value = value.rstrip(";,)")
     value = value.strip()
     # Wave 1p2q3 (1p2tz field follow-up): preserve a leading `@` so scoped npm /
-    # Nx package specifiers (`@aceiss/hooks`, `@teton/backend`, `@scope/pkg`)
-    # survive into the alias resolver. Without this, `@aceiss/hooks` would be
-    # cleaned to `aceiss/hooks` and fail to match the tsconfig.paths pattern
-    # `@aceiss/hooks` — which is the silent root cause of every scoped-import
+    # Nx package specifiers (`@scope/hooks`, `@acme/backend`, `@scope/pkg`)
+    # survive into the alias resolver. Without this, `@scope/hooks` would be
+    # cleaned to `scope/hooks` and fail to match the tsconfig.paths pattern
+    # `@scope/hooks` — which is the silent root cause of every scoped-import
     # resolution failing on Nx monorepos. The leading `@` is the only special
     # case; bare `@` mid-string is not a valid identifier prefix in TS/JS.
     if value.startswith("@"):
@@ -1847,7 +1847,7 @@ def _ts_kind_for_definition(node_type: str, current_scope_kind: str | None, mode
     # object-type DATA member (`property_signature`) is a `property`. Method
     # *signatures* keep `function` via the `method` branch below. Without this,
     # `: string` fields and `export type X = …` aliases rendered as `(function)`
-    # entry points in the codebase map (teton p60n field trace, Issue 1) — the
+    # entry points in the codebase map (p60n field trace, Issue 1) — the
     # graph diverged from `code_outline`, which yields zero callable symbols for
     # the same pure-type files.
     if "type_alias" in lower:
@@ -1934,7 +1934,7 @@ _TS_CONST_LITERAL_TYPES = frozenset({
 _TS_READ_IDENT_TYPES = frozenset({"identifier", "simple_identifier", "field_identifier", "constant", "name"})
 
 # Member-access read attribution: the node type of a qualified reference `A.B.C` / `A::B::C` per
-# language. A read of a CONSTANT via member access (`Status.ACTIVE`, `SolarisConstants.Network.userAgent`,
+# language. A read of a CONSTANT via member access (`Status.ACTIVE`, `AppConstants.Network.userAgent`,
 # `Outer.Inner.TOKEN`) is resolved by EXACT qualified-name match against constant nodes — faithful (the
 # qualifier disambiguates), const-gated, and it NEVER widens bare-leaf resolution (so it introduces none
 # of the bare-call / param-shadow / import-shadow over-binds that a `_simple_name` rsplit would).
@@ -4319,7 +4319,7 @@ def _resolve_ts_call_target(
     """Resolve a TS/JS call_expression to a graph node id when receiver type is known.
 
     Wave 1p2q3 (1p2tf): when the receiver type was imported (e.g.
-    `import { Foo } from '@aceiss/lib'` resolved to a project file via
+    `import { Foo } from '@scope/lib'` resolved to a project file via
     tsconfig.paths), `import_targets[receiver_type]` carries the resolved
     project node id. The resolver constructs the cross-file node id directly
     instead of falling through to `external::*`, so receiver-resolved edges
@@ -5008,7 +5008,7 @@ def _ts_pick_symbol_name(candidates: list[str], mode: str, node_type: str) -> st
 # Wave 1p61v: a valid code symbol name is a plain identifier. `function` is a
 # fully-reserved word in every C-family / TS / JS grammar, so it can never be a
 # real definition name — anonymous `function (…) {}` expressions otherwise
-# registered as a junk symbol literally named `function` (teton p60n field trace,
+# registered as a junk symbol literally named `function` (p60n field trace,
 # Issue 2: `function (function)` entry points). Deliberately minimal: contextual
 # keywords that ARE legal identifiers (`type`, `async`, `await`, `yield`, `fn`,
 # `func`, …) are NOT listed, so no real symbol is ever dropped.
@@ -5042,7 +5042,7 @@ def _ts_is_emittable_symbol_name(name: str, mode: str) -> bool:
 def _ts_extract_arrow_const_bindings(node, source_bytes: bytes) -> list[tuple[str, "Any"]]:
     """Extract function names from `const X = (...) => {...}` / `const X = function() {...}` shapes.
 
-    Wave 1p2q3 (1p2tz post-ship per Teton field validation): modern TS code
+    Wave 1p2q3 (1p2tz post-ship per field validation): modern TS code
     extensively uses `export const myFunc = async (args) => { ... }` instead
     of `export function myFunc(args) { ... }`. Tree-sitter parses these as
     ``lexical_declaration → variable_declarator → arrow_function`` rather than
@@ -5081,7 +5081,7 @@ def _ts_extract_arrow_const_bindings(node, source_bytes: bytes) -> list[tuple[st
 def _ts_extract_import_module_specifier(import_node, source_bytes: bytes) -> str:
     """Return the raw module-specifier text from a TS/JS import statement.
 
-    Wave 1p2q3 (1p2tz post-ship-3 per Teton field validation): the existing
+    Wave 1p2q3 (1p2tz post-ship-3 per field validation): the existing
     `_ts_relation_candidates` path runs every candidate through `_ts_clean_name`
     which strips leading `./` and `../` characters (the regex starts at the
     first identifier character). That's correct for general identifier
@@ -5123,11 +5123,11 @@ def _ts_extract_imported_names(import_node, source_bytes: bytes) -> list[str]:
 
     Wave 1p2q3 (1p2tf): supports the four shapes consumers care about for
     receiver-type resolution:
-      - named:      `import { Foo, Bar } from '@aceiss/lib'` → ['Foo', 'Bar']
-      - named alias: `import { Foo as F } from '@aceiss/lib'` → ['F']
-      - default:    `import Default from '@aceiss/lib'` → ['Default']
-      - namespace:  `import * as Util from '@aceiss/lib'` → ['Util']
-      - type-only:  `import type { Foo } from '@aceiss/lib'` → ['Foo']
+      - named:      `import { Foo, Bar } from '@scope/lib'` → ['Foo', 'Bar']
+      - named alias: `import { Foo as F } from '@scope/lib'` → ['F']
+      - default:    `import Default from '@scope/lib'` → ['Default']
+      - namespace:  `import * as Util from '@scope/lib'` → ['Util']
+      - type-only:  `import type { Foo } from '@scope/lib'` → ['Foo']
                     (the `type` keyword sits between `import` and `import_clause`)
     Returns an empty list when no imported names are surfaced (side-effect
     imports like `import './polyfill';`).
@@ -5247,7 +5247,7 @@ class GraphIndexSession:
         # Wave 1p2q3 (1p2wd post-ship 1.3.28): optional pre-loaded state.
         # Parent loads state from disk once and shares it with worker sessions
         # to avoid 1,542× redundant JSON reads + parses that serialized on the
-        # GIL under thread-mode parallel extraction. Teton kernel-sample
+        # GIL under thread-mode parallel extraction. A field kernel-sample
         # histogram showed 43% of samples in mutex/condvar waits — classic
         # GIL thrashing where 4 threads serialize on Python work that doesn't
         # release the GIL (state read, JSON parse, dict construction). With
@@ -5269,7 +5269,7 @@ class GraphIndexSession:
         # subprocess invocations per build. On macOS spawn-mode workers,
         # `subprocess.Popen.__init__`'s internal `select.poll().poll()` for
         # fork-completion can deadlock when called from inside an already-
-        # spawned worker process (Teton field session, stack samples show
+        # spawned worker process (field session, stack samples show
         # all 4 workers stuck in this exact poll). The empty-files guard
         # makes the worker path subprocess-free while keeping the
         # parent-thread behavior identical (the parent always has `files`).
@@ -6255,7 +6255,7 @@ class GraphIndexSession:
             node_id = f"{rel_path}::{qname}"
             label = qname.rsplit(".", 1)[-1]
             add_node(node_id, label, kind, self._source_location(source_text, node.start_point[0] + 1))
-            # Wave 130rj — Aceiss §2.3: capture annotation tails on Java and
+            # Wave 130rj — field feedback §2.3: capture annotation tails on Java and
             # attribute tails on C# so code_callhierarchy can emit
             # `caller_pattern: "advice"` when incoming is empty for an AOP-
             # annotated/attributed method. Java annotations live inside the
@@ -6415,7 +6415,7 @@ class GraphIndexSession:
                         for name in imported_names:
                             import_targets[name] = resolved
                 import_aliases.update(_node_aliases)
-            # Wave 1p2q3 (1p2tz post-ship per Teton field validation): TS/JS
+            # Wave 1p2q3 (1p2tz post-ship per field validation): TS/JS
             # arrow-function / function-expression bound to a `const`.
             if lang_key in ("typescript", "javascript"):
                 arrow_bindings = _ts_extract_arrow_const_bindings(node, source_bytes)
@@ -7297,7 +7297,7 @@ class GraphIndexSession:
         if simple_name_index or qualified_index:
             # Wave 1p2q3 (1p2wd post-ship 1.3.31 perf): rewrite in place
             # rather than building a separate `new_edge_map` and reassigning.
-            # On Teton-scale graphs (~77K edges) the old approach allocated a
+            # On large-scale graphs (~77K edges) the old approach allocated a
             # full duplicate dict on every build — net visible in profiling
             # as a measurable share of finalize() wall time. In-place updates
             # collect (old_key, new_key, new_edge) tuples then apply them at
@@ -7422,7 +7422,7 @@ class GraphIndexSession:
                     # Wave 1p4er: same-package / same-directory fallback. Java/
                     # Kotlin/Go make same-package types visible WITHOUT an import,
                     # so `imports_by_file` has no entry for them and the import path
-                    # above cannot fire (the Aceiss `JreCompat.canAccess` field
+                    # above cannot fire (the `JreCompat.canAccess` field
                     # miss). Resolution order is explicit-import > same-package, so
                     # this runs ONLY after the import path left it unresolved: keep
                     # the ambiguous candidate(s) whose defining file is in the
@@ -7761,12 +7761,12 @@ _PARALLEL_EXTRACTION_THRESHOLD = int(os.environ.get("WAVEFOUNDRY_GRAPH_PARALLEL_
 # Worker count auto-scales by file count (set in 1.3.20). The 1.3.18→1.3.19
 # default of `1` (always-serial) was conservative — small projects don't
 # benefit from parallel because spawn boot (~500ms–1s × workers) exceeds
-# their per-file work, but Teton-scale builds (1k+ files) leave 2-3× perf
+# their per-file work, but large-scale builds (1k+ files) leave 2-3× perf
 # on the table. The scale tiers reflect break-even math for spawn boot vs.
 # parallelizable extraction time:
 #   - file_count <  200 → 2 workers (modest projects)
 #   - file_count <  500 → 3 workers (medium monorepos)
-#   - file_count >= 500 → min(cpu_count, 4) workers (Teton-shape)
+#   - file_count >= 500 → min(cpu_count, 4) workers (large-monorepo-shape)
 # Operators can override the auto-scaled count via
 # WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS (any positive int; 1 disables parallel).
 # The 100-file threshold for entering the parallel path at all (set by
@@ -7786,7 +7786,7 @@ _PARALLEL_EXTRACTION_WORKERS_OVERRIDE: int | None = (
 # flight chunked batches — preserved for benchmarking and for workloads where
 # the Python-side walker (GIL-bound) dominates parse time enough that the
 # spawn overhead is amortizable. Default flipped to threads in 1.3.27 after
-# 1.3.25/1.3.26 field validation on Teton's 1,542-file workload showed
+# 1.3.25/1.3.26 field validation on a 1,542-file workload showed
 # spawn-mode parallel-4 ran 1.6× slower than serial (44s/45.2s vs. 27.1s) —
 # worker boot cost (re-importing tree-sitter etc. per spawn) and per-task
 # pickle overhead dominated the actual extraction work.
@@ -7843,7 +7843,7 @@ def _system_cpu_cap() -> int:
     core count on SMT-enabled CPUs (almost all modern Intel/AMD servers).
 
     Wave 1p2q3 (1p2wd post-ship 1.3.30): raised to full P-core count after
-    Teton field measurement showed process-8 (matching P-core count)
+    Field measurement showed process-8 (matching P-core count)
     matches process-6 (P-cores − 2) within noise at the fastest end of
     the curve (15.07s vs. 15.25s, both extraction ~11.4s). With the
     process backend each worker has its own GIL so the "leave headroom
@@ -8097,7 +8097,7 @@ def update_graph_index(
     # Wave 1p2q3 (1p2wd post-ship 1.3.31 perf): parallelize the read loop with
     # a `ThreadPoolExecutor`. `Path.read_text` releases the GIL during the
     # syscall, so multiple threads issue concurrent reads to the page cache.
-    # On SSD this cuts the parent's pre-extraction stage by ~1-2s on Teton-
+    # On SSD this cuts the parent's pre-extraction stage by ~1-2s on large-
     # scale (1,500+ file) workloads. Bucketing into code / doc lists stays
     # serial (and trivially fast) because it only inspects `rel` and the
     # cached `kind`. Below the parallel-extraction file-count threshold
@@ -8180,7 +8180,7 @@ def update_graph_index(
         # operator accepts when opting into the process backend. Eliminates
         # 1,542× redundant `_load_state()` JSON parses + `.gitattributes`
         # disk reads that serialized on the GIL under thread parallelism
-        # (Teton kernel-sample histogram: 43% of samples in mutex/condvar
+        # (field kernel-sample histogram: 43% of samples in mutex/condvar
         # waits, classic GIL thrashing from sequential Python work).
         _shared_state = session._state
         _shared_gitattrs = session._gitattrs_patterns or frozenset()
@@ -8191,7 +8191,7 @@ def update_graph_index(
 
         if backend == "threads":
             # Wave 1p2q3 (1p2wd post-ship 1.3.27 / Bug 4 finale): thread backend.
-            # Process-mode parallel-4 ran 1.6× SLOWER than serial on Teton's
+            # Process-mode parallel-4 ran 1.6× SLOWER than serial on the field
             # 1,542-file workload across both batch=24 (44.0s) and batch=128
             # (45.2s) — disproving the IPC-amortization hypothesis. The
             # dominant overhead was spawn-mode worker boot (each worker re-

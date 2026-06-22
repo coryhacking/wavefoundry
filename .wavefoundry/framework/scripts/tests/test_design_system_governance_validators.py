@@ -10,7 +10,11 @@ from pathlib import Path
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from wave_lint_lib.design_system_governance_validators import check_design_governance, _infer_target_surfaces
+from wave_lint_lib.design_system_governance_validators import (
+    check_design_governance,
+    _infer_target_surfaces,
+    classify_design_system_mode,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +74,13 @@ class SourceStrategyEnumTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
             _make_design_root(root)
-            for strategy in ("figma-extract", "repo-evidence-only", "visual-bootstrap", "hybrid"):
+            for strategy in (
+                "figma-extract",
+                "repo-evidence-only",
+                "visual-bootstrap",
+                "hybrid",
+                "external-reference",
+            ):
                 manifest_path = root / "docs" / "design-system" / "manifest.json"
                 data = json.loads(manifest_path.read_text())
                 data["sourceStrategy"] = strategy
@@ -672,6 +682,115 @@ class PlatformStandardsOverridesTests(unittest.TestCase):
                 any("overrides" in f for f in failures),
                 f"Expected no overrides failure for entry without overrides key, got: {failures}",
             )
+
+
+# ---------------------------------------------------------------------------
+# classify_design_system_mode (interrogation C2/C3/C4)
+# ---------------------------------------------------------------------------
+
+class ClassifyDesignSystemModeTests(unittest.TestCase):
+    def test_none_evidence_is_bootstrap(self):
+        self.assertEqual(classify_design_system_mode(None), "bootstrap")
+
+    def test_empty_evidence_is_bootstrap(self):
+        self.assertEqual(classify_design_system_mode({}), "bootstrap")
+
+    def test_not_detected_no_evidence_is_bootstrap(self):
+        ev = {
+            "detected": False,
+            "has_design_tokens": False,
+            "token_files": [],
+            "detected_methodology": [],
+        }
+        self.assertEqual(classify_design_system_mode(ev), "bootstrap")
+
+    def test_external_token_package_is_adopt(self):
+        ev = {
+            "detected": True,
+            "has_design_tokens": True,
+            "token_files": ["src/theme/tokens.ts"],
+            "external_token_package": "@scope/design-tokens",
+        }
+        self.assertEqual(classify_design_system_mode(ev), "adopt")
+
+    def test_style_dictionary_build_is_adopt(self):
+        ev = {
+            "detected": True,
+            "style_dictionary_build": "npm run build:tokens",
+        }
+        self.assertEqual(classify_design_system_mode(ev), "adopt")
+
+    def test_figma_library_links_is_adopt(self):
+        ev = {
+            "detected": True,
+            "figma_library_links": ["https://www.figma.com/file/abc/Library"],
+        }
+        self.assertEqual(classify_design_system_mode(ev), "adopt")
+
+    def test_in_repo_css_tokens_is_extract_mirror(self):
+        # In-repo design tokens / CSS methodology but no declared external
+        # source-of-truth -> extract-mirror, NOT adopt.
+        ev = {
+            "detected": True,
+            "has_design_tokens": True,
+            "token_files": ["src/styles/tokens.css"],
+            "detected_methodology": ["plain-css"],
+        }
+        self.assertEqual(classify_design_system_mode(ev), "extract-mirror")
+
+    def test_tailwind_theme_alone_is_extract_mirror_not_adopt(self):
+        # A stray Tailwind theme is in-repo evidence, not a declared external
+        # source-of-truth — must NOT route to adopt.
+        ev = {
+            "detected": True,
+            "has_design_tokens": True,
+            "detected_methodology": ["tailwind"],
+        }
+        self.assertEqual(classify_design_system_mode(ev), "extract-mirror")
+
+    def test_wavefoundry_self_hosting_fixture_is_extract_mirror(self):
+        # Self-hosting guard (interrogation C4): a Wavefoundry-shaped repo whose
+        # only design evidence is an in-repo dashboard.css (no external token
+        # package, no Style-Dictionary build, no Figma links) MUST classify as
+        # extract-mirror, never adopt.
+        ev = {
+            "detected": True,
+            "stack_specific_source": "in-repo dashboard stylesheet",
+            "has_design_tokens": True,
+            "token_files": [".wavefoundry/framework/dashboard/dashboard.css"],
+            "has_component_library": False,
+            "component_library": None,
+            "has_storybook": False,
+            "has_typography_system": False,
+            "ui_roots": [".wavefoundry/framework/dashboard"],
+            "detected_methodology": ["plain-css"],
+        }
+        self.assertEqual(classify_design_system_mode(ev), "extract-mirror")
+
+    def test_weak_mixed_signals_is_ambiguous(self):
+        # detected is truthy but there is no concrete in-repo evidence and no
+        # declared external source-of-truth -> ambiguous (seeds: ask operator).
+        ev = {
+            "detected": True,
+            "has_design_tokens": False,
+            "token_files": [],
+            "detected_methodology": [],
+            "has_component_library": False,
+            "has_typography_system": False,
+        }
+        self.assertEqual(classify_design_system_mode(ev), "ambiguous")
+
+    def test_external_source_wins_over_in_repo_evidence(self):
+        # When both an external source-of-truth AND in-repo evidence are present,
+        # adopt wins (the declared external build is the source of truth).
+        ev = {
+            "detected": True,
+            "has_design_tokens": True,
+            "token_files": ["src/styles/tokens.css"],
+            "detected_methodology": ["tailwind"],
+            "external_token_package": "@acme/tokens",
+        }
+        self.assertEqual(classify_design_system_mode(ev), "adopt")
 
 
 if __name__ == "__main__":

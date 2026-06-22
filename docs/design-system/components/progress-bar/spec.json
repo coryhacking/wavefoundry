@@ -1,0 +1,60 @@
+{
+  "id": "progress-bar",
+  "name": "ProgressBar",
+  "category": "feedback",
+  "status": "stable",
+  "description": "Labeled horizontal progress bar with a fraction and ARIA progressbar role.",
+  "extractedFrom": ".wavefoundry/framework/dashboard/ds/wfds.js (ProgressBar); from dashboard ProgressRow",
+  "figma": null,
+  "codeConnect": "ds/wfds.js",
+  "anatomy": [
+    "div.progress-row > (.progress-row-label, .progress-row-bar-wrap > .progress-bar-track[role=progressbar] > .progress-bar-fill, .progress-row-fraction)"
+  ],
+  "variants": [
+    "waves",
+    "changes",
+    "acs",
+    "tasks",
+    "complete"
+  ],
+  "props": [
+    {
+      "name": "label",
+      "type": "string"
+    },
+    {
+      "name": "done",
+      "type": "number"
+    },
+    {
+      "name": "total",
+      "type": "number"
+    },
+    {
+      "name": "variant",
+      "type": "string"
+    }
+  ],
+  "slots": [],
+  "tokens": {
+    "track": "color.accent.soft",
+    "fill": "color.accent.base",
+    "radius": "radius.sm"
+  },
+  "doNotUse": [],
+  "preferOver": [
+    "ProgressRow"
+  ],
+  "states": null,
+  "responsive": null,
+  "motion": null,
+  "accessibility": {
+    "role": "progressbar",
+    "ariaValueNow": "computed percent",
+    "ariaValueMin": 0,
+    "ariaValueMax": 100,
+    "ariaLabel": "<label>: <pct>%",
+    "keyboard": null
+  },
+  "content": null
+}

@@ -40,7 +40,15 @@ Tasks:
  typography_source: string | null # description of the typography source
  ui_roots: [string] # relative directory paths
  detected_methodology: [string] # list (never a single string); e.g. ["tailwind"], ["css-modules", "sass"], ["swiftui"]
+ # External source-of-truth signals (adopt-in-place / external-reference gate).
+ # These distinguish a DECLARED, maintained external design system (with its own
+ # build) from mere in-repo CSS — record only when there is concrete evidence.
+ external_token_package: string | null # a published/packaged token dependency (e.g. "@scope/design-tokens"); null when none
+ style_dictionary_build: string | null # a Style-Dictionary / DTCG source dir + build command; null when none
+ figma_library_links: [string] # Figma library/variable links declared as source of truth; empty list when none
  ```
+
+ **Design-system `mode` verdict (1p799).** After recording `design_evidence`, set `design_system.mode` from the deterministic classifier `classify_design_system_mode(design_evidence)` in `wave_lint_lib/design_system_governance_validators.py` — one of `bootstrap`, `extract-mirror`, `adopt`, `ambiguous`. The classifier is the routing authority (the profile is agent-authored, but the verdict is code-derived and tested); record the verdict verbatim and do not hand-override it. Mode meanings and the evidence bar live in `seed-031` § Design and UI surface and `seed-040` task 14. When the verdict is `ambiguous`, the install/upgrade seeds (`seed-010` / `seed-160`) must ask the operator rather than silently adopt or mirror.
 
  **Extended scan: pattern and product-class signals.** After recording the `design_evidence` schema above, scan for the following signal groups and record results under `design_system.pattern_signals` and `design_system.product_class_signals` in `docs/repo-profile.json`. These outputs inform which Split B subtrees (`patterns/`, `state-patterns/`, `validation-patterns/`, `content/`) and Split C subtrees (`platforms/`, conditional product-class extensions) to seed during the extraction contract step (`seed-040` task 14).
 

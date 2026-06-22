@@ -1,1 +1,46 @@
-{}
+{
+  "color": {
+    "page": {
+      "bg": { "$value": "#111214", "$type": "color" }
+    },
+    "panel": {
+      "bg": { "$value": "#151719", "$type": "color" },
+      "border": { "$value": "#3a4150", "$type": "color" }
+    },
+    "rail": {
+      "surface": { "$value": "#1b1e23", "$type": "color" },
+      "border": { "$value": "#2f3744", "$type": "color" }
+    },
+    "ink": { "$value": "#e4e2de", "$type": "color" },
+    "muted": { "$value": "#8a929e", "$type": "color" },
+    "accent": {
+      "base": { "$value": "#40A3E9", "$type": "color" },
+      "soft": { "$value": "#0a1a2e", "$type": "color" },
+      "mid": { "$value": "#142a48", "$type": "color" }
+    },
+    "footer": {
+      "accent": { "$value": "#7FB2F0", "$type": "color" }
+    },
+    "warn": {
+      "base": { "$value": "#e09040", "$type": "color" },
+      "soft": { "$value": "#2a1a06", "$type": "color" }
+    },
+    "danger": {
+      "base": { "$value": "#d86b62", "$type": "color" },
+      "soft": { "$value": "#2a0f0e", "$type": "color" }
+    },
+    "neutral": {
+      "base": { "$value": "#495057", "$type": "color", "$description": "Carried forward from light: --neutral is intentionally NOT re-themed in dashboard.css dark block." },
+      "soft": { "$value": "#22262c", "$type": "color" }
+    },
+    "draft": {
+      "base": { "$value": "#7ab0d8", "$type": "color" },
+      "soft": { "$value": "#0f1e30", "$type": "color" }
+    }
+  },
+  "shadow": {
+    "sm": { "$value": "0 2px 8px rgba(0, 0, 0, 0.35)", "$type": "shadow" },
+    "base": { "$value": "0 8px 24px rgba(0, 0, 0, 0.50), 0 1px 3px rgba(0, 0, 0, 0.30)", "$type": "shadow" },
+    "lg": { "$value": "0 20px 48px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(0, 0, 0, 0.40)", "$type": "shadow" }
+  }
+}

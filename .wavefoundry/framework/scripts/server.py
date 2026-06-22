@@ -177,7 +177,7 @@ def perform_mcp_reload() -> dict[str, Any]:
         # and explicitly send the MCP `notifications/tools/list_changed`
         # protocol notification — FastMCP's add_tool/remove_tool do NOT send
         # this notification automatically (verified via SDK source). Without it
-        # the client never knows to re-fetch tools/list, which is why Aceiss
+        # the client never knows to re-fetch tools/list, which is why a consumer
         # observed description staleness across `/mcp` reconnect. Pushing the
         # notification ourselves uses the existing MCP propagation primitive a
         # spec-conformant client honors by re-fetching. If the host doesn't

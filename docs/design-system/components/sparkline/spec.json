@@ -1,0 +1,53 @@
+{
+  "id": "sparkline",
+  "name": "Sparkline",
+  "category": "data-display",
+  "status": "stable",
+  "description": "Two-segment done/remaining mini bar.",
+  "extractedFrom": ".wavefoundry/framework/dashboard/ds/wfds.js (Sparkline); from dashboard MiniGraph",
+  "figma": null,
+  "codeConnect": "ds/wfds.js",
+  "anatomy": [
+    "div.mini-graph > (.mini-graph-done[.--variant], .mini-graph-rem)"
+  ],
+  "variants": [
+    "tasks",
+    "acs"
+  ],
+  "props": [
+    {
+      "name": "done",
+      "type": "number"
+    },
+    {
+      "name": "total",
+      "type": "number"
+    },
+    {
+      "name": "label",
+      "type": "string"
+    },
+    {
+      "name": "variant",
+      "type": "string"
+    }
+  ],
+  "slots": [],
+  "tokens": {
+    "done": "color.accent.base",
+    "remaining": "color.feedback.neutralsoft"
+  },
+  "doNotUse": [],
+  "preferOver": [
+    "MiniGraph"
+  ],
+  "states": null,
+  "responsive": null,
+  "motion": null,
+  "accessibility": {
+    "role": "img",
+    "ariaLabel": "<label>: <done> of <total> complete",
+    "keyboard": null
+  },
+  "content": null
+}

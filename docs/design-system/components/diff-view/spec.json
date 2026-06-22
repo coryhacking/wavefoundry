@@ -1,0 +1,40 @@
+{
+  "id": "diff-view",
+  "name": "DiffView",
+  "category": "data-display",
+  "status": "stable",
+  "description": "Unified-diff body renderer with hunk/added/removed/context line styling.",
+  "extractedFrom": ".wavefoundry/framework/dashboard/ds/wfds.js (DiffView); diff core of dashboard DiffDialog",
+  "figma": null,
+  "codeConnect": "ds/wfds.js",
+  "anatomy": [
+    "div.diff-view > .diff-view-lines > span.diff-line--<kind>"
+  ],
+  "variants": [
+    "context",
+    "hunk",
+    "added",
+    "removed"
+  ],
+  "props": [
+    {
+      "name": "text",
+      "type": "string|null",
+      "note": "raw unified diff; null renders Loading"
+    }
+  ],
+  "slots": [],
+  "tokens": {
+    "added": "color.accent.base",
+    "removed": "color.feedback.danger"
+  },
+  "doNotUse": [],
+  "preferOver": [],
+  "states": null,
+  "responsive": null,
+  "motion": null,
+  "accessibility": {
+    "keyboard": null
+  },
+  "content": null
+}

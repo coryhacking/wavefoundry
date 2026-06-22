@@ -109,7 +109,7 @@ def check_seed_prefix_uniqueness(root: Path) -> list[str]:
     The seed prefix convention treats `NNN-` as a unique key referenced from
     seed prose, consumer code, and operator docs. When two seeds ship under
     the same prefix, references like ``seed-NNN`` resolve ambiguously. Wave
-    1p3dk / 1p3dm (Solaris field feedback 2026-06-04) converts the prefix
+    1p3dk / 1p3dm (field feedback 2026-06-04) converts the prefix
     from a soft convention to an enforced unique key.
     """
     failures: list[str] = []

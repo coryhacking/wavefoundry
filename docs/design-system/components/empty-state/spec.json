@@ -1,0 +1,42 @@
+{
+  "id": "empty-state",
+  "name": "EmptyState",
+  "category": "feedback",
+  "status": "stable",
+  "description": "Empty / loading / no-data placeholder block.",
+  "extractedFrom": ".wavefoundry/framework/dashboard/ds/wfds.js (EmptyState); codifies the inline empty-state convention",
+  "figma": null,
+  "codeConnect": "ds/wfds.js",
+  "anatomy": [
+    "div.empty-state"
+  ],
+  "variants": [],
+  "props": [
+    {
+      "name": "className",
+      "type": "string"
+    },
+    {
+      "name": "children",
+      "type": "node"
+    }
+  ],
+  "slots": [
+    "children"
+  ],
+  "tokens": {
+    "text": "color.ink.muted"
+  },
+  "doNotUse": [],
+  "preferOver": [],
+  "states": [
+    "empty",
+    "loading"
+  ],
+  "responsive": null,
+  "motion": null,
+  "accessibility": {
+    "keyboard": null
+  },
+  "content": null
+}

@@ -2779,7 +2779,7 @@ def _build_index_locked(
         graph_layer = _graph_layer_for_index_dir(index_dir)
         # Wave 1p2q3 (1p2wd post-ship 1.3.22 / Bug 4 part 2): graph extraction
         # runs on the main thread, NOT in the docs/code ThreadPoolExecutor.
-        # Teton field session on 1.3.21 surfaced a deadlock: when
+        # A field session on 1.3.21 surfaced a deadlock: when
         # `_build_graph_artifacts` ran inside the threadpool's
         # `wavefoundry-index_0` worker thread, the graph layer's own
         # multi-process parallel extraction (`ProcessPoolExecutor` with spawn
@@ -2896,7 +2896,7 @@ def _build_index_locked(
             # Wave 1p2q3 (1p2wd post-ship 1.3.22 / Bug 4 part 2): graph
             # extraction runs synchronously on the main thread, concurrently
             # with the in-flight docs/code/secrets futures above. This is the
-            # load-bearing fix for Teton's hang — see the long comment at the
+            # load-bearing fix for the field-reported hang — see the long comment at the
             # top of this try-block.
             _build_graph_artifacts(
                 root=root,

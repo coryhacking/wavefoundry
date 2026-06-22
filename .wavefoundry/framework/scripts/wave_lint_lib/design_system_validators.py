@@ -35,6 +35,17 @@ _REQUIRED_PATHS = [
     "proposed-additions.md",
 ]
 
+# Thin reference tree required when sourceStrategy is external-reference with a
+# resolvable pointer (adopt-in-place). The contract points at an existing system
+# instead of mirroring it, so only the index + pointers + consumption guidance
+# are required — the full token/exports mirror is declined.
+_REQUIRED_PATHS_EXTERNAL_REFERENCE = [
+    "README.md",
+    "AGENTS.md",
+    "gaps.md",
+    "source-map.json",
+]
+
 # Required only when the tokens subtree has been seeded (primitives.tokens.json present).
 _REQUIRED_TOKEN_PATHS = [
     "tokens/primitives.tokens.json",
@@ -79,7 +90,17 @@ _MANIFEST_REQUIRED_FIELDS = {
     "sourceStrategy", "evidenceTypes", "artifactCounts", "modes", "validationSummary",
 }
 
-_SOURCE_STRATEGY_VALUES = {"figma-extract", "repo-evidence-only", "visual-bootstrap", "hybrid"}
+_SOURCE_STRATEGY_VALUES = {
+    "figma-extract",
+    "repo-evidence-only",
+    "visual-bootstrap",
+    "hybrid",
+    "external-reference",
+}
+
+# URI schemes accepted for a well-formed externalReference.tokenSource that is
+# not an in-repo path (adopt mode may point at a published/remote source).
+_URI_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://")
 
 _SPEC_IDENTITY_FIELDS = {
     "id", "name", "category", "status", "description",
@@ -107,6 +128,33 @@ def _load_json(path: Path) -> tuple[dict | list | None, str | None]:
         return json.loads(path.read_text(encoding="utf-8")), None
     except Exception as exc:
         return None, str(exc)
+
+
+def _is_resolvable_token_source(root: Path, token_source: object) -> bool:
+    """Return True when an externalReference.tokenSource resolves.
+
+    A URI-form source (scheme://...) is resolvable when it is well-formed.
+    A path-form source is resolvable only when the path exists in the repo
+    (tried both repo-relative and, defensively, absolute). Empty / non-string
+    values are never resolvable.
+    """
+    if not isinstance(token_source, str):
+        return False
+    value = token_source.strip()
+    if not value:
+        return False
+    if _URI_SCHEME_RE.match(value):
+        # Well-formed URI (has a scheme + ://). Cannot fetch offline; accept shape.
+        return True
+    # Path form: must exist in the repo.
+    candidate = (root / value)
+    if candidate.exists():
+        return True
+    # Defensive: an already-absolute path that exists.
+    abs_candidate = Path(value)
+    if abs_candidate.is_absolute() and abs_candidate.exists():
+        return True
+    return False
 
 
 def _flatten_token_keys(obj: object, prefix: str = "") -> set[str]:
@@ -174,7 +222,25 @@ def check_design_system(root: Path) -> tuple[list[str], list[str]]:
             "to generate manifest.json and the full extraction tree"
         )
     else:
-        for rel in _REQUIRED_PATHS:
+        # Detect the adopt-in-place thin-tree case: sourceStrategy
+        # external-reference WITH a resolvable externalReference.tokenSource.
+        # Only then does the contract degrade to the thin index — an
+        # unresolvable/absent pointer keeps the full requirement set so
+        # external-reference cannot silence a genuinely-missing token tree.
+        thin_reference = False
+        _m_data, _m_err = _load_json(design_root / "manifest.json")
+        if not _m_err and isinstance(_m_data, dict):
+            if _m_data.get("sourceStrategy") == "external-reference":
+                _ext = _m_data.get("externalReference")
+                if isinstance(_ext, dict) and _is_resolvable_token_source(
+                    root, _ext.get("tokenSource")
+                ):
+                    thin_reference = True
+
+        required_paths = (
+            _REQUIRED_PATHS_EXTERNAL_REFERENCE if thin_reference else _REQUIRED_PATHS
+        )
+        for rel in required_paths:
             if not (design_root / rel).exists():
                 failures.append(f"docs/design-system/{rel}: required path missing {hint}")
 
@@ -226,6 +292,46 @@ def check_design_system(root: Path) -> tuple[list[str], list[str]]:
                 failures.append(
                     f"docs/design-system/manifest.json: sourceStrategy '{strategy}' not in allowed enum "
                     f"{sorted(_SOURCE_STRATEGY_VALUES)}"
+                )
+            # external-reference (adopt-in-place) mode: the contract degrades to a
+            # thin index that points at an existing mature design system rather than
+            # extracting a parallel mirror. It requires a resolvable externalReference
+            # pointer — that resolvable pointer is the gate that lets the thin tree
+            # legitimately omit tokens/ and exports/ (the absence is checked in the
+            # required-path section only when the subtree directory is present).
+            if strategy == "external-reference":
+                ext_ref = data.get("externalReference")
+                if not isinstance(ext_ref, dict):
+                    failures.append(
+                        "docs/design-system/manifest.json: sourceStrategy 'external-reference' "
+                        "requires an `externalReference` object (with a resolvable `tokenSource`)"
+                    )
+                else:
+                    token_source = ext_ref.get("tokenSource")
+                    if token_source is None or (
+                        isinstance(token_source, str) and not token_source.strip()
+                    ):
+                        failures.append(
+                            "docs/design-system/manifest.json: externalReference.tokenSource "
+                            "is required and must be non-empty under sourceStrategy 'external-reference'"
+                        )
+                    elif not _is_resolvable_token_source(root, token_source):
+                        failures.append(
+                            f"docs/design-system/manifest.json: externalReference.tokenSource "
+                            f"'{token_source}' is unresolvable — a path must exist in the repo and "
+                            "a URI must be well-formed (external-reference may not silence a "
+                            "genuinely-missing token source)"
+                        )
+            # Export-parity (wave 12atj): warn when generated exports are stale
+            # relative to the token source. exportsStale is written by the
+            # token-build pipeline (docs/design-system/bin/build-tokens).
+            summary = data.get("validationSummary")
+            if isinstance(summary, dict) and summary.get("exportsStale") is True:
+                warnings.append(
+                    "docs/design-system/manifest.json: exports are stale "
+                    "(validationSummary.exportsStale=true) — the token source is newer "
+                    "than the generated exports/. Run docs/design-system/bin/build-tokens "
+                    "to regenerate."
                 )
 
     # ------------------------------------------------------------------

@@ -1,0 +1,69 @@
+{
+  "id": "dialog",
+  "name": "Dialog",
+  "category": "overlay",
+  "status": "stable",
+  "description": "Modal dialog with header (title/subtitle/meta), close button, and body. Uses native <dialog>.showModal().",
+  "extractedFrom": ".wavefoundry/framework/dashboard/ds/wfds.js (Dialog); from dashboard DialogFrame",
+  "figma": null,
+  "codeConnect": "ds/wfds.js",
+  "anatomy": [
+    "dialog.agent-dialog > (.agent-dialog-header > (h2.agent-dialog-title, .agent-dialog-subtitle, .dialog-meta-row), button.agent-dialog-close, .agent-dialog-body)"
+  ],
+  "variants": [
+    "diff-dialog",
+    "metric-dialog",
+    "doc-dialog",
+    "framework-process-dialog"
+  ],
+  "props": [
+    {
+      "name": "className",
+      "type": "string"
+    },
+    {
+      "name": "title",
+      "type": "node"
+    },
+    {
+      "name": "subtitle",
+      "type": "node"
+    },
+    {
+      "name": "meta",
+      "type": "array"
+    },
+    {
+      "name": "onClose",
+      "type": "function"
+    },
+    {
+      "name": "children",
+      "type": "node"
+    }
+  ],
+  "slots": [
+    "children"
+  ],
+  "tokens": {
+    "surface": "color.surface.panel",
+    "border": "color.surface.border",
+    "radius": "radius.lg",
+    "elevation": "elevation.lg"
+  },
+  "doNotUse": [],
+  "preferOver": [
+    "DialogFrame"
+  ],
+  "states": null,
+  "responsive": null,
+  "motion": null,
+  "accessibility": {
+    "modal": true,
+    "closeOnEsc": "native dialog cancel",
+    "closeOnBackdrop": true,
+    "ariaLabel": "Close (close button)",
+    "keyboard": "Esc closes; Tab cycles within modal"
+  },
+  "content": null
+}

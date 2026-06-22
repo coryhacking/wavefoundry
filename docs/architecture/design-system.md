@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-06-22
 
 Hub doc for the design-system extraction contract seeded under `docs/design-system/`. Explains the extraction philosophy, where each artifact type lives, what is regeneratable versus operator-owned, and how the semantic index relates to the design surface.
 
@@ -20,6 +20,87 @@ Two artifact classes coexist under `docs/design-system/` and must never be confl
 | **Operator-owned narrative** | Engineering team | `design-language.md`, `index.md` body | No — manual authoring; never overwritten by extraction |
 
 Extraction may only cross the boundary in two idempotent ways: append a cross-link row to `index.md`, and add a "See extracted contract" pointer at the top of `design-language.md`. Both operations must not repeat if already present.
+
+## Three Modes: Bootstrap, Extract-Mirror, Adopt (wave `1p799`)
+
+The contract supports three modes plus an ambiguity escape hatch, selected from `docs/repo-profile.json` `design_system.mode` (set by `seed-030` from the deterministic `classify_design_system_mode(design_evidence)` classifier in `design_system_governance_validators.py` — code-derived and unit-tested, not agent judgment):
+
+| Mode | When | What is emitted |
+|---|---|---|
+| **bootstrap** | No design system found (no evidence) | The nulls skeleton — the no-design-system path. |
+| **extract-mirror** | In-repo design *evidence* (CSS custom properties, stylesheet tokens, in-repo theme files) but **no** maintained external system with its own build | The full DTCG extraction tree under `docs/design-system/` (the original behavior). |
+| **adopt / `external-reference`** | A **declared source of truth with its own build** — a published/packaged token package, a Style-Dictionary/DTCG source dir + build, or Figma library links | A **thin reference index** that points at the existing system; no parallel mirror. |
+| **ambiguous** | Genuinely weak / mixed signals | Install/upgrade asks the operator — never silently adopt or mirror. |
+
+### The evidence boundary
+
+The boundary between **extract-mirror** and **adopt** is the load-bearing decision. Adopt requires a *declared external source of truth with its own build* — CSS custom properties, a stray `tailwind.config`, or in-repo theme files do **not** qualify; they are in-repo evidence and route to extract-mirror. This prevents a stray Tailwind config from being read as a maintained system. When signals are weak or mixed (something detected but no concrete in-repo evidence and no external source-of-truth), the verdict is `ambiguous` and the seeds ask the operator.
+
+### Adopt-in-place philosophy
+
+The framework is strong at **bootstrapping** a system that does not exist. Adopt-in-place makes it equally able to **defer to** one that does. Under `external-reference` the contract *indexes* the existing system — it does not convert (importing the external tokens into our DTCG tree would re-introduce the exact parallel-mirror drift this mode removes). The thin reference index is:
+
+- `manifest.json` — with a required `externalReference` block (`tokenSource`, optional `buildCommand`, `namingConvention`/`varPrefix`, `consumptionDoc`, `notes`).
+- `source-map.json` — entries of `sourceType: "external"` pointing at `externalReference.tokenSource`.
+- `AGENTS.md` — consumption guidance **derived from** `externalReference` (the project's real `varPrefix`/`consumptionDoc`), never the `--ds-*` namespace and never a prescribed mechanism.
+- `gaps.md`, `README.md`.
+
+`tokens/` and `exports/` are **declined** (not an error) — but only when a **resolvable** `externalReference.tokenSource` is present: a path must exist in the repo, a URI must be well-formed. An unresolvable/absent pointer keeps the full requirement set so `external-reference` cannot silence a genuinely-missing token tree.
+
+**`canonicalRoot` stays fixed** at `docs/design-system` for all modes. It names *where the contract/index lives* — consumers (the validator, the `AGENTS.md` docs-map pointer, the semantic index) rely on it. The external source location is expressed *only* via `externalReference.tokenSource`; `canonicalRoot` is never relaxed to name the external root.
+
+**`hybrid` vs `external-reference`:** `external-reference` is the pure-adopt case (point-only, thin tree). `hybrid` is adopt-plus-extract — when a project adopts an external source for most of its system but also has in-repo evidence the framework extracts, record `sourceStrategy: "hybrid"`, list all active sources in `evidenceTypes`, and both the extracted tree and an `externalReference` pointer may be present.
+
+### Upgrade-stability guarantee
+
+Upgrade (`seed-160`) **never converts an adopted reference back into a mirror.** It reads the existing `manifest.json` `sourceStrategy` first; when it is `external-reference`, the upgrade backfills only the thin reference index, never creates `tokens/`/`exports/` or the token-build pipeline, never treats their absence as a gap, and never changes `sourceStrategy`.
+
+**Extract→adopt migration** is operator-initiated only. Migrating an existing extract-mirror project to `external-reference` moves the orphaned `tokens/` (and other extracted subtrees) to `docs/design-system/.backup/<ISO-date>/` with a `meta`-category `gaps.md` entry — never a silent delete. Auto-migrating a mirror to adopt is out of scope.
+
+### Self-hosting note
+
+Wavefoundry's own dashboard design system stays **extract-mirror**, never adopt. Its only design evidence is an in-repo `dashboard.css` (no external token package, no Style-Dictionary build, no Figma library links), which is in-repo evidence — below the adopt bar. The classifier is unit-tested with a Wavefoundry-shaped fixture asserting this verdict (the self-hosting guard).
+
+## Dashboard Primitive Module (WFDS)
+
+Wave `1p75h` / change `1p72v-ref` extracted the dashboard's reusable UI layer
+into a maintained primitive module so the dashboard's own code and the future
+claude.ai/design sync can consume it as a library rather than re-deriving it from
+the monolith.
+
+**Where it lives.** `.wavefoundry/framework/dashboard/ds/wfds.js` — plain,
+no-build JavaScript. It defines the primitives inside a `defineWFDS(React)`
+factory and attaches the result to `window.WFDS`.
+
+**How the dashboard consumes it (no-build script-tag global).** `dashboard.html`
+loads `/ds/wfds.js` via a `<script>` tag **before** `/dashboard.js`. The module
+is UMD-React-compatible: it reads the same `React` UMD global the dashboard uses
+and aliases `createElement` to `h`, so no bundler or build step is introduced to
+run the dashboard. `dashboard.js` consumes the primitives from `window.WFDS`
+(destructuring the subset it references directly; the rest via `WFDS.*` or thin
+local delegators — e.g. `ProgressRow → WFDS.ProgressBar`, `Sidebar →
+WFDS.NavSidebar`). The dashboard server serves `/ds/wfds.js` through the same
+static-asset path that serves `dashboard.js`/`dashboard.css` (path-traversal
+guarded by `is_relative_to`).
+
+**esbuild bundlability (for downstream sync; not required for the dashboard).**
+The module body is a single `defineWFDS(React)` factory referencing React only
+through the injected parameter, so a downstream sync can esbuild-bundle the file
+(wrap as an ESM/IIFE entry that calls `defineWFDS(React)` and re-exports) without
+touching the dashboard. **No build dependency or build step is added here** — the
+dashboard runs purely from the script-tag global.
+
+**Relationship to the `components/` contract.** Each primitive on `window.WFDS`
+has a contract entry under `docs/design-system/components/` (an `_index.json`
+entry + a per-primitive `spec.json` recording props, variants, states, token
+bindings, and accessibility). The real extracted functions (Icon, ThemeToggle,
+ProgressBar, Sparkline, Dialog, FileTree, DiffView, NavSidebar, Prose) are
+recorded as stable / extracted-from-usage. The unified-from-convention
+abstractions (Badge, Pill, Chip, Card, Table, EmptyState, SectionLabel) are
+implemented in the module and tracked in `proposed-additions.md` pending full
+call-site adoption. Primitive styling binds to the semantic tokens (the
+`--text` / `--border` / `--surface` family is now defined; the agent-role brand
+palette and agent-role category colors are tokenized — see `gaps.md` G1/G2).
 
 ## Where `design-language.md` Fits
 
@@ -95,7 +176,20 @@ docs/design-system/
     └── proposed-additions.md
 ```
 
-Generating token-build outputs (`exports/css/`, `exports/tailwind/`, etc.) is a follow-on wave: `12atj-feat design-token-build-pipeline`.
+Generating token-build outputs (`exports/css/`, `exports/tailwind/`, etc.) is implemented by wave `12atj-feat design-token-build-pipeline` (see **Token Build Pipeline** below).
+
+## Token Build Pipeline
+
+Wave `12atj-feat design-token-build-pipeline` turns the DTCG token source under `tokens/` into framework-specific outputs under `exports/`. The contract is tool-agnostic:
+
+- **`build.config.json`** declares `tool` (`style-dictionary` | `token-pipeline` | `custom` | `builtin`), `version`, and `targets[]` of `{format, outputDir, options}`. When `tool: "custom"`, a `command` field holds the shell invocation. The seed-emitted default stub is `style-dictionary` + the four standard targets (css/tailwind/ts/json).
+- **`bin/build-tokens`** reads the config and dispatches to the configured tool. It exits non-zero with actionable messages on a missing dependency or a broken token reference at build time. A bundled pure-Python transform (`tool: "builtin"`, ships at `.wavefoundry/framework/scripts/design_token_build.py`) generates all four outputs with no Node dependency.
+
+**How `exports/` is generated.** The transform flattens the DTCG trees, resolves `{alias}` references against `primitives.tokens.json`, and emits: CSS custom properties (light base + `@media (prefers-color-scheme: dark)` / `[data-theme="dark"]` override block), a Tailwind `theme.extend` config (with `theme.extendDark` dark variants), typed TypeScript constants (`tokens` plus per-mode `tokensByMode`), and a flat resolved JSON map. Output is sorted by token path and carries a `/* generated — do not edit directly */` header, so re-running on an unchanged source is byte-identical (idempotent + diff-friendly).
+
+**When to re-run.** After editing any `tokens/*.json` source file, run `docs/design-system/bin/build-tokens`.
+
+**Stale detection.** After a successful build, `manifest.json` `validationSummary` records `exportsGenerated`, `exportsAt` (ISO-8601), and `exportsStale` (true when the token source is newer than the exports, or when no exports exist). The design-system lint validator warns when `exportsStale` is `true`.
 
 ## Pattern and Surface Depth (Split B)
 
@@ -119,13 +213,13 @@ Split B also adds semantic validators (`design_system_surface_validators.py`): W
 Wave `12arn-enh design-system-bootstrap-and-governance` adds governance and multi-surface tracking:
 
 - **No-design-system bootstrap path.** When no formal design system source is found, substitute evidence (screenshots, reference URLs, brand PDFs) is collected and the skeleton is emitted with all semantic files as explicit `null`. Non-normative proposals land in `gaps.md` tagged `proposed-from-best-practices` — never in `semantic.tokens.json` until explicit operator promotion.
-- **`sourceStrategy` full semantics.** `figma-extract`, `repo-evidence-only`, `visual-bootstrap`, `hybrid`.
+- **`sourceStrategy` full semantics.** `figma-extract`, `repo-evidence-only`, `visual-bootstrap`, `hybrid`, `external-reference` (adopt-in-place — see **Three Modes** above).
 - **`targetSurfaces` + `platformStandards[]`.** Multi-surface recording with per-surface `standard`, `referenceVersion` (for HIG drift tracking), and `departures`. Unknown surfaces → gaps.
 - **Per-surface deltas.** `platforms/` subtree holds narrative + token overrides per surface; `manifest.json.platformStandards[].overrides` is the machine index pointer.
 - **Deprecation/lineage.** `manifest.json.deprecations` and `components/_index.json` `deprecated`/`supersedes`/`sunset` fields.
 - **Conditional product-class extensions.** Email, print/PDF, offline-first, and notification-heavy subtrees under `patterns/` — seeded only when inventory signals the product class.
 
-Split C adds governance validators (`design_system_governance_validators.py`): `sourceStrategy` enum, `targetSurfaces` non-empty, `platformStandards[].referenceVersion` presence, visual-bootstrap proposal guard, deprecated component `supersededBy`/`sunset` requirement, overrides path existence.
+Split C adds governance validators (`design_system_governance_validators.py`): `sourceStrategy` enum (incl. `external-reference`), `targetSurfaces` non-empty, `platformStandards[].referenceVersion` presence, visual-bootstrap proposal guard, deprecated component `supersededBy`/`sunset` requirement, overrides path existence. The module also exposes the pure, tested `classify_design_system_mode(design_evidence)` helper (wave `1p799`). The surface/manifest validator (`design_system_validators.py`) accepts the thin tree under `external-reference`, requires the `externalReference` block, rejects an unresolvable `tokenSource`, and keeps the `canonicalRoot` invariant across all modes.
 
 ## Cross-Links
 

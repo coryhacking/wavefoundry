@@ -7869,7 +7869,7 @@ class SqlSchemaQualifiedFallbackTests(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name), {
-            "libs/migrations/aceiss/A005__new_tenant_routines.sql": (
+            "libs/migrations/app/A005__new_tenant_routines.sql": (
                 "CREATE OR REPLACE PROCEDURE create_schema_objects(_tenant text)\n"
                 "LANGUAGE plpgsql\n"
                 "AS $$\n"
@@ -7892,7 +7892,7 @@ class SqlSchemaQualifiedFallbackTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_sql_schema_qualified_definition_retries_unqualified_symbol(self):
-        result = self.srv.code_definition_response(self.root, "aceiss.create_schema_objects")
+        result = self.srv.code_definition_response(self.root, "app.create_schema_objects")
         self.assertEqual(result["status"], "ok")
         self.assertNotEqual(result["data"]["method"], "keyword_fallback")
         defs = result["data"]["definitions"]
@@ -7902,7 +7902,7 @@ class SqlSchemaQualifiedFallbackTests(unittest.TestCase):
         self.assertEqual(defs[0]["name"], "create_schema_objects")
 
     def test_sql_schema_qualified_references_retries_unqualified_symbol(self):
-        result = self.srv.code_references_response(self.root, "aceiss.create_schema_objects")
+        result = self.srv.code_references_response(self.root, "app.create_schema_objects")
         self.assertEqual(result["status"], "ok")
         self.assertGreater(result["data"]["count"], 0)
         self.assertGreater(result["data"]["counts"]["docs"], 0)
@@ -8291,7 +8291,7 @@ class CodeAskTests(unittest.TestCase):
         self.assertEqual(out[0]["score"], 0.90)
 
     def test_extract_question_symbol_skips_interrogatives(self):
-        # 1p66r (teton downstream finding): a capitalized leading interrogative must NOT be
+        # 1p66r (downstream finding): a capitalized leading interrogative must NOT be
         # picked as a symbol — symbol-first injection would keyword-boost off-topic citations
         # above the floor and defeat abstention for the capitalized phrasing.
         srv = self.srv
@@ -11351,7 +11351,7 @@ class CodeConstantsTests(unittest.TestCase):
         """1p5k0: a constant nested in a type-within-a-type resolves by bare leaf, full qualified
         name, AND any intermediate dotted suffix — and a bogus prefix does NOT over-match. Exercises
         the chunker nested-type qualified-qname fix + the code_constants dotted-suffix matcher
-        end-to-end (the Swift case that missed downstream on solaris)."""
+        end-to-end (the Swift case that missed downstream in the field)."""
         self._add_file("Automation.swift",
                        "class AutomationController {\n"
                        "    private struct RoutineConfig {\n"
@@ -12091,7 +12091,7 @@ class TestCodeCallhierarchy(unittest.TestCase):
 
     # Wave 1p2q3 (1p2td post-ship): self_edge_kind propagates from edge to entries.
     def test_self_edge_kind_propagates_to_outgoing_entry(self):
-        """Javaagent field report: self_edge_kind set on the underlying edge
+        """Field report: self_edge_kind set on the underlying edge
         must surface on the outgoing/incoming entry so consumers of
         code_callhierarchy see the overload classification without re-querying
         the raw edge layer."""
@@ -13632,7 +13632,7 @@ class TestExternalNameCollisionAllowlist(unittest.TestCase):
         }
         (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
 
-    # AC-4 (Aceiss canonical case): `run` triggers without any external::* node.
+    # AC-4 (field canonical case): `run` triggers without any external::* node.
     def test_runnable_run_triggers_via_allowlist_without_external_node(self):
         # No `external::*` nodes exist; pre-1316p would report 0. Post-1316p reports 1.
         nodes = [
@@ -14278,7 +14278,7 @@ class TestLargeCommunityPagination(unittest.TestCase):
 class TestGraphRebuildDiscoverability(unittest.TestCase):
     """1316n: wave_index_health breaks out graph readiness separately;
     wave_index_build reports graph counts + notice clarification when content
-    is not 'graph'. Surfaces the Aceiss-reported misread where rebuilding the
+    is not 'graph'. Surfaces the field-reported misread where rebuilding the
     semantic layer looked like a full refresh but the graph was untouched.
     """
 
@@ -14429,7 +14429,7 @@ class TestEmptySectionDiagnosticFields(unittest.TestCase):
 
 class TestModuleSimpleNameExtraction(unittest.TestCase):
     """1316j: module/file nodes' simple name is the basename without extension,
-    not the file extension. Solaris reported `same_name_node_count: 72` (the
+    not the file extension. A consumer reported `same_name_node_count: 72` (the
     Swift module count) on every Swift module entry because the pre-1316j logic
     extracted `"swift"` as the simple name for every module node.
     """
@@ -15195,7 +15195,7 @@ class TestJavaReceiverTypeResolution(unittest.TestCase):
             encoding="utf-8",
         )
 
-    # AC-6: the Aceiss reproducer — JSON.writeObject vs oos.writeObject (ObjectOutputStream).
+    # AC-6: the field reproducer — JSON.writeObject vs oos.writeObject (ObjectOutputStream).
     def test_phantom_oos_writeobject_caller_is_excluded(self):
         self._add(
             "src/JSON.java",
@@ -17505,7 +17505,7 @@ class GraphSignalTests(unittest.TestCase):
     def _heads(self, cands):
         return {c["text"].split("\n", 1)[0] for c in cands}
 
-    # ── 1p66t: graph-rescue-into-citations (teton finding #2 — positively exercised here) ──
+    # ── 1p66t: graph-rescue-into-citations (field finding #2 — positively exercised here) ──
 
     @staticmethod
     def _set_scores(score):
@@ -17518,7 +17518,7 @@ class GraphSignalTests(unittest.TestCase):
     def test_graph_merge_rescues_vector_missed_file(self):
         """A graph-reachable file the SEMANTIC pass MISSED (not already cited) is rescued into
         citations, reranked + floor-clearing, flagged from_graph. This is the vector-miss/graph-hit
-        case teton could not trigger (its vector recall was always sufficient)."""
+        case the field report could not trigger (its vector recall was always sufficient)."""
         idx = self._idx()
         results = [{"path": "src/a.py", "lines": [1, 5], "score": 0.70, "kind": "code", "text": "a"}]
         graph_src = [{"path": "src/b.py", "lines": [10, 20], "score": 0.0, "kind": "code",
@@ -18251,7 +18251,7 @@ class CodeRiskScoreWrapperTests(unittest.TestCase):
 
 
 # Wave 1p4es: code_impact graph-mode ergonomics — edges bounded by max_results,
-# edges_total surfaced, resolved no longer null (Teton field report).
+# edges_total surfaced, resolved no longer null (field report).
 _IMPACT_EDGES_FIXTURE = {
     "present": True,
     "layer": "project",

@@ -1,0 +1,45 @@
+{
+  "id": "table",
+  "name": "Table",
+  "category": "data-display",
+  "status": "stable",
+  "description": "Structural head+rows table shell.",
+  "extractedFrom": ".wavefoundry/framework/dashboard/ds/wfds.js (Table)",
+  "figma": null,
+  "codeConnect": "ds/wfds.js",
+  "anatomy": [
+    "table > (thead > tr > th, tbody > tr > td)"
+  ],
+  "variants": [
+    "table--nowrap-first"
+  ],
+  "props": [
+    {
+      "name": "className",
+      "type": "string"
+    },
+    {
+      "name": "head",
+      "type": "array"
+    },
+    {
+      "name": "rows",
+      "type": "array"
+    }
+  ],
+  "slots": [],
+  "tokens": {
+    "border": "color.surface.border",
+    "headBackground": "color.feedback.neutralsoft"
+  },
+  "doNotUse": [],
+  "preferOver": [],
+  "states": null,
+  "responsive": null,
+  "motion": null,
+  "accessibility": {
+    "keyboard": null,
+    "note": "semantic table markup"
+  },
+  "content": null
+}

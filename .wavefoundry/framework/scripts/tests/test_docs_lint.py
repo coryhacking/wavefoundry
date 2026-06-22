@@ -1522,7 +1522,7 @@ class ChangeIdDeferralForPlannedWavesTests(unittest.TestCase):
 
 
 class SeedPrefixUniquenessTests(unittest.TestCase):
-    """Wave 1p3dk / 1p3dm (Solaris field feedback 2026-06-04): the framework
+    """Wave 1p3dk / 1p3dm (field feedback 2026-06-04): the framework
     seed-prefix convention is converted from a soft naming standard to an
     enforced unique key. Two seeds sharing the same `NNN-` prefix is now a
     docs-lint failure with both filenames named explicitly."""

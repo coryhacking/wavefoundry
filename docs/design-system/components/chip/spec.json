@@ -1,0 +1,43 @@
+{
+  "id": "chip",
+  "name": "Chip",
+  "category": "data-display",
+  "status": "stable",
+  "description": "Small inline tag (e.g. ac-chip).",
+  "extractedFrom": ".wavefoundry/framework/dashboard/ds/wfds.js (Chip); unifies ac-chip and inline tags",
+  "figma": null,
+  "codeConnect": "ds/wfds.js",
+  "anatomy": [
+    "span.chip"
+  ],
+  "variants": [],
+  "props": [
+    {
+      "name": "className",
+      "type": "string"
+    },
+    {
+      "name": "title",
+      "type": "string"
+    },
+    {
+      "name": "children",
+      "type": "node"
+    }
+  ],
+  "slots": [
+    "children"
+  ],
+  "tokens": {
+    "radius": "radius.sm"
+  },
+  "doNotUse": [],
+  "preferOver": [],
+  "states": null,
+  "responsive": null,
+  "motion": null,
+  "accessibility": {
+    "keyboard": null
+  },
+  "content": null
+}

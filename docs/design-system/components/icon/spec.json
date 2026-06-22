@@ -1,0 +1,46 @@
+{
+  "id": "icon",
+  "name": "Icon",
+  "category": "media",
+  "status": "stable",
+  "description": "Named SVG glyph set used across the dashboard.",
+  "extractedFrom": ".wavefoundry/framework/dashboard/ds/wfds.js (SunIcon/MoonIcon/NavIcon/WaveMark)",
+  "figma": null,
+  "codeConnect": "ds/wfds.js",
+  "anatomy": [
+    "svg[viewBox=0 0 24 24]"
+  ],
+  "variants": [
+    "sun",
+    "moon",
+    "nav-work",
+    "nav-graph",
+    "wave-mark"
+  ],
+  "props": [
+    {
+      "name": "name",
+      "type": "string",
+      "values": [
+        "graph",
+        "work"
+      ],
+      "note": "NavIcon glyph selector"
+    }
+  ],
+  "slots": [],
+  "tokens": {
+    "stroke": "currentColor"
+  },
+  "doNotUse": [],
+  "preferOver": [],
+  "states": null,
+  "responsive": null,
+  "motion": null,
+  "accessibility": {
+    "role": "img",
+    "ariaHidden": true,
+    "keyboard": null
+  },
+  "content": null
+}

@@ -1,18 +1,39 @@
 {
   "schemaVersion": "1.0.0",
   "extractionVersion": "1.0.0",
-  "extractedAt": null,
+  "extractedAt": "2026-06-21",
   "canonicalRoot": "docs/design-system",
   "sourceStrategy": "repo-evidence-only",
-  "evidenceTypes": [],
-  "artifactCounts": {},
-  "targetSurfaces": ["cli", "agent"],
+  "evidenceTypes": [
+    "css-custom-properties"
+  ],
+  "evidenceSources": [
+    ".wavefoundry/framework/dashboard/dashboard.css"
+  ],
+  "artifactCounts": {
+    "primitives": 36,
+    "semantic": 29,
+    "modeTokens": {
+      "light": 19,
+      "dark": 19
+    },
+    "sourceMapEntries": 36,
+    "foundations": 7,
+    "gaps": 4
+  },
+  "targetSurfaces": [
+    "cli",
+    "agent"
+  ],
   "modes": [
     "light",
     "dark"
   ],
   "validationSummary": {
-    "passed": 0,
-    "failed": 0
+    "passed": 36,
+    "failed": 0,
+    "exportsGenerated": true,
+    "exportsAt": "2026-06-22T15:21:29+00:00",
+    "exportsStale": false
   }
 }

@@ -1,0 +1,52 @@
+{
+  "id": "file-tree",
+  "name": "FileTree",
+  "category": "data-display",
+  "status": "stable",
+  "description": "Recursive file/dir tree with per-file status and +/- line counts (buildFileTree builds the node map).",
+  "extractedFrom": ".wavefoundry/framework/dashboard/ds/wfds.js (FileTree + buildFileTree)",
+  "figma": null,
+  "codeConnect": "ds/wfds.js",
+  "anatomy": [
+    "ul.file-tree > li.file-tree-dir|.file-tree-file--<status> > (span, .file-tree-lines > .file-tree-lines-added/.file-tree-lines-deleted)"
+  ],
+  "variants": [
+    "added",
+    "modified",
+    "deleted"
+  ],
+  "props": [
+    {
+      "name": "node",
+      "type": "object",
+      "note": "tree from buildFileTree(entries)"
+    },
+    {
+      "name": "depth",
+      "type": "number"
+    },
+    {
+      "name": "onFileClick",
+      "type": "function"
+    },
+    {
+      "name": "pathPrefix",
+      "type": "string"
+    }
+  ],
+  "slots": [],
+  "tokens": {
+    "added": "color.accent.base",
+    "deleted": "color.feedback.danger"
+  },
+  "doNotUse": [],
+  "preferOver": [],
+  "states": null,
+  "responsive": null,
+  "motion": null,
+  "accessibility": {
+    "keyboard": "clickable files are buttons via data-clickable + onClick",
+    "keyboardNote": "rendered as li with onClick"
+  },
+  "content": null
+}

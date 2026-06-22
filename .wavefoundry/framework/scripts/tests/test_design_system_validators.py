@@ -569,5 +569,164 @@ class IndexFolderParityTests(unittest.TestCase):
             self.assertEqual(failures, [])
 
 
+# ---------------------------------------------------------------------------
+# external-reference (adopt-in-place) mode — 1p799
+# ---------------------------------------------------------------------------
+
+def _make_thin_reference_root(
+    tmp: Path,
+    token_source: object,
+    *,
+    create_source: bool = False,
+) -> Path:
+    """Create a thin external-reference docs/design-system/ tree (no tokens/exports).
+
+    The thin index per the contract: manifest.json (with externalReference) +
+    source-map.json + AGENTS.md + gaps.md + README.md. No tokens/ or exports/.
+    """
+    d = tmp / "docs" / "design-system"
+    if create_source and isinstance(token_source, str) and token_source.strip():
+        # Materialize the pointed-at source so a path-form pointer resolves.
+        src = tmp / token_source
+        src.parent.mkdir(parents=True, exist_ok=True)
+        src.write_text("{}\n", encoding="utf-8")
+
+    manifest = {
+        "schemaVersion": "1.0.0",
+        "extractionVersion": "1",
+        "extractedAt": "2026-06-22T00:00:00Z",
+        "canonicalRoot": "docs/design-system",
+        "sourceStrategy": "external-reference",
+        "evidenceTypes": [],
+        "artifactCounts": {},
+        "modes": ["light", "dark"],
+        "validationSummary": {"passed": 0, "failed": 0},
+        "externalReference": {
+            "tokenSource": token_source,
+            "namingConvention": "kebab-case",
+            "varPrefix": "--brand",
+            "consumptionDoc": "docs/design-system/AGENTS.md",
+            "notes": "Adopt-in-place: defer to the existing system.",
+        },
+    }
+    _write_json(d / "manifest.json", manifest)
+    _write_text(d / "README.md", "# Design (reference)\n")
+    _write_text(d / "AGENTS.md", "# Agents\n")
+    _write_text(d / "gaps.md", _GAPS_VALID)
+    _write_json(d / "source-map.json", [])
+    return d
+
+
+class ExternalReferenceModeTests(unittest.TestCase):
+    def test_thin_tree_with_resolvable_path_pointer_passes(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            _make_thin_reference_root(
+                root, "packages/tokens/src", create_source=True
+            )
+            failures, _ = check_design_system(root)
+            self.assertEqual(
+                failures, [], f"Expected thin external-reference tree to pass, got: {failures}"
+            )
+
+    def test_thin_tree_with_well_formed_uri_pointer_passes(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            _make_thin_reference_root(root, "https://www.figma.com/file/abc/Library")
+            failures, _ = check_design_system(root)
+            self.assertEqual(
+                failures, [], f"Expected URI-pointer thin tree to pass, got: {failures}"
+            )
+
+    def test_missing_external_reference_block_fails(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            d = _make_thin_reference_root(root, "packages/tokens/src", create_source=True)
+            manifest = json.loads((d / "manifest.json").read_text())
+            del manifest["externalReference"]
+            _write_json(d / "manifest.json", manifest)
+            failures, _ = check_design_system(root)
+            self.assertTrue(
+                any("requires an `externalReference`" in f for f in failures),
+                f"Expected missing-externalReference failure, got: {failures}",
+            )
+
+    def test_empty_token_source_fails(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            _make_thin_reference_root(root, "   ")
+            failures, _ = check_design_system(root)
+            self.assertTrue(
+                any("tokenSource" in f and "non-empty" in f for f in failures),
+                f"Expected empty-tokenSource failure, got: {failures}",
+            )
+
+    def test_missing_token_source_fails(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            d = _make_thin_reference_root(root, "x")
+            manifest = json.loads((d / "manifest.json").read_text())
+            manifest["externalReference"].pop("tokenSource")
+            _write_json(d / "manifest.json", manifest)
+            failures, _ = check_design_system(root)
+            self.assertTrue(
+                any("tokenSource" in f and "required" in f for f in failures),
+                f"Expected missing-tokenSource failure, got: {failures}",
+            )
+
+    def test_unresolvable_path_pointer_fails(self):
+        # Path that does not exist in the repo -> unresolvable -> rejected.
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            _make_thin_reference_root(root, "packages/does-not-exist/tokens")
+            failures, _ = check_design_system(root)
+            self.assertTrue(
+                any("unresolvable" in f for f in failures),
+                f"Expected unresolvable-pointer failure, got: {failures}",
+            )
+
+    def test_unresolvable_pointer_keeps_full_required_paths(self):
+        # When the pointer is unresolvable, the thin-tree allowance must NOT
+        # apply — external-reference cannot silence a genuinely-missing tree.
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            _make_thin_reference_root(root, "packages/does-not-exist/tokens")
+            failures, _ = check_design_system(root)
+            # DESIGN.md/VALIDATION.md/version.json/proposed-additions.md are part
+            # of the FULL required set, absent from the thin tree.
+            self.assertTrue(
+                any("DESIGN.md" in f and "required path missing" in f for f in failures),
+                f"Expected full required-path enforcement on unresolvable pointer, got: {failures}",
+            )
+
+    def test_canonical_root_invariant_enforced_under_external_reference(self):
+        # canonicalRoot must stay 'docs/design-system' for ALL modes (interrogation C1).
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            d = _make_thin_reference_root(root, "packages/tokens/src", create_source=True)
+            manifest = json.loads((d / "manifest.json").read_text())
+            manifest["canonicalRoot"] = "packages/tokens"
+            _write_json(d / "manifest.json", manifest)
+            failures, _ = check_design_system(root)
+            self.assertTrue(
+                any("canonicalRoot must be 'docs/design-system'" in f for f in failures),
+                f"Expected canonicalRoot invariant failure, got: {failures}",
+            )
+
+    def test_thin_tree_does_not_require_tokens_or_exports(self):
+        # The whole point: tokens/ and exports/ absent is NOT an error under a
+        # resolvable external-reference.
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            d = _make_thin_reference_root(root, "packages/tokens/src", create_source=True)
+            self.assertFalse((d / "tokens").exists())
+            self.assertFalse((d / "exports").exists())
+            failures, _ = check_design_system(root)
+            self.assertFalse(
+                any("tokens/" in f or "exports/" in f for f in failures),
+                f"Expected no tokens/exports failures under external-reference, got: {failures}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

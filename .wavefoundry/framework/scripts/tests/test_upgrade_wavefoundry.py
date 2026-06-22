@@ -932,7 +932,7 @@ class PhaseCleanupLockStateTests(unittest.TestCase):
 
     def test_successful_cleanup_regenerates_codebase_map(self):
         # Wave 1p601: a clean upgrade regenerates the codebase map once, after the
-        # index phase (so a fresh install has it — teton's "not generated" report).
+        # index phase (so a fresh install has it — a "not generated" field report).
         self.lib.write_upgrade_lock(self.root, "2026-05-10a", "2026-05-19a")
         with patch.object(self.mod, "_regenerate_codebase_map_on_upgrade") as regen:
             self._capture_cleanup(failed_phase=None, lock_present=True)
@@ -2325,7 +2325,7 @@ class PostExtractDryRunBranchTests(unittest.TestCase):
 class ChunkerVersionBumpDetectionTests(unittest.TestCase):
     """Wave 1p3dk / 1p3ho: chunker-version-aware upgrade routing.
 
-    Closes the Solaris failure mode where 1.5.0's CHUNKER_VERSION bump didn't
+    Closes the field failure mode where 1.5.0's CHUNKER_VERSION bump didn't
     trigger a project-index rebuild because `indexer.build_index`'s internal
     auto-escalate was silent (no operator-visible decision log) and the
     upgrade reported success without verifying the rebuild ran."""

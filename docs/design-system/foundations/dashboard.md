@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-21
+Last verified: 2026-06-22
 
 Reference doc for the local dashboard's shared UI contract. Covers CSS custom property tokens, shell layout, typography scale, spacing, status-color semantics, component rules, and state treatments. Assets live under `.wavefoundry/framework/dashboard/`; this doc is the governance home for seeded-repo UI consistency.
 
 ## Design Principles
 
-- **Warm neutral palette.** Parchment backgrounds (`--page-bg`, `--panel-bg`) prevent the dashboard from feeling like a dev-tool; the teal accent (`--accent`) signals action and health without competing with status colors.
+- **Cool neutral palette.** Light cool-gray backgrounds (`--page-bg: #F8F9FA`, `--panel-bg: #FFFFFF`) keep the dashboard calm and legible; the blue accent (`--accent: #1976d2`) signals action and health without competing with status colors.
 - **Graceful degradation first.** Every card and section has an explicit empty-state treatment. No tile ever shows a fabricated number.
 - **Read-only posture visible in the UI.** No interactive controls that imply write access. The state badge (`LIVE / IDLE`) conveys server health rather than edit capability.
 - **Loopback aesthetics.** Glassmorphism effects (frosted header, translucent card backgrounds) signal a local surface, not a cloud product.
@@ -21,42 +21,45 @@ All color values are CSS custom properties on `:root`.
 
 | Token | Value | Role |
 |---|---|---|
-| `--page-bg` | `#f4efe7` | Page background (warm parchment) |
-| `--panel-bg` | `#fbf8f2` | Panel / card surface |
-| `--panel-border` | `#d8cfc2` | Card borders, dividers |
-| `--ink` | `#17201f` | Primary text |
-| `--muted` | `#5b665f` | Secondary text, labels, footnotes |
-| `--accent` | `#0d6c59` | Primary action color, healthy / active state |
-| `--accent-soft` | `#d8efe8` | Accent fill for badges, progress track |
-| `--accent-mid` | `#b0ddd0` | Hover border accent |
-| `--warn` | `#b66818` | Warning text |
-| `--warn-soft` | `#f8e6d0` | Warning fill |
-| `--danger` | `#a24034` | Danger / blocked text |
-| `--danger-soft` | `#f6ddd8` | Danger fill |
-| `--neutral` | `#4a5568` | Neutral text (informational) |
-| `--neutral-soft` | `#edf0f4` | Neutral fill |
-| `--draft-color` | `#3b6fa0` | Draft / planned state text |
-| `--draft-soft` | `#ddeaf6` | Draft state fill |
+| `--page-bg` | `#F8F9FA` | Page background (cool neutral gray) |
+| `--panel-bg` | `#FFFFFF` | Panel / card surface |
+| `--panel-border` | `#DEE2E6` | Card borders, dividers |
+| `--ink` | `#212529` | Primary text |
+| `--muted` | `#6C757D` | Secondary text, labels, footnotes |
+| `--accent` | `#1976d2` | Primary action color, healthy / active state |
+| `--accent-soft` | `#E3F0FC` | Accent fill for badges, progress track |
+| `--accent-mid` | `#91C2F2` | Hover border accent |
+| `--footer-accent` | `#2B6CB0` | Footer / branding accent |
+| `--warn` | `#C25800` | Warning text |
+| `--warn-soft` | `#FEF3E8` | Warning fill |
+| `--danger` | `#C62828` | Danger / blocked text |
+| `--danger-soft` | `#FFEBEE` | Danger fill |
+| `--neutral` | `#495057` | Neutral text (informational) — not re-themed in dark |
+| `--neutral-soft` | `#F1F3F5` | Neutral fill |
+| `--draft-color` | `#1565C0` | Draft / planned state text |
+| `--draft-soft` | `#E3F2FD` | Draft state fill |
+
+Dark-mode overrides live in `html[data-theme="dark"]`; per-token light/dark values are in `tokens/modes/{light,dark}.tokens.json`. `--neutral` is intentionally **not** re-themed in dark (the light value carries forward).
 
 ### Shadow
 
 | Token | Value | Use |
 |---|---|---|
-| `--shadow-sm` | `0 2px 8px rgba(23,32,31,.06)` | Hover lift on metrics and wave cards |
-| `--shadow` | `0 8px 24px rgba(23,32,31,.08), 0 1px 3px rgba(23,32,31,.05)` | Default panel elevation |
-| `--shadow-lg` | `0 20px 48px rgba(23,32,31,.10), 0 2px 8px rgba(23,32,31,.06)` | Modal / dialog overlay |
+| `--shadow-sm` | `0 1px 3px rgba(33,37,41,.10)` | Hover lift on metrics and wave cards |
+| `--shadow` | `0 1px 4px rgba(33,37,41,.12), 0 2px 8px rgba(33,37,41,.07)` | Default panel elevation |
+| `--shadow-lg` | `0 4px 16px rgba(33,37,41,.14), 0 1px 4px rgba(33,37,41,.08)` | Modal / dialog overlay |
 
 ### Border Radius
 
 | Token | Value | Use |
 |---|---|---|
-| `--radius-sm` | `8px` | Chips, code badges, table cells, close button |
-| `--radius-md` | `12px` | Metric tiles, timeline items, wave cards, mini-graphs |
-| `--radius-lg` | `18px` | Hero card, full panels, agent dialog |
+| `--radius-sm` | `4px` | Chips, code badges, table cells, focus ring |
+| `--radius-md` | `6px` | Metric tiles, timeline items, wave cards, mini-graphs |
+| `--radius-lg` | `8px` | Hero card, full panels, agent dialog |
 
 ### Spacing Scale
 
-Eight-step rem-based scale. Use tokens rather than raw values so the dashboard can be reseeded with a different density without touching component files.
+Seven-step rem-based scale. Use tokens rather than raw values so the dashboard can be reseeded with a different density without touching component files.
 
 | Token | Value | Typical use |
 |---|---|---|
@@ -72,9 +75,9 @@ Eight-step rem-based scale. Use tokens rather than raw values so the dashboard c
 
 | Token | Stack | Use |
 |---|---|---|
-| `--font-body` | `"Avenir Next", "Segoe UI", sans-serif` | Body text, meta labels |
-| `--font-heading` | `"Iowan Old Style", "Georgia", serif` | Panel h2, metric values, dialog title |
-| `--font-mono` | `"SF Mono", "Fira Code", "Consolas", monospace` | IDs, version strings, progress fractions, framework label |
+| `--font-body` | `-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif` | Body text, meta labels |
+| `--font-heading` | `-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif` | Panel h2, metric values, dialog title (same system-sans stack as body) |
+| `--font-mono` | `ui-monospace, "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace` | IDs, version strings, progress fractions, framework label |
 
 Type scale (no additional tokens — use these raw values for consistency):
 
@@ -98,9 +101,9 @@ Type scale (no additional tokens — use these raw values for consistency):
 
 ```
 .shell
-  max-width: min(1360px, calc(100vw - 2rem))
+  width: min(1360px, calc(100vw - 2rem))
   margin: 0 auto
-  padding: var(--space-6) 0 var(--space-7)
+  padding: var(--space-3) 0 var(--space-4)
 ```
 
 ### Two-Column Content Grid
@@ -190,9 +193,9 @@ Base rule shared by `.hero-card`, `.panel`, `.metric`, `.table-card`, `.timeline
 
 ### Progress Bar
 
-Two-part bar: track is `--accent-soft` (8 px, pill-shaped), fill is a `90deg` linear gradient from `--accent` to `#14937a`. Fill uses `transition: width 0.6s cubic-bezier(0.4,0,0.2,1)`.
+Two-part bar: track is `--accent-soft` (pill-shaped, `border-radius: 999px`), fill is a `to right` linear gradient from `#40A3E9` to `#53AC04` (lifecycle brand blue → green; see the brand-palette gap G2). Fill uses `transition: width 0.6s cubic-bezier(0.4,0,0.2,1)`.
 
-Mini-graph (6 px, used in wave cards) follows the same gradient for done-segment; remainder is `--accent-soft`. Gap of `2px` between segments.
+Mini-graph (used in wave cards) follows the same gradient for the done-segment; remainder is `--accent-soft`.
 
 ### Metric Tiles
 
@@ -214,7 +217,7 @@ Dialog is created dynamically (appended to `<body>`, removed on close) to avoid 
 
 ### Tables
 
-`border-collapse: collapse`, `font-size: 0.92rem`. Column headers: `0.75rem / 600 / uppercase / var(--muted)`. Row hover: `rgba(13,108,89,0.03)` background on `td`. Last `td` in `tbody` has no bottom border.
+`border-collapse: collapse`, `font-size: 0.92rem`. Column headers: `0.75rem / 600 / uppercase / var(--muted)`. Row hover: `rgba(25,118,210,0.04)` background on `td` (blue accent tint). Last `td` in `tbody` has no bottom border.
 
 ### Timeline / Activity
 

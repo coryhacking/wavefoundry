@@ -5740,7 +5740,7 @@ def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
         health["previous_build_stats"] = project_stats
 
     # Wave 13129 (1316n): graph readiness reported separately from semantic
-    # readiness. Aceiss caught the silent "rebuild didn't touch graph" misread
+    # readiness. A consumer caught the silent "rebuild didn't touch graph" misread
     # because there was no breakout. Operators now see graph_present /
     # graph_last_built_at per layer alongside the existing fields.
     health["graph"] = _graph_health_summary(index.root)
@@ -6317,7 +6317,7 @@ def wave_index_build_response(
         ))
     # Wave 13129 (1316n): surface graph state regardless of content. Operators
     # running content='code'|'docs'|'all' need to see the graph wasn't touched
-    # (Aceiss's misread on 1.2.1+315o). When content is not 'graph', append a
+    # (a consumer's misread on 1.2.1+315o). When content is not 'graph', append a
     # clarifying note pointing at content='graph' for graph refresh.
     graph_health = _graph_health_summary(root)
     target_layer = "project"
@@ -10761,7 +10761,7 @@ _TS_CALL_PARENT_TYPES: dict[str, set[str]] = {
     # Java method references (`Foo::bar`, `this::bar`) classify as call sites
     # so the call-site scanner in code_callhierarchy attaches line+snippet to
     # incoming entries that only reference the target via method references
-    # (wave 130rj / 130r7 — Aceiss §1.2 reproduced 2026-05-31).
+    # (wave 130rj / 130r7 — field feedback §1.2 reproduced 2026-05-31).
     "java": {"method_invocation", "object_creation_expression", "method_reference"},
     "csharp": {"invocation_expression", "object_creation_expression"},
     # Kotlin callable references (`String::length`, `::myFn`, `this::handle`)
@@ -12500,7 +12500,7 @@ def code_callhierarchy_response(
         data["incoming"] = incoming
         data["external_incoming_count"] = external_incoming_count
 
-        # Wave 130rj — Aceiss §2.3: AOP/advice empty-incoming detection.
+        # Wave 130rj — field feedback §2.3: AOP/advice empty-incoming detection.
         # When the response would report zero project-internal callers AND the
         # queried method carries an AOP advice annotation/attribute, surface
         # `caller_pattern: "advice"` plus an `advice_pattern_detected`
@@ -13217,7 +13217,7 @@ def _load_cluster_lookup(root: Path, layer: str = "project") -> dict[str, str]:
 def _load_cluster_lookup_with_ids(root: Path, layer: str = "project") -> dict[str, tuple[str, str]]:
     """Return node_id → (community_label, community_id) mapping (wave 130rj).
 
-    Aceiss field feedback §1.1: every tool that surfaces a community label
+    Field feedback §1.1: every tool that surfaces a community label
     should also expose the community_id needed to drill in via
     ``code_graph_community``. Returning both eliminates the failed-call
     recovery dance documented in the feedback report.
@@ -13720,7 +13720,7 @@ def _code_impact_graph_response(
     if not include_tests:
         affected_raw = [a for a in affected_raw if not _is_test_path(str(a.get("source_file") or ""))]
     # Attach community label + id to each affected node (wave 130rj — community label
-    # and id dual return per Aceiss field feedback §1.1).
+    # and id dual return per field feedback §1.1).
     def _with_community(a: dict) -> dict:
         c_label, c_id = community_lookup.get(a.get("node_id", ""), (None, None))
         return {**a, "community": c_label, "community_id": c_id}
@@ -13730,7 +13730,7 @@ def _code_impact_graph_response(
     affected_files = sorted({str(a.get("source_file") or "") for a in affected_enriched if a.get("source_file")})
     impact_edges = impact.get("edges") or []
     # Wave 1p4es: bound the edges array by max_results. On a high-fan-in symbol
-    # (Teton field report: rethrowError, 754 edges) the UNBOUNDED array blew the
+    # (field report: rethrowError, 754 edges) the UNBOUNDED array blew the
     # MCP token cap (~227K chars) even though max_results capped `affected` — the
     # edges list was the size driver. The full list still feeds the attribution
     # counts (accurate); the response carries at most max_results edges plus
@@ -13745,7 +13745,7 @@ def _code_impact_graph_response(
             {
                 "symbol": symbol,
                 # Wave 1p4es: documented response field that was never emitted →
-                # came back null (Teton). At the OK path the symbol is resolved.
+                # came back null (field report). At the OK path the symbol is resolved.
                 "resolved": True,
                 "node_id": impact.get("node_id"),
                 "layer": layer_value,
@@ -14096,7 +14096,7 @@ def wave_graph_report_response(
         directory_payload = gq.collapse_package_to_directory_view(original_payload, root=root)
         index = gq.GraphQueryIndex(directory_payload)
     report = index.report(limit=max(1, min(limit, 100)), sections=sections)
-    # AC-from-wave-130rj (Aceiss field feedback §2.2): community overview section.
+    # AC-from-wave-130rj (field feedback §2.2): community overview section.
     # Adds a single-call architectural-orientation surface listing top
     # communities by node_count with the IDs needed to follow up via
     # code_graph_community. Lazy-loaded so the section only fires when
@@ -14125,7 +14125,7 @@ def wave_graph_report_response(
                     members = c.get("node_ids") or []
                     hub_id = max(members, key=lambda n: degree.get(n, 0), default="") if members else ""
                     hub_label = (index.get_node(hub_id) or {}).get("label", hub_id) if hub_id else ""
-                    # Wave 130rj — Aceiss §6.5: per-community generated_node_fraction
+                    # Wave 130rj — field feedback §6.5: per-community generated_node_fraction
                     # comes from the cluster artifact; flag generated-dominated
                     # communities (>40%) so agents can decide whether to trust the
                     # community's structural metrics.
@@ -14151,7 +14151,7 @@ def wave_graph_report_response(
         except Exception:
             report.setdefault("communities", [])
 
-    # Wave 130rj — Aceiss §6.4 + §6.2: filter generated nodes out of
+    # Wave 130rj — field feedback §6.4 + §6.2: filter generated nodes out of
     # fan_in/fan_out/chokepoints when exclude_generated=True; emit a
     # `betweenness_dominated_by_generated` warning when >50% of top-N
     # betweenness results are tagged generated.
@@ -14429,7 +14429,7 @@ def wave_graph_report_response(
     # For module/file nodes (no `::`), take the basename without extension
     # (e.g. `path/StatusBarManager.swift` → `StatusBarManager`).
     # The pre-1316j behavior took the file extension for module nodes,
-    # producing the same constant for every module entry (Solaris reported
+    # producing the same constant for every module entry (a consumer reported
     # `same_name_node_count: 72` on every Swift module — the total Swift
     # module count, not a per-symbol value).
     def _node_simple_name(nid: str) -> str:
@@ -14741,7 +14741,7 @@ def code_graph_community_response(
     or the cluster dashboard. Returns members sorted by degree descending so the
     most-connected nodes appear first.
 
-    Pagination (wave 130rj — Aceiss field feedback §1.3): default ``limit=50``
+    Pagination (wave 130rj — field feedback §1.3): default ``limit=50``
     so communities of 50+ members are usable inline. ``total_node_count`` and
     ``has_more`` let the caller page through larger communities. Communities
     under 50 nodes return all members in one call.
@@ -14869,7 +14869,7 @@ def code_graph_community_response(
         })
     nodes.sort(key=lambda x: -x["degree"])
     # total_node_count is the community's actual size (pre-filter). Wave 130rj —
-    # Aceiss §6.3: exclude_generated filter removes generated members from the
+    # Field feedback §6.3: exclude_generated filter removes generated members from the
     # response, but the total reflects the unfiltered community so operators can
     # see how much was suppressed.
     total_node_count = len(nodes)
@@ -15090,7 +15090,7 @@ def _demote_doc_results(results: list[dict], question_type: str) -> tuple[list[d
     return results, demotion_count
 
 
-# Wave 1p66r (teton downstream finding): English interrogatives / leading question words that
+# Wave 1p66r (downstream finding): English interrogatives / leading question words that
 # the bare-word symbol fallbacks below would otherwise pick as a "symbol" (e.g. a capitalized
 # "Which"/"Where") — symbol-first injection then keyword-boosts off-topic citations above the
 # relevance floor and DEFEATS abstention (the lowercase form, not matched by the capitalized
@@ -17625,7 +17625,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Read ``wavefoundry://graph/communities`` first to discover available community ids
         without a tool call.
 
-        Pagination (wave 130rj — Aceiss field feedback §1.3): default ``limit=50`` so
+        Pagination (wave 130rj — field feedback §1.3): default ``limit=50`` so
         communities of 50+ members stay within agent context limits. Use ``offset`` to
         page; ``has_more`` in the response indicates whether further pages exist.
 
