@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-17
+Last verified: 2026-06-21
 
 ## Repository Summary
 
@@ -36,21 +36,21 @@ between the markers is machine-maintained; the surrounding narrative is not.
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
 | tests | `.wavefoundry/framework/scripts/tests` | code | 5364 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 589 |
-| graph | `.wavefoundry/framework/scripts` | code | 214 |
-| dashboard | `.wavefoundry/framework/dashboard` | code | 196 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 576 |
+| graph | `.wavefoundry/framework/scripts` | code | 219 |
+| dashboard | `.wavefoundry/framework/dashboard` | code | 200 |
 | wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 177 |
 | chunker | `.wavefoundry/framework/scripts` | code | 161 |
-| dashboard_lib | `.wavefoundry/framework/scripts` | code | 110 |
+| dashboard_lib | `.wavefoundry/framework/scripts` | code | 140 |
 | indexer | `.wavefoundry/framework/scripts` | code | 102 |
 | upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 80 |
 | setup | `.wavefoundry/framework/scripts` | code | 75 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 56 |
 | render_platform_surfaces | `.wavefoundry/framework/scripts` | code | 54 |
-| dashboard_server | `.wavefoundry/framework/scripts` | code | 50 |
 | build_pack | `.wavefoundry/framework/scripts` | code | 48 |
-| graph_cluster | `.wavefoundry/framework/scripts` | code | 36 |
+| graph_cluster | `.wavefoundry/framework/scripts` | code | 38 |
 | server | `.wavefoundry/framework/scripts` | code | 34 |
+| graph_query | `.wavefoundry/framework/scripts` | code | 26 |
 | accel_embedder | `.wavefoundry/framework/scripts` | code | 25 |
 | upgrade_extensions | `.wavefoundry/framework/scripts` | code | 21 |
 | docs_gardener | `.wavefoundry/framework/scripts` | code | 17 |

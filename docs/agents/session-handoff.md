@@ -2,7 +2,7 @@
 
 Owner: wave-coordinator
 Status: active
-Last verified: 2026-06-19
+Last verified: 2026-06-21
 
 ## Hotfix — Claude hook commands anchored on $CLAUDE_PROJECT_DIR (2026-06-18)
 
