@@ -2103,6 +2103,122 @@ class AnnotationReceiverTypeTests(unittest.TestCase):
         self.assertTrue(edges, f"Python Optional[Foo] edge missing: {self._receiver_edges(payload)}")
 
 
+class PythonConfidencePromotionTests(unittest.TestCase):
+    """1p7dg: v23-style confidence promotion for Python. A call that binds a
+    UNIQUE project node BY CONSTRUCTION — enclosing-class method (`self`/`cls`),
+    same-file bare def, qualified `Owner.method`, or unique (`len==1`) cross-file
+    simple name — lands RECEIVER_RESOLVED, not EXTRACTED, even though no receiver
+    TYPE was needed. These binds were already correct; only the confidence label
+    was conservatively under-tagged (the documented TS/JS v23 situation; spike:
+    6,392 same-file + 552 cross-file Python edges on the self-host graph).
+
+    Faithfulness: a guessed receiver (unannotated local `foo.bar()`) emits no
+    edge and is never promoted; an ambiguous (`len>1`) simple name is not
+    uniquely bound, so it stays external/EXTRACTED — the existing
+    `symbol_lookup`/`simple_name_index` uniqueness gates are unchanged, only the
+    label on an already-unique bind moves."""
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files):
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _confs(self, payload, src_sub, tgt_sub):
+        return [
+            e.get("confidence")
+            for e in payload.get("edges", [])
+            if e.get("relation") == "calls"
+            and src_sub in str(e.get("source", ""))
+            and tgt_sub in str(e.get("target", ""))
+        ]
+
+    def test_self_method_call_promoted(self):
+        payload = self._build({
+            "src/foo.py": "class Foo:\n    def helper(self): pass\n    def run(self):\n        self.helper()\n",
+        })
+        confs = self._confs(payload, "Foo.run", "Foo.helper")
+        self.assertEqual(confs, ["RECEIVER_RESOLVED"], f"self.helper() not promoted: {confs}")
+
+    def test_same_file_bare_call_promoted(self):
+        payload = self._build({
+            "src/foo.py": "def helper(): pass\ndef run():\n    helper()\n",
+        })
+        confs = self._confs(payload, "foo.py::run", "foo.py::helper")
+        self.assertEqual(confs, ["RECEIVER_RESOLVED"], f"same-file helper() not promoted: {confs}")
+
+    def test_qualified_owner_method_promoted(self):
+        payload = self._build({
+            "src/foo.py": "class Foo:\n    def bar(self): pass\ndef run():\n    Foo.bar(None)\n",
+        })
+        confs = self._confs(payload, "foo.py::run", "Foo.bar")
+        self.assertEqual(confs, ["RECEIVER_RESOLVED"], f"Owner.method() not promoted: {confs}")
+
+    def test_cross_file_explicit_import_residual_stays_extracted(self):
+        # SCOPE BOUNDARY (recorded follow-on): a cross-file call via an explicit
+        # `from x import y` resolves to the project node through the AC-2
+        # qualified-import branch (`qualified_index` len==1), NOT the bare-simple
+        # branch, so it is NOT promoted this wave and stays EXTRACTED
+        # (conservative — no regression; promoting the qualified branch for
+        # Python is a faithfulness-sensitive follow-on). This guards the boundary.
+        payload = self._build({
+            "src/a.py": "def uniquefn(): pass\n",
+            "src/b.py": "from src.a import uniquefn\ndef run():\n    uniquefn()\n",
+        })
+        confs = self._confs(payload, "b.py::run", "uniquefn")
+        self.assertTrue(confs, f"cross-file call edge missing entirely: {confs}")
+        self.assertNotIn("RECEIVER_RESOLVED", confs, f"qualified-import residual unexpectedly promoted: {confs}")
+
+    def test_unannotated_receiver_guess_not_promoted(self):
+        # FAITHFULNESS: an unannotated local's `foo.bar()` is a receiver-type
+        # guess — it must NOT bind/promote (no type is known).
+        payload = self._build({
+            "src/foo.py": "class Foo:\n    def bar(self): pass\n",
+            "src/bar.py": "from src.foo import Foo\ndef make():\n    foo = Foo()\n    foo.bar()\n",
+        })
+        confs = self._confs(payload, "bar.py::make", "Foo.bar")
+        self.assertNotIn("RECEIVER_RESOLVED", confs, f"guessed receiver wrongly promoted: {confs}")
+        self.assertEqual(confs, [], f"guessed receiver should emit no Foo.bar edge: {confs}")
+
+    def test_ambiguous_cross_file_simple_name_not_promoted(self):
+        # FAITHFULNESS: two project defs of `dup` → `simple_name_index['dup']`
+        # has len 2 → no unique bind → not promoted (stays external/EXTRACTED).
+        payload = self._build({
+            "src/a.py": "def dup(): pass\n",
+            "src/b.py": "def dup(): pass\n",
+            "src/c.py": "import src.a\nimport src.b\ndef run():\n    src.a.dup()\n",
+        })
+        # The ambiguous bare leaf must never be RECEIVER_RESOLVED via simple-name.
+        rr = [
+            e for e in payload.get("edges", [])
+            if e.get("relation") == "calls"
+            and "c.py::run" in str(e.get("source", ""))
+            and e.get("confidence") == "RECEIVER_RESOLVED"
+            and "dup" in str(e.get("target", "")).lower()
+            and not str(e.get("target", "")).startswith("src/a.py")
+        ]
+        self.assertEqual(rr, [], f"ambiguous simple-name wrongly promoted: {rr}")
+
+
 class ConstructionEdgesTests(unittest.TestCase):
     """1319s: construction-call edges routed to class node with CONSTRUCTION_RESOLVED."""
 

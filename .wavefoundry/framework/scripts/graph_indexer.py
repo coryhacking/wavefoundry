@@ -5848,7 +5848,25 @@ class GraphIndexSession:
                     func_qname = f"{current_symbol.split('::', 1)[-1]}.{stmt.name}" if current_symbol else stmt.name
                     collect_calls(stmt.body, f"{rel_path}::{func_qname}", scope_class=scope_class, owner_node=stmt)
             for src, target, receiver_resolved in collector.calls:
-                confidence = "RECEIVER_RESOLVED" if receiver_resolved else "EXTRACTED"
+                # Wave 1p7dg: v23-style same-file confidence promotion. When the
+                # receiver TYPE was not needed but `_resolve_call` still bound a
+                # non-`external::` target, that target is a UNIQUE same-file
+                # `symbol_lookup` match BY CONSTRUCTION — `symbol_lookup` holds this
+                # file's `defined_symbols` (per-file unique) plus `simple_names`
+                # entries added only at `len==1`. The four such paths are an
+                # enclosing-class method (`self`/`cls`), a same-file bare def, an
+                # enclosing-class bare call, and a qualified `Owner.method` whose
+                # owner is itself a same-file symbol — all exact-by-name, not a
+                # receiver-type guess. So the edge is high-confidence even though
+                # `receiver_resolved` is False (the flag means "a TYPE was resolved",
+                # not "the target is unbound"). Mirrors the TS/JS bare-simple-name
+                # promotion at the cross-file rewrite (see ~7497). Target unchanged —
+                # only the confidence label. A guessed receiver / unresolved name
+                # returns `external::`/None and correctly stays EXTRACTED.
+                if receiver_resolved or (target and not target.startswith("external::")):
+                    confidence = "RECEIVER_RESOLVED"
+                else:
+                    confidence = "EXTRACTED"
                 edges.append(_edge(src, target, "calls", confidence=confidence))
             # Wave 1p4ls: same-file constant reads (deduped per (reader, constant)).
             for src, target in dict.fromkeys(collector.reads):
@@ -7494,6 +7512,18 @@ class GraphIndexSession:
                     # the AC-2 simple-name fallback (qualified `obj.method()`
                     # without a qualified match) is genuinely a guess about
                     # `obj`'s type and must stay EXTRACTED.
+                    #
+                    # Wave 1p7dg note: Python's cross-file bound-but-EXTRACTED
+                    # edges (562 on the self-host graph) reach a project node via
+                    # the AC-2 qualified-import branch (`from x import y` → a
+                    # `qualified_index` len==1 match), NOT this bare-simple branch
+                    # — so extending the language set here promotes nothing
+                    # (measured: zero local lift). Promoting the qualified branch
+                    # for Python is a faithfulness-sensitive follow-on (it is the
+                    # AC-2-guarded zone) and is out of scope; the same-file
+                    # promotion at the extraction site captured the 6,422-edge
+                    # bulk. The residual stays EXTRACTED (conservative, no
+                    # regression).
                     promoted_conf = conf
                     if (
                         conf == "EXTRACTED"

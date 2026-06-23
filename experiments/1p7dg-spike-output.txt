@@ -1,0 +1,26 @@
+builder_version: 32
+
+=== Side A: calls-edge confidence by language (real graph) ===
+  javascript   total=  1136  EXTRACTED=   733 (64.5%)  CONSTRUCTION_RESOLVED=52 RECEIVER_RESOLVED=351
+  python       total= 11844  EXTRACTED= 10708 (90.4%)  RECEIVER_RESOLVED=1136
+
+=== Side A': EXTRACTED-edge promotion headroom (v23-style) ===
+  javascript   EXTRACTED=   733  bound-to-project-node=    52 ( 7.1%)  external/unresolved=681 (92.9%)
+  python       EXTRACTED= 10708  bound-to-project-node=  6944 (64.8%)  external/unresolved=3764 (35.2%)
+
+=== Side B: Python call-site receiver-shape census (source AST) ===
+  scanned 51 framework Python files (excl tests/experiments)
+  bare_call                          8928
+  untyped_name_recv                  5493
+  RECOVERABLE_annotated_name         2307
+  call_result_recv                    874
+  other_recv                          833
+  attr_chain_recv                     506
+  self_cls                            274
+  RECOVERABLE_constructed_name         44
+  other_call                            3
+
+  method-call receivers (excl bare/other) = 10331
+  syntactically-recoverable receiver names = 2351 (22.8% of method-call receivers)
+  self/cls (intra-class, already same-file) = 274 (2.7%)
+  untyped bare-name receivers (ceiling)     = 5493 (53.2%)
