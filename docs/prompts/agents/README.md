@@ -10,8 +10,8 @@ Supporting agent-oriented prompt bodies for Wavefoundry. These are checked-in co
 
 | File | Purpose |
 |------|---------|
-| `init-wave-context.prompt.md` | Agent body for Init wave framework |
-| `upgrade-wave-context.prompt.md` | Agent body for Upgrade wave framework |
+| `init-wave-context.prompt.md` | Agent body for Init Wavefoundry |
+| `upgrade-wave-context.prompt.md` | Agent body for Upgrade Wavefoundry |
 | `plan-feature.prompt.md` | Agent body for Plan feature |
 | `prepare-wave.prompt.md` | Agent body for Prepare wave |
 | `implement-wave.prompt.md` | Agent body for Implement wave |

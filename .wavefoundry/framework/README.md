@@ -12,8 +12,8 @@ This folder is Wavefoundry's canonical Wave Framework source for initializing, u
 
 Use these public phrases in a target project's repository:
 
-- `Init wave framework` (legacy: `Init wave context`)
-- `Upgrade wave framework` (legacy: `Upgrade wave context`)
+- `Init Wavefoundry` (legacy: `Init wave framework` / `Init wave context`)
+- `Upgrade Wavefoundry` (legacy: `Upgrade wave framework` / `Upgrade wave context`)
 - `Plan feature`
 - `Create wave`
 - `Add change to wave`
@@ -26,13 +26,13 @@ Use these public phrases in a target project's repository:
 - `Close wave`
 - `Finalize feature`
 
-Packaging (maintainer / cross-repo distribution) uses **`Package Wavefoundry`** — the wavefoundry-repo-only operator entry lives at `docs/prompts/package-wavefoundry.prompt.md` in the wavefoundry source tree and is intentionally not shipped to consumer projects (consumers run **`Upgrade wave framework`** instead). From the Wavefoundry repository root, run `python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH`. The script writes `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` to `~/.wavefoundry/dist/` by default, where `<build>` is the rightmost 4 characters of the current lifecycle prefix. It stamps `.wavefoundry/framework/VERSION` to `MAJOR.MINOR.PATCH+<build>` before writing the archive. Every zip entry begins with `.wavefoundry/framework/`, so extracting at a repository root restores the canonical framework source layout. Legacy phrases such as **`Package wave framework`** and **`Package wave context`** remain accepted only as migration aliases.
+Packaging (maintainer / cross-repo distribution) uses **`Package Wavefoundry`** — the wavefoundry-repo-only operator entry lives at `docs/prompts/package-wavefoundry.prompt.md` in the wavefoundry source tree and is intentionally not shipped to consumer projects (consumers run **`Upgrade Wavefoundry`** instead). From the Wavefoundry repository root, run `python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH`. The script writes `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` to `~/.wavefoundry/dist/` by default, where `<build>` is the rightmost 4 characters of the current lifecycle prefix. It stamps `.wavefoundry/framework/VERSION` to `MAJOR.MINOR.PATCH+<build>` before writing the archive. Every zip entry begins with `.wavefoundry/framework/`, so extracting at a repository root restores the canonical framework source layout. Legacy phrases such as **`Package wave framework`** and **`Package wave context`** remain accepted only as migration aliases.
 
-**`Install wave framework`** (legacy: **`Install wave context`**) may be accepted as a convenience alias, but it is not a new primary public command:
+**`Install Wavefoundry`** (legacy: **`Install wave framework`** / **`Install wave context`**) may be accepted as a convenience alias, but it is not a new primary public command:
 
-- route it to **`Init wave framework`** / **`Init wave context`** when the repository has not yet been seeded into any wave-context state
-- route it to **`Upgrade wave framework`** / **`Upgrade wave context`** when the repository already contains legacy project-context artifacts or an installed Wave Framework layer
-- prefer **`Init wave framework`** / **`Upgrade wave framework`** in durable prompt surfaces, docs, and handoffs (legacy **context** phrases remain valid)
+- route it to **`Init Wavefoundry`** when the repository has not yet been seeded into any wave-context state
+- route it to **`Upgrade Wavefoundry`** when the repository already contains legacy project-context artifacts or an installed Wave Framework layer
+- prefer **`Init Wavefoundry`** / **`Upgrade Wavefoundry`** in durable prompt surfaces, docs, and handoffs (legacy **`Init wave framework`** / **`Upgrade wave framework`** and **context** phrases remain valid)
 
 ## Framework Identity
 
@@ -118,7 +118,7 @@ Rules:
 - Filenames themselves do **not** change — `seed-NNN` is citation shorthand only. The `Prompt Map` remains the authoritative filename resolver and must continue to carry every prompt's full `NNN-<slug>.prompt.md` name.
 - Use `seed-NNN` only for citations to files within this shared framework source (`framework/seeds/`). Repo-local artifacts (`docs/prompts/<name>.md`, `docs/agents/<role>.md`, `docs/waves/<wave-id>/wave.md`, etc.) keep their full paths -- `seed-NNN` is not a generic alias system.
 - Top-of-file headings (`# 030 - Inventory And Map`) and `## Prompt Map` entries keep their long forms; only inline citations in prose use the short form.
-- Downstream repos inherit the convention on their next **`Upgrade wave framework`** (legacy: **`Upgrade wave context`**) run; nothing in an already-seeded repo breaks because long-form filenames continue to resolve.
+- Downstream repos inherit the convention on their next **`Upgrade Wavefoundry`** (legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**) run; nothing in an already-seeded repo breaks because long-form filenames continue to resolve.
 
 ## Numbered Overview Docs
 
@@ -429,7 +429,7 @@ The canonical reference is the 15-factor model: the original Twelve-Factor App m
 | 14 | **Telemetry** *(IBM)* | Project has monitoring, alerting, distributed tracing, or operational dashboard requirements |
 | 15 | **Auth and security** *(IBM)* | Project has authentication, authorization, multi-user access control, or externally-facing trust boundaries |
 
-**When to skip a factor:** if the project provides no concrete evidence for the applicability signal, record the factor as `not-applicable` with a one-line rationale in `docs/repo-profile.json` under `factor_review`. Do not generate an agent file for skipped factors. Re-evaluate skipped factors during **`Upgrade wave framework`** (legacy: **`Upgrade wave context`**) when project scope changes.
+**When to skip a factor:** if the project provides no concrete evidence for the applicability signal, record the factor as `not-applicable` with a one-line rationale in `docs/repo-profile.json` under `factor_review`. Do not generate an agent file for skipped factors. Re-evaluate skipped factors during **`Upgrade Wavefoundry`** (legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**) when project scope changes.
 
 **Relation to generic reviewers:** factor agents are narrow specialists. They ask factor-specific questions that the general reviewer pool would otherwise miss. When a factor overlaps closely with an existing reviewer (e.g., factor 15 auth/security overlaps with `security-reviewer`), keep both but define non-overlapping scope in each agent's instructions.
 

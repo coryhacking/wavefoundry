@@ -1099,7 +1099,7 @@ class DocsLintFixtureTests(unittest.TestCase):
             '  "public_prompt_surface": [\n'
             '    {\n'
             '      "doc": "docs/prompts/install-wavefoundry.prompt.md",\n'
-            '      "shortcut": "Init wave framework"\n'
+            '      "shortcut": "Init Wavefoundry"\n'
             '    }\n'
             '  ]\n'
             '}\n',

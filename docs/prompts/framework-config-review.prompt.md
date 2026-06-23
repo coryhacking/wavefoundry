@@ -67,4 +67,4 @@ Group by verdict. Lead with `retire` (the removal bias). End with a one-line sum
 | **Codebase cleanup review** | Prune **code** (dead code, duplication, complexity, debt) — the code counterpart to this agent-surface review |
 | **Council review** | Adversarial + council pass on a specific artifact (a plan, change, design) |
 | **Evaluate decision** | An architectural/technology decision specifically — produces an ADR |
-| **Upgrade wave framework** | Surfaces the recommendation to run this review on a major/minor upgrade |
+| **Upgrade Wavefoundry** | Surfaces the recommendation to run this review on a major/minor upgrade |

@@ -421,7 +421,7 @@ _FACTOR_CANONICAL_RE = re.compile(r"^factor-(\d{2})-[a-z0-9][a-z0-9\-]*$")
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n.*?\n---\s*(?:\n|$)", re.DOTALL)
 _FACTOR_RECOVERY = (
     "regenerate the canonical+wrapper pair via `seed-050` task 5 "
-    "(or an `Upgrade wave framework` reconciliation) — do not hand-relocate or retire the wrapper, "
+    "(or an `Upgrade Wavefoundry` reconciliation) — do not hand-relocate or retire the wrapper, "
     "and keep the canonical home flat at `docs/agents/` (never `docs/agents/factors/`)"
 )
 

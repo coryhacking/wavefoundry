@@ -1,6 +1,6 @@
-# 010 - Init Wave Framework (Shortcut router)
+# 010 - Init Wavefoundry (Shortcut router)
 
-**Primary:** **`Init wave framework`**. **Backwards-compatible:** **`Install Wavefoundry`**, **`Install wave framework`**, **`Init wave context`**, **`Install wave context`** — identical behavior; keep accepting them from operators and older docs.
+**Primary:** **`Init Wavefoundry`**. **Backwards-compatible:** **`Install Wavefoundry`**, **`Init wave framework`**, **`Install wave framework`**, **`Init wave context`**, **`Install wave context`** — identical behavior; keep accepting them from operators and older docs.
 
 This seed used to carry the full install body. As of wave `1p35d` (1.5.0), install is restructured into two phases backed by a markdown-native state machine. **The install body now lives in seeds 011 and 012.**
 
@@ -23,7 +23,7 @@ The install state machine is `wavefoundry-install-log.md`, a pre-populated check
 
 ## What about Upgrade?
 
-When the repository already has an installed Wave Framework layer, hand off to **`Upgrade wave framework`** / **`Upgrade wave context`** (`seed-160`) instead of re-running bootstrap as init. Detection runs as part of agent entry — `seed-011` row 1.2's setup script handles the upgrade-detection branch.
+When the repository already has an installed Wave Framework layer, hand off to **`Upgrade Wavefoundry`** (legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**) (`seed-160`) instead of re-running bootstrap as init. Detection runs as part of agent entry — `seed-011` row 1.2's setup script handles the upgrade-detection branch.
 
 ## Authoritative content moved
 

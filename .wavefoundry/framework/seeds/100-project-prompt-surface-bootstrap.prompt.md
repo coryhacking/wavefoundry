@@ -101,7 +101,7 @@ Cross-surface rules:
 
 ## Design-System Extraction — Prompt Surface Note
 
-Design-system extraction (seeded under `docs/design-system/` by `seed-040` task 14 and `seed-010` step 8) does **not** introduce new public shortcut phrases. The extraction contract is activated through the existing `Init wave framework` and `Upgrade wave framework` lifecycle paths. No additional operator commands are needed.
+Design-system extraction (seeded under `docs/design-system/` by `seed-040` task 14 and `seed-010` step 8) does **not** introduce new public shortcut phrases. The extraction contract is activated through the existing `Init Wavefoundry` and `Upgrade Wavefoundry` lifecycle paths. No additional operator commands are needed.
 
 When generating or refreshing `docs/prompts/index.md`, do **not** add a standalone `Extract design system` or `Design extraction` public shortcut. Instead, ensure the index notes that design extraction runs as part of install/upgrade backfill when `docs/design-system/` is present or seeded. Operators who want to trigger a clean re-extraction manually should follow the rollback path documented in `docs/architecture/design-system.md` (when present) and the `meta`-category `gaps.md` entry protocol defined in `seed-160`.
 

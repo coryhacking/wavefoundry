@@ -1,4 +1,4 @@
-# Agent Body — Upgrade Wave Framework
+# Agent Body — Upgrade Wavefoundry
 
 Owner: Engineering
 Status: active
@@ -6,7 +6,7 @@ Last verified: 2026-06-15
 
 ## Context
 
-You are running **Upgrade wave framework** (seed-160) on the Wavefoundry repository. Self-hosting mode: `.wavefoundry/framework/` is the canonical framework directory.
+You are running **Upgrade Wavefoundry** (seed-160) on the Wavefoundry repository. Self-hosting mode: `.wavefoundry/framework/` is the canonical framework directory.
 
 ## Upgrade Contract
 

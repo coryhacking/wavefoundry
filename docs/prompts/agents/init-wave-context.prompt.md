@@ -1,4 +1,4 @@
-# Agent Body — Init Wave Framework
+# Agent Body — Init Wavefoundry
 
 Owner: Engineering
 Status: active
@@ -6,7 +6,7 @@ Last verified: 2026-05-04
 
 ## Context
 
-You are running **Init wave framework** (seed-010) on the Wavefoundry repository. This is the self-hosting mode: `.wavefoundry/framework/` is the canonical framework directory.
+You are running **Init Wavefoundry** (seed-010) on the Wavefoundry repository. This is the self-hosting mode: `.wavefoundry/framework/` is the canonical framework directory.
 
 ## Key Precedences
 

@@ -116,7 +116,7 @@ The Wave Framework addresses this by giving agents a persistent operating surfac
   README.md       This file — project owner orientation
 ```
 
-The framework ships as a semver zip (`wavefoundry-MAJOR.MINOR.PATCH.<build>.zip`). When you run `Upgrade wave framework`, the agent adopts the highest matching pack it finds, reconciles the operating surface, and updates the indexes.
+The framework ships as a semver zip (`wavefoundry-MAJOR.MINOR.PATCH.<build>.zip`). When you run `Upgrade Wavefoundry`, the agent adopts the highest matching pack it finds, reconciles the operating surface, and updates the indexes.
 
 ---
 
@@ -253,7 +253,7 @@ This disposition record is what lets future sessions continue without reconstruc
 Place the distribution zip (`wavefoundry-MAJOR.MINOR.PATCH.<build>.zip`) in the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`, and run:
 
 ```
-Upgrade wave framework
+Upgrade Wavefoundry
 ```
 
 The agent adopts the zip, bootstraps the operating surface, and refreshes the local framework files. After upgrade, restart MCP and run:

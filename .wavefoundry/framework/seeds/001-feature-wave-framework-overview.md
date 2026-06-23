@@ -11,7 +11,7 @@ Tagline: **Docs-first engineering for agent-driven software delivery.**
 ## How To Use This Doc
 
 - Use this file as the shared conceptual overview that ships with the seed prompt package.
-- Keep project-specific reviewer names, personas, artifact paths, and operating exceptions in the repo-local generated version created during **`Init wave framework`** or **`Upgrade wave framework`** (legacy: **`Init wave context`** / **`Upgrade wave context`**).
+- Keep project-specific reviewer names, personas, artifact paths, and operating exceptions in the repo-local generated version created during **`Init Wavefoundry`** or **`Upgrade Wavefoundry`** (legacy: **`Init wave framework`** / **`Upgrade wave framework`** / **`Init wave context`** / **`Upgrade wave context`**).
 - Treat the linked repo-local docs as the source of truth for exact gates and routing for a seeded project (files live in the repository).
 
 ## What The Wave System Is

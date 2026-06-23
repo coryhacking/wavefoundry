@@ -31,7 +31,7 @@ When one or more items above are false, treat the framework as still hardening r
 
 ### Init contract
 
-**`Init wave framework`** (legacy aliases: **`Install Wavefoundry`**, **`Install wave framework`**, **`Init wave context`**) should create the project's first complete Wave Framework layer in the repository when no prior install already exists. At minimum it should create or normalize:
+**`Init Wavefoundry`** (legacy aliases: **`Init wave framework`**, **`Install wave framework`**, **`Init wave context`**, **`Install wave context`**) should create the project's first complete Wave Framework layer in the repository when no prior install already exists. At minimum it should create or normalize:
 
 - the canonical `docs/` structure and top-level indexes
 - repo-local orientation docs such as `docs/references/project-overview.md`
@@ -44,7 +44,7 @@ When one or more items above are false, treat the framework as still hardening r
 
 ### Upgrade contract
 
-**`Upgrade wave framework`** (legacy aliases: **`Upgrade Wavefoundry`**, **`Upgrade wave context`**) should refresh an existing wave-context or legacy project-context installation by:
+**`Upgrade Wavefoundry`** (legacy aliases: **`Upgrade wave framework`**, **`Upgrade wave context`**) should refresh an existing wave-context or legacy project-context installation by:
 
 - when dated `wavefoundry-*.zip` files are present at the repository root, adopting the newest pack per `160-upgrade-wavefoundry.prompt.md` **step 0** before reconciling repo-local outputs (unpack, `render_platform_surfaces.py`, then the standard upgrade sequence)
 - reading the current local docs, prompts, config, and artifact roots before writing changes

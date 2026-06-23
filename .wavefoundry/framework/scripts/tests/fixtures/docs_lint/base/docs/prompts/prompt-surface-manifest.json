@@ -12,11 +12,11 @@
   "public_prompt_surface": [
     {
       "doc": "docs/prompts/install-wavefoundry.prompt.md",
-      "shortcut": "Init wave framework"
+      "shortcut": "Init Wavefoundry"
     },
     {
       "doc": "docs/prompts/upgrade-wavefoundry.prompt.md",
-      "shortcut": "Upgrade wave framework"
+      "shortcut": "Upgrade Wavefoundry"
     },
     {
       "doc": "docs/prompts/plan-feature.prompt.md",

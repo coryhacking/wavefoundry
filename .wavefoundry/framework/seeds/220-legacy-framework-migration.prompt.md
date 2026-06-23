@@ -15,8 +15,8 @@ Migration tasks:
    - repositories whose installed context should now be classified as `wave-0`
 2. Migrate those references to:
    - `.wavefoundry/framework/`
-   - **`Init wave framework`** (legacy: **`Init wave context`**)
-   - **`Upgrade wave framework`** (legacy: **`Upgrade wave context`**)
+   - **`Init Wavefoundry`** (legacy: **`Init wave framework`** / **`Init wave context`**)
+   - **`Upgrade Wavefoundry`** (legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**)
 3. Update root wrapper references so `.wavefoundry/bin/docs-lint` and `.wavefoundry/bin/docs-gardener` stop pointing at the legacy framework path. **Agent-facing docs** should still prefer MCP **`wave_validate`** / **`wave_garden`** over shelling to those launchers when MCP is available (`seed-050`).
 4. Create or preserve the reserved `wave-0` baseline wave when legacy pre-wave docs are still the source corpus:
    - Use `00000 wave-zero-plans-and-specs` as the `wave-id`
@@ -51,7 +51,7 @@ Migration tasks:
    - Refresh persona agent invocation signals and failure modes when the baseline corpus reveals new user-facing patterns
    - Mark the wave `Status: completed` only after all reviews, journals, and core-doc promotions are recorded
 8. Retire or rewrite stale local prompt docs and generated-doc references that still point to legacy project-context phrasing or obsolete helper names after replacement artifacts are in place.
-9. Document **`Init wave framework`** (legacy: **`Init wave context`**) as the first-phase detector for baseline capture and **`Upgrade wave framework`** (legacy: **`Upgrade wave context`**) as the refresh handoff for already-installed wave repos; treat **`Install wave framework`** / **`Install wave context`** only as convenience aliases that resolve through init detection.
+9. Document **`Init Wavefoundry`** (legacy: **`Init wave framework`** / **`Init wave context`**) as the first-phase detector for baseline capture and **`Upgrade Wavefoundry`** (legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**) as the refresh handoff for already-installed wave repos; treat **`Install Wavefoundry`** / **`Install wave framework`** / **`Install wave context`** only as convenience aliases that resolve through init detection.
 10. Preserve useful repo-grown behavior instead of flattening it.
 11. Flag leftover legacy artifacts for retirement only after replacement artifacts are valid.
 12. If migration is interrupted, leave the repository in an additive mixed state that still points to valid prompt and wrapper paths rather than deleting the old framework first.

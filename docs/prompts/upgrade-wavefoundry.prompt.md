@@ -1,10 +1,10 @@
-# Upgrade Wave Framework
+# Upgrade Wavefoundry
 
 Owner: Engineering
 Status: active
 Last verified: 2026-06-17
 
-Shortcut: **`Upgrade wave framework`** | Legacy: **`Upgrade Wavefoundry`** / **`Upgrade wave context`**
+Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
 ## Purpose
 
@@ -20,7 +20,7 @@ The expected operator flow is:
    - Usually this means building or placing `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`.
    - If the repository already has the desired newer `.wavefoundry/framework/` tree staged locally, the upgrade runs against that tree directly.
    - **Never `ls` for the pack to decide whether one exists.** It almost always lives in `~/.wavefoundry/dist/`, not the repo root, so an empty `ls wavefoundry-*.zip` at the repo root does **not** mean there's no pack. Determine it only via `.wavefoundry/bin/upgrade-wavefoundry --detect-zip` / `--list-zips` / `--dry-run` (see *Agent-safe zip discovery* below).
-2. Run **Upgrade wave framework**.
+2. Run **Upgrade Wavefoundry**.
    - If a root `wavefoundry-*.zip` is present, upgrade automatically unpacks the newest matching zip first.
    - It then regenerates tracked platform surfaces, reconciles docs/prompts/config, and validates drift.
 3. Reload the MCP server **in-process** when the upgrade finishes.
@@ -161,4 +161,4 @@ Inventory/drift-detection subagents run read-only. Broad edits to `docs/prompts/
 
 ## Aliases
 
-- **Upgrade wave context** — legacy; identical behavior
+- **Upgrade wave framework** / **Upgrade wave context** — legacy; identical behavior

@@ -355,7 +355,7 @@ class BuildPackTests(unittest.TestCase):
     def test_lint_exclusions_doc_ships_in_pack(self):
         """Wave 1p3b9 (1p3b5): the operator-visible `lint-exclusions.md`
         reference doc lives under `.wavefoundry/framework/docs/` so it ships
-        in every release pack. Consumers running `Upgrade wave framework`
+        in every release pack. Consumers running `Upgrade Wavefoundry`
         receive the doc; enterprise security review reads it locally.
         Regression guard against accidental relocation outside the pack tree."""
         fw = self.tmp / "mini-fw-with-docs"
@@ -575,21 +575,21 @@ class ReleaseNotesInstallPrependTests(unittest.TestCase):
 
     def test_shipped_block_has_install_and_upgrade_sections(self):
         # The shipped release-notes header must carry BOTH a fresh-install path AND an
-        # upgrade path (an existing consumer needs "Upgrade wave framework", not Install).
+        # upgrade path (an existing consumer needs "Upgrade Wavefoundry", not Install).
         repo_root = Path(build_pack.__file__).resolve().parents[3]
         block = (repo_root / build_pack.RELEASE_NOTES_INSTALL_BLOCK_REL).read_text(encoding="utf-8")
         self.assertIn("## Install", block)
         self.assertIn("## Upgrade", block)
-        self.assertIn("Upgrade wave framework", block)
+        self.assertIn("Upgrade Wavefoundry", block)
         # Install precedes Upgrade in document order.
         self.assertLess(block.index("## Install"), block.index("## Upgrade"))
 
     def test_upgrade_block_flows_into_assembled_notes(self):
         # The upgrade block reaches the assembled release notes, above the changelog body.
-        self._write_block("## Install\n\nfresh.\n\n## Upgrade\n\nUpgrade wave framework\n\n---\n\n")
+        self._write_block("## Install\n\nfresh.\n\n## Upgrade\n\nUpgrade Wavefoundry\n\n---\n\n")
         notes = build_pack._assemble_release_notes(self.tmp, "### Changed\n\n- thing\n")
         self.assertIn("## Upgrade", notes)
-        self.assertIn("Upgrade wave framework", notes)
+        self.assertIn("Upgrade Wavefoundry", notes)
         self.assertLess(notes.index("## Upgrade"), notes.index("### Changed"))
 
     def test_install_block_is_prepended_to_changelog_body(self):

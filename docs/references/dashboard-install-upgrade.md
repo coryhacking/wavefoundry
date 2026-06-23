@@ -73,7 +73,7 @@ If a `dashboard` block already exists in `workflow-config.json`, seed-010 preser
 
 ## Upgrade (seed-160)
 
-The `Upgrade wave framework` flow (seed-160) adopts the new framework zip automatically — root-zip extraction is built into the upgrade, not a manual `unzip` step — overwriting dashboard assets in place. After the upgrade extracts the pack:
+The `Upgrade Wavefoundry` flow (seed-160) adopts the new framework zip automatically — root-zip extraction is built into the upgrade, not a manual `unzip` step — overwriting dashboard assets in place. After the upgrade extracts the pack:
 
 1. The server script (`dashboard_server.py`) and shared reader (`dashboard_lib.py`) are replaced with the new version.
 2. The browser assets (`dashboard.js`, `dashboard.css`, `dashboard.html`, React bundles) are replaced.

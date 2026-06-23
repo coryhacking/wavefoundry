@@ -8,7 +8,7 @@ Shortcut: **`Package Wavefoundry`** | Legacy: **`Package wave framework`** / **`
 
 ## Purpose
 
-Build a semver distribution zip of the canonical framework tree so other repositories can adopt it through **Upgrade wave framework**.
+Build a semver distribution zip of the canonical framework tree so other repositories can adopt it through **Upgrade Wavefoundry**.
 
 ## Run
 
@@ -74,7 +74,7 @@ wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
 
 ## Upgrade Path Coverage
 
-After packaging, target repositories should consume the pack via **Upgrade wave framework** so the upgrade flow can:
+After packaging, target repositories should consume the pack via **Upgrade Wavefoundry** so the upgrade flow can:
 
 - adopt the highest semver `wavefoundry-*.zip` from the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/` (Step 0),
 - regenerate host surfaces (`.cursor/mcp.json`, `.mcp.json`, `.junie/mcp/mcp.json`) through `render_platform_surfaces.py`,
@@ -84,4 +84,4 @@ After packaging, target repositories should consume the pack via **Upgrade wave 
 ## Notes
 
 - Zip archives are transport artifacts; do not commit them.
-- Use **Upgrade wave framework** (not init) in already-seeded target repositories.
+- Use **Upgrade Wavefoundry** (not init) in already-seeded target repositories.

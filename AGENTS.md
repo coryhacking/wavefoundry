@@ -104,11 +104,11 @@ Public Wave Framework commands for Wavefoundry's self-hosted surface. Full detai
 
 | Phrase | Purpose | Doc |
 | --------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
-| **Init wave framework** | Initialize Wave Framework in a target repo | `docs/prompts/install-wavefoundry.prompt.md` |
+| **Init Wavefoundry** | Initialize Wave Framework in a target repo | `docs/prompts/install-wavefoundry.prompt.md` |
 | **Start dashboard** | Start the local repository dashboard | `docs/prompts/start-dashboard.prompt.md` |
 | **Stop dashboard** | Stop the local repository dashboard | `docs/prompts/stop-dashboard.prompt.md` |
 | **Restart dashboard** | Restart the local repository dashboard | `docs/prompts/restart-dashboard.prompt.md` |
-| **Upgrade wave framework** | Upgrade Wave Framework in a target repo | `docs/prompts/upgrade-wavefoundry.prompt.md` |
+| **Upgrade Wavefoundry** | Upgrade Wave Framework in a target repo | `docs/prompts/upgrade-wavefoundry.prompt.md` |
 | **Plan feature** | Author a consolidated change doc | `docs/prompts/plan-feature.prompt.md` |
 | **Create wave** | Create a wave record | `docs/prompts/create-wave.prompt.md` |
 | **Add change to wave** | Admit a change doc into the active wave | `docs/prompts/add-change-to-wave.prompt.md` |
@@ -128,7 +128,7 @@ Public Wave Framework commands for Wavefoundry's self-hosted surface. Full detai
 | **Migrate to Wavefoundry** | Migrate a target repo from legacy layout | `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md` |
 
 
-Legacy aliases: `Init wave context`, `Upgrade wave context`, `Package wave framework`, `Package wave context` — identical behavior; accept from operators and older docs.
+Legacy aliases: `Init wave framework`, `Init wave context`, `Upgrade wave framework`, `Upgrade wave context`, `Package wave framework`, `Package wave context` — identical behavior; accept from operators and older docs.
 
 ## Implementation Principles
 

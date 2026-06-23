@@ -692,7 +692,7 @@ When falling back:
 
 Once **Enable Wavefoundry MCP** has been run and `setup_wavefoundry.py` has built the index, switch back to the MCP tools.
 
-**Availability note:** MCP is not active at `Init wave framework` time — it is registered separately via **Enable Wavefoundry MCP**. The index is built via `setup_wavefoundry.py` after registration (`setup_index.py` remains the compatibility implementation path behind it).
+**Availability note:** MCP is not active at `Init Wavefoundry` time — it is registered separately via **Enable Wavefoundry MCP**. The index is built via `setup_wavefoundry.py` after registration (`setup_index.py` remains the compatibility implementation path behind it).
 
 ## Incident Documentation
 

@@ -1286,9 +1286,9 @@ def render_aiignore(repo_root: Path) -> None:
 
 
 def render_upgrade_skill(repo_root: Path) -> None:
-    content = """# Claude skill: Upgrade wave framework
+    content = """# Claude skill: Upgrade Wavefoundry
 
-**Backwards-compatible operator phrase:** *Upgrade wave context* — same checklist.
+**Backwards-compatible operator phrases:** *Upgrade wave framework*, *Upgrade wave context* — same checklist.
 
 Use this checklist when intentionally editing the wave framework or repo-local wave surfaces.
 

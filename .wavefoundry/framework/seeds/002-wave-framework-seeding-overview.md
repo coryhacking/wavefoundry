@@ -66,7 +66,7 @@ The maintainer-facing create/refresh/preserve rules for seeding and upgrade live
 
 A `00000 wave-zero-plans-and-specs` is the reserved baseline wave for historical material that predates the wave model.
 
-- create it during **`Init wave framework`** (legacy: **`Init wave context`**) when the repository contains legacy `project-context` artifacts, OpenSpec material, or other custom spec/feature/change corpora that should seed the wave system
+- create it during **`Init Wavefoundry`** (legacy: **`Init wave framework`** / **`Init wave context`**) when the repository contains legacy `project-context` artifacts, OpenSpec material, or other custom spec/feature/change corpora that should seed the wave system
 - move or normalize those legacy documents into `docs/waves/00000 wave-zero-plans-and-specs/`
 - keep the wave folder flat: a single `wave.md` file holds all baseline content (corpus inventory, normalization notes, review checkpoints, journal refs); do not create subdirectories like `legacy/` or `evidence/` inside the wave folder
 - give the closed baseline wave a final title that starts with `Legacy`, using `Legacy` for broad mixed corpora or a generated title such as `Legacy plans and specs` when the harvested material is more specific
@@ -75,17 +75,17 @@ A `00000 wave-zero-plans-and-specs` is the reserved baseline wave for historical
 
 `wave-0` is the first installed wave-context state for a repository.
 
-- a repository that starts with no prior framework reaches `wave-0` through **`Init wave framework`** (legacy: **`Init wave context`**)
+- a repository that starts with no prior framework reaches `wave-0` through **`Init Wavefoundry`** (legacy: **`Init wave framework`** / **`Init wave context`**)
 - a repository that starts with legacy material reaches `wave-0` after init captures and closes the wave-0 baseline
-- a repository that already has an installed Wave Framework layer may be handed off from init detection to **`Upgrade wave framework`** (legacy: **`Upgrade wave context`**)
+- a repository that already has an installed Wave Framework layer may be handed off from init detection to **`Upgrade Wavefoundry`** (legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**)
 - legacy aliases may still be recognized to help old repositories move forward
 
 ## Public Commands And Routing
 
 The intended public surface is:
 
-- `Init wave framework` (legacy aliases: `Install Wavefoundry`, `Install wave framework`, `Init wave context`, `Install wave context`)
-- `Upgrade wave framework` (legacy aliases: `Upgrade Wavefoundry`, `Upgrade wave context`, `Install wave framework` when init hands off to upgrade)
+- `Init Wavefoundry` (legacy aliases: `Init wave framework`, `Install wave framework`, `Init wave context`, `Install wave context`)
+- `Upgrade Wavefoundry` (legacy aliases: `Upgrade wave framework`, `Upgrade wave context`, `Install wave framework` when init hands off to upgrade)
 - `Plan feature`
 - `Create wave`
 - `Add change to wave`
@@ -100,19 +100,19 @@ The intended public surface is:
 
 Alias behavior:
 
-- **`Install wave framework`** (legacy: **`Install wave context`**) is a convenience alias resolved through init-phase detection, not a separate parallel entrypoint
-- route **`Install wave framework` / `Install wave context`** through **`Init wave framework`** / **`Init wave context`** first so repository-state detection can decide whether to clean-bootstrap, harvest the reserved legacy baseline wave, or hand off to upgrade
-- Do not preserve install-branded or pre-wave init/upgrade shortcut phrases as the canonical public surface; migrations should normalize onto **`Init wave framework` / `Upgrade wave framework`** (`Install Wavefoundry`, `Upgrade Wavefoundry`, `Init wave context`, and `Upgrade wave context` remain accepted backwards-compatible aliases).
+- **`Install Wavefoundry`** / **`Install wave framework`** (legacy: **`Install wave context`**) is a convenience alias resolved through init-phase detection, not a separate parallel entrypoint
+- route **`Install Wavefoundry` / `Install wave framework` / `Install wave context`** through **`Init Wavefoundry`** first so repository-state detection can decide whether to clean-bootstrap, harvest the reserved legacy baseline wave, or hand off to upgrade
+- migrations should normalize onto the product-branded canonical phrases **`Init Wavefoundry` / `Upgrade Wavefoundry`** (`Init wave framework`, `Upgrade wave framework`, `Install wave framework`, `Init wave context`, and `Upgrade wave context` remain accepted backwards-compatible aliases).
 
 ## Seeding Workflow
 
 ```mermaid
 flowchart TD
-    A[Start with a repository] --> B[Run Init wave framework]
+    A[Start with a repository] --> B[Run Init Wavefoundry]
     B --> C{Detected state?}
     C -->|No prior context| D[Bootstrap repo-local docs and first install]
     C -->|Legacy docs or alternate spec corpus| E[Capture and close wave-0 legacy baseline]
-    C -->|Installed Wave Framework layer| F[Hand off to Upgrade wave framework]
+    C -->|Installed Wave Framework layer| F[Hand off to Upgrade Wavefoundry]
     D --> G[Generate repo-local docs, prompt surface, workflow config, wrappers, and generated indexes]
     E --> H[Synthesize journals, personas, memory, and core-doc updates from legacy corpus]
     H --> G
@@ -124,7 +124,7 @@ flowchart TD
 
 ## First-Time Initialization
 
-Use **`Init wave framework`** (legacy: **`Init wave context`**) as the first-phase detector for repositories of any state.
+Use **`Init Wavefoundry`** (legacy: **`Init wave framework`** / **`Init wave context`**) as the first-phase detector for repositories of any state.
 
 The init flow should:
 
@@ -141,7 +141,7 @@ Expected outcome:
 
 - the project gains its first complete repo-local context layer at `wave-0`, optionally preceded by a closed dated legacy baseline capture
 - future planning and implementation prompts can rely on local canonical docs
-- later maintenance should usually happen through **`Upgrade wave framework`** (legacy: **`Upgrade wave context`**), not by re-running init blindly
+- later maintenance should usually happen through **`Upgrade Wavefoundry`** (legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**), not by re-running init blindly
 
 ## Repo-Generation Contract Summary
 
@@ -156,16 +156,16 @@ Use the full contract in `.wavefoundry/framework/seeds/009-framework-maintenance
 
 Use these examples to sanity-check whether the framework is still understandable as an end-to-end system:
 
-1. A project with no prior install runs **`Init wave framework`** (legacy: **`Init wave context`**), receives the local docs/prompt/memory layer, then uses `Plan feature` plus `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>` to start the first normal wave after `wave-0` scaffolding is in place.
+1. A project with no prior install runs **`Init Wavefoundry`** (legacy: **`Init wave framework`** / **`Init wave context`**), receives the local docs/prompt/memory layer, then uses `Plan feature` plus `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>` to start the first normal wave after `wave-0` scaffolding is in place.
 2. A project in mid-delivery completes part of a wave, carries unfinished work into the next wave under the same `change-id`, and refreshes wave memory, journals, and handoff state instead of pretending the feature is fully closed.
 3. A project that has completed planning runs `Prepare wave`, records the required implementer, reviewer, and persona lanes (including **`product-owner`** when product semantics move, and again after **`Add change to wave`** changes the admit set), and only then begins implementation. `Ready wave` remains an accepted alias.
 4. A project that has completed the planned work runs **`Review wave`** to **execute and record** the **Prepare wave** reviewer matrix (verdicts in **Review checkpoints**), reruns the **readiness evaluation** as part of that closure review, then runs `Finalize feature` or `Close wave`, records **docs-contract review** in the wave when `docs/specs/*.md` or other behavior contracts changed, promotes durable lessons into canonical docs and long-lived memory, archives temporary execution artifacts, and closes the feature or wave cleanly.
 
 ## Upgrade And Migration
 
-Use **`Upgrade wave framework`** (legacy: **`Upgrade wave context`**) when init has already determined that the repository contains an installed Wave Framework layer that needs refresh or reconciliation.
+Use **`Upgrade Wavefoundry`** (legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**) when init has already determined that the repository contains an installed Wave Framework layer that needs refresh or reconciliation.
 
-When one or more `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` distribution files exist at the **repository root**, under `~/.wavefoundry/`, or under `~/.wavefoundry/dist/`, the upgrade entrypoint (`160-upgrade-wavefoundry.prompt.md` **step 0**) should adopt the highest semver zip, regenerate tracked hooks via `render_platform_surfaces.py`, then continue with exploration, version guard (`VERSION` vs `docs/prompts/prompt-surface-manifest.json` **`framework_revision`**), and the rest of the upgrade flow — so operators can drop or build a new pack and run a single **Upgrade wave framework** (legacy: **Upgrade wave context**) without a separate manual unzip step.
+When one or more `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` distribution files exist at the **repository root**, under `~/.wavefoundry/`, or under `~/.wavefoundry/dist/`, the upgrade entrypoint (`160-upgrade-wavefoundry.prompt.md` **step 0**) should adopt the highest semver zip, regenerate tracked hooks via `render_platform_surfaces.py`, then continue with exploration, version guard (`VERSION` vs `docs/prompts/prompt-surface-manifest.json` **`framework_revision`**), and the rest of the upgrade flow — so operators can drop or build a new pack and run a single **Upgrade Wavefoundry** (legacy: **Upgrade wave framework** / **Upgrade wave context**) without a separate manual unzip step.
 
 The upgrade flow should:
 
@@ -219,7 +219,7 @@ The shared files in `.wavefoundry/framework/` should stay generic. Repository-sp
 
 ### Prefer explicit init/upgrade language in durable docs
 
-Even if **`Install wave context`** is accepted interactively, durable docs and handoffs should prefer **`Init wave framework`** and **`Upgrade wave framework`** (legacy phrases remain valid) so routing intent stays unambiguous.
+Even if **`Install wave context`** is accepted interactively, durable docs and handoffs should prefer **`Init Wavefoundry`** and **`Upgrade Wavefoundry`** (legacy phrases such as **`Init wave framework`** / **`Upgrade wave framework`** remain valid) so routing intent stays unambiguous.
 
 ### Preserve local evidence during upgrade
 

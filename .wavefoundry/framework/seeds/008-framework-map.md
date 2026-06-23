@@ -37,8 +37,8 @@ These files explain the framework and route maintainers toward the right operati
 
 These are the durable shortcut entry points that seeded repositories expose to users and agents:
 
-- `Init wave framework` (legacy aliases: `Install Wavefoundry` / `Install wave framework` / `Init wave context`)
-- `Upgrade wave framework` (legacy aliases: `Upgrade Wavefoundry` / `Upgrade wave context`)
+- `Init Wavefoundry` (legacy aliases: `Init wave framework` / `Install wave framework` / `Init wave context` / `Install wave context`)
+- `Upgrade Wavefoundry` (legacy aliases: `Upgrade wave framework` / `Upgrade wave context`)
 - `Plan feature`
 - `Create wave`
 - `Add change to wave`

@@ -22,12 +22,12 @@ The behavioral rules below apply to every command in this catalog. They are summ
 
 | Phrase | Purpose | Doc |
 |--------|---------|-----|
-| **Init wave framework** | Initialize Wave Framework in a target repository | `docs/prompts/install-wavefoundry.prompt.md` |
+| **Init Wavefoundry** | Initialize Wave Framework in a target repository | `docs/prompts/install-wavefoundry.prompt.md` |
 | **Start dashboard** | Start the local repository dashboard and open it in the browser | `docs/prompts/start-dashboard.prompt.md` |
 | **Stop dashboard** | Stop the local repository dashboard for the current checkout | `docs/prompts/stop-dashboard.prompt.md` |
 | **Restart dashboard** | Restart the local repository dashboard for the current checkout | `docs/prompts/restart-dashboard.prompt.md` |
 | **Enable Wavefoundry MCP** | Register the local MCP server in Claude Code, Cursor, Junie, Copilot, Codex, or Air | `docs/prompts/install-wavefoundry.prompt.md#mcp--wavefoundry-server` |
-| **Upgrade wave framework** | Upgrade Wave Framework in a target repository | `docs/prompts/upgrade-wavefoundry.prompt.md` |
+| **Upgrade Wavefoundry** | Upgrade Wave Framework in a target repository | `docs/prompts/upgrade-wavefoundry.prompt.md` |
 | **Plan feature** | Author a consolidated change document | `docs/prompts/plan-feature.prompt.md` |
 | **Create wave** | Create a wave record | `docs/prompts/create-wave.prompt.md` |
 | **Add change to wave** | Admit a change doc into the active wave | `docs/prompts/add-change-to-wave.prompt.md` |
@@ -62,9 +62,9 @@ The following phrases are accepted for backwards compatibility but redirect to p
 
 | Legacy Phrase | Routes To |
 |--------------|----------|
-| Init wave context | Init wave framework |
-| Upgrade wave context | Upgrade wave framework |
-| Install wave framework / Install wave context | Init wave framework (greenfield) or Upgrade wave framework (already seeded) |
+| Init wave framework / Init wave context | Init Wavefoundry |
+| Upgrade wave framework / Upgrade wave context | Upgrade Wavefoundry |
+| Install Wavefoundry / Install wave framework / Install wave context | Init Wavefoundry (greenfield) or Upgrade Wavefoundry (already seeded) |
 | Package wave framework / Package wave context | Package Wavefoundry |
 | Ask codebase / Ask CIA / Code insight | Guru |
 
@@ -78,7 +78,7 @@ The following phrases are accepted for backwards compatibility but redirect to p
 - **MCP freshness workflow:** Use `wave_audit` for a combined read-only post-change check; `wave_validate` for docs lint; `wave_garden` for metadata-only refresh; `wave_index_health` to decide whether search is ready, stale, missing, or degraded; `wave_index_build_status` only to poll a detached refresh; `wave_index_build` when you need a deterministic update or rebuild.
 - **Codebase map (MCP surface):** Read the generated orientation map via the resource `wavefoundry://codebase-map` (served fresh from `docs/references/codebase-map.md`; regenerated fail-safe if missing). Refresh just the map — without a full index rebuild — with `wave_index_build(content="map")` (runs the ~0.09 s generator only; change-only/idempotent, so an unchanged codebase is a no-op; fail-safe). The map is also regenerated automatically on **every** index rebuild path. **Reconnect caveat:** a newly added MCP resource or tool option only appears after the MCP client **reconnects** to the server (FastMCP limitation) — restart/reconnect if `wavefoundry://codebase-map` or `content="map"` is not yet visible.
 - **Guru output:** `code_ask` citations preserve the reranker `score`, but `final_rank` reflects the post-partition order. When `demoted: true` is present, the citation was intentionally pushed behind stronger implementation evidence. Do not treat score order and output order as the same thing.
-- **Wavefoundry self-hosting:** When editing framework seeds, use **Package Wavefoundry** to produce a distribution and **Upgrade wave framework** in a target repo to consume it.
+- **Wavefoundry self-hosting:** When editing framework seeds, use **Package Wavefoundry** to produce a distribution and **Upgrade Wavefoundry** in a target repo to consume it.
 
 ## Internal Agent-Oriented Prompt Bodies
 

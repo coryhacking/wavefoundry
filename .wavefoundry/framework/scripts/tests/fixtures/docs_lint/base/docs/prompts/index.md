@@ -4,5 +4,5 @@ Owner: Engineering
 Status: active
 Last verified: 2026-03-21
 
-- `Init wave framework` (legacy: `Init wave context`)
-- `Upgrade wave framework` (legacy: `Upgrade wave context`)
+- `Init Wavefoundry` (legacy: `Init wave framework` / `Init wave context`)
+- `Upgrade Wavefoundry` (legacy: `Upgrade wave framework` / `Upgrade wave context`)

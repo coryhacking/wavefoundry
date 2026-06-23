@@ -1,19 +1,19 @@
-# Init Wave Framework
+# Init Wavefoundry
 
 Owner: Engineering
 Status: active
 Last verified: 2026-06-19
 
-Shortcut: **`Init wave framework`** | Legacy: **`Install Wavefoundry`** / **`Install wave framework`** / **`Init wave context`**
+Shortcut: **`Init Wavefoundry`** | Legacy: **`Install Wavefoundry`** / **`Init wave framework`** / **`Install wave framework`** / **`Init wave context`** / **`Install wave context`**
 
 ## Purpose
 
-Initialize a target repository with the Wave Framework operating surface. Detects existing state first: if the repository is already seeded, hands off to **Upgrade wave framework** instead of re-running init.
+Initialize a target repository with the Wave Framework operating surface. Detects existing state first: if the repository is already seeded, hands off to **Upgrade Wavefoundry** instead of re-running init.
 
 ## What Init Does
 
 1. Reads the run contract (seed-020) and builds an evidence base (seed-030): `docs/repo-index.md`, `docs/repo-profile.json`.
-2. Detects existing Wave Framework state. If already installed, routes to **Upgrade wave framework**.
+2. Detects existing Wave Framework state. If already installed, routes to **Upgrade Wavefoundry**.
 3. For greenfield repos (no prior context): skips baseline wave; proceeds directly to bootstrap.
 4. For repos with legacy corpus (pre-wave plans/specs): captures and closes a `00000 wave-zero-plans-and-specs` baseline wave before bootstrapping.
 5. Bootstraps the full Wave Framework operating surface: docs structure, agent entry files, architecture docs, quality posture, prompt surface, wave artifacts, personas, and journals.
@@ -117,5 +117,5 @@ If you launched a detached background code build, poll `wave_index_build_status(
 
 ## Aliases
 
-- **Install wave framework** / **Install wave context** — accepted; routes to init (greenfield) or upgrade (already seeded)
-- **Init wave context** — legacy alias; identical behavior
+- **Install Wavefoundry** / **Install wave framework** / **Install wave context** — accepted; routes to init (greenfield) or upgrade (already seeded)
+- **Init wave framework** / **Init wave context** — legacy alias; identical behavior
