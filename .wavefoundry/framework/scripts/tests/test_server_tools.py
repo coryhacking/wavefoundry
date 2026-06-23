@@ -10795,10 +10795,14 @@ class BackgroundModelDownloadTests(unittest.TestCase):
     def test_get_reranker_does_not_cache_none_on_failure(self):
         """_get_reranker() must leave self._reranker as None when it cannot load the model."""
         idx = self._make_index()
-        with patch.dict(
-            "sys.modules",
-            {"fastembed": None, "fastembed.rerank": None, "fastembed.rerank.cross_encoder": None},
-        ):
+        # Test-isolation fix: `_get_reranker()` loads via `accel_embedder` (wave
+        # 1p52p), NOT fastembed — patching the stale fastembed paths left the
+        # accel path live, so on an accel_embedder box the reranker built
+        # successfully and this assertion failed depending on suite ordering.
+        # Patch out the module `_get_reranker` actually imports so the load
+        # genuinely fails and the no-cache-None behavior is exercised (mirrors
+        # test_ensure_model_cached_reranker_import_error).
+        with patch.dict("sys.modules", {"accel_embedder": None}):
             result1 = idx._get_reranker()
             result2 = idx._get_reranker()
         self.assertIsNone(result1)
@@ -18229,6 +18233,7 @@ class CodeRiskScoreWrapperTests(unittest.TestCase):
         self.assertEqual(data["score_components"], [
             "weighted_affected_file_count", "weighted_fan_in", "fan_out",
             "affected_file_count", "fan_in", "extracted_edge_fraction",
+            "transitive_extracted_fraction",
         ])
         self.assertIn("extracted_edge_weight", data)
         self.assertTrue(data["results"])
@@ -18237,7 +18242,7 @@ class CodeRiskScoreWrapperTests(unittest.TestCase):
         for field in ("node_id", "label", "source_file", "kind",
                       "risk", "weighted_affected_file_count", "weighted_fan_in",
                       "affected_file_count", "fan_in", "fan_out",
-                      "extracted_edge_fraction", "hop"):
+                      "extracted_edge_fraction", "transitive_extracted_fraction", "hop"):
             self.assertIn(field, top, f"missing documented field {field!r} through the tool boundary")
 
     def test_wrapper_empty_scope_errors(self):

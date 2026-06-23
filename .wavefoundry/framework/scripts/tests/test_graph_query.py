@@ -169,6 +169,7 @@ class GraphQueryRiskScoreTests(unittest.TestCase):
         self.assertEqual(out["score_components"], [
             "weighted_affected_file_count", "weighted_fan_in", "fan_out",
             "affected_file_count", "fan_in", "extracted_edge_fraction",
+            "transitive_extracted_fraction",
         ])
         results = out["results"]
         # Descending by risk; hub (high fan_in + blast radius) is the top risk.
@@ -325,6 +326,81 @@ class GraphQueryConfidenceWeightedRiskTests(unittest.TestCase):
         weights = {a["node_id"]: a["confidence_weight"] for a in impact["affected"]}
         self.assertEqual(weights["src/auth1.py::a1"], 1.0)
         self.assertEqual(weights["src/u1.py::e1"], self.mod._EXTRACTED_EDGE_WEIGHT)
+
+
+# Wave 1p7df: transitive confidence propagation. Blast-radius weight is the
+# confidence of the BEST path back to the changed symbol, not just the immediate
+# entering edge — so an EXTRACTED hop discounts everything reached *through* it.
+_TRANSITIVE_FIXTURE = {
+    "present": True,
+    "layer": "project",
+    "nodes": [
+        {"id": "src/s.py::seed", "label": "seed", "kind": "function", "source_file": "src/s.py"},
+        {"id": "src/a.py::a", "label": "a", "kind": "function", "source_file": "src/a.py"},
+        {"id": "src/x.py::x", "label": "x", "kind": "function", "source_file": "src/x.py"},
+        {"id": "src/b.py::b", "label": "b", "kind": "function", "source_file": "src/b.py"},
+        {"id": "src/c.py::c", "label": "c", "kind": "function", "source_file": "src/c.py"},
+        {"id": "src/d.py::d", "label": "d", "kind": "function", "source_file": "src/d.py"},
+        {"id": "src/m.py::m", "label": "m", "kind": "function", "source_file": "src/m.py"},
+    ],
+    "edges": [
+        # 1-hop: a resolved, x extracted.
+        {"source": "src/a.py::a", "target": "src/s.py::seed", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+        {"source": "src/x.py::x", "target": "src/s.py::seed", "relation": "calls", "confidence": "EXTRACTED"},
+        # 2-hop: b via resolved -> resolved (stays 1.0 — no regression).
+        {"source": "src/b.py::b", "target": "src/a.py::a", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+        # 2-hop: c's own edge to a is EXTRACTED -> 0.25.
+        {"source": "src/c.py::c", "target": "src/a.py::a", "relation": "calls", "confidence": "EXTRACTED"},
+        # 2-hop: d's own edge is RESOLVED but it only reaches seed THROUGH x's
+        # EXTRACTED hop -> the discount must propagate (was a full-weight leak).
+        {"source": "src/d.py::d", "target": "src/x.py::x", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+        # m reachable via a (resolved path, 1.0) AND via x (0.25) -> best wins.
+        {"source": "src/m.py::m", "target": "src/a.py::a", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+        {"source": "src/m.py::m", "target": "src/x.py::x", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+    ],
+}
+
+
+class GraphImpactTransitiveConfidenceTests(unittest.TestCase):
+    """Wave 1p7df: confidence propagates along the whole path, not just hop 1."""
+
+    def setUp(self):
+        self.mod = load_graph_query()
+        self.index = self.mod.GraphQueryIndex(dict(_TRANSITIVE_FIXTURE))
+
+    def _weights(self):
+        impact = self.index.graph_impact("src/s.py::seed", max_hops=4)
+        return {a["node_id"]: a["confidence_weight"] for a in impact["affected"]}
+
+    def test_single_hop_weights_preserved(self):
+        # min-combine reproduces the prior single-hop semantics exactly.
+        w = self._weights()
+        self.assertEqual(w["src/a.py::a"], 1.0)
+        self.assertEqual(w["src/x.py::x"], self.mod._EXTRACTED_EDGE_WEIGHT)
+
+    def test_resolved_path_keeps_full_weight(self):
+        # b reached via resolved -> resolved: no discount (no regression).
+        self.assertEqual(self._weights()["src/b.py::b"], 1.0)
+
+    def test_extracted_own_hop_discounts(self):
+        self.assertEqual(self._weights()["src/c.py::c"], self.mod._EXTRACTED_EDGE_WEIGHT)
+
+    def test_extracted_discount_propagates_transitively(self):
+        # d reaches seed only through x's EXTRACTED hop; the discount must carry
+        # through even though d's own edge to x is RECEIVER_RESOLVED. Under the
+        # old immediate-hop weighting this leaked as a full-weight 1.0.
+        self.assertEqual(self._weights()["src/d.py::d"], self.mod._EXTRACTED_EDGE_WEIGHT)
+
+    def test_best_path_wins_for_multi_path_node(self):
+        # m is reachable via a resolved path (1.0) and via x (0.25): best wins.
+        self.assertEqual(self._weights()["src/m.py::m"], 1.0)
+
+    def test_risk_score_surfaces_transitive_extracted_fraction(self):
+        res = self.index.risk_score("src/s.py")["results"]
+        seed = next(r for r in res if r["label"] == "seed")
+        self.assertIn("transitive_extracted_fraction", seed)
+        # x, c, d are reached via an EXTRACTED path -> non-zero fraction.
+        self.assertGreater(seed["transitive_extracted_fraction"], 0.0)
 
 
 class GraphQueryShortestPathTests(unittest.TestCase):

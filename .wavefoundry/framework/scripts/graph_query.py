@@ -858,6 +858,30 @@ def _edge_confidence_weight(edge: dict[str, Any]) -> float:
     return _EXTRACTED_EDGE_WEIGHT
 
 
+# Wave 1p7df (transitive confidence propagation): blast-radius weight is the
+# confidence of the *path* back to the changed symbol, not just the immediate
+# entering edge. `graph_impact` previously set a node's weight to the max
+# entering-edge weight (immediate hop only), so a node reached via
+# `resolved <- EXTRACTED` reset to full weight and the EXTRACTED discount leaked
+# away two hops out — over-counting multi-hop blast radius on EXTRACTED-heavy
+# graphs (the Java consumer's residual after 1p5l4/p5l8). We combine edge
+# weights along the best path instead.
+#
+# "min" (weakest-link) is the default: a 1-edge path's min(1.0, w) == w, so it
+# *exactly preserves* the prior single-hop weight while extending transitively;
+# any EXTRACTED hop caps the path at `_EXTRACTED_EDGE_WEIGHT`. "product"
+# (compounding) further distinguishes one EXTRACTED hop from several. The choice
+# is value-gated on the real consumer graphs (change 1p7df AC-5).
+_PATH_CONFIDENCE_COMBINE = "min"
+
+
+def _combine_path_confidence(base: float, edge_weight: float) -> float:
+    """Combine a path's running confidence with the next edge's weight."""
+    if _PATH_CONFIDENCE_COMBINE == "product":
+        return base * edge_weight
+    return min(base, edge_weight)
+
+
 class GraphQueryIndex:
     """In-memory adjacency index over a loaded graph payload."""
 
@@ -1256,20 +1280,38 @@ class GraphQueryIndex:
                     node_depth[src] = depth + 1
                     queue.append((src, depth + 1))
                 traversed.append(edge)
-        # Wave 1p5l4: per-affected-node blast-radius weight = the max confidence
-        # weight among the call edges that reach it (a node reached by even one
-        # type-resolved edge counts in full; one reached only via EXTRACTED
-        # name-collision edges is down-weighted). Also tally the traversal's
+        # Wave 1p7df: per-affected-node blast-radius weight = the confidence of
+        # the BEST path back to the changed symbol, propagated transitively.
+        # The seed has weight 1.0; each node's weight is the max over its paths
+        # of the combined edge weights along that path (see
+        # `_combine_path_confidence`). Because the reverse-BFS records min-hop
+        # depth, an edge (source -> target) always has the target closer to the
+        # seed; processing edges in ascending target-depth order finalizes a
+        # target's weight before its source is relaxed. This replaces the prior
+        # max-entering-edge weight (immediate hop only), which let the EXTRACTED
+        # discount leak away beyond the first hop. Also tally the traversal's
         # confidence mix so consumers can discount a mostly-EXTRACTED blast
         # radius without a second call.
-        node_weight: dict[str, float] = {}
+        path_weight: dict[str, float] = {node_id: 1.0}
         confidence_counts = {"receiver_resolved": 0, "construction_resolved": 0, "extracted": 0}
-        for edge in traversed:
+        for edge in sorted(
+            traversed,
+            key=lambda e: node_depth.get(str(e.get("target", "")), 0),
+        ):
             src = edge.get("source")
-            if isinstance(src, str):
-                w = _edge_confidence_weight(edge)
-                if w > node_weight.get(src, 0.0):
-                    node_weight[src] = w
+            tgt = str(edge.get("target", ""))
+            # Relax only forward (toward the seed): the source must be strictly
+            # deeper than the target, which skips cycle back-edges.
+            if (
+                isinstance(src, str)
+                and node_depth.get(src, 0) > node_depth.get(tgt, -1)
+                and tgt in path_weight
+            ):
+                cand = _combine_path_confidence(
+                    path_weight[tgt], _edge_confidence_weight(edge)
+                )
+                if cand > path_weight.get(src, 0.0):
+                    path_weight[src] = cand
             conf = str(edge.get("confidence") or "")
             if conf == "RECEIVER_RESOLVED":
                 confidence_counts["receiver_resolved"] += 1
@@ -1290,7 +1332,7 @@ class GraphQueryIndex:
                 "kind": node.get("kind"),
                 "source_file": source_file,
                 "hop": node_depth[nid],
-                "confidence_weight": node_weight.get(nid, _EXTRACTED_EDGE_WEIGHT),
+                "confidence_weight": path_weight.get(nid, _EXTRACTED_EDGE_WEIGHT),
             }
             affected.append(entry)
             if isinstance(source_file, str):
@@ -1379,6 +1421,7 @@ class GraphQueryIndex:
             "score_components": [
                 "weighted_affected_file_count", "weighted_fan_in", "fan_out",
                 "affected_file_count", "fan_in", "extracted_edge_fraction",
+                "transitive_extracted_fraction",
             ],
             "extracted_edge_weight": _EXTRACTED_EDGE_WEIGHT,
             "candidate_count": candidate_count,
@@ -1428,6 +1471,18 @@ class GraphQueryIndex:
             extracted_edge_fraction = (
                 int(conf.get("extracted", 0)) / total_edges if total_edges else 0.0
             )
+            # Wave 1p7df: of the affected nodes, the fraction whose best path back
+            # to this symbol traversed >=1 EXTRACTED edge (propagated
+            # confidence_weight < 1.0) — exposes how much of the blast radius is
+            # reachable only via low-confidence transitive paths, distinct from
+            # extracted_edge_fraction (the raw edge-mix).
+            transitive_extracted_fraction = (
+                sum(
+                    1 for a in affected
+                    if float(a.get("confidence_weight", _EXTRACTED_EDGE_WEIGHT)) < 1.0
+                ) / len(affected)
+                if affected else 0.0
+            )
             worst_hop = max((int(a.get("hop", 0)) for a in affected), default=0)
             risk = weighted_affected_file_count * math.log1p(weighted_fan_in)
             results.append({
@@ -1442,6 +1497,7 @@ class GraphQueryIndex:
                 "fan_in": fan_in,
                 "fan_out": fan_out,
                 "extracted_edge_fraction": round(extracted_edge_fraction, 3),
+                "transitive_extracted_fraction": round(transitive_extracted_fraction, 3),
                 "hop": worst_hop,
             })
         results.sort(key=lambda r: (-r["risk"], -r["weighted_fan_in"], r["node_id"]))

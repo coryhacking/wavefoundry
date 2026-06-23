@@ -16024,12 +16024,15 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - scope, layer, top, max_hops, candidate_count, candidate_cap, include_tests
         - score_formula: the composite formula string
         - score_components: names of the inputs (``weighted_affected_file_count``, ``weighted_fan_in``,
-          ``fan_out``, ``affected_file_count``, ``fan_in``, ``extracted_edge_fraction``)
+          ``fan_out``, ``affected_file_count``, ``fan_in``, ``extracted_edge_fraction``,
+          ``transitive_extracted_fraction``)
         - extracted_edge_weight: the fractional weight applied to ``EXTRACTED`` edges
         - results: list ranked DESC by ``risk``, each with ``node_id``, ``label``, ``source_file``,
           ``kind``, ``risk``, ``weighted_affected_file_count``, ``weighted_fan_in``,
           ``affected_file_count`` (raw), ``fan_in`` (raw), ``fan_out``, ``extracted_edge_fraction``
           (share of blast-radius edges that are heuristic — discount a high score when near 1.0),
+          ``transitive_extracted_fraction`` (Wave 1p7df: share of affected nodes reachable only via a
+          path that traverses an ``EXTRACTED`` edge — the transitive confidence of the blast radius),
           ``hop`` (worst-case blast-radius hop distance)
         - over_candidate_cap: true (with empty ``results``) when the scope has more than
           ``candidate_cap`` definitions — narrow ``scope=`` and retry
