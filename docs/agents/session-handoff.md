@@ -4,27 +4,24 @@ Owner: Engineering
 Status: in_progress
 Last verified: 2026-06-23
 
-## Active wave: `1p7de graph-edge-trust` (OPEN)
-- **`1p7df` transitive-confidence-propagation — IMPLEMENTED.** AC-5 open (consumer-pack before/after pending a repacked build).
-- **`1p7dg` cross-file-receiver-resolution — IMPLEMENTING + AC-1 COMPLETE + reframe pending sign-off.**
-  - **Python promotion shipped locally** (`graph_indexer.py` ~5850 same-file extraction-site promotion): Python EXTRACTED 90.4%→36.5%, resolved 1,136→7,558. 6 tests; suite 3406 OK; gate closed.
-  - **AC-1 spike complete across the consumer pack (6 surfaces):** Python PROMOTE 64.8%, Java (`aceiss/javaagent`) PROMOTE 32.1%, Swift (`solaris`) PROMOTE 36.8%, TypeScript (`aceiss/teton`) marginal (15.6% cross-file), JS DROP (near ceiling, already v23), SQL anomaly (100% EXTRACTED — no resolution pass; separate follow-on).
-  - **DECISIVE FINDING:** `resolve_unique` (resolver-extension headroom) is negligible in ALL six (1.3–3.8%). The wave's original "extend the per-language resolvers" premise is empirically unsupported. The actionable, faithfulness-benign lever everywhere is **confidence promotion**. Cross-file promote bucket ≈2,721 edges across the pack (Py 552/Java 315/Swift 680/TS 713/JS 44/SQL 417).
-  - **PROPOSED REFRAME (needs operator sign-off — council-approved scope change):** rescope `1p7dg` from "cross-file receiver resolution (extend resolvers)" to "generalize the confidence promotion": (a) one language-agnostic cross-file unique-resolution promotion in the rewrite stage; (b) per-language same-file promotions for Swift (~761) + Java (~247) [Python shipped]; NOT resolver extension, NOT the SQL pass. AC-6 faithfulness review is light (no new bindings, label-only).
-  - **Open ACs:** AC-1 ✅; AC-5 builder bump (deferred, shared w/ 1p7dh); AC-6 faithfulness review (light); the reframe + the cross-file/same-file implementation itself.
-- **`1p7dh` string-literal-arg-extraction — NOT STARTED.** Shares the deferred builder bump.
+## Active wave: `1p7de graph-edge-trust` (OPEN) — IMPLEMENTED + downstream-validated; UNCOMMITTED per operator "commit when everything is done"
+- **`1p7df`** transitive confidence — COMMITTED (c76721f).
+- **`1p7dg`** confidence promotion — 3 surfaces; per-language lift cleared on Python (90.4%→31.9%), Java javaagent (26.9%→20.6%), Swift solaris (52.7%→33.4%); faithfulness real-data-confirmed. (Python same-file committed d6c786e; rest uncommitted.)
+- **`1p7dh`** string-literal binding — `reads_config` (Python/JSON + Java/Spring file config via tree-sitter-yaml + @Value/getProperty) + AOP `instruments` (24 classes/36 targets, zero noise). v35 downstream re-validated stable.
+- **GRAPH_BUILDER_VERSION 32→35.** Full suite **3427 OK** bytecode-free; gates closed; docs-lint clean.
 
-## Spike instrument
-`experiments/1p7dg-spike-receiver-headroom.py` (canonical, correct — line 187 loads payload). NOTE: the hand-trimmed paste block forwarded to downstream agents dropped that one line; re-send the FILE verbatim if more runs are needed.
+## Upgrade flow improved (operator-directed, this session)
+The upgrade's final index phase now updates BOTH semantic AND **graph** indexes, version-aware (incremental, or auto-escalates to a rebuild on a builder bump) — `phase_index_update` runs `setup_index.py --graph-only`, `phase_index_rebuild` runs `--graph-only --full`. Symmetric with semantic; a `GRAPH_BUILDER_VERSION` bump now materializes DURING the upgrade (not lazy-first-query, which remains a safety net). 2 tests; docs updated to the symmetric framing (seed 160 + `upgrade-wavefoundry.prompt.md` + `CHANGELOG [1.8.1]`; stale "moving to 1.6.0 bumps both" examples replaced). NOTE: takes effect for upgrades run BY a pack that contains it (p7jg+) — the old-code-window caveat.
 
-## Uncommitted (operator-directed + wave work — needs commit decision)
-1. Lifecycle shortcut-phrase standardization (~30 files).
-2. `1p7df` (+ reranker fix).
-3. `1p7dg` (graph_indexer.py promotion + tests; change-doc AC-1 + spike findings; handoff; `experiments/` spike).
-Recommend separate logical commits when ready.
+## Local build (v35): `~/.wavefoundry/dist/wavefoundry-1.8.1.p7jg.zip` (VERSION+manifest 1.8.1+p7jg). Carries the v35 extractor + improved upgrade flow. Supersedes earlier p7j* zips (removed).
 
-## Done earlier this session
-- 1.8.0 RELEASED; dist cleaned; live release page Upgrade section patched.
+## Uncommitted (commit when everything done): 1p7dg cross-file + same-file widening; 1p7dh config (Python+Java) + AOP instruments + namedOneOf; upgrade-flow graph step (upgrade_wavefoundry.py + 2 tests); GRAPH_BUILDER_VERSION 35 + version-pin test; VERSION + manifest (1.8.1+p7jg); upgrade-path docs (seed 160 + prompt + CHANGELOG [1.8.1]); change-doc/wave/handoff updates; experiments/ scripts.
+## Committed this session (on main): 1688bbc standardization · c76721f 1p7df + reranker fix · d6c786e 1p7dg reframe + Python same-file + AC-1 spike.
 
-## Planned, not started
-- `1p6lp cross-host-skills`.
+## Drafted parallel (planned, not activated): `1p7ir index-build-robustness` (1.8.0 OOM+TLS, 4 changes).
+## Done earlier: 1.8.0 RELEASED. ## Planned, not started: `1p6lp cross-host-skills`.
+## Memory this session: project_field_feedback_1p8_oom_tls, project_literal_edge_target_locality.
+
+## Current Session
+
+**Active wave:** *(none)*

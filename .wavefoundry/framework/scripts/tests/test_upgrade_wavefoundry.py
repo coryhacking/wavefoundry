@@ -1259,6 +1259,38 @@ class PreferredPythonTests(unittest.TestCase):
         self.assertEqual(run_mock.call_args.args[0][0], str(venv_python))
         self.assertEqual(popen_mock.call_args.args[0][0], str(venv_python))
 
+    def test_phase_index_update_runs_graph_only_update(self):
+        # Wave 1p7dh: the upgrade index phase updates the GRAPH too (symmetric
+        # with semantic) so a GRAPH_BUILDER_VERSION bump materializes during the
+        # upgrade. `--graph-only` WITHOUT `--full` → update-or-escalate, not a
+        # forced rebuild.
+        venv_python = self._make_venv_python()
+        mock_proc = MagicMock(returncode=0)
+        setup_script = self.root / "setup_index.py"
+        setup_script.write_text("", encoding="utf-8")
+        with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
+             patch.object(self.mod, "SCRIPTS_DIR", self.root), \
+             patch("subprocess.run", return_value=mock_proc) as run_mock, \
+             patch("subprocess.Popen"):
+            self.mod.phase_index_update(self.root)
+        graph_calls = [c for c in run_mock.call_args_list if "--graph-only" in c.args[0]]
+        self.assertEqual(len(graph_calls), 1, f"expected one --graph-only update call: {run_mock.call_args_list}")
+        self.assertNotIn("--full", graph_calls[0].args[0], "update path must be update-or-escalate, not forced --full")
+
+    def test_phase_index_rebuild_runs_graph_only_full(self):
+        venv_python = self._make_venv_python()
+        mock_proc = MagicMock(returncode=0)
+        setup_script = self.root / "setup_index.py"
+        setup_script.write_text("", encoding="utf-8")
+        with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
+             patch.object(self.mod, "SCRIPTS_DIR", self.root), \
+             patch("subprocess.run", return_value=mock_proc) as run_mock, \
+             patch("subprocess.Popen"):
+            self.mod.phase_index_rebuild(self.root)
+        graph_calls = [c for c in run_mock.call_args_list if "--graph-only" in c.args[0]]
+        self.assertEqual(len(graph_calls), 1, f"expected one --graph-only rebuild call: {run_mock.call_args_list}")
+        self.assertIn("--full", graph_calls[0].args[0], "rebuild path runs a full graph rebuild")
+
 
 # ---------------------------------------------------------------------------
 # Upgrade log file (12r21)

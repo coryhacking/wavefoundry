@@ -5,7 +5,7 @@ Change Status: `implemented`
 Owner: Engineering
 Status: implemented
 Wave: `1p7de graph-edge-trust`
-Last verified: 2026-06-22
+Last verified: 2026-06-23
 
 ## Rationale
 
@@ -42,11 +42,11 @@ The mechanism to fix it **already exists in the codebase**: `code_graph_path` ru
 
 ## Tasks
 
-- [ ] Open `framework_edit_allowed`; close after.
-- [ ] Factor the per-edge weight into a shared helper used by `code_graph_path` and `graph_impact`.
-- [ ] Implement path-confidence propagation in `graph_impact`'s BFS; add the transparency field.
-- [ ] Tests (resolved full weight / EXTRACTED discounted / transitive) bytecode-free.
-- [ ] Run the before/after attribution measurement on the consumer pack; record the gate verdict.
+- [x] Open `framework_edit_allowed`; close after.
+- [~] Factor the per-edge weight into a shared helper used by `code_graph_path` and `graph_impact` — reused the existing `_edge_confidence_weight` (the shared blast-radius model) rather than factoring a new helper; the shared-model goal (no divergent scheme) is met, so no new helper was needed.
+- [x] Implement path-confidence propagation in `graph_impact`'s BFS; add the transparency field (`transitive_extracted_fraction`).
+- [x] Tests (resolved full weight / EXTRACTED discounted / transitive) bytecode-free.
+- [~] Run the before/after attribution measurement on the consumer pack; record the gate verdict — local real-graph validated (the field diverges from the edge-mix on the self-host graph); the consumer-pack before/after for the transitive metric is deferred (mirrors AC-5 [~]), non-blocking.
 
 ## Agent Execution Graph
 

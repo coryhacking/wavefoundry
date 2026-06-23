@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-17
+Last verified: 2026-06-23
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -27,9 +27,9 @@ The expected operator flow is:
    - The upgrade reloads the server code in-process — call `wave_mcp_reload()` (or run `wave_upgrade` cleanup, which reloads automatically). A full host restart is only needed for hosts that cannot hot-reload.
    - If you use Codex, the MCP server reloads from the committed `.codex/config.toml` automatically — no re-registration needed after upgrade.
 4. The index update runs **automatically** at the end of the upgrade.
-   - The upgrade always runs an index update as its final phase, and the indexer auto-escalates to a full rebuild when a version transition (chunker or graph) requires it — you do **not** run a separate index command for a normal upgrade.
+   - The upgrade's final phase updates **both** the semantic indexes and the graph, each version-aware: an incremental update normally, auto-escalating to a full rebuild when its version advanced — semantic on a `CHUNKER_VERSION`/model bump (re-embed, minutes), graph on a `GRAPH_BUILDER_VERSION` bump (graph-only re-extract, ~10–30 s). You do **not** run a separate index command for a normal upgrade.
    - A manual `wave_index_build(...)` / `--update-index` call is only for re-running after the agent editing pass or recovering a backgrounded code build (see the Verification Checklist).
-   - Note: moving to 1.6.0 bumps both `CHUNKER_VERSION` and `GRAPH_BUILDER_VERSION`, so the first post-upgrade index is a full re-chunk + re-embed + graph re-extract (minutes, not incremental). This is expected and automatic.
+   - So a graph-builder bump materializes **during the upgrade**, symmetric with the semantic indexes — no manual step. (The first-query in-process auto-rebuild remains a safety net.) **1.8.1** bumps `GRAPH_BUILDER_VERSION` only (32→35) → a graph-only re-extract (no re-embed) carrying the new edges/nodes: cross-language confidence promotion, `reads_config`, `instruments`, `.properties`/`.yml` config-key nodes.
 
 What this prompt is not:
 
@@ -120,7 +120,7 @@ See `docs/contributing/build-and-verification.md` **Wave framework pack upgrade 
    - `.mcp.json` and `.junie/mcp/mcp.json` still include the Wavefoundry stdio entry when those hosts are used
    - `.codex/config.toml` exists at the project root and contains a `[mcp_servers.wavefoundry]` entry using the venv Python launcher
    - `.wavefoundry/bin/docs-lint` and `.wavefoundry/bin/docs-gardener` exist and point to `.wavefoundry/framework/scripts/`
-4. **Check version transitions:** If the pack bumped `CHUNKER_VERSION` or `GRAPH_BUILDER_VERSION`, a full index rebuild + graph re-extract is required (moving to 1.6 bumps both). Run `wave_index_health()` — a `chunker_version_mismatch` advisory confirms the rebuild is needed. Rebuild using the docs-first approach so MCP is available immediately:
+4. **Check version transitions:** A `CHUNKER_VERSION`/model bump requires a full semantic re-embed; a `GRAPH_BUILDER_VERSION` bump requires a graph re-extract (graph-only — fast). The upgrade's final index phase handles **both** automatically (incremental, or escalating to a rebuild on a version bump), so neither normally needs a manual command. 1.8.1 bumps `GRAPH_BUILDER_VERSION` only (32→35) → the upgrade graph-only re-extracts; no re-embed. Run `wave_index_health()` to verify — a `chunker_version_mismatch` advisory flags a still-needed semantic rebuild; `graph.<layer>.last_built_at` shows graph freshness. When a manual re-embed IS needed, rebuild using the docs-first approach so MCP is available immediately:
    ```bash
    python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full
    python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --background-code --full

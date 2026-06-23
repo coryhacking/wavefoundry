@@ -2173,20 +2173,19 @@ class PythonConfidencePromotionTests(unittest.TestCase):
         confs = self._confs(payload, "foo.py::run", "Foo.bar")
         self.assertEqual(confs, ["RECEIVER_RESOLVED"], f"Owner.method() not promoted: {confs}")
 
-    def test_cross_file_explicit_import_residual_stays_extracted(self):
-        # SCOPE BOUNDARY (recorded follow-on): a cross-file call via an explicit
-        # `from x import y` resolves to the project node through the AC-2
-        # qualified-import branch (`qualified_index` len==1), NOT the bare-simple
-        # branch, so it is NOT promoted this wave and stays EXTRACTED
-        # (conservative — no regression; promoting the qualified branch for
-        # Python is a faithfulness-sensitive follow-on). This guards the boundary.
+    def test_cross_file_explicit_import_promoted(self):
+        # Wave 1p7dg cross-file pass: a cross-file call via an explicit
+        # `from x import y` resolves to the project node through an exact-unique
+        # rewrite branch (qualified_index / import-edge disambiguation, len==1) —
+        # now promoted EXTRACTED->RECEIVER_RESOLVED (language-agnostic). The bind
+        # is exact-by-name; the target is unchanged, only the confidence label.
         payload = self._build({
             "src/a.py": "def uniquefn(): pass\n",
             "src/b.py": "from src.a import uniquefn\ndef run():\n    uniquefn()\n",
         })
         confs = self._confs(payload, "b.py::run", "uniquefn")
         self.assertTrue(confs, f"cross-file call edge missing entirely: {confs}")
-        self.assertNotIn("RECEIVER_RESOLVED", confs, f"qualified-import residual unexpectedly promoted: {confs}")
+        self.assertIn("RECEIVER_RESOLVED", confs, f"exact cross-file bind not promoted: {confs}")
 
     def test_unannotated_receiver_guess_not_promoted(self):
         # FAITHFULNESS: an unannotated local's `foo.bar()` is a receiver-type
@@ -2217,6 +2216,427 @@ class PythonConfidencePromotionTests(unittest.TestCase):
             and not str(e.get("target", "")).startswith("src/a.py")
         ]
         self.assertEqual(rr, [], f"ambiguous simple-name wrongly promoted: {rr}")
+
+
+class CrossLanguageSameFilePromotionTests(unittest.TestCase):
+    """1p7dg: the TS/JS symbol-table promotion (v23) widened to ALL tree-sitter
+    languages. A same-file call that the per-language receiver resolver does not
+    resolve (e.g. a bare same-class call) but `_ts_resolve_target` binds to a
+    unique same-file node lands RECEIVER_RESOLVED, not EXTRACTED. Confidence
+    relabel only — the target is the same unique bind the resolver already made."""
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files):
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _confs(self, payload, src_sub, tgt_sub):
+        return [
+            e.get("confidence")
+            for e in payload.get("edges", [])
+            if e.get("relation") == "calls"
+            and src_sub in str(e.get("source", ""))
+            and tgt_sub in str(e.get("target", ""))
+        ]
+
+    def test_java_same_file_bare_call_promoted(self):
+        payload = self._build({
+            "src/A.java": "class A {\n  void helper() {}\n  void run() { helper(); }\n}\n",
+        })
+        confs = self._confs(payload, "A.java::A.run", "A.helper")
+        self.assertTrue(confs, f"Java same-file call edge missing: {confs}")
+        self.assertNotIn("EXTRACTED", confs, f"Java same-file bind not promoted: {confs}")
+
+    def test_swift_same_file_bare_call_promoted(self):
+        payload = self._build({
+            "src/A.swift": "class A {\n  func helper() {}\n  func run() { helper() }\n}\n",
+        })
+        confs = self._confs(payload, "A.swift::A.run", "A.helper")
+        self.assertTrue(confs, f"Swift same-file call edge missing: {confs}")
+        self.assertNotIn("EXTRACTED", confs, f"Swift same-file bind not promoted: {confs}")
+
+
+class ConfigKeyReaderEdgeTests(unittest.TestCase):
+    """1p7dh: config-key -> reader edges. A `.get("KEY")` / `cfg["KEY"]` literal
+    that matches a config-key node (`file.json::key`) emits a `reads_config`
+    edge at LITERAL_DERIVED confidence. Self-bounding + faithful: an unmatched
+    literal emits nothing; an ambiguous one (same key in >1 config file) is
+    dropped rather than bound to the wrong twin."""
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files):
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _reads_config(self, payload):
+        return [
+            e for e in payload.get("edges", [])
+            if e.get("relation") == "reads_config"
+        ]
+
+    def test_get_literal_emits_reads_config_edge(self):
+        payload = self._build({
+            "settings/app-config.json": '{"factor_review_policy": "strict"}\n',
+            "src/loader.py": "def load(cfg):\n    return cfg.get(\"factor_review_policy\")\n",
+        })
+        edges = self._reads_config(payload)
+        self.assertTrue(edges, f"no reads_config edge emitted: {[e for e in payload.get('edges', []) if e.get('relation') != 'defines']}")
+        e = edges[0]
+        self.assertEqual(e.get("confidence"), "LITERAL_DERIVED", e)
+        self.assertIn("loader.py::load", str(e.get("source", "")))
+        self.assertIn("app-config.json::factor_review_policy", str(e.get("target", "")))
+
+    def test_subscript_literal_emits_reads_config_edge(self):
+        payload = self._build({
+            "settings/app-config.json": '{"timeout_seconds": 30}\n',
+            "src/loader.py": "def load(cfg):\n    return cfg[\"timeout_seconds\"]\n",
+        })
+        edges = self._reads_config(payload)
+        self.assertTrue(edges, "no reads_config edge for subscript read")
+        self.assertIn("app-config.json::timeout_seconds", str(edges[0].get("target", "")))
+
+    def test_unmatched_literal_emits_no_edge(self):
+        payload = self._build({
+            "settings/app-config.json": '{"factor_review_policy": "strict"}\n',
+            "src/loader.py": "def load(cfg):\n    return cfg.get(\"unmatched_config_key\")\n",
+        })
+        self.assertEqual(self._reads_config(payload), [], "unmatched literal should emit no edge")
+
+    def test_non_config_json_not_bound(self):
+        # FAITHFULNESS: a data/fixture .json (no config/profile in name) is not a
+        # config surface — a coincidental key match must NOT bind.
+        payload = self._build({
+            "data/retrieval_eval.json": '{"distinctive_key": 1}\n',
+            "src/loader.py": "def load(cfg):\n    return cfg.get(\"distinctive_key\")\n",
+        })
+        self.assertEqual(self._reads_config(payload), [], "non-config JSON should not bind")
+
+    def test_generic_key_not_bound(self):
+        # FAITHFULNESS: a non-distinctive bare key (<10 chars, no underscore) is
+        # too generic to bind even on a config file.
+        payload = self._build({
+            "settings/app-config.json": '{"kind": "x"}\n',
+            "src/loader.py": "def load(cfg):\n    return cfg.get(\"kind\")\n",
+        })
+        self.assertEqual(self._reads_config(payload), [], "generic key should not bind")
+
+    def test_ambiguous_config_key_not_bound(self):
+        # FAITHFULNESS: the same key in two config files → ambiguous → no edge.
+        payload = self._build({
+            "settings/a-config.json": '{"shared_setting_key": 1}\n',
+            "settings/b-config.json": '{"shared_setting_key": 2}\n',
+            "src/loader.py": "def load(cfg):\n    return cfg.get(\"shared_setting_key\")\n",
+        })
+        self.assertEqual(self._reads_config(payload), [], "ambiguous config key should not bind")
+
+
+class JavaConfigReaderEdgeTests(unittest.TestCase):
+    """1p7dh: `reads_config` extended to Java/Spring FILE config. A
+    `.properties`/`.yml`/`.yaml` config key becomes a config-key node
+    (`file::dotted.key`); a Java `@Value("${key}")` annotation or an
+    `Environment.getProperty("key")` call captures the key as a config-read
+    candidate; the language-agnostic finalize pass binds them on a unique
+    config-file + distinctive-key match (LITERAL_DERIVED confidence). Faithful:
+    an unmatched key emits nothing; a non-config `.yml` is not a config surface."""
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files):
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _reads_config(self, payload):
+        return [
+            e for e in payload.get("edges", [])
+            if e.get("relation") == "reads_config"
+        ]
+
+    def test_yaml_value_annotation_emits_reads_config_edge(self):
+        payload = self._build({
+            "src/main/resources/application.yml": (
+                "spring:\n"
+                "  datasource:\n"
+                "    url: jdbc:postgresql://localhost/db\n"
+            ),
+            "src/main/java/Db.java": (
+                "class Db {\n"
+                "  @Value(\"${spring.datasource.url}\")\n"
+                "  private String url;\n"
+                "}\n"
+            ),
+        })
+        edges = self._reads_config(payload)
+        self.assertTrue(edges, f"no reads_config edge: {[e for e in payload.get('edges', []) if e.get('relation') != 'defines']}")
+        e = edges[0]
+        self.assertEqual(e.get("confidence"), "LITERAL_DERIVED", e)
+        # Reader = the enclosing class node; a single basename-matching dominant
+        # class (`Db` in `Db.java`) collapses into the file/module node, so the
+        # surviving carrier is the file id rather than `Db.java::Db`.
+        self.assertIn("Db.java", str(e.get("source", "")))
+        self.assertIn("application.yml::spring.datasource.url", str(e.get("target", "")))
+
+    def test_properties_getproperty_emits_reads_config_edge(self):
+        payload = self._build({
+            "src/main/resources/application.properties": (
+                "aceiss.api.endpoint=https://api.example.com\n"
+            ),
+            "src/main/java/Client.java": (
+                "class Client {\n"
+                "  String resolve(org.springframework.core.env.Environment env) {\n"
+                "    return env.getProperty(\"aceiss.api.endpoint\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        edges = self._reads_config(payload)
+        self.assertTrue(edges, "no reads_config edge for getProperty read")
+        self.assertIn("application.properties::aceiss.api.endpoint", str(edges[0].get("target", "")))
+
+    def test_value_default_separator_key_extraction(self):
+        # `${key:default}` → the key is the part before the ':' default separator.
+        payload = self._build({
+            "src/main/resources/application.yml": (
+                "app:\n"
+                "  retry:\n"
+                "    count: 3\n"
+            ),
+            "src/main/java/Retry.java": (
+                "class Retry {\n"
+                "  @Value(\"${app.retry.count:5}\")\n"
+                "  private int count;\n"
+                "}\n"
+            ),
+        })
+        edges = self._reads_config(payload)
+        self.assertTrue(edges, "no reads_config edge for ${key:default}")
+        self.assertIn("application.yml::app.retry.count", str(edges[0].get("target", "")))
+
+    def test_unmatched_value_key_emits_no_edge(self):
+        # FAITHFULNESS: a @Value placeholder with no matching config node → no edge.
+        payload = self._build({
+            "src/main/resources/application.yml": (
+                "spring:\n"
+                "  datasource:\n"
+                "    url: x\n"
+            ),
+            "src/main/java/Db.java": (
+                "class Db {\n"
+                "  @Value(\"${unmatched.key.absent}\")\n"
+                "  private String v;\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._reads_config(payload), [], "unmatched @Value key should emit no edge")
+
+    def test_non_config_yaml_not_bound(self):
+        # FAITHFULNESS: a `.yml` whose basename is not application/bootstrap/config/
+        # profile is not a config surface — a coincidental key match must NOT bind.
+        payload = self._build({
+            "src/main/resources/fixtures.yml": (
+                "spring:\n"
+                "  datasource:\n"
+                "    url: x\n"
+            ),
+            "src/main/java/Db.java": (
+                "class Db {\n"
+                "  @Value(\"${spring.datasource.url}\")\n"
+                "  private String url;\n"
+                "}\n"
+            ),
+        })
+        self.assertEqual(self._reads_config(payload), [], "non-config .yml should not bind")
+
+
+class OtelInstrumentsPropertyTests(unittest.TestCase):
+    """1p7dh: OTel `TypeInstrumentation.typeMatcher()` ByteBuddy matcher target
+    strings are captured as an `instruments` node PROPERTY on the instrumentation
+    class (descriptive metadata, not an edge — the targets are third-party types
+    by design). Method/parameter matchers in `transform()` are excluded."""
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files):
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _instruments(self, payload):
+        # Collect the `instruments` property wherever it landed (the carrier may
+        # be the `::Class` node or, when the dominant class collapsed into it,
+        # the file/module node).
+        return {n["id"]: n["instruments"] for n in payload.get("nodes", []) if n.get("instruments")}
+
+    def test_type_matcher_string_captured_as_instruments(self):
+        payload = self._build({
+            "src/FooInstrumentation.java": (
+                "class FooInstrumentation {\n"
+                "  public ElementMatcher typeMatcher() {\n"
+                "    return named(\"org.hibernate.boot.Metadata\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        got = self._instruments(payload)
+        self.assertEqual(list(got.values()), [["org.hibernate.boot.Metadata"]], got)
+
+    def test_multiple_matchers_captured(self):
+        payload = self._build({
+            "src/Bar.java": (
+                "class Bar {\n"
+                "  public ElementMatcher typeMatcher() {\n"
+                "    return named(\"a.b.Foo\").or(nameStartsWith(\"a.c\"));\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        got = self._instruments(payload)
+        self.assertEqual(list(got.values()), [["a.b.Foo", "a.c"]], got)
+
+    def test_transform_method_matcher_not_captured(self):
+        # FAITHFULNESS scope: a matcher in transform() is a method-name matcher,
+        # not a type target — it must NOT land in `instruments`.
+        payload = self._build({
+            "src/Baz.java": (
+                "class Baz {\n"
+                "  public ElementMatcher typeMatcher() {\n"
+                "    return named(\"a.b.Target\");\n"
+                "  }\n"
+                "  public void transform(TypeTransformer t) {\n"
+                "    t.applyAdviceToMethod(named(\"doStuff\"), \"AdviceClass\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        got = self._instruments(payload)
+        self.assertEqual(list(got.values()), [["a.b.Target"]], f"transform() matcher leaked: {got}")
+
+    def test_named_one_of_multi_arg_captured(self):
+        # `namedOneOf("A","B")` carries multiple type targets — capture all.
+        payload = self._build({
+            "src/Multi.java": (
+                "class Multi {\n"
+                "  public ElementMatcher typeMatcher() {\n"
+                "    return namedOneOf(\"a.b.Foo\", \"a.b.Bar\");\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        got = self._instruments(payload)
+        self.assertEqual(list(got.values()), [["a.b.Bar", "a.b.Foo"]], got)
+
+    def test_implements_interface_namedoneof_captured(self):
+        # Neo4j shape: implementsInterface(namedOneOf(...)) — the inner namedOneOf
+        # is a buffered call inside typeMatcher, so its strings are captured.
+        payload = self._build({
+            "src/Neo4jSecurityInstrumentation.java": (
+                "class Neo4jSecurityInstrumentation {\n"
+                "  public ElementMatcher typeMatcher() {\n"
+                "    return implementsInterface(namedOneOf(\n"
+                "        \"org.neo4j.server.security.auth.AuthenticationStrategy\",\n"
+                "        \"org.neo4j.kernel.impl.query.QueryExecutionEngine\"));\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        got = self._instruments(payload)
+        self.assertEqual(list(got.values()), [[
+            "org.neo4j.kernel.impl.query.QueryExecutionEngine",
+            "org.neo4j.server.security.auth.AuthenticationStrategy",
+        ]], got)
+
+    def test_has_super_type_namedoneof_captured(self):
+        # Shopizer shape: hasSuperType(namedOneOf("...UserFacade")).
+        payload = self._build({
+            "src/ShopizerSecurityInstrumentation.java": (
+                "class ShopizerSecurityInstrumentation {\n"
+                "  public ElementMatcher typeMatcher() {\n"
+                "    return hasSuperType(namedOneOf(\n"
+                "        \"com.salesmanager.shop.store.controller.user.facade.UserFacade\"));\n"
+                "  }\n"
+                "}\n"
+            ),
+        })
+        got = self._instruments(payload)
+        self.assertEqual(list(got.values()), [[
+            "com.salesmanager.shop.store.controller.user.facade.UserFacade",
+        ]], got)
 
 
 class ConstructionEdgesTests(unittest.TestCase):
@@ -5136,7 +5556,7 @@ class GraphBuilderVersionTests(unittest.TestCase):
     """Wave 1p4ls AC-3: the node/edge shape changed (constant nodes + reads edge) so the builder
     version is bumped, forcing a full re-extract against any older cache."""
 
-    def test_graph_builder_version_is_31(self):
+    def test_graph_builder_version_is_35(self):
         # 1p4ls bumped 25→26 (constant nodes + reads edge); 1p4q4 bumped 26→27 (TS enum member nodes);
         # 1p4q4 review bumped 27→28 (namespace-prefixed enum members + short-symbol-prune exemption);
         # 1p4up bumped 28→29 (member-access constant reads — new function→constant `reads` edges);
@@ -5145,7 +5565,15 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # non-identifier name guard — node KIND-set + node-set shape change).
         # 1p66e bumped 31→32 (edge-extraction determinism: order-independent cross-file resolution
         # tie-breaks + input fingerprint — resolved edge-set shape stabilizes across rebuilds).
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "32")
+        # 1p7de bumped 32→33→34 (1p7dg generalizes the v23 confidence promotion to all languages —
+        # EXTRACTED→RECEIVER_RESOLVED on an already-unique same-file / exact-cross-file bind, target
+        # unchanged; 1p7dh adds the `reads_config` edge + the `instruments` node property). 34 supersedes
+        # the in-flight 33 test builds: the `instruments` capture was refined to read `namedOneOf(...)` +
+        # structural-wrapper-nested matchers — an extraction-output change that gets its own increment.
+        # 1p7dh bumped 34→35 (reads_config extended to Java/Spring FILE config: `.properties`/`.yml`/`.yaml`
+        # config-key nodes + Java `@Value`/`getProperty` capture into config_read_candidates — new nodes
+        # + populated candidates → new reads_config edges, an extraction-output change).
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "35")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):

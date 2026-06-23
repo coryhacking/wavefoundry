@@ -35,14 +35,14 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 5419 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 644 |
-| graph | `.wavefoundry/framework/scripts` | code | 214 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 5483 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 637 |
+| graph | `.wavefoundry/framework/scripts` | code | 224 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 213 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 181 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 175 |
 | chunker | `.wavefoundry/framework/scripts` | code | 161 |
-| dashboard_lib | `.wavefoundry/framework/scripts` | code | 115 |
-| indexer | `.wavefoundry/framework/scripts` | code | 102 |
+| dashboard_lib | `.wavefoundry/framework/scripts` | code | 143 |
+| indexer | `.wavefoundry/framework/scripts` | code | 101 |
 | upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 80 |
 | setup | `.wavefoundry/framework/scripts` | code | 75 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 54 |
@@ -54,11 +54,11 @@ between the markers is machine-maintained; the surrounding narrative is not.
 | design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
 | upgrade_extensions | `.wavefoundry/framework/scripts` | code | 21 |
 | docs_gardener | `.wavefoundry/framework/scripts` | code | 17 |
+| experiments | `experiments` | code | 12 |
 | tokens | `docs/design-system/tokens` | config | 320 |
-| docs | `docs` | config | 188 |
+| docs | `docs` | config | 183 |
 | modes | `docs/design-system/tokens/modes` | config | 150 |
 | json | `docs/design-system/exports/json` | config | 86 |
-| nav-sidebar | `docs/design-system/components/nav-sidebar` | config | 32 |
 <!-- waveframework:repo-index-modules end -->
 
 No shipped product implementation sources exist yet. The MCP Python package (`src/wavefoundry/`) is planned but not scaffolded.

@@ -25,7 +25,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "32"  # Wave 1p66e (graph-edge-extraction-determinism): cross-file resolution made order-independent so identical input yields an identical resolved edge set across from-scratch rebuilds (a consumer observed 75068 vs 74890 edges on identical source). Three order-dependent sites fixed with explicit stable tie-breaks: (a) `per_file_simple` length-tie now breaks on the lexicographically smaller node_id (was first-seen by node_map iteration order); (b) `imports_by_file` final-segment collision now keeps the lexicographically smallest FQN (was "later import wins" by edge_map order); (c) cross-file edge rewrites are applied sorted by (new_key, old_key) so a `setdefault` collapse onto the same new_key keeps a stable survivor. Plus a persisted `input_fingerprint` (sha256 over the sorted node-set + sorted resolved edge-set) in the graph payload + state for downstream reproducibility verification. Edge-set shape stabilizes → bump so consumer caches re-extract. Faithfulness preserved: every resolution branch still requires a UNIQUE (`len==1`) match, so no `len==1` outcome changes and no wrong same-name twin is newly bound — only genuinely-ambiguous tie choices are made deterministic. Previous bump (1p61v, ts-symbol-kind-extraction-faithfulness): TS/JS type-shape members are no longer mislabeled `function`. A `type_alias_declaration` now extracts as kind="type" and an interface/object-type `property_signature` (a `: T` data member) as kind="property" (method *signatures* keep `function`) — previously both fell through to the default `function`, so `code_outline`-invisible `: string` fields and `export type` aliases rendered as `(function)` entry points in the codebase map (p60n field trace, Issue 1). Plus a registration-site faithfulness guard (`_ts_is_emittable_symbol_name`): a definition whose picked name is the reserved word `function` (anonymous `function (…){}` expressions) or a non-identifier route-path token (`/`) is no longer registered as a junk symbol (Issue 2). Node KIND-set + node-set shape change → bump (consumer graph caches re-extract). Conservative: contextual keywords that are legal identifiers (`type`, `async`, `fn`, …) are NOT rejected, so no real callable is dropped. Previous bump (1p5c4, guard-oversized-files-indexing): files over the tree-sitter parse cap (default 2 MB; override WAVEFOUNDRY_MAX_TS_PARSE_BYTES / `indexing.max_treesitter_parse_bytes`) now SKIP AST graph extraction, and files over the hard size cap are dropped from the walk entirely — so oversized files contribute no graph nodes. Bump forces re-extraction so any large file parsed under v29 has its stale nodes pruned. Wave 1p4up (member-access-constant-reads): a CONSTANT accessed via a qualified member expression (`Status.ACTIVE`, `AppConstants.Network.userAgent`, `Outer.Inner.TOKEN`, Ruby/PHP `A::B::C`) now produces a function→constant `reads` edge by EXACT qualified-name match (const-kind-gated; the qualifier disambiguates so a same-leaf param/import/bare-call can't match). Faithfulness guards: F1 full-qname (not `_simple_name` partial key), F2 reject `this`/`self`/`super`/`cls`, F4 qualifier-shadow (a member-access read whose head is a function param/local is dropped — `func_locals` from per-language binding nodes) + the property/trailing leaf of a member access is no longer also buffered as a bare read (member-path resolves it instead). New `reads` edges → node/edge-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 review (28) (D1/D2): namespace-scoped enum member nodes now carry the enclosing namespace prefix (`NSA.Inner.AAA` vs `NSB.Inner.AAA` — no cross-namespace collision/clobber), and constant nodes are EXEMPT from the ≤2-char short-symbol prune so short members (`Status.OK`/`Dir.Up`) resolve. Node-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 (27): TS `enum`/`const enum` members are now `kind="constant"` graph nodes (`Enum.Member`), child of the enum type node. Wave 1p4ls (26) (graph-constant-nodes-and-references): module-/type-level CONSTANT declarations are now graph nodes (kind="constant", carrying a simple-literal `value` where the RHS is a literal) across all core languages, plus a faithfulness-gated function→constant `reads` edge (same-scope + explicitly-imported only; never binds a coincidental same-name twin — symbol_lookup uniqueness + a const-kind gate + a local-shadow guard). Consumers surface them: code_definition resolves a constant name; code_references lists readers in a distinct `reads` bucket (NOT merged into callers); graph_neighbors includes constants when `reads` is requested. `reads` is OPT-IN for default 1-hop traversal (excluded when no explicit relations are passed, so a hot constant does not balloon neighbor sets / 1p4hu expansion) and stays OUT of the impact/call default relations; constant nodes + `reads` edges are excluded from clustering (CLUSTER_BUILDER_VERSION 8→9, no community-label shift). resolve_symbol is kind-aware (a constant sharing a simple name no longer shadows a callable lookup). Detection reuses the 1p4mf chunk-lane per-language predicates (one detector, two consumers — Req-7); the graph lane is BROADER where it lands naturally (class/type-level constants; Swift enum cases; Go grouped-const per member). NOTE: TS `enum`/`const enum` members ARE emitted as constant nodes (`Enum.Member`) — delivered in 1p4q4 (see the v27 line at the top). Kotlin bare top-level/object `val` (no `const`) stays `kind="variable"` (an immutable binding is not a compile-time constant — won't-do). Previous bump (1p4eq, cross-file-resolution-followups): one consolidated bump covering five graph-shaping changes: (1p4ef) fix a leaked `qualified` loop var that injected phantom qualified_index candidates for collapsed/basename-merged nodes (C#/Swift/Rust/Ruby) and silently suppressed unique cross-file resolution; (1p4er) same-package/same-directory disambiguation fallback for ambiguous receivers used WITHOUT an import (Java field miss, `JreCompat.canAccess`), GATED to Java/Kotlin/Go (same-dir ⇒ same-package visibility; Python/JS/TS/Rust/C# excluded); (1p4et) Go methods now keyed `Type.method` (was bare `method`) + package-qualified receiver inference (`var h foo.Helper` → `foo.Helper`, package PRESERVED and resolved by the candidate's package directory); (1p4eu) Rust `Type::assoc_fn()` resolution + struct-literal/`::new()` let-binding type inference; (1p4ev) C# namespace-membership disambiguation (own-namespace ∪ `using`), the namespace derived from each file's DECLARED namespace nodes by longest-prefix (nesting-proof), NOT by fixed-segment qname stripping. FAITHFULNESS FIXES (1p4eq adversarial verification): the 1p4et/1p4ev paths above already incorporate the over-resolution fixes the verification caught — dropping the Go package qualifier bound a co-located cross-package twin, and fixed-segment C# namespace stripping mis-derived a nested-class caller's namespace and bound a coincident sibling twin; both now stay external unless a unique package/namespace-faithful candidate matches. COVERAGE SCOPE — synthetic-fixture tests only, NOT yet validated against a real consumer project: same-package = Java; cross-file method/assoc-fn = Go + Rust; ambiguous-receiver namespace membership = C#. Each carries an adversarial "never binds the wrong twin / stays external" test. **Correction to the v24 line below:** v24 advertised its `imports`-edge disambiguation as "language-agnostic (Python + Java/Kotlin/C#/Go)" — that was over-stated; it fired ONLY for Python + Java (per-type imports), and was dead code for C#/Go/Rust (their import heads are namespaces/packages, not type names) until v25 supplied the per-language mechanisms above. Previous bump (1p47e 1p470): Python sibling-loader return-type inference + cross-file import disambiguation. v24 resolves the lazy-loader blast-radius hole — `gq = _load_graph_query()` (→ `_load_script("graph_query")`) and direct `v = _load_script("mod")` now bind `v.Class.method()` / `v.func()` to the loaded module's symbols (previously emitted NO edge because `v` had no known type; e.g. `GraphQueryIndex.from_root` was called from 14 sites with 0 incoming edges). Also adds import-edge-based disambiguation in the cross-file rewrite pass: an ambiguous `external::Type.method` (multiple same-simple-name candidates) is disambiguated via the source file's `imports` edge for `Type`, language-agnostically (Python + Java/Kotlin/C#/Go). Previous bump (1p2q3 / 1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges observed in the field in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (field-confirmed: ALL backend functions on a 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per field estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
+GRAPH_BUILDER_VERSION = "35"  # Wave 1p7dh (reads_config Java/Spring file config): extended the config-key->reader `reads_config` edge to Java/Spring FILE config — `.properties`/`.yml`/`.yaml` now emit config-key NODES (`file::dotted.key`, kind "class") and Java artifacts capture `@Value("${key}")` placeholders + `getProperty`/`getRequiredProperty` calls into `config_read_candidates`; the language-agnostic finalize pass binds them on a unique config-file + distinctive-key match. Extraction-output change (new nodes + populated config_read_candidates → new edges) → bump so consumer caches re-extract. Previous bump (1p7de (graph-edge-trust)): coordinated bump for two extractor changes (1p7dg confidence promotion + 1p7dh string-literal binding) so consumers re-extract. (v34 supersedes the in-flight v33 test builds: the 1p7dh `instruments` capture was refined to read `namedOneOf(...)` multi-arg matchers + matchers nested in structural wrappers (`implementsInterface`/`hasSuperType`/`isSubTypeOf`) — an EXTRACTION-OUTPUT change, so it gets its own version increment per the builder-version discipline; without the bump an incremental-update consumer that skips unchanged files would not pick up the broadened `instruments` targets. Downstream-validated: javaagent 24/24 OTel TypeInstrumentation classes carry correct `instruments`; Swift solaris promotion realized EXTRACTED 52.7%→33.4%.) 1p7dg generalizes the v23 TS/JS confidence promotion to ALL languages: a call that binds a UNIQUE non-`external::` project node (same-file `symbol_lookup` match at the extraction site, or an exact-unique cross-file rewrite — exact simple name / exact qualified name / Go package-authoritative / import-edge-disambiguated) is promoted EXTRACTED→RECEIVER_RESOLVED. Target UNCHANGED — only the confidence label moves on an already-unique bind — so no new wrong-twin/zeroed-edge risk; the AC-2 type-guess fallback + same-dir/C# namespace heuristics deliberately stay EXTRACTED. Self-host lift: Python EXTRACTED 90.4%→31.9%, resolved 1,136→8,102. 1p7dh adds a new `reads_config` EDGE (a code site `.get("KEY")`/`cfg["KEY"]` → the config-key node `file.json::key` it reads, at `LITERAL_DERIVED` confidence; triple-gated — config-file basename + key-distinctiveness + unique match — so ubiquitous dict literals don't bind data-JSON keys) and a new `instruments` NODE PROPERTY on OTel `TypeInstrumentation` classes (their `typeMatcher()` ByteBuddy matcher target strings, descriptive metadata — NOT an edge, since instrumentation targets are ~100% third-party by design). Edge-confidence relabels + new relation + new node property → node/edge-set shape change → bump (consumer graph caches re-extract). Previous bump (1p66e, graph-edge-extraction-determinism): cross-file resolution made order-independent so identical input yields an identical resolved edge set across from-scratch rebuilds (a consumer observed 75068 vs 74890 edges on identical source). Three order-dependent sites fixed with explicit stable tie-breaks: (a) `per_file_simple` length-tie now breaks on the lexicographically smaller node_id (was first-seen by node_map iteration order); (b) `imports_by_file` final-segment collision now keeps the lexicographically smallest FQN (was "later import wins" by edge_map order); (c) cross-file edge rewrites are applied sorted by (new_key, old_key) so a `setdefault` collapse onto the same new_key keeps a stable survivor. Plus a persisted `input_fingerprint` (sha256 over the sorted node-set + sorted resolved edge-set) in the graph payload + state for downstream reproducibility verification. Edge-set shape stabilizes → bump so consumer caches re-extract. Faithfulness preserved: every resolution branch still requires a UNIQUE (`len==1`) match, so no `len==1` outcome changes and no wrong same-name twin is newly bound — only genuinely-ambiguous tie choices are made deterministic. Previous bump (1p61v, ts-symbol-kind-extraction-faithfulness): TS/JS type-shape members are no longer mislabeled `function`. A `type_alias_declaration` now extracts as kind="type" and an interface/object-type `property_signature` (a `: T` data member) as kind="property" (method *signatures* keep `function`) — previously both fell through to the default `function`, so `code_outline`-invisible `: string` fields and `export type` aliases rendered as `(function)` entry points in the codebase map (p60n field trace, Issue 1). Plus a registration-site faithfulness guard (`_ts_is_emittable_symbol_name`): a definition whose picked name is the reserved word `function` (anonymous `function (…){}` expressions) or a non-identifier route-path token (`/`) is no longer registered as a junk symbol (Issue 2). Node KIND-set + node-set shape change → bump (consumer graph caches re-extract). Conservative: contextual keywords that are legal identifiers (`type`, `async`, `fn`, …) are NOT rejected, so no real callable is dropped. Previous bump (1p5c4, guard-oversized-files-indexing): files over the tree-sitter parse cap (default 2 MB; override WAVEFOUNDRY_MAX_TS_PARSE_BYTES / `indexing.max_treesitter_parse_bytes`) now SKIP AST graph extraction, and files over the hard size cap are dropped from the walk entirely — so oversized files contribute no graph nodes. Bump forces re-extraction so any large file parsed under v29 has its stale nodes pruned. Wave 1p4up (member-access-constant-reads): a CONSTANT accessed via a qualified member expression (`Status.ACTIVE`, `AppConstants.Network.userAgent`, `Outer.Inner.TOKEN`, Ruby/PHP `A::B::C`) now produces a function→constant `reads` edge by EXACT qualified-name match (const-kind-gated; the qualifier disambiguates so a same-leaf param/import/bare-call can't match). Faithfulness guards: F1 full-qname (not `_simple_name` partial key), F2 reject `this`/`self`/`super`/`cls`, F4 qualifier-shadow (a member-access read whose head is a function param/local is dropped — `func_locals` from per-language binding nodes) + the property/trailing leaf of a member access is no longer also buffered as a bare read (member-path resolves it instead). New `reads` edges → node/edge-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 review (28) (D1/D2): namespace-scoped enum member nodes now carry the enclosing namespace prefix (`NSA.Inner.AAA` vs `NSB.Inner.AAA` — no cross-namespace collision/clobber), and constant nodes are EXEMPT from the ≤2-char short-symbol prune so short members (`Status.OK`/`Dir.Up`) resolve. Node-set shape change → bump (consumer graph caches re-extract). Wave 1p4q4 (27): TS `enum`/`const enum` members are now `kind="constant"` graph nodes (`Enum.Member`), child of the enum type node. Wave 1p4ls (26) (graph-constant-nodes-and-references): module-/type-level CONSTANT declarations are now graph nodes (kind="constant", carrying a simple-literal `value` where the RHS is a literal) across all core languages, plus a faithfulness-gated function→constant `reads` edge (same-scope + explicitly-imported only; never binds a coincidental same-name twin — symbol_lookup uniqueness + a const-kind gate + a local-shadow guard). Consumers surface them: code_definition resolves a constant name; code_references lists readers in a distinct `reads` bucket (NOT merged into callers); graph_neighbors includes constants when `reads` is requested. `reads` is OPT-IN for default 1-hop traversal (excluded when no explicit relations are passed, so a hot constant does not balloon neighbor sets / 1p4hu expansion) and stays OUT of the impact/call default relations; constant nodes + `reads` edges are excluded from clustering (CLUSTER_BUILDER_VERSION 8→9, no community-label shift). resolve_symbol is kind-aware (a constant sharing a simple name no longer shadows a callable lookup). Detection reuses the 1p4mf chunk-lane per-language predicates (one detector, two consumers — Req-7); the graph lane is BROADER where it lands naturally (class/type-level constants; Swift enum cases; Go grouped-const per member). NOTE: TS `enum`/`const enum` members ARE emitted as constant nodes (`Enum.Member`) — delivered in 1p4q4 (see the v27 line at the top). Kotlin bare top-level/object `val` (no `const`) stays `kind="variable"` (an immutable binding is not a compile-time constant — won't-do). Previous bump (1p4eq, cross-file-resolution-followups): one consolidated bump covering five graph-shaping changes: (1p4ef) fix a leaked `qualified` loop var that injected phantom qualified_index candidates for collapsed/basename-merged nodes (C#/Swift/Rust/Ruby) and silently suppressed unique cross-file resolution; (1p4er) same-package/same-directory disambiguation fallback for ambiguous receivers used WITHOUT an import (Java field miss, `JreCompat.canAccess`), GATED to Java/Kotlin/Go (same-dir ⇒ same-package visibility; Python/JS/TS/Rust/C# excluded); (1p4et) Go methods now keyed `Type.method` (was bare `method`) + package-qualified receiver inference (`var h foo.Helper` → `foo.Helper`, package PRESERVED and resolved by the candidate's package directory); (1p4eu) Rust `Type::assoc_fn()` resolution + struct-literal/`::new()` let-binding type inference; (1p4ev) C# namespace-membership disambiguation (own-namespace ∪ `using`), the namespace derived from each file's DECLARED namespace nodes by longest-prefix (nesting-proof), NOT by fixed-segment qname stripping. FAITHFULNESS FIXES (1p4eq adversarial verification): the 1p4et/1p4ev paths above already incorporate the over-resolution fixes the verification caught — dropping the Go package qualifier bound a co-located cross-package twin, and fixed-segment C# namespace stripping mis-derived a nested-class caller's namespace and bound a coincident sibling twin; both now stay external unless a unique package/namespace-faithful candidate matches. COVERAGE SCOPE — synthetic-fixture tests only, NOT yet validated against a real consumer project: same-package = Java; cross-file method/assoc-fn = Go + Rust; ambiguous-receiver namespace membership = C#. Each carries an adversarial "never binds the wrong twin / stays external" test. **Correction to the v24 line below:** v24 advertised its `imports`-edge disambiguation as "language-agnostic (Python + Java/Kotlin/C#/Go)" — that was over-stated; it fired ONLY for Python + Java (per-type imports), and was dead code for C#/Go/Rust (their import heads are namespaces/packages, not type names) until v25 supplied the per-language mechanisms above. Previous bump (1p47e 1p470): Python sibling-loader return-type inference + cross-file import disambiguation. v24 resolves the lazy-loader blast-radius hole — `gq = _load_graph_query()` (→ `_load_script("graph_query")`) and direct `v = _load_script("mod")` now bind `v.Class.method()` / `v.func()` to the loaded module's symbols (previously emitted NO edge because `v` had no known type; e.g. `GraphQueryIndex.from_root` was called from 14 sites with 0 incoming edges). Also adds import-edge-based disambiguation in the cross-file rewrite pass: an ambiguous `external::Type.method` (multiple same-simple-name candidates) is disambiguated via the source file's `imports` edge for `Type`, language-agnostically (Python + Java/Kotlin/C#/Go). Previous bump (1p2q3 / 1p2tz post-ship-5 1.3.16): TS/JS symbol-table promotion. Intra-file (and cross-file unique-simple-name) calls where `_ts_resolve_target` bound directly to a project node previously landed as `EXTRACTED` even though the binding required an exact match in `symbol_lookup`. Field validation on the v22 stable state showed `getRootToken` and similar intra-file arrow-const targets had only `EXTRACTED` incoming edges — invisible to the `receiver_resolved` attribution bucket — despite the symbol being correctly resolved at extraction time. v23 promotes these to `RECEIVER_RESOLVED` for TS/JS only: when `_ts_resolve_target` returns a non-`external::` project node (i.e. the call site bound to a locally-defined symbol or to the unique cross-file simple-name match) the edge is high-confidence by construction. Affects TS/JS only — other languages route through their per-language receiver resolvers + the cross-file rewrite pass and are out of scope for this round. Previous bump (1.3.12 v21→v22): TS/JS relative-import path resolution into import_targets. v21 emitted arrow-const function nodes but +9,379 of the new TS edges landed as EXTRACTED rather than RECEIVER_RESOLVED because intra-package callers using relative imports (`import { foo } from './events'`) had `import_targets[foo]` populated with the lossy `external::events` form. The cross-file rewrite pass then promoted the edge to the right project node but kept it at EXTRACTED confidence. v22 extracts the raw module specifier before `_ts_clean_name` strips the `./` prefix, resolves relative imports against the source file's directory, then runs the same barrel walk + import_targets binding as the aliased path. The +9,379 EXTRACTED edges observed in the field in v21 → v22 should migrate to RECEIVER_RESOLVED for any intra-package direct call to a relatively-imported arrow-const. Affects TS/JS only. Previous bump (1.3.11 v20→v21) was the arrow-const node-emission half — v22 completes the receiver-type attribution half. Modern TS code uses `export const foo = async (args) => { ... }` as the dominant function shape (field-confirmed: ALL backend functions on a 12k-node Nx monorepo are arrow-const, zero `function` declarations). Tree-sitter parses these as `lexical_declaration → variable_declarator → arrow_function`, not `function_declaration`, so the default name-from-descendants extractor returned empty and the symbol never registered. v21 detects arrow-const bindings explicitly and registers each as a function symbol; walks scope through the arrow body so calls FROM inside arrow-const-bound functions get attributed to the const name rather than the file. Expected impact on barrel-export-heavy + arrow-const-heavy codebases: TS resolved-share rises from 6% range into 30–60% (per field estimate). Affects TS/JS only — other languages unchanged. Previous bump (1.3.10 v19→v20) covered direct-function-call import_targets promotion + bundler-mode .js→.ts swap + community-label barrel deprioritization
 GRAPH_DIRNAME = "graph"
 
 
@@ -86,6 +86,7 @@ _CODE_EXTENSIONS = {
     ".php",
     ".yaml",
     ".yml",
+    ".properties",
     ".toml",
     ".json",
     ".jsonc",
@@ -383,7 +384,101 @@ def _is_module_node_id(node_id: str) -> bool:
 def _is_json_config_node_id(node_id: str) -> bool:
     if "::" not in node_id:
         return False
-    return node_id.split("::", 1)[0].endswith((".json", ".jsonc"))
+    # Wave 1p7dh: `.properties`/`.yml`/`.yaml` config-key nodes join `.json`/`.jsonc`.
+    return node_id.split("::", 1)[0].endswith((".json", ".jsonc", ".properties", ".yml", ".yaml"))
+
+
+# Wave 1p7dh: a config FILE (vs an arbitrary data/fixture .json) for the
+# config-key->reader binding. Restricting the match target to config files —
+# plus a key-distinctiveness gate (below) — is what keeps `reads_config` faithful:
+# without it, ubiquitous dict literals (`["source"]`, `.get("kind")`) coincidentally
+# match keys in data JSON (retrieval_eval.json, source-map.json) and bind the wrong
+# target. Declared default set + a `config`/`profile` basename pattern; a fully
+# project-tunable catalog (like code_navigation_hints) is the follow-on.
+_CONFIG_FILE_DECLARED = frozenset({"workflow-config.json", "repo-profile.json"})
+
+
+def _is_config_file_path(file_part: str) -> bool:
+    base = file_part.rsplit("/", 1)[-1].lower()
+    if base in _CONFIG_FILE_DECLARED:
+        return True
+    # Wave 1p7dh: accept `.properties`/`.yml`/`.yaml` (Java/Spring file config) in
+    # addition to `.json`/`.jsonc`. Beyond the `config`/`profile` basename pattern,
+    # also treat Spring convention files (basename `application*` / `bootstrap*`,
+    # e.g. `application.yml`, `application-prod.properties`, `bootstrap.yml`) as
+    # config so their keys bind. Same triple-gating bounds faithfulness downstream.
+    if not base.endswith((".json", ".jsonc", ".properties", ".yml", ".yaml")):
+        return False
+    if "config" in base or "profile" in base:
+        return True
+    return base.startswith("application") or base.startswith("bootstrap")
+
+
+def _config_literal_is_distinctive(literal: str) -> bool:
+    # A bare (single-segment) config key must be specific enough to bind: a
+    # dotted path is inherently specific; a single segment must be >=10 chars or
+    # contain "_" (mirrors `_doc_term_allows_json_target`). Drops generic keys
+    # like "source"/"kind"/"id" that collide across surfaces.
+    if "." in literal:
+        return True
+    return len(literal) >= 10 or "_" in literal
+
+
+def _parse_properties_keys(text: str) -> list[str]:
+    """Wave 1p7dh: stdlib line parse of a Java `.properties` file → its keys.
+
+    Recognizes `key=value` and `key:value`; skips blank lines and comments
+    (`#`/`!` line prefixes). The key is the trimmed LHS; dotted keys (`a.b.c`)
+    are kept verbatim (already in the dotted node-id form). Line-continuation and
+    full unicode-escape handling are intentionally out of scope — the keys are
+    binding targets, not values."""
+    keys: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line[0] in "#!":
+            continue
+        # First unescaped '=' or ':' (or whitespace) separates key from value.
+        idx = len(line)
+        for sep in ("=", ":"):
+            pos = line.find(sep)
+            if pos != -1:
+                idx = min(idx, pos)
+        key = line[:idx].strip()
+        if key:
+            keys.append(key)
+    return keys
+
+
+def _parse_yaml_keys(text: str) -> list[str]:
+    """Wave 1p7dh: `.yml`/`.yaml` → dotted config keys via the declared
+    `tree-sitter-yaml` grammar — the indexer's native parser (NO pyyaml, which is
+    not a declared dependency). Walks `block_mapping_pair` nodes, threading the
+    nesting prefix so `{a:{b:1}}` yields `a` and `a.b`; emits intermediate + leaf
+    keys. Returns [] when the grammar is unavailable or the file does not parse
+    (the keys are binding targets only)."""
+    tree = _ts_parse("yaml", text)
+    if tree is None:
+        return []
+    source_bytes = text.encode("utf-8", errors="replace")
+    keys: list[str] = []
+
+    def _walk(node, prefix: str) -> None:
+        for child in getattr(node, "named_children", []):
+            if str(getattr(child, "type", "") or "") == "block_mapping_pair":
+                kn = child.child_by_field_name("key")
+                k = _ts_node_text(kn, source_bytes).strip().strip("'\"") if kn is not None else ""
+                if k:
+                    dotted = f"{prefix}.{k}" if prefix else k
+                    keys.append(dotted)
+                    vn = child.child_by_field_name("value")
+                    _walk(vn if vn is not None else child, dotted)
+                else:
+                    _walk(child, prefix)
+            else:
+                _walk(child, prefix)
+
+    _walk(tree.root_node, "")
+    return keys
 
 
 def _doc_term_allows_json_target(term: str, target_id: str) -> bool:
@@ -687,6 +782,45 @@ def _kind_for_path(rel_path: str) -> str:
 # Wave 1p4ls: constant graph nodes + the `reads` edge.
 GRAPH_CONST_KIND = "constant"
 GRAPH_READS_RELATION = "reads"
+
+# Wave 1p7dh: string-literal binding surfaces.
+# `reads_config` is an EDGE binding a code site to the config-key node
+# (`file.json::key`) it reads by literal name, carrying the honest
+# LITERAL_DERIVED confidence — self-bounding: emitted ONLY when the captured
+# literal matches an existing config-key node, so no literal becomes a node and
+# the index does not bloat on an open string scan.
+# AOP advice registration is captured as a NODE PROPERTY (`instruments`), NOT an
+# edge: the Phase-0 recon on the OTel/ByteBuddy consumer (`aceiss/javaagent`)
+# found instrumentation targets are ~100% THIRD-PARTY types by design (0%
+# project), so an advice->project-type edge would bind nothing. Instead the
+# OTel `TypeInstrumentation.typeMatcher()` matcher strings are attached as
+# descriptive metadata on the enclosing class node — answering "what does this
+# instrument" without inventing nodes or risking false binding edges.
+GRAPH_CONFIG_READS_RELATION = "reads_config"
+GRAPH_LITERAL_DERIVED_CONFIDENCE = "LITERAL_DERIVED"
+
+# ByteBuddy / ElementMatchers TYPE matchers whose string-literal arg(s), when
+# used inside an OTel `typeMatcher()`, name an instrumentation target type. The
+# `*OneOf` forms take MULTIPLE type strings (so capture ALL args, not just the
+# first). The structural wrappers (`implementsInterface`/`hasSuperType`/
+# `isSubTypeOf`/…) carry no string directly — their inner `named`/`namedOneOf`
+# call is itself a buffered invocation inside `typeMatcher()`, so its strings are
+# captured without explicit unwrapping (verified by the structural-matcher tests).
+_AOP_TYPE_MATCHERS = frozenset({
+    "named", "namedIgnoreCase", "namedOneOf", "namedOneOfIgnoreCase",
+    "nameStartsWith", "nameStartsWithIgnoreCase",
+    "nameEndsWith", "nameEndsWithIgnoreCase", "nameContains", "nameContainsIgnoreCase",
+    "nameMatches", "hasSuperType", "isSubTypeOf", "implementsInterface",
+    "extendsClass", "hasSuperClass",
+})
+
+# Wave 1p7dh: declared config-getter attribute names whose string-literal first
+# argument is a candidate config key. Bounded — capture is cheap and transient;
+# only a literal matching an existing config-key node emits an edge. Subscript
+# reads (`cfg["key"]`) are captured separately. (A project-tunable catalog,
+# like code_navigation_hints, is a follow-on; this declared default covers the
+# dominant getter shape across languages.)
+_CONFIG_GETTER_ATTRS = frozenset({"get", "getString", "getInteger", "getBoolean", "getValue"})
 
 
 @functools.lru_cache(maxsize=1)
@@ -4792,6 +4926,127 @@ def _resolve_swift_call_target(call_node, source_bytes: bytes, symbol_lookup: di
     return f"external::{receiver_type}.{method_name}"
 
 
+def _java_aop_matcher_strings(invocation_node, source_bytes: bytes) -> tuple[str, list[str]] | None:
+    """For a Java ``method_invocation``, return ``(matcher_name, [string args])``
+    or None (wave 1p7dh). Used to capture ByteBuddy/ElementMatchers type-matcher
+    target strings (e.g. ``named("org.hibernate.boot.Metadata")`` or the multi-arg
+    ``namedOneOf("A", "B")``) as the ``instruments`` node property. Pure syntactic:
+    the matcher name is the invocation's ``name`` field; ALL string-literal
+    arguments are captured (the ``*OneOf`` forms carry several). A structural
+    wrapper like ``implementsInterface(namedOneOf(...))`` carries no string itself —
+    its inner matcher call is buffered separately, so its strings are captured there."""
+    if invocation_node is None or getattr(invocation_node, "type", "") != "method_invocation":
+        return None
+    name_node = invocation_node.child_by_field_name("name")
+    if name_node is None:
+        return None
+    matcher_name = name_node.text.decode("utf-8", "replace").strip()
+    args = invocation_node.child_by_field_name("arguments")
+    if args is None:
+        return None
+    strings: list[str] = []
+    for child in getattr(args, "named_children", []):
+        if str(getattr(child, "type", "") or "") == "string_literal":
+            raw = child.text.decode("utf-8", "replace").strip()
+            val = raw[1:-1] if len(raw) >= 2 and raw[0] in "\"'" else raw
+            if val:
+                strings.append(val)
+    return (matcher_name, strings) if strings else None
+
+
+def _java_value_annotation_keys(node, source_bytes: bytes) -> list[str]:
+    """For a Java declaration node, return the placeholder KEYS of any
+    ``@Value("${key:default}")`` annotation on it (wave 1p7dh). Used to capture
+    Spring property reads into ``config_read_candidates`` so the finalize pass
+    can bind them to ``application.{yml,properties}`` config-key nodes.
+
+    Pure syntactic: walks the node's ``modifiers`` child for an ``annotation``
+    whose ``name`` field is ``Value`` (or qualified ``…​.Value``), reads its first
+    string-literal argument, and — when that string is a `${…}` placeholder —
+    extracts the key (strip ``${``; take up to the first ``:`` default-separator or
+    closing ``}``). Non-placeholder ``@Value`` literals (SpEL `#{…}`, constants)
+    yield no key. Returns [] for any non-`@Value` node.
+    """
+    keys: list[str] = []
+    try:
+        children = list(getattr(node, "named_children", []) or [])
+    except Exception:
+        return keys
+    for child in children:
+        if (getattr(child, "type", "") or "") != "modifiers":
+            continue
+        try:
+            mod_children = list(getattr(child, "named_children", []) or [])
+        except Exception:
+            continue
+        for ann in mod_children:
+            if (getattr(ann, "type", "") or "") != "annotation":
+                continue  # marker_annotation has no args → never a @Value placeholder
+            try:
+                name_node = ann.child_by_field_name("name")
+            except Exception:
+                name_node = None
+            if name_node is None:
+                continue
+            ann_name = _ts_node_text(name_node, source_bytes).strip()
+            if ann_name.rsplit(".", 1)[-1] != "Value":
+                continue
+            try:
+                args = ann.child_by_field_name("arguments")
+            except Exception:
+                args = None
+            if args is None:
+                continue
+            for arg in getattr(args, "named_children", []) or []:
+                if (getattr(arg, "type", "") or "") != "string_literal":
+                    continue
+                raw = arg.text.decode("utf-8", "replace").strip()
+                val = raw[1:-1] if len(raw) >= 2 and raw[0] in "\"'" else raw
+                if not (val.startswith("${") and "}" in val):
+                    continue
+                inner = val[2:]
+                # key is up to the first ':' (default separator) or the closing '}'
+                cut = len(inner)
+                for sep in (":", "}"):
+                    idx = inner.find(sep)
+                    if idx != -1:
+                        cut = min(cut, idx)
+                key = inner[:cut].strip()
+                if key and key not in keys:
+                    keys.append(key)
+    return keys
+
+
+_JAVA_CONFIG_GETTERS = frozenset({"getProperty", "getRequiredProperty"})
+
+
+def _java_config_getter_key(invocation_node, source_bytes: bytes) -> str | None:
+    """For a Java ``method_invocation``, return the first string-literal argument
+    when the invoked method is a Spring ``Environment`` getter
+    (``getProperty`` / ``getRequiredProperty`` / ``env.getProperty``) — wave 1p7dh.
+    Returns None otherwise. Pure syntactic; the finalize pass's config-file +
+    distinctiveness + unique-match gates bound faithfulness, so capturing by
+    method NAME (without resolving the receiver type) is safe — a non-config key
+    simply finds no matching node and is dropped."""
+    if invocation_node is None or getattr(invocation_node, "type", "") != "method_invocation":
+        return None
+    name_node = invocation_node.child_by_field_name("name")
+    if name_node is None:
+        return None
+    method_name = name_node.text.decode("utf-8", "replace").strip()
+    if method_name not in _JAVA_CONFIG_GETTERS:
+        return None
+    args = invocation_node.child_by_field_name("arguments")
+    if args is None:
+        return None
+    for child in getattr(args, "named_children", []) or []:
+        if str(getattr(child, "type", "") or "") == "string_literal":
+            raw = child.text.decode("utf-8", "replace").strip()
+            val = raw[1:-1] if len(raw) >= 2 and raw[0] in "\"'" else raw
+            return val or None
+    return None
+
+
 def _resolve_java_call_target(
     invocation_node, source_bytes: bytes, symbol_lookup: dict[str, str]
 ) -> str | None:
@@ -5713,6 +5968,11 @@ class GraphIndexSession:
                 self.calls: list[tuple[str, str, bool]] = []
                 # Wave 1p4ls: (source, constant_target) reads of a same-file constant.
                 self.reads: list[tuple[str, str]] = []
+                # Wave 1p7dh: (source, literal_key) config-key read candidates from
+                # `.get("KEY")` getters and `cfg["KEY"]` subscripts — resolved to
+                # config-key nodes in finalize (self-bounding: only a literal that
+                # matches a config-key node becomes a `reads_config` edge).
+                self.config_reads: list[tuple[str, str]] = []
 
             def visit_FunctionDef(self, node: ast.FunctionDef) -> Any:  # noqa: N802
                 return None
@@ -5727,6 +5987,24 @@ class GraphIndexSession:
                 target, receiver_resolved = self._resolve_call(node.func)
                 if target:
                     self.calls.append((self.current_symbol, target, receiver_resolved))
+                # Wave 1p7dh: a string-literal first arg to a `.get("KEY")` getter
+                # is a config-key read candidate (bounded later by node match).
+                if (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr in _CONFIG_GETTER_ATTRS
+                    and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)
+                    and node.args[0].value
+                ):
+                    self.config_reads.append((self.current_symbol, node.args[0].value))
+                self.generic_visit(node)
+
+            def visit_Subscript(self, node: ast.Subscript) -> Any:  # noqa: N802
+                # Wave 1p7dh: `cfg["KEY"]` literal subscript read → config-key candidate.
+                if isinstance(node.ctx, ast.Load) and isinstance(node.slice, ast.Constant) \
+                        and isinstance(node.slice.value, str) and node.slice.value:
+                    self.config_reads.append((self.current_symbol, node.slice.value))
                 self.generic_visit(node)
 
             def visit_Name(self, node: ast.Name) -> Any:  # noqa: N802
@@ -5871,6 +6149,13 @@ class GraphIndexSession:
             # Wave 1p4ls: same-file constant reads (deduped per (reader, constant)).
             for src, target in dict.fromkeys(collector.reads):
                 edges.append(_edge(src, target, GRAPH_READS_RELATION, confidence="EXTRACTED"))
+            # Wave 1p7dh: buffer config-key read candidates (reader, literal) for
+            # cross-file resolution against config-key nodes in finalize.
+            config_read_candidates.extend(collector.config_reads)
+
+        # Wave 1p7dh: (reader_symbol, literal_key) pairs, resolved to config-key
+        # nodes in finalize (a literal that matches no config-key node is dropped).
+        config_read_candidates: list[tuple[str, str]] = []
 
         # Attach call edges for top-level defs and classes.
         for stmt in tree.body:
@@ -5891,6 +6176,7 @@ class GraphIndexSession:
             "defined_symbols": defined_symbols,
             "simple_names": simple_names,
             "mentioned_symbols": [],
+            "config_read_candidates": config_read_candidates,
         }
 
     def _extract_js_artifact(self, rel_path: str, source_text: str) -> dict[str, Any]:
@@ -6041,6 +6327,47 @@ class GraphIndexSession:
                 )
                 edges.append(_edge(module_id, node_id, "defines", confidence="EXTRACTED"))
                 defined_symbols.append(node_id)
+        return {
+            "kind": "code",
+            "path": rel_path,
+            "source_hash": _sha256_text(source_text),
+            "nodes": nodes,
+            "edges": edges,
+            "defined_symbols": defined_symbols,
+            "simple_names": {},
+            "mentioned_symbols": [],
+        }
+
+    def _extract_config_artifact(self, rel_path: str, source_text: str) -> dict[str, Any]:
+        """Wave 1p7dh: emit config-key NODES for `.properties` / `.yml` / `.yaml`
+        files, mirroring `_extract_json_artifact`'s node/edge shape (node id
+        `file::dotted.key`, kind "class", a `defines` edge `module -> node`). The
+        language-agnostic finalize pass then binds these to reader code sites via
+        `reads_config`. Malformed input → `_empty_code_artifact` (parity with JSON).
+        """
+        suffix = Path(rel_path).suffix.lower()
+        try:
+            if suffix == ".properties":
+                keys = _parse_properties_keys(source_text)
+            else:
+                keys = _parse_yaml_keys(source_text)
+        except Exception:
+            return self._empty_code_artifact(rel_path, source_text)
+        module_id = rel_path
+        nodes: list[dict[str, Any]] = [
+            _node(module_id, _path_term(rel_path), "module", rel_path, "1:0", layer=self.layer)
+        ]
+        edges: list[dict[str, Any]] = []
+        defined_symbols: list[str] = []
+        seen: set[str] = set()
+        for key in keys:
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            node_id = f"{rel_path}::{key}"
+            nodes.append(_node(node_id, key, "class", rel_path, "1:0", layer=self.layer))
+            edges.append(_edge(module_id, node_id, "defines", confidence="EXTRACTED"))
+            defined_symbols.append(node_id)
         return {
             "kind": "code",
             "path": rel_path,
@@ -6334,6 +6661,7 @@ class GraphIndexSession:
         # the duplicate AST descent.
         buffered_calls: list[tuple[str, Any, str, list[str]]] = []  # (source_symbol, call_node, node_type, scope_signatures_snapshot)
         buffered_reads: list[tuple[str, str]] = []  # Wave 1p4ls: (reader_symbol, identifier_text)
+        config_read_candidates: list[tuple[str, str]] = []  # Wave 1p7dh: Java (reader_symbol, config_key)
         func_locals: dict[str, set[str]] = {}  # reader_symbol -> {param/local binding names} (member-access F4 shadow guard)
 
         def walk_definitions(
@@ -6354,6 +6682,21 @@ class GraphIndexSession:
                 _bn = _ts_binding_names(node)
                 if _bn:
                     func_locals.setdefault(scope_symbols[-1], set()).update(_bn)
+            # Wave 1p7dh: Spring `@Value("${key}")` field/param/method annotation →
+            # config-read candidate. The reader is the enclosing class node id
+            # (nearest class-kind scope symbol; falls back to the file/module node
+            # when the class collapsed or the annotation is module-level). The
+            # finalize pass binds the key to a config-key node on a unique match.
+            if lang_key == "java":
+                _value_keys = _java_value_annotation_keys(node, source_bytes)
+                if _value_keys:
+                    _reader = module_id
+                    for _k, _s in zip(reversed(scope_kinds), reversed(scope_symbols)):
+                        if _k == "class":
+                            _reader = _s
+                            break
+                    for _vk in _value_keys:
+                        config_read_candidates.append((_reader, _vk))
             is_import = _ts_markup_import_nodes(node, source_bytes) if mode == "markup" else _ts_is_import_node(node_type, mode)
             is_definition = bool(_ts_markup_name_candidates(node, source_bytes)) if mode == "markup" else _ts_is_definition_node(node_type, mode)
             if is_import:
@@ -6616,6 +6959,10 @@ class GraphIndexSession:
             if kind_val:
                 symbol_lookup_kinds[name] = str(kind_val)
 
+        # Wave 1p7dh: OTel TypeInstrumentation type-matcher targets, keyed by the
+        # enclosing class node id — attached as the `instruments` property below.
+        instruments_by_class: dict[str, set[str]] = {}
+
         # Wave 1p2q3 (1p2tz post-ship-4 perf): drain the buffered-call queue
         # using symbol_lookup + symbol_lookup_kinds. This replaces the prior
         # second AST walk (walk_calls) with a flat list traversal. The full
@@ -6627,6 +6974,28 @@ class GraphIndexSession:
             node = _call_node
             node_type = _call_node_type
             scope_signatures = _scope_signatures
+            # Wave 1p7dh: capture OTel TypeInstrumentation target strings as the
+            # enclosing class's `instruments` property. Scoped to the SPI
+            # `typeMatcher()` method so method/parameter matchers in `transform()`
+            # are excluded; the enclosing class id is the method's qname minus the
+            # trailing `.typeMatcher` segment. Property only — no edge, no binding.
+            if (
+                lang_key == "java"
+                and node_type == "method_invocation"
+                and source_symbol.endswith(".typeMatcher")
+            ):
+                _aop = _java_aop_matcher_strings(node, source_bytes)
+                if _aop is not None and _aop[0] in _AOP_TYPE_MATCHERS:
+                    _cls_id = source_symbol.rsplit(".", 1)[0]
+                    instruments_by_class.setdefault(_cls_id, set()).update(_aop[1])
+            # Wave 1p7dh: Spring `Environment.getProperty("key")` /
+            # `getRequiredProperty("key")` → config-read candidate (reader =
+            # enclosing source_symbol). Captured by method name only; the finalize
+            # pass's config-file + distinctiveness + unique-match gates bound it.
+            if lang_key == "java" and node_type == "method_invocation":
+                _cfg_key = _java_config_getter_key(node, source_bytes)
+                if _cfg_key:
+                    config_read_candidates.append((source_symbol, _cfg_key))
             # Wave 131bt (1319s): construction-call resolution runs FIRST.
             construction_target = _resolve_construction_target(
                 node, node_type, source_bytes, symbol_lookup, symbol_lookup_kinds, lang_key
@@ -6684,25 +7053,23 @@ class GraphIndexSession:
                         if walked and not walked.startswith("external::"):
                             resolved = f"{walked}::{clean_name}"
                             confidence_for_edge = "RECEIVER_RESOLVED"
-                    # Wave 1p2q3 (1p2tz post-ship-5): TS/JS symbol-table promotion.
-                    # When `_ts_resolve_target` bound to a project-internal node
-                    # directly (intra-file binding via local symbol_lookup, or
-                    # cross-file unambiguous unique simple-name match), the
-                    # target is high-confidence — exactly one definition could
-                    # have matched. The previous code tagged these as EXTRACTED
-                    # which made them invisible to `receiver_resolved` attribution
-                    # buckets. The dominant gap on arrow-const-heavy codebases:
-                    # `export const foo = () => {}` and a sibling caller `foo()`
-                    # in the same file both register, but the call edge landed
-                    # EXTRACTED instead of RECEIVER_RESOLVED. Scoped to TS/JS
-                    # because other languages already route through their own
-                    # receiver resolvers + the cross-file rewrite pass; widening
-                    # is a follow-up if field data warrants it.
-                    elif (
-                        lang_key in ("typescript", "javascript")
-                        and resolved
-                        and not resolved.startswith("external::")
-                    ):
+                    # Wave 1p2q3 (1p2tz post-ship-5) + 1p7dg: symbol-table
+                    # promotion. When `_ts_resolve_target` bound to a project node
+                    # directly (intra-file binding via local symbol_lookup, or a
+                    # cross-file unambiguous unique simple-name match), the target
+                    # is high-confidence — exactly one definition could have
+                    # matched — but the edge landed EXTRACTED, invisible to the
+                    # `receiver_resolved` attribution. v23 promoted this for TS/JS
+                    # only ("widening is a follow-up if field data warrants it").
+                    # Wave 1p7dg: the AC-1 spike warranted it — Java (247) and
+                    # Swift (761) carry the same under-tagged same-file bucket on
+                    # real graphs. Widened to ALL languages: this fires only in the
+                    # `else` branch (the per-language receiver resolver already
+                    # returned None) on an already-bound non-`external::` target,
+                    # so the bind is UNCHANGED (no new wrong-twin risk) and the
+                    # uniqueness guarantee is the same `_ts_resolve_target` /
+                    # symbol_lookup match used for TS/JS — a confidence relabel only.
+                    elif resolved and not resolved.startswith("external::"):
                         confidence_for_edge = "RECEIVER_RESOLVED"
                     self_kind = None
                     if (
@@ -6725,6 +7092,17 @@ class GraphIndexSession:
         for nid, sigs in overload_signatures.items():
             if nid in node_map and len(sigs) > 0:
                 node_map[nid]["param_signatures"] = sorted(sigs)
+
+        # Wave 1p7dh: attach OTel `typeMatcher()` target strings as the
+        # `instruments` property on the enclosing instrumentation class node —
+        # descriptive metadata ("what does this instrument"), not a binding edge.
+        # When the class collapsed into the file node (`collapsed_pair`, 1316l —
+        # a basename-matching dominant class), the qualified `file::Class` id is
+        # absent; the surviving carrier is the file/module node, so fall back to it.
+        for _cls_id, _targets in instruments_by_class.items():
+            _carrier = _cls_id if _cls_id in node_map else _cls_id.split("::", 1)[0]
+            if _carrier in node_map and _targets:
+                node_map[_carrier]["instruments"] = sorted(_targets)
 
         # Wave 1p4ls: resolve buffered identifier reads → `reads` edges (reader function → constant).
         # symbol_lookup uniqueness is the cross-module faithfulness gate (an ambiguous same-name
@@ -6771,6 +7149,7 @@ class GraphIndexSession:
             "defined_symbols": defined_symbols,
             "simple_names": {name: ids for name, ids in simple_names.items()},
             "mentioned_symbols": [],
+            "config_read_candidates": config_read_candidates,  # Wave 1p7dh (Java @Value/getProperty)
         }
 
     def _extract_code_artifact(self, rel_path: str, source_text: str) -> dict[str, Any]:
@@ -6779,6 +7158,8 @@ class GraphIndexSession:
             artifact = self._extract_python_artifact(rel_path, source_text)
         elif suffix in {".json", ".jsonc"}:
             artifact = self._extract_json_artifact(rel_path, source_text)
+        elif suffix in {".properties", ".yml", ".yaml"}:
+            artifact = self._extract_config_artifact(rel_path, source_text)
         else:
             lang_key = _ts_language_key_for_path(rel_path)
             if lang_key:
@@ -7143,6 +7524,56 @@ class GraphIndexSession:
         except Exception:
             pass
 
+        # Wave 1p7dh: config-key -> reader edges. Match each captured config-read
+        # literal (from `.get("KEY")` / `cfg["KEY"]`) against the config-key nodes
+        # (`file.json::key`) present in the graph and emit a `reads_config` edge
+        # (reader -> config-key) at LITERAL_DERIVED confidence on a UNIQUE match.
+        # Self-bounding + faithful: a literal matching NO config-key node (ordinary
+        # dict access — the common case) is dropped, and one matching MORE THAN ONE
+        # config surface (same key in two files, or a leaf collision) is dropped
+        # rather than bound to the wrong twin. Full-key match takes precedence over
+        # a leaf match.
+        config_key_index: dict[str, list[str]] = {}
+        config_leaf_index: dict[str, list[str]] = {}
+        for node_id in node_map:
+            if not _is_json_config_node_id(node_id):
+                continue
+            if not _is_config_file_path(node_id.split("::", 1)[0]):
+                continue  # only declared/pattern-matched CONFIG files, not data JSON
+            key = node_id.split("::", 1)[1]
+            if not key:
+                continue
+            config_key_index.setdefault(key, []).append(node_id)
+            leaf = key.rsplit(".", 1)[-1]
+            if leaf != key:
+                config_leaf_index.setdefault(leaf, []).append(node_id)
+        if config_key_index:
+            seen_cfg: set[tuple[str, str]] = set()
+            for rel in sorted(artifacts.keys()):
+                for cand in artifacts[rel].get("config_read_candidates", []) or []:
+                    if not (isinstance(cand, (list, tuple)) and len(cand) == 2):
+                        continue
+                    reader, literal = cand
+                    if not isinstance(reader, str) or not isinstance(literal, str):
+                        continue
+                    if not _config_literal_is_distinctive(literal):
+                        continue
+                    match = config_key_index.get(literal) or config_leaf_index.get(literal)
+                    if not match or len(match) != 1:
+                        continue
+                    target = match[0]
+                    if reader == target or reader not in node_map:
+                        continue
+                    pair = (reader, target)
+                    if pair in seen_cfg:
+                        continue
+                    seen_cfg.add(pair)
+                    key_t = (reader, target, GRAPH_CONFIG_READS_RELATION, GRAPH_LITERAL_DERIVED_CONFIDENCE)
+                    edge_map.setdefault(
+                        key_t,
+                        _edge(reader, target, GRAPH_CONFIG_READS_RELATION, confidence=GRAPH_LITERAL_DERIVED_CONFIDENCE),
+                    )
+
         # Reverse invalidation: drop edges left dangling by deletions/renames in
         # surviving (unchanged) referrer files. A cached referrer artifact can still
         # carry an edge into a symbol or file that no longer exists; without this
@@ -7344,11 +7775,17 @@ class GraphIndexSession:
                 # fallback must be blocked to prevent phantom rewrites.
                 _receiver_resolved = conf in ("RECEIVER_RESOLVED", "CONSTRUCTION_RESOLVED")
                 resolved: str | None = None
-                # Wave 1p2q3 (1p2tz post-ship-5): track whether the rewrite
-                # came from the AC-1 bare-simple-name branch (safe to promote
-                # for TS/JS) vs the AC-2 qualified branch (phantom-prone on
-                # unannotated locals — must preserve conf).
-                rewrote_via_bare_simple = False
+                # Wave 1p2q3 / 1p7dg: track whether `resolved` was set by an
+                # EXACT-unique branch — exact simple name (AC-1), exact qualified
+                # name, Go package-authoritative match, or import-edge
+                # disambiguation — all len==1 and exact-by-name. Those binds are
+                # high-confidence by construction and are promoted
+                # EXTRACTED->RECEIVER_RESOLVED (language-agnostic, wave 1p7dg).
+                # The AC-2 simple-name fallback (qualified `obj.method()` with no
+                # qualified match — a guess about `obj`'s type) and the same-dir /
+                # C# namespace HEURISTICS are NOT exact: they bind the target but
+                # KEEP EXTRACTED confidence.
+                rewrote_exact = False
                 if "." in bare:
                     # AC-2: qualified target — require an exact qualified-name
                     # match to a project node's post-`::` portion. The final
@@ -7361,6 +7798,7 @@ class GraphIndexSession:
                     candidates = qualified_index.get(bare, [])
                     if len(candidates) == 1:
                         resolved = candidates[0]
+                        rewrote_exact = True  # exact qualified-name match
                     elif not candidates and not _receiver_resolved:
                         # Fallback: try the last segment in simple_name_index
                         # (with ambiguity safety + denylist already checked).
@@ -7378,7 +7816,7 @@ class GraphIndexSession:
                     candidates = simple_name_index.get(bare, [])
                     if len(candidates) == 1:
                         resolved = candidates[0]
-                        rewrote_via_bare_simple = True
+                        rewrote_exact = True  # exact simple-name match (AC-1)
                 # Wave 1p4eq (1p4et faithfulness fix): Go package-qualified
                 # receiver. `var h foo.Helper; h.Process()` now keys as
                 # `foo.Helper.Process` (the package qualifier is preserved by
@@ -7406,6 +7844,7 @@ class GraphIndexSession:
                             pkg_matches.append(cand)
                     if len(pkg_matches) == 1:
                         resolved = pkg_matches[0]
+                        rewrote_exact = True  # Go package-authoritative match
                 # Wave 1p47e (1p470): import-edge disambiguation. When the
                 # simple/qualified match above was ambiguous (the receiver's
                 # name maps to MULTIPLE same-named project candidates), use the
@@ -7437,6 +7876,7 @@ class GraphIndexSession:
                                 matches.append(cand)
                         if len(matches) == 1:
                             resolved = matches[0]
+                            rewrote_exact = True  # import-edge-disambiguated unique match
                     # Wave 1p4er: same-package / same-directory fallback. Java/
                     # Kotlin/Go make same-package types visible WITHOUT an import,
                     # so `imports_by_file` has no entry for them and the import path
@@ -7503,35 +7943,23 @@ class GraphIndexSession:
                         if len(ns_matches) == 1:
                             resolved = ns_matches[0]
                 if resolved and resolved != src:
-                    # Wave 1p2q3 (1p2tz post-ship-5): TS/JS bare-simple-name
-                    # promotion. A bare identifier call like `foo()` rewritten
-                    # to a project node via `simple_name_index` requires
-                    # `len(candidates) == 1` — unambiguous in the project. No
-                    # receiver type was assumed; the binding is exact-by-name.
-                    # Scoped to TS/JS source files and to the AC-1 branch only:
-                    # the AC-2 simple-name fallback (qualified `obj.method()`
-                    # without a qualified match) is genuinely a guess about
-                    # `obj`'s type and must stay EXTRACTED.
-                    #
-                    # Wave 1p7dg note: Python's cross-file bound-but-EXTRACTED
-                    # edges (562 on the self-host graph) reach a project node via
-                    # the AC-2 qualified-import branch (`from x import y` → a
-                    # `qualified_index` len==1 match), NOT this bare-simple branch
-                    # — so extending the language set here promotes nothing
-                    # (measured: zero local lift). Promoting the qualified branch
-                    # for Python is a faithfulness-sensitive follow-on (it is the
-                    # AC-2-guarded zone) and is out of scope; the same-file
-                    # promotion at the extraction site captured the 6,422-edge
-                    # bulk. The residual stays EXTRACTED (conservative, no
-                    # regression).
+                    # Wave 1p2q3 / 1p7dg: confidence promotion for an exact-unique
+                    # cross-file rebind. When `resolved` was set by an exact branch
+                    # (`rewrote_exact`: exact simple name (AC-1), exact qualified
+                    # name, Go package-authoritative, or import-edge-disambiguated —
+                    # every one a len==1 exact-by-name match), the bound edge is
+                    # high-confidence by construction, so promote
+                    # EXTRACTED->RECEIVER_RESOLVED. Language-agnostic (wave 1p7dg):
+                    # the AC-1 spike showed every language carries this under-tagged
+                    # cross-file bucket (Py 552 / Java 315 / Swift 680 / TS 713 /
+                    # JS 44). The target is UNCHANGED — only the confidence label —
+                    # so no new wrong-twin risk: any mis-bind already exists at
+                    # EXTRACTED today. The AC-2 type-guess fallback and the
+                    # same-dir / C# namespace heuristics do NOT set `rewrote_exact`,
+                    # so they bind the target but correctly stay EXTRACTED.
                     promoted_conf = conf
-                    if (
-                        conf == "EXTRACTED"
-                        and rewrote_via_bare_simple
-                    ):
-                        src_file = src.split("::", 1)[0] if "::" in src else src
-                        if src_file and src_file.lower().endswith((".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")):
-                            promoted_conf = "RECEIVER_RESOLVED"
+                    if conf == "EXTRACTED" and rewrote_exact:
+                        promoted_conf = "RECEIVER_RESOLVED"
                     new_key = (src, resolved, rel, promoted_conf)
                     new_edge = dict(edge)
                     new_edge["target"] = resolved

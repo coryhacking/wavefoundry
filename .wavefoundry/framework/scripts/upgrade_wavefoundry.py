@@ -1293,7 +1293,21 @@ def phase_index_update(root: Path) -> None:
     if result.returncode != 0:
         _log(f"  ⚠  Docs index update exited {result.returncode} — continuing.")
 
-    _log("  Phase 4b: launching code index update in background ...")
+    # Phase 4b: update the GRAPH index too (blocking; graph-only is fast, ~seconds,
+    # no embedding). Symmetric with the semantic update: `--graph-only` (no --full)
+    # is an UPDATE that auto-escalates to a full re-extract when GRAPH_BUILDER_VERSION
+    # advanced (graph_indexer's version check) — so a graph-builder bump materializes
+    # during the upgrade instead of waiting for the first-query lazy rebuild.
+    _log("  Phase 4b: updating graph index (blocking) ...")
+    graph_result = subprocess.run(
+        [_preferred_python(), str(setup_script), "--root", str(root), "--graph-only"],
+        cwd=str(root),
+        check=False,
+    )
+    if graph_result.returncode != 0:
+        _log(f"  ⚠  Graph index update exited {graph_result.returncode} — continuing (first-query rebuild remains the safety net).")
+
+    _log("  Phase 4c: launching code index update in background ...")
     background_cmd = [
         _preferred_python(), str(setup_script),
         "--root", str(root),
@@ -1343,7 +1357,18 @@ def phase_index_rebuild(root: Path) -> None:
     if result.returncode != 0:
         _log(f"  ⚠  Docs index rebuild exited {result.returncode} — continuing.")
 
-    _log("  Phase 4b: launching code index rebuild in background ...")
+    # Phase 4b: rebuild the GRAPH index too (blocking; fast, no embedding) —
+    # symmetric with the semantic full rebuild.
+    _log("  Phase 4b: rebuilding graph index (blocking) ...")
+    graph_result = subprocess.run(
+        [_preferred_python(), str(setup_script), "--root", str(root), "--graph-only", "--full"],
+        cwd=str(root),
+        check=False,
+    )
+    if graph_result.returncode != 0:
+        _log(f"  ⚠  Graph index rebuild exited {graph_result.returncode} — continuing (first-query rebuild remains the safety net).")
+
+    _log("  Phase 4c: launching code index rebuild in background ...")
     background_cmd = [
         _preferred_python(), str(setup_script),
         "--root", str(root),
