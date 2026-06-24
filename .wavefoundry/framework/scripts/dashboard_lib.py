@@ -143,8 +143,9 @@ def read_dashboard_config(root: Path) -> dict[str, Any]:
         "project_label": str(cfg.get("project_label", "")).strip(),
         "terminology": cfg.get("terminology", {}) if isinstance(cfg.get("terminology"), dict) else {},
         "include_dirs": [str(d) for d in cfg.get("include_dirs", []) if isinstance(d, str)] if isinstance(cfg.get("include_dirs"), list) else [],
-        "auto_index": bool(cfg.get("auto_index", True)),
-        "auto_index_delay_seconds": max(10, int(cfg.get("auto_index_delay_seconds", 30) or 30)),
+        # 1p7it: the dashboard is a read-only viewer — index updates are owned by the MCP/hook
+        # background path (post-edit hook + the MCP server's background refresh + wave_index_build),
+        # never the dashboard. The former `auto_index` / `auto_index_delay_seconds` settings were removed.
     }
 
 

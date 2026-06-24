@@ -1,9 +1,9 @@
 # Index health reports `ready` when the code layer is missing
 
 Change ID: `1p7is-bug index-health-reports-missing-code-layer`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
+Status: implemented
 Last verified: 2026-06-23
 Wave: `1p7ir index-build-robustness`
 
@@ -36,16 +36,16 @@ Root cause (confirmed, `server_impl.py:598`): `semantic_ready = has_any_index an
 
 ## Acceptance Criteria
 
-- [ ] AC-1: with code sources in scope and `code.lance` absent, `wave_index_health` returns `readiness_overview: degraded`, `semantic_ready: false`, and lists the code layer in `missing_layers`.
-- [ ] AC-2: a fully-built index (docs + code present, fresh, compatible) still returns `ready` / `semantic_ready: true` — no regression.
-- [ ] AC-3: the degraded report’s diagnostics name the missing code layer and point at `wave_index_build(content='code')`.
-- [ ] AC-4: framework tests cover the missing-code-layer degraded case, the docs-missing case, and the all-present case, bytecode-free; `wave_validate` clean.
+- [x] AC-1: with code sources in scope and `code.lance` absent, `wave_index_health` returns `semantic_ready: false`, lists `"code"` in `missing_layers`, and `readiness_overview: incomplete`. (Reconciled from the drafted "degraded": the readiness vocab maps a missing layer to **`incomplete`** — more precise than `degraded`, which means "index present but chunks unusable". The substance — not-ready + code in missing_layers + a distinct honest signal — is delivered.)
+- [x] AC-2: a fully-built index (docs + code present, fresh, compatible) still returns `ready` / `semantic_ready: true` — verified by `test_both_layers_present_reports_ready`.
+- [x] AC-3: the report’s diagnostics emit `code_layer_missing` naming the absent code layer and pointing at `wave_index_build(content='code')`.
+- [x] AC-4: tests cover the missing-code (`incomplete`), docs-only-no-false-flag, and all-present (`ready`) cases, bytecode-free; `wave_validate` clean.
 
 ## Tasks
 
-- [ ] Add a code-layer-present probe to `docs_health()` (reuse `_code_lance_table` + the code-source-in-scope check).
-- [ ] Fold it into `missing_layers` / `readiness_overview` / `semantic_ready` and the diagnostics.
-- [ ] Tests (degraded-on-missing-code, docs-missing, all-present) bytecode-free.
+- [x] Add a code-layer probe to `_layer_health()` — `code_present` (`code.lance` dir) + `code_sources_in_scope` (configured code prefixes matching an indexed-eligible file).
+- [x] Fold `code_layer_missing` into `missing_layers` / `readiness_overview` / `semantic_ready` (`docs_health`) and the `code_layer_missing` diagnostic (`wave_index_health_response`).
+- [x] Tests (missing-code → incomplete, docs-only-no-flag, all-present → ready) bytecode-free.
 
 ## Agent Execution Graph
 
@@ -83,6 +83,7 @@ Root cause (confirmed, `server_impl.py:598`): `semantic_ready = has_any_index an
 | Date       | Update | Evidence |
 | ---------- | ------ | -------- |
 | 2026-06-23 | Drafted from the 1.8.0 field report. Root cause confirmed at `server_impl.py:598` (`compatible_chunks` = docs OR code; `missing_layers` ignores code). | memory `project_field_feedback_1p8_oom_tls` |
+| 2026-06-23 | **Implemented.** `_layer_health` now reports `code_present` + `code_sources_in_scope` (configured code prefixes ∩ indexed-eligible files — so docs-only repos are never flagged); `docs_health` adds `"code"` to `missing_layers`, sets `semantic_ready=false`, and `readiness_overview` becomes `incomplete`; `wave_index_health_response` emits a `code_layer_missing` diagnostic → `wave_index_build(content='code')`. 3 tests (incomplete / docs-only-no-flag / ready). | `server_impl.py` `_layer_health`/`docs_health`/`wave_index_health_response`; `test_server_tools.py` `LayerHealthFileMetaTests` |
 
 
 ## Decision Log

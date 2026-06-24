@@ -392,15 +392,90 @@ def _embedding_providers_for_setup() -> list[str]:
     return [provider_policy.CPU_PROVIDER]
 
 
+# 1p7iu: TLS-inspecting corporate proxies put the root CA in the OS trust store but not in the venv's
+# bundled certifi, so model downloads fail CERTIFICATE_VERIFY_FAILED while curl/system tools succeed.
+_OS_CA_BUNDLE_CANDIDATES = (
+    "/etc/ssl/certs/ca-certificates.crt",   # Debian/Ubuntu/WSL2
+    "/etc/pki/tls/certs/ca-bundle.crt",     # RHEL/CentOS/Fedora
+    "/etc/ssl/ca-bundle.pem",               # OpenSUSE
+    "/etc/ssl/cert.pem",                    # Alpine / macOS LibreSSL
+)
+
+
+def _os_trust_store_bundle() -> "str | None":
+    """An OS CA bundle for the TLS fallback. Honors a preset SSL_CERT_FILE/REQUESTS_CA_BUNDLE first
+    (operator override), then known platform locations; ``None`` if none exist. Verification stays ON —
+    this only selects WHICH trusted CA bundle to verify against, never disables verification."""
+    for env in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"):
+        val = os.environ.get(env)
+        if val and os.path.isfile(val):
+            return val
+    for path in _OS_CA_BUNDLE_CANDIDATES:
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _is_cert_verify_error(exc: BaseException) -> bool:
+    """True if exc (or its cause/context chain) is a TLS CERTIFICATE_VERIFY_FAILED."""
+    seen: set[int] = set()
+    cur: "BaseException | None" = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if "certificate verify failed" in f"{type(cur).__name__}: {cur}".lower():
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
 def _warm_model(model_name: str, *, local_files_only: bool) -> None:
     from fastembed import TextEmbedding
 
-    embedding = TextEmbedding(
-        model_name=model_name,
-        local_files_only=local_files_only,
-        providers=_embedding_providers_for_setup(),
-    )
-    next(iter(embedding.embed(["wavefoundry cache verification"])))
+    def _build() -> None:
+        embedding = TextEmbedding(
+            model_name=model_name,
+            local_files_only=local_files_only,
+            providers=_embedding_providers_for_setup(),
+        )
+        next(iter(embedding.embed(["wavefoundry cache verification"])))
+
+    try:
+        _build()
+        return
+    except Exception as exc:  # noqa: BLE001
+        # Only intervene on a genuine cert-verify failure during an ONLINE fetch — never a cache miss
+        # (local_files_only) or any other error.
+        if local_files_only or not _is_cert_verify_error(exc):
+            raise
+        bundle = _os_trust_store_bundle()
+        already_tried = (
+            os.environ.get("SSL_CERT_FILE") == bundle
+            and os.environ.get("REQUESTS_CA_BUNDLE") == bundle
+        )
+        if not bundle or already_tried:
+            raise ModelPrewarmError(
+                f"Model '{model_name}' download failed TLS verification (CERTIFICATE_VERIFY_FAILED) and the "
+                "OS trust store did not resolve it. Behind a TLS-inspecting proxy, point the CA bundle at your "
+                "OS store and retry: export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt "
+                "REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt"
+            ) from exc
+        print(
+            f"Model download for '{model_name}' failed certifi TLS verification; retrying against the OS "
+            f"trust store ({bundle}). TLS verification stays ON.",
+            flush=True,
+        )
+        os.environ["SSL_CERT_FILE"] = bundle
+        os.environ["REQUESTS_CA_BUNDLE"] = bundle
+        # huggingface_hub (which fastembed's snapshot_download uses) caches a GLOBAL httpx.Client whose
+        # SSL context is built ONCE against certifi — so setting the env after the first attempt is a
+        # no-op against the already-built client. Reset it so the retry rebuilds the client against the
+        # OS bundle we just set. (close_session is documented for exactly "an SSL certificate updated".)
+        try:
+            import huggingface_hub
+            huggingface_hub.close_session()
+        except Exception:  # noqa: BLE001
+            pass
+        _build()  # verification still on, now trusting the OS bundle
 
 
 def _probe_embedding_provider(provider: str, *, model_name: str | None = None) -> provider_policy.ProviderProbeResult:
@@ -865,11 +940,17 @@ def _run_indexer(
 
     if proc.returncode < 0:
         signal_number = -proc.returncode
-        print(
-            f"Index build was killed by signal {signal_number}. "
-            "If this happened during code embedding, rerun without --include-code.",
-            file=sys.stderr,
-        )
+        if signal_number == 9:  # SIGKILL — almost always the OS OOM-killer during embedding
+            print(
+                "Index build was OOM-KILLED (SIGKILL): the host ran out of memory during embedding. "
+                "Remediation — lower the embedding footprint via docs/workflow-config.json "
+                "(`indexing.code_embed_batch_size` / `docs_embed_batch_size`, default 32 — try 16/8), "
+                "build layers sequentially (`--content docs` then `--content code`), or raise the host / "
+                "WSL2 memory cap (`.wslconfig`).",
+                file=sys.stderr,
+            )
+        else:
+            print(f"Index build was killed by signal {signal_number}.", file=sys.stderr)
     raise subprocess.CalledProcessError(proc.returncode, cmd, output=combined_output)
 
 

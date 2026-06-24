@@ -58,254 +58,6 @@ def _dashboard_log(message: str, *, context: str | None = None) -> None:
     sys.stderr.write(f"[dashboard] {prefix}{message}\n")
 
 
-# ── Index builder ─────────────────────────────────────────────────────────────
-
-class IndexBuilder:
-    """Debounced incremental index builder.
-
-    Runs one subprocess at a time. File-change signals arm a debounce timer;
-    a second signal during a running build sets a re-arm flag so the build
-    is rescheduled after completion rather than spawning a second process.
-    """
-
-    def __init__(self, root: Path, delay: float, on_done: Any, on_started: Any | None = None) -> None:
-        self._root = root
-        self._delay = delay
-        self._on_done = on_done
-        self._on_started = on_started or (lambda: None)
-        self._lock = threading.Lock()
-        self._timer: threading.Timer | None = None
-        self._running = False
-        self._pending_after_build = False
-        self._status = "idle"
-        self._build_started_at: str | None = None
-        self._build_finished_at: str | None = None
-        self._pending_layers: set[str] = set()
-        self._active_layers: set[str] = set()
-        self._pending_reasons = {layer: set() for layer in _INDEX_LAYERS}
-        self._active_reasons = {layer: set() for layer in _INDEX_LAYERS}
-        self._layer_states = {
-            layer: {
-                "build_status": "idle",
-                "build_started_at": None,
-                "build_finished_at": None,
-            }
-            for layer in _INDEX_LAYERS
-        }
-
-    @staticmethod
-    def _format_layers(layers: set[str]) -> str:
-        ordered = [layer for layer in _INDEX_LAYERS if layer in layers]
-        return ", ".join(ordered) if ordered else "project"
-
-    @staticmethod
-    def _normalize_reason(reason: str | None) -> str:
-        text = (reason or "").strip()
-        return text or "unspecified trigger"
-
-    def _record_pending_reason(self, layer: str, reason: str) -> None:
-        self._pending_reasons[layer].add(self._normalize_reason(reason))
-
-    def _format_reason_summary(self, layers: set[str], reasons_by_layer: dict[str, set[str]]) -> str:
-        parts: list[str] = []
-        for layer in _INDEX_LAYERS:
-            if layer not in layers:
-                continue
-            reasons = sorted(reasons_by_layer.get(layer) or [])
-            parts.append(f"{layer}: {', '.join(reasons) if reasons else 'unspecified trigger'}")
-        return "; ".join(parts) if parts else "project: unspecified trigger"
-
-    def signal_change(self, layer: str = "project", reason: str = "change signal") -> None:
-        if layer not in _INDEX_LAYERS:
-            raise ValueError(f"Unsupported index layer: {layer}")
-        with self._lock:
-            self._pending_layers.add(layer)
-            self._record_pending_reason(layer, reason)
-            if self._running:
-                self._pending_after_build = True
-                _dashboard_log(
-                    f"IndexBuilder: queued {layer} index update ({self._normalize_reason(reason)}) while build is running."
-                )
-                return
-            if self._timer is not None:
-                self._timer.cancel()
-            self._timer = threading.Timer(self._delay, self._run_build)
-            self._timer.daemon = True
-            self._timer.start()
-            _dashboard_log(
-                f"IndexBuilder: scheduled {self._format_layers(self._pending_layers)} index update in {self._delay:.1f}s "
-                f"({self._format_reason_summary(self._pending_layers, self._pending_reasons)})."
-            )
-
-    def signal_startup(
-        self,
-        delay: float = 1.0,
-        layers: set[str] | None = None,
-        reason: str = "startup stale check",
-    ) -> None:
-        """Arm a startup rebuild with a short fixed delay, bypassing the debounce."""
-        requested_layers = set(layers or {"project"})
-        invalid = requested_layers.difference(_INDEX_LAYERS)
-        if invalid:
-            raise ValueError(f"Unsupported index layers: {sorted(invalid)}")
-        with self._lock:
-            self._pending_layers.update(requested_layers)
-            for layer in requested_layers:
-                self._record_pending_reason(layer, reason)
-            if self._running:
-                _dashboard_log(
-                    f"IndexBuilder: startup request ignored while build is running "
-                    f"({self._format_reason_summary(requested_layers, self._pending_reasons)})."
-                )
-                return
-            if self._timer is not None:
-                self._timer.cancel()
-            self._timer = threading.Timer(delay, self._run_build)
-            self._timer.daemon = True
-            self._timer.start()
-            _dashboard_log(
-                f"IndexBuilder: scheduled startup {self._format_layers(requested_layers)} index update in {delay:.1f}s "
-                f"({self._format_reason_summary(requested_layers, self._pending_reasons)})."
-            )
-
-    def get_status(self, layer: str = "project") -> dict[str, Any]:
-        if layer not in _INDEX_LAYERS:
-            raise ValueError(f"Unsupported index layer: {layer}")
-        with self._lock:
-            return dict(self._layer_states[layer])
-
-    def _run_build(self) -> None:
-        with self._lock:
-            self._timer = None
-            self._running = True
-            self._status = "running"
-            self._active_layers = set(self._pending_layers or {"project"})
-            self._pending_layers.clear()
-            active_reasons = {
-                layer: set(self._pending_reasons[layer]) for layer in _INDEX_LAYERS
-            }
-            self._active_reasons = active_reasons
-            self._pending_reasons = {layer: set() for layer in _INDEX_LAYERS}
-            self._build_started_at = datetime.now(UTC).isoformat()
-            self._build_finished_at = None
-            for layer in self._active_layers:
-                self._layer_states[layer]["build_status"] = "running"
-                self._layer_states[layer]["build_started_at"] = self._build_started_at
-                self._layer_states[layer]["build_finished_at"] = None
-        _dashboard_log(
-            f"IndexBuilder: starting {self._format_layers(self._active_layers)} index update "
-            f"({self._format_reason_summary(self._active_layers, active_reasons)})."
-        )
-
-        self._on_started()
-
-        exit_code = self._execute()
-
-        with self._lock:
-            self._running = False
-            self._build_finished_at = datetime.now(UTC).isoformat()
-            self._status = "done" if exit_code == 0 else "failed"
-            completed_layers = set(self._active_layers)
-            completed_reasons = {
-                layer: set(self._active_reasons[layer]) for layer in _INDEX_LAYERS
-            }
-            for layer in self._active_layers:
-                self._layer_states[layer]["build_status"] = self._status
-                self._layer_states[layer]["build_finished_at"] = self._build_finished_at
-            if exit_code != 0:
-                _dashboard_log(
-                    f"IndexBuilder: {self._format_layers(completed_layers)} index update failed (exit {exit_code}) "
-                    f"({self._format_reason_summary(completed_layers, completed_reasons)})."
-                )
-            else:
-                _dashboard_log(
-                    f"IndexBuilder: completed {self._format_layers(completed_layers)} index update "
-                    f"({self._format_reason_summary(completed_layers, completed_reasons)})."
-                )
-            rearm = self._pending_after_build
-            self._pending_after_build = False
-            self._active_layers = set()
-            self._active_reasons = {layer: set() for layer in _INDEX_LAYERS}
-
-        self._on_done()
-
-        if rearm:
-            with self._lock:
-                t = threading.Timer(self._delay, self._run_build)
-                t.daemon = True
-                t.start()
-                self._timer = t
-                _dashboard_log(
-                    f"IndexBuilder: rearmed {self._format_layers(self._pending_layers)} index update in {self._delay:.1f}s "
-                    f"({self._format_reason_summary(self._pending_layers, self._pending_reasons)})."
-                )
-
-    def _execute(self) -> int:
-        indexer_path = self._root / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
-        venv_base = Path(os.environ.get("WAVEFOUNDRY_TOOL_VENV", "~/.wavefoundry/venv")).expanduser()
-        venv_python = venv_base / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-        python_exec = str(venv_python) if venv_python.exists() else sys.executable
-        with self._lock:
-            active_layers = set(self._active_layers or {"project"})
-        try:
-            layer_cmds: list[tuple[str, list[str]]] = []
-            if "project" in active_layers:
-                # indexer.py reads workflow-config project include-prefixes itself.
-                project_cmd = [python_exec, str(indexer_path), "--root", str(self._root), "--content", "all"]
-                layer_cmds.append(("project", project_cmd))
-            for layer, cmd in layer_cmds:
-                state_path = self._index_state_path(layer)
-                content = "all" if layer == "project" else "docs"
-                log_path = self._index_log_path(layer, content)
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                state_path.parent.mkdir(parents=True, exist_ok=True)
-                started_at = time.time()
-                try:
-                    with open(log_path, "w", encoding="utf-8") as log_file:
-                        proc = subprocess.Popen(
-                            cmd,
-                            start_new_session=True,
-                            close_fds=True,
-                            stdout=log_file,
-                            stderr=log_file,
-                            env={**os.environ, "WAVEFOUNDRY_TIMESTAMP_LOGS": "1"},
-                        )
-                        state_path.write_text(
-                            json.dumps({"pid": proc.pid, "started_at": started_at, "content": "all" if layer == "project" else "docs", "layer": layer, "full": False, "mode": "update"}),
-                            encoding="utf-8",
-                        )
-                        proc.communicate()
-                finally:
-                    try:
-                        state_path.unlink(missing_ok=True)
-                    except Exception:  # noqa: BLE001
-                        pass
-                if proc.returncode != 0:
-                    try:
-                        log_text = log_path.read_text(encoding="utf-8", errors="replace")
-                    except OSError:
-                        log_text = ""
-                    if "Another index build is already running" in log_text or "lock file busy" in log_text:
-                        _dashboard_log(
-                            f"IndexBuilder: {layer} index update skipped because another build is already running."
-                        )
-                        continue
-                    return proc.returncode
-            return 0
-        except FileNotFoundError:
-            _dashboard_log("IndexBuilder: indexer executable not found")
-            return -1
-        except Exception as exc:  # noqa: BLE001
-            _dashboard_log(f"IndexBuilder error: {exc}")
-            return -1
-
-    def _index_state_path(self, layer: str = "project") -> Path:
-        return self._root / ".wavefoundry" / "index" / "index-build.json"
-
-    def _index_log_path(self, layer: str = "project", content: str = "all") -> Path:
-        return self._root / ".wavefoundry" / "logs" / f"project-index-build-{content}.log"
-
-
 def _get_graph_query():
     global _GRAPH_QUERY_MOD
     if _GRAPH_QUERY_MOD is None:
@@ -377,7 +129,8 @@ def _index_is_stale(root: Path, layer: str = "project") -> bool:
     return False
 
 
-# ── Snapshot store ────────────────────────────────────────────────────────────
+# ── SSE + snapshot store ───────────────────────────────────────────────────────
+
 
 class _SseClient:
     __slots__ = ("queue",)
@@ -410,15 +163,10 @@ class SnapshotStore:
         self._upgrade_paused: bool = False  # R2: True while upgrade lock file is present
 
         cfg = dashboard_lib.read_dashboard_config(root)
-        if cfg["auto_index"]:
-            self._index_builder: IndexBuilder | None = IndexBuilder(
-                root=root,
-                delay=float(cfg["auto_index_delay_seconds"]),
-                on_done=self._on_index_build_done,
-                on_started=self._on_index_build_done,
-            )
-        else:
-            self._index_builder = None
+        # 1p7it: the dashboard does NOT trigger index builds — index updates are owned by the
+        # MCP/hook background path (post-edit hook + the MCP server's background refresh +
+        # wave_index_build). The dashboard is a read-only viewer; build status it shows comes from
+        # the shared index-build state (collect_health → wave_index_build_status_response).
         # Check staleness once at startup so the first snapshot already has the state.
         self._index_stale: dict[str, bool | None] = {
             layer: _index_is_stale(root, layer) for layer in _INDEX_LAYERS
@@ -438,15 +186,7 @@ class SnapshotStore:
         self._rebuild(force_git=True)
         self._ready.set()
 
-        if not self._upgrade_paused:
-            startup_layers = {
-                layer for layer, stale in self._index_stale.items() if stale
-            }
-            if self._index_builder is not None and startup_layers:
-                _dashboard_log(
-                    f"Index is stale at startup — scheduling {IndexBuilder._format_layers(startup_layers)} update."
-                )
-                self._index_builder.signal_startup(layers=startup_layers, reason="startup stale check")
+        # 1p7it: no startup index trigger — staleness is shown read-only; the MCP/hook path reindexes.
 
         t = threading.Thread(
             target=self._watch_loop, daemon=True, name="wf-dashboard-watcher"
@@ -510,24 +250,13 @@ class SnapshotStore:
             snap["git"] = self._cached_git
         # Wave 1p4ww: single project index — the framework layer is folded in.
         proj = snap.setdefault("health", {}).setdefault("index", {}).setdefault("project", {})
-        if self._index_builder is not None:
-            proj_builder = self._index_builder.get_status("project")
-            # Preserve live builder state, but clear stale failed snapshots when the
-            # builder is idle so the dashboard does not keep showing a past failure.
-            if proj_builder.get("build_status") == "running":
-                proj.update(proj_builder)
-            elif proj_builder.get("build_status") == "failed":
-                proj.update(proj_builder)
-            elif proj.get("build_status") == "failed":
-                proj.pop("build_status", None)
-        if self._index_builder is not None and proj.get("build_status") is None:
-            proj["build_status"] = "idle"
-        # Wave 1p5xw: the dashboard no longer runs a continuous staleness poll.
-        # Compute index staleness on demand here (read-only, for display only) using
-        # the shared cheap stat-fast-path check, so the UI reflects current state
-        # without a background monitor. Skip while a build is running to avoid
-        # flapping the indicator mid-build (the build-done callback resets it).
-        building = self._index_builder is not None and self._index_builder._running
+        # 1p7it: the dashboard does not run builds — `collect_health` already merges the shared
+        # index-build status (the hook/MCP background builds, via wave_index_build_status_response)
+        # into proj["build_status"], so the display reflects the real builds with no overlay.
+        # Wave 1p5xw: the dashboard no longer runs a continuous staleness poll. Compute index
+        # staleness on demand here (read-only, for display only). Skip while a build is running to
+        # avoid flapping the indicator mid-build.
+        building = proj.get("build_status") == "running"
         now = time.monotonic()
         if not building and (now - self._last_display_staleness_at) >= _DISPLAY_STALENESS_MIN_INTERVAL:
             self._last_display_staleness_at = now
@@ -591,33 +320,14 @@ class SnapshotStore:
             except queue.Full:
                 pass
 
-    def _on_index_build_done(self) -> None:
-        if self._index_builder is not None:
-            for layer in _INDEX_LAYERS:
-                status = self._index_builder.get_status(layer)
-                if status["build_status"] == "done":
-                    self._index_stale[layer] = False
-        self._rebuild(force_git=False)
-        self._notify_sse()
-
     def stop(self) -> None:
-        """Signal the watcher thread to exit and cancel any pending index builds.
+        """Signal the watcher thread to exit.
 
-        Safe to call from any thread. Primarily used in tests to prevent daemon threads
-        and IndexBuilder timers from outliving a test's setUp/tearDown lifecycle.
-        Blocks briefly until any in-progress build completes so callers can safely clean
-        up temp directories without racing against ongoing subprocess writes.
+        Safe to call from any thread. Primarily used in tests to prevent the daemon watcher
+        thread from outliving a test's setUp/tearDown lifecycle. The dashboard runs no index
+        builds (1p7it: indexing is MCP/hook-owned), so there is nothing else to cancel.
         """
         self._stop_event.set()
-        if self._index_builder is not None:
-            with self._index_builder._lock:
-                if self._index_builder._timer is not None:
-                    self._index_builder._timer.cancel()
-                    self._index_builder._timer = None
-            # Wait up to 10s for any already-started build to finish before returning.
-            deadline = time.monotonic() + 10.0
-            while self._index_builder._running and time.monotonic() < deadline:
-                time.sleep(0.05)
 
     def _watch_loop(self) -> None:
         self._last_mtimes = self._current_mtimes()
@@ -635,20 +345,14 @@ class SnapshotStore:
                     self._notify_sse()
                     self._notify_upgrade_sse("paused")
                 elif not lock_present and self._upgrade_paused:
-                    # Upgrade completed — resume and trigger post-upgrade reindex.
-                    _dashboard_log(
-                        "Upgrade lock removed — resuming; triggering post-upgrade reindex."
-                    )
+                    # Upgrade completed — resume display. (1p7it: no dashboard reindex trigger;
+                    # the upgrade's own index phase + the MCP/hook path reindex.)
+                    _dashboard_log("Upgrade lock removed — resuming dashboard.")
                     self._upgrade_paused = False
                     self._rebuild(force_git=True)
                     self._notify_sse()
                     self._notify_upgrade_sse("idle")
-                    if self._index_builder is not None:
-                        self._index_builder.signal_startup(
-                            layers=set(_INDEX_LAYERS),
-                            reason="post-upgrade reindex",
-                        )
-                    continue  # Skip staleness check this cycle; reindex already queued.
+                    continue
 
                 if self._upgrade_paused:
                     # While paused, skip all mtime polling and staleness checks.

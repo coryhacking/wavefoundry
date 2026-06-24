@@ -782,5 +782,59 @@ class BackgroundCodeTests(unittest.TestCase):
         spawn.assert_not_called()
 
 
+class TlsTrustStoreFallbackTests(unittest.TestCase):
+    """1p7iu: model-fetch OS-trust-store fallback on CERTIFICATE_VERIFY_FAILED (verification stays ON)."""
+
+    def setUp(self):
+        self.mod = load_setup_index()
+
+    def test_is_cert_verify_error_detects_chain(self):
+        inner = Exception("certificate verify failed: unable to get local issuer certificate")
+        outer = RuntimeError("model download failed")
+        outer.__cause__ = inner
+        self.assertTrue(self.mod._is_cert_verify_error(outer))
+        self.assertFalse(self.mod._is_cert_verify_error(RuntimeError("connection reset by peer")))
+
+    def test_os_trust_store_bundle_honors_preset_env(self):
+        with tempfile.NamedTemporaryFile(suffix=".crt") as f:
+            with patch.dict(os.environ, {"SSL_CERT_FILE": f.name}, clear=False):
+                self.assertEqual(self.mod._os_trust_store_bundle(), f.name)
+
+    def test_warm_model_retries_with_os_bundle_on_cert_failure(self):
+        cert_exc = Exception("SSLError: certificate verify failed: unable to get local issuer certificate")
+        good = MagicMock()
+        good.embed.return_value = iter([[0.1, 0.2]])
+        te = MagicMock(side_effect=[cert_exc, good])  # first ctor raises cert error, retry returns good
+        hf = MagicMock()
+        with patch.dict(os.environ, {}, clear=False), \
+             patch.object(self.mod, "_os_trust_store_bundle", return_value="/os/ca.crt"), \
+             patch.object(self.mod, "_embedding_providers_for_setup", return_value=["CPUExecutionProvider"]), \
+             patch.dict(sys.modules, {"fastembed": MagicMock(TextEmbedding=te), "huggingface_hub": hf}):
+            os.environ.pop("SSL_CERT_FILE", None)
+            os.environ.pop("REQUESTS_CA_BUNDLE", None)
+            self.mod._warm_model("BAAI/bge-small-en-v1.5", local_files_only=False)
+            self.assertEqual(te.call_count, 2, "should retry once after the cert failure")
+            self.assertEqual(os.environ.get("SSL_CERT_FILE"), "/os/ca.crt")
+            self.assertEqual(os.environ.get("REQUESTS_CA_BUNDLE"), "/os/ca.crt")
+            # CRITICAL: hf_hub caches a global httpx.Client whose SSL context is built once against
+            # certifi — without resetting it, the env change is a no-op and the retry fails identically.
+            hf.close_session.assert_called_once()
+
+    def test_warm_model_does_not_retry_non_cert_error(self):
+        te = MagicMock(side_effect=RuntimeError("disk full"))
+        with patch.object(self.mod, "_embedding_providers_for_setup", return_value=["CPUExecutionProvider"]), \
+             patch.dict(sys.modules, {"fastembed": MagicMock(TextEmbedding=te)}):
+            with self.assertRaises(RuntimeError):
+                self.mod._warm_model("m", local_files_only=False)
+            self.assertEqual(te.call_count, 1, "non-cert errors must not trigger the OS-bundle retry")
+
+    def test_no_path_disables_tls_verification(self):
+        # 1p7iu AC-3: the fallback only swaps the CA bundle — it must NEVER disable verification.
+        src = SETUP_INDEX_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("_create_unverified_context", src)
+        self.assertNotIn("CERT_NONE", src)
+        self.assertNotIn("verify=False", src)
+
+
 if __name__ == "__main__":
     unittest.main()

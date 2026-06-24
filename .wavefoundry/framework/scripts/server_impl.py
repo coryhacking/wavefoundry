@@ -546,11 +546,24 @@ class WaveIndex:
             raw_chunker_versions if isinstance(raw_chunker_versions, dict) else {}
         )
         current_chunker_version: str = _read_chunker_version()
+        # 1p7is: detect a silently-absent code layer. Code sources are "in scope" only when code
+        # include-prefixes are configured AND at least one indexed-eligible file matches them — so a
+        # docs-only repo (no code prefixes) is never flagged for a missing code.lance.
+        code_present = (index_dir / "code.lance").is_dir()
+        try:
+            code_prefixes = self._indexer_module()._workflow_project_include_prefixes(self.root).get("code", ())
+        except Exception:
+            code_prefixes = ()
+        code_sources_in_scope = bool(code_prefixes) and any(
+            any(rel.startswith(p) for p in code_prefixes) for rel in current_hashes
+        )
         return {
             "layer": layer,
             "index_dir": str(index_dir),
             "meta_present": meta_present,
             "docs_present": docs_present,
+            "code_present": code_present,
+            "code_sources_in_scope": code_sources_in_scope,
             "has_sources": bool(current_hashes),
             "stale_paths": stale_paths,
             "stale_paths_count": len(stale_paths),
@@ -576,6 +589,11 @@ class WaveIndex:
         missing_layers = [
             project["layer"]
         ] if project["has_sources"] and (not project["meta_present"] or not project["docs_present"]) else []
+        # 1p7is: a configured-but-absent code layer (e.g. the code embedding pass was OOM-killed)
+        # makes the index incomplete, not ready — surface it instead of letting docs.lance mask it.
+        code_layer_missing = project["code_sources_in_scope"] and not project["code_present"]
+        if code_layer_missing and "code" not in missing_layers:
+            missing_layers = [*missing_layers, "code"]
         readiness_overview = _index_readiness_overview(
             missing_layers, stale_layers, compatible_chunks, has_any_index
         )
@@ -595,7 +613,8 @@ class WaveIndex:
             "missing_layers": missing_layers,
             "compatible_chunks": compatible_chunks,
             "readiness_overview": readiness_overview,
-            "semantic_ready": has_any_index and not stale_layers and compatible_chunks,
+            "semantic_ready": has_any_index and not stale_layers and compatible_chunks and not code_layer_missing,
+            "code_layer_missing": code_layer_missing,
             "chunker_version_mismatch_layers": chunker_version_mismatch_layers,
         }
 
@@ -5705,6 +5724,17 @@ def wave_index_health_response(index: WaveIndex) -> dict[str, Any]:
                 "No index metadata found under the project index dir (nothing to search semantically yet).",
                 recovery_tools=["wave_help"],
                 recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .",
+            )
+        )
+    if health.get("code_layer_missing"):
+        diagnostics.append(
+            _diagnostic(
+                "code_layer_missing",
+                "Code sources are in scope but the code index layer (code.lance) is absent — likely an "
+                "interrupted or OOM-killed code embedding pass. code_ask / code_search have no code layer "
+                "until it is rebuilt: wave_index_build(content='code').",
+                recovery_tools=["wave_index_build"],
+                recovery_usage="wave_index_build(content='code')",
             )
         )
     for layer in health.get("chunker_version_mismatch_layers", []):
@@ -16919,8 +16949,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         spawning a second process. Otherwise spawns the server in the background,
         waits up to 5 seconds for it to bind, and returns the URL.
 
-        The dashboard provides a live web UI for wave status, index health, git
-        activity, and (when ``auto_index`` is enabled) automatic index rebuilds.
+        The dashboard provides a live read-only web UI for wave status, index
+        health, and git activity. It does not run index builds — index updates are
+        owned by the post-edit hook and the MCP server's background refresh.
 
         When the dashboard is already running, the response includes
         ``next_tools: ["wave_dashboard_open"]`` — call that tool to open the

@@ -2455,6 +2455,37 @@ class StreamingRebuildParityTests(unittest.TestCase):
             # Default when unset.
             (root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
             self.assertEqual(self.bi._resolve_embed_buffer_chunks(root), self.bi.EMBED_BUFFER_CHUNKS_DEFAULT)
+            # 1p7it: the unset default is pinned to 1024 — best build throughput in the on-machine
+            # benchmark (peak RSS is buffer-invariant, so this is purely a throughput choice).
+            self.assertEqual(self.bi.EMBED_BUFFER_CHUNKS_DEFAULT, 1024)
+
+    def test_resolve_embed_batch_size_per_model_and_global(self):
+        # 1p7iv: per-model forward-batch width is independently overridable so docs (arctic-xs) and
+        # code (bge-small) need not share a size; smaller batch = less CPU activation memory.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            cfg = root / "docs" / "workflow-config.json"
+            DOCS, CODE = self.bi.DOCS_MODEL, self.bi.CODE_MODEL
+            # Unset → per-model default, pinned to 32 (the lowest-memory + fastest CPU batch).
+            cfg.write_text("{}", encoding="utf-8")
+            self.assertEqual(self.bi._DEFAULT_EMBED_BATCH, 32)
+            self.assertEqual(self.bi._resolve_embed_batch_size(DOCS, root), 32)
+            self.assertEqual(self.bi._resolve_embed_batch_size(CODE, root), 32)
+            # Global override applies to both models.
+            cfg.write_text(json.dumps({"indexing": {"embed_batch_size": 64}}), encoding="utf-8")
+            self.assertEqual(self.bi._resolve_embed_batch_size(DOCS, root), 64)
+            self.assertEqual(self.bi._resolve_embed_batch_size(CODE, root), 64)
+            # Per-model override wins over the global and is independent per model.
+            cfg.write_text(json.dumps({"indexing": {
+                "embed_batch_size": 64, "code_embed_batch_size": 32, "docs_embed_batch_size": 128}}),
+                encoding="utf-8")
+            self.assertEqual(self.bi._resolve_embed_batch_size(CODE, root), 32)
+            self.assertEqual(self.bi._resolve_embed_batch_size(DOCS, root), 128)
+            # Invalid (non-positive) falls through to the default.
+            cfg.write_text(json.dumps({"indexing": {"code_embed_batch_size": 0}}), encoding="utf-8")
+            self.assertEqual(self.bi._resolve_embed_batch_size(CODE, root), 32)
 
     def test_streaming_rebuild_bounds_buffer_and_reports_file_progress(self):
         """AC-1 (memory bound) + AC-4 (file-oriented progress): driving the real

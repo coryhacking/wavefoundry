@@ -1138,7 +1138,10 @@ def _get_lance_db(db_path: Path):
 # `_embed_texts` + `_make_lance_rows` and the vector + FTS index is built once at the end; the
 # produced table is independent of the buffer size (verified by a buffer-invariance test). This
 # replaced an earlier `_stream_embed_write` whose caller pre-materialized the whole chunk list.
-EMBED_BUFFER_CHUNKS_DEFAULT = SORT_WINDOW_SIZE  # max chunks buffered before a flush (memory bound)
+EMBED_BUFFER_CHUNKS_DEFAULT = 1024  # max chunks buffered before a flush. 1024 = best build
+# throughput in the 1p7it on-machine benchmark (M2 Max: fastest + lowest of 64/128/256/1024/2048);
+# peak RSS is buffer-invariant on both GPU and CPU, so this is purely a throughput default (see the
+# 1p7it Progress Log). Decoupled from SORT_WINDOW_SIZE (the sort window) — different concern.
 
 
 def _resolve_embed_buffer_chunks(root: Path) -> int:
@@ -1159,6 +1162,41 @@ def _resolve_embed_buffer_chunks(root: Path) -> int:
     return max(val, EMBED_BATCH_SIZE)
 
 
+# Per-model forward-pass batch width (1p7iv). The onnxruntime CPU forward pass materializes
+# activation tensors that scale with this batch (attention ~ batch x heads x seq^2), so it is the
+# dominant CPU-embedding memory lever — on-machine benchmark: bge-small (code) 256->32 cut peak RSS
+# ~3.5x, arctic-xs (docs) ~3.8x, both at equal-or-better throughput. Per model because DOCS_MODEL and
+# CODE_MODEL differ in size/chunk-length; the GPU static-shape embedder ignores this (uses STATIC_BATCH).
+# Default 32 (down from 256): the benchmark's lowest-memory AND fastest CPU point — ~3.5–3.8x less peak
+# RSS at equal-or-better throughput (onnxruntime parallelizes each forward pass across cores regardless
+# of batch, so a small batch still fills cores). Raise per-model via workflow-config for bigger batches.
+_DEFAULT_EMBED_BATCH = 32
+_EMBED_BATCH_DEFAULTS = {DOCS_MODEL: _DEFAULT_EMBED_BATCH, CODE_MODEL: _DEFAULT_EMBED_BATCH}
+_EMBED_BATCH_CONFIG_KEYS = {DOCS_MODEL: "docs_embed_batch_size", CODE_MODEL: "code_embed_batch_size"}
+
+
+def _resolve_embed_batch_size(model_name: str, root: Path) -> int:
+    """Forward-pass batch width for ``model_name`` — overridable via ``docs/workflow-config.json``:
+    per-model ``indexing.{docs,code}_embed_batch_size`` wins, then global ``indexing.embed_batch_size``,
+    then the per-model default. A CPU-path memory lever (the GPU static-shape embedder ignores it);
+    smaller batch = less onnxruntime activation memory, at equal-or-better CPU throughput."""
+    default = _EMBED_BATCH_DEFAULTS.get(model_name, EMBED_BATCH_SIZE)
+    cfg = root / "docs" / "workflow-config.json"
+    if cfg.exists():
+        try:
+            data = json.loads(cfg.read_text(encoding="utf-8"))
+            indexing = data.get("indexing", {}) if isinstance(data, dict) else {}
+            if isinstance(indexing, dict):
+                for key in (_EMBED_BATCH_CONFIG_KEYS.get(model_name), "embed_batch_size"):
+                    if key:
+                        raw = indexing.get(key)
+                        if isinstance(raw, int) and raw > 0:
+                            return raw
+        except (OSError, json.JSONDecodeError):
+            pass
+    return default
+
+
 class _StreamingLayerWriter:
     """Wave 1p5ch: incremental writer for one layer's full rebuild. ``add(chunks)`` embeds a buffer
     and creates-or-appends to the Lance table (the first ``add`` creates it with ``mode="overwrite"``);
@@ -1166,12 +1204,14 @@ class _StreamingLayerWriter:
     in a single ``add`` is exactly the batch write, so the produced table is independent of how the
     input is chunked across ``add`` calls — buffering bounds memory without changing output."""
 
-    def __init__(self, db, table_name: str, embedder, label: str, lock_dir: "Optional[Path]" = None) -> None:
+    def __init__(self, db, table_name: str, embedder, label: str, lock_dir: "Optional[Path]" = None,
+                 batch_size: int = EMBED_BATCH_SIZE) -> None:
         self.db = db
         self.table_name = table_name
         self.embedder = embedder
         self.label = label
         self.lock_dir = lock_dir
+        self.batch_size = batch_size  # forward-pass batch width (per-model; 1p7iv)
         self.table = None
         self.written = 0
         self._lock = None  # ExitStack holding the per-table lock; acquired lazily on first write
@@ -1179,7 +1219,7 @@ class _StreamingLayerWriter:
     def add(self, chunks: list[dict]) -> None:
         if not chunks:
             return
-        vecs = _embed_texts(self.embedder, [c["text"] for c in chunks], batch_size=EMBED_BATCH_SIZE)
+        vecs = _embed_texts(self.embedder, [c["text"] for c in chunks], batch_size=self.batch_size)
         rows = _make_lance_rows(chunks, vecs)
         if self.table is None:
             # Acquire the per-table lock (which creates the Lance dir) ONLY on the first real write —
@@ -1252,8 +1292,10 @@ def _run_streaming_full_rebuild(
     # Each writer acquires its per-table lock lazily on first write (see _StreamingLayerWriter.add),
     # so a layer that produces 0 chunks never creates its Lance dir — matching the old full path and
     # keeping the incremental "table absent" guard correct.
-    docs_writer = _StreamingLayerWriter(db, "docs", docs_embedder, "doc", lock_dir=db_path / "docs.lance") if build_docs else None
-    code_writer = _StreamingLayerWriter(db, "code", code_embedder, "code", lock_dir=db_path / "code.lance") if build_code else None
+    docs_writer = _StreamingLayerWriter(db, "docs", docs_embedder, "doc", lock_dir=db_path / "docs.lance",
+                                        batch_size=_resolve_embed_batch_size(DOCS_MODEL, root)) if build_docs else None
+    code_writer = _StreamingLayerWriter(db, "code", code_embedder, "code", lock_dir=db_path / "code.lance",
+                                        batch_size=_resolve_embed_batch_size(CODE_MODEL, root)) if build_code else None
     docs_buf: list[dict] = []
     code_buf: list[dict] = []
     t_docs = 0.0

@@ -7190,6 +7190,69 @@ class LayerHealthFileMetaTests(unittest.TestCase):
                 result[rel] = {"hash": hashlib.sha256(content).hexdigest(), "mtime": 0.0, "size": len(content), "inode": 0}
         return result
 
+    def _build_health_index(self, root, *, code_prefix=True, code_lance=False, docs_lance=True):
+        """1p7is fixture: docs (+ optional code) sources, with docs.lance/code.lance present or not."""
+        prefixes = {"docs": ["docs"]}
+        if code_prefix:
+            prefixes["code"] = ["src"]
+        (root / "docs" / "workflow-config.json").write_text(
+            json.dumps({"indexing": {"project_include_prefixes": prefixes}}), encoding="utf-8")
+        (root / "docs" / "guide.md").write_text("# Guide\n\nHello.\n", encoding="utf-8")
+        if code_prefix:
+            (root / "src").mkdir(parents=True, exist_ok=True)
+            (root / "src" / "app.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+        idx_dir = root / ".wavefoundry" / "index"
+        idx_dir.mkdir(parents=True, exist_ok=True)
+        if docs_lance:
+            (idx_dir / "docs.lance").mkdir(parents=True, exist_ok=True)
+        if code_lance:
+            (idx_dir / "code.lance").mkdir(parents=True, exist_ok=True)
+        meta = {
+            "built_at": "2026-01-01T00:00:00Z",
+            "content": ["docs", "code"] if code_prefix else ["docs"],
+            "model_versions": {"docs": "Snowflake/snowflake-arctic-embed-xs"},
+            "chunker_versions": {"docs": "13"},
+            "walker_version": "3",
+            "file_meta": self._file_meta_for_root(root),
+        }
+        (idx_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        wave_idx = self.server.WaveIndex(root)
+        wave_idx._loaded = True
+        wave_idx._meta = {"project": meta}
+        wave_idx._docs_lance_table = object() if docs_lance else None
+        wave_idx._code_lance_table = object() if code_lance else None
+        return wave_idx
+
+    def _health_of(self, wave_idx):
+        # State is set up manually (no real index on disk), so bypass the load gate.
+        with patch.object(wave_idx, "_ensure_loaded", lambda: None):
+            return wave_idx.docs_health()
+
+    def test_missing_code_layer_reports_incomplete_not_ready(self):
+        # 1p7is AC-1: code sources in scope but code.lance absent → incomplete, not semantic_ready.
+        root = self._make_repo(self.tmp)
+        health = self._health_of(self._build_health_index(root, code_prefix=True, code_lance=False))
+        self.assertTrue(health["code_layer_missing"])
+        self.assertIn("code", health["missing_layers"])
+        self.assertFalse(health["semantic_ready"])
+        self.assertEqual(health["readiness_overview"], "incomplete")
+
+    def test_docs_only_repo_not_flagged_for_missing_code(self):
+        # 1p7is risk-mitigation: no code prefixes → code not in scope → not flagged (no false degrade).
+        root = self._make_repo(self.tmp)
+        health = self._health_of(self._build_health_index(root, code_prefix=False, code_lance=False))
+        self.assertFalse(health["code_layer_missing"])
+        self.assertNotIn("code", health["missing_layers"])
+        self.assertTrue(health["semantic_ready"])
+
+    def test_both_layers_present_reports_ready(self):
+        # 1p7is AC-2: docs + code both present → ready (no regression on the fully-built case).
+        root = self._make_repo(self.tmp)
+        health = self._health_of(self._build_health_index(root, code_prefix=True, code_lance=True))
+        self.assertFalse(health["code_layer_missing"])
+        self.assertTrue(health["semantic_ready"])
+        self.assertEqual(health["readiness_overview"], "ready")
+
     def test_file_meta_key_produces_no_stale_paths_when_hashes_match(self):
         """Health check using file_meta format reports no stale paths when content unchanged."""
         root = self._make_repo(self.tmp)

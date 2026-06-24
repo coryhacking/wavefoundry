@@ -1,9 +1,9 @@
 # Model fetch: fall back to the OS trust store on certifi verification failure
 
 Change ID: `1p7iu-enh model-fetch-os-trust-store-fallback`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
+Status: implemented
 Last verified: 2026-06-23
 Wave: `1p7ir index-build-robustness`
 
@@ -36,17 +36,17 @@ This blocks the first index build after upgrade on common corporate WSL/Linux se
 
 ## Acceptance Criteria
 
-- [ ] AC-1: on `CERTIFICATE_VERIFY_FAILED`, the fetch retries against the OS trust store (and honors a preset `SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE`) before failing; verification is never disabled.
-- [ ] AC-2: the `setup_index`/preflight path detects the certifi-vs-system CA gap and emits the actionable env-var remediation rather than a raw stack trace.
-- [ ] AC-3: no code path disables TLS verification or installs an insecure SSL context (assert in test/review).
-- [ ] AC-4: framework tests cover the fallback decision (cert-fail → OS-bundle retry) and the preflight gap detection, bytecode-free; `wave_validate` clean.
-- [ ] AC-5: measured on a proxy host (or a repro with a CA only in the system store) — the model downloads with the fallback and caches for offline reuse; recorded as the value gate.
+- [x] AC-1: on `CERTIFICATE_VERIFY_FAILED`, `_warm_model` retries the fetch against the OS trust store (`_os_trust_store_bundle` — honors a preset `SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE`, then platform locations) before failing; verification never disabled — it only swaps the trusted CA bundle.
+- [x] AC-2: on the cert failure (and when the OS store can't resolve it) the path emits the **actionable two-env-var remediation** (`SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE`) instead of a raw SSL stack trace — handled inline at the fetch (the retry IS the detection), so no separate proactive preflight probe was needed.
+- [x] AC-3: no code path disables verification — `test_no_path_disables_tls_verification` asserts the source has no `_create_unverified_context` / `CERT_NONE` / `verify=False`.
+- [x] AC-4: tests cover the cert-error detection (chain-aware), env-honoring bundle resolution, cert-fail → OS-bundle retry, non-cert-error no-retry, and verification-stays-on; bytecode-free; `wave_validate` clean.
+- [~] AC-5: real proxy-host value gate **deferred** — the fallback decision is locally validated (5 tests incl. the cert-fail→retry path); a download behind an actual TLS-inspecting proxy needs such a host (downstream), recorded as the remaining gate.
 
 ## Tasks
 
-- [ ] Add the OS-trust-store fallback + `SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE` honoring to the model-fetch path.
-- [ ] Add preflight certifi-vs-system gap detection + remediation messaging.
-- [ ] Tests (fallback decision, preflight detection, verification-stays-on) bytecode-free.
+- [x] Add the OS-trust-store fallback + `SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE` honoring to `_warm_model` (the setup model-fetch path).
+- [x] Emit certifi-vs-system gap remediation inline on the cert failure (the retry is the detection) — no separate preflight probe needed.
+- [x] Tests (cert-error chain detection, env-honoring bundle, fallback retry, non-cert no-retry, verification-stays-on) bytecode-free.
 
 ## Agent Execution Graph
 
@@ -86,6 +86,8 @@ This blocks the first index build after upgrade on common corporate WSL/Linux se
 | Date       | Update | Evidence |
 | ---------- | ------ | -------- |
 | 2026-06-23 | Drafted from the 1.8.0 field report. No OS-trust-store fallback present (grep-confirmed); new `bge-small` model not pre-cached → first fetch fails behind certifi-only venv. | memory `project_field_feedback_1p8_oom_tls`; `indexer.py:40-46` model split |
+| 2026-06-23 | **Implemented.** `_warm_model` wraps the fastembed download: on a chain-aware `CERTIFICATE_VERIFY_FAILED`, resolve an OS CA bundle (`_os_trust_store_bundle` — preset `SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE` first, then Debian/RHEL/SUSE/Alpine-macOS locations), set the env, and retry ONCE — verification stays ON (only the CA bundle is swapped). No bundle / already-tried → a `ModelPrewarmError` with the two-env-var remediation. 5 tests; suite 3437 OK. | `setup_index.py` `_os_trust_store_bundle`/`_is_cert_verify_error`/`_warm_model`; `test_setup_index.py` `TlsTrustStoreFallbackTests` |
+| 2026-06-23 | **DEFECT CAUGHT + FIXED (review).** The first cut was a NO-OP: `huggingface_hub` 1.16.1 (which fastembed's `snapshot_download` uses) caches a GLOBAL `httpx.Client` whose SSL context is built ONCE against certifi — so setting the env after the first attempt left the cached client untouched and the retry failed identically. The mocked test masked it (it never exercised the real session). Fix: call `huggingface_hub.close_session()` after setting the env so the retry rebuilds the client against the OS bundle (documented for "an SSL certificate has been updated"); test now asserts `close_session` is called, locking the regression. Chain verified: fastembed → `snapshot_download` → `get_session()` cached `_GLOBAL_CLIENT`. | `huggingface_hub/utils/_http.py` `get_session`/`close_session`; `setup_index._warm_model`; test `hf.close_session.assert_called_once()` |
 
 
 ## Decision Log
