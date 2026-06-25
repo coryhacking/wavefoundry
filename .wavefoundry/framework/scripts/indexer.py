@@ -21,6 +21,12 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+import venv_bootstrap  # the single venv resolver (wave 1p7pl)
+
+# Re-exec into the shared tool venv before any heavy import (wave 1p7pl). No-op when
+# already in the venv or when it does not exist yet (fresh bootstrap).
+venv_bootstrap.reexec_into_tool_venv()
+
 FASTEMBED_CACHE_DEFAULT = Path.home() / ".wavefoundry" / "cache" / "fastembed"
 if not os.environ.get("FASTEMBED_CACHE_PATH"):
     os.environ["FASTEMBED_CACHE_PATH"] = str(FASTEMBED_CACHE_DEFAULT)
@@ -1104,8 +1110,7 @@ def _atomic_write_text(path: Path, text: str) -> None:
 
 def _auto_install_lancedb() -> None:
     """Install lancedb into the shared Wavefoundry tool venv when missing."""
-    venv_base = Path(os.environ.get("WAVEFOUNDRY_TOOL_VENV", "~/.wavefoundry/venv")).expanduser()
-    venv_python = venv_base / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    venv_python = venv_bootstrap.tool_venv_python()  # the single venv resolver (wave 1p7pl)
     if not venv_python.exists():
         raise ImportError(
             "lancedb is not installed and the Wavefoundry tool venv is not bootstrapped yet. "

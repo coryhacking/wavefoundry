@@ -25,7 +25,7 @@ Status: in-progress
 ## Phase 1 — Harness (no MCP required)
 
 - [ ] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json
-- [x] 1.2 — Bootstrap harness (setup_wavefoundry.py) — artifact: .wavefoundry/bin/mcp-server
+- [x] 1.2 — Bootstrap harness (setup_wavefoundry.py) — artifact: .mcp.json
 - [ ] 1.3 — STOP: restart agent (instruction)
 
 ## Phase 2 — Project discovery (MCP required)
@@ -57,13 +57,13 @@ class RowParsingTests(unittest.TestCase):
 
     def test_script_driven_row_parsed(self):
         row = install_log_lib.parse_row(
-            "- [x] 1.2 — Bootstrap harness (setup_wavefoundry.py) — artifact: .wavefoundry/bin/mcp-server",
+            "- [x] 1.2 — Bootstrap harness (setup_wavefoundry.py) — artifact: .mcp.json",
             phase=1,
         )
         self.assertIsNotNone(row)
         self.assertEqual(row.kind, "script")
         self.assertEqual(row.source, "setup_wavefoundry.py")
-        self.assertEqual(row.target, ".wavefoundry/bin/mcp-server")
+        self.assertEqual(row.target, ".mcp.json")
         self.assertTrue(row.is_done)
         self.assertTrue(row.needs_artifact_check)
 
@@ -214,13 +214,12 @@ class StateQueryTests(unittest.TestCase):
         self.assertEqual(len(missing), 1)
         row, path = missing[0]
         self.assertEqual(row.number, "1.2")
-        self.assertEqual(path.name, "mcp-server")
+        self.assertEqual(path.name, ".mcp.json")  # wave 1p7tz: bin/mcp-server retired → .mcp.json
 
     def test_checked_rows_missing_artifact_empty_when_file_present(self):
         # Create the artifact 1.2 expects.
-        artifact = self.root / ".wavefoundry" / "bin" / "mcp-server"
-        artifact.parent.mkdir(parents=True)
-        artifact.write_text("#!/bin/sh\n")
+        artifact = self.root / ".mcp.json"
+        artifact.write_text("{}\n")
         missing = install_log_lib.checked_rows_missing_artifact(self.rows, self.root)
         self.assertEqual(missing, [])
 

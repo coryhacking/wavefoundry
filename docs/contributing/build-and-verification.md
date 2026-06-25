@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-15
+Last verified: 2026-06-25
 
 ## Verification Commands
 
@@ -14,7 +14,7 @@ Run these from the repository root to verify the Wavefoundry self-hosted surface
 
 ```bash
 # Docs gate (metadata + prompt surface + manifest validation)
-.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint
+wf docs-gardener && wf docs-lint
 
 # Framework script tests (no bytecode)
 python3 .wavefoundry/framework/scripts/run_tests.py
@@ -129,17 +129,17 @@ Wavefoundry MCP doc-mutating tools also request a detached background docs-index
 
 Same checks whether you run **`wave_validate`** / **`wave_garden`** over MCP or the bin scripts below.
 
-`.wavefoundry/bin/docs-lint` validates:
+`wf docs-lint` validates:
 - Required prompt docs exist under `docs/prompts/`
 - `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches `.wavefoundry/framework/VERSION`
 - Required metadata fields (`Owner:`, `Status:`, `Last verified:`) on canonical docs
 - Wave and journal root directories exist
 
-`.wavefoundry/bin/docs-gardener` refreshes stale metadata timestamps.
+`wf docs-gardener` refreshes stale metadata timestamps.
 
-**Secrets scanning** runs in the docs gate, but in **record-only** mode (wave 1p5pz). `docs-lint` runs `wave_lint_lib/secrets_validators.py` against the merged ruleset (`.wavefoundry/scan-rules.toml` + `docs/scan-rules.toml`) and **records** new matches to `docs/scan-findings.json` as `pending` — but it does **not** fail on secret findings (only a malformed inline-suppression directive is a lint error). So the post-edit hook, `wave_validate`, and the upgrade docs gate never block on a found secret. For an on-demand scan use `wave_scan_secrets(mode="full")` (MCP) — incremental mode auto-escalates to full when either TOML file changed since the last scan. **The `wave_close` secrets gate is the sole enforcement point**: `pending` and `suspected-secret` entries hard-block close until classified (via the security reviewer, `seed-213`); `confirmed-secret` is **non-blocking** and surfaces a standing reminder; `false-positive` (cleared) passes.
+**Secrets scanning** runs in the docs gate, but in **record-only** mode (wave 1p5pz). `wf docs-lint` runs `wave_lint_lib/secrets_validators.py` against the merged ruleset (`.wavefoundry/scan-rules.toml` + `docs/scan-rules.toml`) and **records** new matches to `docs/scan-findings.json` as `pending` — but it does **not** fail on secret findings (only a malformed inline-suppression directive is a lint error). So the post-edit hook, `wave_validate`, and the upgrade docs gate never block on a found secret. For an on-demand scan use `wave_scan_secrets(mode="full")` (MCP) — incremental mode auto-escalates to full when either TOML file changed since the last scan. **The `wave_close` secrets gate is the sole enforcement point**: `pending` and `suspected-secret` entries hard-block close until classified (via the security reviewer, `seed-213`); `confirmed-secret` is **non-blocking** and surfaces a standing reminder; `false-positive` (cleared) passes.
 
-Both launchers live under `.wavefoundry/bin/` and delegate to `.wavefoundry/framework/scripts/`. This repository does not ship repo-root `./docs-lint` or `./docs-gardener` shims. **Agents should use MCP `wave_validate` and `wave_garden` first**; reserve **`.wavefoundry/bin/docs-lint`** / **`.wavefoundry/bin/docs-gardener`** for hooks, CI, and hosts without MCP.
+Both subcommands are dispatched by the single cross-OS `wf` (bash) / `wf.cmd` (Windows) shim under `.wavefoundry/bin/`, which routes through `wf_cli.py` to the corresponding scripts under `.wavefoundry/framework/scripts/` (`wf docs-lint` → `docs_lint.py`, `wf docs-gardener` → `docs_gardener.py`). This repository does not ship repo-root `./docs-lint` or `./docs-gardener` shims. **Agents should use MCP `wave_validate` and `wave_garden` first**; reserve **`wf docs-lint`** / **`wf docs-gardener`** for hooks, CI, and hosts without MCP.
 
 ## Framework Script Hygiene
 
@@ -174,7 +174,7 @@ Option B (direct merge): Merge or copy into `.wavefoundry/framework/` then run *
 python3 .wavefoundry/framework/scripts/run_tests.py
 
 # Run docs gate
-.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint
+wf docs-gardener && wf docs-lint
 
 # Review diff of pack changes, hooks, docs/prompts/, manifests
 # Then commit (operator-owned — see Git commits below)
@@ -185,9 +185,9 @@ python3 .wavefoundry/framework/scripts/run_tests.py
 - Host MCP surfaces updated by `render_platform_surfaces.py`:
   - `.cursor/mcp.json` contains `mcpServers.wavefoundry`
   - `.mcp.json` and `.junie/mcp/mcp.json` include the Wavefoundry stdio entry when those hosts are used
-- Canonical CLI launchers exist and resolve to packaged scripts:
-  - `.wavefoundry/bin/docs-lint`
-  - `.wavefoundry/bin/docs-gardener`
+- The canonical cross-OS `wf` / `wf.cmd` dispatcher exists under `.wavefoundry/bin/` and resolves to packaged scripts via `wf_cli.py`:
+  - `wf docs-lint` → `docs_lint.py`
+  - `wf docs-gardener` → `docs_gardener.py`
 - MCP recovery tools from the upgraded server are available:
   - `wave_audit` (combined wave + lint + index check)
   - `wave_index_build` (deterministic project/framework index rebuild path)

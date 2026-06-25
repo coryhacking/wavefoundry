@@ -79,7 +79,7 @@ Tests must pass before any PR is reviewed.
 After editing anything under `docs/`, run:
 
 ```bash
-.wavefoundry/bin/docs-lint
+wf docs-lint
 ```
 
 If an MCP server is attached, `wave_validate` and `wave_garden` are the
@@ -120,13 +120,13 @@ install:
 
 | Area | Gate name | How to open |
 |---|---|---|
-| `.wavefoundry/framework/seeds/` | `seed_edit_allowed` | `.wavefoundry/bin/wave-gate open seed_edit_allowed` |
-| Broad framework scripts | `framework_edit_allowed` | `.wavefoundry/bin/wave-gate open framework_edit_allowed` |
+| `.wavefoundry/framework/seeds/` | `seed_edit_allowed` | `wf gate open seed_edit_allowed` |
+| Broad framework scripts | `framework_edit_allowed` | `wf gate open framework_edit_allowed` |
 
 Close the gate immediately after the edit:
 
 ```bash
-.wavefoundry/bin/wave-gate close seed_edit_allowed
+wf gate close seed_edit_allowed
 ```
 
 If you don't have wave tooling installed yet, raise an issue and a

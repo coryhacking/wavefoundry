@@ -2,8 +2,10 @@
   "mcpServers": {
     "wavefoundry": {
       "type": "stdio",
-      "command": ".wavefoundry/bin/mcp-server",
-      "args": [],
+      "command": "python",
+      "args": [
+        ".wavefoundry/framework/scripts/server.py"
+      ],
       "cwd": "${workspaceFolder}"
     }
   }

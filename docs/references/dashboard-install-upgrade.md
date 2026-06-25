@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-14
+Last verified: 2026-06-25
 
 Reference doc covering how the local dashboard feature moves from the Wavefoundry framework pack into target repositories. Addresses packaging (build_pack.py), install (seed-010), upgrade (seed-160), and the sibling-directory runtime option.
 
@@ -128,8 +128,8 @@ wave_dashboard_stop
 # Via MCP tool (agent-facing):
 wave_dashboard_restart
 
-# Via bin shortcut (if installed — see below):
-.wavefoundry/bin/wave-dashboard
+# Via wf dispatcher shortcut (see below):
+wf dashboard
 
 # Via low-level script — opens browser:
 python3 .wavefoundry/framework/scripts/dashboard_server.py --root . --open
@@ -162,24 +162,18 @@ Restart behavior:
 
 These tools are the preferred agent-facing entry points when an agent needs to control the dashboard programmatically.
 
-## bin/wave-dashboard Shortcut
+## wf dashboard Shortcut
 
-`.wavefoundry/bin/wave-dashboard` is a bash wrapper that starts the dashboard server with `--open` (browser launch). Unlike framework scripts, **this file is not included in the distribution pack** — it is a per-repo convenience script that must be added manually or by the install seed.
+`wf dashboard` is a subcommand of the cross-OS `wf` (bash) / `wf.cmd` (Windows) dispatcher under `.wavefoundry/bin/`. It routes through `wf_cli.py` to start the dashboard server with `--open` (browser launch). The renderer writes the single `wf` / `wf.cmd` shim pair; there is no longer a per-wrapper `wave-dashboard` script.
 
-Contents:
+The dispatcher resolves the repo root and runs the dashboard server, roughly equivalent to:
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$REPO_ROOT"
-exec python3 ".wavefoundry/framework/scripts/dashboard_server.py" --open "$@"
+python3 .wavefoundry/framework/scripts/dashboard_server.py --open "$@"
 ```
 
-To add it to a repo manually:
+Invoke it from the repo root:
 ```bash
-mkdir -p .wavefoundry/bin
-# write script content, then:
-chmod +x .wavefoundry/bin/wave-dashboard
+wf dashboard
 ```
 
 The script passes through any additional arguments (`$@`) to `dashboard_server.py`, so `--root` and other flags work as expected.

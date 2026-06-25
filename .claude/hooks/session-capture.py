@@ -1,6 +1,18 @@
-
-"""Wavefoundry session-end capture hook. Capture/nudge only; never blocks."""
+#!/usr/bin/env python3
 from __future__ import annotations
+
+import sys as _wf_sys
+from pathlib import Path as _WfPath
+
+_WF_SCRIPTS = _WfPath(__file__).resolve().parents[2] / ".wavefoundry" / "framework" / "scripts"
+if _WF_SCRIPTS.is_dir() and str(_WF_SCRIPTS) not in _wf_sys.path:
+    _wf_sys.path.insert(0, str(_WF_SCRIPTS))
+try:
+    import venv_bootstrap as _wf_venv_bootstrap
+
+    _wf_venv_bootstrap.reexec_into_tool_venv()
+except Exception:
+    pass
 
 import os
 import subprocess

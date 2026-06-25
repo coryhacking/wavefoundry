@@ -294,7 +294,7 @@ If any of these files are already tracked (e.g. `dashboard-server.json` committe
 
 ### Wavefoundry MCP — docs gate for agents
 
-Seeded **`AGENTS.md`**, **`CLAUDE.md`**, thin pointers, and **`docs/prompts/*`** must instruct **agents** to prefer MCP **`wave_validate`** (docs lint results), **`wave_garden`** (metadata gardening; follow the tool `mode` contract), and **`wave_audit`** (combined wave + validation + index readout) over shelling out to **`.wavefoundry/bin/docs-lint`** / **`.wavefoundry/bin/docs-gardener`**. Treat the **bin** launchers as **CLI / hook / CI** fallbacks when MCP is not attached. Hooks below **cannot** call MCP and therefore still invoke **`.wavefoundry/bin/docs-lint`** — that does not change MCP-first agent guidance.
+Seeded **`AGENTS.md`**, **`CLAUDE.md`**, thin pointers, and **`docs/prompts/*`** must instruct **agents** to prefer MCP **`wave_validate`** (docs lint results), **`wave_garden`** (metadata gardening; follow the tool `mode` contract), and **`wave_audit`** (combined wave + validation + index readout) over shelling out to **`wf docs-lint`** / **`wf docs-gardener`**. Treat the **`wf`** dispatcher subcommands as **CLI / hook / CI** fallbacks when MCP is not attached. Hooks below **cannot** call MCP and therefore still invoke **`wf docs-lint`** — that does not change MCP-first agent guidance.
 
 This MCP-first principle extends beyond docs validation to **all wave and plan state queries**: before reaching for `ls`, `grep`, or filesystem tools to answer any question about wave state, plans, or change docs, agents must check the MCP tool list first. `wave_list_plans` (pending changes not yet admitted to a wave), `wave_list_waves`, `wave_current`, and `wave_get_change` return structured answers directly. Seeded `AGENTS.md` must include this guidance in its MCP or docs-gate section.
 
@@ -304,7 +304,7 @@ The same principle applies to **literal-identifier and cross-surface text sweeps
 
 - **Seed protection** — block (or warn+halt where pre-write is unavailable) edits to `*.prompt.md` files under `.wavefoundry/framework/` unless `.wavefoundry/guard-overrides.json` sets `seed_edit_allowed.enabled` to `true`. Use the repo-global override file only for intentional seed edits, then remove it or set the flag back to `false`.
 - **Framework plan gate** — block (or warn+halt) broad framework-maintenance edits to `.wavefoundry/framework/`, `docs/prompts/`, `AGENTS.md`, and tracked hook configs unless `.wavefoundry/guard-overrides.json` sets `framework_edit_allowed.enabled` to `true` after the operator reviews the file-level patch plan.
-- **`docs-lint` hook** — run **`.wavefoundry/bin/docs-lint`** after any Edit/Write to files under `docs/`, failing the hook when the docs gate fails (subprocess hook path; not MCP).
+- **`docs-lint` hook** — run **`wf docs-lint`** after any Edit/Write to files under `docs/`, failing the hook when the docs gate fails (subprocess hook path; not MCP).
 
 ### Per-platform capability matrix
 
@@ -360,7 +360,7 @@ Generated entrypoints:
 - `.cursor/hooks/after-file-edit` — runs Cursor gates in order and stops after the first blocking result
 - `.cursor/hooks/seed-warn` — seed-protection warn+halt
 - `.cursor/hooks/framework-plan-warn` — framework-plan-gate warn+halt
-- `.cursor/hooks/docs-lint` — runs `.wavefoundry/bin/docs-lint` after docs edits and halts with actionable output when the docs gate fails
+- `.cursor/hooks/docs-lint` — runs `wf docs-lint` after docs edits and halts with actionable output when the docs gate fails
 
 `.gitignore` must track `.cursor/hooks.json` and `.cursor/hooks/` (`!.cursor/hooks.json` and `!.cursor/hooks/` carve-outs when `.cursor/` is broadly ignored). The repo-global `.wavefoundry/guard-overrides.json` override file remains gitignored.
 
@@ -379,7 +379,7 @@ Windsurf has `pre_write_code` which fires **before** the write — true blocking
 
 Generated entrypoints:
 - `.windsurf/hooks/seed-protect` — true-blocking seed protection + framework plan gate
-- `.windsurf/hooks/docs-lint` — runs `.wavefoundry/bin/docs-lint` after docs edits
+- `.windsurf/hooks/docs-lint` — runs `wf docs-lint` after docs edits
 
 `.gitignore` tracks `.windsurf/hooks.json` and `.windsurf/hooks/`.
 
@@ -404,7 +404,7 @@ Scope boundary:
 
 Generated entrypoints:
 - `.github/hooks/pre-tool-use` — blocks seed-prompt edits and broad framework-maintenance edits per the guard-override file
-- `.github/hooks/post-tool-use` — runs `.wavefoundry/bin/docs-lint` after docs edits
+- `.github/hooks/post-tool-use` — runs `wf docs-lint` after docs edits
 
 Keep `.github/copilot-instructions.md` as a thin pointer and route mechanical enforcement through `.github/hooks/hooks.json`.
 

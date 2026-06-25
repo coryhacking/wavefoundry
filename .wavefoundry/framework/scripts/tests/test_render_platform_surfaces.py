@@ -46,29 +46,34 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             (repo_root / ".cursor" / "hooks" / "reformat.py").write_text("# legacy\n", encoding="utf-8")
             (repo_root / ".github" / "hooks" / "pre-tool-use.sh").write_text("# legacy\n", encoding="utf-8")
 
+            # Wave 1p7pm: render `main` calls venv_bootstrap.ensure_python_resolves(), which is
+            # SIDE-EFFECTING (creates ~/.local/bin/python + may append to the shell rc). This is a
+            # real subprocess, so in-process patching can't reach it — set the documented opt-out env
+            # var so the heal is a complete no-op and the test never mutates the operator's box.
+            sub_env = {**os.environ, "WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}
             result = subprocess.run(
                 ["python3", str(SCRIPT_PATH), "--repo-root", str(repo_root)],
                 cwd=PROJECT_ROOT,
                 text=True,
                 capture_output=True,
                 check=False,
+                env=sub_env,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-            # Wave 1p590: hook commands are PROJECT-RELATIVE (never machine-absolute) so a clone works.
-            # 1p6dx: Claude hook commands are anchored on $CLAUDE_PROJECT_DIR (quoted) so they
-            # resolve regardless of the host's cwd. Cursor/Copilot keep the relative form (their
-            # project-root var is unverified — tracked as a follow-up).
+            # Wave 1p7pm (1p7pb-adr): hook commands name the byte-identical `python` interpreter on
+            # the project-relative `.py` body (no `.cmd`/`.sh` trampoline). The ONLY per-OS difference
+            # is the env-var sigil ($VAR on POSIX, %VAR% on cmd.exe). Claude hooks are anchored on
+            # $CLAUDE_PROJECT_DIR; Cursor/Copilot keep the bare relative form (project-root var
+            # unverified — tracked as a follow-up).
             if os.name == "nt":
-                # 1p6dx: forward slashes everywhere, including the cmd.exe form; the bare
-                # (no project-dir-var) form is now quoted too.
-                expected_claude_command = 'cmd.exe /c "%CLAUDE_PROJECT_DIR%/.claude/hooks/pre-edit.cmd"'
-                expected_cursor_command = 'cmd.exe /c ".cursor/hooks/after-file-edit.cmd"'
-                expected_copilot_command = 'cmd.exe /c ".github/hooks/pre-tool-use.cmd"'
+                expected_claude_command = 'python "%CLAUDE_PROJECT_DIR%/.claude/hooks/pre-edit.py"'
+                expected_cursor_command = 'python ".cursor/hooks/after-file-edit.py"'
+                expected_copilot_command = 'python ".github/hooks/pre-tool-use.py"'
             else:
-                expected_claude_command = '"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-edit"'
-                expected_cursor_command = ".cursor/hooks/after-file-edit"
-                expected_copilot_command = ".github/hooks/pre-tool-use"
+                expected_claude_command = 'python "$CLAUDE_PROJECT_DIR/.claude/hooks/pre-edit.py"'
+                expected_cursor_command = 'python ".cursor/hooks/after-file-edit.py"'
+                expected_copilot_command = 'python ".github/hooks/pre-tool-use.py"'
 
             claude_settings = json.loads((repo_root / ".claude" / "settings.json").read_text(encoding="utf-8"))
             self.assertEqual(
@@ -78,9 +83,9 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
 
             # Wave 1p5ti: session-end capture hook is rendered for Stop + SubagentStop.
             if os.name == "nt":
-                expected_stop_command = 'cmd.exe /c "%CLAUDE_PROJECT_DIR%/.claude/hooks/session-capture.cmd"'
+                expected_stop_command = 'python "%CLAUDE_PROJECT_DIR%/.claude/hooks/session-capture.py"'
             else:
-                expected_stop_command = '"$CLAUDE_PROJECT_DIR/.claude/hooks/session-capture"'
+                expected_stop_command = 'python "$CLAUDE_PROJECT_DIR/.claude/hooks/session-capture.py"'
             self.assertEqual(
                 claude_settings["hooks"]["Stop"][0]["hooks"][0]["command"],
                 expected_stop_command,
@@ -99,32 +104,32 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
                 copilot_hooks["hooks"]["preToolUse"][0]["bash"],
                 expected_copilot_command,
             )
-            # Wave 1p590: Junie MCP uses the project-relative .wavefoundry/bin/mcp-server wrapper
-            # (parity with root .mcp.json), not an absolute venv-Python path.
+            # Wave 1p7pm (1p7pb-adr): Junie MCP names the byte-identical `python` command on the
+            # repo-relative server.py — never the bash .wavefoundry/bin/mcp-server wrapper.
             junie_mcp = json.loads((repo_root / ".junie" / "mcp" / "mcp.json").read_text(encoding="utf-8"))
             self.assertEqual(
                 junie_mcp["mcpServers"]["wavefoundry"]["command"],
-                ".wavefoundry/bin/mcp-server",
+                "python",
             )
             self.assertEqual(
                 junie_mcp["mcpServers"]["wavefoundry"]["args"],
-                [],
+                [".wavefoundry/framework/scripts/server.py"],
             )
 
-            self.assertTrue((repo_root / ".claude" / "hooks" / "pre-edit").exists())
+            # Wave 1p7pm: only the `.py` body is rendered — the `.sh`/`.cmd` trampolines are retired.
             self.assertTrue((repo_root / ".claude" / "hooks" / "pre-edit.py").exists())
-            self.assertTrue((repo_root / ".claude" / "hooks" / "pre-edit.cmd").exists())
-            # Wave 1p5ti: the session-capture hook bundle (launcher + .py + .cmd).
-            self.assertTrue((repo_root / ".claude" / "hooks" / "session-capture").exists())
+            self.assertFalse((repo_root / ".claude" / "hooks" / "pre-edit").exists())
+            self.assertFalse((repo_root / ".claude" / "hooks" / "pre-edit.cmd").exists())
             self.assertTrue((repo_root / ".claude" / "hooks" / "session-capture.py").exists())
-            self.assertTrue((repo_root / ".claude" / "hooks" / "session-capture.cmd").exists())
+            self.assertFalse((repo_root / ".claude" / "hooks" / "session-capture").exists())
+            self.assertFalse((repo_root / ".claude" / "hooks" / "session-capture.cmd").exists())
             self.assertTrue((repo_root / ".cursor" / "hooks" / "framework-plan-warn.py").exists())
-            self.assertTrue((repo_root / ".cursor" / "hooks" / "framework-plan-warn").exists())
+            self.assertFalse((repo_root / ".cursor" / "hooks" / "framework-plan-warn").exists())
             self.assertFalse((repo_root / ".wavefoundry" / "bin" / "register-codex-mcp").exists())
-            self.assertTrue((repo_root / ".cursor" / "hooks" / "framework-plan-warn.cmd").exists())
+            self.assertFalse((repo_root / ".cursor" / "hooks" / "framework-plan-warn.cmd").exists())
             self.assertTrue((repo_root / ".github" / "hooks" / "post-tool-use.py").exists())
-            self.assertTrue((repo_root / ".github" / "hooks" / "post-tool-use").exists())
-            self.assertTrue((repo_root / ".github" / "hooks" / "post-tool-use.cmd").exists())
+            self.assertFalse((repo_root / ".github" / "hooks" / "post-tool-use").exists())
+            self.assertFalse((repo_root / ".github" / "hooks" / "post-tool-use.cmd").exists())
             self.assertFalse((repo_root / ".claude" / "hooks" / "pre-edit.sh").exists())
             self.assertFalse((repo_root / ".claude" / "hooks" / "pycache-cleanup.py").exists())
             self.assertFalse((repo_root / ".cursor" / "hooks" / "reformat.py").exists())
@@ -145,7 +150,13 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             self.assertIn("maybe_trigger_reindex", post_edit)
             self.assertNotIn("--index-dir", post_edit)
             self.assertNotIn("should_reindex_framework", post_edit)
-            self.assertIn("python_exec = _venv_python_path()", post_edit)
+            # Wave 1p7pm (1p7pb-adr): the body re-execs into the tool venv first-line via the single
+            # `venv_bootstrap` resolver, then inner spawns use sys.executable (the venv Python) — no
+            # rendered `_venv_python_path` resolver remains (goal B: single venv resolver).
+            self.assertIn("reexec_into_tool_venv()", post_edit)
+            self.assertIn("import venv_bootstrap", post_edit)
+            self.assertNotIn("_venv_python_path", post_edit)
+            self.assertIn("python_exec = sys.executable", post_edit)
             # Wave 1p35d (1p35n, AC-9): the rendered hook helper source must no longer
             # contain the dead `maybe_cleanup_pycache` helper or its `shutil` dependency.
             # The previous third hook was never actually wired in any host's settings,
@@ -154,6 +165,9 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             rendered_hooks = [
                 repo_root / ".claude" / "hooks" / "pre-edit.py",
                 repo_root / ".claude" / "hooks" / "post-edit.py",
+                repo_root / ".claude" / "hooks" / "simulate-hooks.py",
+                # Wave 1p7pm: session-capture is rendered via compose_script too — it MUST bootstrap.
+                repo_root / ".claude" / "hooks" / "session-capture.py",
                 repo_root / ".cursor" / "hooks" / "after-file-edit.py",
                 repo_root / ".cursor" / "hooks" / "docs-lint.py",
                 repo_root / ".cursor" / "hooks" / "framework-plan-warn.py",
@@ -167,12 +181,21 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
                 body = path.read_text(encoding="utf-8")
                 self.assertNotIn("maybe_cleanup_pycache", body, f"{path.name} still ships the retired pycache helper")
                 self.assertNotIn("import shutil", body, f"{path.name} still imports shutil (only the pycache helper used it)")
+                # Wave 1p7pm (1p7pb-adr): EVERY rendered hook body must self-bootstrap into the tool
+                # venv first-line — no exceptions (session-capture slipped through compose_script once).
+                self.assertIn(
+                    "reexec_into_tool_venv()", body,
+                    f"{path.name} is missing the first-line venv bootstrap",
+                )
+                self.assertIn("import venv_bootstrap", body, f"{path.name} is missing the venv_bootstrap import")
             self.assertIn("[python_exec, str(indexer), \"--root\", str(REPO_ROOT)]", post_edit)
             cursor_after = (repo_root / ".cursor" / "hooks" / "after-file-edit.py").read_text(encoding="utf-8")
-            self.assertIn("python_exec = _venv_python_path()", cursor_after)
+            self.assertNotIn("_venv_python_path", cursor_after)
+            self.assertIn("python_exec = sys.executable", cursor_after)
             self.assertIn("[python_exec, str(gate)]", cursor_after)
             claude_sim = (repo_root / ".claude" / "hooks" / "simulate-hooks.py").read_text(encoding="utf-8")
-            self.assertIn("python_exec = _venv_python_path()", claude_sim)
+            self.assertNotIn("_venv_python_path", claude_sim)
+            self.assertIn("python_exec = sys.executable", claude_sim)
             self.assertIn("[python_exec, str(target)]", claude_sim)
             self.assertIn(
                 ".wavefoundry/guard-overrides.json",
@@ -185,49 +208,35 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             self.assertIn(".wavefoundry/framework/*.lock", aiignore_text)
             self.assertNotIn(".wavefoundry/framework/seeds/*.prompt.md", aiignore_text)
 
-            # bin launchers created by render_bin_launchers (called unconditionally from main)
-            bin_lint = repo_root / ".wavefoundry" / "bin" / "docs-lint"
-            bin_gardener = repo_root / ".wavefoundry" / "bin" / "docs-gardener"
-            bin_dashboard = repo_root / ".wavefoundry" / "bin" / "wave-dashboard"
-            bin_update_indexes = repo_root / ".wavefoundry" / "bin" / "update-indexes"
-            bin_setup = repo_root / ".wavefoundry" / "bin" / "setup-wavefoundry"
-            bin_upgrade = repo_root / ".wavefoundry" / "bin" / "upgrade-wavefoundry"
-            self.assertTrue(bin_lint.exists(), ".wavefoundry/bin/docs-lint should be created")
-            self.assertTrue(bin_gardener.exists(), ".wavefoundry/bin/docs-gardener should be created")
-            self.assertTrue(bin_dashboard.exists(), ".wavefoundry/bin/wave-dashboard should be created")
-            self.assertTrue(bin_update_indexes.exists(), ".wavefoundry/bin/update-indexes should be created")
-            self.assertFalse((repo_root / ".wavefoundry" / "bin" / "wave_dashboard").exists(), "stale wave_dashboard should be removed")
-            self.assertFalse((repo_root / ".wavefoundry" / "bin" / "register-codex-mcp").exists(), "register-codex-mcp should be removed")
-            self.assertTrue(bin_setup.exists(), ".wavefoundry/bin/setup-wavefoundry should be created")
-            self.assertTrue(bin_upgrade.exists(), ".wavefoundry/bin/upgrade-wavefoundry should be created")
+            # Wave 1p7tz: the nine bash wrappers are retired — render_bin_launchers writes ONLY the
+            # cross-OS `wf` (bash) + `wf.cmd` (Windows) shim pair dispatching to wf_cli.py.
+            bin_dir = repo_root / ".wavefoundry" / "bin"
+            wf = bin_dir / "wf"
+            wf_cmd = bin_dir / "wf.cmd"
+            self.assertTrue(wf.exists(), ".wavefoundry/bin/wf should be created")
+            self.assertTrue(wf_cmd.exists(), ".wavefoundry/bin/wf.cmd should be created")
+            # The nine retired wrappers must NOT be present.
+            for retired in ("docs-lint", "docs-gardener", "wave-gate", "update-indexes",
+                            "lifecycle-id", "wave-dashboard", "upgrade-wavefoundry",
+                            "setup-wavefoundry", "mcp-server"):
+                self.assertFalse((bin_dir / retired).exists(),
+                                 f".wavefoundry/bin/{retired} must be retired (wave 1p7tz)")
+            self.assertFalse((bin_dir / "wave_dashboard").exists(), "stale wave_dashboard should be removed")
+            self.assertFalse((bin_dir / "register-codex-mcp").exists(), "register-codex-mcp should be removed")
             if os.name != "nt":
-                self.assertTrue(os.access(bin_lint, os.X_OK), "docs-lint should be executable")
-                self.assertTrue(os.access(bin_gardener, os.X_OK), "docs-gardener should be executable")
-                self.assertTrue(os.access(bin_dashboard, os.X_OK), "wave-dashboard should be executable")
-                self.assertTrue(os.access(bin_update_indexes, os.X_OK), "update-indexes should be executable")
-                self.assertTrue(os.access(bin_setup, os.X_OK), "setup-wavefoundry should be executable")
-                self.assertTrue(os.access(bin_upgrade, os.X_OK), "upgrade-wavefoundry should be executable")
-            self.assertIn(
-                ".wavefoundry/framework/scripts/docs_lint.py",
-                bin_lint.read_text(encoding="utf-8"),
-            )
-            self.assertIn(
-                ".wavefoundry/framework/scripts/docs_gardener.py",
-                bin_gardener.read_text(encoding="utf-8"),
-            )
-            dashboard_src = bin_dashboard.read_text(encoding="utf-8")
-            self.assertIn("nohup", dashboard_src)
-            self.assertIn("--open", dashboard_src)
-            self.assertIn(".wavefoundry/logs/dashboard.log", dashboard_src)
-            self.assertIn("Wave dashboard started", dashboard_src)
-            update_indexes_src = bin_update_indexes.read_text(encoding="utf-8")
-            self.assertIn(".wavefoundry/framework/scripts/setup_index.py", update_indexes_src)
-            self.assertIn("--background-code", update_indexes_src)
-            self.assertIn("--verbose", update_indexes_src)
+                self.assertTrue(os.access(wf, os.X_OK), "wf should be executable")
+            wf_src = wf.read_text(encoding="utf-8")
+            self.assertIn(".wavefoundry/framework/scripts/wf_cli.py", wf_src)
 
 
 class RenderBinLaunchersTests(unittest.TestCase):
-    """Unit tests for render_bin_launchers."""
+    """Wave 1p7tz: render_bin_launchers now emits ONLY the cross-OS `wf` (bash) + `wf.cmd` (Windows)
+    shim pair dispatching to `wf_cli.py`; the nine individual bash wrappers are retired (hard cutover)."""
+
+    RETIRED_WRAPPERS = (
+        "docs-lint", "docs-gardener", "wave-gate", "update-indexes", "lifecycle-id",
+        "wave-dashboard", "upgrade-wavefoundry", "setup-wavefoundry", "mcp-server",
+    )
 
     def _load_rps(self):
         import importlib.util
@@ -236,100 +245,75 @@ class RenderBinLaunchersTests(unittest.TestCase):
         spec.loader.exec_module(mod)
         return mod
 
-    def test_creates_bin_launchers(self):
+    def test_renders_wf_shim_pair(self):
+        # AC-2: `wf` (bash) + `wf.cmd` (Windows) are emitted and dispatch to wf_cli.py.
         rps = self._load_rps()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             rps.render_bin_launchers(root)
-            bin_lint = root / ".wavefoundry" / "bin" / "docs-lint"
-            bin_gardener = root / ".wavefoundry" / "bin" / "docs-gardener"
-            bin_dashboard = root / ".wavefoundry" / "bin" / "wave-dashboard"
-            bin_update_indexes = root / ".wavefoundry" / "bin" / "update-indexes"
-            bin_setup = root / ".wavefoundry" / "bin" / "setup-wavefoundry"
-            bin_upgrade = root / ".wavefoundry" / "bin" / "upgrade-wavefoundry"
-            bin_mcp_server = root / ".wavefoundry" / "bin" / "mcp-server"
-            bin_wave_gate = root / ".wavefoundry" / "bin" / "wave-gate"
-            self.assertTrue(bin_lint.exists())
-            self.assertTrue(bin_gardener.exists())
-            self.assertTrue(bin_dashboard.exists())
-            self.assertTrue(bin_update_indexes.exists())
-            self.assertFalse((root / ".wavefoundry" / "bin" / "wave_dashboard").exists())
-            self.assertFalse((root / ".wavefoundry" / "bin" / "register-codex-mcp").exists())
-            self.assertTrue(bin_setup.exists())
-            self.assertTrue(bin_upgrade.exists())
-            self.assertTrue(bin_mcp_server.exists(), ".wavefoundry/bin/mcp-server should be created (wave 130et)")
-            self.assertTrue(bin_wave_gate.exists(), ".wavefoundry/bin/wave-gate should be created (wave 130et / 130f9)")
-            self.assertFalse((root / ".wavefoundry" / "bin" / "upgrade-wavefoundry.bat").exists())
-            lint_src = bin_lint.read_text(encoding="utf-8")
-            gardener_src = bin_gardener.read_text(encoding="utf-8")
-            dashboard_src = bin_dashboard.read_text(encoding="utf-8")
-            update_indexes_src = bin_update_indexes.read_text(encoding="utf-8")
-            setup_src = bin_setup.read_text(encoding="utf-8")
-            upgrade_src = bin_upgrade.read_text(encoding="utf-8")
-            mcp_server_src_text = bin_mcp_server.read_text(encoding="utf-8")
-            wave_gate_src_text = bin_wave_gate.read_text(encoding="utf-8")
-        _venv_var = "WAVEFOUNDRY_VENV"
-        self.assertIn("docs_lint.py", lint_src)
-        self.assertIn(_venv_var, lint_src)
-        self.assertIn("docs_gardener.py", gardener_src)
-        self.assertIn(_venv_var, gardener_src)
-        self.assertIn("nohup", dashboard_src)
-        self.assertIn(".wavefoundry/logs/dashboard.log", dashboard_src)
-        self.assertIn(_venv_var, dashboard_src)
-        self.assertIn("setup_index.py", update_indexes_src)
-        self.assertIn("--background-code", update_indexes_src)
-        self.assertIn("--verbose", update_indexes_src)
-        self.assertIn(_venv_var, update_indexes_src)
-        self.assertIn("setup_wavefoundry.py", setup_src)
-        self.assertIn(_venv_var, setup_src)
-        self.assertIn("upgrade_wavefoundry.py", upgrade_src)
-        self.assertIn(_venv_var, upgrade_src)
-        self.assertIn("server.py", mcp_server_src_text)
-        self.assertIn("--root .", mcp_server_src_text)
-        self.assertIn(_venv_var, mcp_server_src_text)
-        self.assertIn("wave_gate.py", wave_gate_src_text)
-        self.assertIn(_venv_var, wave_gate_src_text)
-        self.assertIn("#!/usr/bin/env bash", lint_src)
-        self.assertIn("#!/usr/bin/env bash", gardener_src)
-        self.assertIn("#!/usr/bin/env bash", dashboard_src)
-        self.assertIn("#!/usr/bin/env bash", setup_src)
-        self.assertIn("#!/usr/bin/env bash", upgrade_src)
-        self.assertIn("#!/usr/bin/env bash", mcp_server_src_text)
-        self.assertIn("#!/usr/bin/env bash", wave_gate_src_text)
+            wf = root / ".wavefoundry" / "bin" / "wf"
+            wf_cmd = root / ".wavefoundry" / "bin" / "wf.cmd"
+            self.assertTrue(wf.exists())
+            self.assertTrue(wf_cmd.exists())
+            wf_src = wf.read_text(encoding="utf-8")
+            wf_cmd_src = wf_cmd.read_text(encoding="utf-8")
+            wf_bytes = wf.read_bytes()
+            wf_cmd_bytes = wf_cmd.read_bytes()
+        # AC-3: the bash shim's pre-symlink `python3`->`python` fallback (so `wf setup` works fresh).
+        self.assertIn("#!/usr/bin/env bash", wf_src)
+        self.assertIn('if command -v python3 >/dev/null 2>&1; then PYTHON="python3"; else PYTHON="python"; fi', wf_src)
+        self.assertIn(".wavefoundry/framework/scripts/wf_cli.py", wf_src)
+        self.assertIn('exec "$PYTHON"', wf_src)
+        self.assertNotIn("WAVEFOUNDRY_VENV", wf_src)
+        # The cmd shim names python on wf_cli.py (Windows has `python`, not `python3`).
+        self.assertIn("@echo off", wf_cmd_src)
+        self.assertIn("wf_cli.py", wf_cmd_src)
+        self.assertIn("python ", wf_cmd_src)
+        # Wave 1p7tz (newline fix): the line terminators are written VERBATIM regardless of the
+        # rendering host's os.linesep. `wf.cmd` is CRLF (cmd.exe) with NO doubled CR; the `wf` bash
+        # shim is pure LF (no CR — a CRLF shebang breaks git-bash/WSL2).
+        self.assertIn(b"\r\n", wf_cmd_bytes)
+        self.assertNotIn(b"\r\r", wf_cmd_bytes)  # no doubled CR (the newline=None translation bug)
+        self.assertNotIn(b"\r", wf_bytes)  # bash shim has zero CR
+        # The cmd comment must be ASCII-safe on legacy Windows codepages (no em-dash).
+        self.assertNotIn("—".encode("utf-8"), wf_cmd_bytes)
 
-    def test_bin_launchers_are_executable(self):
+    def test_retired_wrappers_not_rendered(self):
+        # AC-2: none of the nine individual bash wrappers is written; a re-render removes any present.
+        rps = self._load_rps()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bin_dir = root / ".wavefoundry" / "bin"
+            bin_dir.mkdir(parents=True, exist_ok=True)
+            # Simulate a pre-cutover install: the old wrappers exist on disk.
+            for name in self.RETIRED_WRAPPERS:
+                (bin_dir / name).write_text("#!/usr/bin/env bash\nlegacy\n", encoding="utf-8")
+            rps.render_bin_launchers(root)
+            for name in self.RETIRED_WRAPPERS:
+                self.assertFalse((bin_dir / name).exists(),
+                                 f"retired wrapper {name} must be removed on re-render")
+            # Only the wf shim pair remains (plus any unrelated files the test didn't create).
+            self.assertTrue((bin_dir / "wf").exists())
+            self.assertTrue((bin_dir / "wf.cmd").exists())
+
+    def test_wf_executable(self):
         if os.name == "nt":
             self.skipTest("executable bit not applicable on Windows")
         rps = self._load_rps()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             rps.render_bin_launchers(root)
-            bin_lint = root / ".wavefoundry" / "bin" / "docs-lint"
-            bin_gardener = root / ".wavefoundry" / "bin" / "docs-gardener"
-            bin_dashboard = root / ".wavefoundry" / "bin" / "wave-dashboard"
-            bin_update_indexes = root / ".wavefoundry" / "bin" / "update-indexes"
-            bin_setup = root / ".wavefoundry" / "bin" / "setup-wavefoundry"
-            bin_upgrade = root / ".wavefoundry" / "bin" / "upgrade-wavefoundry"
-            bin_mcp_server = root / ".wavefoundry" / "bin" / "mcp-server"
-            bin_wave_gate = root / ".wavefoundry" / "bin" / "wave-gate"
-            self.assertTrue(os.access(bin_lint, os.X_OK))
-            self.assertTrue(os.access(bin_gardener, os.X_OK))
-            self.assertTrue(os.access(bin_dashboard, os.X_OK))
-            self.assertTrue(os.access(bin_update_indexes, os.X_OK))
-            self.assertTrue(os.access(bin_setup, os.X_OK))
-            self.assertTrue(os.access(bin_upgrade, os.X_OK))
-            self.assertTrue(os.access(bin_mcp_server, os.X_OK))
-            self.assertTrue(os.access(bin_wave_gate, os.X_OK))
+            self.assertTrue(os.access(root / ".wavefoundry" / "bin" / "wf", os.X_OK))
 
     def test_render_bin_launchers_is_idempotent(self):
         rps = self._load_rps()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             rps.render_bin_launchers(root)
-            first_lint = (root / ".wavefoundry" / "bin" / "docs-lint").read_text(encoding="utf-8")
+            first_wf = (root / ".wavefoundry" / "bin" / "wf").read_text(encoding="utf-8")
             rps.render_bin_launchers(root)
-            second_lint = (root / ".wavefoundry" / "bin" / "docs-lint").read_text(encoding="utf-8")
-        self.assertEqual(first_lint, second_lint)
+            second_wf = (root / ".wavefoundry" / "bin" / "wf").read_text(encoding="utf-8")
+        self.assertEqual(first_wf, second_wf)
 
     def test_render_bin_launchers_removes_stale_windows_upgrade_wrapper(self):
         rps = self._load_rps()
@@ -340,6 +324,46 @@ class RenderBinLaunchersTests(unittest.TestCase):
             stale.write_text("stale\n", encoding="utf-8")
             rps.render_bin_launchers(root)
             self.assertFalse(stale.exists())
+
+
+class WriteTextNewlineFidelityTests(unittest.TestCase):
+    """Wave 1p7tz (MAJOR review fix): `write_text` must write embedded line terminators VERBATIM,
+    regardless of the rendering host's os.linesep. The default `Path.write_text` (newline=None)
+    translates every `\\n` → os.linesep on write, which on native Windows doubles the CR in the
+    CRLF-embedded `wf.cmd` (`\\r\\r\\n`) and gives CRLF shebangs to the LF bash/`.py` surfaces — both
+    corrupt the re-render. `write_text` opens with newline="" to disable translation."""
+
+    def _load_rps(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("rps", SCRIPT_PATH)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_crlf_string_written_verbatim(self):
+        rps = self._load_rps()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cmd.txt"
+            rps.write_text(path, "a\r\nb\r\n")
+            self.assertEqual(path.read_bytes(), b"a\r\nb\r\n")  # no doubling, no translation
+
+    def test_lf_string_written_verbatim(self):
+        rps = self._load_rps()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bash.sh"
+            rps.write_text(path, "a\nb\n")
+            self.assertEqual(path.read_bytes(), b"a\nb\n")  # stays LF even if os.linesep is \r\n
+
+    def test_write_text_survives_patched_linesep(self):
+        # Even if os.linesep were "\r\n" (Windows), newline="" must keep the bytes exact.
+        rps = self._load_rps()
+        with tempfile.TemporaryDirectory() as tmp, patch.object(rps.os, "linesep", "\r\n"):
+            lf = Path(tmp) / "lf"
+            crlf = Path(tmp) / "crlf"
+            rps.write_text(lf, "x\ny\n")
+            rps.write_text(crlf, "x\r\ny\r\n")
+            self.assertEqual(lf.read_bytes(), b"x\ny\n")
+            self.assertEqual(crlf.read_bytes(), b"x\r\ny\r\n")
 
 
 class MergeMcpServerTests(unittest.TestCase):
@@ -360,9 +384,9 @@ class MergeMcpServerTests(unittest.TestCase):
             data = json.loads((root / ".cursor" / "mcp.json").read_text(encoding="utf-8"))
         wf = data["mcpServers"]["wavefoundry"]
         self.assertEqual(wf["type"], "stdio")
-        # Wave 1p590: portable wrapper, not an absolute venv-Python path.
-        self.assertEqual(wf["command"], ".wavefoundry/bin/mcp-server")
-        self.assertEqual(wf["args"], [])
+        # Wave 1p7pm (1p7pb-adr): byte-identical `python` on the repo-relative server.py.
+        self.assertEqual(wf["command"], "python")
+        self.assertEqual(wf["args"], [".wavefoundry/framework/scripts/server.py"])
         self.assertEqual(wf["cwd"], "${workspaceFolder}")
 
     def test_render_cursor_mcp_json_preserves_existing_servers(self):
@@ -380,18 +404,18 @@ class MergeMcpServerTests(unittest.TestCase):
         # Pre-existing entry preserved
         self.assertIn("other-tool", data["mcpServers"])
         self.assertEqual(data["mcpServers"]["other-tool"]["command"], "node")
-        # Wavefoundry entry written (wave 1p590: portable wrapper, not absolute venv Python)
-        self.assertEqual(data["mcpServers"]["wavefoundry"]["command"], ".wavefoundry/bin/mcp-server")
+        # Wavefoundry entry written (wave 1p7pm: byte-identical `python` command)
+        self.assertEqual(data["mcpServers"]["wavefoundry"]["command"], "python")
 
-    def test_render_mcp_json_uses_mcp_server_wrapper(self):
+    def test_render_mcp_json_uses_python_command(self):
         rps = self._load_rps()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             rps.render_mcp_json(root)
             data = json.loads((root / ".mcp.json").read_text(encoding="utf-8"))
         wf = data["mcpServers"]["wavefoundry"]
-        self.assertEqual(wf["command"], ".wavefoundry/bin/mcp-server")
-        self.assertEqual(wf["args"], [])
+        self.assertEqual(wf["command"], "python")
+        self.assertEqual(wf["args"], [".wavefoundry/framework/scripts/server.py"])
 
     def test_render_mcp_json_preserves_existing_servers(self):
         rps = self._load_rps()
@@ -406,17 +430,17 @@ class MergeMcpServerTests(unittest.TestCase):
         self.assertIn("my-other-server", data["mcpServers"])
         self.assertIn("wavefoundry", data["mcpServers"])
 
-    def test_render_junie_mcp_json_uses_portable_wrapper(self):
-        # Wave 1p590: Junie MCP uses the project-relative .wavefoundry/bin/mcp-server wrapper
-        # (which self-resolves repo root + venv), so no absolute command and no --root arg.
+    def test_render_junie_mcp_json_uses_python_command(self):
+        # Wave 1p7pm (1p7pb-adr): Junie MCP names the byte-identical `python` command on the
+        # repo-relative server.py — never the bash .wavefoundry/bin/mcp-server wrapper.
         rps = self._load_rps()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             rps.render_junie_mcp_json(root)
             data = json.loads((root / ".junie" / "mcp" / "mcp.json").read_text(encoding="utf-8"))
         wf = data["mcpServers"]["wavefoundry"]
-        self.assertEqual(wf["command"], ".wavefoundry/bin/mcp-server")
-        self.assertEqual(wf["args"], [])
+        self.assertEqual(wf["command"], "python")
+        self.assertEqual(wf["args"], [".wavefoundry/framework/scripts/server.py"])
 
     def test_merge_mcp_server_is_idempotent(self):
         rps = self._load_rps()
@@ -430,15 +454,15 @@ class MergeMcpServerTests(unittest.TestCase):
             second = target.read_text(encoding="utf-8")
         self.assertEqual(first, second)
 
-    def test_render_antigravity_mcp_json_uses_portable_wrapper(self):
+    def test_render_antigravity_mcp_json_uses_python_command(self):
         rps = self._load_rps()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             rps.render_antigravity_mcp_json(root)
             data = json.loads((root / ".agents" / "mcp_config.json").read_text(encoding="utf-8"))
         wf = data["mcpServers"]["wavefoundry"]
-        self.assertEqual(wf["command"], ".wavefoundry/bin/mcp-server")
-        self.assertEqual(wf["args"], [])
+        self.assertEqual(wf["command"], "python")
+        self.assertEqual(wf["args"], [".wavefoundry/framework/scripts/server.py"])
 
 
 class SessionCaptureHookTests(unittest.TestCase):
@@ -514,18 +538,18 @@ class ClaudeHookSimulateParityTests(unittest.TestCase):
     def _settings_hook_names(settings: dict) -> set[str]:
         """Script basenames referenced by every hook entry in .claude/settings.json.
 
-        e.g. command ".claude/hooks/session-capture" (or the Windows
-        'cmd.exe /c ".claude/hooks/session-capture.cmd"' form) -> "session-capture".
+        Wave 1p7pm: the command is `python "$CLAUDE_PROJECT_DIR/.claude/hooks/session-capture.py"`
+        (or the cmd.exe `%VAR%` sigil form) -> "session-capture".
         """
         names: set[str] = set()
         for entries in settings.get("hooks", {}).values():
             for entry in entries:
                 for hook in entry.get("hooks", []):
                     command = hook["command"]
-                    token = command.split()[-1].strip('"')  # drop "cmd.exe /c " prefix + quotes (1p6dx $CLAUDE_PROJECT_DIR anchoring)
+                    token = command.split()[-1].strip('"')  # drop the leading `python` + quotes
                     base = token.replace("\\", "/").rsplit("/", 1)[-1]
-                    if base.endswith(".cmd"):
-                        base = base[: -len(".cmd")]
+                    if base.endswith(".py"):
+                        base = base[: -len(".py")]
                     names.add(base)
         return names
 
@@ -561,49 +585,60 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class ForwardSlashPolicyTests(unittest.TestCase):
-    """1p6dx: every path we WRITE uses forward slashes — including the operator-directed launcher/
-    cmd command strings. cmd.exe accepts `/` in a quoted, env-rooted path (the path is kept quoted);
-    forward-slash cmd.exe *execution* is Windows-smoke-deferred (native Windows is Area-1)."""
+class LauncherCommandTests(unittest.TestCase):
+    """Wave 1p7pm (1p7pb-adr): `launcher_command` names the byte-identical `python` interpreter on
+    the project-relative `.py` hook body — no `.cmd`/`.sh` trampoline, no `cmd.exe /c` wrapper. The
+    ONLY per-OS difference is the env-var sigil ($VAR on POSIX, %VAR% on cmd.exe), which is
+    shell-specific; the interpreter (`python`) and the `.py` path are identical across render hosts."""
 
     def setUp(self):
         self.mod = _load_render_module()
 
-    def test_launcher_command_nt_uses_forward_slashes_and_is_quoted(self):
+    def test_launcher_command_nt_invokes_python_on_py_body(self):
         mod = self.mod
         with patch.object(mod.os, "name", "nt"):
             anchored = mod.launcher_command(".claude/hooks/session-capture", "CLAUDE_PROJECT_DIR")
             self.assertNotIn("\\", anchored)
-            self.assertIn("/", anchored)
+            self.assertNotIn("cmd.exe", anchored)
             self.assertEqual(
                 anchored,
-                'cmd.exe /c "%CLAUDE_PROJECT_DIR%/.claude/hooks/session-capture.cmd"',
+                'python "%CLAUDE_PROJECT_DIR%/.claude/hooks/session-capture.py"',
             )
-            # bare (no project-dir var) form is quoted too, with forward slashes
             bare = mod.launcher_command(".cursor/hooks/after-file-edit")
             self.assertNotIn("\\", bare)
-            self.assertEqual(bare, 'cmd.exe /c ".cursor/hooks/after-file-edit.cmd"')
+            self.assertEqual(bare, 'python ".cursor/hooks/after-file-edit.py"')
 
-    def test_launcher_command_posix_unchanged(self):
+    def test_launcher_command_posix_invokes_python_on_py_body(self):
         mod = self.mod
         with patch.object(mod.os, "name", "posix"):
             self.assertEqual(
                 mod.launcher_command(".claude/hooks/session-capture", "CLAUDE_PROJECT_DIR"),
-                '"$CLAUDE_PROJECT_DIR/.claude/hooks/session-capture"',
+                'python "$CLAUDE_PROJECT_DIR/.claude/hooks/session-capture.py"',
             )
-            self.assertEqual(mod.launcher_command(".cursor/hooks/after-file-edit"), ".cursor/hooks/after-file-edit")
+            self.assertEqual(
+                mod.launcher_command(".cursor/hooks/after-file-edit"),
+                'python ".cursor/hooks/after-file-edit.py"',
+            )
 
-    def test_windows_launcher_source_has_no_backslashes(self):
-        src = self.mod.windows_launcher_source("docs-lint")
-        self.assertNotIn("\\", src)
-        self.assertIn("%WAVEFOUNDRY_TOOL_VENV%/Scripts/python.exe", src)
-        self.assertIn("%USERPROFILE%/.wavefoundry/venv/Scripts/python.exe", src)
+    def test_launcher_command_interpreter_and_path_byte_identical_across_os(self):
+        """The interpreter (`python`) and the `.py` path are byte-identical; only the sigil differs."""
+        mod = self.mod
+        with patch.object(mod.os, "name", "posix"):
+            posix = mod.launcher_command(".claude/hooks/pre-edit", "CLAUDE_PROJECT_DIR")
+        with patch.object(mod.os, "name", "nt"):
+            nt = mod.launcher_command(".claude/hooks/pre-edit", "CLAUDE_PROJECT_DIR")
+        # Both start with `python ` and end with the same `.py` path; only $VAR vs %VAR% differs.
+        self.assertTrue(posix.startswith("python "))
+        self.assertTrue(nt.startswith("python "))
+        self.assertTrue(posix.endswith('.claude/hooks/pre-edit.py"'))
+        self.assertTrue(nt.endswith('.claude/hooks/pre-edit.py"'))
+        self.assertEqual(posix.replace("$CLAUDE_PROJECT_DIR", ""), nt.replace("%CLAUDE_PROJECT_DIR%", ""))
 
 
 class GpuDoctorLauncherTests(unittest.TestCase):
     """1p6et: there is NO dedicated GPU-doctor bin launcher — the diagnostic is reached via
-    `setup-wavefoundry --check-gpu` and the `wave_gpu_doctor` MCP tool (regression guard against
-    re-adding a launcher)."""
+    `wf setup --check-gpu` (wave 1p7tz; was `setup-wavefoundry --check-gpu`) and the `wave_gpu_doctor`
+    MCP tool (regression guard against re-adding a launcher)."""
 
     def setUp(self):
         self.mod = _load_render_module()
@@ -615,5 +650,163 @@ class GpuDoctorLauncherTests(unittest.TestCase):
             bin_dir = repo_root / ".wavefoundry" / "bin"
             self.assertFalse((bin_dir / "wave-gpu-doctor").exists())
             self.assertFalse((bin_dir / "wave-doctor").exists())
-            # the canonical setup-wavefoundry launcher (which accepts --check-gpu) is still rendered
-            self.assertTrue((bin_dir / "setup-wavefoundry").exists())
+            # The cross-OS `wf` dispatcher (which routes `wf setup --check-gpu`) is rendered.
+            self.assertTrue((bin_dir / "wf").exists())
+
+
+class NoPathedLauncherScanTests(unittest.TestCase):
+    """Wave 1p7pm (1p7pb-adr) AC-3/AC-2: standing guard that NO committed MCP config names a pathed
+    launcher (the bash `.wavefoundry/bin/mcp-server`) — they all name the byte-identical `python`
+    command on the repo-relative server.py. The scan enumerates the ACTUAL on-disk config set,
+    INCLUDING the separate-file configs that live outside `render_platform_surfaces.py`:
+    `.codex/config.toml` (from `render_agent_surfaces.py`) and `.air/mcp.json` (hand-committed)."""
+
+    EXPECTED_COMMAND = "python"
+    EXPECTED_ARGS = [".wavefoundry/framework/scripts/server.py"]
+
+    def _render_all_json_mcp(self, repo_root: Path) -> None:
+        mod = _load_render_module()
+        mod.render_mcp_json(repo_root)
+        mod.render_cursor_mcp_json(repo_root)
+        mod.render_junie_mcp_json(repo_root)
+        mod.render_antigravity_mcp_json(repo_root)
+
+    def test_rendered_json_mcp_configs_name_python_byte_identical(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp).resolve()
+            self._render_all_json_mcp(repo_root)
+            on_disk = [
+                repo_root / ".mcp.json",
+                repo_root / ".cursor" / "mcp.json",
+                repo_root / ".junie" / "mcp" / "mcp.json",
+                repo_root / ".agents" / "mcp_config.json",
+            ]
+            for path in on_disk:
+                self.assertTrue(path.exists(), f"{path} not rendered")
+                wf = json.loads(path.read_text(encoding="utf-8"))["mcpServers"]["wavefoundry"]
+                self.assertEqual(wf["command"], self.EXPECTED_COMMAND, f"{path.name}: wrong command")
+                self.assertEqual(wf["args"], self.EXPECTED_ARGS, f"{path.name}: wrong args")
+                raw = path.read_text(encoding="utf-8")
+                self.assertNotIn("bin/mcp-server", raw, f"{path.name} references a pathed launcher")
+
+    def test_committed_on_disk_configs_have_no_pathed_launcher(self):
+        """Scan the REAL committed config set in this repo with STRICT structural equality (not a weak
+        substring) — incl. `.codex/config.toml` + `.air/mcp.json`, the separate-file configs an in-temp
+        render of `render_platform_surfaces` would miss. Every config's wavefoundry server stanza must
+        have `command == 'python'` exactly and `args == ['.wavefoundry/framework/scripts/server.py']`."""
+        import tomllib
+
+        repo = PROJECT_ROOT.parent  # PROJECT_ROOT is `.wavefoundry`; its parent is the repo root
+        json_configs = [
+            repo / ".mcp.json",
+            repo / ".cursor" / "mcp.json",
+            repo / ".junie" / "mcp" / "mcp.json",
+            repo / ".agents" / "mcp_config.json",
+            repo / ".air" / "mcp.json",
+        ]
+        present_json = [c for c in json_configs if c.exists()]
+        self.assertTrue(present_json, "expected at least one committed JSON MCP config to scan")
+        for path in present_json:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            wf = data["mcpServers"]["wavefoundry"]
+            self.assertEqual(wf["command"], "python", f"{path}: command must be exactly 'python'")
+            self.assertEqual(
+                wf["args"], self.EXPECTED_ARGS,
+                f"{path}: args must be exactly {self.EXPECTED_ARGS}",
+            )
+
+        codex = repo / ".codex" / "config.toml"
+        if codex.exists():
+            cfg = tomllib.loads(codex.read_text(encoding="utf-8"))
+            wf = cfg["mcp_servers"]["wavefoundry"]
+            self.assertEqual(wf["command"], "python", ".codex/config.toml: command must be exactly 'python'")
+            self.assertEqual(
+                wf["args"], self.EXPECTED_ARGS,
+                f".codex/config.toml: args must be exactly {self.EXPECTED_ARGS}",
+            )
+
+
+class GitHookBootstrapTests(unittest.TestCase):
+    """Wave 1p7pn (1p7pb-adr, M-3): rendered git hooks route through the shared `venv_bootstrap`
+    first-line bootstrap (no hardcoded `bin/python`/`python3`, no TOOL_VENV re-derivation); shebang is
+    `#!/usr/bin/env python` (git-bash on Windows has `python`, not `python3`); the reindex spawn uses
+    `sys.executable` and never `os.execv` on the Windows path."""
+
+    def setUp(self):
+        self.mod = _load_render_module()
+
+    def test_git_hook_bodies_bootstrap_into_venv(self):
+        for name in self.mod.GIT_HOOK_NAMES:
+            src = self.mod.git_hook_source(name)
+            self.assertTrue(src.startswith("#!/usr/bin/env python\n"), f"{name}: wrong shebang")
+            self.assertNotIn("#!/usr/bin/env python3", src, f"{name}: must use `python`, not `python3`")
+            self.assertIn("reexec_into_tool_venv()", src, f"{name}: missing first-line venv bootstrap")
+            self.assertIn("import venv_bootstrap", src, f"{name}: missing venv_bootstrap import")
+            # Goal B: no re-derivation of the tool-venv path in the hook body.
+            self.assertNotIn("WAVEFOUNDRY_TOOL_VENV", src, f"{name}: must not re-derive the venv path")
+            self.assertNotIn("_venv_python_path", src, f"{name}: stale venv resolver")
+            # Detached spawn uses the re-exec'd venv Python; never os.execv on the Windows path.
+            self.assertIn("[sys.executable, str(indexer)", src, f"{name}: spawn must use sys.executable")
+            self.assertNotIn("os.execv", src, f"{name}: must not os.execv")
+
+    def test_reindex_spawns_have_per_os_detach_branch(self):
+        # Wave 1p7pn (M-3, the wave's own goal): BOTH rendered reindex Popen spawns — the git-hook body
+        # AND the hook_helpers maybe_trigger_reindex — must detach per-OS. On Windows start_new_session
+        # is a no-op, so without creationflags the child stays in the host's process group and dies with
+        # the hook (the exact M-3 failure). Each body must carry the `os.name == 'nt'` creationflags
+        # branch (DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP), the POSIX start_new_session else-branch,
+        # and close_fds gated on os.name.
+        bodies = {
+            **{f"git-hook:{n}": self.mod.git_hook_source(n) for n in self.mod.GIT_HOOK_NAMES},
+            "hook_helpers": self.mod.hook_helpers(),
+        }
+        for label, src in bodies.items():
+            self.assertIn('os.name == "nt"', src, f"{label}: missing the per-OS detach branch")
+            self.assertIn(
+                "subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP", src,
+                f"{label}: missing Windows creationflags",
+            )
+            self.assertIn("start_new_session", src, f"{label}: missing POSIX start_new_session else-branch")
+            self.assertIn('close_fds=os.name != "nt"', src, f"{label}: missing per-OS close_fds")
+
+    def test_post_checkout_keeps_branch_checkout_guard(self):
+        src = self.mod.git_hook_source("post-checkout")
+        self.assertIn('sys.argv[3] != "1"', src)
+
+    def test_rendered_git_hooks_compile_and_bootstrap(self):
+        import py_compile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp).resolve()
+            self.mod.render_git_hooks(repo_root)
+            for name in self.mod.GIT_HOOK_NAMES:
+                hook = repo_root / ".wavefoundry" / "git-hooks" / name
+                self.assertTrue(hook.exists(), f"{name} not rendered")
+                body = hook.read_text(encoding="utf-8")
+                self.assertIn("reexec_into_tool_venv()", body, f"{name} missing bootstrap")
+                py_compile.compile(str(hook), doraise=True)  # valid Python (no misplaced future import)
+
+
+class GitAttributesTests(unittest.TestCase):
+    """Wave 1p7pn (1p7pb-adr, L-1): a repo-root `.gitattributes` pins shebang-bearing files to LF so
+    git-for-Windows `autocrlf` cannot corrupt the launcher/hook shebangs on checkout."""
+
+    def test_committed_gitattributes_pins_shebang_files_to_lf(self):
+        repo = PROJECT_ROOT.parent  # PROJECT_ROOT is `.wavefoundry`; its parent is the repo root
+        ga = repo / ".gitattributes"
+        self.assertTrue(ga.exists(), ".gitattributes must exist at the repo root")
+        text = ga.read_text(encoding="utf-8")
+        self.assertIn("* text=auto", text)
+        self.assertIn("*.py text eol=lf", text)
+        for prefix in (
+            ".wavefoundry/bin/*",
+            ".wavefoundry/git-hooks/*",
+            ".claude/hooks/*",
+            ".cursor/hooks/*",
+            ".github/hooks/*",
+        ):
+            self.assertIn(f"{prefix} text eol=lf", text, f"{prefix} not pinned to eol=lf")
+
+
+if __name__ == "__main__":
+    unittest.main()

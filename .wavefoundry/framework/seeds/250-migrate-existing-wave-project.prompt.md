@@ -75,7 +75,7 @@ Do not install the canonical framework at top-level `framework/` inside arbitrar
    - `AGENTS.md`
    - `docs/prompts/prompt-surface-manifest.json`, when present
    - `docs/workflow-config.json`, when present
-   - optional legacy repo-root `docs-lint` / `docs-gardener` scripts, **`.wavefoundry/bin/docs-lint`** / **`.wavefoundry/bin/docs-gardener`**, and `package-wave-framework`, when present
+   - optional legacy repo-root `docs-lint` / `docs-gardener` scripts, the `wf` dispatcher shim pair (`.wavefoundry/bin/wf` + `wf.cmd`) backing **`wf docs-lint`** / **`wf docs-gardener`**, and `package-wave-framework`, when present
 5. Inventory local generated and project-owned surfaces:
    - `docs/prompts/`
    - `docs/agents/`
@@ -83,7 +83,7 @@ Do not install the canonical framework at top-level `framework/` inside arbitrar
    - `docs/agents/journals/`
    - `docs/waves/`
    - `docs/plans/`
-6. Run the target repository's current docs gate when available before changing migration-sensitive files — **prefer MCP `wave_garden` then `wave_validate`** when the Wavefoundry server is attached; otherwise **`.wavefoundry/bin/docs-lint`** (and **`.wavefoundry/bin/docs-gardener`** when metadata refresh is part of the repo's documented gate).
+6. Run the target repository's current docs gate when available before changing migration-sensitive files — **prefer MCP `wave_garden` then `wave_validate`** when the Wavefoundry server is attached; otherwise **`wf docs-lint`** (and **`wf docs-gardener`** when metadata refresh is part of the repo's documented gate).
 7. Record whether this is native Wavefoundry mode or post-unpack handoff mode.
 
 ## Migration Steps
@@ -114,9 +114,9 @@ Do not install the canonical framework at top-level `framework/` inside arbitrar
    - `framework_revision` should match `.wavefoundry/framework/VERSION`
    - generated artifact paths should remain project-local, usually under `docs/`
 6. If the compatibility gate passes, update `docs/workflow-config.json` when present so any framework source pointer uses `.wavefoundry/framework`.
-7. If the compatibility gate passes, ensure docs gate launchers when present:
-   - **`.wavefoundry/bin/docs-lint`** should invoke `.wavefoundry/framework/scripts/docs_lint.py`
-   - **`.wavefoundry/bin/docs-gardener`** should invoke `.wavefoundry/framework/scripts/docs_gardener.py`
+7. If the compatibility gate passes, ensure the `wf` dispatcher routes correctly when present:
+   - **`wf docs-lint`** (routed by `wf_cli.py`) should invoke `.wavefoundry/framework/scripts/docs_lint.py`
+   - **`wf docs-gardener`** (routed by `wf_cli.py`) should invoke `.wavefoundry/framework/scripts/docs_gardener.py`
    - Retire or repoint legacy **repo-root** `docs-lint` / `docs-gardener` files if they still target old layout paths
    - `package-wave-framework` should normally be removed or replaced with target-appropriate guidance, because packaging canonical framework source belongs in Wavefoundry, not ordinary target repositories
 8. If the compatibility gate passes, update platform hook/config surfaces that reference old framework script paths.
@@ -148,8 +148,8 @@ After staging, and again after activation if activation occurs:
 1. Run project docs validation (**agents with MCP:** **`wave_garden`** then **`wave_validate`**; **CLI / CI:**):
 
 ```bash
-.wavefoundry/bin/docs-gardener
-.wavefoundry/bin/docs-lint
+wf docs-gardener
+wf docs-lint
 ```
 
 3. Search for stale old-layout references that are not historical records:

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-18
+Last verified: 2026-06-25
 
 ## Purpose
 
@@ -22,8 +22,8 @@ This is a validation runbook, not authoritative reference content. See `docs/ref
    - Run: `python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .`
    - Expect: dependency check passes (or prints the isolated tool-venv install command), then the docs/seed index builds. The tool venv is created at `~/.wavefoundry/venv` **inside the distro**.
    - [ ] Setup completes without a platform error.
-   - **GPU capability:** run `.wavefoundry/bin/setup-wavefoundry --check-gpu` (or the `wave_gpu_doctor` MCP tool) to print the embedding-provider / GPU diagnostic — confirm `nvidia GPU` detection, the provider it would select (CUDA vs CPU), and that no CUDA 12/13 ABI-gap is reported. Safe to run anytime.
-   - [ ] `setup-wavefoundry --check-gpu` reports the expected provider (CUDA on an NVIDIA WSL2 box, else CPU).
+   - **GPU capability:** run `wf setup --check-gpu` (or the `wave_gpu_doctor` MCP tool) to print the embedding-provider / GPU diagnostic — confirm `nvidia GPU` detection, the provider it would select (CUDA vs CPU), and that no CUDA 12/13 ABI-gap is reported. Safe to run anytime.
+   - [ ] `wf setup --check-gpu` reports the expected provider (CUDA on an NVIDIA WSL2 box, else CPU).
 
 2. **Index health**
    - Tool: `wave_index_health()` (MCP), or CLI equivalent.
@@ -36,12 +36,12 @@ This is a validation runbook, not authoritative reference content. See `docs/ref
    - [ ] Both return results with file-resolving citations.
 
 4. **Wave gate open/close** (POSIX `fcntl` locking path)
-   - Run: `.wavefoundry/bin/wave-gate open seed_edit_allowed` then `.wavefoundry/bin/wave-gate close seed_edit_allowed` (or the `wave_gate_open`/`wave_gate_close` MCP tools).
+   - Run: `wf gate open seed_edit_allowed` then `wf gate close seed_edit_allowed` (or the `wave_gate_open`/`wave_gate_close` MCP tools).
    - Expect: gate opens, status reflects enabled, then closes cleanly — no lock error.
    - [ ] Gate opens and closes without error.
 
 5. **Dashboard start/stop** (POSIX detach via `start_new_session`)
-   - Run: `wave_dashboard_start()` then `wave_dashboard_stop()` (MCP), or the `wave-dashboard` launcher.
+   - Run: `wave_dashboard_start()` then `wave_dashboard_stop()` (MCP), or the `wf dashboard` dispatcher subcommand.
    - Expect: dashboard binds a loopback port and reports running; stop terminates it cleanly with no orphan (PID reconciliation via `os.kill`/cmdline on POSIX).
    - [ ] Dashboard starts, is reachable on loopback, and stops with no orphan.
 
@@ -51,9 +51,9 @@ This is a validation runbook, not authoritative reference content. See `docs/ref
    - [ ] Secrets scan runs and returns a result.
 
 7. **Docs lint**
-   - Run: `.wavefoundry/bin/docs-lint` (or `wave_validate()` via MCP).
+   - Run: `wf docs-lint` (or `wave_validate()` via MCP).
    - Expect: lint runs and reports clean (or real findings) — no platform/launcher error.
-   - [ ] docs-lint runs to completion.
+   - [ ] `wf docs-lint` runs to completion.
 
 ## Recording results
 

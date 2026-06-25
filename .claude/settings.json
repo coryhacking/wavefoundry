@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-edit\"",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-edit.py\"",
             "statusMessage": "Checking framework edit gates..."
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/post-edit\"",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-edit.py\"",
             "statusMessage": "Running docs gates..."
           }
         ]
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/session-capture\"",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-capture.py\"",
             "statusMessage": "Capturing session state..."
           }
         ]

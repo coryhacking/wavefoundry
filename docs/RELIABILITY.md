@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-01
+Last verified: 2026-06-25
 
 ## Reliability Posture
 
@@ -23,7 +23,7 @@ Wavefoundry is local developer tooling. No uptime SLA; failures are immediately 
 ## Recovery Behaviors
 
 - **Framework dir missing:** `git checkout HEAD -- .wavefoundry/framework` to restore from git
-- **Docs gate failing:** With MCP, run `**wave_validate`** (or `**wave_audit**` for combined diagnostics). **CLI fallback:** `.wavefoundry/bin/docs-lint` for raw output when MCP is unavailable
+- **Docs gate failing:** With MCP, run `**wave_validate`** (or `**wave_audit**` for combined diagnostics). **CLI fallback:** `wf docs-lint` for raw output when MCP is unavailable
 - **Hook entrypoints missing:** re-run `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py`
 - **Partial zip archive:** re-run `python3 .wavefoundry/framework/scripts/build_pack.py`; the script is idempotent and will produce a new letter-suffixed archive
 

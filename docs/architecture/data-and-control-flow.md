@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-11
+Last verified: 2026-06-25
 
 ## Primary Control Paths
 
@@ -19,7 +19,7 @@ Last verified: 2026-06-11
 
 ### Path 2: Docs Lint Gate
 
-1. **Agents:** MCP **`wave_validate`** / **`wave_garden`** call the same `docs_lint.py` / `docs_gardener.py` backends as the CLI launchers. **Hooks / CI:** **`.wavefoundry/bin/docs-lint`** (canonical shell launcher) calls `python3 .wavefoundry/framework/scripts/docs_lint.py`. This repository does not rely on repo-root `./docs-lint`.
+1. **Agents:** MCP **`wave_validate`** / **`wave_garden`** call the same `docs_lint.py` / `docs_gardener.py` backends as the CLI launchers. **Hooks / CI:** **`wf docs-lint`** (canonical cross-OS dispatcher subcommand) calls `python3 .wavefoundry/framework/scripts/docs_lint.py`. This repository does not rely on repo-root `./docs-lint`.
 2. Linter reads `docs/prompts/prompt-surface-manifest.json`, checks `framework_revision` against `.wavefoundry/framework/VERSION`
 3. Validates required prompt docs exist, metadata fields are present, wave/journal roots exist
 4. Exits 0 on pass or non-zero with actionable error on failure

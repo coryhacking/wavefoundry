@@ -1,7 +1,0 @@
-#!/usr/bin/env sh
-        set -eu
-        SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-        WAVEFOUNDRY_VENV="${WAVEFOUNDRY_TOOL_VENV:-$HOME/.wavefoundry/venv}"
-        PYTHON="${WAVEFOUNDRY_VENV}/bin/python"
-        if [ ! -x "$PYTHON" ]; then PYTHON="python3"; fi
-        exec "$PYTHON" "$SCRIPT_DIR/pre-tool-use.py" "$@"

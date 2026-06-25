@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import subprocess
 import sys
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -31,6 +33,15 @@ def _make_completed_process(returncode: int):
 class SetupWavefoundryTests(unittest.TestCase):
     def setUp(self):
         self.mod = load_setup_wavefoundry()
+        # Wave 1p7pm: setup `main` calls venv_bootstrap.ensure_python_resolves() after Step 1, which
+        # is SIDE-EFFECTING (creates ~/.local/bin/python + may append to the shell rc). These tests
+        # mock Step 1 to succeed, so they would reach that heal against the REAL machine — patch it to
+        # a no-op so the suite never mutates the operator's box. (The real heal is exercised, safely
+        # isolated into a tempdir, only in test_venv_bootstrap.py.)
+        import venv_bootstrap
+        heal = patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok")
+        self.ensure_python_resolves_mock = heal.start()
+        self.addCleanup(heal.stop)
 
     # --- Step 1: setup_index delegation ----------------------------------
 
@@ -124,6 +135,61 @@ class SetupWavefoundryTests(unittest.TestCase):
             result = self.mod.main([])
 
         self.assertEqual(result, 7)
+
+    # --- Step 1b: `python` resolution heal (wave 1p7pm) ------------------
+
+    def test_step_1b_calls_ensure_python_resolves_strict_after_venv(self):
+        """Setup heals `python` resolution after Step 1 (the venv exists), strictly. The heal mock is
+        installed in setUp; this asserts the WIRING stays in place (without mutating the real machine)."""
+        class FakeSetupIndex:
+            @staticmethod
+            def main(argv=None):
+                return 0
+
+        with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
+             patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
+             patch.object(self.mod, "_run_mcp_server_dry_run", return_value=0):
+            result = self.mod.main([])
+
+        self.assertEqual(result, 0)
+        self.ensure_python_resolves_mock.assert_called_once_with(strict=True)
+
+    def test_step_1b_skipped_when_step_1_fails(self):
+        """If Step 1 (venv build) fails, the heal must NOT run — there's no venv to heal against."""
+        class FakeSetupIndex:
+            @staticmethod
+            def main(argv=None):
+                return 9
+
+        with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
+             patch.object(self.mod, "_run_render_platform_surfaces"), \
+             patch.object(self.mod, "_run_mcp_server_dry_run"):
+            result = self.mod.main([])
+
+        self.assertEqual(result, 9)
+        self.ensure_python_resolves_mock.assert_not_called()
+
+    def test_prints_gui_fallback_guidance_after_heal(self):
+        """Wave 1p7pm AC-4/5: setup PRINTS the per-machine absolute-venv-path GUI-host fallback stanza
+        (guidance only — it does NOT overwrite the committed `.mcp.json`)."""
+        class FakeSetupIndex:
+            @staticmethod
+            def main(argv=None):
+                return 0
+
+        out = io.StringIO()
+        with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
+             patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
+             patch.object(self.mod, "_run_mcp_server_dry_run", return_value=0), \
+             redirect_stdout(out):
+            result = self.mod.main(["--root", "/some/repo"])
+
+        self.assertEqual(result, 0)
+        text = out.getvalue()
+        self.assertIn("GUI-host note", text)
+        self.assertIn("server.py", text)
+        # Names the absolute venv python, NOT the relative `python` command.
+        self.assertIn("/.wavefoundry/venv/", text)
 
     # --- Helper subprocess invocations -----------------------------------
 

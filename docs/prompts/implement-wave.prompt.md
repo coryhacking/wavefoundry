@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-08
+Last verified: 2026-06-25
 
 Shortcut: **`Implement wave`**
 
@@ -62,6 +62,6 @@ A `blocked` verdict halts implementation until the gap is resolved. When `wave_r
 
 After any framework script change:
 1. `python3 .wavefoundry/framework/scripts/run_tests.py`
-2. **Docs gate:** With MCP attached, run **`wave_validate`** (use **`wave_garden`** first if metadata timestamps need refresh). **CLI fallback (no MCP):** `.wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint`
+2. **Docs gate:** With MCP attached, run **`wave_validate`** (use **`wave_garden`** first if metadata timestamps need refresh). **CLI fallback (no MCP):** `wf docs-gardener && wf docs-lint`
 
 Fix any failures before declaring the implementation complete.

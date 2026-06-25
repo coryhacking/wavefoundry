@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-04-28
+Last verified: 2026-06-25
 
 ## Purpose
 
@@ -49,7 +49,7 @@ These sections are known to drift without a reindex pass:
 
 **Framework revision reindex** (on VERSION bump):
 1. Update `docs/prompts/prompt-surface-manifest.json` `framework_revision`
-2. Re-run MCP **`wave_validate`** (preferred) or **`.wavefoundry/bin/docs-lint`** to confirm alignment
+2. Re-run MCP **`wave_validate`** (preferred) or **`wf docs-lint`** to confirm alignment
 3. Update `docs/agents/session-handoff.md`
 
 ## Reports Output

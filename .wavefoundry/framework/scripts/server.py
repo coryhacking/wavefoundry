@@ -15,6 +15,12 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
+# Re-exec into the shared tool venv before any heavy import (wave 1p7pl). Stdlib-only;
+# no-op when already in the venv or when it does not exist yet (fresh bootstrap).
+import venv_bootstrap
+
+venv_bootstrap.reexec_into_tool_venv()
+
 # Thin-runner protocol version — bump when transport/stub wiring changes (requires client reconnect).
 SERVER_RUNNER_VERSION = "1"
 

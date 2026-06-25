@@ -29,6 +29,12 @@ FASTEMBED_CACHE_DEFAULT = Path.home() / ".wavefoundry" / "cache" / "fastembed"
 if not os.environ.get("FASTEMBED_CACHE_PATH"):
     os.environ["FASTEMBED_CACHE_PATH"] = str(FASTEMBED_CACHE_DEFAULT)
 
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+import venv_bootstrap  # the single venv resolver (wave 1p7pl)
+
 DASHBOARD_START_WAIT_SECONDS = 5.0
 
 
@@ -42,42 +48,58 @@ def _wf_log(message: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _discover_root(override: Optional[str] = None) -> Path:
-    """Walk up from CWD to find the repo root anchored by ``workflow-config.json``.
+    """Resolve the repo root, anchored by ``docs/workflow-config.json``, cwd-independently.
 
-    Intentional differences from the copies in other scripts:
-    - Accepts an explicit ``override`` path (used when ``--root`` is passed on
-      the CLI or via MCP tool arguments).
-    - Checks both ``PROJECT_ROOT`` and ``REPO_ROOT`` env vars.
-    - Never returns ``None`` — falls back to CWD when no anchor is found.
+    Priority — first candidate carrying the marker wins:
+    1. an explicit ``override`` (``--root`` / MCP tool arg);
+    2. **this script's own install location** — ``server_impl.py`` always lives at
+       ``<root>/.wavefoundry/framework/scripts/``, so ``parents[3]`` IS the served
+       repo. Authoritative for the MCP server and independent of the host's cwd, so
+       the committed config needs no ``--root .``;
+    3. host / generic project-root env vars (``CLAUDE_PROJECT_DIR``, ``PROJECT_ROOT``,
+       ``REPO_ROOT``) — used only when they line up with a real Wavefoundry tree
+       (the marker), so a stray var can't mis-root us;
+    4. CWD and its parents.
+    Falls back to the script root (if it looks like a Wavefoundry tree) else CWD.
 
-    Cross-reference: ``indexer._discover_root``, ``lifecycle_id.discover_repo_root``,
-    ``render_platform_surfaces.discover_repo_root``, ``docs_gardener.project_root``.
-    A future consolidation task should unify these into a shared utility.
+    Cross-reference: the sibling ``_discover_root`` copies (``indexer``,
+    ``lifecycle_id``, ``render_platform_surfaces``, ``docs_gardener``) still anchor on
+    CWD only; a future task should unify them onto this script-location logic.
     """
     if override:
         return Path(override).expanduser().resolve()
-    for env_key in ("PROJECT_ROOT", "REPO_ROOT"):
+
+    def _is_root(path: Path) -> bool:
+        return (path / "docs" / "workflow-config.json").is_file()
+
+    script_root = Path(__file__).resolve().parents[3]
+    if _is_root(script_root):
+        return script_root
+    for env_key in ("CLAUDE_PROJECT_DIR", "PROJECT_ROOT", "REPO_ROOT"):
         raw = os.environ.get(env_key)
         if raw:
             candidate = Path(raw).expanduser().resolve()
-            if (candidate / "docs" / "workflow-config.json").is_file():
+            if _is_root(candidate):
                 return candidate
     cwd = Path.cwd().resolve()
     for candidate in (cwd, *cwd.parents):
-        if (candidate / "docs" / "workflow-config.json").is_file():
+        if _is_root(candidate):
             return candidate
-    return cwd
+    return script_root if (script_root / ".wavefoundry").is_dir() else cwd
 
 
 def _tool_venv_base() -> Path:
-    """Return the configured shared Wavefoundry tool-venv base path."""
-    return Path(os.environ.get("WAVEFOUNDRY_TOOL_VENV", "~/.wavefoundry/venv")).expanduser()
+    """Tool-venv base path — delegates to the single resolver (wave 1p7pl)."""
+    return venv_bootstrap.tool_venv_base()
 
 
 def _preferred_python() -> str:
-    """Return the shared tool-venv Python when present, else the current interpreter."""
-    venv_python = _tool_venv_base() / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    return str(venv_python) if venv_python.exists() else sys.executable
+    """Return the shared tool-venv Python when present, else the current interpreter.
+
+    Builds the path via the single resolver (wave 1p7pl); semantics unchanged.
+    """
+    vp = venv_bootstrap.tool_venv_python()
+    return str(vp) if vp.exists() else sys.executable
 
 
 # ---------------------------------------------------------------------------

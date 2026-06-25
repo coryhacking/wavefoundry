@@ -1,6 +1,6 @@
-# Claude skill: Upgrade wave framework
+# Claude skill: Upgrade Wavefoundry
 
-**Backwards-compatible operator phrase:** *Upgrade wave context* — same checklist.
+**Backwards-compatible operator phrases:** *Upgrade wave framework*, *Upgrade wave context* — same checklist.
 
 Use this checklist when intentionally editing the wave framework or repo-local wave surfaces.
 
@@ -22,8 +22,8 @@ Use this checklist when intentionally editing the wave framework or repo-local w
 1. Run framework tests when the test suite is present (development installs only — not included in distribution packs): `python3 -B .wavefoundry/framework/scripts/run_tests.py` (skip if `run_tests.py` does not exist)
 2. `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` (hooks, MCP, bin launchers, and `render_agent_surfaces.py` when `docs/agents/guru.md` exists)
 3. Backfill `AGENTS.md` auto-Guru tier-1 sections per `seed-050` when missing; ensure `docs/agents/guru.md` exists; re-run step 2 if tier-1 was just added
-4. `.wavefoundry/bin/docs-gardener`
-5. `.wavefoundry/bin/docs-lint`
+4. `.wavefoundry/bin/wf docs-gardener`
+5. `.wavefoundry/bin/wf docs-lint`
 
 ## Guardrails
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-06-25
 
 ## Test Tiers
 
@@ -12,8 +12,8 @@ Last verified: 2026-05-08
 | Dashboard reader/server unit tests | `dashboard_lib.py`, `dashboard_server.py` snapshot and HTTP-handler contract | `.wavefoundry/framework/scripts/tests/test_dashboard_server.py` | `python3 .wavefoundry/framework/scripts/run_tests.py` |
 | Fixture-based integration | Docs-lint against fixture repos | `.wavefoundry/framework/scripts/tests/fixtures/` | Same runner |
 | Semantic embedding regression | Real fastembed path, model name/dim/determinism/ranking anchors — **skipped** when fastembed is not installed or model not cached | `SemanticEmbeddingRegressionTests` in `test_server_tools.py` | Same runner |
-| Manual docs gate | MCP **`wave_validate`** succeeds, **or** `.wavefoundry/bin/docs-lint` passes | MCP / repo root | `wave_validate` / `.wavefoundry/bin/docs-lint` |
-| Manual gardener | MCP **`wave_garden`**, **or** `.wavefoundry/bin/docs-gardener` | MCP / repo root | `wave_garden` / `.wavefoundry/bin/docs-gardener` |
+| Manual docs gate | MCP **`wave_validate`** succeeds, **or** `wf docs-lint` passes | MCP / repo root | `wave_validate` / `wf docs-lint` |
+| Manual gardener | MCP **`wave_garden`**, **or** `wf docs-gardener` | MCP / repo root | `wave_garden` / `wf docs-gardener` |
 
 ### Semantic Embedding Regression Tier
 
@@ -46,7 +46,7 @@ No automated CI pipeline currently. All tests run manually.
 
 Minimum verification bar for any framework script change:
 1. `python3 .wavefoundry/framework/scripts/run_tests.py` passes (no bytecode: use `-B` flag or the run_tests.py wrapper)
-2. Docs gate: **agents** — MCP **`wave_validate`** succeeds (use **`wave_garden`** first when metadata needs refresh); **CI / no MCP** — `.wavefoundry/bin/docs-lint` passes on the Wavefoundry repo itself
+2. Docs gate: **agents** — MCP **`wave_validate`** succeeds (use **`wave_garden`** first when metadata needs refresh); **CI / no MCP** — `wf docs-lint` passes on the Wavefoundry repo itself
 
 ## Framework Script Hygiene
 
@@ -60,7 +60,7 @@ find .wavefoundry/framework/scripts -type d -name '__pycache__' -prune -exec rm 
 
 Any change touching `.wavefoundry/framework/scripts/wave_lint_lib/` or `docs_lint.py`:
 - All existing fixture tests must pass
-- Docs gate: **`wave_validate`** (MCP) or **`.wavefoundry/bin/docs-lint`** (CLI) on the Wavefoundry repo
+- Docs gate: **`wave_validate`** (MCP) or **`wf docs-lint`** (CLI) on the Wavefoundry repo
 
 Any change to `docs/prompts/prompt-surface-manifest.json` or `.wavefoundry/framework/VERSION`:
-- **`wave_validate`** or **`.wavefoundry/bin/docs-lint`** must pass (manifest `framework_revision` validation)
+- **`wave_validate`** or **`wf docs-lint`** must pass (manifest `framework_revision` validation)

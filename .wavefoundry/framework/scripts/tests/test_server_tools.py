@@ -181,6 +181,12 @@ def _write_lance_index(root: Path, *, docs_chunks: list[dict] | None = None, doc
 # ---------------------------------------------------------------------------
 
 class RootDiscoveryTests(unittest.TestCase):
+    """Wave 1p7pm: ``_discover_root`` resolves the served repo cwd-independently, anchored on the
+    server script's OWN install location (``parents[3]`` of ``server_impl.py``). Priority:
+    override → script-location → marker-validated host env vars → cwd-walkup → fallback. Because the
+    REAL ``server_impl.__file__`` points at the live wavefoundry repo (which carries the marker), the
+    env/cwd-branch tests patch ``server_impl.__file__`` to a markerless tree so those branches run."""
+
     @classmethod
     def setUpClass(cls):
         cls.srv = load_server()
@@ -188,24 +194,81 @@ class RootDiscoveryTests(unittest.TestCase):
     def setUp(self):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
+        self._real_file = self.srv.__file__
 
     def tearDown(self):
+        self.srv.__file__ = self._real_file
         self.tmp.cleanup()
+
+    def _markerless_script_file(self) -> str:
+        """A fake ``server_impl.py`` path whose ``parents[3]`` is a markerless tree (no
+        workflow-config.json) so the script-location branch is skipped and env/cwd can be tested."""
+        bare = self.root / "bare-tree"
+        scripts = bare / ".wavefoundry" / "framework" / "scripts"
+        scripts.mkdir(parents=True, exist_ok=True)
+        return str(scripts / "server_impl.py")
 
     def test_override_path_used(self):
         _make_repo(self.root)
         result = self.srv._discover_root(override=str(self.root))
         self.assertEqual(result, self.root.resolve())
 
+    def test_script_location_wins_independent_of_cwd(self):
+        # server_impl.py at <repo>/.wavefoundry/framework/scripts/ → parents[3] is the repo; the
+        # marker there makes it authoritative regardless of cwd / env.
+        repo = self.root / "served-repo"
+        scripts = repo / ".wavefoundry" / "framework" / "scripts"
+        scripts.mkdir(parents=True, exist_ok=True)
+        _make_repo(repo)  # marker at <repo>/docs/workflow-config.json
+        elsewhere = self.root / "some" / "other" / "cwd"
+        elsewhere.mkdir(parents=True, exist_ok=True)
+        self.srv.__file__ = str(scripts / "server_impl.py")
+        with patch("pathlib.Path.cwd", return_value=elsewhere), \
+             patch.dict("os.environ", {"CLAUDE_PROJECT_DIR": str(elsewhere), "PROJECT_ROOT": str(elsewhere)}, clear=False):
+            result = self.srv._discover_root()
+        self.assertEqual(result, repo.resolve())
+
+    def test_claude_project_dir_used_only_when_marker_present(self):
+        # script-location markerless → fall through to env vars; CLAUDE_PROJECT_DIR is honored ONLY
+        # when it carries the marker (a stray var must not mis-root us).
+        self.srv.__file__ = self._markerless_script_file()
+        # A markerless env-var target + a markerless cwd (fully isolated subtree) → the stray var is
+        # ignored; the result is NOT the stray path.
+        stray = self.root / "stray-no-marker"
+        stray.mkdir(parents=True, exist_ok=True)
+        isolated_cwd = self.root / "bare-tree" / "deep" / "cwd"  # under bare-tree (no marker anywhere up)
+        isolated_cwd.mkdir(parents=True, exist_ok=True)
+        with patch("pathlib.Path.cwd", return_value=isolated_cwd), \
+             patch.dict("os.environ", {"CLAUDE_PROJECT_DIR": str(stray)}, clear=False):
+            os.environ.pop("PROJECT_ROOT", None)
+            os.environ.pop("REPO_ROOT", None)
+            self.assertNotEqual(self.srv._discover_root(), stray.resolve())
+        # With the marker, CLAUDE_PROJECT_DIR wins.
+        marked = self.root / "claude-target"
+        _make_repo(marked)
+        with patch("pathlib.Path.cwd", return_value=isolated_cwd), \
+             patch.dict("os.environ", {"CLAUDE_PROJECT_DIR": str(marked)}, clear=False):
+            os.environ.pop("PROJECT_ROOT", None)
+            os.environ.pop("REPO_ROOT", None)
+            self.assertEqual(self.srv._discover_root(), marked.resolve())
+
     def test_env_var_project_root(self):
+        self.srv.__file__ = self._markerless_script_file()
         _make_repo(self.root)
-        with patch.dict("os.environ", {"PROJECT_ROOT": str(self.root)}):
+        with patch.dict("os.environ", {"PROJECT_ROOT": str(self.root)}, clear=False):
+            os.environ.pop("CLAUDE_PROJECT_DIR", None)
+            os.environ.pop("REPO_ROOT", None)
             result = self.srv._discover_root()
         self.assertEqual(result, self.root.resolve())
 
     def test_falls_back_to_cwd_when_no_config(self):
-        with patch("pathlib.Path.cwd", return_value=self.root):
+        self.srv.__file__ = self._markerless_script_file()
+        _make_repo(self.root)  # cwd carries the marker
+        with patch("pathlib.Path.cwd", return_value=self.root), \
+             patch.dict("os.environ", {}, clear=False):
+            for k in ("CLAUDE_PROJECT_DIR", "PROJECT_ROOT", "REPO_ROOT"):
+                os.environ.pop(k, None)
             result = self.srv._discover_root()
         self.assertEqual(result, self.root.resolve())
 
@@ -17775,7 +17838,7 @@ Status: in-progress
 ## Phase 1 — Harness (no MCP required)
 
 - [ ] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json
-- [ ] 1.2 — Bootstrap harness (setup_wavefoundry.py) — artifact: .wavefoundry/bin/mcp-server
+- [ ] 1.2 — Bootstrap harness (setup_wavefoundry.py) — artifact: .mcp.json
 - [ ] 1.3 — STOP: restart agent (instruction)
 
 ## Phase 2 — Project discovery (MCP required)
@@ -17856,8 +17919,7 @@ Status: in-progress
 
     def test_complete_status_when_all_rows_terminal(self):
         (self.root / "docs" / "workflow-config.json").write_text("{}\n")
-        (self.root / ".wavefoundry" / "bin").mkdir(parents=True)
-        (self.root / ".wavefoundry" / "bin" / "mcp-server").write_text("#!/bin/sh\n")
+        (self.root / ".mcp.json").write_text("{}\n")  # wave 1p7tz: 1.2 artifact is .mcp.json
         (self.root / "docs" / "repo-profile.json").write_text("{}\n")
         log = self._MINIMAL_LOG.replace("- [ ]", "- [x]")
         self._write_log(log)
@@ -17871,8 +17933,8 @@ Status: in-progress
             "- [ ] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json",
             "- [x] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json",
         ).replace(
-            "- [ ] 1.2 — Bootstrap harness (setup_wavefoundry.py) — artifact: .wavefoundry/bin/mcp-server",
-            "- [~] 1.2 — Bootstrap harness (setup_wavefoundry.py) — artifact: .wavefoundry/bin/mcp-server",
+            "- [ ] 1.2 — Bootstrap harness (setup_wavefoundry.py) — artifact: .mcp.json",
+            "- [~] 1.2 — Bootstrap harness (setup_wavefoundry.py) — artifact: .mcp.json",
         )
         self._write_log(log)
         result = self._call()
@@ -17882,8 +17944,7 @@ Status: in-progress
 
     def test_phase_arg_limits_next_step_to_phase(self):
         (self.root / "docs" / "workflow-config.json").write_text("{}\n")
-        (self.root / ".wavefoundry" / "bin").mkdir(parents=True)
-        (self.root / ".wavefoundry" / "bin" / "mcp-server").write_text("#!/bin/sh\n")
+        (self.root / ".mcp.json").write_text("{}\n")  # wave 1p7tz: 1.2 artifact is .mcp.json
         log = self._MINIMAL_LOG.replace(
             "- [ ] 1.1 —",
             "- [x] 1.1 —",
@@ -17927,8 +17988,7 @@ Status: in-progress
         self.assertEqual(r["data"]["status"], "next_step")
         self.assertEqual(r["data"]["row"]["number"], "1.2")
 
-        (self.root / ".wavefoundry" / "bin").mkdir(parents=True)
-        (self.root / ".wavefoundry" / "bin" / "mcp-server").write_text("#!/bin/sh\n")
+        (self.root / ".mcp.json").write_text("{}\n")  # wave 1p7tz: 1.2 artifact is .mcp.json
         (self.root / "docs" / "repo-profile.json").write_text("{}\n")
         log_all_done = log_with_x.replace("- [ ]", "- [x]")
         self._write_log(log_all_done)

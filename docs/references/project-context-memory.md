@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-19
+Last verified: 2026-06-25
 
 Durable reusable workflow guidance discovered during waves and promoted from journals.
 
@@ -20,7 +20,7 @@ The auto-memory system recognizes four file types: `user`, `feedback`, `project`
 
 Wavefoundry is both the framework source repository and a target repository consuming rendered framework surfaces. The framework content lives at `.wavefoundry/framework/`. Seeds reference `.wavefoundry/framework/scripts/<script>.py` and `.wavefoundry/framework/seeds/` directly.
 
-**Agents** should prefer MCP **`wave_validate`** and **`wave_garden`** over shelling to the bin launchers. Canonical **CLI** launchers (`.wavefoundry/bin/docs-lint`, `.wavefoundry/bin/docs-gardener`) delegate to `.wavefoundry/framework/scripts/` for hooks, CI, and hosts without MCP — intentional for self-hosting mode. `build_pack.py` is self-locating: it derives the framework root from its own file location, so packaging reads from `.wavefoundry/framework/` and produces a zip with `framework/` entries for operators.
+**Agents** should prefer MCP **`wave_validate`** and **`wave_garden`** over shelling to the `wf` dispatcher. The canonical cross-OS **CLI** dispatcher (`wf docs-lint`, `wf docs-gardener`) routes through `wf_cli.py` to `.wavefoundry/framework/scripts/` for hooks, CI, and hosts without MCP — intentional for self-hosting mode. `build_pack.py` is self-locating: it derives the framework root from its own file location, so packaging reads from `.wavefoundry/framework/` and produces a zip with `framework/` entries for operators.
 
 ## MCP audit landing (`wave_audit`)
 

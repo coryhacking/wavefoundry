@@ -1,0 +1,25 @@
+# Wavefoundry line-ending policy (wave 1p7pn, 1p7pb-adr gap L-1).
+#
+# git-for-Windows `autocrlf=true` can rewrite LF->CRLF on checkout. A CRLF in a
+# `#!/usr/bin/env ...` shebang line corrupts the launcher/hook (the kernel/MSYS2 sh
+# fails to find the interpreter), breaking the bin launchers, the platform hooks, and
+# the git hooks even under WSL2/git-bash. Pin every shebang-bearing file to LF so the
+# committed bytes are identical on every OS; `* text=auto` is the safe baseline for
+# everything else.
+
+* text=auto
+
+# Python sources (entry scripts + rendered hook .py bodies) — always LF.
+*.py text eol=lf
+
+# Shebang-bearing launcher/hook bodies (no extension) — always LF.
+.wavefoundry/bin/* text eol=lf
+.wavefoundry/git-hooks/* text eol=lf
+.claude/hooks/* text eol=lf
+.cursor/hooks/* text eol=lf
+.github/hooks/* text eol=lf
+.windsurf/hooks/* text eol=lf
+
+# Windows batch shims need CRLF (cmd.exe). A later, more-specific rule wins over the
+# `.wavefoundry/bin/* eol=lf` line above, so `wf.cmd` keeps CRLF (wave 1p7tz).
+*.cmd text eol=crlf

@@ -22,6 +22,16 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+import venv_bootstrap  # the single venv resolver (wave 1p7pl)
+
+# Re-exec into the shared tool venv before any heavy import (wave 1p7pl). No-op when
+# already in the venv or when it does not exist yet (fresh bootstrap).
+venv_bootstrap.reexec_into_tool_venv()
+
 import dashboard_lib
 
 
@@ -660,12 +670,64 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--host", default="", help="Override bind host (default: docs/workflow-config.json dashboard.host or 127.0.0.1)")
     parser.add_argument("--port", type=int, default=None, help="Override the dashboard port")
     parser.add_argument("--open", action="store_true", help="Open the dashboard in the default browser after binding")
+    parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help="Self-detach: re-spawn this server in the background (OS-correct detach), log to "
+        ".wavefoundry/logs/dashboard.log, print a started message, and exit. Replaces the bash "
+        "`nohup ... &` so the cross-OS `python dashboard_server.py --daemon` forwarder persists.",
+    )
     return parser.parse_args(argv)
+
+
+# Wave 1p7pn (1p7pb-adr, AC-3): self-detach the dashboard into the background, OS-correctly, replacing
+# `bin/wave-dashboard`'s bash `nohup ... &` (bash-only, no native-Windows peer). The detached CHILD
+# spawn uses `sys.executable` — the running (re-exec'd) venv Python, an absolute path — never `python3`
+# (absent on python.org-Windows). Reuses the same detach flags as the MCP server's dashboard spawn.
+_DAEMON_ENV_MARKER = "WAVEFOUNDRY_DASHBOARD_DAEMON_CHILD"
+
+
+def _daemonize(root: Path, argv: list[str]) -> int:
+    """Re-spawn this server detached (without `--daemon`), log to dashboard.log, and return 0.
+
+    The child runs the normal foreground path; an env marker prevents an infinite re-spawn loop."""
+    log_path = root / ".wavefoundry" / "logs" / "dashboard.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    child_args = [a for a in argv if a != "--daemon"]
+    cmd = [sys.executable, str(Path(__file__).resolve()), *child_args]
+    child_env = {**os.environ, _DAEMON_ENV_MARKER: "1"}
+    spawn_kwargs: dict[str, Any] = {
+        "stdin": subprocess.DEVNULL,
+        "cwd": str(root),
+        "env": child_env,
+    }
+    if os.name == "nt":
+        spawn_kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        spawn_kwargs["start_new_session"] = True
+    log_handle = open(log_path, "a", encoding="utf-8")
+    try:
+        spawn_kwargs["stdout"] = log_handle
+        spawn_kwargs["stderr"] = log_handle
+        proc = subprocess.Popen(cmd, **spawn_kwargs)
+    finally:
+        # The child inherits its own dup'd fd; close our handle so this process doesn't hold the log.
+        log_handle.close()
+    print(f"Wave dashboard started (pid {proc.pid}). Log: {log_path}")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     root = dashboard_lib.discover_root(args.root)
+
+    # Wave 1p7pn: `--daemon` self-detaches (unless we ARE the detached child) so the cross-OS
+    # `python dashboard_server.py --daemon` forwarder survives shell exit, then exits. The child
+    # runs the normal foreground path below.
+    if args.daemon and os.environ.get(_DAEMON_ENV_MARKER) != "1":
+        full_argv = list(sys.argv[1:] if argv is None else argv)
+        return _daemonize(root, full_argv)
+
     try:
         server_lock = dashboard_lib.dashboard_server_lock(root)
         server_lock.__enter__()

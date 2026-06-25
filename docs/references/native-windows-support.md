@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: scoping (not yet admitted to a wave)
-Last verified: 2026-06-18
+Last verified: 2026-06-25
 
 ## Context
 
@@ -35,8 +35,8 @@ The floor is not zero. The work is finishing and verifying, not starting from sc
 
 | ID | Gap | Evidence | What breaks |
 | --- | --- | --- | --- |
-| C-1 | `.mcp.json` sets `command: ".wavefoundry/bin/mcp-server"`, a `#!/usr/bin/env bash` script with **no `.cmd` sibling**; the renderer never emits a Windows form for the MCP entry | `.mcp.json:1`; `render_platform_surfaces.py:896` (`render_mcp_json`) | **Total MCP blackout** — the server process cannot spawn, so every `wave_*`, `code_*`, `docs_*` tool is unavailable |
-| C-2 | All 9 `.wavefoundry/bin/` launchers are bash-only (`set -euo pipefail`, `${BASH_SOURCE[0]}`, `exec`); `render_bin_launchers` never emits `.cmd` equivalents (unlike hooks) | `render_platform_surfaces.py:1038`; `wave-dashboard` also uses `nohup … &` (`:1089`) | `docs-lint`, `docs-gardener`, `wave-gate`, `setup-wavefoundry`, `upgrade-wavefoundry`, `update-indexes`, `wave-dashboard`, `lifecycle-id`, `mcp-server` all unrunnable from the standard terminal |
+| ~~C-1~~ | ~~`.mcp.json` sets `command` to a bash MCP-server wrapper with no `.cmd` sibling~~ — **RESOLVED (wave 1p7pm):** every committed MCP config now names `command: "python"` + `args: [".wavefoundry/framework/scripts/server.py"]` (byte-identical cross-OS; `setup` makes `python` resolvable). The bash `bin/mcp-server` wrapper was retired (1p7tz). | `.mcp.json`; `render_platform_surfaces.render_mcp_json` | No action — MCP spawns natively on Windows. |
+| ~~C-2~~ | ~~All 9 `.wavefoundry/bin/` launchers are bash-only~~ — **RESOLVED (wave 1p7tz):** the nine POSIX-only wrappers were replaced by one cross-OS `wf` dispatcher (`wf_cli.py`) behind a `wf` (bash) + `wf.cmd` (Windows) shim pair; `wf docs-lint`, `wf docs-gardener`, `wf gate`, `wf setup`, `wf upgrade`, `wf update-indexes`, `wf dashboard`, `wf lifecycle-id` run on every OS. | `render_platform_surfaces.render_bin_launchers`; `wf_cli.py` | No action — operator CLI is cross-OS. |
 | C-3 | One committed `.mcp.json` / `.claude/settings.json` reflects **whichever OS last ran the renderer**; a Windows clone of a Mac-rendered repo gets POSIX hook forms | `.claude/settings.json:9,17,29` (extension-less POSIX launcher form); `render_platform_surfaces.py:101` | Seed-edit gate (pre-edit), post-edit docs-lint trigger, and session-capture all fail or hard-error on Windows |
 
 ### Moderate — degrades behavior; MCP server itself survives

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-18
+Last verified: 2026-06-25
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -14,7 +14,7 @@ Wavefoundry exposes framework-aware operations through a local MCP stdio server 
 agents can inspect project state, search indexed content, create change documents,
 and run framework maintenance without rediscovering shell commands every session.
 
-**Agent default:** Prefer `**wave_validate`**, `**wave_garden**`, and `**wave_audit**` for docs validation, metadata refresh, and combined health checks instead of invoking `**.wavefoundry/bin/docs-lint**` / `**.wavefoundry/bin/docs-gardener**` from a shell. Reserve the bin launchers for hooks, CI, and hosts where MCP is not attached.
+**Agent default:** Prefer `**wave_validate`**, `**wave_garden**`, and `**wave_audit**` for docs validation, metadata refresh, and combined health checks instead of invoking `**wf docs-lint**` / `**wf docs-gardener**` from a shell. Reserve the `wf` dispatcher subcommands for hooks, CI, and hosts where MCP is not attached.
 
 Recommended first choices:
 
@@ -432,6 +432,12 @@ for the project layer, or rerun the framework-targeted `indexer.py` command if a
   - `cleanup` — phase 5: remove the upgrade lock and print the operator summary.
   - `resume_after_gate` — re-run ONLY docs-gardener + docs-lint against the already-extracted tree (no extract/render/prune) to recover from a docs-gate failure. Requires a **retained lock** with `failed_phase == "docs_gate"` (wave 1p44o/1p44r); exits non-zero if the gate fails again, zero (and clears the failure marker) when it passes.
 - A post-mutation failure RETAINS the lock with a `failed_phase` marker so the dashboard stays paused and the half-replaced tree is not reindexed (wave 1p44o); `resume_after_gate` then recovers without a destructive full re-extract.
+
+`wave_upgrade_status()`
+
+- Read-only inspection of the framework upgrade lock state — reads `.wavefoundry/upgrade-in-progress.json` and reports whether an upgrade is currently in progress. Takes no arguments.
+- Response `data`: `in_progress` (bool), `started_at` (ISO-8601 str | null), `from_version` / `to_version` (str | null), `pid` (int | null).
+- **When to call it:** poll/inspect during an MCP-driven upgrade (between `wave_upgrade()` phases), and **before a reload/restart** — confirm no upgrade is mid-flight (a retained lock from a failed phase means the tree may be half-replaced; recover via `wave_upgrade(phase="resume_after_gate")` rather than reloading onto a partial tree). Read-only; never mutates.
 
 ### Audit
 

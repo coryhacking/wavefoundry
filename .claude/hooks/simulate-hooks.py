@@ -1,6 +1,19 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import sys as _wf_sys
+from pathlib import Path as _WfPath
+
+_WF_SCRIPTS = _WfPath(__file__).resolve().parents[2] / ".wavefoundry" / "framework" / "scripts"
+if _WF_SCRIPTS.is_dir() and str(_WF_SCRIPTS) not in _wf_sys.path:
+    _wf_sys.path.insert(0, str(_WF_SCRIPTS))
+try:
+    import venv_bootstrap as _wf_venv_bootstrap
+
+    _wf_venv_bootstrap.reexec_into_tool_venv()
+except Exception:
+    pass
+
 import os
 import subprocess
 import sys
@@ -14,13 +27,6 @@ HOOKS = {
 }
 
 
-def _venv_python_path() -> str:
-    venv_base = os.environ.get("WAVEFOUNDRY_TOOL_VENV", str(Path.home() / ".wavefoundry" / "venv"))
-    if os.name == "nt":
-        return str(Path(venv_base) / "Scripts" / "python.exe")
-    return str(Path(venv_base) / "bin" / "python")
-
-
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("usage: simulate-hooks.py <entrypoint> <json-payload>", file=sys.stderr)
@@ -30,9 +36,9 @@ def main(argv: list[str]) -> int:
     if target is None:
         print(f"unknown hook entrypoint: {hook_name}", file=sys.stderr)
         return 2
-    python_exec = _venv_python_path()
-    if not Path(python_exec).exists():
-        python_exec = sys.executable
+    # The body re-exec'd into the tool venv (first-line bootstrap) → sys.executable IS the
+    # venv Python (an absolute path); never re-resolve a token.
+    python_exec = sys.executable
     result = subprocess.run(
         [python_exec, str(target)],
         cwd=REPO_ROOT,

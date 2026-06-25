@@ -49,6 +49,11 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 FRAMEWORK_DIR = SCRIPTS_DIR.parent
 BIN_DIR = FRAMEWORK_DIR / "bin"
 
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+import venv_bootstrap  # the single venv resolver (wave 1p7pl)
+
 OLD_MANIFEST_TMP = Path(
     os.environ.get("TMPDIR", "/tmp")
 ) / "wf-manifest-old.txt"
@@ -68,14 +73,17 @@ def upgrade_log_path(root: Path) -> Path:
 
 
 def _tool_venv_base() -> Path:
-    """Return the configured shared Wavefoundry tool-venv base path."""
-    return Path(os.environ.get("WAVEFOUNDRY_TOOL_VENV", "~/.wavefoundry/venv")).expanduser()
+    """Tool-venv base path — delegates to the single resolver (wave 1p7pl)."""
+    return venv_bootstrap.tool_venv_base()
 
 
 def _preferred_python() -> str:
-    """Return the shared tool-venv Python when present, else the current interpreter."""
-    venv_python = _tool_venv_base() / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    return str(venv_python) if venv_python.exists() else sys.executable
+    """Return the shared tool-venv Python when present, else the current interpreter.
+
+    Builds the path via the single resolver (wave 1p7pl); semantics unchanged.
+    """
+    vp = venv_bootstrap.tool_venv_python()
+    return str(vp) if vp.exists() else sys.executable
 
 
 # ── Log file tee ──────────────────────────────────────────────────────────────
@@ -1118,7 +1126,7 @@ def _print_change_plan(
         _log(f"Prune mode:         MANIFEST diff (old={from_version})")
     else:
         _log("Prune mode:         legacy removal list (no prior MANIFEST)")
-    _log("Docs gate:          .wavefoundry/bin/docs-gardener && .wavefoundry/bin/docs-lint")
+    _log("Docs gate:          .wavefoundry/bin/wf docs-gardener && .wavefoundry/bin/wf docs-lint")
     if dash_running:
         _log("Dashboard:          running — will pause during upgrade, auto-restart after")
     else:
@@ -1164,6 +1172,13 @@ def _print_change_plan(
 
 def phase_surface_rendering(root: Path) -> None:
     _log("\n── Phase 1: Surface rendering ──")
+    # Wave 1p7pm (1p7pb-adr): self-heal `python` resolution on every upgrade so the committed
+    # `command: "python"` launchers stay spawnable (re-points a stale/dangling symlink at the
+    # current python3). strict=False — warn (non-fatal) if `python` still won't resolve.
+    try:
+        venv_bootstrap.ensure_python_resolves(strict=False)
+    except Exception:
+        pass
     script = SCRIPTS_DIR / "render_platform_surfaces.py"
     if not script.exists():
         _log("  render_platform_surfaces.py not found — skipping surface rendering.")
@@ -1246,23 +1261,14 @@ def phase_pruning(root: Path) -> int:
 
 def phase_docs_gate(root: Path) -> None:
     _log("\n── Phase 3: Docs gate ──")
-    gardener = root / ".wavefoundry" / "bin" / "docs-gardener"
-    linter = root / ".wavefoundry" / "bin" / "docs-lint"
-
-    for label, script in [("docs-gardener", gardener), ("docs-lint", linter)]:
-        if script.exists():
-            cmd: list[str] = [str(script)]
-        else:
-            # Fallback to Python script directly
-            py_name = label.replace("-", "_") + ".py"
-            py_script = SCRIPTS_DIR / py_name
-            if py_script.exists():
-                cmd = [_preferred_python(), str(py_script)]
-            else:
-                _log(f"  {label} not found — skipping.")
-                continue
-
-        result = subprocess.run(cmd, cwd=str(root), check=False)
+    # Wave 1p7tz: the `bin/docs-gardener`/`bin/docs-lint` wrappers were retired (the cross-OS `wf`
+    # dispatcher replaced them), so run the scripts directly under the venv interpreter.
+    for label, py_name in [("docs-gardener", "docs_gardener.py"), ("docs-lint", "docs_lint.py")]:
+        py_script = SCRIPTS_DIR / py_name
+        if not py_script.exists():
+            _log(f"  {label} not found — skipping.")
+            continue
+        result = subprocess.run([_preferred_python(), str(py_script)], cwd=str(root), check=False)
         if result.returncode != 0:
             _err(f"Docs gate failed: {label} exited {result.returncode}")
             sys.exit(1)
@@ -1617,6 +1623,36 @@ def _config_review_recommendation_lines(
         return []
 
 
+def _reconciliation_recommendation_lines(
+    from_version: str | None, to_version: str | None
+) -> list[str]:
+    """Recommendation to reconcile local surfaces against changed/retired framework surfaces.
+
+    Wave 1p7ww. Sibling of ``_config_review_recommendation_lines`` — same major/minor gate
+    (``_is_major_or_minor_upgrade``). The mechanical reconciliation (prune pack-removed files,
+    re-render surfaces, re-heal the ``python`` symlink) is automatic in the upgrade phases; this
+    surfaces the *local-surface* part agents must still judge: docs/configs/scripts in THIS repo that
+    referenced a framework surface the bump changed or RETIRED. Concrete example: the 1.9.0 cutover
+    retired the nine ``.wavefoundry/bin/*`` wrappers in favor of the cross-OS ``wf`` dispatcher, so a
+    local doc still naming a retired ``.wavefoundry/bin/<wrapper>`` is now a broken instruction.
+    Recommend-only; never blocks. Returns [] (silent) on patch upgrades or any parse failure.
+    """
+    try:
+        if not _is_major_or_minor_upgrade(from_version, to_version):
+            return []
+        return [
+            "",
+            f"Reconciliation recommended (major/minor upgrade {from_version} → {to_version}):",
+            "  Verify local surfaces (docs, prompts, configs, scripts) that referenced a framework",
+            "  surface this bump CHANGED or RETIRED are reconciled — e.g. the 1.9.0 cutover retired the",
+            "  `.wavefoundry/bin/*` wrappers in favor of the cross-OS `wf` dispatcher, so a local doc",
+            "  still naming `.wavefoundry/bin/<wrapper>` is now a broken instruction. Run the drift",
+            "  detection (seed-160 step 6) and update any stale references. Recommend-only; never blocks.",
+        ]
+    except Exception:
+        return []
+
+
 def _print_operator_summary(
     from_version: str | None,
     to_version: str | None,
@@ -1651,8 +1687,11 @@ def _print_operator_summary(
     _log("")
     # Wave 1p5tk — on a major/minor upgrade, recommend (don't run) the Framework
     # Config Review for a senior/principal owner to evaluate. Stateless + fail-safe.
+    # Wave 1p7ww — and recommend a local-surface reconciliation pass (same major/minor gate).
     if not failed_phase:
         for line in _config_review_recommendation_lines(from_version, to_version):
+            _log(line)
+        for line in _reconciliation_recommendation_lines(from_version, to_version):
             _log(line)
     # Wave 1p454 — defer to seed-160 as the authoritative editing-pass checklist
     # (do NOT enumerate its step-8 backfills here — they drift); fix the journal
@@ -1663,9 +1702,9 @@ def _print_operator_summary(
     _log("  2. Journal reconciliation (seed-160 step 0 / Reconcile journals)")
     _log("  3. Spec gaps via seed-230 (seed-160 step 4 / 160 step 8)")
     _log("  4. Resolve any docs/scan-findings.json entries via seed-213 (security reviewer) before re-running the docs gate")
-    _log("  5. Docs gate re-run after edits (wave_garden → wave_validate, or bin/docs-lint)")
-    _log("  6. Index update: upgrade-wavefoundry --update-index")
-    _log("  7. Cleanup lock after rebuild: upgrade-wavefoundry --cleanup")
+    _log("  5. Docs gate re-run after edits (wave_garden → wave_validate, or wf docs-lint)")
+    _log("  6. Index update: wf upgrade --update-index")
+    _log("  7. Cleanup lock after rebuild: wf upgrade --cleanup")
     _log("")
 
 

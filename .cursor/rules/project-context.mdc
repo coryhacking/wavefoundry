@@ -31,4 +31,4 @@ Follow **`.cursor/rules/auto-guru.mdc`** (always-on Guru routing for code and do
 
 **Agents:** Prefer MCP **`wave_validate`** (and **`wave_garden`** when metadata needs refresh) over shelling out to docs launchers.
 
-The `afterFileEdit` hook runs **`.wavefoundry/bin/docs-lint`** after any edit to `docs/`. Fix failures before continuing.
+The `afterFileEdit` hook runs docs-lint (via the rendered hook `.py` body, which calls `docs_lint.py` directly) after any edit to `docs/`. Fix failures before continuing. Manual CLI fallback: **`wf docs-lint`**.

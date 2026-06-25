@@ -1,6 +1,19 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import sys as _wf_sys
+from pathlib import Path as _WfPath
+
+_WF_SCRIPTS = _WfPath(__file__).resolve().parents[2] / ".wavefoundry" / "framework" / "scripts"
+if _WF_SCRIPTS.is_dir() and str(_WF_SCRIPTS) not in _wf_sys.path:
+    _wf_sys.path.insert(0, str(_WF_SCRIPTS))
+try:
+    import venv_bootstrap as _wf_venv_bootstrap
+
+    _wf_venv_bootstrap.reexec_into_tool_venv()
+except Exception:
+    pass
+
 import json
 import os
 import subprocess
@@ -124,7 +137,11 @@ def run_command(argv: list[str]) -> subprocess.CompletedProcess[str]:
 def maybe_docs_lint(file_path: str) -> tuple[bool, str]:
     if not file_path.startswith("docs/"):
         return False, ""
-    result = run_command([str(REPO_ROOT / ".wavefoundry" / "bin" / "docs-lint")])
+    # Wave 1p7tz: the `bin/docs-lint` wrapper was retired — invoke docs_lint.py directly under
+    # the venv interpreter (the body already re-exec'd into the venv first-line, so
+    # sys.executable IS the venv Python).
+    docs_lint = REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "docs_lint.py"
+    result = run_command([sys.executable, str(docs_lint)])
     if result.returncode == 0:
         return False, ""
     message = (result.stdout + result.stderr).strip()
@@ -144,14 +161,6 @@ def should_reindex(path: str) -> bool:
     return suffix not in skip_suffixes
 
 
-def _venv_python_path() -> str:
-    import os
-    venv_base = os.environ.get("WAVEFOUNDRY_TOOL_VENV", str(Path.home() / ".wavefoundry" / "venv"))
-    if os.name == "nt":
-        return str(Path(venv_base) / "Scripts" / "python.exe")
-    return str(Path(venv_base) / "bin" / "python")
-
-
 def _load_indexer_hook_helpers():
     import importlib.util
     indexer = REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
@@ -169,9 +178,9 @@ def maybe_trigger_reindex(file_path: str) -> None:
     indexer = REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
     if not indexer.exists():
         return
-    python_exec = _venv_python_path()
-    if not Path(python_exec).exists():
-        python_exec = sys.executable
+    # The body has already re-exec'd into the tool venv (first-line bootstrap), so
+    # sys.executable IS the venv Python — an absolute path; never re-resolve a token.
+    python_exec = sys.executable
     index_dir = REPO_ROOT / ".wavefoundry" / "index"
     try:
         hook_helpers = _load_indexer_hook_helpers()
@@ -184,13 +193,21 @@ def maybe_trigger_reindex(file_path: str) -> None:
     # include-prefixes — launchers run bare, no prefix forwarding.
     # 1p4ww: a single bare reindex — indexer folds the framework seeds/README
     # into the project docs index, so no separate framework-index spawn.
+    # Wave 1p7pn (M-3): detach per-OS — on Windows start_new_session is a no-op, so without
+    # creationflags the child stays in the host's process group and dies with the hook. Mirror
+    # server_impl.py / dashboard_server._daemonize.
+    _detach_kwargs = {}
+    if os.name == "nt":
+        _detach_kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        _detach_kwargs["start_new_session"] = True
     subprocess.Popen(
         [python_exec, str(indexer), "--root", str(REPO_ROOT)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         cwd=str(REPO_ROOT),
-        start_new_session=True,
         close_fds=os.name != "nt",
+        **_detach_kwargs,
     )
 
 def main() -> int:

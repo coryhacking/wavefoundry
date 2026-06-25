@@ -11,6 +11,6 @@
 ## Checklist
 
 - [ ] Framework tests pass (`python3 .wavefoundry/framework/scripts/run_tests.py`)
-- [ ] Docs lint passes (`.wavefoundry/bin/docs-lint`) if any `docs/` files changed
+- [ ] Docs lint passes (`wf docs-lint`) if any `docs/` files changed
 - [ ] No secrets, credentials, or PII in committed files
 - [ ] Commit messages are descriptive (no AI-attribution trailers)

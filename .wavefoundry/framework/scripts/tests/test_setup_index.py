@@ -653,7 +653,10 @@ class SetupIndexTests(unittest.TestCase):
         build_index.assert_called_once()
         self.assertIn("Done. Project index update complete.", stdout.getvalue())
         self.assertIn("MCP handoff:", stdout.getvalue())
-        self.assertIn(".wavefoundry/bin/mcp-server", stdout.getvalue())
+        # Wave 1p7tz: the bin/mcp-server wrapper was retired; the handoff now points at the committed
+        # config (`python .wavefoundry/framework/scripts/server.py`).
+        self.assertIn(".wavefoundry/framework/scripts/server.py", stdout.getvalue())
+        self.assertNotIn("bin/mcp-server", stdout.getvalue())
         self.assertNotIn("python3 ", stdout.getvalue())
 
     def test_workflow_project_include_prefixes_defaults_empty(self):
@@ -798,27 +801,198 @@ class TlsTrustStoreFallbackTests(unittest.TestCase):
     def test_os_trust_store_bundle_honors_preset_env(self):
         with tempfile.NamedTemporaryFile(suffix=".crt") as f:
             with patch.dict(os.environ, {"SSL_CERT_FILE": f.name}, clear=False):
+                for var in ("CODEX_CA_CERTIFICATE", "CLAUDE_CODE_CERT_STORE", "REQUESTS_CA_BUNDLE"):
+                    os.environ.pop(var, None)
                 self.assertEqual(self.mod._os_trust_store_bundle(), f.name)
 
+    # ── Wave 1p7s6: host-agent CA-bundle discovery ─────────────────────────────
+
+    def _clear_ca_env(self):
+        for var in ("CODEX_CA_CERTIFICATE", "CLAUDE_CODE_CERT_STORE", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"):
+            os.environ.pop(var, None)
+
+    def test_each_ca_env_var_honored(self):
+        # 1p7s6 AC-1/AC-4: every CA env var is a recognized candidate when it points at a real file.
+        for var in ("CODEX_CA_CERTIFICATE", "CLAUDE_CODE_CERT_STORE", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"):
+            with self.subTest(var=var), tempfile.NamedTemporaryFile(suffix=".crt") as f:
+                with patch.dict(os.environ, {}, clear=False):
+                    self._clear_ca_env()
+                    os.environ[var] = f.name
+                    self.assertIn(f.name, self.mod._os_trust_store_candidates(),
+                                  f"{var} should be a recognized CA candidate")
+
+    def test_codex_var_takes_precedence_over_ssl_cert_file(self):
+        # 1p7s6 AC-1/AC-4: CODEX_CA_CERTIFICATE beats a set SSL_CERT_FILE; SSL_CERT_FILE is PRESERVED
+        # as a later candidate (operator's value is never silently discarded).
+        with tempfile.NamedTemporaryFile(suffix=".crt") as codex, tempfile.NamedTemporaryFile(suffix=".crt") as ssl_:
+            with patch.dict(os.environ, {}, clear=False):
+                self._clear_ca_env()
+                os.environ["CODEX_CA_CERTIFICATE"] = codex.name
+                os.environ["SSL_CERT_FILE"] = ssl_.name
+                candidates = self.mod._os_trust_store_candidates()
+                self.assertEqual(self.mod._os_trust_store_bundle(), codex.name)  # codex wins
+                self.assertLess(candidates.index(codex.name), candidates.index(ssl_.name))  # codex first
+                self.assertIn(ssl_.name, candidates)  # operator SSL_CERT_FILE preserved as a candidate
+
+    def test_candidates_end_with_certifi_default(self):
+        # 1p7s6 Req 5: certifi default is the LAST resort.
+        with patch.dict(os.environ, {}, clear=False):
+            self._clear_ca_env()
+            certifi_default = self.mod._certifi_default_bundle()
+            candidates = self.mod._os_trust_store_candidates()
+            if certifi_default is not None:
+                self.assertIn(certifi_default, candidates)
+                self.assertEqual(candidates[-1], certifi_default, "certifi default must be the last candidate")
+
+    def test_warm_model_proactive_preconfig_skips_failed_first_attempt(self):
+        # 1p7s6 AC-2: a host-agent var set + stack CA unset → the bundle is configured BEFORE the first
+        # attempt, so the first _build() succeeds (no guaranteed-fail certifi round-trip).
+        good = MagicMock()
+        good.embed.return_value = iter([[0.1, 0.2]])
+        te = MagicMock(return_value=good)  # first attempt succeeds (proactive bundle already applied)
+        hf = MagicMock()
+        with tempfile.NamedTemporaryFile(suffix=".crt") as codex, \
+             patch.dict(os.environ, {}, clear=False), \
+             patch.object(self.mod, "_embedding_providers_for_setup", return_value=["CPUExecutionProvider"]), \
+             patch.dict(sys.modules, {"fastembed": MagicMock(TextEmbedding=te), "huggingface_hub": hf}):
+            self._clear_ca_env()
+            os.environ["CODEX_CA_CERTIFICATE"] = codex.name
+            self.mod._warm_model("BAAI/bge-small-en-v1.5", local_files_only=False)
+            self.assertEqual(te.call_count, 1, "proactive pre-config must make the first attempt succeed")
+            # Configured from the host-agent bundle BEFORE the first attempt.
+            self.assertEqual(os.environ.get("SSL_CERT_FILE"), codex.name)
+            self.assertEqual(os.environ.get("REQUESTS_CA_BUNDLE"), codex.name)
+            hf.close_session.assert_called()  # session rebuilt for the proactive bundle
+
+    def test_warm_model_iterates_to_platform_store_when_host_bundle_fails(self):
+        # 1p7s6 AC-2/Req 5: a host-agent bundle that ITSELF fails cert-verify degrades to the next
+        # candidate (the platform store) rather than hard-failing.
+        cert_exc = Exception("SSLError: certificate verify failed: unable to get local issuer certificate")
+        good = MagicMock()
+        good.embed.return_value = iter([[0.1, 0.2]])
+        # proactive attempt (host bundle) fails cert; iteration to platform store succeeds.
+        te = MagicMock(side_effect=[cert_exc, good])
+        hf = MagicMock()
+        with tempfile.NamedTemporaryFile(suffix=".crt") as codex, \
+             patch.dict(os.environ, {}, clear=False), \
+             patch.object(self.mod, "_os_trust_store_candidates",
+                          return_value=[codex.name, "/etc/ssl/certs/platform.crt"]), \
+             patch.object(self.mod, "_host_agent_ca_bundle", return_value=codex.name), \
+             patch.object(self.mod, "_embedding_providers_for_setup", return_value=["CPUExecutionProvider"]), \
+             patch.dict(sys.modules, {"fastembed": MagicMock(TextEmbedding=te), "huggingface_hub": hf}):
+            self._clear_ca_env()
+            os.environ["CODEX_CA_CERTIFICATE"] = codex.name
+            self.mod._warm_model("BAAI/bge-small-en-v1.5", local_files_only=False)
+            self.assertEqual(te.call_count, 2, "host bundle fails → iterate to platform store")
+            # Winning (platform) bundle left in place (operator stack env was unset).
+            self.assertEqual(os.environ.get("SSL_CERT_FILE"), "/etc/ssl/certs/platform.crt")
+
+    def test_warm_model_iterates_to_certifi_default_last(self):
+        # 1p7s6 Req 5/AC-4: when host + platform candidates fail, the certifi default is the last resort.
+        cert_exc = Exception("SSLError: certificate verify failed: unable to get local issuer certificate")
+        good = MagicMock()
+        good.embed.return_value = iter([[0.1, 0.2]])
+        # certifi-default is the last candidate; host + platform fail, certifi succeeds.
+        te = MagicMock(side_effect=[cert_exc, cert_exc, good])
+        hf = MagicMock()
+        with tempfile.NamedTemporaryFile(suffix=".crt") as codex, \
+             patch.dict(os.environ, {}, clear=False), \
+             patch.object(self.mod, "_os_trust_store_candidates",
+                          return_value=[codex.name, "/etc/ssl/certs/platform.crt", "/certifi/cacert.pem"]), \
+             patch.object(self.mod, "_host_agent_ca_bundle", return_value=codex.name), \
+             patch.object(self.mod, "_certifi_default_bundle", return_value="/certifi/cacert.pem"), \
+             patch.object(self.mod, "_embedding_providers_for_setup", return_value=["CPUExecutionProvider"]), \
+             patch.dict(sys.modules, {"fastembed": MagicMock(TextEmbedding=te), "huggingface_hub": hf}):
+            self._clear_ca_env()
+            os.environ["CODEX_CA_CERTIFICATE"] = codex.name
+            self.mod._warm_model("BAAI/bge-small-en-v1.5", local_files_only=False)
+            self.assertEqual(te.call_count, 3, "iterate host → platform → certifi default last")
+            self.assertEqual(os.environ.get("SSL_CERT_FILE"), "/certifi/cacert.pem")
+
     def test_warm_model_retries_with_os_bundle_on_cert_failure(self):
+        # 1p7s6: reactive path (no host-agent var) — first attempt (certifi) fails, candidate iteration
+        # tries the resolved OS bundle and succeeds.
         cert_exc = Exception("SSLError: certificate verify failed: unable to get local issuer certificate")
         good = MagicMock()
         good.embed.return_value = iter([[0.1, 0.2]])
         te = MagicMock(side_effect=[cert_exc, good])  # first ctor raises cert error, retry returns good
         hf = MagicMock()
         with patch.dict(os.environ, {}, clear=False), \
-             patch.object(self.mod, "_os_trust_store_bundle", return_value="/os/ca.crt"), \
+             patch.object(self.mod, "_os_trust_store_candidates", return_value=["/os/ca.crt"]), \
+             patch.object(self.mod, "_certifi_default_bundle", return_value=None), \
              patch.object(self.mod, "_embedding_providers_for_setup", return_value=["CPUExecutionProvider"]), \
              patch.dict(sys.modules, {"fastembed": MagicMock(TextEmbedding=te), "huggingface_hub": hf}):
-            os.environ.pop("SSL_CERT_FILE", None)
-            os.environ.pop("REQUESTS_CA_BUNDLE", None)
+            self._clear_ca_env()
             self.mod._warm_model("BAAI/bge-small-en-v1.5", local_files_only=False)
             self.assertEqual(te.call_count, 2, "should retry once after the cert failure")
             self.assertEqual(os.environ.get("SSL_CERT_FILE"), "/os/ca.crt")
             self.assertEqual(os.environ.get("REQUESTS_CA_BUNDLE"), "/os/ca.crt")
             # CRITICAL: hf_hub caches a global httpx.Client whose SSL context is built once against
             # certifi — without resetting it, the env change is a no-op and the retry fails identically.
-            hf.close_session.assert_called_once()
+            hf.close_session.assert_called()
+
+    def test_warm_model_restores_operator_env_after_run(self):
+        # 1p7s6 Req 2/3: a set operator SSL_CERT_FILE is never silently discarded — per-attempt env
+        # mutation is scoped and the operator's original value survives the function.
+        cert_exc = Exception("SSLError: certificate verify failed: unable to get local issuer certificate")
+        good = MagicMock()
+        good.embed.return_value = iter([[0.1, 0.2]])
+        te = MagicMock(side_effect=[cert_exc, good])
+        hf = MagicMock()
+        with tempfile.NamedTemporaryFile(suffix=".crt") as operator_ca, \
+             patch.dict(os.environ, {}, clear=False), \
+             patch.object(self.mod, "_os_trust_store_candidates",
+                          return_value=[operator_ca.name, "/etc/ssl/certs/platform.crt"]), \
+             patch.object(self.mod, "_certifi_default_bundle", return_value=None), \
+             patch.object(self.mod, "_embedding_providers_for_setup", return_value=["CPUExecutionProvider"]), \
+             patch.dict(sys.modules, {"fastembed": MagicMock(TextEmbedding=te), "huggingface_hub": hf}):
+            self._clear_ca_env()
+            os.environ["SSL_CERT_FILE"] = operator_ca.name  # operator's explicit setting
+            self.mod._warm_model("BAAI/bge-small-en-v1.5", local_files_only=False)
+            # Operator's original SSL_CERT_FILE survives (restored after the iteration swapped it).
+            self.assertEqual(os.environ.get("SSL_CERT_FILE"), operator_ca.name)
+
+    def test_warm_model_restores_operator_env_on_all_candidates_fail(self):
+        # 1p7s6 pre-close (security): operator sets SSL_CERT_FILE; EVERY candidate fails cert-verify →
+        # ModelPrewarmError, AND the operator's original SSL_CERT_FILE must be restored (never left
+        # clobbered with a last-tried bundle — a leaked trust anchor).
+        cert_exc = Exception("SSLError: certificate verify failed: unable to get local issuer certificate")
+        te = MagicMock(side_effect=cert_exc)  # every attempt fails cert-verify
+        hf = MagicMock()
+        with tempfile.NamedTemporaryFile(suffix=".crt") as operator_ca, \
+             patch.dict(os.environ, {}, clear=False), \
+             patch.object(self.mod, "_os_trust_store_candidates",
+                          return_value=[operator_ca.name, "/etc/ssl/certs/platform.crt", "/certifi/cacert.pem"]), \
+             patch.object(self.mod, "_certifi_default_bundle", return_value=None), \
+             patch.object(self.mod, "_embedding_providers_for_setup", return_value=["CPUExecutionProvider"]), \
+             patch.dict(sys.modules, {"fastembed": MagicMock(TextEmbedding=te), "huggingface_hub": hf}):
+            self._clear_ca_env()
+            os.environ["SSL_CERT_FILE"] = operator_ca.name
+            with self.assertRaises(self.mod.ModelPrewarmError):
+                self.mod._warm_model("BAAI/bge-small-en-v1.5", local_files_only=False)
+            self.assertEqual(os.environ.get("SSL_CERT_FILE"), operator_ca.name,
+                             "operator SSL_CERT_FILE must survive an all-candidates-fail exit")
+
+    def test_warm_model_restores_operator_env_on_non_cert_error_mid_retry(self):
+        # 1p7s6 pre-close (security): operator sets SSL_CERT_FILE; first attempt cert-fails, a retry
+        # candidate raises a NON-cert error (re-raised) → the operator's original env is still restored.
+        cert_exc = Exception("SSLError: certificate verify failed: unable to get local issuer certificate")
+        non_cert = RuntimeError("disk full")
+        te = MagicMock(side_effect=[cert_exc, non_cert])  # first cert-fails, retry hits a non-cert error
+        hf = MagicMock()
+        with tempfile.NamedTemporaryFile(suffix=".crt") as operator_ca, \
+             patch.dict(os.environ, {}, clear=False), \
+             patch.object(self.mod, "_os_trust_store_candidates",
+                          return_value=[operator_ca.name, "/etc/ssl/certs/platform.crt"]), \
+             patch.object(self.mod, "_certifi_default_bundle", return_value=None), \
+             patch.object(self.mod, "_embedding_providers_for_setup", return_value=["CPUExecutionProvider"]), \
+             patch.dict(sys.modules, {"fastembed": MagicMock(TextEmbedding=te), "huggingface_hub": hf}):
+            self._clear_ca_env()
+            os.environ["SSL_CERT_FILE"] = operator_ca.name
+            with self.assertRaises(RuntimeError):
+                self.mod._warm_model("BAAI/bge-small-en-v1.5", local_files_only=False)
+            self.assertEqual(os.environ.get("SSL_CERT_FILE"), operator_ca.name,
+                             "operator SSL_CERT_FILE must survive a non-cert-error retry exit")
 
     def test_warm_model_does_not_retry_non_cert_error(self):
         te = MagicMock(side_effect=RuntimeError("disk full"))

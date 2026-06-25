@@ -38,6 +38,12 @@ EXCLUDED_REL_PATHS = {"scripts/tests/tmp", "scripts/tests", "scripts/run_tests.p
 # even if someone accidentally leaves one behind in the source tree.
 TRANSIENT_ARTIFACT_EXTENSIONS = (".lock", ".log", ".bak", ".swp", ".tmp", ".orig", ".rej")
 
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+import venv_bootstrap  # the single venv resolver (wave 1p7pl)
+
 FRAMEWORK_REL = ".wavefoundry/framework"
 ZIP_PREFIX = "wavefoundry-"
 # wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
@@ -242,21 +248,22 @@ def update_manifest_revision(repo_root: Path, full_version: str) -> None:
 def check_docs_gate(repo_root: Path) -> None:
     """Run docs-gardener and docs-lint as a pre-packaging gate.
 
-    Looks for each command in ``<repo_root>/.wavefoundry/bin/``.  Exits 1 if
-    either command is not found or returns a non-zero exit code.
+    Invokes the scripts directly under the current (venv) interpreter — the
+    ``bin/*`` wrappers were consolidated into ``wf`` in 1p7tz. Exits 1 if a
+    script is missing or returns a non-zero exit code.
     """
     import subprocess
 
-    bin_dir = repo_root / ".wavefoundry" / "bin"
-    for cmd_name in ("docs-gardener", "docs-lint"):
-        cmd_path = bin_dir / cmd_name
-        if not cmd_path.exists():
+    scripts_dir = repo_root / ".wavefoundry" / "framework" / "scripts"
+    for cmd_name, module in (("docs-gardener", "docs_gardener.py"), ("docs-lint", "docs_lint.py")):
+        script = scripts_dir / module
+        if not script.exists():
             print(
-                f"error: {cmd_name} not found at {cmd_path}",
+                f"error: {module} not found at {script}",
                 file=sys.stderr,
             )
             sys.exit(1)
-        result = subprocess.run([str(cmd_path)], cwd=str(repo_root))
+        result = subprocess.run([sys.executable, str(script)], cwd=str(repo_root))
         if result.returncode != 0:
             print(
                 f"error: {cmd_name} failed — fix docs issues before packaging.",
@@ -795,30 +802,19 @@ def _reexec_with_venv_if_needed() -> None:
     The index build step loads indexer.py in-process, which requires numpy and
     lancedb. When build_pack.py is invoked with system Python those imports fail.
     Re-execing under the venv is transparent — all argv is preserved.
+
+    The venv-path resolution + re-exec is delegated to the single resolver
+    (wave 1p7pl). The numpy short-circuit is preserved so an interpreter that
+    already has numpy (e.g. a CI env with deps installed) never re-execs.
     """
     try:
         import numpy  # noqa: F401
         return
     except ImportError:
         pass
-    # Wave 1p6d6: branch the venv interpreter path on os.name (Windows is
-    # Scripts\python.exe, not bin/python) and honor WAVEFOUNDRY_TOOL_VENV — otherwise on
-    # Windows .exists() is always False and the re-exec silently no-ops, running the build
-    # under system Python without numpy/lancedb.
-    venv_base = Path(os.path.expanduser(
-        os.environ.get("WAVEFOUNDRY_TOOL_VENV") or str(Path.home() / ".wavefoundry" / "venv")
-    ))
-    venv_python = venv_base / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    if not venv_python.exists():
-        return  # no venv available; let the error surface naturally
-    script_path = str(Path(__file__).resolve())
-    if os.name == "nt":
-        # os.execv on Windows spawns a child and exits the parent with code 0, losing the
-        # child's exit code — mirror the setup_index.py oracle and use subprocess+sys.exit.
-        import subprocess
-        result = subprocess.run([str(venv_python), script_path, *sys.argv[1:]], check=False)
-        sys.exit(result.returncode)
-    os.execv(str(venv_python), [str(venv_python), script_path, *sys.argv[1:]])
+    # Delegate the venv resolution + the POSIX/Windows re-exec to the single
+    # bootstrap (wave 1p7pl). No-op when the venv is absent or already active.
+    venv_bootstrap.reexec_into_tool_venv()
 
 
 def main():

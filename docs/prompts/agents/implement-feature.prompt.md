@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-03
+Last verified: 2026-06-25
 
 ## Context
 
@@ -27,7 +27,7 @@ Stage gate satisfied: change doc admitted, **Prepare wave** passed cleanly.
 ## After Implementation
 
 1. `python3 .wavefoundry/framework/scripts/run_tests.py` (if scripts changed)
-2. **Docs gate:** Prefer MCP **`wave_validate`** (and **`wave_garden`** if metadata needs refresh). **CLI fallback:** `.wavefoundry/bin/docs-lint` when MCP is unavailable.
+2. **Docs gate:** Prefer MCP **`wave_validate`** (and **`wave_garden`** if metadata needs refresh). **CLI fallback:** `wf docs-lint` when MCP is unavailable.
 3. Complete required review lanes before calling **Finalize feature**
 
 ## Rules

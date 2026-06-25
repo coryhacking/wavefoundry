@@ -10,7 +10,7 @@ Tasks:
 2. Explain how the canonical scripts should be used from the shared pack.
 3. Ensure gardener output can refresh metadata, write reports, and surface drift candidates.
 4. Ensure linting can validate key docs metadata and key prompt-surface files.
-5. Document the split: **agents** with Wavefoundry MCP should prefer **`wave_garden`** / **`wave_validate`** / **`wave_audit`**; **hooks and CI** invoke **`.wavefoundry/bin/docs-gardener`** and **`.wavefoundry/bin/docs-lint`** because they cannot call MCP.
+5. Document the split: **agents** with Wavefoundry MCP should prefer **`wave_garden`** / **`wave_validate`** / **`wave_audit`**; **hooks and CI** invoke **`wf docs-gardener`** and **`wf docs-lint`** because they cannot call MCP.
 
 Required semantics:
 

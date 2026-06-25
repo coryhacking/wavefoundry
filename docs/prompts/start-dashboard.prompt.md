@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-26
+Last verified: 2026-06-25
 
 Shortcut: **`Start dashboard`**
 
@@ -12,10 +12,10 @@ Start the local Wavefoundry dashboard for the current repository. This is a loop
 
 ## Default Operator Path
 
-Open the dashboard in the default browser via the persistent bin launcher and always print the final URL:
+Open the dashboard in the default browser via the persistent `wf` dispatcher and always print the final URL:
 
 ```bash
-.wavefoundry/bin/wave-dashboard
+wf dashboard
 ```
 
 ## Related Commands

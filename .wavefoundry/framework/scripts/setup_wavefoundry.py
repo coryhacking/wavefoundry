@@ -22,6 +22,16 @@ from pathlib import Path
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+import venv_bootstrap  # the single venv resolver (wave 1p7pl)
+
+# Re-exec into the shared tool venv before any heavy work (wave 1p7pl). This is a
+# no-op on a fresh box (the venv does not exist yet), so it never blocks setup_index
+# from creating the venv; once the venv exists, re-running setup uses the venv Python.
+venv_bootstrap.reexec_into_tool_venv()
+
 
 def _load_setup_index():
     script_path = _SCRIPTS_DIR / "setup_index.py"
@@ -79,7 +89,7 @@ def _run_gpu_check() -> int:
     """Wave 1p6et: print the embedding-provider / GPU capability diagnostic and exit (no setup).
 
     Does NOT run the venv/dep/index setup steps. Invoked via ``setup_wavefoundry.py --check-gpu``
-    (or ``.wavefoundry/bin/setup-wavefoundry --check-gpu``).
+    (or ``.wavefoundry/bin/wf setup --check-gpu``).
     """
     provider_policy = _load_provider_policy()
     setup_index = _load_setup_index()
@@ -88,6 +98,36 @@ def _run_gpu_check() -> int:
     report = provider_policy.diagnostic_report(provider_probe=setup_index._probe_embedding_provider)
     print(provider_policy.format_diagnostic_report(report))
     return 0
+
+
+def _repo_root_from_args(args: list[str]) -> Path:
+    """Repo root from a ``--root <path>`` arg if present, else the scripts dir's grandparent."""
+    for i, tok in enumerate(args):
+        if tok == "--root" and i + 1 < len(args):
+            return Path(args[i + 1]).expanduser().resolve()
+        if tok.startswith("--root="):
+            return Path(tok.split("=", 1)[1]).expanduser().resolve()
+    # _SCRIPTS_DIR = <repo>/.wavefoundry/framework/scripts → repo root is parents[2].
+    return _SCRIPTS_DIR.parents[2]
+
+
+def _print_gui_fallback_guidance(repo_root: Path) -> None:
+    """Print the per-machine absolute-venv-path MCP stanza for GUI-launched hosts (wave 1p7pm AC-4/5).
+
+    The committed configs name ``command: "python"``, resolvable for CLI hosts (they inherit the shell
+    PATH where setup just symlinked ``python``). GUI-launched hosts (Claude Desktop, Cursor.app) inherit
+    only a minimal launchd/registry PATH, so ``python`` may not resolve. This is GUIDANCE only — it does
+    NOT overwrite the committed ``.mcp.json`` (the override path is host-specific + per-machine)."""
+    import json as _json
+
+    stanza = venv_bootstrap.gui_fallback_mcp_stanza(repo_root)
+    print(
+        "\nGUI-host note: if a GUI-launched MCP host (Claude Desktop, Cursor.app) can't find `python` "
+        "on PATH, set its Wavefoundry MCP command to this absolute-path form (per-machine — do NOT "
+        "commit it; the committed `python` form is for CLI hosts):\n"
+        f"{_json.dumps(stanza, indent=2)}",
+        flush=True,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -106,6 +146,14 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return rc
+
+    # Step 1b: make the committed `command: "python"` launchers resolvable (wave 1p7pm; 1p7pb-adr).
+    # The venv now exists (Step 1), so on macOS/Linux this symlinks `~/.local/bin/python` -> the
+    # stable `python3` and ensures it's on PATH; on Windows it verifies `python` is present + >=3.11.
+    # strict=True at setup: a no-Python box fails loud (the committed configs would be dead-on-arrival).
+    # Runs on the system interpreter (this script does NOT depend on `python` already resolving — P0).
+    venv_bootstrap.ensure_python_resolves(strict=True)
+    _print_gui_fallback_guidance(_repo_root_from_args(args))
 
     # Step 2: render bin/ launchers and platform host configs.
     _print_step("Step 2/3: render bin/ launchers and host configs (render_platform_surfaces.py)")

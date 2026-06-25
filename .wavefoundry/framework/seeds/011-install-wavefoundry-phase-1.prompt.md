@@ -84,16 +84,16 @@ Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
    - Installs deps: numpy, fastembed, lancedb, fastmcp, sentence-transformers, etc.
    - Builds the framework semantic index at `.wavefoundry/framework/index/` (so `docs_search` and `seed_get` work after restart).
    - Builds the project semantic index at `.wavefoundry/index/`.
-2. **Step 2/3 — bin/ launchers and platform host configs** (via `render_platform_surfaces.py`):
-   - `.wavefoundry/bin/docs-lint`, `docs-gardener`, `wave-dashboard`, `mcp-server`, `wave-gate`, `lifecycle-id`.
-   - `.claude/settings.json` (if Claude Code is detected) and equivalents for other hosts; registers the MCP server.
+2. **Step 2/3 — `wf` dispatcher shim + platform host configs** (via `render_platform_surfaces.py`):
+   - The cross-OS `wf` shim pair (`.wavefoundry/bin/wf` + `wf.cmd`) that dispatches to `wf_cli.py`, which routes subcommands `wf docs-lint`, `wf docs-gardener`, `wf gate`, `wf dashboard`, `wf update-indexes`, `wf lifecycle-id`, `wf upgrade`, and `wf setup` to their backing scripts.
+   - `.claude/settings.json` (if Claude Code is detected) and equivalents for other hosts; registers the MCP server (the committed `.mcp.json` runs `python .wavefoundry/framework/scripts/server.py`).
    - **Do NOT create these files by hand.** The renderer is the source of truth; pre-created files will be overwritten on next render and cause spurious diffs.
 3. **Step 3/3 — MCP server dry-run smoke test** (via `server.py --dry-run`):
    - Verifies the MCP server can initialize — all imports work, tool registration succeeds, framework state is loadable.
    - Exits 0 on success, non-zero on failure with a clear diagnostic.
    - This catches startup misconfigurations BEFORE the operator restarts their agent; without this, a broken MCP would only surface after restart.
 
-**Expected artifact:** `.wavefoundry/bin/mcp-server` exists AND `python3 .wavefoundry/framework/scripts/server.py --dry-run` exits 0.
+**Expected artifact:** the committed `.mcp.json` names `command: "python"` + `args: [".wavefoundry/framework/scripts/server.py"]` AND `python3 .wavefoundry/framework/scripts/server.py --dry-run` exits 0.
 
 If any step fails, the orchestrator stops and reports which step. Re-run after fixing — the orchestrator is idempotent (each sub-step detects existing state).
 

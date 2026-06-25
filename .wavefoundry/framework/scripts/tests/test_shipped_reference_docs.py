@@ -58,5 +58,72 @@ class ShippedReferenceDocParityTests(unittest.TestCase):
                 )
 
 
+class UpgradeMcpFirstGuidanceTests(unittest.TestCase):
+    """Wave 1p7ww: the upgrade seed AND the rendered prompt must lead with the MCP-first
+    `wave_upgrade()` directive while still carrying the labeled no-MCP `wf upgrade` fallback, and
+    surface the minor-bump reconciliation callout. Both surfaces are parallel-maintained (the
+    docs/prompts copy is the self-hosted surface, not a mechanical render of the seed), so this
+    cross-checks they stay in parity on these directives."""
+
+    SEED = ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md"
+    PROMPT = "docs/prompts/upgrade-wavefoundry.prompt.md"
+
+    def _read(self, rel: str) -> str:
+        path = REPO_ROOT / rel
+        self.assertTrue(path.is_file(), f"missing: {rel}")
+        return path.read_text(encoding="utf-8")
+
+    def test_seed_leads_with_mcp_first_directive(self) -> None:
+        text = self._read(self.SEED)
+        self.assertIn("MCP-first", text)
+        self.assertIn("wave_upgrade()", text)
+        self.assertIn("wave_upgrade_status", text)
+        # The manual sequence is kept, labeled as the no-MCP CLI fallback (not deleted).
+        self.assertIn("no-MCP", text)
+        self.assertIn("wf upgrade", text)
+        # The minor-bump reconciliation callout names the bin/* -> wf retirement example.
+        self.assertIn("Reconciliation on a minor+ upgrade", text)
+
+    def test_prompt_leads_with_mcp_first_directive(self) -> None:
+        text = self._read(self.PROMPT)
+        self.assertIn("MCP-first", text)
+        self.assertIn("wave_upgrade()", text)
+        self.assertIn("wave_upgrade_status", text)
+        self.assertIn("no-MCP", text)
+        self.assertIn("wf upgrade", text)
+        self.assertIn("Reconciliation recommendation", text)
+
+    def test_mcp_first_directive_leads_the_procedure(self) -> None:
+        # AC-1: the MCP-first directive must LEAD the manual/CLI-fallback procedure in both surfaces.
+        # Anchor on each surface's own "this is the fallback" label so the check is about the directive
+        # heading the procedure, not about an incidental earlier `wf upgrade` mention in an overview.
+        cases = {
+            # In the seed, the relabeled procedure header marks where the fallback begins.
+            self.SEED: "Execution flow (no-MCP CLI fallback",
+            # In the prompt, the MCP-first lead sits at the top of "## Upgrade Steps", before the
+            # versioning-contract / agent-safe-discovery procedure content.
+            self.PROMPT: "**Versioning contract:**",
+        }
+        for rel, fallback_anchor in cases.items():
+            with self.subTest(doc=rel):
+                text = self._read(rel)
+                mcp_pos = text.find("MCP-first")
+                fallback_pos = text.find(fallback_anchor)
+                self.assertGreater(mcp_pos, -1, f"{rel}: missing the MCP-first directive")
+                self.assertGreater(fallback_pos, -1, f"{rel}: missing the fallback anchor {fallback_anchor!r}")
+                self.assertLess(
+                    mcp_pos, fallback_pos,
+                    f"{rel}: the MCP-first directive must lead the manual/CLI-fallback procedure",
+                )
+
+    def test_tool_lists_and_spec_name_wave_upgrade_tools(self) -> None:
+        # AC-2: AGENTS.md available-tools list + the spec name both upgrade tools.
+        agents = self._read("AGENTS.md")
+        self.assertIn("`wave_upgrade`", agents)
+        self.assertIn("`wave_upgrade_status`", agents)
+        spec = self._read("docs/specs/mcp-tool-surface.md")
+        self.assertIn("wave_upgrade_status()", spec)
+
+
 if __name__ == "__main__":
     unittest.main()

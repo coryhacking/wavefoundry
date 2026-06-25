@@ -356,7 +356,7 @@ class IsTestBenchSourceFileTests(unittest.TestCase):
         self.assertFalse(self.mod._is_scripts_source_file("pkg/framework/scripts/server.py"))
 
     def test_bin_directory(self):
-        self.assertTrue(self.mod._is_scripts_source_file("bin/update-indexes"))
+        self.assertTrue(self.mod._is_scripts_source_file("bin/wf"))
 
     def test_cli_directory_any_depth(self):
         self.assertTrue(self.mod._is_scripts_source_file("cli/main.py"))

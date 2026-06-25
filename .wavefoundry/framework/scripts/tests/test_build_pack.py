@@ -434,40 +434,44 @@ class ManifestRevisionTests(unittest.TestCase):
 
 
 class DocsGateTests(unittest.TestCase):
-    """Tests for check_docs_gate()."""
+    """Tests for check_docs_gate().
+
+    Wave 1p7tz: the `bin/docs-gardener`/`bin/docs-lint` wrappers were retired — check_docs_gate now
+    runs `[sys.executable, .wavefoundry/framework/scripts/docs_gardener.py|docs_lint.py]` directly. The
+    fixtures create fake `.py` scripts under framework/scripts/ that exit with the chosen code."""
 
     def setUp(self):
         import tempfile
         self._tmp = tempfile.mkdtemp()
         self.tmp = Path(self._tmp)
-        self.bin_dir = self.tmp / ".wavefoundry" / "bin"
-        self.bin_dir.mkdir(parents=True)
+        self.scripts_dir = self.tmp / ".wavefoundry" / "framework" / "scripts"
+        self.scripts_dir.mkdir(parents=True)
 
     def tearDown(self):
         import shutil
         shutil.rmtree(self._tmp, ignore_errors=True)
 
-    def _make_script(self, name: str, exit_code: int) -> None:
-        import stat
-        script = self.bin_dir / name
-        script.write_text(f"#!/bin/sh\nexit {exit_code}\n", encoding="utf-8")
-        script.chmod(script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    def _make_script(self, module: str, exit_code: int) -> None:
+        # `module` is e.g. "docs_gardener.py" — a valid Python file run under sys.executable.
+        (self.scripts_dir / module).write_text(
+            f"import sys\nsys.exit({exit_code})\n", encoding="utf-8"
+        )
 
     def test_passes_when_both_commands_succeed(self):
-        self._make_script("docs-gardener", 0)
-        self._make_script("docs-lint", 0)
+        self._make_script("docs_gardener.py", 0)
+        self._make_script("docs_lint.py", 0)
         build_pack.check_docs_gate(self.tmp)
 
     def test_fails_when_docs_gardener_fails(self):
-        self._make_script("docs-gardener", 1)
-        self._make_script("docs-lint", 0)
+        self._make_script("docs_gardener.py", 1)
+        self._make_script("docs_lint.py", 0)
         with self.assertRaises(SystemExit) as ctx:
             build_pack.check_docs_gate(self.tmp)
         self.assertNotEqual(ctx.exception.code, 0)
 
     def test_fails_when_docs_lint_fails(self):
-        self._make_script("docs-gardener", 0)
-        self._make_script("docs-lint", 1)
+        self._make_script("docs_gardener.py", 0)
+        self._make_script("docs_lint.py", 1)
         with self.assertRaises(SystemExit) as ctx:
             build_pack.check_docs_gate(self.tmp)
         self.assertNotEqual(ctx.exception.code, 0)
@@ -478,15 +482,15 @@ class DocsGateTests(unittest.TestCase):
         self.assertNotEqual(ctx.exception.code, 0)
 
     def test_fails_when_docs_lint_not_found(self):
-        self._make_script("docs-gardener", 0)
+        self._make_script("docs_gardener.py", 0)
         with self.assertRaises(SystemExit) as ctx:
             build_pack.check_docs_gate(self.tmp)
         self.assertNotEqual(ctx.exception.code, 0)
 
     def test_error_message_names_the_failing_command(self):
         import io
-        self._make_script("docs-gardener", 0)
-        self._make_script("docs-lint", 1)
+        self._make_script("docs_gardener.py", 0)
+        self._make_script("docs_lint.py", 1)
         captured = io.StringIO()
         with patch("sys.stderr", captured):
             with self.assertRaises(SystemExit):
@@ -1009,10 +1013,18 @@ class BuildPackVenvReexecTests(unittest.TestCase):
     """
 
     def test_posix_uses_bin_python_and_execv(self):
+        # Wave 1p7pl: _reexec_with_venv_if_needed now delegates the venv-path
+        # resolution + re-exec to venv_bootstrap (the single resolver). The numpy
+        # short-circuit stays in build_pack, so we still suppress numpy to force the
+        # re-exec; the execv + path assertions now target venv_bootstrap.
+        vb = build_pack.venv_bootstrap
+        venv_python = Path("/fake/venv/bin/python")
         with patch.dict(sys.modules, {"numpy": None}), \
-             patch.object(build_pack.os, "name", "posix"), \
-             patch.object(build_pack.Path, "exists", return_value=True), \
-             patch.object(build_pack.os, "execv") as execv:
+             patch.object(vb, "tool_venv_python", return_value=venv_python), \
+             patch.object(vb, "_running_inside_venv", return_value=False), \
+             patch.object(vb.os, "name", "posix"), \
+             patch.object(vb.Path, "exists", return_value=True), \
+             patch.object(vb.os, "execv") as execv:
             build_pack._reexec_with_venv_if_needed()
             execv.assert_called_once()
             self.assertTrue(execv.call_args[0][0].endswith("bin/python"), execv.call_args[0][0])

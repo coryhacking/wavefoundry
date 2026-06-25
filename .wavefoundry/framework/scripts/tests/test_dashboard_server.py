@@ -1622,6 +1622,79 @@ class DashboardProcessControlTests(unittest.TestCase):
         self.assertIn("http://127.0.0.1:43127/dashboard.html", stdout.getvalue())
 
 
+class DashboardDaemonModeTests(unittest.TestCase):
+    """Wave 1p7pn (1p7pb-adr AC-3): `--daemon` self-detaches the dashboard (OS-correct detach,
+    `sys.executable` child) so the cross-OS `python dashboard_server.py --daemon` forwarder survives
+    shell exit — replacing the bash `nohup ... &`. macOS/Linux foreground behavior is unchanged."""
+
+    def setUp(self):
+        self.lib, self.srv = load_dashboard_modules()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_daemon_respawns_detached_and_exits_without_binding(self):
+        captured = {}
+
+        class _FakeProc:
+            pid = 4242
+
+        def fake_popen(cmd, **kwargs):
+            captured["cmd"] = list(cmd)
+            captured["kwargs"] = kwargs
+            return _FakeProc()
+
+        # If the daemon path is taken, the server must NEVER bind — fail loud if it tries.
+        with patch.object(self.srv.dashboard_lib, "discover_root", return_value=self.root), \
+             patch.object(self.srv, "_QuietThreadingHTTPServer", side_effect=AssertionError("must not bind in --daemon parent")), \
+             patch("subprocess.Popen", side_effect=fake_popen), \
+             patch.dict(os.environ, {}, clear=False), \
+             patch("sys.stdout", new=io.StringIO()) as stdout:
+            os.environ.pop(self.srv._DAEMON_ENV_MARKER, None)
+            rc = self.srv.main(["--daemon", "--root", str(self.root), "--open"])
+
+        self.assertEqual(rc, 0)
+        # Child uses sys.executable (the re-exec'd venv Python), NOT python3.
+        self.assertEqual(captured["cmd"][0], sys.executable)
+        self.assertIn(str(self.srv.Path(self.srv.__file__).resolve()), captured["cmd"])
+        # `--daemon` is stripped from the child args (no infinite re-spawn); `--open` survives.
+        self.assertNotIn("--daemon", captured["cmd"])
+        self.assertIn("--open", captured["cmd"])
+        # Env marker set so the child does not re-daemonize.
+        self.assertEqual(captured["kwargs"]["env"].get(self.srv._DAEMON_ENV_MARKER), "1")
+        # OS-correct detach.
+        if os.name == "nt":
+            self.assertIn("creationflags", captured["kwargs"])
+        else:
+            self.assertTrue(captured["kwargs"].get("start_new_session"))
+        self.assertIn("Wave dashboard started", stdout.getvalue())
+
+    def test_daemon_child_runs_foreground_path_not_redetach(self):
+        # When we ARE the detached child (env marker set), --daemon must NOT re-spawn; it runs the
+        # normal foreground path (here short-circuited by a busy lock so no real bind happens).
+        lock_busy = self.srv.dashboard_lib.DashboardLockBusy
+
+        class BusyLock:
+            def __enter__(self):
+                raise lock_busy("busy")
+
+            def __exit__(self, *a):
+                return False
+
+        with patch.object(self.srv.dashboard_lib, "discover_root", return_value=self.root), \
+             patch.object(self.srv.dashboard_lib, "dashboard_server_lock", return_value=BusyLock()), \
+             patch.object(self.srv.dashboard_lib, "read_dashboard_metadata", return_value={}), \
+             patch("subprocess.Popen", side_effect=AssertionError("child must not re-daemonize")), \
+             patch.dict(os.environ, {self.srv._DAEMON_ENV_MARKER: "1"}), \
+             patch("sys.stdout", new=io.StringIO()):
+            rc = self.srv.main(["--daemon", "--root", str(self.root)])
+
+        self.assertEqual(rc, 0)
+
+
 class DashboardServerLockTests(unittest.TestCase):
     """1p5ya: dedicated lifetime lock `dashboard-server.lock` + flock-try liveness."""
 

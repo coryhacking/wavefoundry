@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Wavefoundry operator CLI — .wavefoundry/bin/wf (wave 1p7tz)
+# Cross-OS dispatcher to the framework entry scripts. `wf <subcommand>` — see `wf --help`.
+# Uses a python3->python fallback so `wf setup` works PRE-symlink on a fresh box (P0).
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$REPO_ROOT"
+if command -v python3 >/dev/null 2>&1; then PYTHON="python3"; else PYTHON="python"; fi
+exec "$PYTHON" "$REPO_ROOT/.wavefoundry/framework/scripts/wf_cli.py" "$@"

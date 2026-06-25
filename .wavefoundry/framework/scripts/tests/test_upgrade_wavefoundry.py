@@ -1222,6 +1222,16 @@ class PreferredPythonTests(unittest.TestCase):
 
     def setUp(self):
         self.mod = load_upgrade_module()
+        # Wave 1p7pm: phase_surface_rendering calls venv_bootstrap.ensure_python_resolves(), which is
+        # SIDE-EFFECTING (creates ~/.local/bin/python + may append to the shell rc). Patch it to a
+        # no-op so driving phase_surface_rendering here never mutates the operator's box. (The real
+        # heal is exercised, safely isolated into a tempdir, only in test_venv_bootstrap.py.)
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        import venv_bootstrap
+        heal = patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok")
+        self.ensure_python_resolves_mock = heal.start()
+        self.addCleanup(heal.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
 
@@ -2802,6 +2812,79 @@ class ConfigReviewRecommendationTests(unittest.TestCase):
         self.assertTrue(self.mod._is_major_or_minor_upgrade("1.6.0", "2.0.0"))
         self.assertFalse(self.mod._is_major_or_minor_upgrade("1.6.0", "1.6.1"))
         self.assertFalse(self.mod._is_major_or_minor_upgrade("1.6.0", "1.6.0"))
+
+
+class ReconciliationRecommendationTests(unittest.TestCase):
+    """Wave 1p7ww: the reconciliation recommendation is surfaced on every major/minor upgrade
+    (sibling of the config-review recommendation, same gate), silent on patch/downgrade/same,
+    fully fail-safe."""
+
+    def setUp(self):
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        self.mod = load_upgrade_module()
+
+    def test_minor_bump_recommends(self):
+        lines = self.mod._reconciliation_recommendation_lines("1.5.0", "1.6.0")
+        self.assertTrue(lines)
+        self.assertTrue(any("Reconciliation recommended" in ln for ln in lines))
+        # Names the concrete 1.9.0 bin/* -> wf retirement example.
+        self.assertTrue(any("`wf`" in ln or "bin/" in ln for ln in lines))
+
+    def test_major_bump_recommends(self):
+        self.assertTrue(self.mod._reconciliation_recommendation_lines("1.6.0", "2.0.0"))
+
+    def test_build_suffix_stripped_minor_recommends(self):
+        self.assertTrue(self.mod._reconciliation_recommendation_lines("1.5.0+abc", "1.6.0+def"))
+
+    def test_patch_bump_silent(self):
+        self.assertEqual(self.mod._reconciliation_recommendation_lines("1.6.0", "1.6.1"), [])
+
+    def test_same_version_silent(self):
+        self.assertEqual(self.mod._reconciliation_recommendation_lines("1.6.0", "1.6.0"), [])
+
+    def test_downgrade_silent(self):
+        self.assertEqual(self.mod._reconciliation_recommendation_lines("1.6.0", "1.5.0"), [])
+
+    def test_unparseable_and_missing_are_silent(self):
+        self.assertEqual(self.mod._reconciliation_recommendation_lines("garbage", "1.6.0"), [])
+        self.assertEqual(self.mod._reconciliation_recommendation_lines(None, "1.6.0"), [])
+        self.assertEqual(self.mod._reconciliation_recommendation_lines("1.6.0", None), [])
+
+    def _capture_summary(self, from_version, to_version):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.mod._print_operator_summary(
+                from_version=from_version,
+                to_version=to_version,
+                zip_path=None,
+                pruned_count=0,
+                ran_index_rebuild=True,
+                failed_phase=None,
+            )
+        return buf.getvalue()
+
+    def test_reconciliation_line_wired_into_operator_summary_on_minor_bump(self):
+        # Wave 1p7ww review: the GATE was tested but the WIRING into _print_operator_summary was not.
+        out = self._capture_summary("1.5.0", "1.6.0")
+        self.assertIn("Reconciliation recommended", out)
+        # Sibling config-review line is also present on the same gate.
+        self.assertIn("Config review recommended", out)
+
+    def test_reconciliation_line_absent_in_summary_on_patch_bump(self):
+        out = self._capture_summary("1.6.0", "1.6.1")
+        self.assertNotIn("Reconciliation recommended", out)
+        self.assertNotIn("Config review recommended", out)
+
+    def test_reconciliation_line_absent_in_summary_on_failed_phase(self):
+        # Recommendations are suppressed when the upgrade failed mid-phase.
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.mod._print_operator_summary(
+                from_version="1.5.0", to_version="1.6.0", zip_path=None,
+                pruned_count=0, ran_index_rebuild=False, failed_phase="docs_gate",
+            )
+        self.assertNotIn("Reconciliation recommended", buf.getvalue())
 
 
 class DetectDashboardLivenessTests(unittest.TestCase):

@@ -25,6 +25,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import provider_policy
 
 TIMESTAMP_LOGS_ENV = "WAVEFOUNDRY_TIMESTAMP_LOGS"
@@ -125,11 +126,8 @@ class ModelPrewarmError(RuntimeError):
 
 
 def _tool_venv_python() -> Path:
-    base = Path(os.environ.get("WAVEFOUNDRY_TOOL_VENV", "~/.wavefoundry/venv"))
-    venv = base.expanduser()
-    if os.name == "nt":
-        return venv / "Scripts" / "python.exe"
-    return venv / "bin" / "python"
+    """Tool-venv Python path — delegates to the single resolver (wave 1p7pl)."""
+    return venv_bootstrap.tool_venv_python()
 
 
 def _bootstrap_venv() -> Path:
@@ -315,36 +313,12 @@ def ensure_deps() -> None:
 
 
 def _reexec_with_venv_if_needed() -> None:
-    """Re-exec this script under the venv Python if we are not already running from it.
+    """Re-exec under the tool-venv Python — delegates to the single bootstrap (wave 1p7pl).
 
-    On a fresh install the caller is the system Python, which does not have the
-    framework packages. Once ``ensure_deps()`` has populated the venv, this
-    function replaces the current process (via ``os.execv``) with the venv Python
-    running the same script and arguments, so that ``prewarm_models()`` and the
-    index build can import framework packages directly.
-
-    No-ops when already running from the venv or when the venv does not exist.
+    No-ops when already in the venv or when it does not exist yet (fresh install,
+    before ``ensure_deps()`` builds it), so it never blocks venv creation.
     """
-    venv_python = _tool_venv_python()
-    if not venv_python.exists():
-        return
-    # Use sys.prefix rather than sys.executable to detect venv membership.
-    # On macOS/Homebrew, venv Python is a symlink to the same underlying
-    # binary as the system Python, so executable path comparison gives false
-    # positives. sys.prefix is set to the venv directory when inside a venv
-    # and to the interpreter's installation prefix otherwise.
-    try:
-        if Path(sys.prefix).resolve() == venv_python.parent.parent.resolve():
-            return  # Already running inside the venv — nothing to do.
-    except Exception:
-        pass
-    if os.name == "nt":
-        # os.execv on Windows spawns a child and exits the parent with code 0,
-        # so the child's exit code is lost. Use subprocess to preserve it.
-        result = subprocess.run([str(venv_python)] + sys.argv, check=False)
-        sys.exit(result.returncode)
-    else:
-        os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+    venv_bootstrap.reexec_into_tool_venv()
 
 
 def _indexer_models(include_code: bool) -> list[str]:
@@ -394,6 +368,10 @@ def _embedding_providers_for_setup() -> list[str]:
 
 # 1p7iu: TLS-inspecting corporate proxies put the root CA in the OS trust store but not in the venv's
 # bundled certifi, so model downloads fail CERTIFICATE_VERIFY_FAILED while curl/system tools succeed.
+# These are POSIX paths only — on native Windows this middle "platform" tier is effectively empty
+# (the OS trust store is the registry cert store, not a PEM file). Windows corporate-proxy users
+# therefore rely on the host-agent / operator env tiers (`CODEX_CA_CERTIFICATE` /
+# `CLAUDE_CODE_CERT_STORE` / `SSL_CERT_FILE`, wave 1p7s6) and the certifi-default last resort.
 _OS_CA_BUNDLE_CANDIDATES = (
     "/etc/ssl/certs/ca-certificates.crt",   # Debian/Ubuntu/WSL2
     "/etc/pki/tls/certs/ca-bundle.crt",     # RHEL/CentOS/Fedora
@@ -402,18 +380,56 @@ _OS_CA_BUNDLE_CANDIDATES = (
 )
 
 
-def _os_trust_store_bundle() -> "str | None":
-    """An OS CA bundle for the TLS fallback. Honors a preset SSL_CERT_FILE/REQUESTS_CA_BUNDLE first
-    (operator override), then known platform locations; ``None`` if none exist. Verification stays ON —
-    this only selects WHICH trusted CA bundle to verify against, never disables verification."""
-    for env in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"):
-        val = os.environ.get(env)
-        if val and os.path.isfile(val):
-            return val
+# Wave 1p7s6: host coding agents expose their OWN CA-bundle env vars for corporate-proxy / private-root-CA
+# environments — when set, the host has already declared the authoritative bundle. Codex's
+# CODEX_CA_CERTIFICATE explicitly "takes precedence over SSL_CERT_FILE", so host-agent vars go FIRST.
+_HOST_AGENT_CA_ENV_VARS = ("CODEX_CA_CERTIFICATE", "CLAUDE_CODE_CERT_STORE")
+_GENERIC_CA_ENV_VARS = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE")
+# Operator-stack CA env vars the fallback may pre-configure (the ones the TLS stack actually reads).
+_STACK_CA_ENV_VARS = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE")
+
+
+def _certifi_default_bundle() -> "str | None":
+    """The certifi default CA bundle path (the TLS baseline), or ``None`` if certifi is unavailable."""
+    try:
+        import certifi
+        path = certifi.where()
+    except Exception:  # noqa: BLE001
+        return None
+    return path if path and os.path.isfile(path) else None
+
+
+def _os_trust_store_candidates() -> "list[str]":
+    """Ordered, de-duplicated list of trusted CA bundles to try, most-authoritative first (wave 1p7s6).
+
+    Order (Req 1 / Req 5): host-agent vars (``CODEX_CA_CERTIFICATE`` → ``CLAUDE_CODE_CERT_STORE``) →
+    operator vars (``SSL_CERT_FILE`` → ``REQUESTS_CA_BUNDLE``) → platform OS-trust-store locations →
+    **the certifi default as the final fallback** (so a wrong/stale host-agent var can never make
+    recovery worse than today's certifi-first baseline). Only existing files are included. Verification
+    stays ON for every candidate — this only selects WHICH trusted bundle to verify against."""
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def _add(path: "str | None") -> None:
+        if path and os.path.isfile(path) and path not in seen:
+            seen.add(path)
+            candidates.append(path)
+
+    for env in (*_HOST_AGENT_CA_ENV_VARS, *_GENERIC_CA_ENV_VARS):
+        _add(os.environ.get(env))
     for path in _OS_CA_BUNDLE_CANDIDATES:
-        if os.path.isfile(path):
-            return path
-    return None
+        _add(path)
+    _add(_certifi_default_bundle())
+    return candidates
+
+
+def _os_trust_store_bundle() -> "str | None":
+    """First trusted CA bundle from the ordered candidate list (wave 1p7s6), or ``None``.
+
+    Back-compat thin accessor over ``_os_trust_store_candidates`` (host-agent vars → operator vars →
+    platform locations → certifi default). Verification stays ON — never disables verification."""
+    candidates = _os_trust_store_candidates()
+    return candidates[0] if candidates else None
 
 
 def _is_cert_verify_error(exc: BaseException) -> bool:
@@ -428,6 +444,32 @@ def _is_cert_verify_error(exc: BaseException) -> bool:
     return False
 
 
+def _host_agent_ca_bundle() -> "str | None":
+    """The first host-agent CA env var (``CODEX_CA_CERTIFICATE`` → ``CLAUDE_CODE_CERT_STORE``) that
+    points at a real file (wave 1p7s6), or ``None``. A set one implies a TLS-intercepting environment."""
+    for env in _HOST_AGENT_CA_ENV_VARS:
+        val = os.environ.get(env)
+        if val and os.path.isfile(val):
+            return val
+    return None
+
+
+def _apply_ca_bundle(bundle: str) -> None:
+    """Point the TLS stack's CA env vars at ``bundle`` and rebuild huggingface_hub's cached session.
+
+    huggingface_hub (which fastembed's snapshot_download uses) caches a GLOBAL httpx.Client whose SSL
+    context is built ONCE — setting the env after the client exists is a no-op against it. ``close_session``
+    (documented for exactly "an SSL certificate updated") forces the next request to rebuild the client
+    against ``bundle``. Verification stays ON — this only swaps WHICH trusted bundle is verified against."""
+    os.environ["SSL_CERT_FILE"] = bundle
+    os.environ["REQUESTS_CA_BUNDLE"] = bundle
+    try:
+        import huggingface_hub
+        huggingface_hub.close_session()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _warm_model(model_name: str, *, local_files_only: bool) -> None:
     from fastembed import TextEmbedding
 
@@ -439,43 +481,101 @@ def _warm_model(model_name: str, *, local_files_only: bool) -> None:
         )
         next(iter(embedding.embed(["wavefoundry cache verification"])))
 
+    # Scope/restore the operator's original stack CA env (security finding, Req 2/3): per-attempt env
+    # mutation must never silently discard a set SSL_CERT_FILE/REQUESTS_CA_BUNDLE. The TRUE original is
+    # snapshotted ONCE here; when the operator HAD set their env, a try/finally restores it on EVERY exit
+    # (success or failure) so a clobbered trust anchor can never leak out. When the operator left it
+    # unset, the winning bundle is left in place on success (so the rest of the run reuses it).
+    _orig_stack_env = {k: os.environ.get(k) for k in _STACK_CA_ENV_VARS}
+    _operator_set_stack = any(v is not None for v in _orig_stack_env.values())
+    _tried: set[str] = set()
+
+    def _restore_stack_env() -> None:
+        for k, v in _orig_stack_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    _succeeded = False
     try:
-        _build()
-        return
-    except Exception as exc:  # noqa: BLE001
-        # Only intervene on a genuine cert-verify failure during an ONLINE fetch — never a cache miss
-        # (local_files_only) or any other error.
-        if local_files_only or not _is_cert_verify_error(exc):
-            raise
-        bundle = _os_trust_store_bundle()
-        already_tried = (
-            os.environ.get("SSL_CERT_FILE") == bundle
-            and os.environ.get("REQUESTS_CA_BUNDLE") == bundle
-        )
-        if not bundle or already_tried:
+        # Proactive pre-config (Req 2): when a host-agent CA var points at a real file and the operator's
+        # stack CA env is UNSET, configure the bundle from it BEFORE the first fetch — a set host-agent
+        # var implies a TLS-intercepting env where the default certifi bundle fails anyway, so this skips
+        # the guaranteed-fail certifi round-trip. (When the operator set their own, that always wins.)
+        proactive = None
+        if not _operator_set_stack:
+            proactive = _host_agent_ca_bundle()
+            if proactive is not None:
+                print(
+                    f"Host-agent CA bundle detected; configuring the model fetch for '{model_name}' "
+                    f"against it before the first attempt ({proactive}). TLS verification stays ON.",
+                    flush=True,
+                )
+                _apply_ca_bundle(proactive)
+                _tried.add(proactive)
+
+        try:
+            _build()
+            _succeeded = True
+            return
+        except Exception as exc:  # noqa: BLE001
+            # Only intervene on a genuine cert-verify failure during an ONLINE fetch — never a cache
+            # miss (local_files_only) or any other error.
+            if local_files_only or not _is_cert_verify_error(exc):
+                raise
+            # Mark the bundle the FIRST attempt effectively used so the iteration does not re-run it:
+            # if the operator set their own stack CA env, that bundle was used; otherwise the attempt
+            # ran against the certifi default. (The proactive bundle, if any, is already in _tried.)
+            if proactive is None:
+                if _operator_set_stack:
+                    for k in _STACK_CA_ENV_VARS:
+                        v = _orig_stack_env.get(k)
+                        if v and os.path.isfile(v):
+                            _tried.add(v)
+                else:
+                    certifi_default = _certifi_default_bundle()
+                    if certifi_default is not None:
+                        _tried.add(certifi_default)
+
+            # Candidate iteration (Req 5): host-agent → operator → platform → certifi-default last.
+            # Each tried at most once; verification stays ON; rebuild the hf session between attempts.
+            for bundle in _os_trust_store_candidates():
+                if bundle in _tried:
+                    continue
+                _tried.add(bundle)
+                print(
+                    f"Model download for '{model_name}' failed TLS verification; retrying against the "
+                    f"trust store ({bundle}). TLS verification stays ON.",
+                    flush=True,
+                )
+                _apply_ca_bundle(bundle)
+                try:
+                    _build()
+                    _succeeded = True
+                    return
+                except Exception as retry_exc:  # noqa: BLE001
+                    if not _is_cert_verify_error(retry_exc):
+                        raise
+                    # cert-verify failed for this bundle too — degrade to the next candidate.
+                    continue
+
+            # Every candidate failed cert-verify — fail loud.
             raise ModelPrewarmError(
-                f"Model '{model_name}' download failed TLS verification (CERTIFICATE_VERIFY_FAILED) and the "
-                "OS trust store did not resolve it. Behind a TLS-inspecting proxy, point the CA bundle at your "
-                "OS store and retry: export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt "
+                f"Model '{model_name}' download failed TLS verification (CERTIFICATE_VERIFY_FAILED) and "
+                "no trusted CA bundle resolved it. Behind a TLS-inspecting proxy or with a private root "
+                "CA, point the CA bundle at the right store and retry — set your host agent's CA var "
+                "(CODEX_CA_CERTIFICATE / CLAUDE_CODE_CERT_STORE) or the generic SSL_CERT_FILE / "
+                "REQUESTS_CA_BUNDLE, e.g. export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt "
                 "REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt"
             ) from exc
-        print(
-            f"Model download for '{model_name}' failed certifi TLS verification; retrying against the OS "
-            f"trust store ({bundle}). TLS verification stays ON.",
-            flush=True,
-        )
-        os.environ["SSL_CERT_FILE"] = bundle
-        os.environ["REQUESTS_CA_BUNDLE"] = bundle
-        # huggingface_hub (which fastembed's snapshot_download uses) caches a GLOBAL httpx.Client whose
-        # SSL context is built ONCE against certifi — so setting the env after the first attempt is a
-        # no-op against the already-built client. Reset it so the retry rebuilds the client against the
-        # OS bundle we just set. (close_session is documented for exactly "an SSL certificate updated".)
-        try:
-            import huggingface_hub
-            huggingface_hub.close_session()
-        except Exception:  # noqa: BLE001
-            pass
-        _build()  # verification still on, now trusting the OS bundle
+    finally:
+        # Restore the operator's TRUE original stack CA env on EVERY exit when they had set it (a
+        # clobbered trust anchor must never leak out — success or failure). When the operator left it
+        # unset, leave the winning bundle in place on success, but restore (pop) on failure so a
+        # non-working bundle is not left set.
+        if _operator_set_stack or not _succeeded:
+            _restore_stack_env()
 
 
 def _probe_embedding_provider(provider: str, *, model_name: str | None = None) -> provider_policy.ProviderProbeResult:
@@ -921,7 +1021,7 @@ def _run_indexer(
     if "Another index build is already running" in combined_output or "lock file busy" in combined_output:
         index_dir = root / ".wavefoundry" / "index"
         lock_path = index_dir / "index-build.lock"
-        detail = f"The existing build holds {lock_path}; wait for it to finish, then rerun update-indexes if you still need a refresh."
+        detail = f"The existing build holds {lock_path}; wait for it to finish, then rerun `wf update-indexes` if you still need a refresh."
         try:
             spec = importlib.util.spec_from_file_location(
                 "wavefoundry_indexer_for_setup_lock",
@@ -1141,7 +1241,8 @@ def main(argv: list[str] | None = None) -> int:
         _spawn_background_code_build(root, args)
     print(
         f"\nDone. Project index update complete.\n"
-        f"MCP handoff: .wavefoundry/bin/mcp-server",
+        f"MCP handoff: restart your AI agent so the Wavefoundry MCP server attaches "
+        f"(the committed config launches `python .wavefoundry/framework/scripts/server.py`).",
         flush=True,
     )
     return 0
