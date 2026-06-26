@@ -27,10 +27,10 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 
-# Re-exec into the shared tool venv before any heavy work (wave 1p7pl). This is a
-# no-op on a fresh box (the venv does not exist yet), so it never blocks setup_index
-# from creating the venv; once the venv exists, re-running setup uses the venv Python.
-venv_bootstrap.reexec_into_tool_venv()
+# Activate the shared tool venv IN-PROCESS before any heavy work (wave 1p7pl/1p802). This is a
+# no-op on a fresh box (the venv does not exist yet). If the existing venv was built for a different
+# Python minor, do NOT exit here: setup is the repair path and setup_index will recreate the stale venv.
+venv_bootstrap.activate_tool_venv(allow_version_mismatch=True)
 
 
 def _load_setup_index():

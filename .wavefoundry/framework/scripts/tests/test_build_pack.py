@@ -1002,29 +1002,22 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class BuildPackVenvReexecTests(unittest.TestCase):
-    """1p6d6: _reexec_with_venv_if_needed keeps bin/python + os.execv on POSIX (no-regression).
+class BuildPackVenvActivationTests(unittest.TestCase):
+    """Wave 1p802: ``_reexec_with_venv_if_needed`` (name kept for back-compat) now delegates to
+    ``venv_bootstrap.activate_tool_venv`` — in-process activation, NO ``os.execv``/re-exec. The numpy
+    short-circuit stays in build_pack (an interpreter that already has numpy never re-activates)."""
 
-    The Windows branch (Scripts\\python.exe + subprocess.run, mirroring the setup_index.py:341
-    oracle) is NOT unit-tested here: patching os.name='nt' makes pathlib instantiate WindowsPath,
-    which raises UnsupportedOperation on a POSIX runner the moment the function builds the venv
-    Path — the same reason the oracle isn't nt-unit-tested. Verified by code review + the shared
-    oracle; end-to-end execution is Windows-deferred.
-    """
-
-    def test_posix_uses_bin_python_and_execv(self):
-        # Wave 1p7pl: _reexec_with_venv_if_needed now delegates the venv-path
-        # resolution + re-exec to venv_bootstrap (the single resolver). The numpy
-        # short-circuit stays in build_pack, so we still suppress numpy to force the
-        # re-exec; the execv + path assertions now target venv_bootstrap.
-        vb = build_pack.venv_bootstrap
-        venv_python = Path("/fake/venv/bin/python")
+    def test_activates_venv_when_numpy_absent(self):
         with patch.dict(sys.modules, {"numpy": None}), \
-             patch.object(vb, "tool_venv_python", return_value=venv_python), \
-             patch.object(vb, "_running_inside_venv", return_value=False), \
-             patch.object(vb.os, "name", "posix"), \
-             patch.object(vb.Path, "exists", return_value=True), \
-             patch.object(vb.os, "execv") as execv:
+             patch.object(build_pack.venv_bootstrap, "activate_tool_venv") as activate:
             build_pack._reexec_with_venv_if_needed()
-            execv.assert_called_once()
-            self.assertTrue(execv.call_args[0][0].endswith("bin/python"), execv.call_args[0][0])
+            activate.assert_called_once()
+
+    def test_short_circuits_when_numpy_present(self):
+        # numpy importable → no activation needed (CI env with deps installed).
+        import types
+        fake_numpy = types.ModuleType("numpy")
+        with patch.dict(sys.modules, {"numpy": fake_numpy}), \
+             patch.object(build_pack.venv_bootstrap, "activate_tool_venv") as activate:
+            build_pack._reexec_with_venv_if_needed()
+            activate.assert_not_called()

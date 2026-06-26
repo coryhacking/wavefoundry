@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted
-Last verified: 2026-06-24
+Last verified: 2026-06-25
 
 ## Context
 
@@ -30,7 +30,7 @@ Distribute launchers as a **single committed, byte-identical `python` command, m
 **The decision serves two co-equal goals:**
 
 - **(A) native cross-OS spawnability** — one committed checkout is correct on macOS, Linux, and native Windows (for CLI hosts);
-- **(B) a single runtime execution surface** — *exactly one* venv-resolution implementation (`reexec_into_tool_venv`), with **no config, launcher, hook body, or spawner re-deriving the venv path**. Goal B's success test is a **standing scan that fails if any file other than the shared helper contains a `Scripts`-vs-`bin` / `WAVEFOUNDRY_TOOL_VENV` branch**.
+- **(B) a single runtime execution surface** — *exactly one* venv-resolution implementation (`activate_tool_venv`; wave 1p802 replaced the original `reexec_into_tool_venv` with in-process activation), with **no config, launcher, hook body, or spawner re-deriving the venv path**. Goal B's success test is a **standing scan that fails if any file other than the shared helper contains a `Scripts`-vs-`bin` / `WAVEFOUNDRY_TOOL_VENV` branch**.
 
 Every runtime-entry surface converges on the one helper + the `python` command — the `render_platform_surfaces` MCP/hook configs, the Codex config in **`render_agent_surfaces.py`** (`CODEX_MCP_CONFIG_TOML`, a *separate* file), the hand-committed `.air/mcp.json`, the nine `bin/*` shims (thin `exec python <script>` forwarders), the git hooks, and the dev-facing `run_tests.py` + `wave-dashboard`.
 
@@ -52,9 +52,9 @@ Every runtime-entry surface converges on the one helper + the `python` command �
 
 **Constraints imposed:**
 
-- **Three interpreter tiers (avoids the setup circularity):** (1) **setup** runs on the **system interpreter** (`python3`→`python` fallback) *before* the symlink exists — it creates the venv *then* the `python` symlink, so `setup-wavefoundry`/`setup-index` must **not** be flipped to bare `python` (the canonical fresh-bootstrap is `python3 setup_wavefoundry.py`); (2) **committed configs + post-setup bin shims** name `python` (resolvable after the symlink/installer); (3) every **inner/child spawn after bootstrap** uses `sys.executable` (the venv python — an absolute path), never a re-resolved `python3`/`python` token. The first-line bootstrap **no-ops when the venv is absent** and never blocks `setup_index.ensure_deps()` from creating it.
+- **Three interpreter tiers (avoids the setup circularity):** (1) **setup** runs on the **system interpreter** (`python3`→`python` fallback) *before* the symlink exists — it creates the venv *then* the `python` symlink, so `setup-wavefoundry`/`setup-index` must **not** be flipped to bare `python` (the canonical fresh-bootstrap is `python3 setup_wavefoundry.py`); (2) **committed configs + post-setup bin shims** name `python`, which **activates the venv in-process** (wave 1p802: `site.addsitedir`, not a re-exec — see below); (3) every **inner/child spawn after bootstrap** uses `sys.executable` (after in-process activation this is the *system* interpreter — the re-spawned framework script self-activates first-line, so it reaches the venv packages too), never a re-resolved `python3`/`python` token. The first-line bootstrap **no-ops when the venv is absent** and never blocks `setup_index.ensure_deps()` from creating it.
 - A **symlink (real executable on PATH), never a shell alias** — aliases are not honored by raw process spawn.
-- The bootstrap **must not** use `os.execv` on Windows (the CRT emulates it as spawn-child-then-exit-parent, orphaning the host stdio pipe → the MCP host sees a crash); use `subprocess.run([venv_python, __file__, *argv])` inheriting stdio + `sys.exit(rc)`. `os.execv` is POSIX-only.
+- **Tier-2 mechanism — in-process activation, no re-exec (amended wave 1p802).** The original bootstrap **re-exec'd** into the venv interpreter — `os.execv` on POSIX (in-place, same PID) but a `subprocess` child on Windows (no in-place exec). An MCP host spawns ONE process and owns its stdio; the Windows child became a second process holding the same stdout pipe → broken pipe / orphan on reconnect (1.9.0 field report). The bootstrap now **activates the venv in the already-running process** (`venv_bootstrap.activate_tool_venv` → `site.addsitedir` of the venv site-packages), keeping a SINGLE host-spawned process on every OS — the `os.execv`-vs-`subprocess` per-OS split is gone. Trade-off: the re-exec was robust to a Python-version upgrade for free; in-process activation cannot load ABI-incompatible compiled deps, so a **version guard** (read `pyvenv.cfg`; mismatch ⇒ "run `wf setup`" + `sys.exit`) fails loud instead of crashing.
 - The bootstrap is **stdlib-only**, runs as the genuine first statement **before** `import server_impl`, and writes diagnostics to **stderr only** (any stdout byte before `mcp.run()` corrupts the JSON-RPC handshake); no-op when already the venv python.
 - `python` resolution is verified-and-healed by a **reusable `ensure_python_resolves()`** run at **setup, every render, and every upgrade** (called from `setup_wavefoundry.py`, `render_platform_surfaces`, and `upgrade_wavefoundry`): no-op if `python` already resolves to ≥3.11; warn (don't clobber) if it resolves to something else; else (macOS/Linux) symlink `~/.local/bin/python` → the stable `python3` + ensure `~/.local/bin` on PATH; **re-heal a dangling/stale symlink** so `python` stays correct across Python upgrades. Strict at setup (no Python ⇒ fail loud); self-heal + non-fatal warn at render/upgrade. Windows needs no shim (`python` native, installer-maintained).
 - Git-hook bodies migrate onto the same bootstrap; add a `.gitattributes` pinning `*.py` + launchers to `eol=lf` (autocrlf shebang corruption).

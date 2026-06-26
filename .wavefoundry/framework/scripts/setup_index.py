@@ -135,6 +135,15 @@ def _bootstrap_venv() -> Path:
     venv_python = _tool_venv_python()
     venv_dir = venv_python.parent.parent
 
+    built_for = venv_bootstrap._venv_python_version(venv_dir)
+    if venv_python.exists() and built_for is not None and built_for != sys.version_info[:2]:
+        print(
+            f"Tool venv at {venv_dir} was built for Python {built_for[0]}.{built_for[1]} "
+            f"but setup is running on {sys.version_info[0]}.{sys.version_info[1]}; recreating ...",
+            flush=True,
+        )
+        shutil.rmtree(venv_dir, ignore_errors=True)
+
     if venv_dir.exists() and not venv_python.exists():
         # Partial venv: directory present but Python binary absent — delete and recreate.
         print(f"Incomplete venv detected at {venv_dir}; recreating ...", flush=True)
@@ -313,12 +322,13 @@ def ensure_deps() -> None:
 
 
 def _reexec_with_venv_if_needed() -> None:
-    """Re-exec under the tool-venv Python — delegates to the single bootstrap (wave 1p7pl).
+    """Activate the tool venv in-process — delegates to the single bootstrap (wave 1p7pl/1p802).
 
     No-ops when already in the venv or when it does not exist yet (fresh install,
-    before ``ensure_deps()`` builds it), so it never blocks venv creation.
+    before ``ensure_deps()`` builds it), so it never blocks venv creation. (Name kept
+    for back-compat with callers/tests; the behavior is now activate, not re-exec.)
     """
-    venv_bootstrap.reexec_into_tool_venv()
+    venv_bootstrap.activate_tool_venv()
 
 
 def _indexer_models(include_code: bool) -> list[str]:

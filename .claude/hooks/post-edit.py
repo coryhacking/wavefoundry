@@ -10,7 +10,7 @@ if _WF_SCRIPTS.is_dir() and str(_WF_SCRIPTS) not in _wf_sys.path:
 try:
     import venv_bootstrap as _wf_venv_bootstrap
 
-    _wf_venv_bootstrap.reexec_into_tool_venv()
+    _wf_venv_bootstrap.activate_tool_venv()
 except Exception:
     pass
 
@@ -137,9 +137,10 @@ def run_command(argv: list[str]) -> subprocess.CompletedProcess[str]:
 def maybe_docs_lint(file_path: str) -> tuple[bool, str]:
     if not file_path.startswith("docs/"):
         return False, ""
-    # Wave 1p7tz: the `bin/docs-lint` wrapper was retired — invoke docs_lint.py directly under
-    # the venv interpreter (the body already re-exec'd into the venv first-line, so
-    # sys.executable IS the venv Python).
+    # Wave 1p7tz/1p802: the `bin/docs-lint` wrapper was retired — invoke docs_lint.py directly
+    # via sys.executable. After in-process activation sys.executable stays the SYSTEM
+    # interpreter; the spawned docs_lint.py self-activates the venv first-line, so it reaches
+    # the venv packages.
     docs_lint = REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "docs_lint.py"
     result = run_command([sys.executable, str(docs_lint)])
     if result.returncode == 0:
@@ -178,8 +179,9 @@ def maybe_trigger_reindex(file_path: str) -> None:
     indexer = REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
     if not indexer.exists():
         return
-    # The body has already re-exec'd into the tool venv (first-line bootstrap), so
-    # sys.executable IS the venv Python — an absolute path; never re-resolve a token.
+    # sys.executable is the SYSTEM interpreter (after in-process activation, wave 1p802) — an
+    # absolute path; the spawned indexer.py self-activates the venv first-line so the child
+    # reaches the venv packages. Never re-resolve a python3/python token.
     python_exec = sys.executable
     index_dir = REPO_ROOT / ".wavefoundry" / "index"
     try:

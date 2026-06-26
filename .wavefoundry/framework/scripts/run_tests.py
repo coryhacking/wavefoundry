@@ -57,10 +57,10 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 
-# Re-exec into the shared tool venv before any heavy work (wave 1p7pl AC-4): every direct-launch entry
-# self-bootstraps so a bare `python run_tests.py` runs the suite on the venv interpreter. No-op when
-# already in the venv or when it does not exist yet (fresh bootstrap).
-venv_bootstrap.reexec_into_tool_venv()
+# Activate the shared tool venv IN-PROCESS before any heavy work (wave 1p7pl/1p802 AC-3): every
+# direct-launch entry self-bootstraps so a bare `python run_tests.py` runs the suite with the venv
+# packages. No-op when already in the venv or when it does not exist yet (fresh bootstrap).
+venv_bootstrap.activate_tool_venv()
 
 
 # Files and directories under _FRAMEWORK_DIR excluded from the cache hash.

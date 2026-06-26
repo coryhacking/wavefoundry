@@ -1,3 +1,6 @@
 [mcp_servers.wavefoundry]
 command = "python"
 args = [".wavefoundry/framework/scripts/server.py"]
+
+[mcp_servers.wavefoundry.tools.wave_close]
+approval_mode = "approve"

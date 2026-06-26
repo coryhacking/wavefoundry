@@ -10,7 +10,7 @@ if _WF_SCRIPTS.is_dir() and str(_WF_SCRIPTS) not in _wf_sys.path:
 try:
     import venv_bootstrap as _wf_venv_bootstrap
 
-    _wf_venv_bootstrap.reexec_into_tool_venv()
+    _wf_venv_bootstrap.activate_tool_venv()
 except Exception:
     pass
 
@@ -36,8 +36,9 @@ def main(argv: list[str]) -> int:
     if target is None:
         print(f"unknown hook entrypoint: {hook_name}", file=sys.stderr)
         return 2
-    # The body re-exec'd into the tool venv (first-line bootstrap) → sys.executable IS the
-    # venv Python (an absolute path); never re-resolve a token.
+    # sys.executable is the SYSTEM interpreter (after in-process activation, wave 1p802); the
+    # spawned hook target self-activates the venv first-line, so it reaches the venv packages.
+    # An absolute path; never re-resolve a token.
     python_exec = sys.executable
     result = subprocess.run(
         [python_exec, str(target)],

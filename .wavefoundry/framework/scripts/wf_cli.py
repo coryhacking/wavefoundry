@@ -6,10 +6,10 @@ argparse dispatcher exposed through a thin ``wf`` (bash) + ``wf.cmd`` (Windows) 
 subcommand routes to an existing entry script, forwarding the remaining ``argv`` through to that
 target's own argument parsing — ``wf_cli`` only dispatches, it re-homes no logic.
 
-Three-tier bootstrap (1p7pb-adr): every subcommand re-execs into the shared tool venv first —
-**except** ``setup``, which must stay on the system interpreter pre-symlink so a fresh bootstrap is
-never blocked (``setup_wavefoundry`` owns venv + ``python`` symlink creation; its own import-time
-``reexec_into_tool_venv`` no-ops when the venv does not exist yet).
+Three-tier bootstrap (1p7pb-adr / 1p802): every subcommand activates the shared tool venv in-process
+first — **except** ``setup``, which must stay on the system interpreter pre-symlink so a fresh
+bootstrap is never blocked (``setup_wavefoundry`` owns venv + ``python`` symlink creation; its own
+import-time ``activate_tool_venv`` no-ops when the venv does not exist yet).
 """
 from __future__ import annotations
 
@@ -49,9 +49,10 @@ _SUBCOMMANDS: dict[str, dict] = {
     "setup": {"module": "setup_wavefoundry", "script": "setup_wavefoundry.py"},
 }
 
-# ``setup`` must NOT trigger the dispatcher's up-front venv re-exec: it runs on a fresh box BEFORE the
-# ``python`` symlink / venv exists, so it stays on the system interpreter (``setup_wavefoundry`` owns
-# venv creation, and its import-time re-exec no-ops pre-venv). Every other subcommand re-execs first.
+# ``setup`` must NOT trigger the dispatcher's up-front venv activation: it runs on a fresh box BEFORE
+# the ``python`` symlink / venv exists, so it stays on the system interpreter (``setup_wavefoundry``
+# owns venv creation, and its import-time ``activate_tool_venv`` no-ops pre-venv). Every other
+# subcommand activates the venv in-process first.
 _SETUP_SUBCOMMAND = "setup"
 
 
@@ -136,10 +137,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"unknown subcommand: {subcommand!r} (choose from {', '.join(_SUBCOMMANDS)})")
     rest = args[1:]
 
-    # Three-tier bootstrap: re-exec into the tool venv up-front for every subcommand EXCEPT setup
-    # (which must stay on the system interpreter pre-symlink — see _SETUP_SUBCOMMAND).
+    # Three-tier bootstrap: activate the tool venv in-process up-front for every subcommand EXCEPT
+    # setup (which must stay on the system interpreter pre-symlink — see _SETUP_SUBCOMMAND).
     if subcommand != _SETUP_SUBCOMMAND:
-        venv_bootstrap.reexec_into_tool_venv()
+        venv_bootstrap.activate_tool_venv()
 
     return _dispatch(subcommand, rest)
 

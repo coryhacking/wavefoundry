@@ -1,40 +1,48 @@
-"""Shared tool-venv bootstrap — the single venv resolver + re-exec (wave 1p7pl).
+"""Shared tool-venv bootstrap — the single venv resolver + IN-PROCESS activation (wave 1p7pl/1p802).
 
 Stdlib-only by contract. Imported first-line by every framework entry point so the
-process re-execs into the shared tool venv *before* any heavy import. This is the
-ONE venv-resolution implementation (1p7pb-adr goal B): no other module may compute
-the ``Scripts``-vs-``bin`` / ``WAVEFOUNDRY_TOOL_VENV`` venv path — they call the
-accessors here. A standing scan test enforces that (the only allowlisted exception
-is ``setup``'s pre-venv system-interpreter bootstrap).
+process **activates** the shared tool venv *before* any heavy import. This is the ONE
+venv-resolution implementation (1p7pb-adr goal B): no other module may compute the
+``Scripts``-vs-``bin`` / ``WAVEFOUNDRY_TOOL_VENV`` venv path — they call the accessors
+here. A standing scan test enforces that (the only allowlisted exception is ``setup``'s
+pre-venv system-interpreter bootstrap).
 
 Three interpreter tiers (1p7pb-adr):
-  1. setup runs on the system interpreter (pre-venv) — the re-exec no-ops because
-     the venv does not exist yet, so it never blocks ``setup_index.ensure_deps``
+  1. setup runs on the system interpreter (pre-venv) — ``activate_tool_venv`` no-ops
+     because the venv does not exist yet, so it never blocks ``setup_index.ensure_deps``
      from creating it.
   2. committed configs name ``python`` (resolvable post-symlink / native on Windows),
-     which launches this bootstrap.
-  3. every inner/child spawn *after* bootstrap uses ``sys.executable`` (which, once
-     re-exec'd, IS the venv Python — an absolute path), never a re-resolved token.
+     which launches this bootstrap; the bootstrap ACTIVATES the venv **in-process**
+     (``site.addsitedir`` of the venv's site-packages) — no re-exec, no child process.
+  3. every inner/child spawn *after* bootstrap uses ``sys.executable`` (which, after
+     in-process activation, stays the *system* interpreter — but each spawned framework
+     script self-activates first-line, so it reaches the venv packages too).
+
+Wave 1p802: the previous ``reexec_into_tool_venv`` re-exec'd into the venv interpreter —
+``os.execv`` on POSIX (in-place, same PID) but a ``subprocess`` child on Windows (no
+in-place exec). An MCP host spawns ONE process and owns its stdio; the Windows child
+became a second process holding the same stdout pipe → broken pipe / orphan on reconnect.
+In-process activation keeps a SINGLE host-spawned process on every OS while preserving the
+byte-identical ``command: "python"``. Trade-off: the re-exec was robust to a Python
+version upgrade for free; in-process activation cannot load ABI-incompatible compiled
+deps, so a **version guard** fails loud (run ``wf setup`` to rebuild) instead of crashing.
 
 Diagnostics (if any) go to STDERR only: a single stdout byte before the MCP server's
-JSON-RPC handshake corrupts it. The re-exec uses ``os.execv`` on POSIX and a
-``subprocess`` relay on Windows, where the CRT emulates ``execv`` as
-spawn-child-then-exit-parent — that would orphan the host's stdio pipe (the MCP host
-sees an immediate crash) and lose the child's exit code.
+JSON-RPC handshake corrupts it.
 """
 
 from __future__ import annotations
 
 import os
 import shutil
-import subprocess
+import subprocess  # used by ensure_python_resolves' interpreter-version probe (NOT for any re-exec).
 import sys
 from pathlib import Path
 
 __all__ = [
     "tool_venv_base",
     "tool_venv_python",
-    "reexec_into_tool_venv",
+    "activate_tool_venv",
     "ensure_python_resolves",
     "gui_fallback_mcp_stanza",
 ]
@@ -81,28 +89,115 @@ def _running_inside_venv(venv_python: Path) -> bool:
         return False
 
 
-def reexec_into_tool_venv() -> None:
-    """Re-exec the current process under the tool-venv Python when needed.
+def _venv_site_packages(venv_base: Path) -> Path:
+    """The tool venv's ``site-packages`` directory for the RUNNING interpreter.
 
-    No-op when the venv does not exist yet (fresh-bootstrap / pre-setup — must never
-    block setup from creating it) or when already running from the venv. Otherwise
-    replaces the process: ``os.execv`` on POSIX, a stdio-inheriting ``subprocess``
-    relay + ``sys.exit`` on Windows.
-    """
+    ``<venv>/Lib/site-packages`` on Windows; ``<venv>/lib/pythonX.Y/site-packages`` on
+    POSIX (X.Y from ``sys.version_info`` — the interpreter that will import the packages)."""
+    if os.name == "nt":
+        return venv_base / "Lib" / "site-packages"
+    return venv_base / "lib" / f"python{sys.version_info[0]}.{sys.version_info[1]}" / "site-packages"
+
+
+def _venv_python_version(venv_base: Path) -> "tuple[int, int] | None":
+    """The ``(major, minor)`` the venv was built for, parsed from ``<venv>/pyvenv.cfg``.
+
+    Reads the ``version`` / ``version_info`` line. Returns None when the file is absent or the version
+    is unparseable — the caller treats None as fail-open ("can't verify the version line — proceed and
+    let a genuine ABI mismatch fail at import"). NOTE: ``version =`` is ``major.minor.patch`` only, so
+    an ABI variant that shares it (free-threaded ``3.13t`` / debug build) is indistinguishable here."""
+    cfg = venv_base / "pyvenv.cfg"
+    try:
+        text = cfg.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for raw in text.splitlines():
+        key, sep, value = raw.partition("=")
+        if not sep:
+            continue
+        if key.strip().lower() in ("version", "version_info"):
+            parts = value.strip().split(".")
+            try:
+                return (int(parts[0]), int(parts[1]))
+            except (IndexError, ValueError):
+                return None
+    return None
+
+
+def activate_tool_venv(*, allow_version_mismatch: bool = False) -> None:
+    """Activate the shared tool venv IN-PROCESS (wave 1p802) — no re-exec, no child process.
+
+    Prepends the venv's ``site-packages`` to ``sys.path`` via ``site.addsitedir`` (so its
+    ``.pth`` files are processed) in the already-running, host-spawned process. This keeps a
+    SINGLE process on every OS — the MCP host owns one stdio pipe and one lifecycle — while
+    preserving the byte-identical ``command: "python"``.
+
+    No-op when the venv does not exist yet (fresh-bootstrap / pre-setup — must never block
+    ``setup_index.ensure_deps`` from creating it) or when already running inside the venv (e.g.
+    a child spawned via ``sys.executable`` that IS the venv Python).
+
+    **Version guard:** if the venv was built for a different Python ``(major, minor)`` than the
+    running interpreter, its compiled deps (onnxruntime/lancedb/fastembed) are ABI-incompatible —
+    print a clear "run ``wf setup``" message to STDERR and ``sys.exit(2)`` rather than activating
+    an unloadable site-packages or falling back to the (Windows-broken) re-exec.
+
+    ``allow_version_mismatch=True`` is reserved for setup/repair entry points. It turns that specific
+    mismatch into a no-op (no activation) so setup can rebuild the stale venv it just diagnosed.
+
+    Stderr-only diagnostics (a stdout byte before the JSON-RPC handshake corrupts it)."""
+    venv_base = tool_venv_base()
     venv_python = tool_venv_python()
     if not venv_python.exists():
         return  # Tier 1: venv not built yet — run on the current (system) interpreter.
     if _running_inside_venv(venv_python):
-        return  # Already the venv Python — nothing to do (the common case).
-    if os.name == "nt":
-        result = subprocess.run([str(venv_python), *sys.argv], check=False)
-        sys.exit(result.returncode)
-    os.execv(str(venv_python), [str(venv_python), *sys.argv])
+        return  # Already inside the venv (e.g. a sys.executable-spawned child) — nothing to do.
+
+    # Version guard. Two conscious edges (wave 1p802 review):
+    #   - FAIL-OPEN on None: an absent / malformed `pyvenv.cfg` makes _venv_python_version return None,
+    #     and we then PROCEED to activate. Deliberate — don't block a valid venv over an unreadable
+    #     version line (a stale/odd `pyvenv.cfg` should not be a hard stop when the venv itself works);
+    #     a genuinely ABI-broken venv still fails loud at the first compiled-dep import.
+    #   - ABI-VARIANT GAP (accepted residual): this compares only (major, minor). A same-minor ABI
+    #     variant that shares the `version =` line — e.g. free-threaded `3.13t` or a debug build — is
+    #     NOT caught here. Rare (it requires `python` to resolve to a different variant than built the
+    #     venv) and not worth abiflags-recording machinery; the variant's import would fail loudly.
+    running = sys.version_info[:2]
+    built_for = _venv_python_version(venv_base)
+    if built_for is not None and built_for != running:
+        if allow_version_mismatch:
+            return
+        print(
+            f"wavefoundry: the tool venv was built for Python {built_for[0]}.{built_for[1]} "
+            f"but this is {running[0]}.{running[1]} — run `wf setup` to rebuild it.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    site_packages = _venv_site_packages(venv_base)
+    if not site_packages.is_dir():
+        print(
+            f"wavefoundry: the tool venv site-packages ({site_packages}) is missing — "
+            "run `wf setup` to rebuild it.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    import site
+
+    # Prepend so the venv wins over any bare system site-packages. addsitedir appends, so
+    # record the path set before/after and move the new entries to the front of sys.path.
+    before = list(sys.path)
+    site.addsitedir(str(site_packages))
+    added = [p for p in sys.path if p not in before]
+    if added:
+        for p in added:
+            sys.path.remove(p)
+        sys.path[0:0] = added
 
 
 # ---------------------------------------------------------------------------
 # `python` resolution + heal (wave 1p7pm; lives here so it's the single home).
-# Called explicitly at setup / render / upgrade (NOT from reexec_into_tool_venv).
+# Called explicitly at setup / render / upgrade (NOT from activate_tool_venv).
 # ---------------------------------------------------------------------------
 
 def _interpreter_version(executable: str) -> tuple[int, int] | None:

@@ -150,10 +150,11 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             self.assertIn("maybe_trigger_reindex", post_edit)
             self.assertNotIn("--index-dir", post_edit)
             self.assertNotIn("should_reindex_framework", post_edit)
-            # Wave 1p7pm (1p7pb-adr): the body re-execs into the tool venv first-line via the single
-            # `venv_bootstrap` resolver, then inner spawns use sys.executable (the venv Python) — no
-            # rendered `_venv_python_path` resolver remains (goal B: single venv resolver).
-            self.assertIn("reexec_into_tool_venv()", post_edit)
+            # Wave 1p7pm/1p802 (1p7pb-adr): the body ACTIVATES the tool venv in-process first-line via
+            # the single `venv_bootstrap` resolver, then inner spawns use sys.executable (the re-spawned
+            # script self-activates) — no rendered `_venv_python_path` resolver remains, no re-exec.
+            self.assertIn("activate_tool_venv()", post_edit)
+            self.assertNotIn("reexec_into_tool_venv", post_edit)
             self.assertIn("import venv_bootstrap", post_edit)
             self.assertNotIn("_venv_python_path", post_edit)
             self.assertIn("python_exec = sys.executable", post_edit)
@@ -181,12 +182,13 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
                 body = path.read_text(encoding="utf-8")
                 self.assertNotIn("maybe_cleanup_pycache", body, f"{path.name} still ships the retired pycache helper")
                 self.assertNotIn("import shutil", body, f"{path.name} still imports shutil (only the pycache helper used it)")
-                # Wave 1p7pm (1p7pb-adr): EVERY rendered hook body must self-bootstrap into the tool
-                # venv first-line — no exceptions (session-capture slipped through compose_script once).
+                # Wave 1p7pm/1p802 (1p7pb-adr): EVERY rendered hook body must self-activate the tool
+                # venv in-process first-line — no exceptions, and no leftover re-exec.
                 self.assertIn(
-                    "reexec_into_tool_venv()", body,
-                    f"{path.name} is missing the first-line venv bootstrap",
+                    "activate_tool_venv()", body,
+                    f"{path.name} is missing the first-line venv activation",
                 )
+                self.assertNotIn("reexec_into_tool_venv", body, f"{path.name} still calls the removed re-exec")
                 self.assertIn("import venv_bootstrap", body, f"{path.name} is missing the venv_bootstrap import")
             self.assertIn("[python_exec, str(indexer), \"--root\", str(REPO_ROOT)]", post_edit)
             cursor_after = (repo_root / ".cursor" / "hooks" / "after-file-edit.py").read_text(encoding="utf-8")
@@ -740,12 +742,13 @@ class GitHookBootstrapTests(unittest.TestCase):
             src = self.mod.git_hook_source(name)
             self.assertTrue(src.startswith("#!/usr/bin/env python\n"), f"{name}: wrong shebang")
             self.assertNotIn("#!/usr/bin/env python3", src, f"{name}: must use `python`, not `python3`")
-            self.assertIn("reexec_into_tool_venv()", src, f"{name}: missing first-line venv bootstrap")
+            self.assertIn("activate_tool_venv()", src, f"{name}: missing first-line venv activation")
+            self.assertNotIn("reexec_into_tool_venv", src, f"{name}: still calls the removed re-exec")
             self.assertIn("import venv_bootstrap", src, f"{name}: missing venv_bootstrap import")
             # Goal B: no re-derivation of the tool-venv path in the hook body.
             self.assertNotIn("WAVEFOUNDRY_TOOL_VENV", src, f"{name}: must not re-derive the venv path")
             self.assertNotIn("_venv_python_path", src, f"{name}: stale venv resolver")
-            # Detached spawn uses the re-exec'd venv Python; never os.execv on the Windows path.
+            # Detached spawn uses sys.executable (the re-spawned indexer self-activates); never os.execv.
             self.assertIn("[sys.executable, str(indexer)", src, f"{name}: spawn must use sys.executable")
             self.assertNotIn("os.execv", src, f"{name}: must not os.execv")
 
@@ -783,7 +786,8 @@ class GitHookBootstrapTests(unittest.TestCase):
                 hook = repo_root / ".wavefoundry" / "git-hooks" / name
                 self.assertTrue(hook.exists(), f"{name} not rendered")
                 body = hook.read_text(encoding="utf-8")
-                self.assertIn("reexec_into_tool_venv()", body, f"{name} missing bootstrap")
+                self.assertIn("activate_tool_venv()", body, f"{name} missing venv activation")
+                self.assertNotIn("reexec_into_tool_venv", body, f"{name} still calls the removed re-exec")
                 py_compile.compile(str(hook), doraise=True)  # valid Python (no misplaced future import)
 
 

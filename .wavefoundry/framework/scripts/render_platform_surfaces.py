@@ -307,9 +307,10 @@ def hook_helpers() -> str:
         def maybe_docs_lint(file_path: str) -> tuple[bool, str]:
             if not file_path.startswith("docs/"):
                 return False, ""
-            # Wave 1p7tz: the `bin/docs-lint` wrapper was retired — invoke docs_lint.py directly under
-            # the venv interpreter (the body already re-exec'd into the venv first-line, so
-            # sys.executable IS the venv Python).
+            # Wave 1p7tz/1p802: the `bin/docs-lint` wrapper was retired — invoke docs_lint.py directly
+            # via sys.executable. After in-process activation sys.executable stays the SYSTEM
+            # interpreter; the spawned docs_lint.py self-activates the venv first-line, so it reaches
+            # the venv packages.
             docs_lint = REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "docs_lint.py"
             result = run_command([sys.executable, str(docs_lint)])
             if result.returncode == 0:
@@ -348,8 +349,9 @@ def hook_helpers() -> str:
             indexer = REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
             if not indexer.exists():
                 return
-            # The body has already re-exec'd into the tool venv (first-line bootstrap), so
-            # sys.executable IS the venv Python — an absolute path; never re-resolve a token.
+            # sys.executable is the SYSTEM interpreter (after in-process activation, wave 1p802) — an
+            # absolute path; the spawned indexer.py self-activates the venv first-line so the child
+            # reaches the venv packages. Never re-resolve a python3/python token.
             python_exec = sys.executable
             index_dir = REPO_ROOT / ".wavefoundry" / "index"
             try:
@@ -383,12 +385,13 @@ def hook_helpers() -> str:
     ).strip()
 
 
-# Wave 1p7pm (1p7pb-adr): the host launches each hook body via `python <body>.py` directly (no
+# Wave 1p7pm/1p802 (1p7pb-adr): the host launches each hook body via `python <body>.py` directly (no
 # `.sh`/`.cmd` trampoline). The first thing every rendered body does — after the mandatory
-# `from __future__` directive, which must stay the genuine first statement — is re-exec into the
-# shared tool venv via the single `venv_bootstrap` resolver: stdlib-only, no-op when already in the
-# venv or when it does not exist yet. The hook lives at `.claude/hooks/`, `.cursor/hooks/`, … (so
-# parents[2] == repo root); the framework scripts dir is added to sys.path so the import resolves.
+# `from __future__` directive, which must stay the genuine first statement — is ACTIVATE the shared
+# tool venv IN-PROCESS via the single `venv_bootstrap` resolver: stdlib-only, no-op when already in
+# the venv or when it does not exist yet, NO re-exec/child process. The hook lives at `.claude/hooks/`,
+# `.cursor/hooks/`, … (so parents[2] == repo root); the framework scripts dir is added to sys.path so
+# the import resolves.
 _FUTURE_LINE = "from __future__ import annotations"
 HOOK_BOOTSTRAP = dedent(
     """
@@ -401,7 +404,7 @@ HOOK_BOOTSTRAP = dedent(
     try:
         import venv_bootstrap as _wf_venv_bootstrap
 
-        _wf_venv_bootstrap.reexec_into_tool_venv()
+        _wf_venv_bootstrap.activate_tool_venv()
     except Exception:
         pass
     """
@@ -516,8 +519,9 @@ def claude_simulate_hooks_source() -> str:
             if target is None:
                 print(f"unknown hook entrypoint: {hook_name}", file=sys.stderr)
                 return 2
-            # The body re-exec'd into the tool venv (first-line bootstrap) → sys.executable IS the
-            # venv Python (an absolute path); never re-resolve a token.
+            # sys.executable is the SYSTEM interpreter (after in-process activation, wave 1p802); the
+            # spawned hook target self-activates the venv first-line, so it reaches the venv packages.
+            # An absolute path; never re-resolve a token.
             python_exec = sys.executable
             result = subprocess.run(
                 [python_exec, str(target)],
@@ -608,8 +612,9 @@ def cursor_after_file_edit_source() -> str:
         def main() -> int:
             raw = read_payload_text()
             payload = load_payload(raw)
-            # The body re-exec'd into the tool venv (first-line bootstrap) → sys.executable IS the
-            # venv Python (an absolute path); never re-resolve a token.
+            # sys.executable is the SYSTEM interpreter (after in-process activation, wave 1p802); each
+            # spawned gate script self-activates the venv first-line, so it reaches the venv packages.
+            # An absolute path; never re-resolve a token.
             python_exec = sys.executable
             for gate in GATES:
                 result = subprocess.run(
@@ -1051,14 +1056,13 @@ def render_copilot_hooks(repo_root: Path) -> None:
 def git_hook_source(hook_name: str) -> str:
     """Return Python source for a git hook that fires an incremental reindex.
 
-    Wave 1p7pm/1p7pn (1p7pb-adr, M-3): the hook body self-bootstraps into the tool venv first-line via
-    the single ``venv_bootstrap`` resolver (``HOOK_BOOTSTRAP``) — venv discovery (``Scripts\\python.exe``
-    on Windows, ``bin/python`` on POSIX) is Python's job in ONE place; the old hardcoded
-    ``bin/python``/``python3`` body (which re-derived the tool-venv path itself and broke on
-    python.org-Windows git-bash) is gone. Shebang is ``#!/usr/bin/env python`` (NOT ``python3`` —
-    git-for-Windows git-bash ships ``python``, not ``python3``). The detached reindex spawn uses
-    ``sys.executable`` (the re-exec'd venv Python), never a re-resolved token, and never ``os.execv``
-    on the Windows path."""
+    Wave 1p7pm/1p7pn/1p802 (1p7pb-adr, M-3): the hook body ACTIVATES the tool venv in-process first-line
+    via the single ``venv_bootstrap`` resolver (``HOOK_BOOTSTRAP``) — venv discovery is Python's job in
+    ONE place; the old hardcoded ``bin/python``/``python3`` body (which re-derived the tool-venv path
+    itself and broke on python.org-Windows git-bash) is gone. Shebang is ``#!/usr/bin/env python`` (NOT
+    ``python3`` — git-for-Windows git-bash ships ``python``, not ``python3``). The detached reindex spawn
+    uses ``sys.executable`` (the running interpreter); the re-spawned ``indexer.py`` self-activates the
+    venv first-line, so the child reaches the venv packages. No re-exec, no ``os.execv``."""
     # Reuse the canonical first-line bootstrap (parents[2] == repo root for `.wavefoundry/git-hooks/<name>`),
     # but with the `python` shebang git-bash needs — so compose_script (which hardcodes `python3`) is not used.
     lines = [
@@ -1088,8 +1092,9 @@ def git_hook_source(hook_name: str) -> str:
         "    indexer = REPO_ROOT / \".wavefoundry\" / \"framework\" / \"scripts\" / \"indexer.py\"",
         "    if not indexer.exists():",
         "        return 0",
-        "    # The body re-exec'd into the tool venv (first-line bootstrap) → sys.executable IS the",
-        "    # venv Python (an absolute path); never re-resolve a python3/python token.",
+        "    # sys.executable is the SYSTEM interpreter (after in-process activation, wave 1p802) — an",
+        "    # absolute path; the spawned indexer.py self-activates the venv first-line, so the child",
+        "    # reaches the venv packages. Never re-resolve a python3/python token.",
         "    # Wave 1p7pn (M-3): detach per-OS — on Windows start_new_session is a no-op, so without",
         "    # creationflags the child stays in git's process group and dies with the hook.",
         "    detach_kwargs = {}",

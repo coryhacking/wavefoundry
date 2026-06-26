@@ -1,10 +1,10 @@
 # Git-hook bootstrap migration + `.gitattributes` line-ending pin
 
 Change ID: `1p7pn-enh git-hook-bootstrap-and-gitattributes`
-Change Status: `implementing`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
-Last verified: 2026-06-24
+Status: completed
+Last verified: 2026-06-25
 Wave: `1p7pk native-windows-launchers`
 
 ## Rationale
@@ -13,7 +13,7 @@ Three `1p7pb-adr` items remain after the bootstrap (`1p7pl`) and the config cuto
 
 ## Requirements
 
-1. The rendered git hooks (post-commit/post-merge/post-rewrite/post-checkout) invoke their `.py` body via the shared `reexec_into_tool_venv` bootstrap (so venv discovery is Python's job, `Scripts\python.exe` on Windows), rather than hardcoding `bin/python`/`python3`. The git-hook spawn uses the same Windows-safe re-exec (no `os.execv` on the Windows path).
+1. The rendered git hooks (post-commit/post-merge/post-rewrite/post-checkout) invoke their `.py` body via the shared `activate_tool_venv` bootstrap (so venv discovery/activation is Python's job), rather than hardcoding `bin/python`/`python3`. The git-hook spawn never uses `os.execv` or a Windows re-exec subprocess; it uses `sys.executable` and the spawned script self-activates.
 2. Add a repo-root `.gitattributes` that pins shebang-bearing files to LF: `*.py text eol=lf`, the `.wavefoundry/bin/*` launchers and `.wavefoundry/git-hooks/*` / `.claude/hooks/*` POSIX bodies `eol=lf`, with `* text=auto` as the baseline — so git-for-Windows `autocrlf` cannot corrupt shebangs on checkout.
 3. `dashboard_server.py` self-daemonizes when launched directly (a `--daemon`/detach mode replacing `bin/wave-dashboard`'s bash `nohup … &`), so the `1p7pm` thin forwarder `exec python dashboard_server.py --open` survives shell exit on macOS/Linux *and* native Windows. The detached **child** spawn uses **`sys.executable`** (the running venv python), not `python3`. Reuse the OS-correct detach already used for the MCP server's dashboard spawn (`start_new_session` POSIX / `DETACHED_PROCESS|CREATE_NEW_PROCESS_GROUP` Windows).
 4. No behavior change on macOS/Linux (hooks still fire the incremental reindex; the dashboard still backgrounds + logs; line endings already LF there).
@@ -38,7 +38,7 @@ Three `1p7pb-adr` items remain after the bootstrap (`1p7pl`) and the config cuto
 
 ## Acceptance Criteria
 
-- [x] AC-1: rendered git hooks resolve the venv via the shared bootstrap (`Scripts\python.exe` on Windows, `bin/python` on POSIX) instead of a hardcoded `bin/python`/`python3` body; the hook spawn never uses `os.execv` on the Windows path. Verified by a render test. — `git_hook_source` routes through `HOOK_BOOTSTRAP` + `#!/usr/bin/env python`; spawn uses `sys.executable`; `tests/test_render_platform_surfaces.GitHookBootstrapTests`.
+- [x] AC-1: rendered git hooks activate the venv via the shared bootstrap (`activate_tool_venv`) instead of hardcoding `bin/python`/`python3` or a `Scripts`/`bin` branch; hook spawns never use `os.execv` or a Windows re-exec subprocess. Verified by render tests. — `git_hook_source` routes through `HOOK_BOOTSTRAP` + `#!/usr/bin/env python`; spawn uses `sys.executable`; `tests/test_render_platform_surfaces.GitHookBootstrapTests`.
 - [x] AC-2: a repo-root `.gitattributes` exists pinning `*.py` and the POSIX launcher/hook bodies to `eol=lf` with `* text=auto` baseline; verified by a content test. — `.gitattributes` added; `tests/test_render_platform_surfaces.GitAttributesTests`.
 - [x] AC-3: `dashboard_server.py` self-daemonizes when launched directly (OS-correct detach: `start_new_session` POSIX / `DETACHED_PROCESS|CREATE_NEW_PROCESS_GROUP` Windows; the detached child spawn uses `sys.executable`, not `python3`), so `exec python dashboard_server.py --open` survives shell exit; `bin/wave-dashboard` drops its bash `nohup … &`. Unit-tested for the detach-mode branch; the dashboard still backgrounds + logs on macOS/Linux. — `dashboard_server._daemonize` + `--daemon`; `tests/test_dashboard_server.DashboardDaemonModeTests`.
 - [x] AC-4: no macOS/Linux behavior change — hooks still fire incremental reindex; full suite green.

@@ -10,7 +10,7 @@ if _WF_SCRIPTS.is_dir() and str(_WF_SCRIPTS) not in _wf_sys.path:
 try:
     import venv_bootstrap as _wf_venv_bootstrap
 
-    _wf_venv_bootstrap.reexec_into_tool_venv()
+    _wf_venv_bootstrap.activate_tool_venv()
 except Exception:
     pass
 
@@ -26,8 +26,9 @@ def main() -> int:
     indexer = REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
     if not indexer.exists():
         return 0
-    # The body re-exec'd into the tool venv (first-line bootstrap) → sys.executable IS the
-    # venv Python (an absolute path); never re-resolve a python3/python token.
+    # sys.executable is the SYSTEM interpreter (after in-process activation, wave 1p802) — an
+    # absolute path; the spawned indexer.py self-activates the venv first-line, so the child
+    # reaches the venv packages. Never re-resolve a python3/python token.
     # Wave 1p7pn (M-3): detach per-OS — on Windows start_new_session is a no-op, so without
     # creationflags the child stays in git's process group and dies with the hook.
     detach_kwargs = {}

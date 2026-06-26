@@ -10,7 +10,7 @@ if _WF_SCRIPTS.is_dir() and str(_WF_SCRIPTS) not in _wf_sys.path:
 try:
     import venv_bootstrap as _wf_venv_bootstrap
 
-    _wf_venv_bootstrap.reexec_into_tool_venv()
+    _wf_venv_bootstrap.activate_tool_venv()
 except Exception:
     pass
 

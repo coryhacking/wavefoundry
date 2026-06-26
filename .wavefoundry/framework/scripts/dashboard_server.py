@@ -28,9 +28,9 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 
-# Re-exec into the shared tool venv before any heavy import (wave 1p7pl). No-op when
+# Activate the shared tool venv IN-PROCESS before any heavy import (wave 1p7pl/1p802). No-op when
 # already in the venv or when it does not exist yet (fresh bootstrap).
-venv_bootstrap.reexec_into_tool_venv()
+venv_bootstrap.activate_tool_venv()
 
 import dashboard_lib
 
@@ -682,8 +682,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 # Wave 1p7pn (1p7pb-adr, AC-3): self-detach the dashboard into the background, OS-correctly, replacing
 # `bin/wave-dashboard`'s bash `nohup ... &` (bash-only, no native-Windows peer). The detached CHILD
-# spawn uses `sys.executable` — the running (re-exec'd) venv Python, an absolute path — never `python3`
-# (absent on python.org-Windows). Reuses the same detach flags as the MCP server's dashboard spawn.
+# spawn uses `sys.executable` (an absolute path; never `python3`, absent on python.org-Windows). Wave
+# 1p802: after in-process activation `sys.executable` is the SYSTEM interpreter — the re-spawned
+# dashboard_server.py self-activates the venv first-line, so the child reaches the venv packages.
+# Reuses the same detach flags as the MCP server's dashboard spawn.
 _DAEMON_ENV_MARKER = "WAVEFOUNDRY_DASHBOARD_DAEMON_CHILD"
 
 

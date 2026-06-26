@@ -1,10 +1,10 @@
 # Host-agent CA-bundle env vars in the model-fetch TLS trust-store discovery
 
 Change ID: `1p7s6-enh host-agent-tls-ca-discovery`
-Change Status: `implementing`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
-Last verified: 2026-06-24
+Status: completed
+Last verified: 2026-06-25
 Wave: `1p7pk native-windows-launchers`
 
 ## Rationale

@@ -1,9 +1,9 @@
 # MCP-first upgrade routing + minor-bump reconciliation recommendation
 
 Change ID: `1p7ww-enh upgrade-mcp-first-and-reconciliation`
-Change Status: `implementing`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
+Status: completed
 Last verified: 2026-06-25
 Wave: `1p7pk native-windows-launchers`
 

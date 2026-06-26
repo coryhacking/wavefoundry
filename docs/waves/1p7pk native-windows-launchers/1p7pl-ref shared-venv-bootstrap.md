@@ -1,15 +1,15 @@
-# Shared venv bootstrap: one stdlib re-exec helper for every entry point
+# Shared venv bootstrap: one stdlib venv activator for every entry point
 
 Change ID: `1p7pl-ref shared-venv-bootstrap`
-Change Status: `implementing`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
-Last verified: 2026-06-24
+Status: completed
+Last verified: 2026-06-25
 Wave: `1p7pk native-windows-launchers`
 
 ## Rationale
 
-Venv-resolution logic is duplicated across many sites — `server_impl._preferred_python`, `upgrade_wavefoundry._preferred_python`, `build_pack._reexec_with_venv_if_needed`, `indexer` (lancedb), `setup_index._tool_venv_python`/`_reexec_with_venv_if_needed`, `run_tests._test_runner_python`, and the rendered hook-body `_venv_python_path` — and `server.py` has **no** self-bootstrap (it trusts the bash launcher `.wavefoundry/bin/mcp-server` to invoke it under the venv python). This change is the core of `1p7pb-adr` **goal B (a single runtime execution surface):** consolidate every resolver into ONE stdlib-only helper, adopt it first-line in every entry point, and lock it with a **standing scan test** that fails if any other file re-derives the venv path. It is also the load-bearing prerequisite for the cross-OS config cutover (`1p7pm`) — configs can only name a bare interpreter once every entry self-bootstraps. On macOS/Linux there is **no** user-visible behavior change (the venv is still used), so it lands first and keeps CI green before any config flip.
+Venv-resolution logic is duplicated across many sites — `server_impl._preferred_python`, `upgrade_wavefoundry._preferred_python`, `build_pack._reexec_with_venv_if_needed`, `indexer` (lancedb), `setup_index._tool_venv_python`/`_reexec_with_venv_if_needed`, `run_tests._test_runner_python`, and the rendered hook-body `_venv_python_path` — and `server.py` has **no** self-bootstrap (it trusts the bash launcher `.wavefoundry/bin/mcp-server` to invoke it under the venv python). This change is the core of `1p7pb-adr` **goal B (a single runtime execution surface):** consolidate every resolver into ONE stdlib-only helper, adopt it first-line in every entry point, and lock it with a **standing scan test** that fails if any other file re-derives the venv path. It is also the load-bearing prerequisite for the cross-OS config cutover (`1p7pm`) — configs can only name a bare interpreter once every entry self-bootstraps. On macOS/Linux there is **no** user-visible behavior change (the venv is still used), so it lands first and keeps CI green before any config flip. **Close reconciliation:** the original implementation used `reexec_into_tool_venv`; late change `1p802` replaced that with in-process `activate_tool_venv` to keep a single MCP-host-owned process on native Windows. The accepted deliverable is the activation contract.
 
 ## Requirements
 
@@ -42,10 +42,10 @@ Venv-resolution logic is duplicated across many sites — `server_impl._preferre
 
 ## Acceptance Criteria
 
-- [x] AC-1: `reexec_into_tool_venv()` exists and is stdlib-only; given a non-venv interpreter + an existing tool venv it re-execs into the venv python (`os.execv` on POSIX, `subprocess`-relay + `sys.exit` on Windows); given the venv python already, it is a no-op fast-return. Unit-tested for both OS paths + both no-op cases (`test_venv_bootstrap.py`). *(Windows branch tested via the pure `_venv_python_relpath` helper + mocked re-exec — a concrete `WindowsPath` can't be instantiated on POSIX; real nt behavior is AC-6.)*
+- [x] AC-1: `activate_tool_venv()` exists and is stdlib-only; given a non-venv interpreter + an existing compatible tool venv it activates the venv in-process via `site.addsitedir` (no child process); given no venv, an already-in-venv interpreter, or setup's explicit version-mismatch repair path, it no-ops without activating incompatible packages. Supersedes the original `reexec_into_tool_venv()` design via `1p802`. Unit-tested for activation, no-op, `.pth`, version-guard, and setup-repair paths (`test_venv_bootstrap.py`).
 - [x] AC-2: a test asserts the helper imports only stdlib (`StdlibOnlyTests`) and emits **zero stdout bytes** (`test_emits_no_stdout`).
-- [x] AC-3: a test asserts the Windows re-exec path uses `subprocess` and **never** `os.execv`, preserving the child exit code (`test_windows_reexecs_via_subprocess_never_execv`).
-- [x] AC-4: every first-party entry script that launches directly (`server.py`, `setup_wavefoundry`, `setup_index`, `indexer`, `dashboard_server`, `docs_lint`, `docs_gardener`, `wave_gate`, `lifecycle_id`, `run_tests`) calls `reexec_into_tool_venv()` first-line; every Python-internal venv resolver (`setup_index`, `server_impl`, `upgrade_wavefoundry`, `indexer` lancedb, `build_pack`, `run_tests`) is consolidated onto `venv_bootstrap` via the delegation pattern (inner spawns get the venv Python through the single resolver = `sys.executable` post-bootstrap); macOS/Linux runtime unchanged (full suite green, modulo a pre-existing unrelated secrets flake). **A standing `ReexecAdoptionScanTests` (`test_venv_bootstrap.py`) asserts all 10 entries call the bootstrap** (a 1p7pk pre-close review found `run_tests.py` imported `venv_bootstrap` but never invoked the re-exec — now fixed + scan-locked). *(The rendered `.claude/hooks/*.py` inner spawners are emitted by `render_platform_surfaces` → retired by `1p7pm`/`1p7pn`.)*
+- [x] AC-3: tests assert no `os.execv` / subprocess re-exec path remains in `venv_bootstrap`, because native-Windows MCP must stay in the single host-spawned process. The previous Windows subprocess-relay requirement was intentionally superseded by `1p802`.
+- [x] AC-4: every first-party entry script that launches directly (`server.py`, `setup_wavefoundry`, `setup_index`, `indexer`, `dashboard_server`, `docs_lint`, `docs_gardener`, `wave_gate`, `lifecycle_id`, `run_tests`, `wf_cli`) calls `activate_tool_venv()` first-line or, for setup, `activate_tool_venv(allow_version_mismatch=True)`; every Python-internal venv resolver (`setup_index`, `server_impl`, `upgrade_wavefoundry`, `indexer` lancedb, `build_pack`, `run_tests`) is consolidated onto `venv_bootstrap` via the delegation pattern (inner spawns use `sys.executable`; the spawned framework script self-activates first-line). macOS/Linux runtime unchanged; full suite green. **A standing `ActivateAdoptionScanTests` (`test_venv_bootstrap.py`) asserts all direct-launch entries call the bootstrap.**
 - [x] AC-5: **fresh-bootstrap path locked** — `FreshBootstrapTests`: with no venv (`WAVEFOUNDRY_TOOL_VENV` → empty dir), the bootstrap no-ops (no re-exec, no raise) and the venv path stays resolvable so setup can build it — no setup circularity. *(Full `python3 setup_wavefoundry.py` end-to-end build is `1p7pm` AC-6 operator smoke.)*
 - [x] AC-6: **single-resolver invariant** — `SingleResolverScanTests`: a standing scan asserts `WAVEFOUNDRY_TOOL_VENV` is read only in `venv_bootstrap`. `render_platform_surfaces` (the rendered bin/hook templates) is the one **allowlisted-with-rationale** exception, retired by `1p7pm`/`1p7pn` — **the allowlist must be empty at wave close.**
 - [x] AC-7: tests run bytecode-free (`-B`); full framework suite green after `1p7pm`/`1p7pn` (3438 OK, only the pre-existing unrelated secrets flake); `wave_validate` clean. The single-resolver scan now passes with an **empty** allowlist — goal B complete.
@@ -53,11 +53,11 @@ Venv-resolution logic is duplicated across many sites — `server_impl._preferre
 ## Tasks
 
 - [x] Open `framework_edit_allowed`; close after.
-- [x] Write `reexec_into_tool_venv()` (stdlib-only; POSIX `execv` / Windows `subprocess`-relay; stderr-only; no-op-when-venv) → `venv_bootstrap.py`; adopted first-line in `server.py`; `test_venv_bootstrap.py` green (12 tests).
-- [x] Adopt first-line in all first-party entry scripts (incl. `docs_gardener.py`, `run_tests.py`, `setup_wavefoundry.py`); route every scattered resolver onto it; switch the three `.claude/hooks/*.py` inner spawners (and any post-bootstrap child spawn) to `sys.executable`. *(1p7pk pre-close review found `run_tests.py` had imported `venv_bootstrap` but not called the re-exec — fixed + locked by `ReexecAdoptionScanTests`.)*
+- [x] Write `activate_tool_venv()` (stdlib-only; `site.addsitedir`; stderr-only; no-op-when-venv; setup repair bypass) → `venv_bootstrap.py`; adopted first-line in `server.py`; `test_venv_bootstrap.py` green.
+- [x] Adopt first-line in all first-party entry scripts (incl. `docs_gardener.py`, `run_tests.py`, `setup_wavefoundry.py`, `wf_cli.py`); route every scattered resolver onto it; switch rendered hook/git-hook inner spawns (and any post-bootstrap child spawn) to `sys.executable`. *(1p7pk pre-close review found `run_tests.py` had imported `venv_bootstrap` but not called the bootstrap — fixed + locked by `ActivateAdoptionScanTests`.)*
 - [x] Write the fresh-bootstrap test (no venv + no `python` symlink + `python3 setup_wavefoundry.py` ⇒ venv created, deps, symlink/PATH runs; bootstrap no-ops, never blocks `ensure_deps`). — `FreshBootstrapTests`.
 - [x] Write the single-resolver scan test (fails on any non-helper `Scripts`-vs-`bin`/`WAVEFOUNDRY_TOOL_VENV` branch; `setup` pre-venv bootstrap allowlisted). — `SingleResolverScanTests` (TOOL_VENV read + the strengthened venv-python-layout `Scripts/python.exe` branch scan).
-- [x] Tests (both-OS re-exec via mock; no-`os.execv`-on-Windows; stdlib-only + stderr-only; first-line adoption scan incl. `setup_wavefoundry.py`) bytecode-free. — `ReexecAdoptionScanTests` covers all 10 entries.
+- [x] Tests (activation, version guard, setup repair bypass, no re-exec/`os.execv`, stdlib-only + stderr-only, first-line adoption scan incl. `setup_wavefoundry.py`) bytecode-free. — `ActivateAdoptionScanTests` covers all direct-launch entries.
 
 ## Agent Execution Graph
 

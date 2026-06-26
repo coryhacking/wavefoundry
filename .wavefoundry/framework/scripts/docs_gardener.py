@@ -20,9 +20,9 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 
-# Re-exec into the shared tool venv before any heavy work (wave 1p7pl). No-op when
+# Activate the shared tool venv IN-PROCESS before any heavy work (wave 1p7pl/1p802). No-op when
 # already in the venv or when it does not exist yet (fresh bootstrap).
-venv_bootstrap.reexec_into_tool_venv()
+venv_bootstrap.activate_tool_venv()
 
 LAST_VERIFIED_PATTERN = re.compile(r"^(Last verified:\s+)(\d{4}-\d{2}-\d{2})$", re.MULTILINE)
 

@@ -80,6 +80,27 @@ class VenvBootstrapTests(unittest.TestCase):
 
         rmtree.assert_called_once_with(venv_dir, ignore_errors=True)
 
+    def test_bootstrap_venv_recreates_python_version_mismatch(self):
+        """A stale tool venv built for another Python minor is deleted and recreated."""
+        with tempfile.TemporaryDirectory() as tmp:
+            venv_dir = Path(tmp) / "venv"
+            venv_python = venv_dir / "bin" / "python"
+            venv_python.parent.mkdir(parents=True)
+            venv_python.write_text("", encoding="utf-8")
+            other = f"{sys.version_info[0]}.{sys.version_info[1] + 1}.0"
+            (venv_dir / "pyvenv.cfg").write_text(f"version = {other}\n", encoding="utf-8")
+
+            with patch.object(self.mod, "_tool_venv_python", return_value=venv_python):
+                with patch("subprocess.check_call") as check_call:
+                    with redirect_stdout(io.StringIO()) as out:
+                        result = self.mod._bootstrap_venv()
+
+            self.assertEqual(result, venv_python)
+            self.assertFalse(venv_dir.exists(), "stale venv should be removed before recreation")
+            check_call.assert_called_once_with([sys.executable, "-m", "venv", str(venv_dir)])
+            self.assertIn("was built for Python", out.getvalue())
+            self.assertIn("recreating", out.getvalue())
+
 
 class SetupIndexTests(unittest.TestCase):
     def setUp(self):

@@ -29,8 +29,8 @@ class WfCliDispatchTests(unittest.TestCase):
     def setUp(self):
         self.mod = load_wf_cli()
         self._orig_argv = list(sys.argv)
-        # Never re-exec the test process; assert the call instead.
-        p = patch.object(self.mod.venv_bootstrap, "reexec_into_tool_venv")
+        # Never activate the venv in the test process; assert the call instead.
+        p = patch.object(self.mod.venv_bootstrap, "activate_tool_venv")
         self.reexec_mock = p.start()
         self.addCleanup(p.stop)
 
@@ -106,7 +106,7 @@ class WfCliDispatchTests(unittest.TestCase):
 
     # --- the bootstrap rule: every subcommand re-execs EXCEPT setup ---
 
-    def test_non_setup_subcommand_reexecs_into_venv(self):
+    def test_non_setup_subcommand_activates_venv(self):
         for sub in ("docs-lint", "docs-gardener", "gate", "dashboard", "update-indexes",
                     "lifecycle-id", "upgrade"):
             with self.subTest(sub=sub):
@@ -114,9 +114,9 @@ class WfCliDispatchTests(unittest.TestCase):
                 self._run([sub], {}, takes_argv=True)
                 self.reexec_mock.assert_called_once()
 
-    def test_setup_does_not_force_venv_reexec(self):
+    def test_setup_does_not_force_venv_activation(self):
         # `wf setup` must stay on the system interpreter pre-symlink — the dispatcher must NOT call
-        # reexec for the setup path (setup_wavefoundry's own import-time bootstrap no-ops pre-venv).
+        # activate for the setup path (setup_wavefoundry's own import-time bootstrap no-ops pre-venv).
         self._run(["setup", "--full"], {}, takes_argv=True)
         self.reexec_mock.assert_not_called()
 

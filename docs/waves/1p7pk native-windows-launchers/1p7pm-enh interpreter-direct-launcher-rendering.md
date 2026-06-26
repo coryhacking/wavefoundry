@@ -1,10 +1,10 @@
 # Committed `python` launcher rendering + setup symlink: cross-OS config surfaces
 
 Change ID: `1p7pm-enh interpreter-direct-launcher-rendering`
-Change Status: `implementing`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
-Last verified: 2026-06-24
+Status: completed
+Last verified: 2026-06-25
 Wave: `1p7pk native-windows-launchers`
 
 ## Rationale
@@ -47,7 +47,7 @@ Per `1p7pb-adr`, the launcher surfaces stop naming the POSIX bash wrapper (`.wav
 - [x] AC-3: the **no-pathed-launcher scan enumerates the actual on-disk config set** (`.mcp.json`, `.cursor/mcp.json`, `.junie/mcp/mcp.json`, `.agents/mcp_config.json`, `.codex/config.toml`, `.air/mcp.json`) — not just renderer outputs. — `NoPathedLauncherScanTests`.
 - [x] AC-4: `setup_wavefoundry.py` runs on the **system interpreter** (`python3`→`python` fallback), and in order verifies a ≥3.11 interpreter → creates/populates the venv → on macOS/Linux ensures `python` resolves: **no-op if `python` already ≥3.11; warn (no clobber) if it's something else; else symlink `~/.local/bin/python` → the stable `python3` + ensure `~/.local/bin` on PATH (prepend to shell rc only if absent)**; Windows needs no shim (`python` native); a no-Python box fails loud. **Setup does not depend on `python` already resolving** (no circularity — P0). The verify-and-heal logic is a **reusable `ensure_python_resolves()`** called from `setup_wavefoundry.py`, **`render_platform_surfaces`**, and **`upgrade_wavefoundry`** — so it runs on bootstrap, every render, and every upgrade; it **self-heals a dangling/stale symlink** (re-points at the current `python3`) and warns (non-fatal) at render/upgrade if `python` still won't resolve. Unit-tested: system-interpreter run + ordering; the no-op/warn/create decision + PATH-write logic (mocked); **a dangling-symlink fixture is re-healed**; called from all three sites. The GUI-host gitignored absolute-venv-path fallback render is covered by a test.
 - [x] AC-5: the **post-setup** `bin/*` shims are thin `exec python <script>` forwarders; the **`setup-wavefoundry` shim keeps a `python3`→`python` fallback** (it runs pre-symlink — the P0 circularity guard; there is no distinct `setup-index` shim — `setup_index.py` runs as a child of setup); a test asserts no setup shim requires `python`. The dead `_bat_venv_block`, the `write_hook_bundle` `.sh`/`.cmd` shims, and the rendered hook-body `_venv_python_path` are all retired; macOS/Linux MCP attach + hooks unchanged (full suite green; live `wave_index_health` ok). Feeds `1p7pl` AC-6's single-resolver scan.
-- [ ] AC-6 (value gate — operator-run, the close gate): **CLI-host** MCP attach via `command: "python"` + a hook fire, on a genuine python.org-Windows install **and** macOS post-symlink (terminal-launched Claude Code), confirming the symlink/PATH is visible to the host spawn; the `subprocess`-relay re-exec keeps the host stdio pipe intact. The **GUI-host residual + the gitignored absolute-venv-path fallback** are exercised at least once.
+- [~] AC-6 (value gate — operator-run): **Deferred by operator close/package request on 2026-06-26.** CLI-host MCP attach via `command: "python"` + a hook fire on genuine python.org-Windows, macOS post-symlink, and GUI-host absolute-path fallback remain downstream smoke checks. Local evidence covers renderer/config parity, macOS/Linux behavior, and `server.py --dry-run`; no real Windows host evidence is available in this session.
 - [x] AC-7: framework tests bytecode-free; `wave_validate` clean. — full suite 3438 OK (only the known pre-existing secrets flake); `wave_validate` ok.
 
 ## Tasks
@@ -59,7 +59,7 @@ Per `1p7pb-adr`, the launcher surfaces stop naming the POSIX bash wrapper (`.wav
 - [x] Call `ensure_python_resolves()` from `setup_wavefoundry.py` (bootstrap; runs on system `python3`→`python`, no dependency on `python` pre-resolving — P0), **`render_platform_surfaces`** (render), and **`upgrade_wavefoundry`** (upgrade); render the GUI-host absolute-path fallback.
 - [x] Convert the post-setup `bin/*` shims to thin `exec python` forwarders; keep `setup-wavefoundry` on a `python3`→`python` fallback (P0; no distinct `setup-index` shim); retire `write_hook_bundle` `.sh`/`.cmd` + rendered `_venv_python_path`; remove dead `_bat_venv_block`.
 - [x] Tests: on-disk no-pathed-launcher scan (incl. `.codex`/`.air`); byte-identical-across-render-hosts; setup symlink/verify + PATH-write logic; fallback render.
-- [ ] (Operator) Real-host smoke pass — AC-6 — before wave close.
+- [~] (Operator) Real-host smoke pass — AC-6 — intentionally deferred with AC-6; operator requested close/package without providing a native-Windows smoke result.
 
 ## Agent Execution Graph
 

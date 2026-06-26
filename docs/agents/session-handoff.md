@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: in_progress
-Last verified: 2026-06-23
+Last verified: 2026-06-25
 
 ## `1p7ir index-build-robustness` (OPEN, implementing) — ALL 4 CHANGES IMPLEMENTED. UNCOMMITTED.
 Driven by the 1.8.0 CPU-only-WSL2 OOM + corporate-TLS field report. Full suite **3437 OK** bytecode-free; docs-lint clean.

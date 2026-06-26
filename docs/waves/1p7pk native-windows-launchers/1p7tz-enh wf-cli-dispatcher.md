@@ -1,9 +1,9 @@
 # Single cross-OS `wf` CLI dispatcher replacing the POSIX-only bin wrappers
 
 Change ID: `1p7tz-enh wf-cli-dispatcher`
-Change Status: `implementing`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
+Status: completed
 Last verified: 2026-06-25
 Wave: `1p7pk native-windows-launchers`
 
@@ -15,7 +15,7 @@ Dual-rendering a `.cmd` per wrapper (18 files) would re-introduce exactly the pe
 
 ## Requirements
 
-1. **`wf_cli.py` dispatcher** — an argparse CLI mapping each operator subcommand to its existing entry: `docs-lint`→`docs_lint`, `docs-gardener`→`docs_gardener`, `gate`→`wave_gate`, `dashboard`→`dashboard_server`, `update-indexes`→the incremental indexer refresh, `lifecycle-id`→`lifecycle_id`, `upgrade`→`upgrade_wavefoundry`, `setup`→`setup_wavefoundry`. Each subcommand forwards `argv` through to the target's own arg parsing. First-line `venv_bootstrap.reexec_into_tool_venv()` so it runs in the venv — **except** the `setup` path, which must stay on the system interpreter pre-symlink (the three-tier model from `1p7pb-adr`); the dispatcher must not block fresh bootstrap.
+1. **`wf_cli.py` dispatcher** — an argparse CLI mapping each operator subcommand to its existing entry: `docs-lint`→`docs_lint`, `docs-gardener`→`docs_gardener`, `gate`→`wave_gate`, `dashboard`→`dashboard_server`, `update-indexes`→the incremental indexer refresh, `lifecycle-id`→`lifecycle_id`, `upgrade`→`upgrade_wavefoundry`, `setup`→`setup_wavefoundry`. Each subcommand forwards `argv` through to the target's own arg parsing. First-line `venv_bootstrap.activate_tool_venv()` so it runs with venv packages in-process — **except** the `setup` path, which must stay on the system interpreter pre-symlink and may bypass stale-version activation for repair (the three-tier model from `1p7pb-adr`); the dispatcher must not block fresh bootstrap.
 2. **`render_bin_launchers` emits the shim pair + the dispatcher**: `wf` (bash — resolve `REPO_ROOT` from `$BASH_SOURCE`, `cd`, `exec` the dispatcher with a **`python3`→`python` fallback** so `wf setup` works *pre*-symlink on a fresh box) and `wf.cmd` (Windows — `python "%REPO_ROOT%\…\wf_cli.py" %*`). The only per-OS difference is the shell wrapper itself (bash vs cmd), exactly like the hook env-var sigil — no per-OS *logic* duplication.
 3. **Retire the nine individual bash wrappers** (`docs-lint`, `docs-gardener`, `wave-gate`, `update-indexes`, `lifecycle-id`, `wave-dashboard`, `upgrade-wavefoundry`, `setup-wavefoundry`, `mcp-server`). `mcp-server` is vestigial (no config names it post-cutover) — drop it. **Decision (operator-directed 2026-06-25): hard cutover** — DELETE the nine wrappers outright (no forwarders, no deprecation window); the rename to `wf <subcommand>` is called out in the changelog. The wrappers are local operator convenience, not an external contract.
 4. **Update every live reference** to the new surface: `.cursor/rules/project-context.mdc`, `.github/PULL_REQUEST_TEMPLATE.md`, the upgrade-wave skill, `upgrade_wavefoundry.py`'s log line, `setup_index.py`/`setup_wavefoundry.py` handoff messages, `AGENTS.md`/`CLAUDE.md` CLI-fallback mentions, and the `settings.local.json` Bash allowlist (`wf *`). No live doc may point at a retired `bin/<wrapper>`.
@@ -41,7 +41,7 @@ Dual-rendering a `.cmd` per wrapper (18 files) would re-introduce exactly the pe
 
 ## Acceptance Criteria
 
-- [x] AC-1: `wf_cli.py` dispatches every operator subcommand (`docs-lint`, `docs-gardener`, `gate`, `dashboard`, `update-indexes`, `lifecycle-id`, `upgrade`, `setup`) to the correct entry with argv pass-through; first-line venv bootstrap on all paths except `setup` (which stays pre-symlink-safe). Verified by tests. — `wf_cli.py`; `test_wf_cli.WfCliDispatchTests` (routing/argv/prefix + `setup`-no-reexec).
+- [x] AC-1: `wf_cli.py` dispatches every operator subcommand (`docs-lint`, `docs-gardener`, `gate`, `dashboard`, `update-indexes`, `lifecycle-id`, `upgrade`, `setup`) to the correct entry with argv pass-through; first-line venv activation on all paths except `setup` (which stays pre-symlink-safe and repair-safe). Verified by tests. — `wf_cli.py`; `test_wf_cli.WfCliDispatchTests` (routing/argv/prefix + `setup`-no-activation).
 - [x] AC-2: `render_bin_launchers` emits `wf` (bash, `python3`→`python` fallback) + `wf.cmd` (Windows); the nine individual bash wrappers are no longer rendered (and removed on re-render). Verified by a render test. — `render_bin_launchers`; `test_render_platform_surfaces.RenderBinLaunchersTests.test_renders_wf_shim_pair`/`test_retired_wrappers_not_rendered`.
 - [x] AC-3: the rendered `wf`/`wf.cmd` carry no per-OS *logic* difference beyond the shell wrapper; the bash shim's pre-symlink `python3`→`python` fallback is asserted. Verified by a test. — `test_renders_wf_shim_pair`.
 - [x] AC-4: every live reference (docs, upgrade-wave skill, PR template, `settings.local.json` allowlist, log/handoff messages, `AGENTS.md`/`CLAUDE.md`, seeds) names `wf <subcommand>`; a scan asserts no live doc/config points at a retired `bin/<wrapper>` (historical wave records + `CHANGELOG.md` release history + test files excluded). Verified by a scan test. — `test_wf_cli.NoLiveReferenceToRetiredWrapperTests`.

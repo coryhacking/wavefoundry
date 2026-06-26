@@ -797,24 +797,24 @@ def build_zip(
 
 
 def _reexec_with_venv_if_needed() -> None:
-    """Re-exec this script under the wavefoundry venv when numpy is not importable.
+    """Activate the wavefoundry venv in-process when numpy is not importable (wave 1p7pl/1p802).
 
     The index build step loads indexer.py in-process, which requires numpy and
     lancedb. When build_pack.py is invoked with system Python those imports fail.
-    Re-execing under the venv is transparent — all argv is preserved.
-
-    The venv-path resolution + re-exec is delegated to the single resolver
-    (wave 1p7pl). The numpy short-circuit is preserved so an interpreter that
-    already has numpy (e.g. a CI env with deps installed) never re-execs.
+    In-process activation (``site.addsitedir`` via the single bootstrap) makes the
+    venv packages importable in this process — no re-exec, no child. The numpy
+    short-circuit is preserved so an interpreter that already has numpy (e.g. a CI
+    env with deps installed) never re-activates. (Name kept for back-compat with
+    callers/tests; the behavior is now activate, not re-exec.)
     """
     try:
         import numpy  # noqa: F401
         return
     except ImportError:
         pass
-    # Delegate the venv resolution + the POSIX/Windows re-exec to the single
-    # bootstrap (wave 1p7pl). No-op when the venv is absent or already active.
-    venv_bootstrap.reexec_into_tool_venv()
+    # Delegate to the single bootstrap (wave 1p7pl/1p802). No-op when the venv is
+    # absent or already active.
+    venv_bootstrap.activate_tool_venv()
 
 
 def main():
