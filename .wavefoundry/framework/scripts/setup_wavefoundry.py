@@ -58,18 +58,19 @@ def _run_render_platform_surfaces() -> int:
 
 
 def _run_mcp_server_dry_run() -> int:
-    """Invoke `server.py --dry-run` to verify the MCP server can initialize cleanly.
+    """Invoke `python server.py --dry-run` to verify the MCP launch shape.
 
     This catches startup misconfigurations (missing deps, broken imports, framework
-    state issues) before the operator restarts their agent. Failure here means the
-    restart would land on a broken MCP server.
+    state issues) before the operator restarts their agent. Use the same `python`
+    command that generated MCP configs use, not `sys.executable`, so setup catches
+    PATH/interpreter mismatches before the host does.
     """
     script_path = _SCRIPTS_DIR / "server.py"
     if not script_path.exists():
         print(f"ERROR: server.py not found at {script_path}", file=sys.stderr)
         return 1
     result = subprocess.run(
-        [sys.executable, str(script_path), "--dry-run"],
+        ["python", str(script_path), "--dry-run"],
         check=False,
     )
     return result.returncode
@@ -182,7 +183,9 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         "\n=== Wavefoundry harness setup complete. ===\n"
-        "Next: restart your AI agent so the MCP server becomes available. "
+        "Next: fully quit and reopen your AI agent in this project, or start a fresh "
+        "conversation after your host's MCP restart command, so the MCP server becomes available. "
+        "Do not resume an old session that started before setup completed. "
         "Then mark Phase 1 complete in .wavefoundry/install-log.md and proceed to Phase 2 "
         "by calling wave_install_audit().",
         flush=True,

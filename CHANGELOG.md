@@ -8,6 +8,13 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.9.3] - 2026-06-26
+
+### Changed
+
+- **MCP startup no longer starts model prewarm.** The MCP handler no longer launches background embedding/reranker cache work while the host is still negotiating stdio and loading tool schemas; semantic search starts the optional prewarm after startup instead. Install guidance now reinforces the generated config contract: launch MCP with PATH `python` on `server.py`, not a hardcoded tool-venv Python path, and start a fresh host session after config/Python fixes. `wf setup` now smoke-tests the same `python server.py --dry-run` launch shape used by generated MCP configs.
+- **Model-fetch CA discovery honors Node's CA bundle env var.** The setup/model-download trust-store fallback now recognizes `NODE_EXTRA_CA_CERTS` after `CODEX_CA_CERTIFICATE` / `CLAUDE_CODE_CERT_STORE` and before `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE`, so native Windows users launched from Node-based agent hosts can reuse the same corporate CA bundle the host process already trusts. Wave 1p7pk / native-Windows field follow-up.
+
 ## [1.9.2] - 2026-06-26
 
 ### Changed

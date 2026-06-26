@@ -11002,22 +11002,34 @@ class BackgroundModelDownloadTests(unittest.TestCase):
         self.assertIsNone(result2)
         self.assertIsNone(idx._reranker)
 
-    def test_build_server_calls_start_background_model_downloads(self):
-        """build_server() must call _start_background_model_downloads() exactly once."""
+    def test_build_server_does_not_start_background_model_downloads(self):
+        """MCP startup must not compete with model-cache prewarm work."""
         call_count = [0]
-        original_init = self.srv.WaveIndex.__init__
 
         def patched_start(self_inner):
             call_count[0] += 1
 
         try:
-            mcp = None
             with patch.object(self.srv.WaveIndex, "_start_background_model_downloads", patched_start):
-                mcp = load_thin_runner().build_server(self.root)
+                load_thin_runner().build_server(self.root)
         except ImportError:
             self.skipTest("mcp package not installed")
 
-        self.assertEqual(call_count[0], 1, "_start_background_model_downloads must be called once in build_server()")
+        self.assertEqual(call_count[0], 0, "_start_background_model_downloads must not run during build_server()")
+
+    def test_semantic_docs_search_starts_background_model_downloads_after_startup(self):
+        """First semantic activity may prewarm models after MCP tools are already registered."""
+        idx = self._make_index()
+        idx._proj_docs_lance_table = None
+        with patch.object(idx, "_start_background_model_downloads_after_startup") as patched_start:
+            with patch.object(idx, "_ensure_loaded"):
+                with patch.object(idx, "_indexer_constant", return_value="model-A"):
+                    with patch.object(idx, "_embed_query", return_value=MagicMock()):
+                        results, reranked = idx.search_docs("query")
+
+        patched_start.assert_called_once()
+        self.assertEqual(results, [])
+        self.assertFalse(reranked)
 
     def test_ensure_model_cached_embedding_already_cached(self):
         """_ensure_model_cached prints 'already cached' when offline probe succeeds."""

@@ -33,7 +33,7 @@ After installing Wave Framework, enable the local MCP server in your agent host 
 
 **Supported operator environments:** macOS and Linux are supported natively. Windows is currently supported through **WSL2** for install and operator workflows because some bootstrap and launcher surfaces still assume a POSIX shell.
 
-**Python requirement:** Python 3.11 or later is required. `wf setup` is the operator command when the dispatcher is on PATH. It creates a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override), installs all framework dependencies into it, and runs the index setup flow. No system-level or project-level Python environment is modified.
+**Python requirement:** Python 3.11 or later is required. `wf setup` is the operator command when the dispatcher is on PATH. It creates a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override), installs all framework dependencies into it, ensures `python` on PATH can launch Wavefoundry, and runs the index setup flow. No system-level or project-level Python environment is modified.
 
 **Versioning:** Wavefoundry uses `MAJOR.MINOR.PATCH` semver internally. Distribution zips use `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` and land in `~/.wavefoundry/dist/` after packaging.
 
@@ -44,6 +44,10 @@ wf setup
 ```
 
 If this setup step fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path. In agent-driven sessions, the agent should ask the operator for permission to rerun the same setup command with network access or host escalation enabled instead of switching to an out-of-band manual model download.
+
+After setup, MCP host configs should launch the PATH `python` command on Wavefoundry's `server.py`. Do not point MCP config at `.wavefoundry/venv/Scripts/python.exe`, `.wavefoundry/venv/bin/python`, or another project-local venv interpreter. The server activates the shared tool environment itself.
+
+`wf setup` smoke-tests the same launch shape the host will use: `python .wavefoundry/framework/scripts/server.py --dry-run`. If that fails, fix the reported Python/PATH/dependency issue before restarting the host.
 
 **Step 2 — Register the server in your host:**
 
@@ -63,11 +67,11 @@ After connecting, call `wave_server_info()` once to confirm the attached `repo_r
 
 ```json
 {
-  "command": "/Users/coryhacking/.wavefoundry/venv/bin/python",
+  "command": "python",
   "args": [
-    "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/server.py",
+    "<repo>/.wavefoundry/framework/scripts/server.py",
     "--root",
-    "/Users/coryhacking/Developer/wavefoundry"
+    "<repo>"
   ]
 }
 ```
@@ -78,16 +82,16 @@ See `AGENTS.md → MCP / Wavefoundry server — enabling per host` for the full 
 
 ```toml
 [mcp_servers.wavefoundry]
-command = "/Users/coryhacking/.wavefoundry/venv/bin/python"
+command = "python"
 args = [
-  "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/server.py",
+  "<repo>/.wavefoundry/framework/scripts/server.py",
   "--root",
-  "/Users/coryhacking/Developer/wavefoundry"
+  "<repo>"
 ]
-cwd = "/Users/coryhacking/Developer/wavefoundry"
+cwd = "<repo>"
 ```
 
-Register each additional Wavefoundry repo with its own project-local MCP config so the command points at that repo root. Do not rely on hashed Codex server labels as the routing contract.
+Register each additional Wavefoundry repo with its own project-local MCP config so the command points at that repo root. Do not rely on hashed Codex server labels as the routing contract. After changing MCP config or fixing Python on PATH, fully quit and reopen the host or start a fresh conversation; do not resume an old session that started before setup completed, because existing sessions may keep the toolset from the failed startup.
 
 **Docs validation (agents):** After MCP is enabled, use **`wave_validate`** and **`wave_garden`** for the docs gate instead of shelling out to the dispatcher. Use the no-PATH fallback only when MCP is not attached: POSIX `./.wavefoundry/bin/wf docs-lint` / `./.wavefoundry/bin/wf docs-gardener`; native Windows `.\\.wavefoundry\\bin\\wf.cmd docs-lint` / `.\\.wavefoundry\\bin\\wf.cmd docs-gardener`.
 

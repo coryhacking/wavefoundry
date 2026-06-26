@@ -208,7 +208,7 @@ class SetupWavefoundryTests(unittest.TestCase):
         self.assertEqual(captured[0][0], sys.executable)
         self.assertTrue(captured[0][1].endswith("render_platform_surfaces.py"))
 
-    def test_run_mcp_dry_run_invokes_server_with_dry_run_flag(self):
+    def test_run_mcp_dry_run_invokes_server_with_generated_mcp_python_shape(self):
         captured: list[list[str]] = []
 
         def fake_run(cmd, check=False):
@@ -220,9 +220,29 @@ class SetupWavefoundryTests(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         self.assertEqual(len(captured), 1)
-        self.assertEqual(captured[0][0], sys.executable)
+        self.assertEqual(captured[0][0], "python")
         self.assertTrue(captured[0][1].endswith("server.py"))
         self.assertIn("--dry-run", captured[0])
+
+    def test_success_message_requires_fresh_agent_session(self):
+        class FakeSetupIndex:
+            @staticmethod
+            def main(argv=None):
+                return 0
+
+        out = io.StringIO()
+        with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
+             patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
+             patch.object(self.mod, "_run_mcp_server_dry_run", return_value=0), \
+             patch.object(self.mod, "_print_gui_fallback_guidance"), \
+             redirect_stdout(out):
+            result = self.mod.main([])
+
+        self.assertEqual(result, 0)
+        text = out.getvalue()
+        self.assertIn("fully quit and reopen your AI agent", text)
+        self.assertIn("start a fresh conversation", text)
+        self.assertIn("Do not resume an old session", text)
 
 
 if __name__ == "__main__":

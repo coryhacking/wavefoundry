@@ -125,5 +125,33 @@ class UpgradeMcpFirstGuidanceTests(unittest.TestCase):
         self.assertIn("wave_upgrade_status()", spec)
 
 
+class McpPythonLaunchGuidanceTests(unittest.TestCase):
+    """Native Windows field reports showed agents copying a venv Python path into MCP config.
+
+    The shipped guidance must keep MCP launch on the PATH `python` command and Wavefoundry's
+    `server.py`; the server handles tool-venv activation itself.
+    """
+
+    def _read(self, rel: str) -> str:
+        path = REPO_ROOT / rel
+        self.assertTrue(path.is_file(), f"missing: {rel}")
+        return path.read_text(encoding="utf-8")
+
+    def test_install_prompt_uses_path_python_not_tool_venv_python(self) -> None:
+        text = self._read("docs/prompts/install-wavefoundry.prompt.md")
+        self.assertIn('"command": "python"', text)
+        self.assertIn('command = "python"', text)
+        self.assertIn("<repo>/.wavefoundry/framework/scripts/server.py", text)
+        self.assertIn("Do not point MCP config at `.wavefoundry/venv/Scripts/python.exe`", text)
+        self.assertNotIn('"command": "/Users/coryhacking/.wavefoundry/venv/bin/python"', text)
+        self.assertNotIn('command = "/Users/coryhacking/.wavefoundry/venv/bin/python"', text)
+
+    def test_agent_guide_copy_ready_entry_uses_path_python(self) -> None:
+        text = self._read("AGENTS.md")
+        self.assertIn('"command": "python"', text)
+        self.assertIn("<repo>/.wavefoundry/framework/scripts/server.py", text)
+        self.assertIn("do not point MCP config at `.wavefoundry/venv/Scripts/python.exe`", text)
+
+
 if __name__ == "__main__":
     unittest.main()

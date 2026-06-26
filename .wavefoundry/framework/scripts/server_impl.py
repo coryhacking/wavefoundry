@@ -969,6 +969,17 @@ class WaveIndex:
         thread = threading.Thread(target=_download_worker, daemon=True, name="wavefoundry-model-download")
         thread.start()
 
+    def _start_background_model_downloads_after_startup(self) -> None:
+        """Start optional model-cache prewarm outside the MCP startup path.
+
+        MCP clients usually bind tools during process startup. Keep that phase
+        limited to imports and tool registration; model/cache work can contend
+        for import locks, disk, network, and CPU on slower machines.
+        """
+        if not hasattr(self, "_model_downloads_started"):
+            self._model_downloads_started = False
+        self._start_background_model_downloads()
+
     def _agent_rerank(self, query: str, candidates: list[dict]) -> bool:
         """Wave 1p52p: cross-encoder rerank for agent mode, run BEFORE selection.
 
@@ -1422,6 +1433,7 @@ class WaveIndex:
         return out
 
     def search_docs(self, query: str, kind: Optional[str] = None, top_n: int = 7, tags: Optional[list] = None) -> tuple[list[dict], bool]:
+        self._start_background_model_downloads_after_startup()
         self._ensure_loaded()
         DOCS_MODEL = self._indexer_constant("DOCS_MODEL")
         qvec = self._embed_query(query, DOCS_MODEL)
@@ -1450,6 +1462,7 @@ class WaveIndex:
         return candidates[:top_n], False
 
     def search_code(self, query: str, language: Optional[str] = None, top_n: int = 7, kind: Optional[str] = None, max_per_file: Optional[int] = None, tags: Optional[list] = None) -> tuple[list[dict], bool]:
+        self._start_background_model_downloads_after_startup()
         self._ensure_loaded()
         CODE_MODEL = self._indexer_constant("CODE_MODEL")
         qvec = self._embed_query(query, CODE_MODEL)
@@ -1557,6 +1570,7 @@ class WaveIndex:
         by ``AGENT_GRAPH_SIGNAL_CAP``; ``None`` when the graph is absent/empty or no symbol resolves.
         No ``GRAPH_BUILDER_VERSION`` bump — it consumes the existing graph.
         """
+        self._start_background_model_downloads_after_startup()
         self._ensure_loaded()
         DOCS_MODEL = self._indexer_constant("DOCS_MODEL")
         CODE_MODEL = self._indexer_constant("CODE_MODEL")
@@ -15678,7 +15692,6 @@ class ImplHandler:
     def __init__(self, root: Path) -> None:
         self.root = root.resolve()
         self.index = WaveIndex(self.root)
-        self.index._start_background_model_downloads()
         self.cache = McpRepoCache(self.root, index=self.index)
         # Wave 1p5xu: in-session index-staleness monitor. Fail-safe + daemon;
         # never blocks __init__/close, swallows all errors, config-gated.

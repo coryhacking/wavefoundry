@@ -822,19 +822,19 @@ class TlsTrustStoreFallbackTests(unittest.TestCase):
     def test_os_trust_store_bundle_honors_preset_env(self):
         with tempfile.NamedTemporaryFile(suffix=".crt") as f:
             with patch.dict(os.environ, {"SSL_CERT_FILE": f.name}, clear=False):
-                for var in ("CODEX_CA_CERTIFICATE", "CLAUDE_CODE_CERT_STORE", "REQUESTS_CA_BUNDLE"):
+                for var in ("CODEX_CA_CERTIFICATE", "CLAUDE_CODE_CERT_STORE", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE"):
                     os.environ.pop(var, None)
                 self.assertEqual(self.mod._os_trust_store_bundle(), f.name)
 
     # ── Wave 1p7s6: host-agent CA-bundle discovery ─────────────────────────────
 
     def _clear_ca_env(self):
-        for var in ("CODEX_CA_CERTIFICATE", "CLAUDE_CODE_CERT_STORE", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"):
+        for var in ("CODEX_CA_CERTIFICATE", "CLAUDE_CODE_CERT_STORE", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"):
             os.environ.pop(var, None)
 
     def test_each_ca_env_var_honored(self):
         # 1p7s6 AC-1/AC-4: every CA env var is a recognized candidate when it points at a real file.
-        for var in ("CODEX_CA_CERTIFICATE", "CLAUDE_CODE_CERT_STORE", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"):
+        for var in ("CODEX_CA_CERTIFICATE", "CLAUDE_CODE_CERT_STORE", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"):
             with self.subTest(var=var), tempfile.NamedTemporaryFile(suffix=".crt") as f:
                 with patch.dict(os.environ, {}, clear=False):
                     self._clear_ca_env()
@@ -854,6 +854,16 @@ class TlsTrustStoreFallbackTests(unittest.TestCase):
                 self.assertEqual(self.mod._os_trust_store_bundle(), codex.name)  # codex wins
                 self.assertLess(candidates.index(codex.name), candidates.index(ssl_.name))  # codex first
                 self.assertIn(ssl_.name, candidates)  # operator SSL_CERT_FILE preserved as a candidate
+
+    def test_node_extra_ca_certs_is_host_candidate_before_generic_ca_vars(self):
+        with tempfile.NamedTemporaryFile(suffix=".crt") as node, tempfile.NamedTemporaryFile(suffix=".crt") as ssl_:
+            with patch.dict(os.environ, {}, clear=False):
+                self._clear_ca_env()
+                os.environ["NODE_EXTRA_CA_CERTS"] = node.name
+                os.environ["SSL_CERT_FILE"] = ssl_.name
+                candidates = self.mod._os_trust_store_candidates()
+                self.assertEqual(self.mod._os_trust_store_bundle(), node.name)
+                self.assertLess(candidates.index(node.name), candidates.index(ssl_.name))
 
     def test_candidates_end_with_certifi_default(self):
         # 1p7s6 Req 5: certifi default is the LAST resort.

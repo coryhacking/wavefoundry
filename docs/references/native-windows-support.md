@@ -39,6 +39,8 @@ The floor is not zero. The work is finishing and verifying, not starting from sc
 | ~~C-2~~ | ~~All 9 `.wavefoundry/bin/` launchers are bash-only~~ — **RESOLVED (wave 1p7tz):** the nine POSIX-only wrappers were replaced by one cross-OS `wf` dispatcher (`wf_cli.py`) behind a `wf` (bash) + `wf.cmd` (Windows) shim pair; `wf docs-lint`, `wf docs-gardener`, `wf gate`, `wf setup`, `wf upgrade`, `wf update-indexes`, `wf dashboard`, `wf lifecycle-id` run on every OS. | `render_platform_surfaces.render_bin_launchers`; `wf_cli.py` | No action — operator CLI is cross-OS. |
 | C-3 | One committed `.mcp.json` / `.claude/settings.json` reflects **whichever OS last ran the renderer**; a Windows clone of a Mac-rendered repo gets POSIX hook forms | `.claude/settings.json:9,17,29` (extension-less POSIX launcher form); `render_platform_surfaces.py:101` | Seed-edit gate (pre-edit), post-edit docs-lint trigger, and session-capture all fail or hard-error on Windows |
 
+Native Windows MCP configs should use `command: "python"` with `args: [".wavefoundry/framework/scripts/server.py"]` for generated repo-local configs, or `args: ["<repo>/.wavefoundry/framework/scripts/server.py", "--root", "<repo>"]` for manual host entries. Do not configure MCP to run `.wavefoundry\venv\Scripts\python.exe` directly; `server.py` owns shared tool-venv activation. After fixing Python on PATH or changing MCP config, start a fresh host session because an already-open conversation may keep the toolset from the earlier failed startup.
+
 ### Moderate — degrades behavior; MCP server itself survives
 
 | ID | Gap | Evidence | What breaks |
