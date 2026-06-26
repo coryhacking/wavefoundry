@@ -58,6 +58,24 @@ def _set_mcp(mcp: Any) -> None:
 _RELOAD_SURVIVOR_TOOLS: frozenset[str] = frozenset({"wave_mcp_reload"})
 
 
+def _configure_stdio_for_mcp_transport() -> None:
+    """Keep MCP stdio framing byte-stable across native Windows text streams."""
+    for stream_name in ("stdin", "stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            kwargs: dict[str, Any] = {"encoding": "utf-8", "newline": "\n"}
+            if stream_name in ("stdout", "stderr"):
+                kwargs["write_through"] = True
+            reconfigure(**kwargs)
+        except Exception:
+            # Best-effort only: some host-provided stream objects do not support
+            # every TextIOWrapper option. Never block MCP startup for diagnostics.
+            continue
+
+
 def _refresh_mcp_tool_surface(
     mcp_instance: Any,
 ) -> tuple[int, list[str], list[dict[str, Any]]]:
@@ -365,6 +383,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
+    _configure_stdio_for_mcp_transport()
     mcp = build_server(root)
     mcp.run(transport="stdio")
     return 0

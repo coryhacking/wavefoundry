@@ -4041,6 +4041,73 @@ class HarnessabilityMonorepoAggregationTests(unittest.TestCase):
 # build_server — tool registration
 # ---------------------------------------------------------------------------
 
+class ServerStdioTransportTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        load_server()
+        cls.runner = load_thin_runner()
+
+    def test_configure_stdio_uses_utf8_lf_and_write_through_for_outputs(self):
+        class FakeStream:
+            def __init__(self):
+                self.calls = []
+
+            def reconfigure(self, **kwargs):
+                self.calls.append(kwargs)
+
+        fake_stdin = FakeStream()
+        fake_stdout = FakeStream()
+        fake_stderr = FakeStream()
+
+        with patch.object(self.runner.sys, "stdin", fake_stdin), \
+             patch.object(self.runner.sys, "stdout", fake_stdout), \
+             patch.object(self.runner.sys, "stderr", fake_stderr):
+            self.runner._configure_stdio_for_mcp_transport()
+
+        self.assertEqual(fake_stdin.calls, [{"encoding": "utf-8", "newline": "\n"}])
+        self.assertEqual(
+            fake_stdout.calls,
+            [{"encoding": "utf-8", "newline": "\n", "write_through": True}],
+        )
+        self.assertEqual(
+            fake_stderr.calls,
+            [{"encoding": "utf-8", "newline": "\n", "write_through": True}],
+        )
+
+    def test_configure_stdio_is_best_effort(self):
+        class RejectingStream:
+            def reconfigure(self, **kwargs):
+                raise ValueError("unsupported")
+
+        with patch.object(self.runner.sys, "stdin", RejectingStream()), \
+             patch.object(self.runner.sys, "stdout", RejectingStream()), \
+             patch.object(self.runner.sys, "stderr", RejectingStream()):
+            self.runner._configure_stdio_for_mcp_transport()
+
+    def test_main_configures_stdio_before_building_server(self):
+        events = []
+
+        class FakeMcp:
+            def run(self, *, transport):
+                events.append(("run", transport))
+
+        def fake_configure():
+            events.append("configure")
+
+        def fake_build(root):
+            events.append("build")
+            return FakeMcp()
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(self.runner, "_configure_stdio_for_mcp_transport", side_effect=fake_configure), \
+             patch.object(self.runner, "build_server", side_effect=fake_build):
+            root = _make_repo(Path(tmp))
+            result = self.runner.main(["--root", str(root)])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(events, ["configure", "build", ("run", "stdio")])
+
+
 class ServerToolRegistrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -50,3 +50,6 @@ slides/
 
 # Wave 1p590: benchmark run outputs (embed_bench.py --report); machine-specific, not tracked
 .wavefoundry/framework/scripts/benchmarks/bench_report*.json
+
+# Transient experiment plan exports
+experiments/*.plan.mdx.md

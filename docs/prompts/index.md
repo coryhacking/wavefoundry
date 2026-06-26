@@ -38,7 +38,7 @@ The behavioral rules below apply to every command in this catalog. They are summ
 | **Pause wave** | Park session state in handoff artifact | `docs/prompts/pause-wave.prompt.md` |
 | **Review wave** | Run required review lanes with AC reconciliation | `docs/prompts/review-wave.prompt.md` |
 | **Reopen wave** | Reopen a prematurely closed wave | MCP: `wave_reopen(wave_id)` |
-| **Index build status** | Poll background index refresh progress | MCP: `wave_index_build_status(layer?)` — use after `setup_index.py --background-code` or any detached refresh |
+| **Index build status** | Poll background index refresh progress | MCP: `wave_index_build_status(layer?)` — use after `wf setup --background-code` or any detached refresh |
 | **Close wave** | Finalize wave with closure reconciliation | `docs/prompts/close-wave.prompt.md` |
 | **Finalize feature** | Single-change closure path | `docs/prompts/finalize-feature.prompt.md` |
 | **Interrogate this plan** | Stress-test a change doc before admission | `docs/prompts/interrogate-plan.prompt.md` |

@@ -164,7 +164,7 @@ These tools are the preferred agent-facing entry points when an agent needs to c
 
 ## wf dashboard Shortcut
 
-`wf dashboard` is a subcommand of the cross-OS `wf` (bash) / `wf.cmd` (Windows) dispatcher under `.wavefoundry/bin/`. It routes through `wf_cli.py` to start the dashboard server with `--open` (browser launch). The renderer writes the single `wf` / `wf.cmd` shim pair; there is no longer a per-wrapper `wave-dashboard` script.
+`wf dashboard` is a subcommand of the cross-OS `wf` entry point. It routes through `wf_cli.py` to start the dashboard server with `--open` (browser launch). The renderer writes the single generated Windows shim alongside the POSIX entry point; there is no longer a per-wrapper `wave-dashboard` script. No-PATH invocation is POSIX `./.wavefoundry/bin/wf dashboard`; native Windows `.\\.wavefoundry\\bin\\wf.cmd dashboard`.
 
 The dispatcher resolves the repo root and runs the dashboard server, roughly equivalent to:
 ```bash
@@ -173,7 +173,7 @@ python3 .wavefoundry/framework/scripts/dashboard_server.py --open "$@"
 
 Invoke it from the repo root:
 ```bash
-wf dashboard
+./.wavefoundry/bin/wf dashboard
 ```
 
 The script passes through any additional arguments (`$@`) to `dashboard_server.py`, so `--root` and other flags work as expected.

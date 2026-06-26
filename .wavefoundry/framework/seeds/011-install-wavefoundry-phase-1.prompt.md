@@ -77,15 +77,15 @@ Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
 
 ### 1.2 — Bootstrap harness (single orchestrated script)
 
-**Action:** Run `python3 .wavefoundry/framework/scripts/setup_wavefoundry.py`. This is the orchestrator that completes all the mechanical Phase 1 work in one call:
+**Action:** Run `wf setup`. This is the orchestrator that completes all the mechanical Phase 1 work in one call:
 
-1. **Step 1/3 — venv + framework deps + semantic indexes** (via `setup_index.py`):
+1. **Step 1/3 — venv + framework deps + semantic indexes**:
    - Creates the tool venv at `~/.wavefoundry/venv/` (user-home, not project-root — the venv is shared across all wavefoundry projects on the machine; `WAVEFOUNDRY_TOOL_VENV` env var overrides).
    - Installs deps: numpy, fastembed, lancedb, fastmcp, sentence-transformers, etc.
    - Builds the framework semantic index at `.wavefoundry/framework/index/` (so `docs_search` and `seed_get` work after restart).
    - Builds the project semantic index at `.wavefoundry/index/`.
 2. **Step 2/3 — `wf` dispatcher shim + platform host configs** (via `render_platform_surfaces.py`):
-   - The cross-OS `wf` shim pair (`.wavefoundry/bin/wf` + `wf.cmd`) that dispatches to `wf_cli.py`, which routes subcommands `wf docs-lint`, `wf docs-gardener`, `wf gate`, `wf dashboard`, `wf update-indexes`, `wf lifecycle-id`, `wf upgrade`, and `wf setup` to their backing scripts.
+   - The cross-OS `wf` entry point and generated `wf.cmd` shim that dispatch to `wf_cli.py`, which routes subcommands `wf docs-lint`, `wf docs-gardener`, `wf gate`, `wf dashboard`, `wf update-indexes`, `wf lifecycle-id`, `wf upgrade`, and `wf setup` to their backing scripts.
    - `.claude/settings.json` (if Claude Code is detected) and equivalents for other hosts; registers the MCP server (the committed `.mcp.json` runs `python .wavefoundry/framework/scripts/server.py`).
    - **Do NOT create these files by hand.** The renderer is the source of truth; pre-created files will be overwritten on next render and cause spurious diffs.
 3. **Step 3/3 — MCP server dry-run smoke test** (via `server.py --dry-run`):

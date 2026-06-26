@@ -33,14 +33,14 @@ After installing Wave Framework, enable the local MCP server in your agent host 
 
 **Supported operator environments:** macOS and Linux are supported natively. Windows is currently supported through **WSL2** for install and operator workflows because some bootstrap and launcher surfaces still assume a POSIX shell.
 
-**Python requirement:** Python 3.11 or later is required. `setup_wavefoundry.py` is the preferred bootstrap entrypoint: it creates a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override), installs all framework dependencies into it, and runs the index setup flow. `setup_index.py` remains supported as the compatibility entrypoint behind it. No system-level or project-level Python environment is modified.
+**Python requirement:** Python 3.11 or later is required. `wf setup` is the operator command when the dispatcher is on PATH. It creates a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override), installs all framework dependencies into it, and runs the index setup flow. No system-level or project-level Python environment is modified.
 
 **Versioning:** Wavefoundry uses `MAJOR.MINOR.PATCH` semver internally. Distribution zips use `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` and land in `~/.wavefoundry/dist/` after packaging.
 
 **Step 1 — Build the semantic index:**
 
 ```bash
-python3 .wavefoundry/framework/scripts/setup_wavefoundry.py
+wf setup
 ```
 
 If this setup step fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path. In agent-driven sessions, the agent should ask the operator for permission to rerun the same setup command with network access or host escalation enabled instead of switching to an out-of-band manual model download.
@@ -89,7 +89,7 @@ cwd = "/Users/coryhacking/Developer/wavefoundry"
 
 Register each additional Wavefoundry repo with its own project-local MCP config so the command points at that repo root. Do not rely on hashed Codex server labels as the routing contract.
 
-**Docs validation (agents):** After MCP is enabled, use **`wave_validate`** and **`wave_garden`** for the docs gate instead of shelling out to `wf docs-lint` / `wf docs-gardener`. Use the `wf` dispatcher subcommands only when MCP is not attached (CI, hooks, bare terminal).
+**Docs validation (agents):** After MCP is enabled, use **`wave_validate`** and **`wave_garden`** for the docs gate instead of shelling out to the dispatcher. Use the no-PATH fallback only when MCP is not attached: POSIX `./.wavefoundry/bin/wf docs-lint` / `./.wavefoundry/bin/wf docs-gardener`; native Windows `.\\.wavefoundry\\bin\\wf.cmd docs-lint` / `.\\.wavefoundry\\bin\\wf.cmd docs-gardener`.
 
 **Optional local dashboard:** After install, the repository can expose the local dashboard surface with **`Start dashboard`**, **`Stop dashboard`**, and **`Restart dashboard`**. The start command runs:
 

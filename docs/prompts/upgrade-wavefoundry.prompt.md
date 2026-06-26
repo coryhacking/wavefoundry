@@ -39,11 +39,11 @@ What this prompt is not:
 
 **Supported operator environments:** macOS and Linux are supported natively. Windows is currently supported through **WSL2** for upgrade and operator workflows because some launcher and shell steps still assume a POSIX environment.
 
-**Python requirement:** Python 3.11 or later is required. Framework dependencies are installed into a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override); running `setup_wavefoundry.py` is the preferred way to create/populate it and run the index setup flow. `setup_index.py` remains supported as the compatibility entrypoint behind it. If `setup_wavefoundry.py` fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path: in agent-driven sessions, the agent should ask the operator for permission to rerun the same setup command with network access or host escalation enabled instead of doing an out-of-band manual model download.
+**Python requirement:** Python 3.11 or later is required. Framework dependencies are installed into a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override); `wf setup` is the operator command to create/populate it and run the index setup flow when the dispatcher is on PATH. If `wf` is not on PATH, use the setup step documented in the install prompt. If the setup step fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path: in agent-driven sessions, the agent should ask the operator for permission to rerun the same setup command with network access or host escalation enabled instead of doing an out-of-band manual model download.
 
 ## Upgrade Steps
 
-**MCP-first (do this when the Wavefoundry MCP is attached).** Drive the upgrade with the **`wave_upgrade()`** tool — it runs the phases for you (pre-flight → adopt the highest pack → extract → render surfaces → prune pack-removed files → docs gate), then `wave_upgrade(phase="update_index")` / `wave_upgrade(phase="cleanup")`. Poll/inspect the lock state with **`wave_upgrade_status()`** between phases and **before any reload/restart**. This mirrors the "prefer MCP over shell launchers" parity used for docs validation: the tool does the mechanical reconciliation (prune the retired files, re-render to `bin/wf`, re-heal the `python` symlink) automatically — going manual and skipping those phases is exactly what leaves stale surfaces behind. **The steps below are the no-MCP CLI fallback (`wf upgrade`)** — follow them only when no MCP host is attached; they are not the default path.
+**MCP-first (do this when the Wavefoundry MCP is attached).** Drive the upgrade with the **`wave_upgrade()`** tool — it runs the phases for you (pre-flight → adopt the highest pack → extract → render surfaces → prune pack-removed files → docs gate), then `wave_upgrade(phase="update_index")` / `wave_upgrade(phase="cleanup")`. Poll/inspect the lock state with **`wave_upgrade_status()`** between phases and **before any reload/restart**. This mirrors the "prefer MCP over shell launchers" parity used for docs validation: the tool does the mechanical reconciliation (prune the retired files, re-render to `bin/wf`, re-heal the `python` symlink) automatically — going manual and skipping those phases is exactly what leaves stale surfaces behind. **The steps below are the no-MCP CLI fallback (`./.wavefoundry/bin/wf upgrade` on POSIX, `.\.wavefoundry\bin\wf.cmd upgrade` on native Windows)** — follow them only when no MCP host is attached; they are not the default path.
 
 **Reconciliation on a minor+ upgrade (recommend / run).** On a major **or** minor version bump (not a patch bump), after the mechanical phases complete, reconcile local surfaces: verify docs/prompts/configs/scripts in THIS repo that referenced a framework surface the bump **changed or RETIRED** are updated — e.g. the 1.9.0 cutover retired the `.wavefoundry/bin/*` wrappers in favor of the cross-OS `wf` dispatcher, so a local doc still naming `.wavefoundry/bin/<wrapper>` is now a broken instruction. Run the drift detection in the Verification Checklist and fix stale references. (`wave_upgrade`'s operator summary surfaces this reconciliation recommendation on a major/minor bump; act on it.)
 
@@ -59,7 +59,7 @@ What this prompt is not:
 
 Discovery/preview is **CLI-only**: run the flag via your shell (that is the agent-safe path — not `ls`). The MCP `wave_upgrade` tool *runs* the upgrade — its default `preflight_to_docs_gate` phase adopts the highest pack — and has **no** dry-run or discovery-only phase (its only argument is `phase=`; there is no `mode=`).
 
-**Step 0 (optional zip adoption):** If a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` is in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`, the upgrade seed stages the selected pack under `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation. Non-matching filenames are skipped. On Windows, run this flow from **WSL2** rather than native `cmd.exe` or PowerShell.
+**Step 0 (optional zip adoption):** If a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` is in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`, the upgrade seed stages the selected pack under `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation. Non-matching filenames are skipped. The shell-heavy upgrade flow still runs from **WSL2** on Windows; the no-PATH dispatcher fallback above is the native-Windows form.
 
 **Full reconciliation:**
 1. Inventory current state (seed-030 in targeted mode)
@@ -67,7 +67,7 @@ Discovery/preview is **CLI-only**: run the flag via your shell (that is the agen
 3. Produce a file-level upgrade plan before broad edits
 4. Reconcile prompt surface, platform surfaces, `AGENTS.md`, manifests
 5. **Agent surfaces and auto-Guru** (when the pack includes `seed-050` / `render_agent_surfaces.py` / Guru) — see below
-6. Verify docs gate: **with MCP**, run **`wave_garden`** (when metadata needs refresh) then **`wave_validate`**; **without MCP**, run `wf docs-gardener && wf docs-lint`
+6. Verify docs gate: **with MCP**, run **`wave_garden`** (when metadata needs refresh) then **`wave_validate`**; **without MCP**, run `./.wavefoundry/bin/wf docs-gardener && ./.wavefoundry/bin/wf docs-lint` on POSIX or `.\\.wavefoundry\\bin\\wf.cmd docs-gardener && .\\.wavefoundry\\bin\\wf.cmd docs-lint` on native Windows
 
 ## Agent surfaces and auto-Guru (agents must apply)
 
@@ -127,11 +127,11 @@ See `docs/contributing/build-and-verification.md` **Wave framework pack upgrade 
    - `.cursor/mcp.json` exists and contains `mcpServers.wavefoundry` after `render_platform_surfaces --platform cursor`
    - `.mcp.json` and `.junie/mcp/mcp.json` still include the Wavefoundry stdio entry when those hosts are used
    - `.codex/config.toml` exists at the project root and contains a `[mcp_servers.wavefoundry]` entry using the venv Python launcher
-   - The cross-OS `wf` / `wf.cmd` dispatcher exists under `.wavefoundry/bin/` and routes `wf docs-lint` / `wf docs-gardener` to `.wavefoundry/framework/scripts/` via `wf_cli.py`
+   - The cross-OS `wf` entry point and generated `wf.cmd` shim route the no-PATH forms — POSIX `./.wavefoundry/bin/wf docs-lint` / `./.wavefoundry/bin/wf docs-gardener`, native Windows `.\\.wavefoundry\\bin\\wf.cmd docs-lint` / `.\\.wavefoundry\\bin\\wf.cmd docs-gardener` — to `.wavefoundry/framework/scripts/` via `wf_cli.py`
 4. **Check version transitions:** A `CHUNKER_VERSION`/model bump requires a full semantic re-embed; a `GRAPH_BUILDER_VERSION` bump requires a graph re-extract (graph-only — fast). The upgrade's final index phase handles **both** automatically (incremental, or escalating to a rebuild on a version bump), so neither normally needs a manual command. 1.8.1 bumps `GRAPH_BUILDER_VERSION` only (32→35) → the upgrade graph-only re-extracts; no re-embed. Run `wave_index_health()` to verify — a `chunker_version_mismatch` advisory flags a still-needed semantic rebuild; `graph.<layer>.last_built_at` shows graph freshness. When a manual re-embed IS needed, rebuild using the docs-first approach so MCP is available immediately:
    ```bash
-   python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full
-   python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --background-code --full
+   wf setup --full
+   wf setup --background-code --full
    ```
    If either setup command fails because a required model download is blocked by missing network access, ask the operator for permission to rerun the same canonical setup command with network access or host escalation enabled; do not replace this with a separate manual model-download step.
    See `docs/contributing/build-and-verification.md` **Upgrade rebuild requirement** for time estimates (~6 min total).
