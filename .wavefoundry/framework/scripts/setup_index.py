@@ -970,7 +970,11 @@ def _spawn_background_code_build(root: Path, args: argparse.Namespace) -> None:
             "env": {**os.environ, TIMESTAMP_LOGS_ENV: "1"},
         }
         if os.name == "nt":
-            kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            kwargs["creationflags"] = (
+                subprocess.DETACHED_PROCESS
+                | subprocess.CREATE_NEW_PROCESS_GROUP
+                | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            )
         else:
             kwargs["start_new_session"] = True
         proc = subprocess.Popen(cmd, **kwargs)
@@ -1017,6 +1021,7 @@ def _run_indexer(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL,
         text=True,
         bufsize=1,
         env=child_env,

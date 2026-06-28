@@ -60,6 +60,12 @@ OLD_MANIFEST_TMP = Path(
 
 UPGRADE_LOG_FILENAME = "upgrade.log"
 
+# Wave 1p8eu: the operator summary is built ONCE as a dict and emitted machine-readably on a single
+# line prefixed with this sentinel (alongside the human prose). ``server_impl.wave_upgrade_response``
+# parses the line back into ``data['summary']`` (fail-safe: an absent/malformed line falls back to the
+# raw ``output``). Keep this string stable — it is the parse contract between the two modules.
+WAVE_UPGRADE_SUMMARY_SENTINEL = "WAVE_UPGRADE_SUMMARY_JSON:"
+
 # Wave 1p5do: the lowest installed version this pack still carries migrations for. Migrations for
 # transitions older than 1.4→1.5 have been pruned, so upgrading from below this floor may silently
 # skip an intermediate migration. Enforced as a loud WARNING (not an abort): all known projects are
@@ -1172,9 +1178,9 @@ def _print_change_plan(
 
 def phase_surface_rendering(root: Path) -> None:
     _log("\n── Phase 1: Surface rendering ──")
-    # Wave 1p7pm (1p7pb-adr): self-heal `python` resolution on every upgrade so the committed
-    # `command: "python"` launchers stay spawnable (re-points a stale/dangling symlink at the
-    # current python3). strict=False — warn (non-fatal) if `python` still won't resolve.
+    # Wave 1p88t (1p7pb-adr): VERIFY the committed `command: "python3"` launchers resolve on every
+    # upgrade (detect + guide — no shim/symlink creation, no PATH edit). strict=False — warn
+    # (non-fatal) if `python3` does not resolve; the upgrade does not abort on it.
     try:
         venv_bootstrap.ensure_python_resolves(strict=False)
     except Exception:
@@ -1332,7 +1338,11 @@ def phase_index_update(root: Path) -> None:
         "cwd": str(root),
     }
     if os.name == "nt":
-        kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        kwargs["creationflags"] = (
+            subprocess.DETACHED_PROCESS
+            | subprocess.CREATE_NEW_PROCESS_GROUP
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
     else:
         kwargs["start_new_session"] = True
     try:
@@ -1392,7 +1402,11 @@ def phase_index_rebuild(root: Path) -> None:
         "cwd": str(root),
     }
     if os.name == "nt":
-        kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        kwargs["creationflags"] = (
+            subprocess.DETACHED_PROCESS
+            | subprocess.CREATE_NEW_PROCESS_GROUP
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
     else:
         kwargs["start_new_session"] = True
     try:
@@ -1459,6 +1473,7 @@ def phase_cleanup(
         pruned_count=pruned_count,
         ran_index_rebuild=ran_index_rebuild,
         failed_phase=failed_phase,
+        root=root,
     )
 
 
@@ -1623,34 +1638,99 @@ def _config_review_recommendation_lines(
         return []
 
 
+def _run_reconciliation_scan(root: Path | None) -> list[dict]:
+    """Wave 1p8et — run the shipped retired-surface reconciliation scan over *root*.
+
+    Returns a list of ``{file, line, retired_surface, suggested}`` dicts (report-only — the scan
+    never mutates any file). Fully fail-safe: returns ``[]`` when *root* is None or any import/scan
+    error occurs, so a scanner fault never breaks the upgrade summary.
+    """
+    if root is None:
+        return []
+    try:
+        import reconcile_scan
+
+        return [ref.as_dict() for ref in reconcile_scan.scan_repo(root)]
+    except Exception:  # noqa: BLE001 — fail-safe: a scan fault must never break the upgrade
+        return []
+
+
 def _reconciliation_recommendation_lines(
-    from_version: str | None, to_version: str | None
+    from_version: str | None,
+    to_version: str | None,
+    findings: list[dict] | None = None,
 ) -> list[str]:
     """Recommendation to reconcile local surfaces against changed/retired framework surfaces.
 
-    Wave 1p7ww. Sibling of ``_config_review_recommendation_lines`` — same major/minor gate
+    Wave 1p7ww / 1p8et. Sibling of ``_config_review_recommendation_lines`` — same major/minor gate
     (``_is_major_or_minor_upgrade``). The mechanical reconciliation (prune pack-removed files,
     re-render surfaces, re-heal the ``python`` symlink) is automatic in the upgrade phases; this
     surfaces the *local-surface* part agents must still judge: docs/configs/scripts in THIS repo that
-    referenced a framework surface the bump changed or RETIRED. Concrete example: the 1.9.0 cutover
-    retired the nine ``.wavefoundry/bin/*`` wrappers in favor of the cross-OS ``wf`` dispatcher, so a
-    local doc still naming a retired ``.wavefoundry/bin/<wrapper>`` is now a broken instruction.
-    Recommend-only; never blocks. Returns [] (silent) on patch upgrades or any parse failure.
+    referenced a framework surface the bump changed or RETIRED.
+
+    Wave 1p8et: when ``findings`` (from the shipped ``reconcile_scan`` helper) are supplied, this emits
+    the ACTIONABLE ``file:line → suggested wf form`` list instead of the recommend-only prose — the
+    scan replaces the prose. Report-only by default; never blocks. An empty findings list on a
+    major/minor bump still emits the heading + a "no stale references found" line so the operator sees
+    the scan ran. Returns [] (silent) on patch upgrades or any parse failure.
     """
     try:
         if not _is_major_or_minor_upgrade(from_version, to_version):
             return []
-        return [
+        lines = [
             "",
-            f"Reconciliation recommended (major/minor upgrade {from_version} → {to_version}):",
-            "  Verify local surfaces (docs, prompts, configs, scripts) that referenced a framework",
-            "  surface this bump CHANGED or RETIRED are reconciled — e.g. the 1.9.0 cutover retired the",
-            "  `.wavefoundry/bin/*` wrappers in favor of the cross-OS `wf` dispatcher, so a local doc",
-            "  still naming `.wavefoundry/bin/<wrapper>` is now a broken instruction. Run the drift",
-            "  detection (seed-160 step 6) and update any stale references. Recommend-only; never blocks.",
+            f"Reconciliation scan (major/minor upgrade {from_version} → {to_version}) — report-only:",
+            "  Local surfaces (docs, prompts, configs, scripts) that named a framework surface this",
+            "  bump CHANGED or RETIRED — e.g. the 1.9.0 cutover retired the `.wavefoundry/bin/*`",
+            "  wrappers in favor of the cross-OS `wf` dispatcher. Update each below; never auto-fixed.",
         ]
+        if findings:
+            for ref in findings:
+                # Print the ACTUAL matched reference (ref['matched']) — the literal bin path or the
+                # .py-join text — not an assumed `.wavefoundry/bin/<name>` form (wrong for joins).
+                # Tolerate a missing 'matched' (fail-safe) by falling back to the retired name.
+                matched = ref.get("matched") or f".wavefoundry/bin/{ref['retired_surface']}"
+                lines.append(
+                    f"    {ref['file']}:{ref['line']} ({matched}) → {ref['suggested']}"
+                )
+        else:
+            lines.append("    No stale retired-surface references found in local surfaces.")
+        return lines
     except Exception:
         return []
+
+
+def _build_upgrade_summary(
+    from_version: str | None,
+    to_version: str | None,
+    zip_path: Path | None,
+    pruned_count: int,
+    ran_index_rebuild: bool,
+    failed_phase: str | None,
+    reconciliation: list[dict],
+) -> dict:
+    """Wave 1p8eu — assemble the operator summary ONCE as a dict.
+
+    Both the human prose and the machine-readable sentinel line are rendered from this single dict so
+    they cannot drift. Reuses ``_docs_gate_summary_line`` and ``_is_major_or_minor_upgrade`` (the
+    computed values that agents previously regex-scraped from prose). ``reconciliation`` carries the
+    1p8et scan findings (``[]`` when not a major/minor bump or when the scan found nothing).
+    """
+    return {
+        "from_version": from_version,
+        "to_version": to_version,
+        "zip_applied": zip_path.name if zip_path else None,
+        "pruned_count": pruned_count,
+        "docs_gate": _docs_gate_summary_line(failed_phase),
+        "index_update": (
+            "docs layer complete, code layer running in background"
+            if ran_index_rebuild
+            else "not run — call with --update-index after editing pass"
+        ),
+        "failed_phase": failed_phase,
+        "is_major_or_minor": _is_major_or_minor_upgrade(from_version, to_version),
+        "reconciliation": reconciliation,
+    }
 
 
 def _print_operator_summary(
@@ -1660,7 +1740,25 @@ def _print_operator_summary(
     pruned_count: int,
     ran_index_rebuild: bool,
     failed_phase: str | None = None,
+    root: Path | None = None,
 ) -> None:
+    # Wave 1p8et: run the shipped retired-surface reconciliation scan on a major/minor bump (report-
+    # only; fail-safe). Wave 1p8eu: build the summary dict ONCE and render the prose + the machine-
+    # readable sentinel line from it so they cannot drift.
+    if root is not None and not failed_phase and _is_major_or_minor_upgrade(from_version, to_version):
+        reconciliation = _run_reconciliation_scan(root)
+    else:
+        reconciliation = []
+    summary = _build_upgrade_summary(
+        from_version=from_version,
+        to_version=to_version,
+        zip_path=zip_path,
+        pruned_count=pruned_count,
+        ran_index_rebuild=ran_index_rebuild,
+        failed_phase=failed_phase,
+        reconciliation=reconciliation,
+    )
+
     from_str = from_version or "(none)"
     to_str = to_version or "(unknown)"
     _log("")
@@ -1676,23 +1774,30 @@ def _print_operator_summary(
     else:
         _log("Zip applied:        none (upgraded from current tree)")
     _log("Surfaces rendered:  hooks, MCP config, bin launchers, agent surfaces")
-    _log(f"Files pruned:       {pruned_count}")
-    _log(f"Docs gate:          {_docs_gate_summary_line(failed_phase)}")
-    if ran_index_rebuild:
-        _log("Index update:       docs layer complete, code layer running in background")
-    else:
-        _log("Index update:       not run — call with --update-index after editing pass")
+    _log(f"Files pruned:       {summary['pruned_count']}")
+    _log(f"Docs gate:          {summary['docs_gate']}")
+    _log(f"Index update:       {summary['index_update']}")
     _log("Dashboard:          lock removed; auto-reindex will trigger on lock removal")
     _log("MCP reload: call wave_mcp_reload() (or wave_upgrade cleanup) to load upgraded server code in-process")
     _log("")
     # Wave 1p5tk — on a major/minor upgrade, recommend (don't run) the Framework
     # Config Review for a senior/principal owner to evaluate. Stateless + fail-safe.
-    # Wave 1p7ww — and recommend a local-surface reconciliation pass (same major/minor gate).
+    # Wave 1p7ww / 1p8et — and run the local-surface reconciliation scan (same major/minor gate),
+    # surfacing the actionable file:line → suggested wf form list (report-only).
     if not failed_phase:
         for line in _config_review_recommendation_lines(from_version, to_version):
             _log(line)
-        for line in _reconciliation_recommendation_lines(from_version, to_version):
+        for line in _reconciliation_recommendation_lines(
+            from_version, to_version, reconciliation
+        ):
             _log(line)
+    # Wave 1p8eu — emit the summary machine-readably on a single sentinel line so
+    # wave_upgrade_response can parse it into data['summary'] (fail-safe). Rendered
+    # from the SAME dict as the prose above.
+    try:
+        _log(WAVE_UPGRADE_SUMMARY_SENTINEL + json.dumps(summary, ensure_ascii=False))
+    except (TypeError, ValueError):
+        pass
     # Wave 1p454 — defer to seed-160 as the authoritative editing-pass checklist
     # (do NOT enumerate its step-8 backfills here — they drift); fix the journal
     # label; prepend a secrets-resolution step before the docs-gate re-run.

@@ -200,7 +200,11 @@ def maybe_trigger_reindex(file_path: str) -> None:
     # server_impl.py / dashboard_server._daemonize.
     _detach_kwargs = {}
     if os.name == "nt":
-        _detach_kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        _detach_kwargs["creationflags"] = (
+            subprocess.DETACHED_PROCESS
+            | subprocess.CREATE_NEW_PROCESS_GROUP
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
     else:
         _detach_kwargs["start_new_session"] = True
     subprocess.Popen(

@@ -58,19 +58,20 @@ def _run_render_platform_surfaces() -> int:
 
 
 def _run_mcp_server_dry_run() -> int:
-    """Invoke `python server.py --dry-run` to verify the MCP launch shape.
+    """Invoke `python3 server.py --dry-run` to verify the MCP launch shape.
 
     This catches startup misconfigurations (missing deps, broken imports, framework
-    state issues) before the operator restarts their agent. Use the same `python`
+    state issues) before the operator restarts their agent. Use the same `python3`
     command that generated MCP configs use, not `sys.executable`, so setup catches
-    PATH/interpreter mismatches before the host does.
+    PATH/interpreter mismatches before the host does. (Only reached after
+    ``ensure_python_resolves`` confirms `python3` resolves to Python 3.11+.)
     """
     script_path = _SCRIPTS_DIR / "server.py"
     if not script_path.exists():
         print(f"ERROR: server.py not found at {script_path}", file=sys.stderr)
         return 1
     result = subprocess.run(
-        ["python", str(script_path), "--dry-run"],
+        [venv_bootstrap.MCP_PYTHON_COMMAND, str(script_path), "--dry-run"],
         check=False,
     )
     return result.returncode
@@ -115,17 +116,18 @@ def _repo_root_from_args(args: list[str]) -> Path:
 def _print_gui_fallback_guidance(repo_root: Path) -> None:
     """Print the per-machine absolute-venv-path MCP stanza for GUI-launched hosts (wave 1p7pm AC-4/5).
 
-    The committed configs name ``command: "python"``, resolvable for CLI hosts (they inherit the shell
-    PATH where setup just symlinked ``python``). GUI-launched hosts (Claude Desktop, Cursor.app) inherit
-    only a minimal launchd/registry PATH, so ``python`` may not resolve. This is GUIDANCE only — it does
-    NOT overwrite the committed ``.mcp.json`` (the override path is host-specific + per-machine)."""
+    The committed configs name ``command: "python3"``, resolvable for CLI hosts (they inherit the shell
+    PATH where ``python3`` resolves). GUI-launched hosts (Claude Desktop, Cursor.app) inherit only a
+    minimal launchd/registry PATH, so ``python3`` may not resolve; this stanza is also the escape hatch
+    when ``python3`` is not on PATH at all. This is GUIDANCE only — it does NOT overwrite the committed
+    ``.mcp.json`` (the override path is host-specific + per-machine)."""
     import json as _json
 
     stanza = venv_bootstrap.gui_fallback_mcp_stanza(repo_root)
     print(
-        "\nGUI-host note: if a GUI-launched MCP host (Claude Desktop, Cursor.app) can't find `python` "
+        "\nGUI-host note: if a GUI-launched MCP host (Claude Desktop, Cursor.app) can't find `python3` "
         "on PATH, set its Wavefoundry MCP command to this absolute-path form (per-machine — do NOT "
-        "commit it; the committed `python` form is for CLI hosts):\n"
+        "commit it; the committed `python3` form is for CLI hosts):\n"
         f"{_json.dumps(stanza, indent=2)}",
         flush=True,
     )
@@ -148,13 +150,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         return rc
 
-    # Step 1b: make the committed `command: "python"` launchers resolvable (wave 1p7pm; 1p7pb-adr).
-    # The venv now exists (Step 1), so on macOS/Linux this symlinks `~/.local/bin/python` -> the
-    # stable `python3` and ensures it's on PATH; on Windows it verifies `python` is present + >=3.11.
-    # strict=True at setup: a no-Python box fails loud (the committed configs would be dead-on-arrival).
-    # Runs on the system interpreter (this script does NOT depend on `python` already resolving — P0).
-    venv_bootstrap.ensure_python_resolves(strict=True)
+    # Step 1b: verify the committed `command: "python3"` launchers resolve (DETECT + GUIDE; setup
+    # does NOT create a shim/symlink or edit PATH — operator decision, wave 1p88t). Print the
+    # per-machine absolute-venv-path fallback stanza FIRST so the operator always has the no-PATH
+    # escape hatch in view, then run the strict check. strict=True: a box where `python3` does not
+    # resolve to 3.11+ fails loud (the committed configs would be dead-on-arrival), with guidance.
     _print_gui_fallback_guidance(_repo_root_from_args(args))
+    venv_bootstrap.ensure_python_resolves(strict=True)
 
     # Step 2: render bin/ launchers and platform host configs.
     _print_step("Step 2/3: render bin/ launchers and host configs (render_platform_surfaces.py)")

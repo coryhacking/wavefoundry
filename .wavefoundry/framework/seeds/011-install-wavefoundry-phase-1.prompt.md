@@ -86,16 +86,16 @@ Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
    - Builds the project semantic index at `.wavefoundry/index/`.
 2. **Step 2/3 — `wf` dispatcher shim + platform host configs** (via `render_platform_surfaces.py`):
    - The cross-OS `wf` entry point and generated `wf.cmd` shim that dispatch to `wf_cli.py`, which routes subcommands `wf docs-lint`, `wf docs-gardener`, `wf gate`, `wf dashboard`, `wf update-indexes`, `wf lifecycle-id`, `wf upgrade`, and `wf setup` to their backing scripts.
-   - `.claude/settings.json` (if Claude Code is detected) and equivalents for other hosts; registers the MCP server (the committed `.mcp.json` runs `python .wavefoundry/framework/scripts/server.py`).
-   - MCP configs must launch the PATH `python` command on Wavefoundry's `server.py`; do not point them at `.wavefoundry/venv/Scripts/python.exe`, `.wavefoundry/venv/bin/python`, or another project-local venv interpreter. `server.py` activates the shared tool environment itself.
+   - `.claude/settings.json` (if Claude Code is detected) and equivalents for other hosts; registers the MCP server (the committed `.mcp.json` runs `python3 .wavefoundry/framework/scripts/server.py`).
+   - MCP configs must launch the PATH `python3` command on Wavefoundry's `server.py`; do not point them at `.wavefoundry/venv/Scripts/python.exe`, `.wavefoundry/venv/bin/python`, or another project-local venv interpreter. `server.py` activates the shared tool environment itself.
    - **Do NOT create these files by hand.** The renderer is the source of truth; pre-created files will be overwritten on next render and cause spurious diffs.
 3. **Step 3/3 — MCP server dry-run smoke test** (via `server.py --dry-run`):
-   - Verifies the MCP server can initialize through the same launch shape generated MCP configs use: `python .wavefoundry/framework/scripts/server.py --dry-run`.
-   - Confirms all imports work, tool registration succeeds, framework state is loadable, and the PATH `python` that the host will launch can use the Wavefoundry tool environment.
+   - Verifies the MCP server can initialize through the same launch shape generated MCP configs use: `python3 .wavefoundry/framework/scripts/server.py --dry-run`.
+   - Confirms all imports work, tool registration succeeds, framework state is loadable, and the PATH `python3` that the host will launch can use the Wavefoundry tool environment.
    - Exits 0 on success, non-zero on failure with a clear diagnostic.
    - This catches startup misconfigurations BEFORE the operator restarts their agent; without this, a broken MCP would only surface after restart.
 
-**Expected artifact:** the committed `.mcp.json` names `command: "python"` + `args: [".wavefoundry/framework/scripts/server.py"]` AND `python .wavefoundry/framework/scripts/server.py --dry-run` exits 0.
+**Expected artifact:** the committed `.mcp.json` names `command: "python3"` + `args: [".wavefoundry/framework/scripts/server.py"]` AND `python3 .wavefoundry/framework/scripts/server.py --dry-run` exits 0.
 
 If any step fails, the orchestrator stops and reports which step. Re-run after fixing — the orchestrator is idempotent (each sub-step detects existing state).
 

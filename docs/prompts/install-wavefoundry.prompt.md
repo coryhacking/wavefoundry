@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-25
+Last verified: 2026-06-27
 
 Shortcut: **`Init Wavefoundry`** | Legacy: **`Install Wavefoundry`** / **`Init wave framework`** / **`Install wave framework`** / **`Init wave context`** / **`Install wave context`**
 
@@ -33,7 +33,7 @@ After installing Wave Framework, enable the local MCP server in your agent host 
 
 **Supported operator environments:** macOS and Linux are supported natively. Windows is currently supported through **WSL2** for install and operator workflows because some bootstrap and launcher surfaces still assume a POSIX shell.
 
-**Python requirement:** Python 3.11 or later is required. `wf setup` is the operator command when the dispatcher is on PATH. It creates a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override), installs all framework dependencies into it, ensures `python` on PATH can launch Wavefoundry, and runs the index setup flow. No system-level or project-level Python environment is modified.
+**Python requirement:** Python 3.11 or later must be resolvable as `python3` on your PATH — Wavefoundry does not modify your Python installation or PATH. `wf setup` is the operator command when the dispatcher is on PATH. It creates a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override), installs all framework dependencies into it, **verifies** `python3` resolves to Python 3.11+ (failing with concrete guidance if it does not — e.g. install via Scoop/Microsoft Store on Windows, or your package manager / a symlink on macOS/Linux), and runs the index setup flow. No system-level or project-level Python environment is modified.
 
 **Versioning:** Wavefoundry uses `MAJOR.MINOR.PATCH` semver internally. Distribution zips use `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` and land in `~/.wavefoundry/dist/` after packaging.
 
@@ -45,9 +45,9 @@ wf setup
 
 If this setup step fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path. In agent-driven sessions, the agent should ask the operator for permission to rerun the same setup command with network access or host escalation enabled instead of switching to an out-of-band manual model download.
 
-After setup, MCP host configs should launch the PATH `python` command on Wavefoundry's `server.py`. Do not point MCP config at `.wavefoundry/venv/Scripts/python.exe`, `.wavefoundry/venv/bin/python`, or another project-local venv interpreter. The server activates the shared tool environment itself.
+After setup, MCP host configs should launch the PATH `python3` command on Wavefoundry's `server.py`. Do not point MCP config at `.wavefoundry/venv/Scripts/python.exe`, `.wavefoundry/venv/bin/python`, or another project-local venv interpreter. The server activates the shared tool environment itself.
 
-`wf setup` smoke-tests the same launch shape the host will use: `python .wavefoundry/framework/scripts/server.py --dry-run`. If that fails, fix the reported Python/PATH/dependency issue before restarting the host.
+`wf setup` smoke-tests the same launch shape the host will use: `python3 .wavefoundry/framework/scripts/server.py --dry-run`. If that fails, fix the reported Python/PATH/dependency issue before restarting the host.
 
 **Step 2 — Register the server in your host:**
 
@@ -67,7 +67,7 @@ After connecting, call `wave_server_info()` once to confirm the attached `repo_r
 
 ```json
 {
-  "command": "python",
+  "command": "python3",
   "args": [
     "<repo>/.wavefoundry/framework/scripts/server.py",
     "--root",
@@ -82,7 +82,7 @@ See `AGENTS.md → MCP / Wavefoundry server — enabling per host` for the full 
 
 ```toml
 [mcp_servers.wavefoundry]
-command = "python"
+command = "python3"
 args = [
   "<repo>/.wavefoundry/framework/scripts/server.py",
   "--root",
@@ -98,7 +98,7 @@ Register each additional Wavefoundry repo with its own project-local MCP config 
 **Optional local dashboard:** After install, the repository can expose the local dashboard surface with **`Start dashboard`**, **`Stop dashboard`**, and **`Restart dashboard`**. The start command runs:
 
 ```bash
-python3 .wavefoundry/framework/scripts/dashboard_server.py --root . --open
+wf dashboard --root . --open
 ```
 
 **Step 3 — Restart MCP and update indexes:**

@@ -43,6 +43,49 @@ def _wf_log(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 
+def _mcp_subprocess_run(
+    cmd: list[str] | str,
+    *,
+    cwd: str | Path,
+    env: dict[str, str] | None = None,
+    timeout: float | None = None,
+    shell: bool = False,
+    capture_output: bool = True,
+    check: bool = False,
+):
+    """Run a bounded MCP helper subprocess without inheriting JSON-RPC stdio.
+
+    Stdio MCP owns the parent process's stdin/stdout. Helper subprocesses must never inherit
+    those streams: stdin is always DEVNULL, and stdout/stderr are either captured for the tool
+    response or explicitly discarded.
+    """
+    import subprocess
+
+    kwargs: dict[str, Any] = {
+        "cwd": str(cwd),
+        "env": env,
+        "stdin": subprocess.DEVNULL,
+        "text": True,
+        "timeout": timeout,
+        "shell": shell,
+        "check": check,
+    }
+    if capture_output:
+        kwargs.update({"stdout": subprocess.PIPE, "stderr": subprocess.PIPE})
+    else:
+        kwargs.update({"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL})
+    if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW"):
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW")
+    return subprocess.run(cmd, **kwargs)
+
+
+def _windows_no_window_flag() -> int:
+    if os.name != "nt":
+        return 0
+    import subprocess
+    return int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
 # ---------------------------------------------------------------------------
 # Root discovery (mirrors lifecycle_id.py pattern)
 # ---------------------------------------------------------------------------
@@ -2943,7 +2986,6 @@ def run_validate(root: Path) -> dict:
     correct tree even when the caller's environment already has ``PROJECT_ROOT``
     set to a different path (e.g. in multi-project MCP setups).
     """
-    import subprocess
     script = Path(__file__).resolve().parent / "docs_lint.py"
     # Wave 1p3dk delivery-council finding (red-team): every write-side wave
     # tool now invokes run_validate via _run_post_write_lint. Without a
@@ -2951,9 +2993,8 @@ def run_validate(root: Path) -> dict:
     # indefinitely. 30s is generous (lint typically completes <100ms on this
     # repo's corpus); the surrounding _run_post_write_lint catches the
     # TimeoutExpired and reports `clean: None` rather than breaking the tool.
-    result = subprocess.run(
+    result = _mcp_subprocess_run(
         [_preferred_python(), str(script)],
-        capture_output=True, text=True,
         cwd=str(root),
         env={**os.environ, "PROJECT_ROOT": str(root)},
         timeout=30,
@@ -2972,11 +3013,9 @@ def run_validate(root: Path) -> dict:
 
 def run_garden(root: Path) -> dict:
     """Run docs_gardener and return structured summary."""
-    import subprocess
     script = Path(__file__).resolve().parent / "docs_gardener.py"
-    result = subprocess.run(
+    result = _mcp_subprocess_run(
         [_preferred_python(), str(script)],
-        capture_output=True, text=True,
         cwd=str(root),
         env={**os.environ, "PROJECT_ROOT": str(root)},
     )
@@ -2992,11 +3031,9 @@ def run_garden(root: Path) -> dict:
 
 def run_sync_surfaces(root: Path) -> dict:
     """Run render_platform_surfaces and return structured summary."""
-    import subprocess
     script = Path(__file__).resolve().parent / "render_platform_surfaces.py"
-    result = subprocess.run(
+    result = _mcp_subprocess_run(
         [_preferred_python(), str(script)],
-        capture_output=True, text=True,
         cwd=str(root),
         env={**os.environ, "PROJECT_ROOT": str(root)},
     )
@@ -3073,8 +3110,8 @@ def _index_is_up_to_date(root: Path, layer: str, content: str = "docs") -> bool:
     ]
     # Project layer: indexer.py reads workflow-config include-prefixes itself.
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, cwd=str(root),
+        result = _mcp_subprocess_run(
+            cmd, capture_output=True, cwd=str(root),
             env={**os.environ, "PROJECT_ROOT": str(root)},
             timeout=30,
         )
@@ -3539,7 +3576,9 @@ def run_index_rebuild(
                 },
             }
         if os.name == "nt":
-            kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            kwargs["creationflags"] = (
+                subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | _windows_no_window_flag()
+            )
         else:
             kwargs["start_new_session"] = True
         proc = subprocess.Popen(cmd, **kwargs)
@@ -4619,9 +4658,12 @@ def _pid_is_running(pid: int) -> bool:
     if os.name == "nt":
         import subprocess  # local import — server_impl imports subprocess per-function (convention)
         try:
+            # MCP-reachable (12+ liveness call sites incl. dashboard/index status): isolate stdin from
+            # the JSON-RPC stream and suppress the console window on Windows (wave 1p88t).
             result = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
                 capture_output=True, text=True, check=False,
+                stdin=subprocess.DEVNULL, creationflags=_windows_no_window_flag(),
             )
             return str(pid) in result.stdout
         except OSError:
@@ -4741,11 +4783,14 @@ def _start_background_index_refresh(root: Path, layer: str = "project") -> bool:
     # with it. Mirror the three sibling spawns (server_impl.py:3487, :6654, setup_index.py).
     detach_kwargs = {}
     if os.name == "nt":
-        detach_kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        detach_kwargs["creationflags"] = (
+            subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | _windows_no_window_flag()
+        )
     else:
         detach_kwargs["start_new_session"] = True
     proc = subprocess.Popen(
         cmd,
+        stdin=subprocess.DEVNULL,  # never inherit the JSON-RPC stdin (sibling-consistent; wave 1p88t)
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         cwd=str(root),
@@ -6726,7 +6771,9 @@ def wave_dashboard_start_response(root: Path, port: int | None = None) -> dict[s
             "cwd": str(root),
         }
         if os.name == "nt":
-            spawn_kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            spawn_kwargs["creationflags"] = (
+                subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | _windows_no_window_flag()
+            )
         else:
             spawn_kwargs["start_new_session"] = True
 
@@ -6868,10 +6915,10 @@ def _terminate_dashboard_pid(pid: int) -> bool:
 
     if os.name == "nt":
         try:
-            completed = subprocess.run(
+            completed = _mcp_subprocess_run(
                 ["taskkill", "/PID", str(pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                capture_output=False,
+                cwd=str(Path.cwd()),
                 check=False,
             )
         except OSError:
@@ -7010,6 +7057,77 @@ def _load_upgrade_lib() -> Any:
         return None
 
 
+# Wave 1p8eu / TA-1 — the sentinel prefix is the SINGLE constant defined in upgrade_wavefoundry; import
+# it (never redefine) so the emit side and the parse side cannot silently desync. A literal fallback is
+# kept ONLY for the (practically impossible) case where upgrade_wavefoundry is unimportable in the
+# server process — it must equal the canonical value, which a round-trip test enforces.
+def _upgrade_summary_sentinel() -> str:
+    """Return the canonical ``WAVE_UPGRADE_SUMMARY_JSON:`` sentinel from upgrade_wavefoundry."""
+    _scripts_dir = str(Path(__file__).resolve().parent)
+    if _scripts_dir not in sys.path:
+        sys.path.insert(0, _scripts_dir)
+    try:
+        import upgrade_wavefoundry as _uw  # noqa: PLC0415
+        return _uw.WAVE_UPGRADE_SUMMARY_SENTINEL
+    except Exception:  # noqa: BLE001 — fail-safe; the round-trip test pins the fallback to canonical
+        return "WAVE_UPGRADE_SUMMARY_JSON:"
+
+
+def _parse_upgrade_summary(output: str) -> dict[str, Any] | None:
+    """Parse the structured operator summary from the upgrade subprocess output (wave 1p8eu).
+
+    Scans ``output`` for the last ``WAVE_UPGRADE_SUMMARY_JSON:`` sentinel line and returns the parsed
+    JSON dict. FAIL-SAFE: returns ``None`` when the sentinel is absent or the JSON is malformed (any
+    parse error, including RecursionError on a pathological payload) — the caller then falls back to
+    the raw ``output`` with no exception. The last occurrence wins so a re-run that appends to the log
+    surfaces the most recent summary.
+    """
+    if not output:
+        return None
+    sentinel = _upgrade_summary_sentinel()
+    found: dict[str, Any] | None = None
+    for line in output.splitlines():
+        if line.startswith(sentinel):
+            payload = line[len(sentinel):].strip()
+            # F1 — broaden to Exception so a RecursionError (deeply-nested JSON) cannot escape and
+            # violate the AC-3 "malformed → no exception" guarantee.
+            try:
+                parsed = json.loads(payload)
+            except Exception:  # noqa: BLE001 — any parse failure → skip this line, fall back to output
+                continue
+            if isinstance(parsed, dict):
+                found = parsed
+    return found
+
+
+def _upgrade_next_step(phase: str) -> tuple[str, list[str]]:
+    """Return a phase-aware ``(next_step, next_tools)`` for the wave_upgrade response (wave 1p8eu)."""
+    if phase == "preflight_to_docs_gate":
+        return (
+            "Run the agent editing pass (drift/journal/spec reconciliation per seed-160), then "
+            "call wave_upgrade(phase='update_index') and wave_upgrade(phase='cleanup').",
+            ["wave_upgrade_status", "wave_mcp_reload"],
+        )
+    if phase in ("update_index", "rebuild_index"):
+        return (
+            "Call wave_upgrade(phase='cleanup') to remove the upgrade lock and print the summary.",
+            ["wave_upgrade_status", "wave_mcp_reload"],
+        )
+    if phase == "cleanup":
+        return (
+            "Upgrade complete. Call wave_mcp_reload() if the in-process server code is not yet "
+            "reloaded; review the summary's reconciliation findings and resolve stale references.",
+            ["wave_mcp_reload", "wave_upgrade_status"],
+        )
+    if phase == "resume_after_gate":
+        return (
+            "Docs gate re-run finished; check wave_upgrade_status, then continue with "
+            "wave_upgrade(phase='update_index') and wave_upgrade(phase='cleanup').",
+            ["wave_upgrade_status"],
+        )
+    return ("Check wave_upgrade_status for the current lock state.", ["wave_upgrade_status"])
+
+
 def wave_upgrade_response(
     root: Path,
     phase: str = "preflight_to_docs_gate",
@@ -7090,13 +7208,10 @@ def wave_upgrade_response(
             cmd.append("--resume-after-gate")  # wave 1p44r — re-run only the docs gate
         # phase == "preflight_to_docs_gate": --yes only (default run)
 
-    import subprocess as _subprocess
     try:
-        result = _subprocess.run(
+        result = _mcp_subprocess_run(
             cmd,
             cwd=str(root),
-            capture_output=True,
-            text=True,
             check=False,
         )
     except OSError as exc:
@@ -7121,16 +7236,35 @@ def wave_upgrade_response(
         "log_path": log_path,
     }
 
+    # Wave 1p8eu — parse the structured operator summary emitted by upgrade_wavefoundry.py on its
+    # WAVE_UPGRADE_SUMMARY_JSON: sentinel line into data['summary'] so agents read computed fields
+    # (from/to version, pruned_count, docs_gate, index_update, failed_phase, is_major_or_minor, the
+    # 1p8et reconciliation findings) instead of regex-scraping prose. FAIL-SAFE: an absent or
+    # malformed sentinel leaves 'output' as the only payload — never raises; 'output' and 'exit_code'
+    # stay unchanged (back-compatible).
+    summary = _parse_upgrade_summary(output)
+    if summary is not None:
+        data["summary"] = summary
+
+    # Wave 1p8eu / F2 — compute the phase-aware next step + next_tools BEFORE the returncode check so
+    # both the success AND the failure response carry them. On a docs-gate failure the
+    # `resume_after_gate` hint is exactly what the agent needs next.
+    _next_step, _next_tools = _upgrade_next_step(phase)
+
     if result.returncode != 0:
         exit_meanings = {1: "docs gate failed", 2: "surface rendering failed", 3: "pre-flight check failed"}
         reason = exit_meanings.get(result.returncode, f"exited {result.returncode}")
-        return _response(
+        err = _response(
             "error",
             data,
             diagnostics=[_diagnostic("upgrade_failed", f"Upgrade phase '{phase}' failed: {reason}")],
+            next_tools=_next_tools,
         )
+        err["next_step"] = _next_step
+        return err
 
-    resp = _response("ok", data, usage=f"wave_upgrade(phase='{phase}')")
+    resp = _response("ok", data, usage=f"wave_upgrade(phase='{phase}')", next_tools=_next_tools)
+    resp["next_step"] = _next_step
     # Wave 1p3dk / 1p3ho: reload the MCP server's in-process code after the
     # main upgrade phase or cleanup so subsequent MCP calls (wave_index_health,
     # code_ask, etc.) use the freshly-extracted server_impl. Without this, the
@@ -7188,7 +7322,7 @@ def wave_run_sensors_response(root: Path) -> dict[str, Any]:
     ``description`` are optional.  Commands are run in a subprocess with ``cwd=root``.
     Results include per-sensor pass/fail, exit code, and stdout/stderr summary.
     """
-    import subprocess as _sp
+    import subprocess
     sensors = _read_project_sensors(root)
     if not sensors:
         return _response(
@@ -7202,12 +7336,10 @@ def wave_run_sensors_response(root: Path) -> dict[str, Any]:
     for sensor in sensors:
         cmd = sensor["command"]
         try:
-            proc = _sp.run(
+            proc = _mcp_subprocess_run(
                 cmd if isinstance(cmd, list) else cmd,
                 shell=not isinstance(cmd, list),
                 cwd=str(root),
-                capture_output=True,
-                text=True,
                 timeout=120,
             )
             passed = proc.returncode == 0
@@ -7222,7 +7354,7 @@ def wave_run_sensors_response(root: Path) -> dict[str, Any]:
             })
             if not passed:
                 all_passed = False
-        except _sp.TimeoutExpired:
+        except subprocess.TimeoutExpired:
             results.append({"name": sensor["name"], "dimension": sensor["dimension"], "passed": False, "exit_code": None, "output_summary": "Sensor timed out after 120s."})
             all_passed = False
         except Exception as exc:
@@ -7272,16 +7404,16 @@ def wave_scan_secrets_response(root: Path, mode: str = "incremental") -> dict[st
             diagnostics=[_diagnostic("import_error", str(exc))],
         )
 
-    import time as _time, subprocess as _subp, json as _json
+    import time as _time, json as _json
 
     scan_script = scripts_dir / "run_secrets_scan.py"
     _t0 = _time.monotonic()
     failures: list[str] = []
 
     try:
-        proc = _subp.run(
+        proc = _mcp_subprocess_run(
             [_preferred_python(), str(scan_script), "--root", str(root), "--mode", mode],
-            capture_output=True, text=True, timeout=300, cwd=str(root),
+            timeout=300, cwd=str(root),
         )
         if proc.returncode != 0:
             raise RuntimeError(proc.stderr.strip() or f"exit {proc.returncode}")
@@ -7356,7 +7488,6 @@ def wave_scan_secrets_response(root: Path, mode: str = "incremental") -> dict[st
 
 def _audit_commit_governance(root: Path) -> dict[str, Any]:
     """Scan recent git commits and classify as governed or unassociated."""
-    import subprocess as _sp
     cfg = _read_workflow_config(root)
     governance_cfg = cfg.get("commit_governance", {})
     window_days = int(governance_cfg.get("window_days", 30)) if isinstance(governance_cfg, dict) else 30
@@ -7365,9 +7496,11 @@ def _audit_commit_governance(root: Path) -> dict[str, Any]:
         exclusion_patterns = []
 
     try:
-        result = _sp.run(
+        # Route through the shared helper so this MCP-reachable git probe never inherits the
+        # JSON-RPC stdin and shows no console window on Windows (wave 1p88t subprocess isolation).
+        result = _mcp_subprocess_run(
             ["git", "log", f"--since={window_days} days ago", "--pretty=format:%h %s"],
-            cwd=str(root), capture_output=True, text=True, timeout=15,
+            cwd=str(root), timeout=15,
         )
         if result.returncode != 0:
             return {"available": False, "reason": "git log failed"}
@@ -7735,9 +7868,11 @@ def _audit_harnessability(root: Path) -> dict[str, Any]:
     debt_score = "unknown"
     debt_evidence = ""
     try:
-        result = __import__("subprocess").run(
+        # Route through the shared helper (MCP-reachable git probe): no inherited JSON-RPC stdin,
+        # no Windows console window (wave 1p88t subprocess isolation).
+        result = _mcp_subprocess_run(
             ["git", "grep", "-c", "-E", "TODO|FIXME|HACK|XXX"],
-            cwd=str(root), capture_output=True, text=True, timeout=10,
+            cwd=str(root), timeout=10,
         )
         todo_count = sum(int(l.split(":")[-1]) for l in result.stdout.splitlines() if ":" in l and l.split(":")[-1].isdigit())
         if todo_count == 0:

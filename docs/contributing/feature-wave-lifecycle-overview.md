@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-09
+Last verified: 2026-06-27
 
 Adapted from `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` for Wavefoundry's specific reviewer roles, personas, and artifact paths.
 
@@ -82,7 +82,7 @@ Use **Pause wave** to park session state in `docs/agents/session-handoff.md` and
 
 ## Lifecycle IDs
 
-Generate with the MCP `wave_new_<kind>` / `wave_create_wave` tools (preferred — they dedupe against on-disk IDs). CLI fallback when MCP is unavailable: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>`
+Generate with the MCP `wave_new_<kind>` / `wave_create_wave` tools (preferred — they dedupe against on-disk IDs). CLI fallback when MCP is unavailable: `wf lifecycle-id --kind <kind> --slug <slug>`
 
 Kind options: `wave`, `feat`, `bug`, `enh`, `change`, `doc`, `debt`, `ref`, `task`, `maint`, `ops`.
 

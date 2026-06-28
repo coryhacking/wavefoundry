@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-25
+Last verified: 2026-06-27
 
 Shortcut: **`Package Wavefoundry`** | Legacy: **`Package wave framework`** / **`Package wave context`**
 
@@ -60,7 +60,7 @@ wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
 ```
 
 - `MAJOR.MINOR.PATCH` is the required semver release version passed via `--version`.
-- `<build>` is the rightmost 4 characters of the lifecycle prefix generated automatically by `lifecycle_id.py --prefix-only`.
+- `<build>` is the rightmost 4 characters of the lifecycle prefix generated automatically by `wf lifecycle-id --prefix-only`.
 - `VERSION` is stamped to `MAJOR.MINOR.PATCH+<build>` before zip creation, and manifest `framework_revision` must match unless `--skip-manifest-check` is used.
 
 ## Options
@@ -77,7 +77,7 @@ wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
 After packaging, target repositories should consume the pack via **Upgrade Wavefoundry** so the upgrade flow can:
 
 - adopt the highest semver `wavefoundry-*.zip` from the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/` (Step 0),
-- regenerate host surfaces (`.cursor/mcp.json`, `.mcp.json`, `.junie/mcp/mcp.json`) through `render_platform_surfaces.py`,
+- regenerate host surfaces (`.cursor/mcp.json`, `.mcp.json`, `.junie/mcp/mcp.json`) through `wf render-surfaces`,
 - keep the cross-OS `wf` / `wf.cmd` dispatcher (and its `wf docs-lint` / `wf docs-gardener` subcommands) aligned with the packaged scripts,
 - validate MCP recovery paths (`wave_audit`, `wave_index_build`) plus docs gate.
 

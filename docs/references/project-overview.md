@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-18
+Last verified: 2026-06-27
 
 ## What Wavefoundry Is
 
@@ -40,9 +40,9 @@ Wavefoundry is local-only and runs wherever a supported Python and AI host run. 
 
 ## Orient with the codebase map first
 
-Before grep-thrashing or opening files, read `docs/references/codebase-map.md` — a generated, graceful-scaling map of this project's own codebase (built offline from the persisted graph + community-cluster artifacts and refreshed with the index build). It is the **index to the index**: it shows the bounded set of top-level areas, each with its responsibility, key files, and entry-point symbols, plus a drill-in handle. To go deeper, pass an area's stable `hub_node_id` to `code_graph_community`, or open its key files with `code_outline`. The map is read-only and regenerates on index build (or on demand via `python3 .wavefoundry/framework/scripts/gen_codebase_map.py --root .`).
+Before grep-thrashing or opening files, read `docs/references/codebase-map.md` — a generated, graceful-scaling map of this project's own codebase (built offline from the persisted graph + community-cluster artifacts and refreshed with the index build). It is the **index to the index**: it shows the bounded set of top-level areas, each with its responsibility, key files, and entry-point symbols, plus a drill-in handle. To go deeper, pass an area's stable `hub_node_id` to `code_graph_community`, or open its key files with `code_outline`. The map is read-only and regenerates on index build (or on demand via `wf codebase-map --root .`).
 
-**Before working in an area, consult that area's `AGENTS.md` if one is present** — vendor-neutral per-area context (local conventions, gotchas, intent) for major areas only. The map links each area to its `AGENTS.md` when one exists; scaffold empty stubs with `gen_codebase_map.py --scaffold-area-contexts` (humans author the content). The only `@import` is the root `CLAUDE.md` → `AGENTS.md` bridge; there are no per-folder `CLAUDE.md` bridge files.
+**Before working in an area, consult that area's `AGENTS.md` if one is present** — vendor-neutral per-area context (local conventions, gotchas, intent) for major areas only. The map links each area to its `AGENTS.md` when one exists; scaffold empty stubs with `wf codebase-map --scaffold-area-contexts` (humans author the content). The only `@import` is the root `CLAUDE.md` → `AGENTS.md` bridge; there are no per-folder `CLAUDE.md` bridge files.
 
 ## Repository Structure
 

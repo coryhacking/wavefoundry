@@ -6,20 +6,35 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.9.4] - 2026-06-27
+
+### Added
+
+- **New `wf` subcommands for agent-run framework scripts.** `wf codebase-map`, `wf render-surfaces`, and `wf secrets-scan` join the cross-OS `wf` dispatcher so operators and agents stop guessing raw `python3 .wavefoundry/framework/scripts/*.py` invocations. Framework upgrade cleanup stays a manual `python3 .wavefoundry/framework/scripts/prune_framework.py` step — it needs the pre-upgrade MANIFEST that only the operator running the upgrade holds.
+- **Upgrade-time retired-surface reconciliation.** A minor-or-major `wf upgrade` now scans the repository for stale references to retired framework surfaces (such as the per-command `.wavefoundry/bin/*` wrappers replaced by the cross-OS `wf` dispatcher) and reports an actionable `file:line → suggested wf form` list in place of generic recommend-only prose. The scan is report-only and exclusion-aware (it skips the framework pack, the generated index, historical records, and tests) and matches both forward-slash and backslash path references. Reconciliation guidance also names host permission/allow-rule files (for example `.claude/settings.local.json`) as a surface to flag for the operator rather than self-edit, and clarifies the gate-before-reload window during upgrade.
+- **Structured `wave_upgrade` summary.** `wave_upgrade` now returns a parsed `summary` block (from/to version, files pruned, docs-gate result, index-update state, failed phase, and the reconciliation findings) plus a top-level `next_step` and `next_tools`, so agents read computed fields instead of scraping the raw output. The existing `output` and `exit_code` are unchanged and parsing is fail-safe.
+
+### Changed
+
+- **Committed MCP configs standardize on `python3`.** Every generated host MCP config launches the server with `command: "python3"` and the repo-relative `server.py`, byte-identical across macOS, Linux, and native Windows. `wf setup` **verifies** `python3` resolves to Python 3.11+ and, when it does not, fails closed with platform-aware guidance (install via Scoop/Microsoft Store on Windows, or your package manager / a symlink on macOS/Linux) plus the no-PATH per-machine fallback config. Setup does not modify your Python installation or PATH.
+
+### Fixed
+
+- **MCP helper subprocesses no longer contend with the host's JSON-RPC stdio.** Server-side helper processes (docs-lint, gardener, sync-surfaces, upgrade phases, sensors) now run with `stdin` detached and intentional stdout/stderr handling — fixing `wave_validate`/docs-lint-over-MCP timeouts seen on some hosts — and suppress their console window on native Windows.
+- **Setup fails loudly instead of silently shipping a dead MCP config.** When `wf setup` finds `python3` does not resolve to Python 3.11+ on PATH, it reports the exact problem and exits non-zero with platform-aware guidance (make `python3` resolve — Scoop/Microsoft Store on Windows, your package manager or a symlink on macOS/Linux — or use the per-machine absolute-venv-path fallback) rather than reporting success for a `command: "python3"` config the host cannot launch. Setup does not modify your Python installation or PATH.
 
 ## [1.9.3] - 2026-06-26
 
 ### Changed
 
-- **MCP startup no longer starts model prewarm.** The MCP handler no longer launches background embedding/reranker cache work while the host is still negotiating stdio and loading tool schemas; semantic search starts the optional prewarm after startup instead. Install guidance now reinforces the generated config contract: launch MCP with PATH `python` on `server.py`, not a hardcoded tool-venv Python path, and start a fresh host session after config/Python fixes. `wf setup` now smoke-tests the same `python server.py --dry-run` launch shape used by generated MCP configs.
+- **MCP startup no longer starts model prewarm.** The MCP handler no longer launches background embedding/reranker cache work while the host is still negotiating stdio and loading tool schemas; semantic search starts the optional prewarm after startup instead. Install guidance now reinforces the generated config contract: launch MCP with PATH `python3` on `server.py`, not a hardcoded tool-venv Python path, and start a fresh host session after config/Python fixes. `wf setup` now smoke-tests the same `python3 server.py --dry-run` launch shape used by generated MCP configs.
 - **Model-fetch CA discovery honors Node's CA bundle env var.** The setup/model-download trust-store fallback now recognizes `NODE_EXTRA_CA_CERTS` after `CODEX_CA_CERTIFICATE` / `CLAUDE_CODE_CERT_STORE` and before `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE`, so native Windows users launched from Node-based agent hosts can reuse the same corporate CA bundle the host process already trusts. Wave 1p7pk / native-Windows field follow-up.
 
 ## [1.9.2] - 2026-06-26
 
 ### Changed
 
-- **Windows and no-PATH setup guidance leads with `wf`.** Operator-facing install, upgrade, prompt index, framework-operator, dashboard, and install-seed guidance now treats `wf setup` and `wf` subcommands as the primary command surface, with repo-local `wf.cmd` / POSIX shim paths only as no-PATH fallbacks. This closes the guidance hole where agents guessed `python .wavefoundry/bin/wf` on native Windows. Wave 1p7pk / native-Windows field follow-up.
+- **Windows and no-PATH setup guidance leads with `wf`.** Operator-facing install, upgrade, prompt index, framework-operator, dashboard, and install-seed guidance now treats `wf setup` and `wf` subcommands as the primary command surface, with repo-local `wf.cmd` / POSIX shim paths only as no-PATH fallbacks. This closes the guidance hole where agents guessed a plain-Python invocation of `.wavefoundry/bin/wf` on native Windows. Wave 1p7pk / native-Windows field follow-up. Current guidance standardizes launcher commands on `python3`.
 
 ### Fixed
 
@@ -29,15 +44,15 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **Native-Windows MCP server reliability (broken pipe on startup).** The tool venv is now activated **in-process** (`site.addsitedir`) instead of re-execing into the venv interpreter. The re-exec used a subprocess child on Windows (no in-place exec there), which became a second process holding the same stdout pipe the MCP host owns — causing an intermittent broken pipe when the tool list arrives and orphaned processes across reconnects. In-process activation keeps a single host-spawned process on every OS while preserving the byte-identical `command: "python"`. If the venv was built for a different Python `(major, minor)` than the running interpreter (e.g. after a system Python upgrade), normal entries fail loud with a clear "run `wf setup` to rebuild" message, while `wf setup` bypasses activation and recreates the stale tool venv. Wave 1p7pk / 1p802.
+- **Native-Windows MCP server reliability (broken pipe on startup).** The tool venv is now activated **in-process** (`site.addsitedir`) instead of re-execing into the venv interpreter. The re-exec used a subprocess child on Windows (no in-place exec there), which became a second process holding the same stdout pipe the MCP host owns — causing an intermittent broken pipe when the tool list arrives and orphaned processes across reconnects. In-process activation keeps a single host-spawned process on every OS while preserving the byte-identical `command: "python3"`. If the venv was built for a different Python `(major, minor)` than the running interpreter (e.g. after a system Python upgrade), normal entries fail loud with a clear "run `wf setup` to rebuild" message, while `wf setup` bypasses activation and recreates the stale tool venv. Wave 1p7pk / 1p802.
 
 ## [1.9.0] - 2026-06-25
 
-> **Native Windows (no WSL2), and a single runtime surface.** Every committed launcher and config now names one byte-identical `command: "python"` and runs from a single checkout on macOS, Linux, and native python.org-Windows for CLI hosts. Upgrading retires the nine `.wavefoundry/bin/*` wrappers for one cross-OS `wf` CLI and flips the MCP/hook commands to `python` — so **`setup` / upgrade makes `python` resolve**: a `~/.local/bin/python` → `python3` symlink on macOS/Linux (a symlink, never a shell alias, and never clobbering an existing `python`), native on Windows. Drive the upgrade with `wave_upgrade()` (MCP) or `wf upgrade`. GUI-launched hosts that don't inherit the shell PATH use the printed absolute-venv-path fallback.
+> **Native Windows (no WSL2), and a single runtime surface.** Every committed launcher and config now names one byte-identical `command: "python3"` and runs from a single checkout on macOS, Linux, and native Windows for CLI hosts. Upgrading retires the nine `.wavefoundry/bin/*` wrappers for one cross-OS `wf` CLI and flips the MCP/hook commands to `python3` — so **`setup` / upgrade makes `python3` resolve** without creating a `python` symlink. Drive the upgrade with `wave_upgrade()` (MCP) or `wf upgrade`. GUI-launched hosts that don't inherit the shell PATH use the printed absolute-venv-path fallback.
 
 ### Added
 
-- **Native Windows support without WSL2 (CLI hosts).** The MCP server, hooks, git hooks, and operator CLI run from a single committed checkout on native python.org-Windows. The committed `command` is the byte-identical `python`; the tool venv is activated **in-process** (`site.addsitedir`) so the server stays a single host-spawned process on every OS (no re-exec/child — see *Fixed* above); the venv layout (`Scripts\python.exe` vs `bin/python`) resolves in one place; rendered surfaces are written with byte-fixed line endings on every host; and a repo `.gitattributes` pins shebang-bearing files to LF (and `wf.cmd` to CRLF) so `autocrlf` can't corrupt them.
+- **Native Windows support without WSL2 (CLI hosts).** The MCP server, hooks, git hooks, and operator CLI run from a single committed checkout on native Windows. The committed `command` is the byte-identical `python3`; the tool venv is activated **in-process** (`site.addsitedir`) so the server stays a single host-spawned process on every OS (no re-exec/child — see *Fixed* above); the venv layout (`Scripts\python.exe` vs `bin/python`) resolves in one place; rendered surfaces are written with byte-fixed line endings on every host; and a repo `.gitattributes` pins shebang-bearing files to LF (and `wf.cmd` to CRLF) so `autocrlf` can't corrupt them.
 - **Host-agent TLS CA discovery for model downloads.** The model-fetch trust-store fallback now also honors the host coding agent's own CA bundle — `CODEX_CA_CERTIFICATE` (Codex) and `CLAUDE_CODE_CERT_STORE` (Claude Code) — ahead of `SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE`, used proactively when set, with the OS platform stores and the `certifi` default as the ordered fallbacks. Verification stays on throughout; only the trusted CA bundle changes.
 
 ### Changed

@@ -3,7 +3,7 @@
   "hooks": {
     "afterFileEdit": [
       {
-        "command": "python \".cursor/hooks/after-file-edit.py\""
+        "command": "python3 \".cursor/hooks/after-file-edit.py\""
       }
     ]
   }

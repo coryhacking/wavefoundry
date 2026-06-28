@@ -161,8 +161,8 @@ def main() -> None:
         default=None,
         help=(
             "Path to the MANIFEST saved from the old pack (before unzip). "
-            "When omitted or the file does not exist, the built-in legacy "
-            "removal list is used instead."
+            "When omitted or the file does not exist, prune is a no-op "
+            "(diff-based prune requires the previous pack's MANIFEST)."
         ),
     )
     parser.add_argument(

@@ -91,7 +91,8 @@ class UpgradeMcpFirstGuidanceTests(unittest.TestCase):
         self.assertIn("wave_upgrade_status", text)
         self.assertIn("no-MCP", text)
         self.assertIn("wf upgrade", text)
-        self.assertIn("Reconciliation recommendation", text)
+        # Wave 1p8et: the recommend-only prose callout became the actionable "Reconciliation scan".
+        self.assertIn("Reconciliation scan", text)
 
     def test_mcp_first_directive_leads_the_procedure(self) -> None:
         # AC-1: the MCP-first directive must LEAD the manual/CLI-fallback procedure in both surfaces.
@@ -128,7 +129,7 @@ class UpgradeMcpFirstGuidanceTests(unittest.TestCase):
 class McpPythonLaunchGuidanceTests(unittest.TestCase):
     """Native Windows field reports showed agents copying a venv Python path into MCP config.
 
-    The shipped guidance must keep MCP launch on the PATH `python` command and Wavefoundry's
+    The shipped guidance must keep MCP launch on the PATH `python3` command and Wavefoundry's
     `server.py`; the server handles tool-venv activation itself.
     """
 
@@ -139,8 +140,8 @@ class McpPythonLaunchGuidanceTests(unittest.TestCase):
 
     def test_install_prompt_uses_path_python_not_tool_venv_python(self) -> None:
         text = self._read("docs/prompts/install-wavefoundry.prompt.md")
-        self.assertIn('"command": "python"', text)
-        self.assertIn('command = "python"', text)
+        self.assertIn('"command": "python3"', text)
+        self.assertIn('command = "python3"', text)
         self.assertIn("<repo>/.wavefoundry/framework/scripts/server.py", text)
         self.assertIn("Do not point MCP config at `.wavefoundry/venv/Scripts/python.exe`", text)
         self.assertNotIn('"command": "/Users/coryhacking/.wavefoundry/venv/bin/python"', text)
@@ -148,7 +149,7 @@ class McpPythonLaunchGuidanceTests(unittest.TestCase):
 
     def test_agent_guide_copy_ready_entry_uses_path_python(self) -> None:
         text = self._read("AGENTS.md")
-        self.assertIn('"command": "python"', text)
+        self.assertIn('"command": "python3"', text)
         self.assertIn("<repo>/.wavefoundry/framework/scripts/server.py", text)
         self.assertIn("do not point MCP config at `.wavefoundry/venv/Scripts/python.exe`", text)
 

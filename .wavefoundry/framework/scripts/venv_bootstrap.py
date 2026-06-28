@@ -11,9 +11,10 @@ Three interpreter tiers (1p7pb-adr):
   1. setup runs on the system interpreter (pre-venv) — ``activate_tool_venv`` no-ops
      because the venv does not exist yet, so it never blocks ``setup_index.ensure_deps``
      from creating it.
-  2. committed configs name ``python`` (resolvable post-symlink / native on Windows),
-     which launches this bootstrap; the bootstrap ACTIVATES the venv **in-process**
-     (``site.addsitedir`` of the venv's site-packages) — no re-exec, no child process.
+  2. committed configs name ``python3`` (which the operator has made resolvable on PATH; setup
+     VERIFIES it but does not create a shim/symlink — detect + guide, wave 1p88t), which launches
+     this bootstrap; the bootstrap ACTIVATES the venv **in-process** (``site.addsitedir`` of the
+     venv's site-packages) — no re-exec, no child process.
   3. every inner/child spawn *after* bootstrap uses ``sys.executable`` (which, after
      in-process activation, stays the *system* interpreter — but each spawned framework
      script self-activates first-line, so it reaches the venv packages too).
@@ -23,7 +24,7 @@ Wave 1p802: the previous ``reexec_into_tool_venv`` re-exec'd into the venv inter
 in-place exec). An MCP host spawns ONE process and owns its stdio; the Windows child
 became a second process holding the same stdout pipe → broken pipe / orphan on reconnect.
 In-process activation keeps a SINGLE host-spawned process on every OS while preserving the
-byte-identical ``command: "python"``. Trade-off: the re-exec was robust to a Python
+byte-identical ``command: "python3"``. Trade-off: the re-exec was robust to a Python
 version upgrade for free; in-process activation cannot load ABI-incompatible compiled
 deps, so a **version guard** fails loud (run ``wf setup`` to rebuild) instead of crashing.
 
@@ -47,8 +48,9 @@ __all__ = [
     "gui_fallback_mcp_stanza",
 ]
 
-# Minimum interpreter the committed `command: "python"` launchers require.
+# Minimum interpreter the committed `command: "python3"` launchers require.
 MIN_PYTHON_VERSION = (3, 11)
+MCP_PYTHON_COMMAND = "python3"
 
 
 def tool_venv_base() -> Path:
@@ -130,7 +132,7 @@ def activate_tool_venv(*, allow_version_mismatch: bool = False) -> None:
     Prepends the venv's ``site-packages`` to ``sys.path`` via ``site.addsitedir`` (so its
     ``.pth`` files are processed) in the already-running, host-spawned process. This keeps a
     SINGLE process on every OS — the MCP host owns one stdio pipe and one lifecycle — while
-    preserving the byte-identical ``command: "python"``.
+    preserving the byte-identical ``command: "python3"``.
 
     No-op when the venv does not exist yet (fresh-bootstrap / pre-setup — must never block
     ``setup_index.ensure_deps`` from creating it) or when already running inside the venv (e.g.
@@ -200,15 +202,18 @@ def activate_tool_venv(*, allow_version_mismatch: bool = False) -> None:
 # Called explicitly at setup / render / upgrade (NOT from activate_tool_venv).
 # ---------------------------------------------------------------------------
 
+_VER_PROBE = "import sys;print(sys.version_info[0], sys.version_info[1])"
+
+
 def _interpreter_version(executable: str) -> tuple[int, int] | None:
-    """``(major, minor)`` of the interpreter at ``executable``, or None if unqueryable."""
+    """``(major, minor)`` of the interpreter resolved from ``executable``, or None if unqueryable.
+
+    ``executable`` may be a bare token (``"python3"``) — the child spawn does its own fresh PATH
+    resolution, so this is a genuine "does ``python3`` resolve to a usable interpreter" check.
+    """
     try:
         result = subprocess.run(
-            [executable, "-c", "import sys;print(sys.version_info[0], sys.version_info[1])"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
+            [executable, "-c", _VER_PROBE], capture_output=True, text=True, timeout=15, check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -221,135 +226,58 @@ def _interpreter_version(executable: str) -> tuple[int, int] | None:
         return None
 
 
-def _user_local_bin() -> Path:
-    return Path.home() / ".local" / "bin"
-
-
-def _shell_rc() -> "Path | None":
-    """The shell rc to extend PATH in, inferred from ``$SHELL`` (None if unknown)."""
-    shell = os.environ.get("SHELL", "")
-    home = Path.home()
-    if shell.endswith("zsh"):
-        return home / ".zshrc"
-    if shell.endswith("fish"):
-        return home / ".config" / "fish" / "config.fish"
-    if shell.endswith("bash"):
-        return home / ".bashrc"
-    return None
-
-
-_PATH_MARKER = "# wavefoundry: python symlink dir on PATH"
-
-
-def _ensure_dir_on_path(directory: Path) -> bool:
-    """Ensure ``directory`` is on PATH (idempotently editing the shell rc if needed).
-
-    Returns True when the user must open a new shell for the change to take effect.
-    """
-    if str(directory) in os.environ.get("PATH", "").split(os.pathsep):
-        return False
-    rc = _shell_rc()
-    if rc is None:
-        print(
-            f"wavefoundry: add {directory} to your PATH (could not detect a shell rc).",
-            file=sys.stderr,
-        )
-        return True
-    line = (
-        f'set -gx PATH "{directory}" $PATH'
-        if rc.name == "config.fish"
-        else f'export PATH="{directory}:$PATH"'
-    )
-    try:
-        existing = rc.read_text(encoding="utf-8") if rc.exists() else ""
-        if _PATH_MARKER not in existing:
-            rc.parent.mkdir(parents=True, exist_ok=True)
-            with rc.open("a", encoding="utf-8") as handle:
-                handle.write(f"\n{_PATH_MARKER}\n{line}\n")
-    except OSError:
-        print(
-            f"wavefoundry: could not update {rc}; add {directory} to your PATH manually.",
-            file=sys.stderr,
-        )
-    return True
-
-
 def ensure_python_resolves(strict: bool = False) -> str:
-    """Make the committed ``command: "python"`` resolvable to Python >= 3.11.
+    """Verify the committed ``command: "python3"`` resolves to Python >= 3.11. DETECT + GUIDE only.
 
-    Order (1p7pb-adr): no-op if ``python`` already resolves to >= 3.11; **warn and DO
-    NOT clobber** if it resolves to something else (e.g. python2); otherwise, on POSIX,
-    create or re-heal ``~/.local/bin/python`` -> ``python3`` and ensure that dir is on
-    PATH. Windows verifies only (``python`` is installer-native — no symlink).
+    Wavefoundry does **not** mutate the environment to make ``python3`` resolve — no shim, no
+    symlink, no PATH edit, no copy into a Python install (operator decision, wave 1p88t; amends ADR
+    1p7pb). Cross-platform auto-healing was invasive and fragile (a Windows ``.cmd`` is not
+    raw-spawnable; a POSIX symlink still needs PATH cooperation), so setup/render/upgrade only CHECK
+    that ``python3`` already resolves and, when it does not, fail closed (strict) or warn (non-strict)
+    with concrete, platform-aware guidance. Making ``python3`` resolvable is the operator's step.
 
-    ``strict=True`` (setup) raises ``SystemExit`` when no usable Python 3 exists;
-    ``strict=False`` (render/upgrade) warns non-fatally and self-heals. Diagnostics go
-    to stderr. Returns a short status string (``ok`` / ``created`` / ``warn_*`` / ``skipped``).
+    ``strict=True`` (setup) raises ``SystemExit`` when ``python3`` does not resolve to >= 3.11;
+    ``strict=False`` (render/upgrade) warns non-fatally. Diagnostics go to stderr. Returns a short
+    status string (``ok`` / ``warn_unresolved`` / ``warn_existing_unusable`` / ``skipped``).
 
-    Setting ``WAVEFOUNDRY_SKIP_PYTHON_HEAL=1`` makes this a complete no-op (returns
-    ``"skipped"``) — for CI, sandboxed runs, read-only-home environments, and tests that
-    drive the render/setup/upgrade entry points but must NOT mutate the real machine (the
-    heal creates a ``~/.local/bin/python`` symlink and may append to the shell rc).
+    Setting ``WAVEFOUNDRY_SKIP_PYTHON_HEAL=1`` makes this a complete no-op (returns ``"skipped"``).
     """
     if os.environ.get("WAVEFOUNDRY_SKIP_PYTHON_HEAL") == "1":
         return "skipped"
-    existing = shutil.which("python")
+
+    existing = shutil.which(MCP_PYTHON_COMMAND)
+    version = _interpreter_version(MCP_PYTHON_COMMAND) if existing else None
+    if existing and version is not None and version >= MIN_PYTHON_VERSION:
+        return "ok"
+
     if existing:
-        version = _interpreter_version(existing)
-        if version is not None and version >= MIN_PYTHON_VERSION:
-            return "ok"
-        print(
-            f"wavefoundry: `python` resolves to {existing} (version {version}), below "
-            f"{MIN_PYTHON_VERSION[0]}.{MIN_PYTHON_VERSION[1]} — leaving it untouched. Make "
-            "`python` a >= 3.11 interpreter for the Wavefoundry MCP launchers.",
-            file=sys.stderr,
+        reason = (
+            f"`{MCP_PYTHON_COMMAND}` resolves to {existing} (version {version}), below "
+            f"{MIN_PYTHON_VERSION[0]}.{MIN_PYTHON_VERSION[1]}"
         )
-        return "warn_existing_unusable"
-
+        status = "warn_existing_unusable"
+    else:
+        reason = f"`{MCP_PYTHON_COMMAND}` does not resolve on PATH"
+        status = "warn_unresolved"
     if os.name == "nt":
-        print(
-            "wavefoundry: `python` is not on PATH. Install Python 3.11+ from python.org "
-            "with 'Add python.exe to PATH' so the MCP launchers resolve.",
-            file=sys.stderr,
+        how = (
+            "make `python3` resolve to Python 3.11+ on PATH — install via Scoop or the Microsoft "
+            "Store (both provide a `python3` command), or add your own `python3` to a PATH directory"
         )
-        if strict:
-            raise SystemExit(2)
-        return "warn_no_python"
-
-    python3 = shutil.which("python3")
-    version3 = _interpreter_version(python3) if python3 else None
-    if not python3 or version3 is None or version3 < MIN_PYTHON_VERSION:
-        print(
-            "wavefoundry: no Python 3.11+ found on PATH (checked `python`, `python3`). "
-            "Install Python 3.11+ to run the Wavefoundry MCP server.",
-            file=sys.stderr,
+    else:
+        how = (
+            "make `python3` resolve to Python 3.11+ on PATH — install via your package manager "
+            "(e.g. Homebrew/apt), or symlink `python3` to your interpreter in a PATH directory"
         )
-        if strict:
-            raise SystemExit(2)
-        return "warn_no_python"
-
-    link = _user_local_bin() / "python"
-    target = Path(python3)
-    try:
-        link.parent.mkdir(parents=True, exist_ok=True)
-        already_correct = link.is_symlink() and link.resolve() == target.resolve()
-        if not already_correct:
-            if link.is_symlink() or link.exists():
-                link.unlink()  # re-heal a dangling / wrong-target symlink
-            link.symlink_to(target)
-            status = "created"
-        else:
-            status = "ok"
-    except OSError as exc:
-        print(f"wavefoundry: could not create the `python` symlink at {link}: {exc}", file=sys.stderr)
-        if strict:
-            raise SystemExit(2)
-        return "warn_symlink_failed"
-
-    new_shell = _ensure_dir_on_path(_user_local_bin())
-    if status == "created":
-        note = " Open a new shell for the PATH change to take effect." if new_shell else ""
-        print(f"wavefoundry: linked `python` -> {target} at {link}.{note}", file=sys.stderr)
+    print(
+        f"wavefoundry: {reason} — the committed `command: \"{MCP_PYTHON_COMMAND}\"` MCP launchers "
+        f"need it. Please {how}, then rerun setup. Wavefoundry does not modify your Python "
+        "installation or PATH. Alternative: point your MCP host's Wavefoundry config at the absolute "
+        "tool-venv Python (the per-machine fallback stanza setup prints) — it needs nothing on PATH.",
+        file=sys.stderr,
+    )
+    if strict:
+        raise SystemExit(2)
     return status
 
 
@@ -360,9 +288,9 @@ def ensure_python_resolves(strict: bool = False) -> str:
 def gui_fallback_mcp_stanza(repo_root: "str | Path") -> dict[str, object]:
     """The absolute-venv-path MCP stanza for GUI-launched hosts that don't inherit the shell PATH.
 
-    The committed configs name the byte-identical ``command: "python"`` (1p7pb-adr), which resolves
-    for CLI hosts (they inherit the shell PATH where setup symlinked ``python``). GUI-launched hosts
-    (Claude Desktop, Cursor.app) inherit only a minimal launchd/registry PATH, so ``python`` may not
+    The committed configs name the byte-identical ``command: "python3"``, which resolves
+    for CLI hosts (they inherit the shell PATH where setup ensured ``python3``). GUI-launched hosts
+    (Claude Desktop, Cursor.app) inherit only a minimal launchd/registry PATH, so ``python3`` may not
     resolve. This stanza needs NOTHING on PATH: it names the **absolute** tool-venv Python and the
     **absolute** ``server.py`` path. It is **per-machine** (absolute paths) and must NOT be committed —
     it's printed as setup guidance for the operator to paste into a GUI host's MCP config override."""

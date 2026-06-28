@@ -14,7 +14,6 @@
 
 # Shebang-bearing launcher/hook bodies (no extension) — always LF.
 .wavefoundry/bin/* text eol=lf
-.wavefoundry/git-hooks/* text eol=lf
 .claude/hooks/* text eol=lf
 .cursor/hooks/* text eol=lf
 .github/hooks/* text eol=lf

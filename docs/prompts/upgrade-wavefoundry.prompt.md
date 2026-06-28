@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-25
+Last verified: 2026-06-27
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -43,9 +43,11 @@ What this prompt is not:
 
 ## Upgrade Steps
 
-**MCP-first (do this when the Wavefoundry MCP is attached).** Drive the upgrade with the **`wave_upgrade()`** tool — it runs the phases for you (pre-flight → adopt the highest pack → extract → render surfaces → prune pack-removed files → docs gate), then `wave_upgrade(phase="update_index")` / `wave_upgrade(phase="cleanup")`. Poll/inspect the lock state with **`wave_upgrade_status()`** between phases and **before any reload/restart**. This mirrors the "prefer MCP over shell launchers" parity used for docs validation: the tool does the mechanical reconciliation (prune the retired files, re-render to `bin/wf`, re-heal the `python` symlink) automatically — going manual and skipping those phases is exactly what leaves stale surfaces behind. **The steps below are the no-MCP CLI fallback (`./.wavefoundry/bin/wf upgrade` on POSIX, `.\.wavefoundry\bin\wf.cmd upgrade` on native Windows)** — follow them only when no MCP host is attached; they are not the default path.
+**MCP-first (do this when the Wavefoundry MCP is attached).** Drive the upgrade with the **`wave_upgrade()`** tool — it runs the phases for you (pre-flight → adopt the highest pack → extract → render surfaces → prune pack-removed files → docs gate), then `wave_upgrade(phase="update_index")` / `wave_upgrade(phase="cleanup")`. Poll/inspect the lock state with **`wave_upgrade_status()`** between phases and **before any reload/restart**. This mirrors the "prefer MCP over shell launchers" parity used for docs validation: the tool does the mechanical reconciliation (prune the retired files, re-render to `bin/wf`, re-heal the `python3` command) automatically — going manual and skipping those phases is exactly what leaves stale surfaces behind. **The steps below are the no-MCP CLI fallback (`./.wavefoundry/bin/wf upgrade` on POSIX, `.\.wavefoundry\bin\wf.cmd upgrade` on native Windows)** — follow them only when no MCP host is attached; they are not the default path. **Read the response's `data.summary` block** for computed fields — `from_version`/`to_version`, `pruned_count`, `docs_gate`, `index_update`, `failed_phase`, `is_major_or_minor`, and the `reconciliation` findings list — plus the top-level `next_step`; do not regex-scrape the raw `output` for these.
 
-**Reconciliation on a minor+ upgrade (recommend / run).** On a major **or** minor version bump (not a patch bump), after the mechanical phases complete, reconcile local surfaces: verify docs/prompts/configs/scripts in THIS repo that referenced a framework surface the bump **changed or RETIRED** are updated — e.g. the 1.9.0 cutover retired the `.wavefoundry/bin/*` wrappers in favor of the cross-OS `wf` dispatcher, so a local doc still naming `.wavefoundry/bin/<wrapper>` is now a broken instruction. Run the drift detection in the Verification Checklist and fix stale references. (`wave_upgrade`'s operator summary surfaces this reconciliation recommendation on a major/minor bump; act on it.)
+**Reconciliation on a minor+ upgrade (the upgrade runs a scan; you act on it).** On a major **or** minor version bump (not a patch bump), after the mechanical phases complete the upgrade **runs the retired-surface reconciliation scan** (`reconcile_scan.py`, shipped under `.wavefoundry/framework/scripts/`) over THIS repo and surfaces an actionable `file:line → suggested wf form` list in the operator summary (`wave_upgrade`'s `summary.reconciliation` field; the human prose lists the same). The scan flags docs/prompts/configs/scripts that named a framework surface the bump **changed or RETIRED** — e.g. the 1.9.0 cutover retired the `.wavefoundry/bin/*` wrappers in favor of the cross-OS `wf` dispatcher, so a local doc still naming `.wavefoundry/bin/<wrapper>` is now a broken instruction. The scan consumes the single retired→new map co-located with `_RETIRED_BIN_WRAPPERS` in `render_platform_surfaces.py`: renames map 1:1 to `wf <subcommand>` (e.g. `docs-lint`→`wf docs-lint`, `wave-gate`→`wf gate`, `wave-dashboard`→`wf dashboard`), and `mcp-server` has **no** `wf` form — remove/rewrite it (the MCP server launches via `python3 .wavefoundry/framework/scripts/server.py`). The scan is **report-only** (it never auto-edits repo docs): apply each suggested edit yourself, then re-run the drift detection in the Verification Checklist to confirm. The scan's baked-in exclusion set never flags the framework pack tree, the generated index, `docs/waves/`, `docs/reports/`, `CHANGELOG.md`, journals/snapshots, or test files.
+
+**Host permission/allow-rule files (flag for the operator — do not self-edit).** The scan does **not** cover host permission/allow-rule files (e.g. `.claude/settings.local.json` allow rules, and per-host equivalents). When a renamed surface changes the command an allow rule references, **flag it for the operator** in the upgrade summary — agents cannot self-edit those files under host auto-mode guards. Name the stale rule and the new `wf <subcommand>` form; let the operator make the edit.
 
 **Versioning contract:** Releases use `MAJOR.MINOR.PATCH` semver. The version appears as `MAJOR.MINOR.PATCH+<build>` in `VERSION` and `framework_revision`, and as `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` in filenames. See `docs/architecture/decisions/12tm5-adr semver-versioning-contract.md` for the version bump policy.
 
@@ -59,7 +61,7 @@ What this prompt is not:
 
 Discovery/preview is **CLI-only**: run the flag via your shell (that is the agent-safe path — not `ls`). The MCP `wave_upgrade` tool *runs* the upgrade — its default `preflight_to_docs_gate` phase adopts the highest pack — and has **no** dry-run or discovery-only phase (its only argument is `phase=`; there is no `mode=`).
 
-**Step 0 (optional zip adoption):** If a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` is in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`, the upgrade seed stages the selected pack under `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation. Non-matching filenames are skipped. The shell-heavy upgrade flow still runs from **WSL2** on Windows; the no-PATH dispatcher fallback above is the native-Windows form.
+**Step 0 (optional zip adoption):** If a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` is in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`, the upgrade seed stages the selected pack under `.wavefoundry/framework/`, runs `wf render-surfaces`, and continues full reconciliation. Non-matching filenames are skipped. The shell-heavy upgrade flow still runs from **WSL2** on Windows; the no-PATH dispatcher fallback above is the native-Windows form.
 
 **Full reconciliation:**
 1. Inventory current state (seed-030 in targeted mode)
@@ -77,7 +79,7 @@ Canonical procedure: `.wavefoundry/framework/seeds/160-upgrade-wavefoundry.promp
 
 ```bash
 # Hooks, MCP JSON, bin launchers, and auto-Guru surfaces (when docs/agents/guru.md exists)
-python3 .wavefoundry/framework/scripts/render_platform_surfaces.py
+wf render-surfaces
 
 # Optional: agent routing only
 python3 .wavefoundry/framework/scripts/render_agent_surfaces.py
@@ -113,16 +115,16 @@ The 1.6 upgrade includes a secrets scan; understand which part blocks and how to
 
 On a **major or minor** upgrade (e.g. 1.5 → 1.6), the upgrade summary surfaces a one-line recommendation that a **senior / principal architect or engineer** evaluate whether to run the **Framework Config Review** (`docs/prompts/framework-config-review.prompt.md`) — a removal-biased audit of the agent operating surface (AGENTS.md/CLAUDE.md, seeds, prompts, constraints, memory, doc-sync). It is **recommend-only and human-initiated**: it never runs automatically and never blocks the upgrade. Patch upgrades do not surface it. There is no state/threshold — the cadence is simply "evaluate it at each major/minor upgrade."
 
-## Reconciliation recommendation (major/minor upgrades)
+## Reconciliation scan (major/minor upgrades)
 
-On a **major or minor** upgrade, the upgrade summary also surfaces a one-line **reconciliation** recommendation (a sibling to the config-review line; same gate, patch upgrades excluded): verify local surfaces (docs, prompts, configs, scripts) that referenced a framework surface the bump **changed or RETIRED** are reconciled. Concrete example: the 1.9.0 cutover retired the `.wavefoundry/bin/*` wrappers in favor of the cross-OS `wf` dispatcher, so a local doc still naming `.wavefoundry/bin/<wrapper>` is now a broken instruction. The mechanical reconciliation (prune pack-removed files, re-render surfaces, re-heal the `python` symlink) is automatic when `wave_upgrade()` runs its phases; this recommendation is for the local-surface part agents must still judge — run the drift detection in the Verification Checklist and update stale references. Recommend-only; never blocks.
+On a **major or minor** upgrade, the upgrade **runs the retired-surface reconciliation scan** (`reconcile_scan.py`, shipped under `.wavefoundry/framework/scripts/`) over THIS repo and surfaces an actionable `file:line → suggested wf form` list in the operator summary (`wave_upgrade`'s `summary.reconciliation` field; the human prose lists the same). It flags local surfaces (docs, prompts, configs, scripts) that referenced a framework surface the bump **changed or RETIRED**. Concrete example: the 1.9.0 cutover retired the `.wavefoundry/bin/*` wrappers in favor of the cross-OS `wf` dispatcher, so a local doc still naming `.wavefoundry/bin/<wrapper>` is now a broken instruction. The scan consumes the single retired→new map co-located with `_RETIRED_BIN_WRAPPERS` in `render_platform_surfaces.py`: renames map 1:1 to `wf <subcommand>` (e.g. `docs-lint`→`wf docs-lint`, `wave-gate`→`wf gate`, `wave-dashboard`→`wf dashboard`), and `mcp-server` has **no** `wf` form — remove/rewrite it (the MCP server launches via `python3 .wavefoundry/framework/scripts/server.py`). The mechanical reconciliation (prune pack-removed files, re-render surfaces, re-heal the `python3` command) is automatic when `wave_upgrade()` runs its phases; the scan is **report-only** for the local-surface part agents must still judge — apply each suggested edit yourself, then re-run the drift detection in the Verification Checklist. The exclusion set never flags the framework pack tree, the generated index, `docs/waves/`, `docs/reports/`, `CHANGELOG.md`, journals/snapshots, or test files. **Host permission/allow-rule files** (e.g. `.claude/settings.local.json` allow rules) are **not** scanned — flag a stale allow rule for the operator rather than self-editing it (host auto-mode guards block agent edits there). Patch upgrades skip the scan; never blocks.
 
 ## Verification Checklist
 
 See `docs/contributing/build-and-verification.md` **Wave framework pack upgrade verification** for the ordered operator commands.
 
 1. Framework tests: `python3 .wavefoundry/framework/scripts/run_tests.py`
-2. Docs gate: **`wave_garden`** / **`wave_validate`** over MCP when available; otherwise `wf docs-gardener && wf docs-lint`
+2. Docs gate: **`wave_garden`** / **`wave_validate`** over MCP when available; otherwise `wf docs-gardener && wf docs-lint`. **Gate-before-reload window:** when MCP is attached but still running the **pre-upgrade** server impl (new code is on disk but the in-process server has not reloaded yet — i.e. before the `wave_mcp_reload()` step), prefer the **`wf` CLI docs gate** here rather than the MCP `wave_validate`/`wave_garden` tools — those would run the stale in-process impl against the new tree. The CLI path is correct in that window, not only a no-MCP fallback; switch back to the MCP tools once the reload lands.
 3. Verify host registration and CLI launch paths generated by the current pack:
    - `.cursor/mcp.json` exists and contains `mcpServers.wavefoundry` after `render_platform_surfaces --platform cursor`
    - `.mcp.json` and `.junie/mcp/mcp.json` still include the Wavefoundry stdio entry when those hosts are used
@@ -154,7 +156,7 @@ See `docs/contributing/build-and-verification.md` **Wave framework pack upgrade 
 If the upgraded pack includes the local dashboard feature, verify the Start / Stop / Restart dashboard surfaces exist and the start path opens cleanly:
 
 ```bash
-python3 .wavefoundry/framework/scripts/dashboard_server.py --root . --open
+wf dashboard --root . --open
 ```
 
 The command must always print the final bound URL, even when it opens the browser automatically.

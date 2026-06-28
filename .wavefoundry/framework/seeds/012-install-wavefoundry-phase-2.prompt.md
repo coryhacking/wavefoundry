@@ -84,7 +84,7 @@ Call `wave_install_audit` after marking 2.2 done.
 **Action:** Immediately after the policy is written (step 2.3a), run ONE full-repo secrets baseline scan so every tracked file — not just changed ones — is classified into `docs/scan-findings.json` in a single up-front triage pass:
 
 - With the Wavefoundry MCP attached: `wave_scan_secrets(mode="full")`.
-- CLI fallback: `python3 .wavefoundry/framework/scripts/run_secrets_scan.py --mode full`.
+- CLI fallback: `wf secrets-scan --mode full`.
 
 Use the **full** entrypoint (`scan_all=True`), NOT the incremental docs-lint hook path — the incremental path scans only git-changed files (`get_scan_files`), so secrets living in untouched files would otherwise stay unclassified and dribble out across later waves. Run this once at install; it is not re-run on every operation.
 

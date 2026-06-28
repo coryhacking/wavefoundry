@@ -47,6 +47,14 @@ _SUBCOMMANDS: dict[str, dict] = {
     "lifecycle-id": {"module": "lifecycle_id", "script": "lifecycle_id.py"},
     "upgrade": {"module": "upgrade_wavefoundry", "script": "upgrade_wavefoundry.py"},
     "setup": {"module": "setup_wavefoundry", "script": "setup_wavefoundry.py"},
+    "codebase-map": {"module": "gen_codebase_map", "script": "gen_codebase_map.py"},
+    "render-surfaces": {"module": "render_platform_surfaces", "script": "render_platform_surfaces.py"},
+    "secrets-scan": {"module": "run_secrets_scan", "script": "run_secrets_scan.py"},
+    # NOTE: `prune_framework.py` is intentionally NOT a wf subcommand. It is a manual,
+    # source-host/upgrade-cleanup fallback run directly (it needs the pre-upgrade MANIFEST,
+    # which only the operator running the upgrade has); routing it through `wf` added no value
+    # and its `main() -> None` made the dispatcher's int() coercion crash. Run it directly:
+    #   python3 .wavefoundry/framework/scripts/prune_framework.py --old-manifest <path>
 }
 
 # ``setup`` must NOT trigger the dispatcher's up-front venv activation: it runs on a fresh box BEFORE
@@ -73,6 +81,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "lifecycle-id": "Mint lifecycle prefixes for waves/changes (lifecycle_id.py).",
         "upgrade": "Upgrade the Wavefoundry framework in this repo (upgrade_wavefoundry.py).",
         "setup": "Bootstrap the harness: venv + deps + indexes + configs (setup_wavefoundry.py).",
+        "codebase-map": "Generate the codebase map orientation doc (gen_codebase_map.py).",
+        "render-surfaces": "Regenerate host configs, hooks, bin shims, and agent surfaces (render_platform_surfaces.py).",
+        "secrets-scan": "Run the secrets scanner fallback CLI (run_secrets_scan.py).",
     }
     for name in _SUBCOMMANDS:
         sub.add_parser(
@@ -91,7 +102,8 @@ def _dispatch(subcommand: str, rest: list[str]) -> int:
     forwarded argv explicitly to ``main(argv=...)`` for targets whose ``main`` accepts it.
     """
     spec = _SUBCOMMANDS[subcommand]
-    forwarded = [*spec.get("prefix", []), *rest]
+    prefix = [] if subcommand == "dashboard" and rest else spec.get("prefix", [])
+    forwarded = [*prefix, *rest]
 
     import importlib
 
@@ -121,7 +133,10 @@ def _dispatch(subcommand: str, rest: list[str]) -> int:
         accepts_argv = len(sig.parameters) >= 1
     except (TypeError, ValueError):
         accepts_argv = False
-    return int(main(forwarded) if accepts_argv else main())
+    # A target's main() may return an int exit code or None (a convention for "exit 0").
+    # Coerce None -> 0 so a None-returning main() can never crash the dispatcher on int(None).
+    rc = main(forwarded) if accepts_argv else main()
+    return 0 if rc is None else int(rc)
 
 
 def main(argv: list[str] | None = None) -> int:

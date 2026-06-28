@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-25
+Last verified: 2026-06-27
 
 ## Verification Commands
 
@@ -25,7 +25,7 @@ python3 .wavefoundry/framework/scripts/run_tests.py
 Build or refresh the local semantic index with:
 
 ```bash
-python3 .wavefoundry/framework/scripts/setup_index.py
+wf update-indexes
 ```
 
 What this does:
@@ -42,10 +42,10 @@ For new developer onboarding or post-upgrade rebuilds, use the docs-first approa
 
 ```bash
 # Phase 1: docs index — unblocks all MCP tools immediately (~2.5 min)
-python3 .wavefoundry/framework/scripts/setup_index.py
+wf update-indexes
 
 # Phase 2: code index — builds in the background, foreground returns immediately
-python3 .wavefoundry/framework/scripts/setup_index.py --background-code
+wf update-indexes --background-code
 ```
 
 `--background-code` builds the docs index synchronously, then spawns a detached background process for code model prewarm and code embedding. Progress is written to `.wavefoundry/index/background-build.log`. Call `wave_index_health()` to check whether the background build is still running.
@@ -53,7 +53,7 @@ python3 .wavefoundry/framework/scripts/setup_index.py --background-code
 To build both synchronously (e.g. CI):
 
 ```bash
-python3 .wavefoundry/framework/scripts/setup_index.py --include-code
+wf setup --include-code
 ```
 
 ### Embedding provider diagnostics
@@ -91,10 +91,10 @@ When a pack upgrade bumps `CHUNKER_VERSION`, a full rebuild is required for both
 `wave_index_health` will emit a `chunker_version_mismatch` advisory (distinct from `index_stale`) when the index was built with an older chunker version. If you see this advisory, run:
 
 ```bash
-python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full
+wf setup --full
 # or docs-first, then background code:
-python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full
-python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --background-code --full
+wf setup --full
+wf setup --background-code --full
 ```
 
 If the repo needs extra project index roots beyond the default, declare them explicitly in `docs/workflow-config.json` under `indexing.project_include_prefixes`. Use repo-relative `docs` and `code` lists rather than one-off booleans. Wavefoundry uses this in self-hosting mode to include `.wavefoundry/framework/scripts` in project code search without changing the default for ordinary target repos.
@@ -106,12 +106,12 @@ If the repo needs extra project index roots beyond the default, declare them exp
 | Docs changed during a wave (post-edit hook ran automatically) | No manual action needed — MCP tools trigger a background refresh on write |
 | Hook didn't run (Codex, Warp, or non-hook env) and docs feel stale | **Update:** `wave_index_build(content="docs", mode="update")` — re-indexes changed files only |
 | `wave_index_health` reports `index_stale` | **Update:** `wave_index_build(content="docs", mode="update")` |
-| `wave_index_health` reports `index_missing` | **Update (creates index):** `wave_index_build(content="docs", mode="update")` or `setup_index.py` |
+| `wave_index_health` reports `index_missing` | **Update (creates index):** `wave_index_build(content="docs", mode="update")` or `wf update-indexes` |
 | `wave_index_health` reports `chunker_version_mismatch` after a pack upgrade | **Full rebuild required** — file hashes alone won't detect the version change. See *Upgrade rebuild requirement* above |
-| Code navigation (`code_search`, `code_read`) feels stale or was never built | **Code update:** `wave_index_build(content="code", mode="update")` — or `setup_index.py --background-code` |
-| Framework seeds changed in the Wavefoundry source repo itself | **Framework layer:** `wave_index_build(content="docs", layer="framework")` |
-| First install / clean environment | `setup_index.py` (docs, ~2.5 min) then `setup_index.py --background-code` (code, background) |
-| CI deterministic full build | `setup_index.py --include-code` (~6 min, both layers synchronous) |
+| Code navigation (`code_search`, `code_read`) feels stale or was never built | **Code update:** `wave_index_build(content="code", mode="update")` — or `wf update-indexes` |
+| Framework seeds changed in the Wavefoundry source repo itself | **Project docs update:** `wave_index_build(content="docs", mode="update")`; framework seeds are folded into the project docs index |
+| First install / clean environment | `wf setup` |
+| CI deterministic full build | `wf setup --include-code` (~6 min, docs and code synchronous) |
 
 **Update** re-indexes only changed files (fast, uses file hashes). **Rebuild** (`--full` / `mode="rebuild"`) ignores hashes and reprocesses everything — use it when `CHUNKER_VERSION` changed or the index is known corrupt.
 
@@ -161,7 +161,7 @@ When a new framework version is available, upgrade using this procedure:
 
 **Bring the pack in:**
 
-Option A (zip drop): Place a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` at the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`, and run **Upgrade wave framework**. The upgrade seed (`seed-160`) adopts the highest semver zip into `.wavefoundry/framework/`, runs `render_platform_surfaces.py`, and continues full reconciliation.
+Option A (zip drop): Place a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` at the repository root, `~/.wavefoundry/`, or `~/.wavefoundry/dist/`, and run **Upgrade wave framework**. The upgrade seed (`seed-160`) adopts the highest semver zip into `.wavefoundry/framework/`, runs `wf render-surfaces`, and continues full reconciliation.
 
 Option B (direct merge): Merge or copy into `.wavefoundry/framework/` then run **Upgrade wave framework**.
 
@@ -182,7 +182,7 @@ wf docs-gardener && wf docs-lint
 
 **Upgrade-path checks for new features (2026-04-30+):**
 
-- Host MCP surfaces updated by `render_platform_surfaces.py`:
+- Host MCP surfaces updated by `wf render-surfaces`:
   - `.cursor/mcp.json` contains `mcpServers.wavefoundry`
   - `.mcp.json` and `.junie/mcp/mcp.json` include the Wavefoundry stdio entry when those hosts are used
 - The canonical cross-OS `wf` / `wf.cmd` dispatcher exists under `.wavefoundry/bin/` and resolves to packaged scripts via `wf_cli.py`:
@@ -196,7 +196,7 @@ wf docs-gardener && wf docs-lint
 
 Agents running **Upgrade wave framework** must follow `docs/prompts/upgrade-wavefoundry.prompt.md` § **Agent surfaces and auto-Guru** and `seed-160` § **Agent surfaces and auto-Guru upgrade (agent procedure)**.
 
-1. Run `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` (includes `render_agent_surfaces.py`).
+1. Run `wf render-surfaces` (includes `render_agent_surfaces.py`).
 2. Backfill `AGENTS.md` tier-1 sections (**Codebase and documentation questions (auto-Guru)**, **Agent platform routing**) when missing.
 3. Ensure `docs/agents/guru.md` exists; migrate legacy CIA paths when needed.
 4. Re-run the renderer after tier-1 backfill if it was just added.

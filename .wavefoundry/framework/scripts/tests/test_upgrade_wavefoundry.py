@@ -1223,7 +1223,7 @@ class PreferredPythonTests(unittest.TestCase):
     def setUp(self):
         self.mod = load_upgrade_module()
         # Wave 1p7pm: phase_surface_rendering calls venv_bootstrap.ensure_python_resolves(), which is
-        # SIDE-EFFECTING (creates ~/.local/bin/python + may append to the shell rc). Patch it to a
+        # SIDE-EFFECTING (creates ~/.local/bin/python3 + may append to the shell rc). Patch it to a
         # no-op so driving phase_surface_rendering here never mutates the operator's box. (The real
         # heal is exercised, safely isolated into a tempdir, only in test_venv_bootstrap.py.)
         if str(SCRIPTS_ROOT) not in sys.path:
@@ -2825,11 +2825,39 @@ class ReconciliationRecommendationTests(unittest.TestCase):
         self.mod = load_upgrade_module()
 
     def test_minor_bump_recommends(self):
+        # Wave 1p8et: the recommend-only prose was replaced by the actionable scan; the heading is
+        # now "Reconciliation scan". With no findings supplied it still emits the heading + a
+        # "no stale references" line so the operator sees the scan ran.
         lines = self.mod._reconciliation_recommendation_lines("1.5.0", "1.6.0")
         self.assertTrue(lines)
-        self.assertTrue(any("Reconciliation recommended" in ln for ln in lines))
+        self.assertTrue(any("Reconciliation scan" in ln for ln in lines))
         # Names the concrete 1.9.0 bin/* -> wf retirement example.
         self.assertTrue(any("`wf`" in ln or "bin/" in ln for ln in lines))
+
+    def test_findings_render_actionable_file_line_suggested(self):
+        # Wave 1p8et: when findings are supplied, the actionable file:line → suggested list is emitted.
+        # The printed reference is the finding's `matched` text (INV-recline), not a synthesized form.
+        findings = [
+            {"file": "docs/x.md", "line": 7, "retired_surface": "docs-lint",
+             "matched": ".wavefoundry/bin/docs-lint", "suggested": "wf docs-lint"},
+        ]
+        lines = self.mod._reconciliation_recommendation_lines("1.5.0", "1.6.0", findings)
+        joined = "\n".join(lines)
+        self.assertIn("docs/x.md:7", joined)
+        self.assertIn(".wavefoundry/bin/docs-lint", joined)
+        self.assertIn("wf docs-lint", joined)
+
+    def test_findings_print_matched_text_for_py_join(self):
+        # INV-recline: a .py-join finding prints its actual matched text, not `.wavefoundry/bin/<name>`.
+        findings = [
+            {"file": "s.py", "line": 3, "retired_surface": "wave-gate",
+             "matched": 'bin_dir / "wave-gate"', "suggested": "wf gate"},
+        ]
+        lines = self.mod._reconciliation_recommendation_lines("1.5.0", "1.6.0", findings)
+        joined = "\n".join(lines)
+        self.assertIn('bin_dir / "wave-gate"', joined)
+        self.assertNotIn(".wavefoundry/bin/wave-gate", joined)
+        self.assertIn("wf gate", joined)
 
     def test_major_bump_recommends(self):
         self.assertTrue(self.mod._reconciliation_recommendation_lines("1.6.0", "2.0.0"))
@@ -2866,14 +2894,15 @@ class ReconciliationRecommendationTests(unittest.TestCase):
 
     def test_reconciliation_line_wired_into_operator_summary_on_minor_bump(self):
         # Wave 1p7ww review: the GATE was tested but the WIRING into _print_operator_summary was not.
+        # Wave 1p8et: heading is now "Reconciliation scan".
         out = self._capture_summary("1.5.0", "1.6.0")
-        self.assertIn("Reconciliation recommended", out)
+        self.assertIn("Reconciliation scan", out)
         # Sibling config-review line is also present on the same gate.
         self.assertIn("Config review recommended", out)
 
     def test_reconciliation_line_absent_in_summary_on_patch_bump(self):
         out = self._capture_summary("1.6.0", "1.6.1")
-        self.assertNotIn("Reconciliation recommended", out)
+        self.assertNotIn("Reconciliation scan", out)
         self.assertNotIn("Config review recommended", out)
 
     def test_reconciliation_line_absent_in_summary_on_failed_phase(self):
@@ -2884,7 +2913,135 @@ class ReconciliationRecommendationTests(unittest.TestCase):
                 from_version="1.5.0", to_version="1.6.0", zip_path=None,
                 pruned_count=0, ran_index_rebuild=False, failed_phase="docs_gate",
             )
-        self.assertNotIn("Reconciliation recommended", buf.getvalue())
+        self.assertNotIn("Reconciliation scan", buf.getvalue())
+
+
+class ReconciliationScanIntegrationTests(unittest.TestCase):
+    """Wave 1p8et: _print_operator_summary RUNS the shipped scan on a major/minor bump when a real
+    root is supplied, and surfaces the actionable file:line → suggested list (report-only)."""
+
+    def setUp(self):
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        self.mod = load_upgrade_module()
+
+    def _summary_over_root(self, root, from_v="1.5.0", to_v="1.6.0", failed_phase=None):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.mod._print_operator_summary(
+                from_version=from_v, to_version=to_v, zip_path=None,
+                pruned_count=0, ran_index_rebuild=True,
+                failed_phase=failed_phase, root=Path(root),
+            )
+        return buf.getvalue()
+
+    def test_scan_surfaces_actionable_finding(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "docs").mkdir()
+            (root / "docs" / "runbook.md").write_text(
+                "Run `.wavefoundry/bin/docs-lint` to lint.\n", encoding="utf-8"
+            )
+            out = self._summary_over_root(root)
+            self.assertIn("docs/runbook.md:1", out)
+            self.assertIn(".wavefoundry/bin/docs-lint", out)
+            self.assertIn("wf docs-lint", out)
+
+    def test_scan_does_not_run_on_patch_bump(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "x.md").write_text("`.wavefoundry/bin/docs-lint`\n", encoding="utf-8")
+            out = self._summary_over_root(root, from_v="1.6.0", to_v="1.6.1")
+            self.assertNotIn("Reconciliation scan", out)
+
+    def test_scan_skipped_when_root_none(self):
+        # Back-compat: no root → no scan, no exception, summary still renders.
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.mod._print_operator_summary(
+                from_version="1.5.0", to_version="1.6.0", zip_path=None,
+                pruned_count=0, ran_index_rebuild=True,
+            )
+        out = buf.getvalue()
+        self.assertIn("Reconciliation scan", out)
+        self.assertIn("No stale retired-surface references found", out)
+
+    def test_run_reconciliation_scan_is_fail_safe(self):
+        # A bad root must not raise — returns [].
+        self.assertEqual(self.mod._run_reconciliation_scan(None), [])
+
+
+class UpgradeSummarySentinelTests(unittest.TestCase):
+    """Wave 1p8eu: the operator summary is built ONCE as a dict and emitted both as prose and a
+    machine-readable WAVE_UPGRADE_SUMMARY_JSON: sentinel line, rendered from the one dict."""
+
+    def setUp(self):
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        self.mod = load_upgrade_module()
+
+    def _capture(self, **kwargs):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.mod._print_operator_summary(**kwargs)
+        return buf.getvalue()
+
+    def _parse_sentinel(self, out):
+        sentinel = self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL
+        for line in out.splitlines():
+            if line.startswith(sentinel):
+                return json.loads(line[len(sentinel):])
+        return None
+
+    def test_sentinel_line_present_with_all_fields(self):
+        out = self._capture(
+            from_version="1.5.0", to_version="1.6.0", zip_path=None,
+            pruned_count=4, ran_index_rebuild=True, failed_phase=None,
+        )
+        summary = self._parse_sentinel(out)
+        self.assertIsNotNone(summary)
+        for key in ("from_version", "to_version", "pruned_count", "docs_gate",
+                    "index_update", "failed_phase", "is_major_or_minor", "reconciliation"):
+            self.assertIn(key, summary)
+        self.assertEqual(summary["from_version"], "1.5.0")
+        self.assertEqual(summary["to_version"], "1.6.0")
+        self.assertEqual(summary["pruned_count"], 4)
+        self.assertEqual(summary["docs_gate"], "PASSED")
+        self.assertTrue(summary["is_major_or_minor"])
+        self.assertEqual(summary["reconciliation"], [])
+
+    def test_sentinel_reconciliation_carries_findings(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "g.md").write_text("`.wavefoundry/bin/wave-gate`\n", encoding="utf-8")
+            out = self._capture(
+                from_version="1.5.0", to_version="1.6.0", zip_path=None,
+                pruned_count=0, ran_index_rebuild=True, failed_phase=None, root=root,
+            )
+            summary = self._parse_sentinel(out)
+            self.assertEqual(len(summary["reconciliation"]), 1)
+            ref = summary["reconciliation"][0]
+            self.assertEqual(ref["retired_surface"], "wave-gate")
+            self.assertEqual(ref["matched"], ".wavefoundry/bin/wave-gate")
+            self.assertEqual(ref["suggested"], "wf gate")
+
+    def test_sentinel_failed_phase_reflected(self):
+        out = self._capture(
+            from_version="1.5.0", to_version="1.6.0", zip_path=None,
+            pruned_count=0, ran_index_rebuild=False, failed_phase="docs_gate",
+        )
+        summary = self._parse_sentinel(out)
+        self.assertEqual(summary["failed_phase"], "docs_gate")
+        self.assertEqual(summary["docs_gate"], "FAILED")
+
+    def test_prose_and_sentinel_agree_on_pruned_count(self):
+        out = self._capture(
+            from_version="1.5.0", to_version="1.6.0", zip_path=None,
+            pruned_count=7, ran_index_rebuild=True, failed_phase=None,
+        )
+        summary = self._parse_sentinel(out)
+        self.assertIn("Files pruned:       7", out)
+        self.assertEqual(summary["pruned_count"], 7)
 
 
 class DetectDashboardLivenessTests(unittest.TestCase):

@@ -59,7 +59,7 @@ employment agreements.
 ```bash
 git clone https://github.com/coryhacking/wavefoundry.git
 cd wavefoundry
-python3 .wavefoundry/framework/scripts/setup_wavefoundry.py
+./.wavefoundry/bin/wf setup
 ```
 
 `setup_wavefoundry.py` creates a shared tool venv at `~/.wavefoundry/venv`

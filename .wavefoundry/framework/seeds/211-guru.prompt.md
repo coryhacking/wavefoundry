@@ -618,7 +618,7 @@ Citation fields in `code_ask` response:
 - Files matching `.gitignore` / `.aiignore` patterns
 - The entire `.wavefoundry/` directory (wave 1p2q3 1p2qd) — framework infrastructure (`.wavefoundry/framework/`, `.wavefoundry/bin/`, `.wavefoundry/CHANGELOG.md`, `.wavefoundry/dist/`, etc.) does not appear in the consumer project's graph or semantic indexes by default. Operators querying framework code use `layer="framework"` on `code_search` / `docs_search` / graph tools — the framework layer indexes its own seeds and architecture docs. Self-hosting projects (e.g. the wavefoundry repository itself) opt specific framework subpaths back into the project layer via `indexing.project_include_prefixes.code` in `docs/workflow-config.json` (listing the subpaths they actually want, e.g. `.wavefoundry/framework/scripts`)
 
-**Staleness:** The index is rebuilt on `setup_wavefoundry.py` / `setup_index.py` runs and by MCP index-build flows. Check `index_freshness` in the `code_ask` response. When `"stale"`, the index may lag behind recent commits.
+**Staleness:** The index is rebuilt on `wf setup`, `wf update-indexes`, and MCP index-build flows. Check `index_freshness` in the `code_ask` response. When `"stale"`, the index may lag behind recent commits.
 
 ## Uncertainty Protocol
 
@@ -690,9 +690,9 @@ When falling back:
 - Confidence is implicitly `medium` (keyword match only, no semantic ranking).
 - Note that results are from a keyword scan and may be incomplete.
 
-Once **Enable Wavefoundry MCP** has been run and `setup_wavefoundry.py` has built the index, switch back to the MCP tools.
+Once **Enable Wavefoundry MCP** has been run and `wf setup` has built the index, switch back to the MCP tools.
 
-**Availability note:** MCP is not active at `Init Wavefoundry` time — it is registered separately via **Enable Wavefoundry MCP**. The index is built via `setup_wavefoundry.py` after registration (`setup_index.py` remains the compatibility implementation path behind it).
+**Availability note:** MCP is not active at `Init Wavefoundry` time — it is registered separately via **Enable Wavefoundry MCP**. The index is built via `wf setup` after registration (`setup_index.py` remains the compatibility implementation path behind it).
 
 ## Incident Documentation
 

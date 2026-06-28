@@ -149,7 +149,7 @@ CODEX_AUTO_GURU_SKILL = dedent(
 CODEX_MCP_CONFIG_TOML = dedent(
     """\
     [mcp_servers.wavefoundry]
-    command = "python"
+    command = "python3"
     args = [".wavefoundry/framework/scripts/server.py"]
     """
 )

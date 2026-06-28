@@ -31,7 +31,15 @@ EXCLUDED_DIRS = {"__pycache__", ".pytest_cache", ".wavefoundry"}
 # Excluded path suffix relative to the framework root (forward-slash separated).
 # Tests and the test runner are development-only artifacts; downstream repos that
 # vendor the pack have no use for them and seeds must not instruct them to run tests.
-EXCLUDED_REL_PATHS = {"scripts/tests/tmp", "scripts/tests", "scripts/run_tests.py", "scripts/benchmarks", "test-cache.json"}
+EXCLUDED_REL_PATHS = {
+    "scripts/tests/tmp",
+    "scripts/tests",
+    "scripts/run_tests.py",
+    "scripts/build_pack.py",
+    "scripts/build_scan_allowlist.py",  # source-host-only; top-imports build_pack (excluded) — don't ship
+    "scripts/benchmarks",
+    "test-cache.json",
+}
 # Transient/runtime artifact extensions that must never ship in the pack.
 # .lock and .log are emitted at runtime by the test runner and the indexer; the
 # remaining suffixes are editor/merge-conflict artifacts that should never ship

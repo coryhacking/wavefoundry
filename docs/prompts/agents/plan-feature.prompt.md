@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-18
+Last verified: 2026-06-27
 
 ## Context
 
@@ -28,7 +28,7 @@ Use MCP first when the Wavefoundry server is available. The `wave_new_*` tools g
 If MCP is unavailable, use the CLI fallback:
 
 ```bash
-python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>
+wf lifecycle-id --kind <kind> --slug <slug>
 ```
 
 Epoch: `2022-04-28T00:00:00Z` → IDs look like `0xxxx-<kind> <slug>`.

@@ -230,6 +230,16 @@ def write_dashboard_metadata(root: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+def _no_window_creationflags() -> int:
+    """Windows ``CREATE_NO_WINDOW`` (0 elsewhere). ``dashboard_cmdline_pids`` and its helpers are
+    consumed by the MCP server process (via ``server_impl`` dashboard lifecycle/reconciliation), so
+    these scan subprocesses must not flash a console window on native Windows; they also pass
+    ``stdin=DEVNULL`` to never inherit the JSON-RPC stdin (wave 1p88t subprocess isolation)."""
+    if os.name != "nt":
+        return 0
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
 def _windows_process_cmdlines() -> str | None:
     """Wave 1p6eq: best-effort ``<pid> <command line>`` listing on native Windows, one process per
     line, via PowerShell + CIM (``Get-CimInstance Win32_Process`` — the only built-in that exposes a
@@ -248,6 +258,7 @@ def _windows_process_cmdlines() -> str | None:
         result = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
             capture_output=True, text=True, check=False, timeout=10,
+            stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
         )
     except Exception:  # noqa: BLE001 — best-effort; any failure → fall back to bare-PID liveness
         return None
@@ -280,6 +291,7 @@ def dashboard_cmdline_pids(root: Path) -> list[int] | None:
             out = subprocess.run(
                 ["ps", "-axww", "-o", "pid=,command="],
                 capture_output=True, text=True, check=False,
+                stdin=subprocess.DEVNULL,  # never inherit JSON-RPC stdin (wave 1p88t)
             ).stdout
         except Exception:  # noqa: BLE001 — best-effort scan; any failure → fall back
             return None

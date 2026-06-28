@@ -24,10 +24,10 @@ Tasks:
    wf dashboard
    ```
 
-   The `wf dashboard` subcommand opens the browser automatically — no `--open` flag is needed in the public docs. Document that the low-level no-browser fallback is to call the script directly:
+   The `wf dashboard` subcommand opens the browser automatically when called with no explicit dashboard-server args — no `--open` flag is needed in the public docs. Document that the low-level no-browser fallback is:
 
    ```bash
-   python3 .wavefoundry/framework/scripts/dashboard_server.py --root .
+   wf dashboard --root .
    ```
    Also note `Stop dashboard` and `Restart dashboard` as related repo-local control commands in the public prompt surface.
 

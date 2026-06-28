@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-25
+Last verified: 2026-06-27
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -153,7 +153,7 @@ Diagnostic entries should use stable field names:
   "code": "missing_index",
   "message": "Semantic index is not built.",
   "recovery_tools": ["wave_help"],
-  "recovery_usage": "python3 .wavefoundry/framework/scripts/setup_index.py --root ."
+  "recovery_usage": "wf update-indexes --root ."
 }
 ```
 
@@ -201,7 +201,7 @@ degrade to lexical fallback instead of crashing. The hot-path diagnostic code fo
 those conditions is `semantic_model_unavailable_offline` or `index_not_ready`.
 - `index_missing` and `index_stale` diagnostics are not emitted by `docs_search`; call
 `wave_index_health` explicitly to check whether an index layer is stale or absent
-before deciding whether to rerun `setup_index.py`.
+before deciding whether to run `wf update-indexes`.
 - `kind` is returned as an empty string `""` in the response (not `null`) when no filter
 is applied.
 - Returns path, section, score, excerpt, trust label, stable result ID, and the
@@ -393,7 +393,7 @@ itself succeeds — even when `readiness_overview` is `absent`, `stale`, or `inc
 Agents must read `readiness_overview` and `semantic_ready` to decide whether a reindex is needed,
 not rely on `status` to signal index absence.
 - Recovery: call `wave_index_build(content='docs', mode='update')` (preferred MCP path) or rerun
-`python3 .wavefoundry/framework/scripts/setup_index.py --root .` when `index_stale`,
+`wf update-indexes --root .` when `index_stale`,
 `index_missing`, `index_degraded`, or `index_absent` is reported.
 
 `wave_index_build(content: str = "docs", mode: str = "update", layer: str = "project")`
@@ -408,9 +408,9 @@ not rely on `status` to signal index absence.
 - `layer="framework"` currently supports `content="docs"` only.
 - Intended for deterministic operator or agent recovery when background freshness is not enough.
 - Successful responses include a `stats` object with indexed-file and chunk counts for the selected layer, plus `up_to_date` when the rebuild was a no-op.
-- Project-layer rebuilds must honor any repo-local `docs/workflow-config.json` `indexing.project_include_prefixes` policy so additional opted-in roots are rebuilt consistently through MCP, not just through `setup_index.py`.
+- Project-layer rebuilds must honor any repo-local `docs/workflow-config.json` `indexing.project_include_prefixes` policy so additional opted-in roots are rebuilt consistently through MCP, not just through `wf update-indexes`.
 - On success, the current MCP process must invalidate its loaded index state so subsequent search calls use the rebuilt files.
-- Recovery: rerun `python3 .wavefoundry/framework/scripts/setup_index.py --root .`
+- Recovery: rerun `wf update-indexes --root .`
 for the project layer, or rerun the framework-targeted `indexer.py` command if a framework-layer rebuild fails because dependencies or cached models are not ready.
 
 `wave_scan_secrets(mode: str = "incremental")`
@@ -432,6 +432,7 @@ for the project layer, or rerun the framework-targeted `indexer.py` command if a
   - `cleanup` — phase 5: remove the upgrade lock and print the operator summary.
   - `resume_after_gate` — re-run ONLY docs-gardener + docs-lint against the already-extracted tree (no extract/render/prune) to recover from a docs-gate failure. Requires a **retained lock** with `failed_phase == "docs_gate"` (wave 1p44o/1p44r); exits non-zero if the gate fails again, zero (and clears the failure marker) when it passes.
 - A post-mutation failure RETAINS the lock with a `failed_phase` marker so the dashboard stays paused and the half-replaced tree is not reindexed (wave 1p44o); `resume_after_gate` then recovers without a destructive full re-extract.
+- **Structured `summary` block (wave 1p8eu):** the response carries `data.summary` parsed from the upgrade's machine-readable sentinel line — `from_version`, `to_version`, `pruned_count`, `docs_gate` (PASSED/FAILED/NOT RUN), `index_update`, `failed_phase`, `is_major_or_minor`, and `reconciliation` (the wave 1p8et retired-surface scan findings: a list of `{file, line, retired_surface, suggested}`) — plus a top-level `next_step` and populated `next_tools` (e.g. `wave_upgrade_status`, `wave_mcp_reload`). Read these fields instead of grepping `output`. Parsing is **fail-safe**: an absent/malformed summary simply omits `data.summary` and leaves the verbatim `output` (and `exit_code`) unchanged — back-compatible with existing callers.
 
 `wave_upgrade_status()`
 

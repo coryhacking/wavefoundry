@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-25
+Last verified: 2026-06-27
 
 Shortcut: **`Start dashboard`**
 
@@ -28,7 +28,7 @@ wf dashboard
 Start the server without auto-opening the browser:
 
 ```bash
-python3 .wavefoundry/framework/scripts/dashboard_server.py --root .
+wf dashboard --root .
 ```
 
 Both paths always print the final bound URL, including host and port.

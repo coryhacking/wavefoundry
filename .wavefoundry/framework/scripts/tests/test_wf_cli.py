@@ -69,6 +69,9 @@ class WfCliDispatchTests(unittest.TestCase):
             "lifecycle-id": "lifecycle_id",
             "upgrade": "upgrade_wavefoundry",
             "setup": "setup_wavefoundry",
+            "codebase-map": "gen_codebase_map",
+            "render-surfaces": "render_platform_surfaces",
+            "secrets-scan": "run_secrets_scan",
         }
         for sub, module_name in expected.items():
             with self.subTest(sub=sub):
@@ -99,6 +102,11 @@ class WfCliDispatchTests(unittest.TestCase):
         self._run(["dashboard"], rec, takes_argv=True)
         self.assertEqual(rec["argv"][:2], ["--daemon", "--open"])
 
+    def test_dashboard_explicit_args_are_forwarded_without_default_open(self):
+        rec: dict = {}
+        self._run(["dashboard", "--root", "."], rec, takes_argv=True)
+        self.assertEqual(rec["argv"], ["--root", "."])
+
     def test_update_indexes_prefix_args_prepended(self):
         rec: dict = {}
         self._run(["update-indexes"], rec, takes_argv=True)
@@ -108,7 +116,8 @@ class WfCliDispatchTests(unittest.TestCase):
 
     def test_non_setup_subcommand_activates_venv(self):
         for sub in ("docs-lint", "docs-gardener", "gate", "dashboard", "update-indexes",
-                    "lifecycle-id", "upgrade"):
+                    "lifecycle-id", "upgrade", "codebase-map", "render-surfaces",
+                    "secrets-scan"):
             with self.subTest(sub=sub):
                 self.reexec_mock.reset_mock()
                 self._run([sub], {}, takes_argv=True)
@@ -129,7 +138,8 @@ class WfCliDispatchTests(unittest.TestCase):
         text = buf.getvalue()
         self.assertEqual(rc, 0)
         for sub in ("docs-lint", "docs-gardener", "gate", "dashboard", "update-indexes",
-                    "lifecycle-id", "upgrade", "setup"):
+                    "lifecycle-id", "upgrade", "setup", "codebase-map", "render-surfaces",
+                    "secrets-scan"):
             self.assertIn(sub, text)
 
     def test_unknown_subcommand_errors(self):
@@ -137,98 +147,151 @@ class WfCliDispatchTests(unittest.TestCase):
             self.mod.main(["bogus"])
         self.assertEqual(cm.exception.code, 2)  # argparse error exit
 
+    def test_prune_framework_is_not_a_subcommand(self):
+        # prune_framework.py is intentionally manual-only (run directly, not via wf): its
+        # main() -> None used to crash the dispatcher's int() coercion, and it needs the
+        # pre-upgrade MANIFEST only the operator has. Lock the removal so it is not re-added.
+        self.assertNotIn("prune-framework", self.mod._SUBCOMMANDS)
+        with self.assertRaises(SystemExit) as cm:
+            self.mod.main(["prune-framework"])
+        self.assertEqual(cm.exception.code, 2)  # unknown subcommand -> argparse error
+
+    def test_none_returning_main_coerces_to_exit_zero(self):
+        # Regression: a target whose main() returns None (the "exit 0" convention, e.g. the
+        # manual prune_framework.py shape) must NOT crash the dispatcher on int(None). The
+        # dispatcher coerces None -> 0.
+        m = ModuleType("fake_none_main")
+
+        def main():  # no argv param, returns None
+            return None
+
+        m.main = main
+        with patch("importlib.import_module", return_value=m):
+            rc = self.mod.main(["codebase-map"])
+        self.assertEqual(rc, 0)
+
+
+def _load_reconcile_scan():
+    spec = importlib.util.spec_from_file_location(
+        "reconcile_scan", SCRIPTS_ROOT / "reconcile_scan.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["reconcile_scan"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
 
 class NoLiveReferenceToRetiredWrapperTests(unittest.TestCase):
-    """Wave 1p7tz AC-4: no live doc/config names a retired `.wavefoundry/bin/<wrapper>` path.
+    """Wave 1p7tz AC-4 / 1p8et: no live doc/config names a retired `.wavefoundry/bin/<wrapper>` path.
 
-    Scope of "live": the operator-instruction surface — root agent/config files, `docs/` (excluding
-    `docs/waves/` historical wave records), framework seeds + framework docs, and editor/host configs.
-    EXCLUDED (history, like wave records): `docs/waves/`, `CHANGELOG.md` (release history records what
-    a past release shipped), and the test files themselves (which reference the names to assert they
-    are gone)."""
+    The proven scan (patterns + exclusions) now lives in the SHIPPED ``reconcile_scan`` helper (wave
+    1p8et) — this guard asserts THROUGH that helper (no duplicated regex), so the test and the
+    downstream upgrade-time scan are the single source. The framework pack tree
+    (`.wavefoundry/framework/`) is part of the helper's baked-in exclusion set, so the helper's own
+    source naming the retired names is not flagged."""
 
-    RETIRED = ("docs-lint", "docs-gardener", "wave-gate", "update-indexes", "lifecycle-id",
-               "wave-dashboard", "upgrade-wavefoundry", "setup-wavefoundry", "mcp-server")
+    def setUp(self):
+        # The helper imports the one map from render_platform_surfaces; SCRIPTS_ROOT must be importable.
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        self.scan = _load_reconcile_scan()
 
-    # `.wavefoundry/bin/<wrapper>` where <wrapper> is one of the retired names (word-boundary after).
+    def test_no_live_file_references_a_retired_wrapper(self):
+        # The literal `.wavefoundry/bin/<wrapper>` references and the dynamic/variable bin-join forms
+        # are both surfaced by the shared helper. The self-host's own framework pack tree is excluded
+        # by the helper, so a green scan over the repo means no LIVE consumer-authored reference exists.
+        findings = self.scan.scan_repo(REPO_ROOT)
+        offenders = [f"{f.file}:{f.line} (.wavefoundry/bin/{f.retired_surface})" for f in findings]
+        self.assertEqual(
+            offenders,
+            [],
+            "live docs/config/scripts must not name a retired bin wrapper (use `wf <subcommand>`):\n"
+            + "\n".join(offenders),
+        )
+
+    def test_reintroduced_reference_is_caught(self):
+        """The guard catches a reintroduced retired-surface reference (proves it is not vacuous)."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "docs").mkdir()
+            offending = root / "docs" / "runbook.md"
+            offending.write_text(
+                "Run `.wavefoundry/bin/docs-lint` to lint.\n", encoding="utf-8"
+            )
+            findings = self.scan.scan_repo(root)
+            self.assertTrue(findings, "a reintroduced retired-surface reference must be caught")
+            self.assertEqual(findings[0].retired_surface, "docs-lint")
+            self.assertEqual(findings[0].suggested, "wf docs-lint")
+
+
+class NoRawCoveredScriptInvocationInOperatorDocsTests(unittest.TestCase):
+    """Wave 1p88t AC-5: operator/agent-facing guidance must NOT show a runnable raw
+    ``python3 .wavefoundry/framework/scripts/<script>.py`` command for a script that HAS a ``wf``
+    subcommand — agents/operators copy-paste those and they are fragile across Windows/POSIX. Use
+    the ``wf <subcommand>`` form instead.
+
+    COVERED scripts are derived from ``wf_cli._SUBCOMMANDS`` (auto-syncing): a script gains coverage
+    the moment it gets a ``wf`` subcommand, and ``prune_framework.py`` (intentionally manual-only,
+    removed from the wf surface) is automatically allowlisted.
+
+    SCOPE — operator runbook + operator-facing top-level docs + live seeds. EXCLUDED, with rationale:
+      - ``docs/architecture/**`` : design/explanation narration (entry-point ASCII diagrams, data/
+        control-flow descriptions, mechanism examples) legitimately names the underlying invocations.
+      - ``docs/plans/**``, ``docs/waves/**``, ``docs/reports/**`` : planning + history.
+      - ``CHANGELOG.md`` : release history.
+      - tests, generated indexes, vcs/build dirs.
+    Only a runnable COMMAND invocation (a ``python3``/``python``/``py`` prefix) is flagged; a bare
+    prose mention of a script name (``\`docs_lint.py\```) is fine.
+    """
+
+    COVERED = sorted({spec["script"] for spec in load_wf_cli()._SUBCOMMANDS.values()})
+
     PATTERN = re.compile(
-        r"\.wavefoundry/bin/(" + "|".join(re.escape(w) for w in RETIRED) + r")(?![\w-])"
+        r"(?:python3?|py)\s+\.wavefoundry/framework/scripts/("
+        + "|".join(re.escape(s) for s in COVERED) + r")"
     )
 
-    _RETIRED_ALT = "|".join(re.escape(w) for w in RETIRED)
-
-    # Dynamic path-join construction: `... / "bin" / "<wrapper>"` (e.g. the pre-1p7tz
-    # `REPO_ROOT / ".wavefoundry" / "bin" / "docs-lint"`). A literal-string scan misses these — this
-    # flags a quoted `"bin"` segment immediately joined to a quoted retired-wrapper-name segment.
-    DYNAMIC_PATTERN = re.compile(r"""["']bin["']\s*/\s*["'](""" + _RETIRED_ALT + r""")["']""")
-
-    # Variable bin-dir join: `<bin-ish var> / "<wrapper>"` (e.g. `bin_dir / "docs-lint"`) — the
-    # demonstrated false-negative of the `"bin" / ...` form. Keyed on a variable whose name contains
-    # `bin` joined to a quoted RETIRED name. Because `wf` and the `_RETIRED_BIN_WRAPPERS` tuple entries
-    # are NOT in RETIRED, `bin_dir / "wf"` and the renderer's own deletion list never match. Guard-
-    # hardening only — no live offender exists today.
-    VAR_BINDIR_PATTERN = re.compile(
-        r"""\b\w*bin\w*\s*/\s*["'](""" + _RETIRED_ALT + r""")["']"""
+    EXCLUDED_DIRS = (
+        ".git", "__pycache__", "node_modules", ".wavefoundry/index",
+        "docs/architecture", "docs/plans", "docs/waves", "docs/reports",
     )
-
-    EXCLUDED_DIRS = (".git", "docs/waves", "__pycache__", ".wavefoundry/index", "node_modules")
     EXCLUDED_FILES = ("CHANGELOG.md",)
-    SCAN_SUFFIXES = (".md", ".mdc", ".json", ".py")
+    SCAN_SUFFIXES = (".md", ".mdc")
 
-    def _iter_live_files(self):
+    def _iter_operator_docs(self):
         for path in REPO_ROOT.rglob("*"):
             if not path.is_file() or path.suffix not in self.SCAN_SUFFIXES:
                 continue
             rel = path.relative_to(REPO_ROOT).as_posix()
             if any(part in rel for part in self.EXCLUDED_DIRS):
                 continue
-            if rel in self.EXCLUDED_FILES:
-                continue
-            # The test files themselves name the retired wrappers to assert they are gone.
-            if "/tests/" in rel and path.name.startswith("test_"):
+            if rel in self.EXCLUDED_FILES or "/tests/" in rel:
                 continue
             yield path, rel
 
-    def test_no_live_file_references_a_retired_wrapper(self):
+    def test_operator_docs_prefer_wf_over_raw_covered_script(self):
         offenders = []
-        for path, rel in self._iter_live_files():
+        for path, rel in self._iter_operator_docs():
             try:
                 text = path.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError):
                 continue
             for m in self.PATTERN.finditer(text):
-                offenders.append(f"{rel}: .wavefoundry/bin/{m.group(1)}")
+                line = text.count("\n", 0, m.start()) + 1
+                offenders.append(f"{rel}:{line} — python3 .../{m.group(1)} (use `wf <subcommand>`)")
         self.assertEqual(
             offenders,
             [],
-            "live docs/config must not name a retired bin wrapper (use `wf <subcommand>`):\n"
-            + "\n".join(offenders),
+            "operator/agent-facing docs must prefer `wf <subcommand>` over a runnable raw "
+            "`python3 .wavefoundry/framework/scripts/<covered>.py` command:\n" + "\n".join(sorted(offenders)),
         )
 
-    def test_no_dynamic_bin_wrapper_construction_in_scripts(self):
-        """Wave 1p7tz: catch DYNAMIC bin-wrapper path-joins in the framework `.py` scripts that the
-        literal-string scan misses — both `... / "bin" / "<wrapper>"` (the pre-fix hook-body
-        `REPO_ROOT / ".wavefoundry" / "bin" / "docs-lint"` form) AND a variable bin-dir join
-        `<bin-ish var> / "<wrapper>"` (e.g. `bin_dir / "docs-lint"` — the demonstrated false-negative).
-        Scopes to scripts (not docs); excludes the test files. Won't false-positive on
-        `_RETIRED_BIN_WRAPPERS` (bare strings, no `/` adjacency) or `bin_dir / "wf"` (`wf` is not a
-        RETIRED name). Limitation: it keys on the literal RETIRED names, so a fully indirected
-        `bin_dir / some_name_var` is not caught — guard-hardening, not a proof of absence."""
-        scripts_dir = REPO_ROOT / ".wavefoundry" / "framework" / "scripts"
-        offenders = []
-        for path in sorted(scripts_dir.glob("*.py")):
-            text = path.read_text(encoding="utf-8")
-            for pat, label in ((self.DYNAMIC_PATTERN, '"bin" /'), (self.VAR_BINDIR_PATTERN, "<bin-var> /")):
-                for m in pat.finditer(text):
-                    line = text.count("\n", 0, m.start()) + 1
-                    offenders.append(f"{path.name}:{line} — {label} \"{m.group(1)}\"")
-        self.assertEqual(
-            offenders,
-            [],
-            "framework scripts must not construct a retired bin-wrapper path "
-            "(invoke the script under sys.executable / _preferred_python instead):\n"
-            + "\n".join(sorted(set(offenders))),
-        )
+    def test_prune_framework_is_allowlisted_because_manual_only(self):
+        # prune_framework.py is intentionally manual-only (removed from wf), so it must NOT be in the
+        # covered set — a raw `python3 ... prune_framework.py` in the upgrade seed is allowed.
+        self.assertNotIn("prune_framework.py", self.COVERED)
 
 
 if __name__ == "__main__":

@@ -14,11 +14,11 @@ from textwrap import dedent
 FRAMEWORK_RENDERER_REL = ".wavefoundry/framework/scripts/render_platform_surfaces.py"
 GUARD_OVERRIDES_REL = ".wavefoundry/guard-overrides.json"
 
-# Wave 1p7pm (1p7pb-adr): no tracked surface embeds a machine-specific venv path. The MCP configs
-# + hook commands name the byte-identical `python` command on a repo-relative script/`.py` body, and
-# the bin shims are thin `exec python <script>` forwarders. Each rendered `.py` body self-bootstraps
-# into the tool venv first-line via the single `venv_bootstrap` resolver (goal B). The only surface
-# still carrying its own venv resolver is `git_hook_source` (out of scope — owned by 1p7pn).
+# Wave 1p88t: no tracked surface embeds a machine-specific venv path. MCP configs and hook commands
+# name the byte-identical `python3` command on repo-relative `.py` entrypoints. The bin shims are thin
+# `exec python3 <script>` forwarders.
+# Each rendered `.py` body self-bootstraps
+# into the tool venv first-line via the single `venv_bootstrap` resolver (goal B).
 
 
 def discover_repo_root() -> Path:
@@ -103,34 +103,15 @@ def remove_copilot_artifacts(repo_root: Path) -> None:
 
 
 def launcher_command(rel_base: str, project_dir_var: str | None = None) -> str:
-    """Launcher command for a hook config — ``python`` invoking the ``.py`` hook body directly.
+    """Launcher command for a hook config — ``python3`` invoking the ``.py`` hook body directly.
 
-    Wave 1p7pm (1p7pb-adr): the committed launcher names the byte-identical ``python`` interpreter
-    on the project-relative ``.py`` body — no ``.cmd``/``.sh`` trampoline, no ``cmd.exe /c`` wrapper.
-    The ``.py`` body self-bootstraps into the tool venv (first-line ``venv_bootstrap`` import), so the
-    only allowed per-OS difference here is the **env-var sigil** used to anchor the path: POSIX shells
-    expand ``$VAR`` while ``cmd.exe`` expands ``%VAR%``. The interpreter (``python``) and the ``.py``
-    path are identical across every render host.
-
-    Wave 1p590: NEVER emit a machine-absolute path — tracked surfaces must work on any clone.
-
-    ``project_dir_var`` (1p6dx): a host's project-root env var (e.g. ``"CLAUDE_PROJECT_DIR"``) to
-    ANCHOR the command so it resolves regardless of the host's working directory. A host runs the
-    hook command through a shell (``/bin/sh -c`` / ``cmd /c``) from a cwd that is NOT guaranteed to
-    be the repo root, so a BARE relative path fails with ``No such file or directory`` (observed on
-    Claude Code Stop hooks). The anchored form is quoted so a repo path with spaces still works.
-    ``None`` keeps the legacy project-relative form for hosts whose project-root var is unverified
-    (Cursor/Copilot/Windsurf) — those likely have the same latent issue and should each be anchored
-    on their own var once verified."""
-    if os.name == "nt":
-        # The interpreter (`python`) and the `.py` path are byte-identical with the POSIX branch; the
-        # ONLY per-OS difference is the env-var sigil (`%VAR%` vs `$VAR`), which is shell-specific.
-        if project_dir_var:
-            return f'python "%{project_dir_var}%/{rel_base}.py"'
-        return f'python "{rel_base}.py"'
-    if project_dir_var:
-        return f'python "${project_dir_var}/{rel_base}.py"'
-    return f'python "{rel_base}.py"'
+    Wave 1p88t: hooks use the same command token as the MCP config. Keep the command repo-relative
+    and byte-identical across OSes; native-Windows field testing showed ``$CLAUDE_PROJECT_DIR`` can
+    be passed literally by Claude Code, so ``project_dir_var`` is accepted only for compatibility with
+    older call sites and intentionally ignored.
+    """
+    _ = project_dir_var
+    return f'python3 "{rel_base}.py"'
 
 
 # Single source of truth for Claude hooks. Both the settings renderer
@@ -168,13 +149,13 @@ CLAUDE_HOOKS: tuple[dict[str, object], ...] = (
 
 
 def write_hook_bundle(base_path: Path, python_source: str) -> None:
-    """Render only the ``.py`` hook body — the host launches it via ``python <body>.py`` directly.
+    """Render only the ``.py`` hook body — the host launches it via ``python3 <body>.py`` directly.
 
-    Wave 1p7pm (1p7pb-adr): the ``.sh``/``.cmd`` trampolines are retired. ``launcher_command``
-    now names ``python`` on the project-relative ``.py`` path, and the body self-bootstraps into
-    the tool venv (first-line ``venv_bootstrap`` import via ``compose_script``), so no shell
-    wrapper is needed and the committed launcher is byte-identical across render hosts. Any stale
-    trampolines left by an older render are removed here so a re-render cleans up the cutover."""
+    Wave 1p7pm/1p88t: the ``.sh``/``.cmd`` trampolines are retired. ``launcher_command`` names
+    ``python3`` on the project-relative ``.py`` path, and the body self-bootstraps into the tool
+    venv (first-line ``venv_bootstrap`` import via ``compose_script``), so no shell wrapper is
+    needed and the committed launcher is byte-identical across render hosts. Any stale trampolines
+    left by an older render are removed here so a re-render cleans up the cutover."""
     write_text(base_path.with_suffix(".py"), python_source, executable=True)
     remove_files([base_path, base_path.with_suffix(".cmd"), base_path.with_suffix(".sh")])
 
@@ -370,7 +351,11 @@ def hook_helpers() -> str:
             # server_impl.py / dashboard_server._daemonize.
             _detach_kwargs = {}
             if os.name == "nt":
-                _detach_kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                _detach_kwargs["creationflags"] = (
+                    subprocess.DETACHED_PROCESS
+                    | subprocess.CREATE_NEW_PROCESS_GROUP
+                    | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                )
             else:
                 _detach_kwargs["start_new_session"] = True
             subprocess.Popen(
@@ -385,7 +370,7 @@ def hook_helpers() -> str:
     ).strip()
 
 
-# Wave 1p7pm/1p802 (1p7pb-adr): the host launches each hook body via `python <body>.py` directly (no
+# Wave 1p7pm/1p802 + 1p88t: the host launches each hook body via `python3 <body>.py` directly (no
 # `.sh`/`.cmd` trampoline). The first thing every rendered body does — after the mandatory
 # `from __future__` directive, which must stay the genuine first statement — is ACTIVATE the shared
 # tool venv IN-PROCESS via the single `venv_bootstrap` resolver: stdlib-only, no-op when already in
@@ -907,9 +892,8 @@ def render_claude_settings(repo_root: Path) -> None:
     for hook in CLAUDE_HOOKS:
         entry_hook = {
             "type": "command",
-            # 1p6dx: anchor on $CLAUDE_PROJECT_DIR — Claude Code runs hooks via /bin/sh from a cwd
-            # that is not guaranteed to be the repo root, so a bare relative command fails with
-            # "No such file or directory" (observed on the Stop hook every turn).
+            # 1p88t: keep the committed hook command relative and byte-identical across OSes.
+            # Native-Windows Claude Code passed `$CLAUDE_PROJECT_DIR` literally in field testing.
             "command": launcher_command(f".claude/hooks/{hook['name']}", "CLAUDE_PROJECT_DIR"),
             "statusMessage": hook["status_message"],
         }
@@ -945,9 +929,9 @@ def _merge_mcp_server(target: Path, stanza: dict) -> None:
 def render_mcp_json(repo_root: Path) -> None:
     """Merge the Wavefoundry stdio MCP entry into the Claude repo-root ``.mcp.json``.
 
-    Wave 1p7pm (1p7pb-adr): names the byte-identical ``python`` command on the repo-relative
+    Wave 1p88t: names the byte-identical ``python3`` command on the repo-relative
     ``server.py`` — never a pathed bash launcher (unspawnable on native Windows; the old
-    ``bin/mcp-server`` wrapper was retired in 1p7tz). ``setup_wavefoundry.py`` makes ``python``
+    ``bin/mcp-server`` wrapper was retired in 1p7tz). ``wf setup`` makes ``python3``
     resolvable (macOS/Linux symlink, native on Windows); the server then self-bootstraps into the tool
     venv first-line. No machine-specific absolute path is embedded, and the stanza is byte-identical
     across every render host.
@@ -960,7 +944,7 @@ def render_mcp_json(repo_root: Path) -> None:
     _merge_mcp_server(
         repo_root / ".mcp.json",
         {
-            "command": "python",
+            "command": "python3",
             "args": [".wavefoundry/framework/scripts/server.py"],
         },
     )
@@ -969,14 +953,14 @@ def render_mcp_json(repo_root: Path) -> None:
 def render_junie_mcp_json(repo_root: Path) -> None:
     """Merge the Wavefoundry stdio MCP entry into the Junie ``.junie/mcp/mcp.json``.
 
-    Wave 1p7pm (1p7pb-adr): names the byte-identical ``python`` command on the repo-relative
+    Wave 1p88t: names the byte-identical ``python3`` command on the repo-relative
     ``server.py`` (parity with the root ``.mcp.json``) — never a pathed bash launcher (the old
     ``bin/mcp-server`` wrapper was retired in 1p7tz). The server self-bootstraps into the tool venv
     first-line; no absolute path is embedded."""
     _merge_mcp_server(
         repo_root / ".junie" / "mcp" / "mcp.json",
         {
-            "command": "python",
+            "command": "python3",
             "args": [".wavefoundry/framework/scripts/server.py"],
         },
     )
@@ -985,7 +969,7 @@ def render_junie_mcp_json(repo_root: Path) -> None:
 def render_cursor_mcp_json(repo_root: Path) -> None:
     """Merge the Wavefoundry stdio MCP entry into the Cursor ``.cursor/mcp.json``.
 
-    Wave 1p7pm (1p7pb-adr): names the byte-identical ``python`` command on the repo-relative
+    Wave 1p88t: names the byte-identical ``python3`` command on the repo-relative
     ``server.py`` (parity with the root ``.mcp.json``) — never a pathed bash launcher (the old
     ``bin/mcp-server`` wrapper was retired in 1p7tz). ``cwd: ${workspaceFolder}`` lets Cursor resolve
     the relative script arg against the workspace; ``type: stdio`` is Cursor-specific. The server
@@ -995,7 +979,7 @@ def render_cursor_mcp_json(repo_root: Path) -> None:
         repo_root / ".cursor" / "mcp.json",
         {
             "type": "stdio",
-            "command": "python",
+            "command": "python3",
             "args": [".wavefoundry/framework/scripts/server.py"],
             "cwd": "${workspaceFolder}",
         },
@@ -1005,14 +989,14 @@ def render_cursor_mcp_json(repo_root: Path) -> None:
 def render_antigravity_mcp_json(repo_root: Path) -> None:
     """Merge the Wavefoundry stdio MCP entry into the Antigravity workspace-local config.
 
-    Wave 1p7pm (1p7pb-adr): names the byte-identical ``python`` command on the repo-relative
+    Wave 1p88t: names the byte-identical ``python3`` command on the repo-relative
     ``server.py`` (parity with Claude/Junie) — never a pathed bash launcher (the old
     ``bin/mcp-server`` wrapper was retired in 1p7tz).
     """
     _merge_mcp_server(
         repo_root / ".agents" / "mcp_config.json",
         {
-            "command": "python",
+            "command": "python3",
             "args": [".wavefoundry/framework/scripts/server.py"],
         },
     )
@@ -1053,74 +1037,10 @@ def render_copilot_hooks(repo_root: Path) -> None:
     write_text(repo_root / ".github" / "hooks" / "hooks.json", json.dumps(config, indent=2) + "\n")
 
 
-def git_hook_source(hook_name: str) -> str:
-    """Return Python source for a git hook that fires an incremental reindex.
-
-    Wave 1p7pm/1p7pn/1p802 (1p7pb-adr, M-3): the hook body ACTIVATES the tool venv in-process first-line
-    via the single ``venv_bootstrap`` resolver (``HOOK_BOOTSTRAP``) — venv discovery is Python's job in
-    ONE place; the old hardcoded ``bin/python``/``python3`` body (which re-derived the tool-venv path
-    itself and broke on python.org-Windows git-bash) is gone. Shebang is ``#!/usr/bin/env python`` (NOT
-    ``python3`` — git-for-Windows git-bash ships ``python``, not ``python3``). The detached reindex spawn
-    uses ``sys.executable`` (the running interpreter); the re-spawned ``indexer.py`` self-activates the
-    venv first-line, so the child reaches the venv packages. No re-exec, no ``os.execv``."""
-    # Reuse the canonical first-line bootstrap (parents[2] == repo root for `.wavefoundry/git-hooks/<name>`),
-    # but with the `python` shebang git-bash needs — so compose_script (which hardcodes `python3`) is not used.
-    lines = [
-        "#!/usr/bin/env python",
-        _FUTURE_LINE,
-        "",
-        HOOK_BOOTSTRAP,
-        "",
-        "import os",
-        "import subprocess",
-        "import sys",
-        "from pathlib import Path",
-        "",
-        "REPO_ROOT = Path(__file__).resolve().parents[2]",
-        "",
-    ]
-    if hook_name == "post-checkout":
-        lines += [
-            "# Only reindex on branch checkouts (arg 3 == \"1\"); skip file checkouts.",
-            "if len(sys.argv) >= 4 and sys.argv[3] != \"1\":",
-            "    raise SystemExit(0)",
-            "",
-        ]
-    lines += [
-        "",
-        "def main() -> int:",
-        "    indexer = REPO_ROOT / \".wavefoundry\" / \"framework\" / \"scripts\" / \"indexer.py\"",
-        "    if not indexer.exists():",
-        "        return 0",
-        "    # sys.executable is the SYSTEM interpreter (after in-process activation, wave 1p802) — an",
-        "    # absolute path; the spawned indexer.py self-activates the venv first-line, so the child",
-        "    # reaches the venv packages. Never re-resolve a python3/python token.",
-        "    # Wave 1p7pn (M-3): detach per-OS — on Windows start_new_session is a no-op, so without",
-        "    # creationflags the child stays in git's process group and dies with the hook.",
-        "    detach_kwargs = {}",
-        "    if os.name == \"nt\":",
-        "        detach_kwargs[\"creationflags\"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP",
-        "    else:",
-        "        detach_kwargs[\"start_new_session\"] = True",
-        "    subprocess.Popen(",
-        "        [sys.executable, str(indexer), \"--root\", str(REPO_ROOT)],",
-        "        stdout=subprocess.DEVNULL,",
-        "        stderr=subprocess.DEVNULL,",
-        "        cwd=str(REPO_ROOT),",
-        "        close_fds=os.name != \"nt\",",
-        "        **detach_kwargs,",
-        "    )",
-        "    return 0",
-        "",
-        "",
-        "if __name__ == \"__main__\":",
-        "    raise SystemExit(main())",
-        "",
-    ]
-    return "\n".join(lines)
-
-
-GIT_HOOK_NAMES = ("post-commit", "post-merge", "post-rewrite", "post-checkout")
+# Wave 1p88t: git hooks were dropped — the in-session staleness monitor (wave 1p5xu) detects and
+# refreshes VCS-driven index staleness, so the opt-in `.wavefoundry/git-hooks/*` reindex hooks (and
+# their `git_hook_source` / `render_git_hooks` renderers) were removed. `remove_git_hooks` cleans up
+# any previously-rendered hooks on re-render.
 
 
 # Wave 1p7tz: the nine POSIX-only `.wavefoundry/bin/*` operator wrappers were RETIRED (hard cutover,
@@ -1139,6 +1059,46 @@ _RETIRED_BIN_WRAPPERS = (
 )
 
 
+# Wave 1p8et: the ONE shared retired-surface → replacement mapping. Co-located with
+# `_RETIRED_BIN_WRAPPERS` (every key here is a retired wrapper name) so the renderer's deletion list,
+# the upgrade-time reconciliation scan (`reconcile_scan.py`), the seed-160 reconciliation example, and
+# the upgrade summary's reconciliation findings all consume THIS one table — they cannot drift. The
+# value is the `wf <subcommand>` replacement form, or `None` for the no-replacement case.
+#
+# Renames are 1:1 to a `wf` subcommand. The one non-1:1 case is `mcp-server`: it has NO `wf`
+# replacement — the MCP server launches via `python3 .wavefoundry/framework/scripts/server.py`, so the
+# scan/recommendation must say "remove/rewrite" rather than emit a wrong `wf` form.
+_RETIRED_SURFACE_REPLACEMENTS: dict[str, str | None] = {
+    "docs-lint": "wf docs-lint",
+    "docs-gardener": "wf docs-gardener",
+    "wave-gate": "wf gate",
+    "update-indexes": "wf update-indexes",
+    "lifecycle-id": "wf lifecycle-id",
+    "wave-dashboard": "wf dashboard",
+    "upgrade-wavefoundry": "wf upgrade",
+    "setup-wavefoundry": "wf setup",
+    # No `wf` form — the MCP server launches via `python3 .wavefoundry/framework/scripts/server.py`.
+    "mcp-server": None,
+}
+
+# Human-readable guidance for the no-replacement case, consumed by the scan + seed example so the
+# advice for `mcp-server` is authored once.
+_NO_REPLACEMENT_GUIDANCE = (
+    "remove/rewrite (the MCP server launches via "
+    "`python3 .wavefoundry/framework/scripts/server.py`)"
+)
+
+
+def retired_surface_suggestion(retired_name: str) -> str:
+    """Return the human-facing replacement guidance for a retired surface name.
+
+    The `wf <subcommand>` form for a 1:1 rename; the no-replacement guidance for `mcp-server`
+    (and any future `None`-valued entry). Single source for both the scan and the seed example.
+    """
+    replacement = _RETIRED_SURFACE_REPLACEMENTS.get(retired_name)
+    return replacement if replacement else _NO_REPLACEMENT_GUIDANCE
+
+
 def render_bin_launchers(repo_root: Path) -> None:
     """Write the cross-OS `wf` operator CLI shim pair to .wavefoundry/bin/.
 
@@ -1148,9 +1108,7 @@ def render_bin_launchers(repo_root: Path) -> None:
     replaces the nine POSIX-only bash wrappers retired in this wave (hard cutover). The ONLY per-OS
     difference is the shell wrapper itself (bash vs cmd) — no per-OS *logic* duplication; `wf_cli.py`
     owns the dispatch + the three-tier venv bootstrap (every subcommand re-execs into the venv except
-    `setup`, which stays pre-symlink-safe). The `wf` bash shim uses the same `python3`→`python`
-    fallback as the retired `setup-wavefoundry` shim so `wf setup` works on a fresh box *before* the
-    `python` symlink exists.
+    `setup`, which stays pre-venv-safe). Both shims use the standardized `python3` command.
 
     These are the no-MCP operator/CI/terminal CLI fallback. Agents should prefer the MCP tools
     (`wave_validate`, `wave_garden`, …) over invoking `wf` directly.
@@ -1158,31 +1116,27 @@ def render_bin_launchers(repo_root: Path) -> None:
     bin_dir = repo_root / ".wavefoundry" / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
 
-    # `wf` (bash): resolve REPO_ROOT from this shim's own location, cd, then run the dispatcher with a
-    # `python3`→`python` fallback (P0 setup circularity: `wf setup` runs PRE-symlink on a fresh box, so
-    # the shim must not name bare `python`; `wf_cli.py` keeps `setup` on the system interpreter).
+    # `wf` (bash): resolve REPO_ROOT from this shim's own location, cd, then run the dispatcher with
+    # the standardized `python3` command.
     wf_src = (
         "#!/usr/bin/env bash\n"
         "# Wavefoundry operator CLI — .wavefoundry/bin/wf (wave 1p7tz)\n"
         "# Cross-OS dispatcher to the framework entry scripts. `wf <subcommand>` — see `wf --help`.\n"
-        "# Uses a python3->python fallback so `wf setup` works PRE-symlink on a fresh box (P0).\n"
         "set -euo pipefail\n"
         'REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"\n'
         'cd "$REPO_ROOT"\n'
-        'if command -v python3 >/dev/null 2>&1; then PYTHON="python3"; else PYTHON="python"; fi\n'
-        'exec "$PYTHON" "$REPO_ROOT/.wavefoundry/framework/scripts/wf_cli.py" "$@"\n'
+        'exec python3 "$REPO_ROOT/.wavefoundry/framework/scripts/wf_cli.py" "$@"\n'
     )
 
-    # `wf.cmd` (Windows): resolve the repo root from %~dp0 and run the dispatcher. Native Windows has
-    # `python` (python.org installer), not `python3`. Forward-slash path execution is Windows-smoke-
-    # deferred (native Windows is the AC-6 operator gate) but the form mirrors the POSIX shim.
+    # `wf.cmd` (Windows): resolve the repo root from %~dp0 and run the dispatcher through the
+    # standardized `python3` command.
     wf_cmd_src = (
         "@echo off\r\n"
         "REM Wavefoundry operator CLI -- .wavefoundry\\bin\\wf.cmd (wave 1p7tz)\r\n"
         "setlocal\r\n"
         'set "REPO_ROOT=%~dp0..\\.."\r\n'
         'cd /d "%REPO_ROOT%"\r\n'
-        'python "%REPO_ROOT%\\.wavefoundry\\framework\\scripts\\wf_cli.py" %*\r\n'
+        'python3 "%REPO_ROOT%\\.wavefoundry\\framework\\scripts\\wf_cli.py" %*\r\n'
         "exit /b %ERRORLEVEL%\r\n"
     )
 
@@ -1203,15 +1157,19 @@ def render_bin_launchers(repo_root: Path) -> None:
             stale_path.unlink()
 
 
-def render_git_hooks(repo_root: Path) -> None:
-    """Write git hook scripts to .wavefoundry/git-hooks/ for indexer integration.
+def remove_git_hooks(repo_root: Path) -> None:
+    """Remove any previously-rendered ``.wavefoundry/git-hooks/*`` reindex hooks (wave 1p88t).
 
-    Install with: git config core.hooksPath .wavefoundry/git-hooks
+    Git hooks were dropped — the in-session staleness monitor refreshes VCS-driven index staleness —
+    so a re-render cleans up the cutover for repos that received the old opt-in hooks.
     """
     hooks_dir = repo_root / ".wavefoundry" / "git-hooks"
-    hooks_dir.mkdir(parents=True, exist_ok=True)
-    for name in GIT_HOOK_NAMES:
-        write_text(hooks_dir / name, git_hook_source(name), executable=True)
+    remove_files([hooks_dir / n for n in ("post-commit", "post-merge", "post-rewrite", "post-checkout")])
+    try:
+        if hooks_dir.is_dir() and not any(hooks_dir.iterdir()):
+            hooks_dir.rmdir()
+    except OSError:
+        pass
 
 
 def render_windsurf_hooks(repo_root: Path) -> None:
@@ -1306,10 +1264,10 @@ Use this checklist when intentionally editing the wave framework or repo-local w
 ## Verification sequence
 
 1. Run framework tests when the test suite is present (development installs only — not included in distribution packs): `python3 -B .wavefoundry/framework/scripts/run_tests.py` (skip if `run_tests.py` does not exist)
-2. `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py` (hooks, MCP, bin launchers, and `render_agent_surfaces.py` when `docs/agents/guru.md` exists)
+2. `wf render-surfaces` (hooks, MCP, bin launchers, and `render_agent_surfaces.py` when `docs/agents/guru.md` exists)
 3. Backfill `AGENTS.md` auto-Guru tier-1 sections per `seed-050` when missing; ensure `docs/agents/guru.md` exists; re-run step 2 if tier-1 was just added
-4. `.wavefoundry/bin/wf docs-gardener`
-5. `.wavefoundry/bin/wf docs-lint`
+4. `./.wavefoundry/bin/wf docs-gardener` — native Windows: `.\\.wavefoundry\\bin\\wf.cmd docs-gardener` (or MCP `wave_garden`)
+5. `./.wavefoundry/bin/wf docs-lint` — native Windows: `.\\.wavefoundry\\bin\\wf.cmd docs-lint` (or MCP `wave_validate`)
 
 ## Guardrails
 
@@ -1408,10 +1366,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or [])
     repo_root = Path(args.repo_root).resolve() if args.repo_root else discover_repo_root()
-    # Wave 1p7pm (1p7pb-adr): self-heal `python` resolution on every render so the committed
-    # `command: "python"` configs we are about to write stay spawnable (re-points a stale/dangling
-    # symlink at the current python3). strict=False — warn (non-fatal) if `python` still won't
-    # resolve, never hard-fail a render. Imported lazily so a missing helper can't break rendering.
+    # Wave 1p88t: self-heal `python3` resolution on every render so the committed configs we are
+    # about to write stay spawnable. strict=False — warn (non-fatal) if `python3` still won't resolve,
+    # never hard-fail a render. Imported lazily so a missing helper can't break rendering.
     try:
         import venv_bootstrap  # the single venv resolver + python-resolution heal (wave 1p7pl/1p7pm)
 
@@ -1427,7 +1384,7 @@ def main(argv: list[str] | None = None) -> int:
 
     render_agent_surfaces(repo_root)
     render_bin_launchers(repo_root)
-    render_git_hooks(repo_root)
+    remove_git_hooks(repo_root)  # wave 1p88t: git hooks dropped; clean up any prior renders
     for ds in repo_root.rglob(".DS_Store"):
         try:
             ds.unlink()

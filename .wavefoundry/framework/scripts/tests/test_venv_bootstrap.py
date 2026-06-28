@@ -471,90 +471,105 @@ class ActivateAdoptionScanTests(unittest.TestCase):
 
 
 class EnsurePythonResolvesTests(unittest.TestCase):
+    """Wave 1p88t: ``ensure_python_resolves`` is DETECT + GUIDE only — it verifies `python3` resolves
+    to Python 3.11+ and fails closed (strict) / warns (non-strict) with platform-aware guidance
+    otherwise. It NEVER creates a shim/symlink, copies into a Python install, or edits PATH (operator
+    decision; amends ADR 1p7pb). Every test asserts no filesystem mutation under a temp HOME."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.localbin = Path(self.tmp.name) / ".local" / "bin"
-        # Never touch the real ~/.local/bin or shell rc during tests.
-        p1 = patch.object(vb, "_user_local_bin", return_value=self.localbin)
-        p1.start()
-        self.addCleanup(p1.stop)
-        p2 = patch.object(vb, "_ensure_dir_on_path", return_value=False)
-        p2.start()
-        self.addCleanup(p2.stop)
-        # Wave 1p7pm: these tests exercise the REAL heal — make sure the global opt-out env var is
-        # NOT set so they don't all short-circuit to "skipped".
-        p3 = patch.dict(os.environ, {}, clear=False)
-        p3.start()
-        self.addCleanup(p3.stop)
+        # Point HOME at a temp dir so any accidental ~/.local/bin write would be caught here and never
+        # touch the real home.
+        self.home = Path(self.tmp.name)
+        ph = patch.object(vb.Path, "home", return_value=self.home)
+        ph.start()
+        self.addCleanup(ph.stop)
+        pe = patch.dict(os.environ, {}, clear=False)
+        pe.start()
+        self.addCleanup(pe.stop)
         os.environ.pop("WAVEFOUNDRY_SKIP_PYTHON_HEAL", None)
 
     @staticmethod
     def _which(map_):
         return lambda name: map_.get(name)
 
-    def test_env_opt_out_makes_heal_a_complete_noop(self):
-        """WAVEFOUNDRY_SKIP_PYTHON_HEAL=1 returns "skipped" without touching the filesystem (the
-        subprocess-safe path used by render/setup/upgrade tests so the suite never mutates the box)."""
+    def _assert_nothing_created(self):
+        # Detect+guide must never write a shim/symlink/copy anywhere under (temp) home.
+        localbin = self.home / ".local" / "bin"
+        self.assertFalse((localbin / "python3").exists())
+        self.assertFalse((localbin / "python3.cmd").exists())
+
+    def test_env_opt_out_is_a_complete_noop(self):
         with patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}), patch.object(
             vb.shutil, "which"
         ) as which_mock:
             self.assertEqual(vb.ensure_python_resolves(strict=True), "skipped")
         which_mock.assert_not_called()  # short-circuits before any resolution work
-        self.assertFalse((self.localbin / "python").exists())
+        self._assert_nothing_created()
 
-    def test_noop_when_python_already_ge_311(self):
-        with patch.object(vb.shutil, "which", side_effect=self._which({"python": "/usr/bin/python"})), patch.object(
+    def test_ok_when_python3_already_ge_311(self):
+        with patch.object(vb.shutil, "which", side_effect=self._which({"python3": "/usr/bin/python3"})), patch.object(
             vb, "_interpreter_version", return_value=(3, 11)
         ):
-            self.assertEqual(vb.ensure_python_resolves(), "ok")
-        self.assertFalse((self.localbin / "python").exists())
+            self.assertEqual(vb.ensure_python_resolves(strict=True), "ok")
+        self._assert_nothing_created()
 
-    def test_warns_and_does_not_clobber_python2(self):
-        with patch.object(vb.shutil, "which", side_effect=self._which({"python": "/usr/bin/python"})), patch.object(
+    def test_python3_below_311_warns_then_strict_raises(self):
+        with patch.object(vb.shutil, "which", side_effect=self._which({"python3": "/usr/bin/python3"})), patch.object(
             vb, "_interpreter_version", return_value=(2, 7)
         ):
-            self.assertEqual(vb.ensure_python_resolves(), "warn_existing_unusable")
-        self.assertFalse((self.localbin / "python").exists())  # never clobbered
-
-    def test_creates_symlink_when_absent_posix(self):
-        py3 = Path(self.tmp.name) / "python3"
-        py3.write_text("")
-        with patch.object(vb.os, "name", "posix"), patch.object(
-            vb.shutil, "which", side_effect=self._which({"python3": str(py3)})
-        ), patch.object(vb, "_interpreter_version", return_value=(3, 12)):
-            self.assertEqual(vb.ensure_python_resolves(), "created")
-        link = self.localbin / "python"
-        self.assertTrue(link.is_symlink())
-        self.assertEqual(link.resolve(), py3.resolve())
-
-    def test_reheals_dangling_symlink(self):
-        self.localbin.mkdir(parents=True)
-        (self.localbin / "python").symlink_to(Path(self.tmp.name) / "old_python3")  # dangling
-        py3 = Path(self.tmp.name) / "python3"
-        py3.write_text("")
-        with patch.object(vb.os, "name", "posix"), patch.object(
-            vb.shutil, "which", side_effect=self._which({"python3": str(py3)})
-        ), patch.object(vb, "_interpreter_version", return_value=(3, 12)):
-            self.assertEqual(vb.ensure_python_resolves(), "created")
-        self.assertEqual((self.localbin / "python").resolve(), py3.resolve())
-
-    def test_windows_absent_python_warns_then_strict_raises(self):
-        with patch.object(vb.os, "name", "nt"), patch.object(vb.shutil, "which", return_value=None):
-            self.assertEqual(vb.ensure_python_resolves(strict=False), "warn_no_python")
+            self.assertEqual(vb.ensure_python_resolves(strict=False), "warn_existing_unusable")
             with self.assertRaises(SystemExit):
                 vb.ensure_python_resolves(strict=True)
+        self._assert_nothing_created()  # never clobbers the unusable python3 either
 
-    def test_strict_raises_when_no_python_posix(self):
-        with patch.object(vb.os, "name", "posix"), patch.object(vb.shutil, "which", return_value=None):
+    def test_python3_absent_with_python_present_does_NOT_create_anything_posix(self):
+        # Only `python` exists (no `python3`). Detect+guide does NOT symlink/create a python3 — it
+        # fails closed (strict) / warns (non-strict) and tells the operator to make python3 resolve.
+        with patch.object(vb.os, "name", "posix"), patch.object(
+            vb.shutil, "which", side_effect=self._which({"python": "/usr/bin/python"})
+        ):
+            self.assertEqual(vb.ensure_python_resolves(strict=False), "warn_unresolved")
             with self.assertRaises(SystemExit):
                 vb.ensure_python_resolves(strict=True)
+        self._assert_nothing_created()
+
+    def test_python3_absent_with_python_present_does_NOT_create_anything_windows(self):
+        with patch.object(vb.os, "name", "nt"), patch.object(
+            vb.shutil, "which", side_effect=self._which({"python": r"C:\Python312\python.exe"})
+        ):
+            self.assertEqual(vb.ensure_python_resolves(strict=False), "warn_unresolved")
+            with self.assertRaises(SystemExit):
+                vb.ensure_python_resolves(strict=True)
+        self._assert_nothing_created()
+
+    def test_no_python_at_all_warns_then_strict_raises(self):
+        with patch.object(vb.shutil, "which", return_value=None):
+            self.assertEqual(vb.ensure_python_resolves(strict=False), "warn_unresolved")
+            with self.assertRaises(SystemExit):
+                vb.ensure_python_resolves(strict=True)
+        self._assert_nothing_created()
+
+    def test_guidance_is_platform_aware_and_states_no_mutation(self):
+        import io
+        from contextlib import redirect_stderr
+
+        for osname, needle in (("posix", "symlink"), ("nt", "Scoop")):
+            buf = io.StringIO()
+            with patch.object(vb.os, "name", osname), patch.object(
+                vb.shutil, "which", return_value=None
+            ), redirect_stderr(buf):
+                vb.ensure_python_resolves(strict=False)
+            text = buf.getvalue()
+            self.assertIn(needle, text)
+            self.assertIn("does not modify your Python", text)
 
 
 class GuiFallbackStanzaTests(unittest.TestCase):
     """Wave 1p7pm AC-4/AC-5: the GUI-host fallback stanza uses the ABSOLUTE tool-venv Python + the
-    ABSOLUTE server.py path — no relative `python`, no PATH dependency (GUI hosts don't inherit the
-    shell PATH where setup symlinked `python`)."""
+    ABSOLUTE server.py path — no relative `python3`, no PATH dependency (GUI hosts don't inherit the
+    shell PATH where setup ensured `python3`)."""
 
     def test_stanza_uses_absolute_venv_python_and_server_path(self):
         fake_venv_python = Path("/fake/tool-venv/bin/python")

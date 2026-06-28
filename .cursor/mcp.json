@@ -2,7 +2,7 @@
   "mcpServers": {
     "wavefoundry": {
       "type": "stdio",
-      "command": "python",
+      "command": "python3",
       "args": [
         ".wavefoundry/framework/scripts/server.py"
       ],

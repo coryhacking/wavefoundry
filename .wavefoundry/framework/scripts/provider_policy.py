@@ -73,6 +73,16 @@ def available_onnx_providers() -> tuple[str, ...]:
     return tuple(str(provider) for provider in providers) or (CPU_PROVIDER,)
 
 
+def _no_window_creationflags() -> int:
+    """Windows ``CREATE_NO_WINDOW`` (0 elsewhere). These probes are MCP-reachable (via
+    ``wave_gpu_doctor`` / provider selection in the MCP server process), so they must not flash a
+    console window on native Windows; they also pass ``stdin=DEVNULL`` to never inherit the JSON-RPC
+    stdin (wave 1p88t subprocess isolation)."""
+    if os.name != "nt":
+        return 0
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
 def nvidia_gpu_present() -> bool:
     nvidia_smi = shutil.which("nvidia-smi")
     if not nvidia_smi:
@@ -84,6 +94,8 @@ def nvidia_gpu_present() -> bool:
             text=True,
             timeout=3,
             check=False,
+            stdin=subprocess.DEVNULL,
+            creationflags=_no_window_creationflags(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return False
@@ -237,7 +249,8 @@ def _ldconfig_lib_paths() -> dict[str, str]:
     ldconfig = shutil.which("ldconfig") or "/sbin/ldconfig"
     try:
         result = subprocess.run(
-            [ldconfig, "-p"], capture_output=True, text=True, timeout=3, check=False
+            [ldconfig, "-p"], capture_output=True, text=True, timeout=3, check=False,
+            stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return {}

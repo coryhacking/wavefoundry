@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -95,10 +96,21 @@ def load_merged_ruleset(root: Path) -> tuple[list[dict], dict, list[str]]:
 # File discovery
 # ---------------------------------------------------------------------------
 
+def _no_window_creationflags() -> int:
+    """Windows ``CREATE_NO_WINDOW`` (0 elsewhere). The secrets scan is MCP-reachable — the
+    ``wave_scan_secrets`` in-process fallback calls ``check_hardcoded_secrets`` inside the MCP server
+    process — so these git probes must isolate ``stdin`` from the JSON-RPC stream and suppress the
+    console window on native Windows (wave 1p88t subprocess isolation)."""
+    if os.name != "nt":
+        return 0
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
 def _is_inside_git(root: Path) -> bool:
     result = subprocess.run(
         ["git", "rev-parse", "--is-inside-work-tree"],
-        cwd=root, capture_output=True, text=True
+        cwd=root, capture_output=True, text=True,
+        stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
     )
     return result.returncode == 0
 
@@ -106,7 +118,8 @@ def _is_inside_git(root: Path) -> bool:
 def _head_exists(root: Path) -> bool:
     result = subprocess.run(
         ["git", "rev-parse", "--verify", "HEAD"],
-        cwd=root, capture_output=True, text=True
+        cwd=root, capture_output=True, text=True,
+        stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
     )
     return result.returncode == 0
 
@@ -115,12 +128,14 @@ def _get_changed_files(root: Path) -> list[Path]:
     # Tracked files changed since HEAD (staged + unstaged)
     changed = subprocess.run(
         ["git", "diff", "--name-only", "HEAD"],
-        cwd=root, capture_output=True, text=True
+        cwd=root, capture_output=True, text=True,
+        stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
     )
     # Untracked files that are not gitignored (new files not yet staged)
     untracked = subprocess.run(
         ["git", "ls-files", "--others", "--exclude-standard"],
-        cwd=root, capture_output=True, text=True
+        cwd=root, capture_output=True, text=True,
+        stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
     )
     if changed.returncode != 0 and untracked.returncode != 0:
         return []
@@ -172,7 +187,8 @@ def _filter_gitignored(root: Path, paths: list[Path]) -> list[Path]:
 def _get_all_files(root: Path) -> list[Path]:
     tracked = subprocess.run(
         ["git", "ls-files"],
-        cwd=root, capture_output=True, text=True
+        cwd=root, capture_output=True, text=True,
+        stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
     )
     if tracked.returncode != 0:
         # Fallback (not a usable git worktree — e.g. not a repo, git unavailable, or
@@ -186,7 +202,8 @@ def _get_all_files(root: Path) -> list[Path]:
 
     untracked = subprocess.run(
         ["git", "ls-files", "--others", "--exclude-standard"],
-        cwd=root, capture_output=True, text=True
+        cwd=root, capture_output=True, text=True,
+        stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
     )
     seen: set[Path] = set()
     paths: list[Path] = []
@@ -404,7 +421,8 @@ def check_inline_suppression(line: str) -> tuple[bool, str | None]:
 def get_current_git_user_email(root: Path) -> str:
     result = subprocess.run(
         ["git", "config", "user.email"],
-        cwd=root, capture_output=True, text=True
+        cwd=root, capture_output=True, text=True,
+        stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
     )
     return result.stdout.strip() if result.returncode == 0 else ""
 
@@ -675,6 +693,7 @@ def _confirmable_reviewer_emails(root: Path, days: int = 365) -> set[str]:
         result = subprocess.run(
             ["git", "log", f"--since={days} days ago", "--format=%ae%n%ce"],
             cwd=root, capture_output=True, text=True, check=False,
+            stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
         )
     except Exception:
         return set()

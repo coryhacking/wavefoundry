@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-03
+Last verified: 2026-06-27
 
 Shortcut: **`Evaluate decision`** | Aliases: **`Evaluate option`** / **`Compare options`** / **`Architecture evaluation`**
 
@@ -34,7 +34,7 @@ Follows the seven-phase contract in `.wavefoundry/framework/seeds/176-evaluate-d
 Use the template at `docs/architecture/decisions/template.md`. Generate a lifecycle ID for the filename:
 
 ```bash
-python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind doc --slug <short-name>
+wf lifecycle-id --kind doc --slug <short-name>
 ```
 
 ## Example

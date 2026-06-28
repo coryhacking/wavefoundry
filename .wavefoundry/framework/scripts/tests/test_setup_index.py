@@ -675,7 +675,7 @@ class SetupIndexTests(unittest.TestCase):
         self.assertIn("Done. Project index update complete.", stdout.getvalue())
         self.assertIn("MCP handoff:", stdout.getvalue())
         # Wave 1p7tz: the bin/mcp-server wrapper was retired; the handoff now points at the committed
-        # config (`python .wavefoundry/framework/scripts/server.py`).
+        # config (`python3 .wavefoundry/framework/scripts/server.py`).
         self.assertIn(".wavefoundry/framework/scripts/server.py", stdout.getvalue())
         self.assertNotIn("bin/mcp-server", stdout.getvalue())
         self.assertNotIn("python3 ", stdout.getvalue())

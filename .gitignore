@@ -8,7 +8,6 @@ dist/
 build/
 
 # Wavefoundry framework pack archives (tracked source lives under .wavefoundry/framework/; do not commit zip drops)
-/agent-workflows.zip
 /wavefoundry-*.zip
 
 # Wavefoundry local approval state (never commit)
@@ -52,4 +51,5 @@ slides/
 .wavefoundry/framework/scripts/benchmarks/bench_report*.json
 
 # Transient experiment plan exports
-experiments/*.plan.mdx.md
+experiments/
+experiments/*

@@ -704,7 +704,11 @@ def _daemonize(root: Path, argv: list[str]) -> int:
         "env": child_env,
     }
     if os.name == "nt":
-        spawn_kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        spawn_kwargs["creationflags"] = (
+            subprocess.DETACHED_PROCESS
+            | subprocess.CREATE_NEW_PROCESS_GROUP
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
     else:
         spawn_kwargs["start_new_session"] = True
     log_handle = open(log_path, "a", encoding="utf-8")

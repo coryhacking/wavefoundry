@@ -46,7 +46,7 @@ When one or more items above are false, treat the framework as still hardening r
 
 **`Upgrade Wavefoundry`** (legacy aliases: **`Upgrade wave framework`**, **`Upgrade wave context`**) should refresh an existing wave-context or legacy project-context installation by:
 
-- when dated `wavefoundry-*.zip` files are present at the repository root, adopting the newest pack per `160-upgrade-wavefoundry.prompt.md` **step 0** before reconciling repo-local outputs (unpack, `render_platform_surfaces.py`, then the standard upgrade sequence)
+- when dated `wavefoundry-*.zip` files are present at the repository root, adopting the newest pack per `160-upgrade-wavefoundry.prompt.md` **step 0** before reconciling repo-local outputs (unpack, `wf render-surfaces`, then the standard upgrade sequence)
 - reading the current local docs, prompts, config, and artifact roots before writing changes
 - reconciling still-valid repo-grown adaptations instead of overwriting them blindly
 - migrating legacy project-context artifacts into wave-native locations and vocabulary when needed

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: scoping (not yet admitted to a wave)
-Last verified: 2026-06-25
+Last verified: 2026-06-27
 
 ## Context
 
@@ -29,25 +29,33 @@ Windows was considered — and handled correctly — in several places:
 
 The floor is not zero. The work is finishing and verifying, not starting from scratch.
 
+## Console windows (native Windows)
+
+On native Windows a Python process spawned without a no-window flag can flash a blank console. Wavefoundry suppresses the windows it controls and documents the one it does not:
+
+- **Synchronous helper subprocesses** launched by the MCP server (docs-lint, docs-gardener, sync-surfaces, upgrade phases, sensors, and similar bounded calls) go through one shared helper that sets `stdin=subprocess.DEVNULL`, captures/redirects stdout/stderr, and adds `CREATE_NO_WINDOW` on Windows. This both eliminates their console flash and keeps them from inheriting the MCP server's JSON-RPC stdio (the cause of the `wave_validate`/docs-lint-over-MCP timeout).
+- **Detached background jobs** (the index refresh, the dashboard daemon) already run window-free: `DETACHED_PROCESS` does not allocate a console, so they show no window regardless. `CREATE_NO_WINDOW` is additionally applied where it composes safely; on already-detached paths it is defensive, not load-bearing.
+- **The main MCP server window is host-controlled, not Wavefoundry-controlled.** The MCP host (Claude Code, Cursor, …) creates the `python3 server.py` process; nothing inside `server.py` can hide that window after the host has created it. If a blank window persists after child-process suppression, the visible process is the host-launched server, and the remedy is a host-side no-console launcher strategy (e.g. a `pythonw`-style launcher) — tracked as an evidence-gated follow-up, not something the framework can fix from inside the server.
+
 ## Gap inventory (by severity)
 
 ### Critical — a native-Windows user is blocked
 
 | ID | Gap | Evidence | What breaks |
 | --- | --- | --- | --- |
-| ~~C-1~~ | ~~`.mcp.json` sets `command` to a bash MCP-server wrapper with no `.cmd` sibling~~ — **RESOLVED (wave 1p7pm):** every committed MCP config now names `command: "python"` + `args: [".wavefoundry/framework/scripts/server.py"]` (byte-identical cross-OS; `setup` makes `python` resolvable). The bash `bin/mcp-server` wrapper was retired (1p7tz). | `.mcp.json`; `render_platform_surfaces.render_mcp_json` | No action — MCP spawns natively on Windows. |
+| ~~C-1~~ | ~~`.mcp.json` sets `command` to a bash MCP-server wrapper with no `.cmd` sibling~~ — **RESOLVED:** every committed MCP config now names `command: "python3"` + `args: [".wavefoundry/framework/scripts/server.py"]` (byte-identical cross-OS; `setup` makes `python3` resolvable). The bash `bin/mcp-server` wrapper was retired (1p7tz). | `.mcp.json`; `render_platform_surfaces.render_mcp_json` | No action — MCP spawns natively on Windows. |
 | ~~C-2~~ | ~~All 9 `.wavefoundry/bin/` launchers are bash-only~~ — **RESOLVED (wave 1p7tz):** the nine POSIX-only wrappers were replaced by one cross-OS `wf` dispatcher (`wf_cli.py`) behind a `wf` (bash) + `wf.cmd` (Windows) shim pair; `wf docs-lint`, `wf docs-gardener`, `wf gate`, `wf setup`, `wf upgrade`, `wf update-indexes`, `wf dashboard`, `wf lifecycle-id` run on every OS. | `render_platform_surfaces.render_bin_launchers`; `wf_cli.py` | No action — operator CLI is cross-OS. |
-| C-3 | One committed `.mcp.json` / `.claude/settings.json` reflects **whichever OS last ran the renderer**; a Windows clone of a Mac-rendered repo gets POSIX hook forms | `.claude/settings.json:9,17,29` (extension-less POSIX launcher form); `render_platform_surfaces.py:101` | Seed-edit gate (pre-edit), post-edit docs-lint trigger, and session-capture all fail or hard-error on Windows |
+| ~~C-3~~ | ~~One committed `.mcp.json` / `.claude/settings.json` reflects **whichever OS last ran the renderer**; a Windows clone of a Mac-rendered repo gets POSIX hook forms~~ — **RESOLVED (wave 1p88t):** `launcher_command` returns one unconditional `python3 "<script>.py"` form (no OS branch), so the committed MCP/hook command surfaces are **byte-identical regardless of the rendering OS**. A Windows clone of a Mac-rendered repo gets the same working `python3` forms; the host spawns them via raw process spawn (no shell), so they run in any session. | `render_platform_surfaces.launcher_command` (unconditional `python3`); `.claude/settings.json` | No action — committed command surfaces are cross-OS identical. |
 
-Native Windows MCP configs should use `command: "python"` with `args: [".wavefoundry/framework/scripts/server.py"]` for generated repo-local configs, or `args: ["<repo>/.wavefoundry/framework/scripts/server.py", "--root", "<repo>"]` for manual host entries. Do not configure MCP to run `.wavefoundry\venv\Scripts\python.exe` directly; `server.py` owns shared tool-venv activation. After fixing Python on PATH or changing MCP config, start a fresh host session because an already-open conversation may keep the toolset from the earlier failed startup.
+Native Windows MCP configs should use `command: "python3"` with `args: [".wavefoundry/framework/scripts/server.py"]` for generated repo-local configs, or `args: ["<repo>/.wavefoundry/framework/scripts/server.py", "--root", "<repo>"]` for manual host entries. Do not configure MCP to run `.wavefoundry\venv\Scripts\python.exe` directly; `server.py` owns shared tool-venv activation. After fixing Python on PATH or changing MCP config, start a fresh host session because an already-open conversation may keep the toolset from the earlier failed startup.
 
 ### Moderate — degrades behavior; MCP server itself survives
 
 | ID | Gap | Evidence | What breaks |
 | --- | --- | --- | --- |
-| M-1 | `dashboard_cmdline_pids` returns `None` on `os.name == "nt"` — no `tasklist`-based scan | `dashboard_lib.py:244` | Dashboard orphan reconciliation (the 1p654 fix) is silently disabled on Windows; stop falls back to bare PID liveness (`server_impl.py:6706`) |
-| M-2 | One background reindex spawn sets `start_new_session=True` without the Windows `creationflags` | `server_impl.py:4624` | Background reindex stays attached to the server process on Windows; dies if the server exits |
-| M-3 | Git hooks rendered as `#!/usr/bin/env python3` with exec-bit; native Windows git can't run shebang Python directly | `render_platform_surfaces.py:1169` (`render_git_hooks`) | post-commit / post-merge incremental reindex does not fire under native Windows git |
+| ~~M-1~~ | ~~`dashboard_cmdline_pids` returns `None` on `os.name == "nt"` — no scan~~ — **RESOLVED (wave 1p6eq):** native Windows now gets a PowerShell/CIM cmdline scan (`_windows_process_cmdlines`); the probe also isolates `stdin` and suppresses the console window (wave 1p88t). | `dashboard_lib.py` (`_windows_process_cmdlines`, `dashboard_cmdline_pids`) | No action — orphan reconciliation runs on Windows. |
+| ~~M-2~~ | ~~One background reindex spawn sets `start_new_session=True` without the Windows `creationflags`~~ — **RESOLVED (wave 1p7pn/1p88t):** all detached reindex/dashboard spawns set `creationflags = DETACHED_PROCESS \| CREATE_NEW_PROCESS_GROUP \| CREATE_NO_WINDOW` on Windows and `stdin=DEVNULL`. | `server_impl.py` (`_start_background_index_refresh` + sibling spawns) | No action — background reindex detaches correctly on Windows. |
+| ~~M-3~~ | ~~Git hooks rendered as `#!/usr/bin/env python3`; native Windows git can't run shebang Python directly~~ — **REMOVED (wave 1p88t): the git hooks were dropped entirely.** They only spawned a background incremental reindex and were opt-in/inactive-by-default; the in-session staleness monitor (wave 1p5xu) already hash-detects and refreshes VCS-driven index staleness within ~20s of an agent session, and `indexer.py`'s incremental diff is global so any trigger catches up `git pull`/`merge`/`checkout` changes. `render_git_hooks`/`git_hook_source` were removed and `remove_git_hooks` cleans up prior renders. The git-bash/`python3` execution concern is therefore moot. | `render_platform_surfaces.remove_git_hooks` (cleanup) | No action — git operations were never blocked; freshness is covered by the staleness monitor + global incremental reindex. |
 
 ### Low / pre-existing (not Windows-specific regressions)
 
@@ -62,7 +70,7 @@ Native Windows MCP configs should use `command: "python"` with `args: [".wavefou
 
 ### Bucket 1 — Portable entry points (the hard blocker)
 
-The MCP launcher (C-1) and bin launchers (C-2) need a Windows-runnable form. The recommended approach is **not** `.cmd` twins of every bash script (two parallel script families to maintain), but to **bypass the shell wrapper**: point `.mcp.json` at a Python interpreter directly (`py -3` / `python`) running `server.py`, and have the entry scripts self-bootstrap into the tool venv (`~/.wavefoundry/venv/bin/python` on POSIX, `Scripts\python.exe` on Windows). One portable mechanism instead of two. This is the gate — until the server starts and `docs-lint`/`wave-gate` run, nothing else is reachable.
+The MCP launcher (C-1) and bin launchers (C-2) need a Windows-runnable form. The recommended approach is **not** `.cmd` twins of every bash script (two parallel script families to maintain), but to **bypass the shell wrapper**: point `.mcp.json` at `python3` running `server.py`, and have the entry scripts self-bootstrap into the tool venv (`~/.wavefoundry/venv/bin/python` on POSIX, `Scripts\python.exe` on Windows). One portable mechanism instead of two. This is the gate — until the server starts and `docs-lint`/`wave-gate` run, nothing else is reachable.
 
 ### Bucket 2 — The per-OS distribution model (the gating decision)
 
@@ -76,7 +84,7 @@ This is an ADR-shaped choice and should be run through **Evaluate decision** / r
 
 ### Bucket 3 — Process / dashboard lifecycle parity
 
-A `tasklist /FI …`-based Windows branch for `dashboard_cmdline_pids` (M-1) and the missing `creationflags` on the one reindex spawn (M-2). Mechanical and low-risk — it mirrors patterns already present in `indexer.py` / `upgrade_lib.py`. Add `.gitattributes` (`* text=auto`, `*.py text eol=lf`, bash launchers `eol=lf`) (L-1) and a git-hook trampoline for Windows (M-3) in the same bucket.
+**Largely landed.** M-1 (Windows `dashboard_cmdline_pids` scan, via PowerShell/CIM) and M-2 (`creationflags` on the detached reindex spawns) are resolved; M-3 is moot — the git hooks were **dropped** (wave 1p88t), since the in-session staleness monitor + global incremental reindex already cover VCS-driven freshness. `.gitattributes` (L-1) remains the open item in this bucket. (`L-1` history: a `.gitattributes` pinning `*.py` + launchers to `eol=lf` guards against `core.autocrlf` shebang corruption.)
 
 ### Bucket 4 — Verification you can trust
 
@@ -86,7 +94,7 @@ None of the existing `taskkill` / `tasklist` / `msvcrt` / `creationflags` branch
 
 1. **Decide Bucket 2** (Evaluate decision → ADR). Everything else is shaped by it.
 2. **Bucket 1** — portable entry points; this is what unblocks a Windows user at all.
-3. **Bucket 3** — lifecycle parity + `.gitattributes` + git-hook trampoline.
+3. **Bucket 3** — lifecycle parity (done) + `.gitattributes` (git hooks were dropped, not trampolined).
 4. **Bucket 4** — stand up the Windows smoke path; re-validate buckets 1–3 on a real host.
 5. Track **L-2 (secrets scan off-macOS)** and **L-3 (DirectML auto-detect)** as separate, independently-valuable items — L-2 in particular also fixes Linux.
 
@@ -99,5 +107,5 @@ None of the existing `taskkill` / `tasklist` / `msvcrt` / `creationflags` branch
 ## References
 
 - Investigation date: 2026-06-17 (against framework `1.7.0`).
-- Renderer: `render_platform_surfaces.py` (`launcher_command:101`, `render_mcp_json:896`, `render_bin_launchers:1038`, `render_git_hooks:1169`).
+- Renderer: `render_platform_surfaces.py` (`launcher_command`, `render_mcp_json`, `render_bin_launchers`, `remove_git_hooks` — git hooks dropped in wave 1p88t).
 - Platform mapping: `docs/agents/platform-mapping.md`.

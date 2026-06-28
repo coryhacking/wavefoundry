@@ -34,7 +34,7 @@ class SetupWavefoundryTests(unittest.TestCase):
     def setUp(self):
         self.mod = load_setup_wavefoundry()
         # Wave 1p7pm: setup `main` calls venv_bootstrap.ensure_python_resolves() after Step 1, which
-        # is SIDE-EFFECTING (creates ~/.local/bin/python + may append to the shell rc). These tests
+        # is SIDE-EFFECTING (creates ~/.local/bin/python3 + may append to the shell rc). These tests
         # mock Step 1 to succeed, so they would reach that heal against the REAL machine — patch it to
         # a no-op so the suite never mutates the operator's box. (The real heal is exercised, safely
         # isolated into a tempdir, only in test_venv_bootstrap.py.)
@@ -220,7 +220,7 @@ class SetupWavefoundryTests(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         self.assertEqual(len(captured), 1)
-        self.assertEqual(captured[0][0], "python")
+        self.assertEqual(captured[0][0], "python3")
         self.assertTrue(captured[0][1].endswith("server.py"))
         self.assertIn("--dry-run", captured[0])
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-08
+Last verified: 2026-06-27
 
 Shortcut: **`Create wave`**
 
@@ -12,7 +12,7 @@ Create a wave record at `docs/waves/<wave-id>/wave.md`. The wave is the coordina
 
 ## Steps
 
-1. Generate a wave ID: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>`
+1. Generate a wave ID: `wf lifecycle-id --kind wave --slug <slug>`
 2. Create `docs/waves/<wave-id>/wave.md` with all required anchors (see `.wavefoundry/framework/seeds/110-wave-memory-bootstrap.prompt.md`):
    - `wave-id`, `Title`, `Status: planned`
    - `Objective`, `Coordinator`, `Participants`

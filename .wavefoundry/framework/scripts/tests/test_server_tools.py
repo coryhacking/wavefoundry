@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import hashlib
 import importlib.util
+import inspect
 import json
 import math
 import os
+import subprocess
 import sys
 import tempfile
 import types
@@ -62,6 +64,168 @@ def _make_repo(tmp: Path, files: dict[str, str] | None = None) -> Path:
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(content, encoding="utf-8")
     return tmp
+
+
+class McpSubprocessHelperTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def test_helper_never_inherits_json_rpc_stdio(self):
+        captured: dict[str, object] = {}
+
+        def fake_run(cmd, **kwargs):
+            captured.update(kwargs)
+            return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+        with patch.object(subprocess, "run", side_effect=fake_run):
+            result = self.srv._mcp_subprocess_run(["tool"], cwd=Path.cwd())
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIs(captured["stdin"], subprocess.DEVNULL)
+        self.assertIs(captured["stdout"], subprocess.PIPE)
+        self.assertIs(captured["stderr"], subprocess.PIPE)
+        self.assertTrue(captured["text"])
+
+    def test_helper_applies_windows_no_window_flag(self):
+        captured: dict[str, object] = {}
+
+        def fake_run(cmd, **kwargs):
+            captured.update(kwargs)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with patch.object(self.srv.os, "name", "nt"), \
+             patch.object(subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True), \
+             patch.object(subprocess, "run", side_effect=fake_run):
+            self.srv._mcp_subprocess_run(["tool"], cwd=".", capture_output=False)
+
+        self.assertEqual(captured["creationflags"], 0x08000000)
+        self.assertIs(captured["stdin"], subprocess.DEVNULL)
+        self.assertIs(captured["stdout"], subprocess.DEVNULL)
+        self.assertIs(captured["stderr"], subprocess.DEVNULL)
+
+    def test_background_index_refresh_uses_windows_no_window_flag(self):
+        src = inspect.getsource(self.srv._start_background_index_refresh)
+        self.assertIn("subprocess.DETACHED_PROCESS", src)
+        self.assertIn("subprocess.CREATE_NEW_PROCESS_GROUP", src)
+        self.assertIn("_windows_no_window_flag()", src)
+        self.assertIn("stdin=subprocess.DEVNULL", src)  # wave 1p88t: sibling-consistent stdin isolation
+
+    # --- wave 1p88t: MCP-reachable probes that previously bypassed the helper are now isolated ---
+
+    def test_pid_is_running_isolates_stdin_and_no_window_on_windows(self):
+        # tasklist liveness is MCP-reachable (12+ call sites incl. dashboard/index status).
+        captured: dict[str, object] = {}
+
+        def fake_run(cmd, **kwargs):
+            captured.update(kwargs)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with patch.object(self.srv.os, "name", "nt"), \
+             patch.object(subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True), \
+             patch.object(subprocess, "run", side_effect=fake_run):
+            self.srv._pid_is_running(4321)
+
+        self.assertIs(captured["stdin"], subprocess.DEVNULL)
+        self.assertEqual(captured["creationflags"], 0x08000000)
+
+    def test_git_audits_route_through_mcp_subprocess_helper(self):
+        # _audit_commit_governance (git log) and _audit_harnessability (git grep) are MCP-reachable
+        # via wave_audit; both must go through the shared helper, not a raw _sp/__import__ subprocess.
+        for fn_name, expect_cmd in (
+            ("_audit_commit_governance", ["git", "log"]),
+            ("_audit_harnessability", ["git", "grep"]),
+        ):
+            with self.subTest(fn=fn_name):
+                calls: list[list[str]] = []
+
+                def fake_helper(cmd, **kwargs):
+                    calls.append(list(cmd))
+                    return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+                with tempfile.TemporaryDirectory() as tmp:
+                    with patch.object(self.srv, "_mcp_subprocess_run", side_effect=fake_helper):
+                        getattr(self.srv, fn_name)(Path(tmp))
+                self.assertTrue(calls, f"{fn_name} did not call _mcp_subprocess_run")
+                self.assertEqual(calls[0][:2], expect_cmd, f"{fn_name} forwarded the wrong command")
+
+    def test_no_raw_subprocess_lacks_stdin_isolation(self):
+        # Breadth guard (wave 1p88t): EVERY subprocess invocation in the MCP-reachable modules —
+        # `server_impl` AND the in-process secrets-scan fallback (`wave_lint_lib/secrets_validators`,
+        # reached by the `wave_scan_secrets` tool's except-branch) — must isolate stdin (route through
+        # `_mcp_subprocess_run`, or pass `stdin=...DEVNULL` / `input=`). Covers aliased `_sp.run` /
+        # `__import__("subprocess").run` forms that evaded the first review.
+        import re
+
+        targets = [
+            SCRIPTS_ROOT / "server_impl.py",
+            SCRIPTS_ROOT / "wave_lint_lib" / "secrets_validators.py",
+        ]
+        call_re = re.compile(
+            r"(?:subprocess|_sp)\.(?:run|Popen)\(|__import__\((?:'|\")subprocess(?:'|\")\)\.(?:run|Popen)\("
+        )
+        offenders = []
+        matched = 0
+        for path in targets:
+            src_lines = path.read_text(encoding="utf-8").splitlines()
+            for i, line in enumerate(src_lines):
+                if not call_re.search(line):
+                    continue
+                matched += 1
+                if "subprocess.run(cmd, **kwargs)" in line:
+                    continue  # the shared helper's own delegation (sets stdin in its kwargs dict)
+                window = "\n".join(src_lines[max(0, i - 20):i + 20])
+                # Isolated when stdin is explicitly DEVNULL'd, or fed via input= (PIPE, not inherited).
+                if ("stdin" in window and "DEVNULL" in window) or "input=" in window:
+                    continue
+                offenders.append(f"{path.name}:{i + 1}: {line.strip()}")
+        # Non-vacuous: the scan must actually find the known raw subprocess sites across both modules.
+        # If this drops near 0 the regex has rotted into a tautology.
+        self.assertGreaterEqual(matched, 10, "subprocess-isolation scan matched too few sites — regex likely broken")
+        self.assertEqual(
+            offenders, [],
+            "raw subprocess invocations in MCP-reachable modules must isolate stdin from the JSON-RPC "
+            "stream (route through _mcp_subprocess_run or pass stdin=subprocess.DEVNULL / input=):\n"
+            + "\n".join(offenders),
+        )
+
+    def test_provider_policy_nvidia_probe_isolates_stdin_and_no_window_on_windows(self):
+        # nvidia-smi probe is MCP-reachable via wave_gpu_doctor / provider selection in the server process.
+        import provider_policy
+
+        captured: dict[str, object] = {}
+
+        def fake_run(cmd, **kwargs):
+            captured.update(kwargs)
+            return subprocess.CompletedProcess(cmd, 0, stdout="GPU 0", stderr="")
+
+        with patch.object(provider_policy, "shutil") as shutil_mock, \
+             patch.object(provider_policy.os, "name", "nt"), \
+             patch.object(subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True), \
+             patch.object(subprocess, "run", side_effect=fake_run):
+            shutil_mock.which.return_value = "/usr/bin/nvidia-smi"
+            provider_policy.nvidia_gpu_present()
+
+        self.assertIs(captured["stdin"], subprocess.DEVNULL)
+        self.assertEqual(captured["creationflags"], 0x08000000)
+
+    def test_dashboard_powershell_scan_isolates_stdin_and_no_window_on_windows(self):
+        # The PowerShell cmdline scan is MCP-reachable via server_impl's dashboard reconciliation.
+        import dashboard_lib
+
+        captured: dict[str, object] = {}
+
+        def fake_run(cmd, **kwargs):
+            captured.update(kwargs)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with patch.object(dashboard_lib.os, "name", "nt"), \
+             patch.object(subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True), \
+             patch.object(subprocess, "run", side_effect=fake_run):
+            dashboard_lib._windows_process_cmdlines()
+
+        self.assertIs(captured["stdin"], subprocess.DEVNULL)
+        self.assertEqual(captured["creationflags"], 0x08000000)
 
 
 def _make_wave(tmp: Path, wave_id: str, status: str, changes: list[dict]) -> Path:
@@ -17157,6 +17321,138 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         mock_reload.assert_called_once()
         self.assertIn("mcp_reload", result["data"])
         self.assertTrue(result["data"]["mcp_reload"]["ok"])
+
+    # ── Wave 1p8eu — structured summary parse + next_step/next_tools ──────────
+
+    def _summary_output(self, **overrides):
+        import json as _json
+        summary = {
+            "from_version": "1.5.0", "to_version": "1.6.0", "zip_applied": None,
+            "pruned_count": 3, "docs_gate": "PASSED",
+            "index_update": "docs layer complete, code layer running in background",
+            "failed_phase": None, "is_major_or_minor": True,
+            "reconciliation": [
+                {"file": "docs/x.md", "line": 4, "retired_surface": "docs-lint",
+                 "suggested": "wf docs-lint"},
+            ],
+        }
+        summary.update(overrides)
+        return "Upgrade complete\nFiles pruned:       3\nWAVE_UPGRADE_SUMMARY_JSON:" + _json.dumps(summary) + "\n"
+
+    def test_summary_parsed_into_data(self):
+        """AC-2: the sentinel summary is parsed into data['summary'] with all fields."""
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = self._summary_output()
+        mock_proc.stderr = ""
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wave_upgrade_response(self.root, phase="update_index")
+        self.assertEqual(result["status"], "ok")
+        summary = result["data"]["summary"]
+        for key in ("from_version", "to_version", "pruned_count", "docs_gate",
+                    "index_update", "failed_phase", "is_major_or_minor", "reconciliation"):
+            self.assertIn(key, summary)
+        self.assertEqual(summary["pruned_count"], 3)
+        self.assertEqual(summary["reconciliation"][0]["retired_surface"], "docs-lint")
+        # Back-compat: output + exit_code unchanged/present.
+        self.assertEqual(result["data"]["exit_code"], 0)
+        self.assertIn("Upgrade complete", result["data"]["output"])
+
+    def test_next_step_and_next_tools_present(self):
+        """AC-2: a top-level next_step and a populated next_tools are added."""
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = self._summary_output()
+        mock_proc.stderr = ""
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wave_upgrade_response(self.root, phase="update_index")
+        self.assertIn("next_step", result)
+        self.assertTrue(result["next_step"])
+        self.assertIn("wave_upgrade_status", result["next_tools"])
+
+    def test_missing_summary_falls_back_to_output(self):
+        """AC-3: an absent sentinel → no data['summary'], output preserved, no exception."""
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "Upgrade complete\nFiles pruned:       0\n"  # no sentinel line
+        mock_proc.stderr = ""
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wave_upgrade_response(self.root, phase="update_index")
+        self.assertEqual(result["status"], "ok")
+        self.assertNotIn("summary", result["data"])
+        self.assertIn("Upgrade complete", result["data"]["output"])
+        self.assertEqual(result["data"]["exit_code"], 0)
+
+    def test_corrupt_summary_falls_back_to_output(self):
+        """AC-3: a malformed sentinel JSON → no data['summary'], output preserved, no exception."""
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "Upgrade complete\nWAVE_UPGRADE_SUMMARY_JSON:{not valid json,,}\n"
+        mock_proc.stderr = ""
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wave_upgrade_response(self.root, phase="update_index")
+        self.assertEqual(result["status"], "ok")
+        self.assertNotIn("summary", result["data"])
+        self.assertIn("Upgrade complete", result["data"]["output"])
+
+    def test_parse_upgrade_summary_helper_fail_safe(self):
+        """The parse helper returns None on absent/malformed input without raising."""
+        self.assertIsNone(self.srv._parse_upgrade_summary(""))
+        self.assertIsNone(self.srv._parse_upgrade_summary("no sentinel here"))
+        self.assertIsNone(self.srv._parse_upgrade_summary("WAVE_UPGRADE_SUMMARY_JSON:[1,2,3]"))  # not a dict
+        parsed = self.srv._parse_upgrade_summary('WAVE_UPGRADE_SUMMARY_JSON:{"pruned_count": 9}')
+        self.assertEqual(parsed, {"pruned_count": 9})
+
+    def test_parse_upgrade_summary_deeply_nested_no_exception(self):
+        # F1: a pathological deeply-nested payload (RecursionError risk) must NOT escape — returns None.
+        deep = "[" * 100000  # malformed + deeply nested → json.loads raises (RecursionError or ValueError)
+        line = "WAVE_UPGRADE_SUMMARY_JSON:" + deep
+        self.assertIsNone(self.srv._parse_upgrade_summary(line))
+
+    def test_summary_sentinel_constant_is_imported_not_redefined(self):
+        # TA-1: server_impl must use the single constant from upgrade_wavefoundry, never a redefinition.
+        import upgrade_wavefoundry as _uw
+        self.assertEqual(self.srv._upgrade_summary_sentinel(), _uw.WAVE_UPGRADE_SUMMARY_SENTINEL)
+        self.assertFalse(
+            hasattr(self.srv, "_WAVE_UPGRADE_SUMMARY_SENTINEL"),
+            "server_impl must NOT redefine the sentinel constant (TA-1)",
+        )
+
+    def test_round_trip_emit_then_parse(self):
+        # TA-1: capture _print_operator_summary's real stdout and feed it to _parse_upgrade_summary —
+        # the exact emitted line must parse back to the same fields (structural emit↔parse contract).
+        import contextlib
+        import io as _io
+        import upgrade_wavefoundry as _uw
+        buf = _io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            _uw._print_operator_summary(
+                from_version="1.5.0", to_version="1.6.0", zip_path=None,
+                pruned_count=5, ran_index_rebuild=True, failed_phase=None,
+            )
+        parsed = self.srv._parse_upgrade_summary(buf.getvalue())
+        self.assertIsNotNone(parsed, "the emitted sentinel line must parse")
+        self.assertEqual(parsed["from_version"], "1.5.0")
+        self.assertEqual(parsed["to_version"], "1.6.0")
+        self.assertEqual(parsed["pruned_count"], 5)
+        self.assertEqual(parsed["docs_gate"], "PASSED")
+        self.assertTrue(parsed["is_major_or_minor"])
+        for key in ("index_update", "failed_phase", "reconciliation"):
+            self.assertIn(key, parsed)
+
+    def test_failure_response_carries_next_step_and_next_tools(self):
+        # F2: the error path must also attach next_step + next_tools (resume_after_gate hint on a
+        # docs-gate failure).
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1  # docs gate failed
+        mock_proc.stdout = ""
+        mock_proc.stderr = "Docs gate failed"
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wave_upgrade_response(self.root, phase="preflight_to_docs_gate")
+        self.assertEqual(result["status"], "error")
+        self.assertIn("next_step", result)
+        self.assertTrue(result["next_step"])
+        self.assertTrue(result["next_tools"])
 
 
 class ImplHandlerCloseTests(unittest.TestCase):

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-25
+Last verified: 2026-06-27
 
 Reference doc covering how the local dashboard feature moves from the Wavefoundry framework pack into target repositories. Addresses packaging (build_pack.py), install (seed-010), upgrade (seed-160), and the sibling-directory runtime option.
 
@@ -99,7 +99,7 @@ When a dashboard session must survive branch switching or parallel work in the s
 
 ```bash
 # From any stable path (e.g. a persistent process manager):
-python3 /path/to/.wavefoundry/framework/scripts/dashboard_server.py \
+wf dashboard \
   --root /path/to/target-repo
 ```
 
@@ -132,10 +132,10 @@ wave_dashboard_restart
 wf dashboard
 
 # Via low-level script — opens browser:
-python3 .wavefoundry/framework/scripts/dashboard_server.py --root . --open
+wf dashboard --root . --open
 
 # Startup-only (no browser launch):
-python3 .wavefoundry/framework/scripts/dashboard_server.py --root .
+wf dashboard --root .
 ```
 
 The `--open` flag is appropriate for interactive operator sessions. Automation, tests, and headless environments should use the startup-only form.
@@ -166,10 +166,12 @@ These tools are the preferred agent-facing entry points when an agent needs to c
 
 `wf dashboard` is a subcommand of the cross-OS `wf` entry point. It routes through `wf_cli.py` to start the dashboard server with `--open` (browser launch). The renderer writes the single generated Windows shim alongside the POSIX entry point; there is no longer a per-wrapper `wave-dashboard` script. No-PATH invocation is POSIX `./.wavefoundry/bin/wf dashboard`; native Windows `.\\.wavefoundry\\bin\\wf.cmd dashboard`.
 
-The dispatcher resolves the repo root and runs the dashboard server, roughly equivalent to:
+With no explicit dashboard-server arguments, the dispatcher resolves the repo root and runs the dashboard server, roughly equivalent to:
 ```bash
-python3 .wavefoundry/framework/scripts/dashboard_server.py --open "$@"
+wf dashboard --open "$@"
 ```
+
+When explicit dashboard-server arguments are provided, `wf dashboard` forwards them without adding the default `--open` flag. Use `wf dashboard --root .` for a foreground/no-browser start.
 
 Invoke it from the repo root:
 ```bash
@@ -182,7 +184,7 @@ The script passes through any additional arguments (`$@`) to `dashboard_server.p
 
 After install or upgrade, confirm the dashboard is functional:
 
-1. Run `python3 .wavefoundry/framework/scripts/dashboard_server.py --root . --open`.
+1. Run `wf dashboard --root . --open`.
 2. Confirm the browser opens and the dashboard header shows the correct `project_label` and framework version.
 3. Confirm the state badge shows `LIVE` after the first poll.
 4. Run `python3 .wavefoundry/framework/scripts/run_tests.py` to confirm framework tests pass.

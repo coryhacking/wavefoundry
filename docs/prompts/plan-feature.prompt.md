@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-03
+Last verified: 2026-06-27
 
 Shortcut: **`Plan feature`**
 
@@ -29,7 +29,7 @@ Author a consolidated change document at `docs/plans/<change-id>.md`. Wave admis
    - `task` → `wave_new_task`
    - `maint` → `wave_new_maintenance`
    - `ops` → `wave_new_operations`
-4. If MCP is unavailable, use the CLI fallback: `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>`, then create `docs/plans/<change-id>.md` from `docs/plans/plan-template.md`.
+4. If MCP is unavailable, use the CLI fallback: `wf lifecycle-id --kind <kind> --slug <slug>`, then create `docs/plans/<change-id>.md` from `docs/plans/plan-template.md`.
 5. Author or refine the change doc. Include:
    - `## Rationale` — specific motivation a reviewer can understand
    - `## Requirements` — numbered behavioral requirements

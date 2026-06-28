@@ -94,10 +94,10 @@ The Wavefoundry MCP server is what Phase 1 installs, so this phase runs from you
 
 - **Unpacks the release zip.** Signal: `.wavefoundry/`, `docs/`, and `.mcp.json` appear at your repo root.
 - **Sets the lifecycle epoch** in `docs/workflow-config.json` (defaults to your project's first git commit date).
-- **Runs `setup_wavefoundry.py`** — the orchestrator that creates the shared tool venv at `~/.wavefoundry/venv/`, installs dependencies, builds the framework + project semantic indexes, writes `.wavefoundry/bin/` launchers and your host's MCP config, and dry-runs the MCP server to catch startup failures before you restart. Signal: orchestrator exits 0; final summary line reports index-ready.
+- **Runs `wf setup`** — the orchestrator that creates the shared tool venv at `~/.wavefoundry/venv/`, installs dependencies, builds the framework + project semantic indexes, writes `.wavefoundry/bin/` launchers and your host's MCP config, and dry-runs the MCP server to catch startup failures before you restart. Signal: setup exits 0; final summary line reports index-ready.
 - **Stops and tells you to restart your MCP host.** This is the explicit Phase 1 → Phase 2 hand-off; don't try to continue in the current agent session.
 
-> **Note on dependency install.** `setup_wavefoundry.py` uses [`uv`](https://github.com/astral-sh/uv) when available with a **21-day package-age guard** (`--exclude-newer`) — a supply-chain safeguard that rejects packages published in the last 21 days. If `uv` is not present it is bootstrapped automatically; if that fails, `pip` is used with a warning.
+> **Note on dependency install.** `wf setup` uses [`uv`](https://github.com/astral-sh/uv) when available with a **21-day package-age guard** (`--exclude-newer`) — a supply-chain safeguard that rejects packages published in the last 21 days. If `uv` is not present it is bootstrapped automatically; if that fails, `pip` is used with a warning.
 
 ---
 
@@ -170,7 +170,7 @@ What each `docs/` subdirectory carries — the agent reads these to ground its w
 
 ### Network footprint
 
-**Zero at runtime to Wavefoundry-controlled endpoints.** Embedding model weights are fetched from Hugging Face on the first index build and cached locally thereafter. Dependencies are installed via `uv` (or `pip` fallback) during `setup_wavefoundry.py` and during framework upgrades. No service, no account, no telemetry.
+**Zero at runtime to Wavefoundry-controlled endpoints.** Embedding model weights are fetched from Hugging Face on the first index build and cached locally thereafter. Dependencies are installed via `uv` (or `pip` fallback) during `wf setup` and during framework upgrades. No service, no account, no telemetry.
 
 ---
 
@@ -290,16 +290,16 @@ A local MCP server (`wavefoundry`) exposes tools that operate on your repository
 
 ## Host support
 
-Any MCP-aware host can attach to the local Wavefoundry server. For some hosts, `render_platform_surfaces.py` writes the config for you; for the others, you paste the stdio entry into the host's MCP settings yourself.
+Any MCP-aware host can attach to the local Wavefoundry server. For some hosts, `wf render-surfaces` writes the config for you; for the others, you paste the stdio entry into the host's MCP settings yourself.
 
 | Host | What to do |
 |---|---|
-| **Claude Code** | `render_platform_surfaces.py --platform claude` |
+| **Claude Code** | `wf render-surfaces --platform claude` |
 | **Codex CLI** | The committed `.codex/config.toml` loads on project trust |
-| **Cursor** | `render_platform_surfaces.py --platform cursor` |
-| **Junie** | `render_platform_surfaces.py --platform junie` |
+| **Cursor** | `wf render-surfaces --platform cursor` |
+| **Junie** | `wf render-surfaces --platform junie` |
 | **GitHub Copilot · Windsurf · Air · Warp** | Paste the stdio entry from [`docs/prompts/install-wavefoundry.prompt.md`](docs/prompts/install-wavefoundry.prompt.md) into your host's MCP settings |
-| **Antigravity** | `render_platform_surfaces.py --platform antigravity` |
+| **Antigravity** | `wf render-surfaces --platform antigravity` |
 
 ---
 
