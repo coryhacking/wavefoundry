@@ -27,6 +27,11 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 
+_scripts_dir = str(Path(__file__).resolve().parent)
+if _scripts_dir not in sys.path:
+    sys.path.insert(0, _scripts_dir)
+import subprocess_util  # shared subprocess isolation (wave 1p8gu)  # noqa: E402
+
 SCANNER_VERSION = "1"
 
 # Minimum file count before the parallel scan path is engaged (matches
@@ -45,8 +50,7 @@ def _physical_perf_core_count() -> int | None:
     if sys.platform != "darwin":
         return None
     try:
-        import subprocess as _sp
-        result = _sp.run(
+        result = subprocess_util.isolated_run(
             ["sysctl", "-n", "hw.perflevel0.physicalcpu"],
             capture_output=True, text=True, timeout=2,
         )

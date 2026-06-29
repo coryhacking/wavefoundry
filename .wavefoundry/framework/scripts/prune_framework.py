@@ -152,6 +152,15 @@ def prune(
 
 
 def main() -> None:
+    # Wave 1p8gv: CLI entry — UTF-8 stdout so non-ASCII prune output never raises on a cp1252 console.
+    try:
+        _sd = str(Path(__file__).resolve().parent)
+        if _sd not in sys.path:
+            sys.path.insert(0, _sd)
+        import cli_stdio
+        cli_stdio.configure_utf8_stdio()
+    except Exception:
+        pass
     parser = argparse.ArgumentParser(
         description="Prune pack-removed files after a framework upgrade."
     )

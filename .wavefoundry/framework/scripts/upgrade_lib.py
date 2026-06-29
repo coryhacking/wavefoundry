@@ -121,9 +121,9 @@ def is_lock_stale(root: Path) -> bool:
 def _pid_is_running(pid: int) -> bool:
     """Cross-platform check: return True if *pid* refers to a running process."""
     if os.name == "nt":
-        import subprocess
+        import subprocess_util  # shared subprocess isolation (wave 1p8gu)
         try:
-            result = subprocess.run(
+            result = subprocess_util.isolated_run(
                 ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
                 capture_output=True,
                 text=True,

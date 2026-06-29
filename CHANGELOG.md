@@ -6,6 +6,27 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.5] - 2026-06-28
+
+### Added
+
+- **`wf gpu-doctor`.** The GPU/provider diagnostics previously reachable only through the `wave_gpu_doctor` MCP tool now have a `wf gpu-doctor` CLI subcommand, for CLI or no-MCP use. It reuses the same provider detection (no duplicated logic).
+
+### Changed
+
+- **`wave_upgrade` returns its structured `summary` on the primary call.** The `summary` block (versions, files pruned, docs-gate result, index state, and the retired-surface reconciliation findings) is now emitted on the primary `wave_upgrade()` response, not only on the later cleanup phase — so agents read the computed fields, including the reconciliation list, directly from the main upgrade call.
+- **Retired-surface reconciliation runs on every upgrade.** The reconciliation scan (stale `.wavefoundry/bin/*` references that should now be `wf` forms) now runs on any upgrade — including patch bumps and same-version build-successors — rather than only on major/minor bumps, since a patch can change or retire a surface during testing. The scan stays report-only and exclusion-aware.
+- **Secret-scan finding IDs now use the lifecycle format.** `docs/scan-findings.json` findings use lifecycle-backed `<prefix>-sec` IDs (for example `1p8l0-sec`) instead of the legacy `exc-###` sequence — new findings immediately, and existing findings are migrated once (idempotent and lossless) with a `legacy_id` recorded for traceability. New and migrated IDs are collision-safe against other lifecycle IDs and findings; the secrets-gate behavior and the file/rule/hash finding re-binding are unchanged, and legacy `exc-###` IDs are still tolerated.
+- **Reconciliation scan output is cleaner.** Host permission/allow-rule files (e.g. `.claude/settings.local.json`) are now reported in a separate `host_permission_flags` channel in the `wave_upgrade` summary — operator-flagged, kept out of the auto-editable `reconciliation` list — and the scan no longer false-flags `CHANGELOG.md` (at any path) or the generated prompt-surface manifest.
+- **The secret scan always writes its ledger.** A clean scan now writes `docs/scan-findings.json` as an empty `[]`, so the file's presence confirms the scan ran; it changes only when findings change (no repeat-scan churn).
+
+### Fixed
+
+- **No more flashing console windows on native Windows.** Every framework-spawned subprocess — including the indexing, graph, and secret-scanning multiprocessing pools (which the earlier per-spawn fix did not cover) — now runs window-free on Windows: the pools launch via the console-free `pythonw.exe`, falling back to serial execution when it is unavailable. No spawn inherits a blocking stdin, which previously could hang the upgrade.
+- **Native-Windows upgrade no longer crashes on encoding or paths.** The upgrade uses the platform temp directory instead of a POSIX `/tmp` fallback (absent on Windows), forces UTF-8 on stdout at every CLI entry point so a non-ASCII glyph no longer raises a `UnicodeEncodeError` in a cp1252 console, and gives spawned indexer/graph/secrets children their own UTF-8 stdio — fixing the silent index-build failure and the garbled output.
+- **`wave_install_audit` validates artifacts correctly.** The install-log parser no longer misreads an artifact's description text as a file path, so the install-state check verifies real on-disk artifacts again.
+- **MCP `handler_not_ready` during upgrade/reload.** The server now lazily builds its handler from the known repository root, so a started server no longer reports `handler_not_ready` in the startup or post-reload window.
+
 ## [1.9.4] - 2026-06-27
 
 ### Added

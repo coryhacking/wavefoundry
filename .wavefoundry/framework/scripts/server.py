@@ -34,11 +34,18 @@ def __getattr__(name: str) -> Any:
 _handler: Optional[server_impl.ImplHandler] = None
 _mcp: Any = None  # Wave 131bt (131d8): MCP instance reference for tool re-registration on reload.
 _reload_lock = threading.Lock()
+_root: Optional[Path] = None  # Wave 1p8kz: stashed at build_server so _get_handler can lazy-build.
 
 
 def _get_handler() -> server_impl.ImplHandler:
+    # Wave 1p8kz — lazy-build the handler when it has not been set yet but the root is known, so a
+    # started server never reports handler_not_ready in the startup / post-reload window. The error
+    # remains only for a genuinely uninitialized server (no root known).
+    global _handler
     if _handler is None:
-        raise RuntimeError("MCP handler not initialized — call build_server first")
+        if _root is None:
+            raise RuntimeError("MCP handler not initialized — call build_server first")
+        _handler = server_impl.build_handler(_root)
     return _handler
 
 
@@ -282,6 +289,8 @@ def perform_mcp_reload() -> dict[str, Any]:
 def build_server(root: Path):
     from mcp.server.fastmcp import FastMCP
 
+    global _root
+    _root = root  # Wave 1p8kz: enable _get_handler lazy-build before/after the explicit _set_handler.
     server_impl.set_server_runner_version(SERVER_RUNNER_VERSION)
     _set_handler(server_impl.build_handler(root))
     mcp = FastMCP("wavefoundry_mcp")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -58,6 +59,107 @@ class ShippedReferenceDocParityTests(unittest.TestCase):
                 )
 
 
+class ScanFindingsFormatReferenceSafetyTests(unittest.TestCase):
+    """Wave 1p8o5 #3 / AC-3: seed-213 references `docs/references/scan-findings-format.md`. A consumer
+    mirroring the seed must NOT hit a docs-lint broken-link error for that reference. Two independent
+    guarantees keep it safe — this guard pins both so a future edit cannot silently break either:
+
+      (a) Self-resolving in the link validator: every repo reference to the doc uses INLINE-CODE form
+          (`` `...scan-findings-format.md` ``), which `wave_lint_lib.link_validators.check_markdown_links`
+          strips before checking — it only flags `[text](href)` markdown links. So the reference can
+          never trigger a broken-link error even if the file is somehow absent.
+      (b) Availability: the doc IS provisioned/refreshed into a consumer's `docs/references/` — the
+          install seed (012) provisions it from the shipped template and the upgrade seed (160)
+          refreshes it from the same template (the byte-parity pair is guarded above)."""
+
+    SEED_213 = ".wavefoundry/framework/seeds/213-security-reviewer.prompt.md"
+    SEED_012 = ".wavefoundry/framework/seeds/012-install-wavefoundry-phase-2.prompt.md"
+    SEED_160 = ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md"
+    SHIPPED_TEMPLATE = ".wavefoundry/framework/docs/scan-findings-format.md"
+    CANONICAL = "docs/references/scan-findings-format.md"
+
+    # A markdown link whose href contains scan-findings-format.md — the form the link validator WOULD
+    # flag if the target were missing. The reference must NEVER appear in this form.
+    _MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\[\]]*\]\([^)]*scan-findings-format\.md[^)]*\)")
+
+    def _read(self, rel: str) -> str:
+        path = REPO_ROOT / rel
+        self.assertTrue(path.is_file(), f"missing: {rel}")
+        return path.read_text(encoding="utf-8")
+
+    def test_seed_213_references_the_doc(self) -> None:
+        # Sanity: the reference this guard protects actually exists in seed-213.
+        self.assertIn("scan-findings-format.md", self._read(self.SEED_213))
+
+    def test_no_markdown_link_form_anywhere_in_seeds_or_docs(self) -> None:
+        # (a) No surface (seed, prompt, doc) may reference the doc as a `[text](href)` markdown link,
+        # which the link validator would flag if the file were absent in a consumer. Inline-code only.
+        offenders: list[str] = []
+        for base in ("docs", ".wavefoundry/framework/seeds", ".wavefoundry/framework/docs"):
+            for path in sorted((REPO_ROOT / base).rglob("*.md")):
+                rel = path.relative_to(REPO_ROOT).as_posix()
+                # Skip the wave/plan history that records this very change's prose.
+                if rel.startswith("docs/waves/") or rel.startswith("docs/plans/"):
+                    continue
+                if self._MARKDOWN_LINK_RE.search(path.read_text(encoding="utf-8")):
+                    offenders.append(rel)
+        self.assertEqual(
+            offenders, [],
+            "scan-findings-format.md must be referenced as inline code, never a `[text](href)` "
+            "markdown link the docs-lint link validator would flag in a consumer: " + ", ".join(offenders),
+        )
+
+    def test_link_validator_does_not_flag_inline_code_reference(self) -> None:
+        # (a) Prove the safety mechanism directly: a doc that references the (absent) target via
+        # inline code yields ZERO broken-link failures; the same reference as a markdown link DOES fail.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "link_validators", REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "wave_lint_lib" / "link_validators.py"
+        )
+        # link_validators imports `.helpers` relatively — load the package context first.
+        import sys
+        scripts_dir = REPO_ROOT / ".wavefoundry" / "framework" / "scripts"
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        from wave_lint_lib import link_validators  # noqa: E402
+
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "docs" / "references").mkdir(parents=True)
+            # NOTE: scan-findings-format.md intentionally absent in this temp repo.
+            inline_doc = root / "docs" / "uses-inline.md"
+            inline_doc.write_text(
+                "See `docs/references/scan-findings-format.md` for the ledger format.\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                link_validators.check_markdown_links(root, inline_doc), [],
+                "an inline-code reference must never be link-checked (it is self-resolving)",
+            )
+            link_doc = root / "docs" / "uses-link.md"
+            link_doc.write_text(
+                "See [the format](references/scan-findings-format.md).\n", encoding="utf-8"
+            )
+            self.assertTrue(
+                link_validators.check_markdown_links(root, link_doc),
+                "control: a markdown link to the absent target MUST flag — proves the guard is real",
+            )
+
+    def test_doc_is_provisioned_by_install_and_upgrade_seeds(self) -> None:
+        # (b) Availability: the install seed provisions and the upgrade seed refreshes the canonical
+        # from the shipped template, so a consumer's docs/references/ carries the file.
+        install = self._read(self.SEED_012)
+        self.assertIn("docs/references/scan-findings-format.md", install)
+        self.assertIn(".wavefoundry/framework/docs/scan-findings-format.md", install)
+        upgrade = self._read(self.SEED_160)
+        self.assertIn("docs/references/scan-findings-format.md", upgrade)
+        self.assertIn(".wavefoundry/framework/docs/scan-findings-format.md", upgrade)
+        # And the shipped template (what build_pack carries) exists.
+        self.assertTrue((REPO_ROOT / self.SHIPPED_TEMPLATE).is_file())
+
+
 class UpgradeMcpFirstGuidanceTests(unittest.TestCase):
     """Wave 1p7ww: the upgrade seed AND the rendered prompt must lead with the MCP-first
     `wave_upgrade()` directive while still carrying the labeled no-MCP `wf upgrade` fallback, and
@@ -81,8 +183,8 @@ class UpgradeMcpFirstGuidanceTests(unittest.TestCase):
         # The manual sequence is kept, labeled as the no-MCP CLI fallback (not deleted).
         self.assertIn("no-MCP", text)
         self.assertIn("wf upgrade", text)
-        # The minor-bump reconciliation callout names the bin/* -> wf retirement example.
-        self.assertIn("Reconciliation on a minor+ upgrade", text)
+        # Wave 1p8kz: the reconciliation callout runs on EVERY upgrade (no longer minor+-gated).
+        self.assertIn("Reconciliation on every upgrade", text)
 
     def test_prompt_leads_with_mcp_first_directive(self) -> None:
         text = self._read(self.PROMPT)

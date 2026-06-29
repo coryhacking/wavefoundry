@@ -212,8 +212,17 @@ def _interpreter_version(executable: str) -> tuple[int, int] | None:
     resolution, so this is a genuine "does ``python3`` resolve to a usable interpreter" check.
     """
     try:
+        # Wave 1p8gu: isolate stdin (never inherit a blocking stdin) + suppress the console window on
+        # Windows. venv_bootstrap is the foundational STDLIB-ONLY module imported first-line by every
+        # entry point (a standing scan test enforces no non-stdlib imports), so it CANNOT import the
+        # shared subprocess_util helper — it inlines the same two guarantees instead.
         result = subprocess.run(
-            [executable, "-c", _VER_PROBE], capture_output=True, text=True, timeout=15, check=False,
+            [executable, "-c", _VER_PROBE], capture_output=True, text=True, timeout=15,
+            check=False, stdin=subprocess.DEVNULL,
+            # 1p8gu: inline CREATE_NO_WINDOW (no console flash on Windows; 0 on POSIX). Inlined — not via
+            # a local — so the isolation guard's AST kwarg scan sees the no-window token directly.
+            creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0),
+            encoding="utf-8", errors="replace",  # 1p8gv (review F2): deterministic capture decoding
         )
     except (OSError, subprocess.SubprocessError):
         return None

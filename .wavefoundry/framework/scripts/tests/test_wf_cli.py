@@ -72,6 +72,7 @@ class WfCliDispatchTests(unittest.TestCase):
             "codebase-map": "gen_codebase_map",
             "render-surfaces": "render_platform_surfaces",
             "secrets-scan": "run_secrets_scan",
+            "gpu-doctor": "gpu_doctor",
         }
         for sub, module_name in expected.items():
             with self.subTest(sub=sub):
@@ -117,7 +118,7 @@ class WfCliDispatchTests(unittest.TestCase):
     def test_non_setup_subcommand_activates_venv(self):
         for sub in ("docs-lint", "docs-gardener", "gate", "dashboard", "update-indexes",
                     "lifecycle-id", "upgrade", "codebase-map", "render-surfaces",
-                    "secrets-scan"):
+                    "secrets-scan", "gpu-doctor"):
             with self.subTest(sub=sub):
                 self.reexec_mock.reset_mock()
                 self._run([sub], {}, takes_argv=True)
@@ -139,7 +140,7 @@ class WfCliDispatchTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         for sub in ("docs-lint", "docs-gardener", "gate", "dashboard", "update-indexes",
                     "lifecycle-id", "upgrade", "setup", "codebase-map", "render-surfaces",
-                    "secrets-scan"):
+                    "secrets-scan", "gpu-doctor"):
             self.assertIn(sub, text)
 
     def test_unknown_subcommand_errors(self):
@@ -169,6 +170,52 @@ class WfCliDispatchTests(unittest.TestCase):
         with patch("importlib.import_module", return_value=m):
             rc = self.mod.main(["codebase-map"])
         self.assertEqual(rc, 0)
+
+
+class GpuDoctorSubcommandTests(unittest.TestCase):
+    """Wave 1p8gz: `wf gpu-doctor` surfaces the same diagnostics as wave_gpu_doctor by REUSING the
+    shared provider_policy backing logic — no duplicated GPU/provider detection."""
+
+    def setUp(self):
+        scripts_dir = str(Path(__file__).resolve().parents[1])
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+
+    def test_registered_in_subcommands(self):
+        mod = load_wf_cli()
+        self.assertIn("gpu-doctor", mod._SUBCOMMANDS)
+        self.assertEqual(mod._SUBCOMMANDS["gpu-doctor"]["module"], "gpu_doctor")
+        self.assertEqual(mod._SUBCOMMANDS["gpu-doctor"]["script"], "gpu_doctor.py")
+
+    def test_main_reuses_provider_policy_backing_logic(self):
+        # The CLI must call the SAME provider_policy.diagnostic_report / format_diagnostic_report the
+        # wave_gpu_doctor MCP tool uses — proving no duplicated detection.
+        import gpu_doctor
+        import provider_policy
+
+        with patch.object(provider_policy, "diagnostic_report", return_value={"fake": "report"}) as dr, \
+             patch.object(provider_policy, "format_diagnostic_report", return_value="DIAG") as fmt, \
+             patch("sys.stdout", new=__import__("io").StringIO()) as buf:
+            rc = gpu_doctor.main([])
+        self.assertEqual(rc, 0)
+        dr.assert_called_once()
+        fmt.assert_called_once_with({"fake": "report"})
+        self.assertIn("DIAG", buf.getvalue())
+
+    def test_gpu_doctor_does_not_duplicate_detection(self):
+        # Anti-duplication: gpu_doctor.py must not re-implement provider/GPU detection. It may only
+        # delegate — so its source contains the delegation calls, not detection primitives.
+        src = (Path(__file__).resolve().parents[1] / "gpu_doctor.py").read_text(encoding="utf-8")
+        self.assertIn("provider_policy.diagnostic_report", src)
+        self.assertIn("provider_policy.format_diagnostic_report", src)
+        # No re-implemented detection: must not define its own provider/GPU probing functions.
+        self.assertNotIn("def nvidia_gpu_present", src)
+        self.assertNotIn("def available_onnx_providers", src)
+
+    def test_self_bootstraps_into_tool_venv(self):
+        # AC-2: like every other subcommand, gpu_doctor activates the shared tool venv in-process.
+        src = (Path(__file__).resolve().parents[1] / "gpu_doctor.py").read_text(encoding="utf-8")
+        self.assertIn("venv_bootstrap.activate_tool_venv()", src)
 
 
 def _load_reconcile_scan():

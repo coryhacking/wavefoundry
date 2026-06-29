@@ -16,6 +16,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+# Shared subprocess isolation (wave 1p8gu). graph_indexer does not insert SCRIPTS_DIR at module top
+# (it does so lazily in spawn paths), so ensure the scripts dir is importable before importing it.
+_GI_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if _GI_SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _GI_SCRIPTS_DIR)
+import subprocess_util  # noqa: E402
+
 try:
     from tree_sitter import Language, Parser as _TSParser
     _TS_AVAILABLE = True
@@ -569,7 +576,7 @@ def _extract_doc_links(source_text: str, rel_path: str, current_paths: set[str])
 
 def _gitignored_paths(root: Path) -> frozenset[str]:
     try:
-        result = subprocess.run(
+        result = subprocess_util.isolated_run(
             ["git", "ls-files", "--others", "--ignored", "--exclude-standard"],
             capture_output=True, text=True, cwd=str(root), timeout=30,
         )
@@ -8248,8 +8255,13 @@ _PARALLEL_EXTRACTION_WORKERS_OVERRIDE: int | None = (
 # spawn-mode parallel-4 ran 1.6× slower than serial (44s/45.2s vs. 27.1s) —
 # worker boot cost (re-importing tree-sitter etc. per spawn) and per-task
 # pickle overhead dominated the actual extraction work.
+# Wave 1p8gu (review fix MP-2): the default was "processes" although the comment (and the 1.3.27
+# benchmark decision) says threads — so a clean install with >=100 files took the process-spawn path
+# BY DEFAULT, opening a console window per worker on Windows. Default reconciled to "threads" (also
+# the faster backend per the benchmark above). When "processes" IS opted in, the pool below routes
+# through subprocess_util.windowless_mp_context so workers are console-free on Windows regardless.
 _PARALLEL_EXTRACTION_BACKEND = os.environ.get(
-    "WAVEFOUNDRY_GRAPH_PARALLEL_BACKEND", "processes"
+    "WAVEFOUNDRY_GRAPH_PARALLEL_BACKEND", "threads"
 ).strip().lower()
 
 
@@ -8277,7 +8289,7 @@ def _physical_perf_core_count() -> int | None:
     if sys.platform != "darwin":
         return None
     try:
-        result = subprocess.run(
+        result = subprocess_util.isolated_run(
             ["sysctl", "-n", "hw.perflevel0.physicalcpu"],
             capture_output=True, text=True, timeout=2,
         )
@@ -8699,14 +8711,13 @@ def update_graph_index(
             # extraction-fork-deadlock-spawn-mode-fix.md`.
             _pdbg("step 1/8: worker_args built (process backend)")
             from concurrent.futures import ProcessPoolExecutor
-            import multiprocessing as _mp
             chunksize = max(1, len(worker_args) // (worker_count * 4))
             start_method = os.environ.get("WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD", "spawn")
             _pdbg(f"step 4/8: getting mp context for start_method={start_method!r} (chunksize={chunksize})")
-            try:
-                mp_ctx = _mp.get_context(start_method)
-            except (ValueError, RuntimeError):
-                mp_ctx = None
+            # Wave 1p8gu (review fix MP-1): window-free mp context so spawn workers do not each flash a
+            # console window on Windows (pythonw.exe). Returns None on Windows without pythonw → the
+            # `mp_ctx is None` branch below falls back to serial extraction (no worker windows).
+            mp_ctx = subprocess_util.windowless_mp_context(start_method)
             _pdbg(f"step 5/8: mp_ctx acquired ({type(mp_ctx).__name__ if mp_ctx is not None else 'None'})")
             graph_indexer_path = str(Path(__file__).resolve())
             graph_indexer_dir = str(Path(graph_indexer_path).parent)

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import sys
 import time
 import contextlib
@@ -15,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import server
+import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 
 
 _TITLE_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
@@ -230,16 +230,6 @@ def write_dashboard_metadata(root: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def _no_window_creationflags() -> int:
-    """Windows ``CREATE_NO_WINDOW`` (0 elsewhere). ``dashboard_cmdline_pids`` and its helpers are
-    consumed by the MCP server process (via ``server_impl`` dashboard lifecycle/reconciliation), so
-    these scan subprocesses must not flash a console window on native Windows; they also pass
-    ``stdin=DEVNULL`` to never inherit the JSON-RPC stdin (wave 1p88t subprocess isolation)."""
-    if os.name != "nt":
-        return 0
-    return getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-
 def _windows_process_cmdlines() -> str | None:
     """Wave 1p6eq: best-effort ``<pid> <command line>`` listing on native Windows, one process per
     line, via PowerShell + CIM (``Get-CimInstance Win32_Process`` — the only built-in that exposes a
@@ -247,18 +237,15 @@ def _windows_process_cmdlines() -> str | None:
     None on ANY failure so the caller falls back to bare recorded-PID liveness (no regression).
     FORWARD-COMPAT: unverified on a real Windows host (native Windows is Area-1) — Windows-smoke-deferred.
     """
-    import subprocess
-
     ps_script = (
         "Get-CimInstance Win32_Process | "
         "Where-Object { $_.CommandLine -and $_.CommandLine -like '*dashboard_server.py*' } | "
         "ForEach-Object { \"$($_.ProcessId) $($_.CommandLine)\" }"
     )
     try:
-        result = subprocess.run(
+        result = subprocess_util.isolated_run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
             capture_output=True, text=True, check=False, timeout=10,
-            stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
         )
     except Exception:  # noqa: BLE001 — best-effort; any failure → fall back to bare-PID liveness
         return None
@@ -286,12 +273,10 @@ def dashboard_cmdline_pids(root: Path) -> list[int] | None:
     if os.name == "nt":
         out = _windows_process_cmdlines()
     else:
-        import subprocess
         try:
-            out = subprocess.run(
+            out = subprocess_util.isolated_run(
                 ["ps", "-axww", "-o", "pid=,command="],
                 capture_output=True, text=True, check=False,
-                stdin=subprocess.DEVNULL,  # never inherit JSON-RPC stdin (wave 1p88t)
             ).stdout
         except Exception:  # noqa: BLE001 — best-effort scan; any failure → fall back
             return None
@@ -965,7 +950,9 @@ def list_git_changed_files(root: Path, since: date | None = None, limit: int = 5
     """
     def run(*args: str) -> str:
         try:
-            r = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=10)
+            r = subprocess_util.isolated_run(
+                ["git", *args], cwd=root, capture_output=True, text=True, timeout=10
+            )
             return r.stdout if r.returncode == 0 else ""
         except Exception:
             return ""
@@ -1059,7 +1046,9 @@ def get_file_diff(root: Path, rel_path: str) -> tuple[str, int]:
 
     def _run(*args: str) -> str:
         try:
-            r = subprocess.run(list(args), cwd=root, capture_output=True, text=True, timeout=10)
+            r = subprocess_util.isolated_run(
+                list(args), cwd=root, capture_output=True, text=True, timeout=10
+            )
             return r.stdout
         except Exception:
             return ""
@@ -1347,7 +1336,7 @@ def collect_git_stats(root: Path) -> dict[str, Any]:
     """Collect local git statistics for the dashboard hero area."""
     def run(*args: str) -> str:
         try:
-            r = subprocess.run(
+            r = subprocess_util.isolated_run(
                 ["git", *args], cwd=root, capture_output=True, text=True, timeout=5
             )
             return r.stdout.strip() if r.returncode == 0 else ""
@@ -1361,7 +1350,7 @@ def collect_git_stats(root: Path) -> dict[str, Any]:
         # the whole blob corrupts the first/last token (and can drop a short first
         # record below the 4-char floor). Mirror list_git_changed_files's raw read.
         try:
-            r = subprocess.run(
+            r = subprocess_util.isolated_run(
                 ["git", *args], cwd=root, capture_output=True, text=True, timeout=5
             )
             return r.stdout if r.returncode == 0 else ""

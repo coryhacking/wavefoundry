@@ -27,6 +27,12 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import provider_policy
+import subprocess_util  # shared subprocess isolation (wave 1p8gu)
+import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
+
+# Wave 1p8gv: setup is a direct CLI entry (`wf update-indexes`, setup_wavefoundry step 1) that prints
+# non-ASCII; reconfigure stdout/stderr to UTF-8 so it never raises on a cp1252 Windows console.
+cli_stdio.configure_utf8_stdio()
 
 TIMESTAMP_LOGS_ENV = "WAVEFOUNDRY_TIMESTAMP_LOGS"
 REQUIRED_IMPORTS = {
@@ -151,7 +157,7 @@ def _bootstrap_venv() -> Path:
 
     if not venv_dir.exists():
         print(f"Creating tool venv at {venv_dir} ...", flush=True)
-        subprocess.check_call([sys.executable, "-m", "venv", str(venv_dir)])
+        subprocess_util.isolated_run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
 
     return venv_python
 
@@ -205,7 +211,7 @@ def _missing_in_venv(venv_python: Path, required_imports: dict[str, str] | None 
         "        missing.append('__dist__:' + dist)\n"
         "print('\\n'.join(missing))"
     )
-    result = subprocess.run([str(venv_python), "-c", script], capture_output=True, text=True)
+    result = subprocess_util.isolated_run([str(venv_python), "-c", script], capture_output=True, text=True)
     if result.returncode != 0:
         return list(required_imports.keys())
     missing_mods = [m.strip() for m in result.stdout.strip().splitlines() if m.strip()]
@@ -249,7 +255,7 @@ def _uv_bin(venv_python: Path) -> Path | None:
 def _bootstrap_uv(venv_python: Path) -> Path | None:
     """Install uv into the tool venv via pip and return its path, or None on failure."""
     print("uv not found — installing uv for package age enforcement ...", flush=True)
-    result = subprocess.run(
+    result = subprocess_util.isolated_run(
         [str(venv_python), "-m", "pip", "install", "uv"],
         check=False,
     )
@@ -290,7 +296,7 @@ def _install_deps(missing: list[str], venv_python: Path) -> None:
         )
         cmd = [str(venv_python), "-m", "pip", "install"] + missing
 
-    result = subprocess.run(cmd, check=False)
+    result = subprocess_util.isolated_run(cmd, check=False)
     if result.returncode != 0:
         installer = "uv" if uv is not None else "pip"
         print(
@@ -963,21 +969,16 @@ def _spawn_background_code_build(root: Path, args: argparse.Namespace) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = open(log_path, "w", encoding="utf-8")  # noqa: SIM115
     try:
-        kwargs: dict = {
-            "stdout": log_file,
-            "stderr": log_file,
-            "stdin": subprocess.DEVNULL,
-            "env": {**os.environ, TIMESTAMP_LOGS_ENV: "1"},
-        }
-        if os.name == "nt":
-            kwargs["creationflags"] = (
-                subprocess.DETACHED_PROCESS
-                | subprocess.CREATE_NEW_PROCESS_GROUP
-                | getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            )
-        else:
-            kwargs["start_new_session"] = True
-        proc = subprocess.Popen(cmd, **kwargs)
+        # Wave 1p8gu: shared isolated Popen — keeps the log-file stdout/stderr while supplying detached
+        # stdin + the detached/no-window Windows creationflags (no flashing console on Windows).
+        # Wave 1p8gv: force UTF-8 stdio in the spawned child so its non-ASCII prints (e.g. `→`) never
+        # raise UnicodeEncodeError on a cp1252 Windows console and silently fail the background build.
+        proc = subprocess_util.isolated_popen(
+            cmd,
+            stdout=log_file,
+            stderr=log_file,
+            env=subprocess_util.utf8_child_env({**os.environ, TIMESTAMP_LOGS_ENV: "1"}),
+        )
     finally:
         log_file.close()
     pid_path = root / ".wavefoundry" / "index" / "background-build.pid"
@@ -1013,18 +1014,26 @@ def _run_indexer(
         cmd.extend(["--project-include-prefix", prefix])
     if verbose:
         cmd.append("--verbose")
-    # indexer.py always timestamps its own output.  Pass the env through unchanged
-    # so no env manipulation is needed.  Stream line-by-line and write to the raw
+    # indexer.py always timestamps its own output.  Stream line-by-line and write to the raw
     # underlying stream so the parent's _TimestampedWriter doesn't double-stamp.
-    child_env = {**os.environ}
+    # Wave 1p8gv: force UTF-8 stdio in the child so its `→`/em-dash prints never raise on a cp1252
+    # console; AND decode the captured pipe as UTF-8 (errors=replace) so non-ASCII child output is
+    # readable on the parent side regardless of OS.
+    child_env = subprocess_util.utf8_child_env()
+    # Wave 1p8gu: foreground streaming Popen — the parent reads this child's piped stdout line-by-line,
+    # so it must NOT detach. Pass the no-window flag (suppress the console flash on Windows) inline and
+    # keep the explicit stdin=DEVNULL / PIPE wiring; isolated_popen's detach default is wrong here.
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         stdin=subprocess.DEVNULL,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         bufsize=1,
         env=child_env,
+        creationflags=subprocess_util.no_window_creationflags(),
     )
     collected: list[str] = []
     assert proc.stdout is not None

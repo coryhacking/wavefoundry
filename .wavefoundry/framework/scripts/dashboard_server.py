@@ -27,10 +27,14 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
+import subprocess_util  # shared subprocess isolation (wave 1p8gu)
+import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
 
 # Activate the shared tool venv IN-PROCESS before any heavy import (wave 1p7pl/1p802). No-op when
 # already in the venv or when it does not exist yet (fresh bootstrap).
 venv_bootstrap.activate_tool_venv()
+# Wave 1p8gv: CLI entry — UTF-8 stdout/stderr so non-ASCII prints never raise on a cp1252 console.
+cli_stdio.configure_utf8_stdio()
 
 import dashboard_lib
 
@@ -698,24 +702,17 @@ def _daemonize(root: Path, argv: list[str]) -> int:
     child_args = [a for a in argv if a != "--daemon"]
     cmd = [sys.executable, str(Path(__file__).resolve()), *child_args]
     child_env = {**os.environ, _DAEMON_ENV_MARKER: "1"}
-    spawn_kwargs: dict[str, Any] = {
-        "stdin": subprocess.DEVNULL,
-        "cwd": str(root),
-        "env": child_env,
-    }
-    if os.name == "nt":
-        spawn_kwargs["creationflags"] = (
-            subprocess.DETACHED_PROCESS
-            | subprocess.CREATE_NEW_PROCESS_GROUP
-            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        )
-    else:
-        spawn_kwargs["start_new_session"] = True
     log_handle = open(log_path, "a", encoding="utf-8")
     try:
-        spawn_kwargs["stdout"] = log_handle
-        spawn_kwargs["stderr"] = log_handle
-        proc = subprocess.Popen(cmd, **spawn_kwargs)
+        # Wave 1p8gu: shared isolated Popen — keeps the log-file stdout/stderr + the daemon env while
+        # supplying detached stdin + the detached/no-window Windows creationflags.
+        proc = subprocess_util.isolated_popen(
+            cmd,
+            cwd=str(root),
+            env=child_env,
+            stdout=log_handle,
+            stderr=log_handle,
+        )
     finally:
         # The child inherits its own dup'd fd; close our handle so this process doesn't hold the log.
         log_handle.close()

@@ -22,10 +22,16 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
+import subprocess_util  # shared subprocess isolation (wave 1p8gu)
+import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
 
 # Activate the shared tool venv IN-PROCESS before any heavy import (wave 1p7pl/1p802). No-op when
 # already in the venv or when it does not exist yet (fresh bootstrap).
 venv_bootstrap.activate_tool_venv()
+# Wave 1p8gv: indexer is spawned as a child by setup_index — reconfigure its OWN stdout/stderr to
+# UTF-8 so its `→`/em-dash progress prints never raise UnicodeEncodeError on a cp1252 Windows console
+# (which silently failed the index build). Belt-and-suspenders with the PYTHONUTF8 child env.
+cli_stdio.configure_utf8_stdio()
 
 FASTEMBED_CACHE_DEFAULT = Path.home() / ".wavefoundry" / "cache" / "fastembed"
 if not os.environ.get("FASTEMBED_CACHE_PATH"):
@@ -200,7 +206,7 @@ def _pid_is_running(pid: int) -> bool:
         return False
     if os.name == "nt":
         try:
-            result = subprocess.run(
+            result = subprocess_util.isolated_run(
                 ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
                 capture_output=True,
                 text=True,
@@ -1118,7 +1124,7 @@ def _auto_install_lancedb() -> None:
         )
     print("build_index: lancedb not installed — installing into Wavefoundry tool venv ...", flush=True)
     cmd = [str(venv_python), "-m", "pip", "install", "lancedb"]
-    result = subprocess.run(cmd, check=False)
+    result = subprocess_util.isolated_run(cmd, check=False)
     if result.returncode != 0:
         raise ImportError(
             "lancedb auto-install into the Wavefoundry tool venv failed. "
@@ -2840,8 +2846,13 @@ def _build_index_locked(
         # threadpool because they're I/O-bound on LanceDB and threads are
         # the correct tool for that workload.
         # Secrets scan runs as a threadpool future (project layer only).
-        # Uses ThreadPoolExecutor internally for file-read parallelism — safe from
-        # any thread context (no ProcessPoolExecutor, no macOS spawn hazards).
+        # CORRECTION (wave 1p8gu review MP-4): the secrets scanner DOES use a
+        # ProcessPoolExecutor (spawn) internally when the changed-file set is
+        # >= 50 files (wave_lint_lib/secrets_validators.check_hardcoded_secrets) —
+        # the earlier "no ProcessPoolExecutor" claim here was wrong. That pool is
+        # routed through subprocess_util.windowless_mp_context so its workers are
+        # console-free on Windows (cross-ref MP-1), and it falls back to a serial
+        # scan when a window-free context cannot be guaranteed.
         _run_secrets = graph_layer == "project"
         pool_workers = (1 if build_docs else 0) + (1 if build_code else 0) + (1 if _run_secrets else 0)
         _docs_elapsed: list[float] = []

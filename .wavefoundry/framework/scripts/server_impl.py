@@ -34,6 +34,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
+import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 
 DASHBOARD_START_WAIT_SECONDS = 5.0
 
@@ -66,6 +67,10 @@ def _mcp_subprocess_run(
         "env": env,
         "stdin": subprocess.DEVNULL,
         "text": True,
+        # Wave 1p8gv (review GUARD-3): decode captured child output as UTF-8 (errors=replace) so
+        # non-ASCII bytes never mojibake/raise across OSes.
+        "encoding": "utf-8",
+        "errors": "replace",
         "timeout": timeout,
         "shell": shell,
         "check": check,
@@ -74,16 +79,20 @@ def _mcp_subprocess_run(
         kwargs.update({"stdout": subprocess.PIPE, "stderr": subprocess.PIPE})
     else:
         kwargs.update({"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL})
-    if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW"):
-        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW")
+    flags = subprocess_util.no_window_creationflags()
+    if flags:
+        kwargs["creationflags"] = flags
     return subprocess.run(cmd, **kwargs)
 
 
 def _windows_no_window_flag() -> int:
-    if os.name != "nt":
-        return 0
-    import subprocess
-    return int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    """Windows ``CREATE_NO_WINDOW`` (0 elsewhere) — delegates to the shared helper (wave 1p8gu).
+
+    Retained as a thin alias because three background ``Popen`` sites and ``_pid_is_running`` OR this
+    value into a larger ``creationflags`` expression (``DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP |
+    …``), and the source-guard tests assert the call by name. The single source of the value is
+    ``subprocess_util.no_window_creationflags``."""
+    return subprocess_util.no_window_creationflags()
 
 
 # ---------------------------------------------------------------------------
@@ -4663,6 +4672,7 @@ def _pid_is_running(pid: int) -> bool:
             result = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
                 capture_output=True, text=True, check=False,
+                encoding="utf-8", errors="replace",  # 1p8gv (review F2): deterministic capture decoding
                 stdin=subprocess.DEVNULL, creationflags=_windows_no_window_flag(),
             )
             return str(pid) in result.stdout
@@ -6262,6 +6272,11 @@ def _install_audit_row_brief(row: Any) -> dict[str, Any]:
         "target": row.target,
         "phase": row.phase,
         "state": row.state,
+        # Wave 1p8gw: expose the parsed field classification so consumers can tell a stat-able artifact
+        # PATH apart from a prose verification DESCRIPTION (the description-as-path defect).
+        "field": getattr(row, "field", None),
+        "artifact_path": getattr(row, "artifact_path", None),
+        "description": getattr(row, "description", None),
     }
 
 

@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -20,6 +19,14 @@ except ImportError:
 
 from .cel_filter import eval_filter, _jwt_exp_claim
 from .constants import SCAN_ALLOWLIST_PATH, SCAN_FINDINGS_PATH, SCAN_RULES_FRAMEWORK_PATH, SCAN_RULES_PROJECT_PATH
+
+# Shared subprocess isolation (wave 1p8gu). This module lives in the wave_lint_lib subpackage; the
+# helper lives one level up in the scripts dir, so ensure that dir is importable before importing it.
+_SCRIPTS_DIR = str(Path(__file__).resolve().parents[1])
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+import subprocess_util  # noqa: E402
+import lifecycle_id  # noqa: E402  — wave 1p8l0: lifecycle-backed `<prefix>-sec` finding IDs
 
 _INLINE_SUPPRESS_RE = re.compile(r"#\s*wavefoundry-ignore:\s*secrets(.*)")
 
@@ -96,46 +103,32 @@ def load_merged_ruleset(root: Path) -> tuple[list[dict], dict, list[str]]:
 # File discovery
 # ---------------------------------------------------------------------------
 
-def _no_window_creationflags() -> int:
-    """Windows ``CREATE_NO_WINDOW`` (0 elsewhere). The secrets scan is MCP-reachable — the
-    ``wave_scan_secrets`` in-process fallback calls ``check_hardcoded_secrets`` inside the MCP server
-    process — so these git probes must isolate ``stdin`` from the JSON-RPC stream and suppress the
-    console window on native Windows (wave 1p88t subprocess isolation)."""
-    if os.name != "nt":
-        return 0
-    return getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-
 def _is_inside_git(root: Path) -> bool:
-    result = subprocess.run(
+    result = subprocess_util.isolated_run(
         ["git", "rev-parse", "--is-inside-work-tree"],
         cwd=root, capture_output=True, text=True,
-        stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
     )
     return result.returncode == 0
 
 
 def _head_exists(root: Path) -> bool:
-    result = subprocess.run(
+    result = subprocess_util.isolated_run(
         ["git", "rev-parse", "--verify", "HEAD"],
         cwd=root, capture_output=True, text=True,
-        stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
     )
     return result.returncode == 0
 
 
 def _get_changed_files(root: Path) -> list[Path]:
     # Tracked files changed since HEAD (staged + unstaged)
-    changed = subprocess.run(
+    changed = subprocess_util.isolated_run(
         ["git", "diff", "--name-only", "HEAD"],
         cwd=root, capture_output=True, text=True,
-        stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
     )
     # Untracked files that are not gitignored (new files not yet staged)
-    untracked = subprocess.run(
+    untracked = subprocess_util.isolated_run(
         ["git", "ls-files", "--others", "--exclude-standard"],
         cwd=root, capture_output=True, text=True,
-        stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
     )
     if changed.returncode != 0 and untracked.returncode != 0:
         return []
@@ -168,7 +161,7 @@ def _filter_gitignored(root: Path, paths: list[Path]) -> list[Path]:
         except ValueError:
             rels.append(str(p))
     try:
-        proc = subprocess.run(
+        proc = subprocess_util.isolated_run(
             ["git", "check-ignore", "--stdin"],
             cwd=root, input="\n".join(rels), capture_output=True, text=True,
         )
@@ -185,10 +178,9 @@ def _filter_gitignored(root: Path, paths: list[Path]) -> list[Path]:
 
 
 def _get_all_files(root: Path) -> list[Path]:
-    tracked = subprocess.run(
+    tracked = subprocess_util.isolated_run(
         ["git", "ls-files"],
         cwd=root, capture_output=True, text=True,
-        stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
     )
     if tracked.returncode != 0:
         # Fallback (not a usable git worktree — e.g. not a repo, git unavailable, or
@@ -200,10 +192,9 @@ def _get_all_files(root: Path) -> list[Path]:
         walked = [p for p in root.rglob("*") if p.is_file() and ".git" not in p.parts]
         return _filter_gitignored(root, walked)
 
-    untracked = subprocess.run(
+    untracked = subprocess_util.isolated_run(
         ["git", "ls-files", "--others", "--exclude-standard"],
         cwd=root, capture_output=True, text=True,
-        stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
     )
     seen: set[Path] = set()
     paths: list[Path] = []
@@ -419,10 +410,9 @@ def check_inline_suppression(line: str) -> tuple[bool, str | None]:
 # ---------------------------------------------------------------------------
 
 def get_current_git_user_email(root: Path) -> str:
-    result = subprocess.run(
+    result = subprocess_util.isolated_run(
         ["git", "config", "user.email"],
         cwd=root, capture_output=True, text=True,
-        stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
     )
     return result.stdout.strip() if result.returncode == 0 else ""
 
@@ -458,19 +448,126 @@ def save_exceptions(root: Path, exceptions: list[dict]) -> None:
     path.write_text(json.dumps(cleaned, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
-def _next_exception_id(exceptions: list[dict]) -> str:
-    existing = set()
+# ---------------------------------------------------------------------------
+# Finding IDs (wave 1p8l0)
+#
+# Scanner-created secret findings use a LIFECYCLE-backed ID `<prefix>-sec`
+# (e.g. `1p8l0-sec`) — the same 5-char base36 lifecycle prefix family used by
+# waves/changes/ADRs, with a `sec` suffix and NO slug. Finding context lives in
+# the structured record fields (file/line/rule_id/line_hash/context_hash/
+# matched_text), so a generated slug would only duplicate already-structured
+# data and add avoidable collision/determinism work.
+#
+# `sec` is deliberately scoped to the scanner + the lifecycle library here — it
+# is NOT a public change-doc kind (it never appears in `wave_new_*` kind lists,
+# `VALID_CHANGE_KINDS`, or plan/wave scaffolding). The lifecycle CLI/MCP minting
+# tools do not expose it; only the scanner mints `<prefix>-sec`.
+#
+# Legacy `exc-###` IDs are still parsed/tolerated for not-yet-migrated or
+# imported target repositories; `migrate_legacy_finding_ids` converts them once,
+# idempotently and losslessly.
+# ---------------------------------------------------------------------------
+
+_SEC_ID_RE = re.compile(r"^[0-9a-z]{5}-sec$")
+_LEGACY_EXC_ID_RE = re.compile(r"^exc-\d+$")
+
+
+def _existing_finding_ids(exceptions: list[dict]) -> set[str]:
+    """All ids already present on findings — both new `<prefix>-sec` and legacy
+    `exc-###`. Used so a freshly-minted `sec` id never collides with an existing
+    finding (in addition to the lifecycle-prefix dedup against waves/changes/ADRs)."""
+    out: set[str] = set()
     for e in exceptions:
         eid = e.get("id", "")
-        if isinstance(eid, str) and eid.startswith("exc-"):
-            try:
-                existing.add(int(eid[4:]))
-            except ValueError:
-                pass
-    n = 1
-    while n in existing:
-        n += 1
-    return f"exc-{n:03d}"
+        if isinstance(eid, str) and eid:
+            out.add(eid)
+    return out
+
+
+def _next_secret_finding_id(
+    root: Path,
+    exceptions: list[dict],
+    *,
+    timestamp: datetime | None = None,
+    taken: set[str] | None = None,
+) -> str:
+    """Mint the next available lifecycle-backed secret-finding id `<prefix>-sec`.
+
+    Wave 1p8l0 — replaces the old `exc-###` sequential id. The prefix comes from
+    ``lifecycle_id.next_available_prefix``, which dedupes against existing
+    wave/change/ADR ids on disk under ``root``. We then additionally dedupe the
+    formatted `<prefix>-sec` against existing scan-finding ids (``exceptions`` +
+    ``taken``) and advance the lifecycle floor until a free prefix is found —
+    this covers multiple findings minted during a single scan (each
+    ``commit=True`` call advances the in-process lifecycle floor, so consecutive
+    mints get distinct prefixes).
+
+    ``timestamp`` is forwarded to the lifecycle generator so tests can pin the
+    minted prefix for deterministic output (Requirement 10 / AC-10).
+    """
+    used = _existing_finding_ids(exceptions)
+    if taken:
+        used |= taken
+    # next_available_prefix(commit=True) advances the in-process lifecycle floor,
+    # so re-calling on a collision yields a strictly later prefix. Bounded loop
+    # guards against a pathological run rather than the expected 0–1 retries.
+    for _ in range(len(used) + 2):
+        prefix = lifecycle_id.next_available_prefix(timestamp, repo_root=root)
+        candidate = f"{prefix}-sec"
+        if candidate not in used:
+            return candidate
+    # Unreachable in practice; fall through to the last advanced prefix.
+    return f"{lifecycle_id.next_available_prefix(timestamp, repo_root=root)}-sec"
+
+
+def migrate_legacy_finding_ids(
+    root: Path,
+    exceptions: list[dict],
+    *,
+    timestamp: datetime | None = None,
+) -> bool:
+    """Rewrite legacy `exc-###` finding ids to lifecycle `<prefix>-sec` ids in place.
+
+    Wave 1p8l0 — idempotent and lossless:
+
+    - Only records whose ``id`` matches `exc-###` AND which do not already carry a
+      ``legacy_id`` are converted, so a second run is a no-op (Requirement 7 /
+      AC-4): already-migrated records (a `<prefix>-sec` id, or any id with a
+      ``legacy_id`` already recorded) are left untouched.
+    - Every NON-id field is preserved exactly — status, confirmations, override
+      reasons, line/context hashes, redacted matched text, and any
+      security-reviewer fields are never read or rewritten here (Requirement 5 /
+      AC-2). Only ``id`` is replaced and ``legacy_id`` is added for traceability
+      (Requirement 6 / AC-3).
+    - Newly-minted ids dedupe against existing lifecycle prefixes (waves/changes/
+      ADRs under ``root``) and against ids already present or assigned in this
+      batch, so two migrated records never collide (Requirement 4 / AC-6).
+
+    Returns True when any record was rewritten (so the caller persists the file).
+    """
+    # Seed the dedup set with EVERY current id (including the legacy ones being
+    # migrated) so a minted `<prefix>-sec` can't reuse a still-present id, then
+    # add each new id as we go so multiple migrations in one pass stay distinct.
+    assigned: set[str] = _existing_finding_ids(exceptions)
+    changed = False
+    for e in exceptions:
+        eid = e.get("id", "")
+        if not isinstance(eid, str) or not _LEGACY_EXC_ID_RE.fullmatch(eid):
+            continue
+        if e.get("legacy_id"):
+            # Already migrated in a prior pass (defensive — a legacy `exc-###` id
+            # with a recorded legacy_id should not normally occur, but never
+            # double-stamp). Leave untouched for idempotence.
+            continue
+        new_id = _next_secret_finding_id(
+            root, exceptions, timestamp=timestamp, taken=assigned
+        )
+        assigned.discard(eid)   # the old id is being freed
+        assigned.add(new_id)
+        e["id"] = new_id
+        e["legacy_id"] = eid
+        changed = True
+    return changed
 
 
 def _sha256_file(path: Path) -> str:
@@ -690,10 +787,9 @@ def _confirmable_reviewer_emails(root: Path, days: int = 365) -> set[str]:
     co-authors. Returns an empty set when git history is unavailable (then the
     caller leaves the policy threshold unchanged and relies on override_reason)."""
     try:
-        result = subprocess.run(
+        result = subprocess_util.isolated_run(
             ["git", "log", f"--since={days} days ago", "--format=%ae%n%ce"],
             cwd=root, capture_output=True, text=True, check=False,
-            stdin=subprocess.DEVNULL, creationflags=_no_window_creationflags(),
         )
     except Exception:
         return set()
@@ -1096,6 +1192,8 @@ def _match_hits_for_file(
     confirmation_valid_days: int = 0,
     as_of: datetime | None = None,
     prune_suppressed: bool = False,
+    root: Path | None = None,
+    mint_timestamp: datetime | None = None,
 ) -> tuple[list[str], bool]:
     """Serial exception matching for one file's pre-scanned hits.
 
@@ -1104,6 +1202,11 @@ def _match_hits_for_file(
 
     prune_suppressed: wave 1p4a2 — when True (full scan), drop ``pending`` entries the
         current ruleset no longer produces (line present, but not a hit this scan).
+
+    root / mint_timestamp: wave 1p8l0 — new findings get a lifecycle-backed
+        `<prefix>-sec` id (``_next_secret_finding_id``). ``root`` lets the
+        lifecycle generator dedupe against on-disk wave/change/ADR ids;
+        ``mint_timestamp`` pins the prefix for deterministic test output.
     """
     failures: list[str] = []
     exceptions_changed = False
@@ -1133,7 +1236,11 @@ def _match_hits_for_file(
             if file_sha256 and f"{file_sha256}:{rel}:{rule_id}:{hit['line_hash']}" in framework_allowlist:
                 continue
             new_entry: dict[str, Any] = {
-                "id": _next_exception_id(exceptions),
+                "id": _next_secret_finding_id(
+                    root if root is not None else Path("."),
+                    exceptions,
+                    timestamp=mint_timestamp,
+                ),
                 "file": rel,
                 "line": line_no,
                 "line_hash": hit["line_hash"],
@@ -1322,6 +1429,14 @@ def check_hardcoded_secrets(
     exceptions = load_exceptions(root)
     exceptions_changed = False
 
+    # Wave 1p8l0 — one-shot, idempotent migration of legacy `exc-###` finding ids
+    # to lifecycle-backed `<prefix>-sec` ids. Runs before any matching so the
+    # ledger uses the new id family; preserves every non-id field. Already-migrated
+    # repos and fresh ledgers are a no-op. Uses the scan's reference "now" as the
+    # mint timestamp for deterministic prefixes.
+    if migrate_legacy_finding_ids(root, exceptions, timestamp=scan_as_of):
+        exceptions_changed = True
+
     # Sweep findings for paths that now match the combined path allowlist.
     excluded = [e for e in exceptions if _path_matches_allowlist(e.get("file", ""), global_allowlist_paths)]
     if excluded:
@@ -1433,23 +1548,27 @@ def check_hardcoded_secrets(
             for i in range(0, len(_worker_scan_args), _batch_size)
         ]
         scan_results: list | None = None
-        try:
-            from concurrent.futures import ProcessPoolExecutor as _PPE
-            import multiprocessing as _mp
-            _mp_ctx = _mp.get_context("spawn")
-            with _PPE(
-                max_workers=max_workers,
-                mp_context=_mp_ctx,
-                initializer=_worker_init_secrets_scanner,
-                initargs=(
-                    _scripts_dir, _raw_rules, global_allowlist_paths, _fw_list,
-                    policy, global_regexes, global_stopwords,
-                ),
-            ) as _pool:
-                _batch_results = list(_pool.map(_scan_file_secrets_batch_worker, _batches))
-            scan_results = [r for batch in _batch_results for r in batch]
-        except Exception:
-            scan_results = None
+        # Wave 1p8gu (review fix): the spawn pool launches console-subsystem python.exe workers, each
+        # of which flashes a console window on Windows. Route through the window-free mp context
+        # (pythonw.exe on Windows); when one cannot be guaranteed (Windows without pythonw), fall back
+        # to the serial scan rather than open console windows.
+        _mp_ctx = subprocess_util.windowless_mp_context("spawn")
+        if _mp_ctx is not None:
+            try:
+                from concurrent.futures import ProcessPoolExecutor as _PPE
+                with _PPE(
+                    max_workers=max_workers,
+                    mp_context=_mp_ctx,
+                    initializer=_worker_init_secrets_scanner,
+                    initargs=(
+                        _scripts_dir, _raw_rules, global_allowlist_paths, _fw_list,
+                        policy, global_regexes, global_stopwords,
+                    ),
+                ) as _pool:
+                    _batch_results = list(_pool.map(_scan_file_secrets_batch_worker, _batches))
+                scan_results = [r for batch in _batch_results for r in batch]
+            except Exception:
+                scan_results = None
         if scan_results is None:
             scan_results = _serial_scan()
     else:
@@ -1468,6 +1587,10 @@ def check_hardcoded_secrets(
             # Wave 1p4a2 — fail closed: never prune on a degraded ruleset (a rule
             # failed to compile), only on a clean full scan.
             prune_suppressed=scan_all and not rules_degraded,
+            # Wave 1p8l0 — new findings get a lifecycle-backed `<prefix>-sec` id;
+            # root enables on-disk id dedup, scan_as_of pins the prefix.
+            root=root,
+            mint_timestamp=scan_as_of,
         )
         failures.extend(file_failures)
         if file_changed:
@@ -1475,6 +1598,17 @@ def check_hardcoded_secrets(
 
     if exceptions_changed:
         save_exceptions(root, exceptions)
+    elif scan_all and not (root / SCAN_FINDINGS_PATH).exists():
+        # Wave 1p8o5 #4 — always-present ledger: a CLEAN full scan (0 findings, no prior file) writes
+        # a bare `[]` so the file's PRESENCE confirms a scan ran (vs. the ambiguous "clean or never
+        # ran?" of an absent file). Operator decision: a bare `[]`, NOT a metadata wrapper — a
+        # `scanned_at`-style wrapper would rewrite the file on every scan → git churn (the scan-state
+        # file already records timing). Gated to full scans only: an incremental scan must NOT create
+        # the file, since `scan_secrets.update_secrets_scan` forces a full re-scan when it is missing
+        # (its absence is the regeneration trigger). The bare `[]` loads as an empty list → the
+        # `wave_close` secrets gate sees no findings → no block (gate semantics unchanged). Idempotent:
+        # a re-run finds the file present and writes nothing here, so the content never churns.
+        save_exceptions(root, [])
 
     # Wave 1p5pz — record-only mode (docs-lint / hook / upgrade docs gate): secret
     # findings are tagged "[secrets]" by _match_hits_for_file; a bare-suppression

@@ -2815,9 +2815,10 @@ class ConfigReviewRecommendationTests(unittest.TestCase):
 
 
 class ReconciliationRecommendationTests(unittest.TestCase):
-    """Wave 1p7ww: the reconciliation recommendation is surfaced on every major/minor upgrade
-    (sibling of the config-review recommendation, same gate), silent on patch/downgrade/same,
-    fully fail-safe."""
+    """Wave 1p7ww / 1p8et / 1p8kz: the reconciliation scan line runs on EVERY upgrade — operator
+    direction (a patch or a same-version build-successor can change/retire a surface during testing).
+    Unlike its sibling ``_config_review_recommendation_lines`` (still major/minor-gated), it is NOT
+    gated on version delta; it returns [] only on an internal failure. Report-only; fail-safe."""
 
     def setUp(self):
         if str(SCRIPTS_ROOT) not in sys.path:
@@ -2865,19 +2866,29 @@ class ReconciliationRecommendationTests(unittest.TestCase):
     def test_build_suffix_stripped_minor_recommends(self):
         self.assertTrue(self.mod._reconciliation_recommendation_lines("1.5.0+abc", "1.6.0+def"))
 
-    def test_patch_bump_silent(self):
-        self.assertEqual(self.mod._reconciliation_recommendation_lines("1.6.0", "1.6.1"), [])
+    def test_patch_bump_runs(self):
+        # 1p8kz: a patch bump now RUNS the scan (gate removed) — emits the heading.
+        lines = self.mod._reconciliation_recommendation_lines("1.6.0", "1.6.1")
+        self.assertTrue(any("Reconciliation scan" in ln for ln in lines))
 
-    def test_same_version_silent(self):
-        self.assertEqual(self.mod._reconciliation_recommendation_lines("1.6.0", "1.6.0"), [])
+    def test_same_version_build_successor_runs(self):
+        # 1p8kz: a same-version build-successor (a rebuilt pack during testing) also runs the scan.
+        lines = self.mod._reconciliation_recommendation_lines("1.6.0", "1.6.0")
+        self.assertTrue(any("Reconciliation scan" in ln for ln in lines))
 
-    def test_downgrade_silent(self):
-        self.assertEqual(self.mod._reconciliation_recommendation_lines("1.6.0", "1.5.0"), [])
+    def test_downgrade_runs(self):
+        # 1p8kz: report-only scan runs on any upgrade run, including a version rollback during testing.
+        lines = self.mod._reconciliation_recommendation_lines("1.6.0", "1.5.0")
+        self.assertTrue(any("Reconciliation scan" in ln for ln in lines))
 
-    def test_unparseable_and_missing_are_silent(self):
-        self.assertEqual(self.mod._reconciliation_recommendation_lines("garbage", "1.6.0"), [])
-        self.assertEqual(self.mod._reconciliation_recommendation_lines(None, "1.6.0"), [])
-        self.assertEqual(self.mod._reconciliation_recommendation_lines("1.6.0", None), [])
+    def test_findings_supplied_render_regardless_of_version_delta(self):
+        # 1p8kz: with findings supplied, the actionable list renders on a PATCH bump too (no gate).
+        findings = [{"file": "d.md", "line": 2, "retired_surface": "wave-gate",
+                     "matched": ".wavefoundry/bin/wave-gate", "suggested": "wf gate"}]
+        lines = self.mod._reconciliation_recommendation_lines("1.6.0", "1.6.1", findings)
+        joined = "\n".join(lines)
+        self.assertIn("d.md:2", joined)
+        self.assertIn("wf gate", joined)
 
     def _capture_summary(self, from_version, to_version):
         buf = io.StringIO()
@@ -2900,9 +2911,11 @@ class ReconciliationRecommendationTests(unittest.TestCase):
         # Sibling config-review line is also present on the same gate.
         self.assertIn("Config review recommended", out)
 
-    def test_reconciliation_line_absent_in_summary_on_patch_bump(self):
+    def test_reconciliation_line_present_in_summary_on_patch_bump(self):
+        # 1p8kz: the reconciliation scan line now appears on a PATCH bump (gate removed). The sibling
+        # Config-review line stays major/minor-gated, so it is correctly ABSENT on a patch bump.
         out = self._capture_summary("1.6.0", "1.6.1")
-        self.assertNotIn("Reconciliation scan", out)
+        self.assertIn("Reconciliation scan", out)
         self.assertNotIn("Config review recommended", out)
 
     def test_reconciliation_line_absent_in_summary_on_failed_phase(self):
@@ -2947,12 +2960,16 @@ class ReconciliationScanIntegrationTests(unittest.TestCase):
             self.assertIn(".wavefoundry/bin/docs-lint", out)
             self.assertIn("wf docs-lint", out)
 
-    def test_scan_does_not_run_on_patch_bump(self):
+    def test_scan_runs_on_patch_bump(self):
+        # 1p8kz (operator direction): the scan runs on a PATCH bump too and surfaces the actionable
+        # finding (a patch can change/retire a surface during testing).
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             (root / "x.md").write_text("`.wavefoundry/bin/docs-lint`\n", encoding="utf-8")
             out = self._summary_over_root(root, from_v="1.6.0", to_v="1.6.1")
-            self.assertNotIn("Reconciliation scan", out)
+            self.assertIn("Reconciliation scan", out)
+            self.assertIn("x.md:1", out)
+            self.assertIn("wf docs-lint", out)
 
     def test_scan_skipped_when_root_none(self):
         # Back-compat: no root → no scan, no exception, summary still renders.
@@ -2967,8 +2984,8 @@ class ReconciliationScanIntegrationTests(unittest.TestCase):
         self.assertIn("No stale retired-surface references found", out)
 
     def test_run_reconciliation_scan_is_fail_safe(self):
-        # A bad root must not raise — returns [].
-        self.assertEqual(self.mod._run_reconciliation_scan(None), [])
+        # A bad root must not raise — returns ([], []) (1p8o5: two channels).
+        self.assertEqual(self.mod._run_reconciliation_scan(None), ([], []))
 
 
 class UpgradeSummarySentinelTests(unittest.TestCase):
@@ -3001,7 +3018,8 @@ class UpgradeSummarySentinelTests(unittest.TestCase):
         summary = self._parse_sentinel(out)
         self.assertIsNotNone(summary)
         for key in ("from_version", "to_version", "pruned_count", "docs_gate",
-                    "index_update", "failed_phase", "is_major_or_minor", "reconciliation"):
+                    "index_update", "failed_phase", "is_major_or_minor", "reconciliation",
+                    "host_permission_flags"):
             self.assertIn(key, summary)
         self.assertEqual(summary["from_version"], "1.5.0")
         self.assertEqual(summary["to_version"], "1.6.0")
@@ -3009,6 +3027,35 @@ class UpgradeSummarySentinelTests(unittest.TestCase):
         self.assertEqual(summary["docs_gate"], "PASSED")
         self.assertTrue(summary["is_major_or_minor"])
         self.assertEqual(summary["reconciliation"], [])
+        self.assertEqual(summary["host_permission_flags"], [])  # 1p8o5: additive, empty by default
+
+    def test_sentinel_host_permission_flags_separate_from_reconciliation(self):
+        # 1p8o5 #2 / AC-2: a stale ref in a host permission/allow-rule file lands in the SEPARATE
+        # `host_permission_flags` summary field, NOT in `reconciliation`; an editable doc lands in
+        # `reconciliation`. The summary exposes both channels distinctly.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / ".claude").mkdir()
+            (root / ".claude" / "settings.local.json").write_text(
+                '{"allow": ["Bash(.wavefoundry/bin/docs-lint)"]}\n', encoding="utf-8"
+            )
+            (root / "docs").mkdir()
+            (root / "docs" / "runbook.md").write_text(
+                "Run `.wavefoundry/bin/wave-gate`.\n", encoding="utf-8"
+            )
+            out = self._capture(
+                from_version="1.5.0", to_version="1.6.0", zip_path=None,
+                pruned_count=0, ran_index_rebuild=True, failed_phase=None, root=root,
+            )
+            summary = self._parse_sentinel(out)
+            recon_files = {f["file"] for f in summary["reconciliation"]}
+            host_files = {f["file"] for f in summary["host_permission_flags"]}
+            self.assertNotIn(".claude/settings.local.json", recon_files)
+            self.assertIn(".claude/settings.local.json", host_files)
+            self.assertIn("docs/runbook.md", recon_files)
+            self.assertNotIn("docs/runbook.md", host_files)
+            # The prose carries the separate operator-flag section.
+            self.assertIn("Host permission/allow-rule files (flag for the OPERATOR", out)
 
     def test_sentinel_reconciliation_carries_findings(self):
         with tempfile.TemporaryDirectory() as td:
@@ -3042,6 +3089,155 @@ class UpgradeSummarySentinelTests(unittest.TestCase):
         summary = self._parse_sentinel(out)
         self.assertIn("Files pruned:       7", out)
         self.assertEqual(summary["pruned_count"], 7)
+
+
+class PrimaryPhaseSummaryTests(unittest.TestCase):
+    """Wave 1p8kz: the structured summary sentinel must surface at the END of the PRIMARY upgrade phase
+    (phases 0–4, the default ``wave_upgrade()`` call) — not only on ``--cleanup`` — so an agent reading
+    the primary upgrade response gets ``data.summary`` WITH the 1p8et reconciliation findings. The
+    field gap (1.9.5 native-Windows): no summary on the primary call, persistent manual reconcile."""
+
+    def setUp(self):
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        self.mod = load_upgrade_module()
+
+    def _emit_primary(self, root, from_v, to_v, pruned_count=0):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.mod._emit_primary_phase_summary(
+                from_version=from_v, to_version=to_v, zip_path=None,
+                pruned_count=pruned_count, root=Path(root) if root is not None else None,
+            )
+        return buf.getvalue()
+
+    def _parse_sentinel(self, out):
+        sentinel = self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL
+        return [json.loads(line[len(sentinel):]) for line in out.splitlines() if line.startswith(sentinel)]
+
+    def test_emits_exactly_one_sentinel_line(self):
+        out = self._emit_primary(None, "1.8.0", "1.9.0")
+        summaries = self._parse_sentinel(out)
+        self.assertEqual(len(summaries), 1, "primary phase must emit exactly one summary sentinel")
+
+    def test_reconciliation_populated_on_minor_bump(self):
+        # AC-1: a MINOR bump (1.8.0 → 1.9.0) runs the reconciliation scan; with a real root that has a
+        # retired-surface reference, the sentinel's `reconciliation` carries the finding.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "g.md").write_text("`.wavefoundry/bin/wave-gate`\n", encoding="utf-8")
+            out = self._emit_primary(root, "1.8.0", "1.9.0")
+            summary = self._parse_sentinel(out)[0]
+            self.assertTrue(summary["is_major_or_minor"])
+            self.assertEqual(len(summary["reconciliation"]), 1)
+            self.assertEqual(summary["reconciliation"][0]["retired_surface"], "wave-gate")
+
+    def test_reconciliation_populated_via_monkeypatched_scan_on_minor_bump(self):
+        # AC-1 (monkeypatched form, per the task): a minor bump with _run_reconciliation_scan stubbed
+        # to return a finding must surface that finding in the primary-phase sentinel.
+        finding = [{"file": "x.md", "line": 1, "retired_surface": "docs-lint",
+                    "matched": ".wavefoundry/bin/docs-lint", "suggested": "wf docs-lint"}]
+        # 1p8o5: _run_reconciliation_scan now returns (reconciliation, host_permission_flags).
+        with patch.object(self.mod, "_run_reconciliation_scan", return_value=(finding, [])):
+            out = self._emit_primary("ignored-root-uses-stub", "1.8.0", "1.9.0")
+        summary = self._parse_sentinel(out)[0]
+        self.assertEqual(summary["reconciliation"], finding)
+
+    def test_reconciliation_populated_on_patch_bump(self):
+        # AC-6 (operator direction): the scan runs on EVERY upgrade — a PATCH bump (1.9.4 → 1.9.5) with
+        # a retired-surface reference present DOES populate `reconciliation` (a patch can change/retire a
+        # surface during testing). `is_major_or_minor` stays False (informational only — no longer gates).
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "g.md").write_text("`.wavefoundry/bin/wave-gate`\n", encoding="utf-8")
+            out = self._emit_primary(root, "1.9.4", "1.9.5")
+            summary = self._parse_sentinel(out)[0]
+            self.assertFalse(summary["is_major_or_minor"])  # informational, not a gate
+            self.assertEqual(len(summary["reconciliation"]), 1)
+            self.assertEqual(summary["reconciliation"][0]["retired_surface"], "wave-gate")
+
+    def test_scan_runs_on_patch_bump(self):
+        # AC-6: a patch bump DOES invoke the scan (the major/minor gate was removed). Proven via a stub:
+        # its return value now flows into the patch-bump sentinel.
+        finding = [{"file": "x.md", "line": 1, "retired_surface": "docs-lint",
+                    "matched": ".wavefoundry/bin/docs-lint", "suggested": "wf docs-lint"}]
+        # 1p8o5: stub returns the (reconciliation, host_permission_flags) tuple.
+        with patch.object(self.mod, "_run_reconciliation_scan", return_value=(finding, [])) as scan:
+            out = self._emit_primary("some-root", "1.9.4", "1.9.5")
+        summary = self._parse_sentinel(out)[0]
+        scan.assert_called_once()
+        self.assertEqual(summary["reconciliation"], finding)
+
+    def test_reconciliation_populated_on_same_version_build_successor(self):
+        # AC-6: a same-version build-successor (1.9.5 → 1.9.5 — a rebuilt pack at the same semver during
+        # testing) ALSO runs the scan and populates reconciliation when stale refs exist.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "g.md").write_text("`.wavefoundry/bin/wave-gate`\n", encoding="utf-8")
+            out = self._emit_primary(root, "1.9.5", "1.9.5")
+            summary = self._parse_sentinel(out)[0]
+            self.assertFalse(summary["is_major_or_minor"])
+            self.assertEqual(len(summary["reconciliation"]), 1)
+            self.assertEqual(summary["reconciliation"][0]["retired_surface"], "wave-gate")
+
+    def test_index_update_reflects_running_on_primary_phase(self):
+        # Req-1: index_update reflects that phase 4 ran by the time the primary summary emits.
+        out = self._emit_primary(None, "1.8.0", "1.9.0")
+        summary = self._parse_sentinel(out)[0]
+        self.assertIn("running in background", summary["index_update"])
+
+    def test_primary_and_prose_render_from_same_builder(self):
+        # AC-2: the primary-phase sentinel and the cleanup-phase prose sentinel are produced from the
+        # one _build_upgrade_summary — assert identical sentinel JSON keys for the same inputs.
+        primary_out = self._emit_primary(None, "1.8.0", "1.9.0", pruned_count=3)
+        primary = self._parse_sentinel(primary_out)[0]
+        prose_buf = io.StringIO()
+        with contextlib.redirect_stdout(prose_buf):
+            self.mod._print_operator_summary(
+                from_version="1.8.0", to_version="1.9.0", zip_path=None,
+                pruned_count=3, ran_index_rebuild=True, failed_phase=None, root=None,
+            )
+        prose_lines = [
+            l for l in prose_buf.getvalue().splitlines()
+            if l.startswith(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL)
+        ]
+        prose = json.loads(prose_lines[0][len(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL):])
+        self.assertEqual(set(primary.keys()), set(prose.keys()),
+                         "primary + cleanup summaries must share one _build_upgrade_summary shape")
+        # Same load-bearing values for the same inputs (one source, no drift).
+        for k in ("from_version", "to_version", "pruned_count", "docs_gate", "is_major_or_minor"):
+            self.assertEqual(primary[k], prose[k], f"key {k} drifted between the two emissions")
+
+    def test_main_default_path_calls_emit_primary_phase_summary(self):
+        # AC-1 (call-site, lighter harness per the task): the emit runs at the END of main()'s default
+        # phases-0–4 path, BEFORE the "Phases 0–4 complete" log. Assert the call site via AST so a
+        # refactor that drops it (re-stranding the summary to cleanup-only) fails — without driving a
+        # real upgrade. The behavioral coverage above proves _emit_primary_phase_summary itself.
+        import ast as _ast
+        tree = _ast.parse(UPGRADE_PATH.read_text(encoding="utf-8"))
+        main_fn = next(
+            (n for n in _ast.walk(tree)
+             if isinstance(n, _ast.FunctionDef) and n.name == "main"), None
+        )
+        self.assertIsNotNone(main_fn, "upgrade_wavefoundry.main not found")
+        calls = [
+            n for n in _ast.walk(main_fn)
+            if isinstance(n, _ast.Call) and isinstance(n.func, _ast.Name)
+            and n.func.id == "_emit_primary_phase_summary"
+        ]
+        self.assertEqual(
+            len(calls), 1,
+            "main() must call _emit_primary_phase_summary exactly once on the default phase path",
+        )
+        # And it must come BEFORE the "Phases 0–4 complete" log (the end of the default path).
+        emit_line = calls[0].lineno
+        complete_log_lines = [
+            n.lineno for n in _ast.walk(main_fn)
+            if isinstance(n, _ast.Call) and "Phases 0" in _ast.dump(n)
+        ]
+        if complete_log_lines:
+            self.assertLess(emit_line, min(complete_log_lines),
+                            "the primary-phase summary must emit before the 'Phases 0–4 complete' log")
 
 
 class DetectDashboardLivenessTests(unittest.TestCase):
@@ -3085,6 +3281,69 @@ class DetectDashboardLivenessTests(unittest.TestCase):
         with patch.object(self.dashboard_lib, "dashboard_cmdline_pids", return_value=None):
             running, _pid, _url = self.mod._detect_dashboard(self.root)
         self.assertTrue(running)
+
+
+class WindowsTempPathRobustnessTests(unittest.TestCase):
+    """Wave 1p8gv: the `/tmp` fallback raised FileNotFoundError copying the pre-upgrade MANIFEST on
+    native Windows. The temp dir must come from tempfile.gettempdir() (cross-OS), not a hardcoded
+    POSIX path."""
+
+    def test_old_manifest_tmp_uses_gettempdir_not_slash_tmp(self):
+        mod = load_upgrade_module()
+        self.assertEqual(
+            mod.OLD_MANIFEST_TMP.parent, Path(tempfile.gettempdir()),
+            "OLD_MANIFEST_TMP must live under tempfile.gettempdir(), not a hardcoded /tmp",
+        )
+        self.assertEqual(mod.OLD_MANIFEST_TMP.name, "wf-manifest-old.txt")
+
+    def test_no_hardcoded_tmp_or_tmpdir_fallback_in_source(self):
+        src = UPGRADE_PATH.read_text(encoding="utf-8")
+        self.assertNotIn('os.environ.get("TMPDIR", "/tmp")', src)
+        self.assertIn("tempfile.gettempdir()", src)
+
+    def test_old_manifest_copy_resolves_on_windows_style_temp(self):
+        # Simulate a Windows-style temp dir (no real /tmp dependency): the MANIFEST copy target must
+        # resolve under it and be writable (mirrors shutil.copy2(old_manifest, OLD_MANIFEST_TMP)).
+        with tempfile.TemporaryDirectory() as win_temp:
+            with patch.object(tempfile, "gettempdir", return_value=win_temp):
+                target = Path(tempfile.gettempdir()) / "wf-manifest-old.txt"
+            target.write_text("MANIFEST line\n", encoding="utf-8")
+            self.assertTrue(target.exists())
+            self.assertEqual(target.read_text(encoding="utf-8"), "MANIFEST line\n")
+
+
+class UpgradeCliEncodingTests(unittest.TestCase):
+    """Wave 1p8gv: the upgrade CLI reconfigures stdio to UTF-8 (so `⚠` prints never raise on a cp1252
+    console) and captures child output as UTF-8 (so it decodes cleanly across OSes)."""
+
+    def test_module_reconfigures_stdio_at_import(self):
+        src = UPGRADE_PATH.read_text(encoding="utf-8")
+        self.assertIn("import cli_stdio", src)
+        self.assertIn("cli_stdio.configure_utf8_stdio()", src)
+
+    def test_captured_prune_spawn_routes_through_isolated_run(self):
+        src = UPGRADE_PATH.read_text(encoding="utf-8")
+        self.assertIn(
+            "subprocess_util.isolated_run(cmd, cwd=str(root), capture_output=True, text=True, check=False)",
+            src,
+        )
+
+    def test_no_bare_capture_output_text_subprocess_run_in_upgrade(self):
+        # AC-3 source-scan: no captured `subprocess.run(..., text=True)` may remain bare — all route
+        # through subprocess_util.isolated_run (which folds in encoding="utf-8", errors="replace").
+        import re
+        src_lines = UPGRADE_PATH.read_text(encoding="utf-8").splitlines()
+        offenders = []
+        for i, line in enumerate(src_lines):
+            if re.search(r"\bsubprocess\.run\(", line):
+                window = "\n".join(src_lines[i:i + 6])
+                if "text=True" in window or "capture_output=True" in window:
+                    offenders.append(f"{i + 1}: {line.strip()}")
+        self.assertEqual(
+            offenders, [],
+            "captured subprocess.run(..., text=True) must route through subprocess_util.isolated_run "
+            "(UTF-8 capture encoding):\n" + "\n".join(offenders),
+        )
 
 
 if __name__ == "__main__":

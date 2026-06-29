@@ -19,10 +19,14 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
+import subprocess_util  # shared subprocess isolation (wave 1p8gu)
+import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
 
 # Activate the shared tool venv IN-PROCESS before any heavy work (wave 1p7pl/1p802). No-op when
 # already in the venv or when it does not exist yet (fresh bootstrap).
 venv_bootstrap.activate_tool_venv()
+# Wave 1p8gv: CLI entry — UTF-8 stdout/stderr so non-ASCII prints never raise on a cp1252 console.
+cli_stdio.configure_utf8_stdio()
 
 LAST_VERIFIED_PATTERN = re.compile(r"^(Last verified:\s+)(\d{4}-\d{2}-\d{2})$", re.MULTILINE)
 
@@ -80,7 +84,7 @@ def collect_changed_markdown_paths(root: Path) -> list[Path]:
     if not docs_root.exists():
         return []
     try:
-        proc = subprocess.run(
+        proc = subprocess_util.isolated_run(
             ["git", "-C", str(root), "diff", "--name-only", "HEAD"],
             capture_output=True,
             text=True,

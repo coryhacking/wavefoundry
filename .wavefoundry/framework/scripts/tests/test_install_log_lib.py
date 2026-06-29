@@ -232,7 +232,7 @@ class StateQueryTests(unittest.TestCase):
                 new_state = "x"
             rows.append(install_log_lib.Row(
                 state=new_state, number=r.number, slug=r.slug, kind=r.kind,
-                source=r.source, target=r.target, phase=r.phase,
+                source=r.source, target=r.target, phase=r.phase, field=r.field,
             ))
         # 1.2 still flags because it has an artifact path. 1.3 and 2.1 should be skipped.
         missing = install_log_lib.checked_rows_missing_artifact(rows, self.root)
@@ -244,7 +244,7 @@ class StateQueryTests(unittest.TestCase):
         all_terminal = [
             install_log_lib.Row(
                 state="x", number=r.number, slug=r.slug, kind=r.kind,
-                source=r.source, target=r.target, phase=r.phase,
+                source=r.source, target=r.target, phase=r.phase, field=r.field,
             )
             for r in self.rows
         ]
@@ -269,6 +269,180 @@ class ReadLogTests(unittest.TestCase):
         log_path.parent.mkdir(parents=True)
         log_path.write_text("hello world\n")
         self.assertEqual(install_log_lib.read_install_log(self.root), "hello world\n")
+
+
+# ---------------------------------------------------------------------------
+# Wave 1p8gw — description-as-path defect + template↔parser parity
+# ---------------------------------------------------------------------------
+
+TEMPLATE_PATH = (
+    SCRIPTS_DIR / ".." / "install" / "install-log.template.md"
+).resolve()
+
+
+class DescriptionAsPathTests(unittest.TestCase):
+    """Wave 1p8gw: a seed/script row whose ``artifact:`` value is a prose verification CLAUSE (not a
+    single path token) must parse into the row's description, NOT be classified as a stat-able path —
+    the field defect that made wave_install_audit verify against bogus 'paths' on a native-Windows
+    install."""
+
+    # The real drifted template row 1.2 (compound verification artifact with backticks + " AND ").
+    COMPOUND_ROW = (
+        "- [x] 1.2 — Bootstrap harness: venv + deps (setup_wavefoundry.py) — artifact: "
+        "the committed `.mcp.json` names `command: \"python\"` + `args: [...]` AND "
+        "`python3 .wavefoundry/framework/scripts/server.py --dry-run` exits 0"
+    )
+
+    def test_compound_artifact_is_not_classified_as_path(self):
+        row = install_log_lib.parse_row(self.COMPOUND_ROW, phase=1)
+        self.assertIsNotNone(row)
+        self.assertEqual(row.kind, "script")
+        self.assertEqual(row.field, "artifact")
+        # The value parses into `target` (raw) but artifact_path is None (it is prose, not a path)…
+        self.assertIsNotNone(row.target)
+        self.assertIsNone(row.artifact_path, "compound verification artifact must not be a path")
+        # …and is surfaced as a description instead.
+        self.assertIsNotNone(row.description)
+        self.assertFalse(row.needs_artifact_check, "a prose artifact must never be stat-checked")
+
+    def test_compound_artifact_not_flagged_missing(self):
+        # The whole point: a [x] compound-verification row must NOT be reported as a missing artifact.
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = [install_log_lib.parse_row(self.COMPOUND_ROW, phase=1)]
+            missing = install_log_lib.checked_rows_missing_artifact(rows, Path(tmp))
+            self.assertEqual(missing, [], "compound verification artifact wrongly stat'd as a path")
+
+    def test_real_path_artifact_still_classified_as_path(self):
+        row = install_log_lib.parse_row(
+            "- [x] 2.3 — Bootstrap evidence base (seed-030) — artifact: docs/repo-profile.json",
+            phase=2,
+        )
+        self.assertEqual(row.artifact_path, "docs/repo-profile.json")
+        self.assertIsNone(row.description)
+        self.assertTrue(row.needs_artifact_check)
+
+    def test_path_with_space_in_directory_still_classified_as_path(self):
+        # A legitimate path with a space in a directory name must NOT be demoted to a description.
+        row = install_log_lib.parse_row(
+            "- [~] 2.2 — Capture legacy baseline (seed-110) — artifact: "
+            "docs/waves/00000 wave-zero-plans-and-specs/wave.md",
+            phase=2,
+        )
+        self.assertEqual(row.artifact_path, "docs/waves/00000 wave-zero-plans-and-specs/wave.md")
+        self.assertIsNone(row.description)
+
+    def test_expects_value_is_a_description_not_a_path(self):
+        row = install_log_lib.parse_row(
+            "- [ ] 2.1 — Audit Phase 1 (verify) — expects: wave_install_audit(phase=1) returns next_step",
+            phase=2,
+        )
+        self.assertEqual(row.field, "expects")
+        self.assertIsNone(row.artifact_path)
+        self.assertIsNotNone(row.description)
+        self.assertFalse(row.needs_artifact_check)
+
+
+class TemplateParserParityTests(unittest.TestCase):
+    """Wave 1p8gw: the shipped install-log template and ``parse_log`` must agree — every artifact row
+    in the template parses into the correct field (path vs description), and a stat-able artifact_path
+    never accidentally absorbs prose. Template/parser drift fails this test."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rows = install_log_lib.parse_log(TEMPLATE_PATH.read_text(encoding="utf-8"))
+
+    def test_template_is_parseable(self):
+        self.assertTrue(self.rows, "no rows parsed from the install-log template")
+        # Every parsed row has a recognized kind.
+        for r in self.rows:
+            self.assertIn(r.kind, ("seed", "script", "verify", "instruction"))
+
+    def test_every_artifact_row_classifies_consistently(self):
+        for r in self.rows:
+            if r.field == "artifact":
+                # artifact_path XOR description: a value is a path OR a prose clause, never both/neither.
+                self.assertTrue(
+                    (r.artifact_path is None) != (r.description is None),
+                    f"row {r.number}: artifact value '{r.target}' classified ambiguously",
+                )
+            if r.field == "expects":
+                self.assertIsNone(r.artifact_path, f"row {r.number}: expects value treated as a path")
+                self.assertIsNotNone(r.description)
+
+    def test_check2_validates_a_minimum_of_real_paths_on_shipped_template(self):
+        # POSITIVE parity (review F1): the shipped template backtick-wraps EVERY path. After stripping
+        # backticks the parser MUST recover at least 10 stat-able rows — so a regression that disables
+        # CHECK 2 (the "any backtick ⇒ prose" bug → 0 stat-able rows) FAILS this test instead of
+        # passing vacuously.
+        statable = [r for r in self.rows if r.artifact_path is not None]
+        self.assertGreaterEqual(
+            len(statable), 10,
+            f"only {len(statable)} stat-able rows recovered from the shipped template — CHECK 2 is "
+            "effectively disabled (backtick-stripping/classifier regressed)",
+        )
+
+    def test_known_rows_classify_exactly_as_expected_on_shipped_template(self):
+        # POSITIVE, ANCHORED assertions on real shipped rows — these pin the exact path values.
+        by_num = {r.number: r for r in self.rows}
+        # Row 2.3: a clean backtick-wrapped path -> PATH (the canonical recovery case).
+        self.assertEqual(by_num["2.3"].artifact_path, "docs/repo-profile.json")
+        self.assertEqual(by_num["2.6"].artifact_path, "docs/ARCHITECTURE.md")
+        # Row 2.2: path with a space in a dir name + a trailing conditional aside -> still PATH.
+        self.assertEqual(
+            by_num["2.2"].artifact_path, "docs/waves/00000 wave-zero-plans-and-specs/wave.md"
+        )
+        # Multi-seed source tags must PARSE (previously dropped) and their paths recover.
+        self.assertIn("2.2", by_num, "row 2.2 (seed-110 / conditional) was dropped by the row regex")
+        self.assertIn("2.8", by_num, "row 2.8 (seed-080 + seed-090) was dropped by the row regex")
+        self.assertEqual(by_num["2.8"].artifact_path, "docs/contributing/build-and-verification.md")
+        # Compound verification clauses stay DESC (never stat'd).
+        self.assertIsNone(by_num["1.2"].artifact_path)
+        self.assertIsNotNone(by_num["1.2"].description)
+        self.assertIsNone(by_num["2.13"].artifact_path)  # "drift entries in `…`" — leading prose
+        self.assertIsNotNone(by_num["2.13"].description)
+
+    def test_no_stat_able_path_contains_prose_markers(self):
+        # The load-bearing guarantee: nothing wave_install_audit will stat carries prose-clause markers
+        # — i.e. no description is mis-read as a path. (Backticks are stripped, so they are NOT a marker
+        # here; the markers are sentence conjunctions/verbs.)
+        for r in self.rows:
+            p = r.artifact_path
+            if p is not None:
+                for marker in install_log_lib._PROSE_CLAUSE_MARKERS:
+                    self.assertNotIn(
+                        marker, f" {p} ",
+                        f"row {r.number}: stat-able artifact_path '{p}' contains prose marker {marker!r}",
+                    )
+
+
+class CheckTwoIsNotVacuousTests(unittest.TestCase):
+    """Wave 1p8gw (review F1): prove wave_install_audit CHECK 2 actually validates — a [x] row whose
+    backtick-wrapped artifact path is ABSENT must be flagged missing (the disabled-CHECK-2 defect let
+    an operator mark every step [x] with zero files on disk and still get a clean audit)."""
+
+    def test_missing_backtick_wrapped_artifact_is_flagged(self):
+        log = (
+            "## Phase 2 — Project discovery\n"
+            "- [x] 2.3 — Bootstrap evidence base (seed-030) — artifact: `docs/repo-profile.json`\n"
+        )
+        rows = install_log_lib.parse_log(log)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].artifact_path, "docs/repo-profile.json")
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = install_log_lib.checked_rows_missing_artifact(rows, Path(tmp))
+            self.assertEqual([r.number for r, _ in missing], ["2.3"],
+                             "a [x] row with a missing backtick-wrapped path must be flagged by CHECK 2")
+
+    def test_present_backtick_wrapped_artifact_is_not_flagged(self):
+        log = (
+            "## Phase 2 — Project discovery\n"
+            "- [x] 2.3 — Bootstrap evidence base (seed-030) — artifact: `docs/repo-profile.json`\n"
+        )
+        rows = install_log_lib.parse_log(log)
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "docs").mkdir()
+            (Path(tmp) / "docs" / "repo-profile.json").write_text("{}\n", encoding="utf-8")
+            self.assertEqual(install_log_lib.checked_rows_missing_artifact(rows, Path(tmp)), [])
 
 
 if __name__ == "__main__":

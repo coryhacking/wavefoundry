@@ -23,6 +23,17 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 
+_scripts_dir = str(Path(__file__).resolve().parent)
+if _scripts_dir not in sys.path:
+    sys.path.insert(0, _scripts_dir)
+import subprocess_util  # shared subprocess isolation (wave 1p8gu)  # noqa: E402
+import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)  # noqa: E402
+
+# Wave 1p8gv: this entry emits a JSON line on stdout the MCP server parses; UTF-8 stdout/stderr (no
+# newline translation — cli_stdio only fixes the encoding) keeps non-ASCII from raising on a cp1252
+# console without disturbing the JSON framing.
+cli_stdio.configure_utf8_stdio()
+
 _PARALLEL_THRESHOLD = 50
 _WORKERS_ENV = "WAVEFOUNDRY_SCAN_PARALLEL_WORKERS"
 _SCAN_STATE_RELPATH = ".wavefoundry/index/scan/scan-state.json"
@@ -33,8 +44,7 @@ def _physical_perf_core_count() -> int | None:
     if sys.platform != "darwin":
         return None
     try:
-        import subprocess as _sp
-        r = _sp.run(
+        r = subprocess_util.isolated_run(
             ["sysctl", "-n", "hw.perflevel0.physicalcpu"],
             capture_output=True, text=True, timeout=2,
         )

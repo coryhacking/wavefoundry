@@ -118,6 +118,16 @@ def check_version(root: Path) -> tuple[int, str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Wave 1p8gv: CLI entry — UTF-8 stdout so the `→` glyphs in the version-compare message never raise
+    # on a cp1252 console. Guarded import (scripts dir on sys.path when run directly).
+    try:
+        _sd = str(Path(__file__).resolve().parent)
+        if _sd not in sys.path:
+            sys.path.insert(0, _sd)
+        import cli_stdio
+        cli_stdio.configure_utf8_stdio()
+    except Exception:
+        pass
     parser = argparse.ArgumentParser(
         description="Compare pack VERSION against installed framework_revision.",
         formatter_class=argparse.RawDescriptionHelpFormatter,

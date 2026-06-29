@@ -273,7 +273,6 @@ class ExclusionTests(unittest.TestCase):
         near_miss = [
             "docs/reports-overview.md",   # NOT under docs/reports/
             "src/snapshotter.py",         # substring `snapshot` but no snapshots/ component
-            "docs/x/CHANGELOG.md",        # nested CHANGELOG — only the repo-root one is excluded
         ]
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -286,6 +285,40 @@ class ExclusionTests(unittest.TestCase):
                 set(near_miss),
                 "near-miss in-scope docs were wrongly excluded: "
                 + ", ".join(sorted(set(near_miss) - flagged)),
+            )
+
+    def test_changelog_excluded_by_basename_anywhere(self):
+        # 1p8o5 #1: CHANGELOG.md is release history wherever it lives — a nested
+        # `.wavefoundry/CHANGELOG.md` (or any path) must NOT be flagged, but a real in-scope doc must.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._write(root, "CHANGELOG.md")                 # repo-root changelog
+            self._write(root, ".wavefoundry/CHANGELOG.md")    # nested changelog (the field FP)
+            self._write(root, "docs/x/CHANGELOG.md")          # deeper nested changelog
+            self._write(root, "docs/guide.md")                # real in-scope operator doc
+            findings = self.scan.scan_repo(root)
+            self.assertEqual(
+                {f.file for f in findings},
+                {"docs/guide.md"},
+                "only the real in-scope doc should be flagged; CHANGELOG.md must be excluded by basename",
+            )
+
+    def test_prompt_surface_manifest_excluded(self):
+        # 1p8o5 #1: the renderer-managed prompt-surface-manifest.json (historical upgrade_merge_notes)
+        # is a generated manifest — never flag it, but still flag a real in-scope config.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "docs" / "prompts").mkdir(parents=True)
+            (root / "docs" / "prompts" / "prompt-surface-manifest.json").write_text(
+                '{"upgrade_merge_notes": "see .wavefoundry/bin/docs-lint history"}\n',
+                encoding="utf-8",
+            )
+            self._write(root, "docs/config.json")  # a real in-scope config referencing the wrapper
+            findings = self.scan.scan_repo(root)
+            self.assertEqual(
+                {f.file for f in findings},
+                {"docs/config.json"},
+                "prompt-surface-manifest.json must be excluded; a real in-scope config still flagged",
             )
 
     def test_non_test_file_under_tests_dir_stays_in_scope(self):
@@ -301,6 +334,57 @@ class ExclusionTests(unittest.TestCase):
             root = Path(td)
             (root / "image.png").write_bytes(b".wavefoundry/bin/docs-lint")
             self.assertEqual(self.scan.scan_repo(root), [])
+
+
+class HostPermissionChannelTests(unittest.TestCase):
+    """1p8o5 #2 / AC-2: host permission/allow-rule files go to a SEPARATE channel, not the editable
+    `reconciliation` list — an agent cannot self-edit them under host auto-mode guards."""
+
+    def setUp(self):
+        self.scan = _load("reconcile_scan", RECONCILE_PATH)
+
+    def _write(self, root: Path, rel: str) -> None:
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("Run `.wavefoundry/bin/docs-lint` here.\n", encoding="utf-8")
+
+    def test_settings_local_absent_from_reconciliation_present_in_host_channel(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._write(root, ".claude/settings.local.json")  # host permission/allow-rule file
+            self._write(root, "docs/runbook.md")              # editable repo doc
+            reconciliation, host_perm = self.scan.scan_repo_channels(root)
+            recon_files = {f.file for f in reconciliation}
+            host_files = {f.file for f in host_perm}
+            self.assertNotIn(
+                ".claude/settings.local.json", recon_files,
+                "allow-rule file must NOT be in the editable reconciliation list",
+            )
+            self.assertIn(".claude/settings.local.json", host_files,
+                          "allow-rule file must be in the separate host-permission channel")
+            self.assertIn("docs/runbook.md", recon_files,
+                          "editable repo doc stays in the reconciliation list")
+            self.assertNotIn("docs/runbook.md", host_files)
+
+    def test_host_permission_flag_on_stale_reference(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._write(root, ".claude/settings.json")  # also a host permission file
+            findings = self.scan.scan_repo(root)
+            self.assertEqual(len(findings), 1)
+            self.assertTrue(findings[0].host_permission)
+            self.assertTrue(self.scan.is_host_permission_file(".claude/settings.json"))
+            self.assertFalse(self.scan.is_host_permission_file("docs/runbook.md"))
+
+    def test_scan_repo_returns_both_channels_combined(self):
+        # scan_repo() (the self-host guard's entrypoint) still returns ALL findings (both channels), so
+        # the guard catching a retired ref anywhere — incl. a host file — keeps working.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._write(root, ".claude/settings.local.json")
+            self._write(root, "docs/runbook.md")
+            all_files = {f.file for f in self.scan.scan_repo(root)}
+            self.assertEqual(all_files, {".claude/settings.local.json", "docs/runbook.md"})
 
 
 class ShipsInPackTests(unittest.TestCase):

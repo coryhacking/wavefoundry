@@ -14,6 +14,8 @@ You are running **security-reviewer**. This lane checks that new or modified cod
 
 Read `docs/scan-findings.json`. If the file is absent, record a null-finding ("No actionable entries in scan-findings.json") and proceed to Step 0.
 
+Each entry's `id` is a **lifecycle-backed scanner ledger id** of the form `<prefix>-sec` (e.g. `1p8l0-sec`, matching `^[0-9a-z]{5}-sec$`); legacy `exc-###` ids are tolerated and are migrated to the `<prefix>-sec` shape on the next scan, with the old id recorded as `legacy_id` for traceability. When useful, surface the `legacy_id` alongside the current id in operator output. These scanner **ledger** ids are distinct from the reviewer-lane **finding** ids you emit in the Verdict Format (`SEC-1`, etc.) — do not conflate them. See `docs/references/scan-findings-format.md` for the full ledger id format.
+
 For each entry, act based on `status`:
 
 **`pending`** — Classify the entry using the judgment heuristics below (first match wins):

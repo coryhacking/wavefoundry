@@ -22,6 +22,11 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
+import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
+
+# Wave 1p8gv: the dispatcher is a CLI entry — reconfigure stdout/stderr to UTF-8 so non-ASCII output
+# from any in-process-dispatched subcommand never raises on a cp1252 Windows console.
+cli_stdio.configure_utf8_stdio()
 
 
 # Subcommand -> (target module, target script basename for sys.argv[0], optional fixed prefix args).
@@ -50,6 +55,7 @@ _SUBCOMMANDS: dict[str, dict] = {
     "codebase-map": {"module": "gen_codebase_map", "script": "gen_codebase_map.py"},
     "render-surfaces": {"module": "render_platform_surfaces", "script": "render_platform_surfaces.py"},
     "secrets-scan": {"module": "run_secrets_scan", "script": "run_secrets_scan.py"},
+    "gpu-doctor": {"module": "gpu_doctor", "script": "gpu_doctor.py"},
     # NOTE: `prune_framework.py` is intentionally NOT a wf subcommand. It is a manual,
     # source-host/upgrade-cleanup fallback run directly (it needs the pre-upgrade MANIFEST,
     # which only the operator running the upgrade has); routing it through `wf` added no value
@@ -84,6 +90,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "codebase-map": "Generate the codebase map orientation doc (gen_codebase_map.py).",
         "render-surfaces": "Regenerate host configs, hooks, bin shims, and agent surfaces (render_platform_surfaces.py).",
         "secrets-scan": "Run the secrets scanner fallback CLI (run_secrets_scan.py).",
+        "gpu-doctor": "Embedding-provider / GPU capability diagnostic — same report as wave_gpu_doctor (gpu_doctor.py).",
     }
     for name in _SUBCOMMANDS:
         sub.add_parser(
@@ -116,10 +123,10 @@ def _dispatch(subcommand: str, rest: list[str]) -> int:
     if main is None:
         # No callable main() (a pure __main__ script) — re-exec the script as a subprocess so its
         # `if __name__ == "__main__"` block runs with the forwarded argv on the current interpreter.
-        import subprocess
+        import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 
         target = _SCRIPTS_DIR / spec["script"]
-        result = subprocess.run([sys.executable, str(target), *forwarded], check=False)
+        result = subprocess_util.isolated_run([sys.executable, str(target), *forwarded], check=False)
         return result.returncode
 
     # Targets whose main() accepts an argv parameter: pass it explicitly. Targets whose main() takes

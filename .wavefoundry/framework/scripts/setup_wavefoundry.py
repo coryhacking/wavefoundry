@@ -26,11 +26,15 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
+import subprocess_util  # shared subprocess isolation (wave 1p8gu)
+import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
 
 # Activate the shared tool venv IN-PROCESS before any heavy work (wave 1p7pl/1p802). This is a
 # no-op on a fresh box (the venv does not exist yet). If the existing venv was built for a different
 # Python minor, do NOT exit here: setup is the repair path and setup_index will recreate the stale venv.
 venv_bootstrap.activate_tool_venv(allow_version_mismatch=True)
+# Wave 1p8gv: CLI entry — UTF-8 stdout/stderr so non-ASCII prints never raise on a cp1252 console.
+cli_stdio.configure_utf8_stdio()
 
 
 def _load_setup_index():
@@ -53,7 +57,7 @@ def _run_render_platform_surfaces() -> int:
     if not script_path.exists():
         print(f"ERROR: render_platform_surfaces.py not found at {script_path}", file=sys.stderr)
         return 1
-    result = subprocess.run([sys.executable, str(script_path)], check=False)
+    result = subprocess_util.isolated_run([sys.executable, str(script_path)], check=False)
     return result.returncode
 
 
@@ -70,7 +74,7 @@ def _run_mcp_server_dry_run() -> int:
     if not script_path.exists():
         print(f"ERROR: server.py not found at {script_path}", file=sys.stderr)
         return 1
-    result = subprocess.run(
+    result = subprocess_util.isolated_run(
         [venv_bootstrap.MCP_PYTHON_COMMAND, str(script_path), "--dry-run"],
         check=False,
     )

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-27
+Last verified: 2026-06-28
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -81,7 +81,7 @@ Initial core set:
 | `wave_index_health`  | Check semantic index health and surface stale/missing layers                                    |
 | `wave_index_build_status` | Poll a detached background index refresh                                                    |
 | `wave_index_build`   | Run a synchronous index build: `**mode='update'**` (incremental) or `**mode='rebuild'**` (full) |
-| `wave_gpu_doctor`    | Embedding-provider / GPU capability diagnostic — platform, onnxruntime, GPU detection (nvidia/apple), available ONNX providers, the provider Wavefoundry would select (+ reason/remediation), CUDA 12/13 ABI-gap. Read-only; same report as `setup-wavefoundry --check-gpu` |
+| `wave_gpu_doctor`    | Embedding-provider / GPU capability diagnostic — platform, onnxruntime, GPU detection (nvidia/apple), available ONNX providers, the provider Wavefoundry would select (+ reason/remediation), CUDA 12/13 ABI-gap. Read-only; same report as the `wf gpu-doctor` dispatcher subcommand and `setup-wavefoundry --check-gpu` |
 
 
 The `wave_new_<kind>` family covers all ten change kinds. Use the kind-specific tool that matches the change; `wave_new_change` is the general fallback.
@@ -427,12 +427,12 @@ for the project layer, or rerun the framework-targeted `indexer.py` command if a
 `wave_upgrade(phase: str = "preflight_to_docs_gate")`
 
 - Drives the framework upgrade flow phase-by-phase (subprocess over `upgrade_wavefoundry.py`). Valid phases:
-  - `preflight_to_docs_gate` *(default)* — phases 0–3: pre-flight, extract, surface render, prune, docs gate. Extract is **idempotent** — a re-run on a tree already at `to_version` skips the re-extract (wave 1p44r).
+  - `preflight_to_docs_gate` *(default)* — phases 0–3: pre-flight, extract, surface render, prune, docs gate. Extract is **idempotent** — a re-run on a tree already at `to_version` skips the re-extract (wave 1p44r). **Emits `data.summary` (wave 1p8kz)** — including the `reconciliation` findings (the scan runs on **every** upgrade) — so the agent gets the structured summary on the primary call, not only at cleanup.
   - `update_index` / `rebuild_index` — phase 4: incremental vs full semantic index refresh.
-  - `cleanup` — phase 5: remove the upgrade lock and print the operator summary.
+  - `cleanup` — phase 5: remove the upgrade lock, **print the full human operator-summary prose**, and reload the server. Also re-emits `data.summary` (same builder as the primary phase).
   - `resume_after_gate` — re-run ONLY docs-gardener + docs-lint against the already-extracted tree (no extract/render/prune) to recover from a docs-gate failure. Requires a **retained lock** with `failed_phase == "docs_gate"` (wave 1p44o/1p44r); exits non-zero if the gate fails again, zero (and clears the failure marker) when it passes.
 - A post-mutation failure RETAINS the lock with a `failed_phase` marker so the dashboard stays paused and the half-replaced tree is not reindexed (wave 1p44o); `resume_after_gate` then recovers without a destructive full re-extract.
-- **Structured `summary` block (wave 1p8eu):** the response carries `data.summary` parsed from the upgrade's machine-readable sentinel line — `from_version`, `to_version`, `pruned_count`, `docs_gate` (PASSED/FAILED/NOT RUN), `index_update`, `failed_phase`, `is_major_or_minor`, and `reconciliation` (the wave 1p8et retired-surface scan findings: a list of `{file, line, retired_surface, suggested}`) — plus a top-level `next_step` and populated `next_tools` (e.g. `wave_upgrade_status`, `wave_mcp_reload`). Read these fields instead of grepping `output`. Parsing is **fail-safe**: an absent/malformed summary simply omits `data.summary` and leaves the verbatim `output` (and `exit_code`) unchanged — back-compatible with existing callers.
+- **Structured `summary` block (wave 1p8eu; surfaced on the primary phase in 1p8kz):** the response carries `data.summary` parsed from the upgrade's machine-readable sentinel line — `from_version`, `to_version`, `pruned_count`, `docs_gate` (PASSED/FAILED/NOT RUN), `index_update`, `failed_phase`, `is_major_or_minor`, `reconciliation` (the wave 1p8et retired-surface scan findings in **editable** repo surfaces: a list of `{file, line, retired_surface, matched, suggested}`), and `host_permission_flags` (wave 1p8o5 — the SAME-shape findings in host permission/allow-rule files the agent **cannot self-edit**: `.claude/settings.local.json`, `.claude/settings.json`, `.cursor/settings.json`, and per-host equivalents — flagged for the operator to edit; **additive** and independent of `reconciliation`, which never includes these) — plus a top-level `next_step` and populated `next_tools` (e.g. `wave_upgrade_status`, `wave_mcp_reload`). **Phase semantics (wave 1p8kz):** `data.summary` is present on the **primary `wave_upgrade()` call** (`preflight_to_docs_gate`); the reconciliation scan runs on **every upgrade** (any version delta — patch bumps and same-version build-successors included, since a patch can change/retire a surface during testing), so `reconciliation` / `host_permission_flags` populate whenever stale refs exist regardless of version delta. `is_major_or_minor` remains in the summary as an **informational** field only — it no longer gates the scan. The `cleanup` phase re-emits the same structured summary (one builder, no drift) and additionally prints the full human prose (incl. a distinct "Host permission/allow-rule files (flag for the OPERATOR …)" section). Read these fields instead of grepping `output`. Parsing is **fail-safe**: an absent/malformed summary simply omits `data.summary` and leaves the verbatim `output` (and `exit_code`) unchanged — back-compatible with existing callers.
 
 `wave_upgrade_status()`
 

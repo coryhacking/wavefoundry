@@ -171,6 +171,14 @@ def hook_helpers() -> str:
         import sys
         from pathlib import Path
 
+        # Wave 1p8gu: shared subprocess isolation. HOOK_BOOTSTRAP (prepended by compose_script) already
+        # put the framework scripts dir on sys.path, so this resolves at hook runtime; guarded so a hook
+        # rendered against a transient/old tree still loads (falls back to bare-but-isolated spawns).
+        try:
+            import subprocess_util as _wf_subprocess_util
+        except Exception:
+            _wf_subprocess_util = None
+
         REPO_ROOT = Path(__file__).resolve().parents[2]
         GUARD_OVERRIDES = REPO_ROOT / ".wavefoundry" / "guard-overrides.json"
 
@@ -276,12 +284,22 @@ def hook_helpers() -> str:
 
 
         def run_command(argv: list[str]) -> subprocess.CompletedProcess[str]:
+            if _wf_subprocess_util is not None:
+                return _wf_subprocess_util.isolated_run(
+                    argv,
+                    cwd=REPO_ROOT,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
             return subprocess.run(
                 argv,
                 cwd=REPO_ROOT,
                 text=True,
                 capture_output=True,
                 check=False,
+                stdin=subprocess.DEVNULL,
+                creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0),
             )
 
 
@@ -360,6 +378,7 @@ def hook_helpers() -> str:
                 _detach_kwargs["start_new_session"] = True
             subprocess.Popen(
                 [python_exec, str(indexer), "--root", str(REPO_ROOT)],
+                stdin=subprocess.DEVNULL,  # wave 1p8gu: detached child never inherits a blocking stdin
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 cwd=str(REPO_ROOT),
@@ -508,12 +527,13 @@ def claude_simulate_hooks_source() -> str:
             # spawned hook target self-activates the venv first-line, so it reaches the venv packages.
             # An absolute path; never re-resolve a token.
             python_exec = sys.executable
-            result = subprocess.run(
+            result = subprocess.run(  # wave 1p8gu: inline no-window flag so the isolation guard sees it
                 [python_exec, str(target)],
                 cwd=REPO_ROOT,
                 input=payload,
                 text=True,
                 check=False,
+                creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0),
             )
             return result.returncode
 
@@ -602,14 +622,25 @@ def cursor_after_file_edit_source() -> str:
             # An absolute path; never re-resolve a token.
             python_exec = sys.executable
             for gate in GATES:
-                result = subprocess.run(
-                    [python_exec, str(gate)],
-                    cwd=REPO_ROOT,
-                    input=raw,
-                    text=True,
-                    capture_output=True,
-                    check=False,
-                )
+                if _wf_subprocess_util is not None:
+                    result = _wf_subprocess_util.isolated_run(
+                        [python_exec, str(gate)],
+                        cwd=REPO_ROOT,
+                        input=raw,
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                else:
+                    result = subprocess.run(
+                        [python_exec, str(gate)],
+                        cwd=REPO_ROOT,
+                        input=raw,
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                        creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0),
+                    )
                 output = (result.stdout + result.stderr).strip()
                 if result.returncode == 10:
                     print(json.dumps({"continue": False, "message": output or "Cursor hook blocked the edit."}))
@@ -743,6 +774,13 @@ def claude_stop_source() -> str:
         import sys
         from pathlib import Path
 
+        # Wave 1p8gu: shared subprocess isolation (HOOK_BOOTSTRAP already put the scripts dir on
+        # sys.path); guarded so the session-capture hook still loads against a transient tree.
+        try:
+            import subprocess_util as _wf_subprocess_util
+        except Exception:
+            _wf_subprocess_util = None
+
 
         def _find_repo_root(start: Path) -> Path | None:
             cur = start.resolve()
@@ -797,10 +835,18 @@ def claude_stop_source() -> str:
 
         def _git_dirty_count(root: Path) -> int | None:
             try:
-                out = subprocess.run(
-                    ["git", "-C", str(root), "status", "--porcelain"],
-                    capture_output=True, text=True, timeout=5,
-                )
+                if _wf_subprocess_util is not None:
+                    out = _wf_subprocess_util.isolated_run(
+                        ["git", "-C", str(root), "status", "--porcelain"],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                else:
+                    out = subprocess.run(
+                        ["git", "-C", str(root), "status", "--porcelain"],
+                        capture_output=True, text=True, timeout=5,
+                        stdin=subprocess.DEVNULL,
+                        creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0),
+                    )
                 if out.returncode != 0:
                     return None
                 return len([ln for ln in out.stdout.splitlines() if ln.strip()])
@@ -1364,6 +1410,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Wave 1p8gv: CLI entry — UTF-8 stdout/stderr so non-ASCII prints never raise on a cp1252 console.
+    try:
+        _scripts_dir = str(Path(__file__).resolve().parent)
+        if _scripts_dir not in sys.path:
+            sys.path.insert(0, _scripts_dir)
+        import cli_stdio
+        cli_stdio.configure_utf8_stdio()
+    except Exception:
+        pass
     args = parse_args(argv or [])
     repo_root = Path(args.repo_root).resolve() if args.repo_root else discover_repo_root()
     # Wave 1p88t: self-heal `python3` resolution on every render so the committed configs we are

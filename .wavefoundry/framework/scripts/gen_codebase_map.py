@@ -1823,6 +1823,12 @@ def generate_safe(
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Wave 1p8gv: CLI entry — UTF-8 stdout/stderr so non-ASCII prints never raise on a cp1252 console.
+    _scripts_dir = str(Path(__file__).resolve().parent)
+    if _scripts_dir not in sys.path:
+        sys.path.insert(0, _scripts_dir)
+    import cli_stdio
+    cli_stdio.configure_utf8_stdio()
     parser = argparse.ArgumentParser(description="Generate the project codebase map")
     parser.add_argument("--root", default=".", help="Repository root (default: current directory)")
     parser.add_argument("--layer", default=DEFAULT_LAYER, help="Graph layer (default: project)")

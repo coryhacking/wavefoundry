@@ -196,7 +196,9 @@ class SetupWavefoundryTests(unittest.TestCase):
     def test_run_render_invokes_render_script_via_python(self):
         captured: list[list[str]] = []
 
-        def fake_run(cmd, check=False):
+        # Wave 1p8gu: spawns route through subprocess_util.isolated_run, which adds stdin/creationflags
+        # kwargs — accept **kwargs so the fake tolerates the isolation kwargs.
+        def fake_run(cmd, check=False, **kwargs):
             captured.append(list(cmd))
             return _make_completed_process(0)
 
@@ -211,7 +213,7 @@ class SetupWavefoundryTests(unittest.TestCase):
     def test_run_mcp_dry_run_invokes_server_with_generated_mcp_python_shape(self):
         captured: list[list[str]] = []
 
-        def fake_run(cmd, check=False):
+        def fake_run(cmd, check=False, **kwargs):
             captured.append(list(cmd))
             return _make_completed_process(0)
 

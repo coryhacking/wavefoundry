@@ -20,8 +20,9 @@ The retired→new mapping is NOT re-authored here — it is imported from
 one map.
 
 Default REPORT-ONLY: this module never mutates repo files. The exclusion set is baked in so the scan
-never flags the framework pack tree, the generated index, wave/report history, the changelog,
-journals/snapshots, or test files.
+never flags the framework pack tree, the generated index, wave/report history, any `CHANGELOG.md`
+(by basename, anywhere), the renderer-managed `prompt-surface-manifest.json`, journals/snapshots, or
+test files.
 
 Reconciliation is UPGRADE-TIME-ONLY: this helper is called from the upgrade reconciliation phase. It
 is intentionally NOT wired to a standalone ``wf reconcile`` CLI subcommand or a ``wave_reconcile`` MCP
@@ -86,9 +87,11 @@ EXCLUDED_DIRS: tuple[str, ...] = (
     "docs/waves",              # wave history records
     "docs/reports",            # report history
 )
-# Only the repo-ROOT CHANGELOG.md is excluded (release history). A nested `docs/x/CHANGELOG.md` is an
-# in-scope operator doc and must still be flagged.
-EXCLUDED_ROOT_FILES: tuple[str, ...] = ("CHANGELOG.md",)
+# File-name exclusions matched on BASENAME anywhere in the tree (not root-only). A file named
+# `CHANGELOG.md` is release history wherever it lives (e.g. a nested `.wavefoundry/CHANGELOG.md`), and
+# `prompt-surface-manifest.json` is a renderer-managed generated manifest whose historical
+# `upgrade_merge_notes` cause false positives — like the generated index, it is not operator-authored.
+EXCLUDED_BASENAMES: tuple[str, ...] = ("CHANGELOG.md", "prompt-surface-manifest.json")
 
 # History directories matched on a path COMPONENT (not substring): a file *under* `journals/` or
 # `snapshots/` is history. This no longer drops `src/snapshotter.py` (substring `snapshot`) or a doc
@@ -96,6 +99,29 @@ EXCLUDED_ROOT_FILES: tuple[str, ...] = ("CHANGELOG.md",)
 _EXCLUDED_PATH_COMPONENTS: tuple[str, ...] = ("journals", "snapshots")
 
 SCAN_SUFFIXES: tuple[str, ...] = (".md", ".mdc", ".json", ".py")
+
+# ── Host permission / allow-rule files (separate operator-flag channel) ───────
+# seed-160: the scan "does NOT cover host permission/allow-rule files" — they must be surfaced
+# SEPARATELY for the operator, not folded into the edit-these `reconciliation` list, because an agent
+# cannot self-edit these under host auto-mode guards. They are still SCANNED (a renamed surface can
+# leave a stale command in an allow rule), but a hit is classified into the host-permission channel so
+# the operator (not the agent) makes the edit. Matched by exact repo-relative POSIX path: these are the
+# canonical host permission/allow-rule files (Claude Code allow rules + Cursor settings).
+HOST_PERMISSION_FILES: frozenset[str] = frozenset({
+    ".claude/settings.local.json",  # Claude Code permission allow rules (operator-owned)
+    ".claude/settings.json",        # Claude Code project settings / hook+permission wiring
+    ".cursor/settings.json",        # Cursor project settings / permissions
+})
+
+
+def is_host_permission_file(rel: str) -> bool:
+    """Return True when *rel* (repo-relative POSIX path) is a host permission/allow-rule file.
+
+    These are scanned but routed to the separate operator-flag channel (see ``HOST_PERMISSION_FILES``)
+    rather than the editable ``reconciliation`` list — an agent cannot self-edit them under host
+    auto-mode guards.
+    """
+    return rel in HOST_PERMISSION_FILES
 
 
 @dataclass(frozen=True)
@@ -107,7 +133,9 @@ class StaleReference:
     path, or the `"bin" / "<name>"` / `<bin-var> / "<name>"` join text) so callers print the real
     reference rather than assuming a `.wavefoundry/bin/<name>` form (which is wrong for the .py-join
     findings); ``suggested`` is the replacement guidance (``wf <subcommand>`` or, for the
-    no-replacement case, the remove/rewrite guidance).
+    no-replacement case, the remove/rewrite guidance). ``host_permission`` is True when the hit is in a
+    host permission/allow-rule file (``HOST_PERMISSION_FILES``) — those go to the separate
+    operator-flag channel, not the editable ``reconciliation`` list (an agent cannot self-edit them).
     """
 
     file: str
@@ -115,6 +143,7 @@ class StaleReference:
     retired_surface: str
     matched: str
     suggested: str
+    host_permission: bool = False
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -131,9 +160,10 @@ def is_excluded(rel: str, *, name: str, suffix: str) -> bool:
 
     ``rel`` is the POSIX repo-relative path; ``name`` the file name; ``suffix`` the file extension.
     Bakes in the full exclusion set: unscannable suffixes, the framework pack tree, the generated
-    index, wave/report history, the root changelog, journals/snapshots, and test files. Directory
-    exclusions match on path COMPONENT/PREFIX (not raw substring) so in-scope near-miss docs like
-    ``docs/reports-overview.md`` and ``src/snapshotter.py`` are NOT dropped.
+    index, wave/report history, the changelog and renderer-managed manifest (matched by BASENAME
+    anywhere), journals/snapshots, and test files. Directory exclusions match on path COMPONENT/PREFIX
+    (not raw substring) so in-scope near-miss docs like ``docs/reports-overview.md`` and
+    ``src/snapshotter.py`` are NOT dropped.
     """
     if suffix not in SCAN_SUFFIXES:
         return True
@@ -145,8 +175,10 @@ def is_excluded(rel: str, *, name: str, suffix: str) -> bool:
             return True
         if "/" not in d and d in parts:
             return True
-    # Only the repo-ROOT changelog (release history). A nested CHANGELOG.md is in-scope.
-    if rel in EXCLUDED_ROOT_FILES:
+    # File-name exclusions matched by BASENAME anywhere: CHANGELOG.md is release history wherever it
+    # lives (incl. a nested `.wavefoundry/CHANGELOG.md`); prompt-surface-manifest.json is a generated,
+    # renderer-managed manifest whose historical upgrade_merge_notes are not operator-authored refs.
+    if name in EXCLUDED_BASENAMES:
         return True
     # Journals / snapshots are history — matched on a path component, not a substring.
     if any(c in parts for c in _EXCLUDED_PATH_COMPONENTS):
@@ -170,11 +202,13 @@ def _iter_scannable_files(root: Path) -> Iterator[tuple[Path, str]]:
 
 
 def scan_repo(root: Path | str) -> list[StaleReference]:
-    """Scan ``root`` for stale references to retired framework surfaces.
+    """Scan ``root`` for stale references to retired framework surfaces (ALL findings, both channels).
 
-    Returns a list of :class:`StaleReference` (file, line, retired_surface, suggested). REPORT-ONLY —
-    never mutates any file. The exclusion set is baked in (see :func:`is_excluded`). Sorted by
-    (file, line) for deterministic output.
+    Returns a list of :class:`StaleReference` (file, line, retired_surface, matched, suggested,
+    host_permission). REPORT-ONLY — never mutates any file. The exclusion set is baked in (see
+    :func:`is_excluded`). Each finding's ``host_permission`` flag is set when its file is a host
+    permission/allow-rule file (see :func:`is_host_permission_file`); :func:`scan_repo_channels`
+    partitions on that flag. Sorted by (file, line, retired_surface) for deterministic output.
 
     Catches three reference forms: the literal ``.wavefoundry/bin/<wrapper>`` path (docs/config), the
     dynamic ``"bin" / "<wrapper>"`` join, and the variable ``<bin-var> / "<wrapper>"`` join (scripts).
@@ -188,6 +222,7 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
+        host_perm = is_host_permission_file(rel)
         patterns = [_LITERAL_PATTERN]
         if path.suffix == ".py":
             patterns += [_DYNAMIC_PATTERN, _VAR_BINDIR_PATTERN]
@@ -202,7 +237,31 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
                         retired_surface=retired,
                         matched=m.group(0),
                         suggested=retired_surface_suggestion(retired),
+                        host_permission=host_perm,
                     )
                 )
     findings.sort(key=lambda f: (f.file, f.line, f.retired_surface))
     return findings
+
+
+def scan_repo_channels(
+    root: Path | str,
+) -> tuple[list[StaleReference], list[StaleReference]]:
+    """Scan ``root`` and partition findings into the TWO operator channels.
+
+    Returns ``(reconciliation, host_permission_flags)``:
+
+    * ``reconciliation`` — stale refs in editable repo docs/prompts/configs/scripts. The agent applies
+      each suggested edit itself.
+    * ``host_permission_flags`` — stale refs in host permission/allow-rule files
+      (``HOST_PERMISSION_FILES``). The agent CANNOT self-edit these under host auto-mode guards, so
+      they are flagged for the operator to edit (seed-160 "flagged separately for the operator").
+
+    Both lists hold :class:`StaleReference` in the same deterministic (file, line, retired_surface)
+    order produced by :func:`scan_repo`.
+    """
+    reconciliation: list[StaleReference] = []
+    host_permission_flags: list[StaleReference] = []
+    for ref in scan_repo(root):
+        (host_permission_flags if ref.host_permission else reconciliation).append(ref)
+    return reconciliation, host_permission_flags

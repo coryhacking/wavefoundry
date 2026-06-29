@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-25
+Last verified: 2026-06-28
 
 ## Purpose
 
@@ -22,7 +22,7 @@ This is a validation runbook, not authoritative reference content. See `docs/ref
    - Run: `python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .`
    - Expect: dependency check passes (or prints the isolated tool-venv install command), then the docs/seed index builds. The tool venv is created at `~/.wavefoundry/venv` **inside the distro**.
    - [ ] Setup completes without a platform error.
-   - **GPU capability:** run `wf setup --check-gpu` (or the `wave_gpu_doctor` MCP tool) to print the embedding-provider / GPU diagnostic — confirm `nvidia GPU` detection, the provider it would select (CUDA vs CPU), and that no CUDA 12/13 ABI-gap is reported. Safe to run anytime.
+   - **GPU capability:** run `wf gpu-doctor` (or `wf setup --check-gpu`, or the `wave_gpu_doctor` MCP tool — all the same report) to print the embedding-provider / GPU diagnostic — confirm `nvidia GPU` detection, the provider it would select (CUDA vs CPU), and that no CUDA 12/13 ABI-gap is reported. Safe to run anytime.
    - [ ] `wf setup --check-gpu` reports the expected provider (CUDA on an NVIDIA WSL2 box, else CPU).
 
 2. **Index health**

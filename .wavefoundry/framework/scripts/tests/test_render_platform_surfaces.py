@@ -738,6 +738,57 @@ class HookReindexDetachTests(unittest.TestCase):
         self.assertIn("start_new_session", src, "hook_helpers: missing POSIX start_new_session else-branch")
         self.assertIn('close_fds=os.name != "nt"', src, "hook_helpers: missing per-OS close_fds")
 
+    def test_every_rendered_hook_body_spawn_is_isolated(self):
+        # GUARD-4: re-parse EVERY rendered hook body that spawns a child and run the PRODUCTION
+        # stdin/no-window AST scan over it — not just the one post-edit body. A new hook body added with
+        # a bare spawn (the templates do not get subprocess_util on a transient/old tree, so each
+        # carries a guarded inline fallback) must be caught.
+        import ast as _ast
+        import importlib.util as _ilu
+
+        # Load the framework-wide guard's static scan methods to reuse the production logic.
+        spec = _ilu.spec_from_file_location(
+            "wavefoundry_test_server_tools", Path(__file__).resolve().parent / "test_server_tools.py"
+        )
+        tst = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(tst)
+        Guard = tst.FrameworkWideSubprocessIsolationGuard
+
+        # Every rendered body source function that may contain a child spawn.
+        body_funcs = [
+            "claude_pre_edit_source", "claude_post_edit_source", "claude_simulate_hooks_source",
+            "cursor_after_file_edit_source", "claude_stop_source",
+            "cursor_seed_warn_source", "cursor_framework_warn_source", "cursor_docs_lint_source",
+            "windsurf_seed_protect_source", "windsurf_docs_lint_source",
+        ]
+        offenders: list[str] = []
+        bodies_with_spawns = 0
+        for fname in body_funcs:
+            fn = getattr(self.mod, fname, None)
+            if fn is None:
+                continue
+            body = fn()
+            tree = _ast.parse(body)
+            lines = body.splitlines()
+            for node in Guard._spawn_calls(tree):
+                if Guard._is_isolated_helper_call(node):
+                    continue  # routed through _wf_subprocess_util.isolated_*
+                bodies_with_spawns += 1
+                if not Guard._call_has_devnull_or_input(node):
+                    offenders.append(f"{fname}:{node.lineno}: missing stdin isolation: {lines[node.lineno-1].strip()}")
+                if not Guard._call_has_no_window(node):
+                    offenders.append(f"{fname}:{node.lineno}: missing no-window: {lines[node.lineno-1].strip()}")
+        # Non-vacuous: several rendered bodies DO spawn (run_command, gate runners, reindex Popen).
+        self.assertGreaterEqual(
+            bodies_with_spawns, 2,
+            "rendered-hook-body spawn scan found too few spawns — the body set or AST walk likely broke",
+        )
+        self.assertEqual(
+            offenders, [],
+            "rendered hook bodies must isolate every child spawn (stdin DEVNULL/input + no-window):\n"
+            + "\n".join(offenders),
+        )
+
     def test_git_hooks_are_not_rendered(self):
         # Wave 1p88t: git hooks were dropped; the renderer must no longer expose git_hook_source /
         # render_git_hooks, and a render must leave no .wavefoundry/git-hooks/ behind.

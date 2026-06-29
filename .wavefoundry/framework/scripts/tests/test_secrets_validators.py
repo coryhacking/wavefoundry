@@ -27,12 +27,15 @@ from wave_lint_lib import secrets_validators as _sv
 from wave_lint_lib.secrets_validators import (
     _hash_context,
     _hash_line,
+    _next_secret_finding_id,
     _path_matches_allowlist,
+    _SEC_ID_RE,
     check_hardcoded_secrets,
     check_inline_suppression,
     get_scan_files,
     load_exceptions,
     load_merged_ruleset,
+    migrate_legacy_finding_ids,
     redact,
     save_exceptions,
     scan_file_raw,
@@ -1638,6 +1641,68 @@ class TestFullScanBaseline(unittest.TestCase):
                          "incremental path scans only changed files → misses it")
 
 
+class TestAlwaysPresentLedger(unittest.TestCase):
+    """Wave 1p8o5 #4 / AC-4 — a CLEAN full scan (0 findings, no prior file) always WRITES
+    `docs/scan-findings.json` as a bare `[]` so the file's presence confirms a scan ran. The bare `[]`
+    keeps the gate semantics (`[]` → no block) and the incremental-scan trigger intact, and is
+    idempotent (no git churn across repeated clean scans)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_root(self.root)
+        _write_framework_toml(self.root)
+        self.findings_path = self.root / SCAN_FINDINGS_PATH
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _seed_clean_repo(self):
+        # A benign file with no secrets (committed so get_scan_files sees it on a full scan).
+        import subprocess as _sp
+        (self.root / "benign.py").write_text("x = 1\n", encoding="utf-8")
+        _sp.run(["git", "init", "-q"], cwd=self.root, check=True)
+        _sp.run(["git", "add", "."], cwd=self.root, check=True)
+        _sp.run(
+            ["git", "-c", "user.email=a@x.com", "-c", "user.name=A",
+             "-c", "commit.gpgsign=false", "commit", "-q", "-m", "init"],
+            cwd=self.root, check=True,
+        )
+
+    def test_clean_full_scan_writes_bare_empty_list(self):  # AC-4
+        self._seed_clean_repo()
+        self.assertFalse(self.findings_path.exists(), "precondition: no ledger yet")
+        failures = _run_check(self.root, scan_all=True)
+        self.assertEqual(failures, [], "clean repo must report no findings")
+        self.assertTrue(self.findings_path.exists(),
+                        "a clean full scan must WRITE the ledger (presence = scan ran)")
+        # Bare `[]` — not a metadata wrapper. load_exceptions returns an empty LIST.
+        self.assertEqual(load_exceptions(self.root), [])
+        self.assertEqual(self.findings_path.read_text(encoding="utf-8"), "[]\n")
+
+    def test_clean_scan_is_idempotent_no_churn(self):  # AC-4 (no-churn proof)
+        self._seed_clean_repo()
+        _run_check(self.root, scan_all=True)
+        first = self.findings_path.read_text(encoding="utf-8")
+        # A second clean full scan must NOT rewrite the file to different content.
+        _run_check(self.root, scan_all=True)
+        second = self.findings_path.read_text(encoding="utf-8")
+        self.assertEqual(first, second, "repeated clean scans must not churn the ledger content")
+        self.assertEqual(second, "[]\n")
+
+    def test_incremental_clean_scan_does_NOT_create_ledger(self):  # AC-4 (preserve incremental trigger)
+        # The missing-file-forces-full-rescan trigger lives in scan_secrets.update_secrets_scan: it
+        # keys on `not findings_path.exists()`. An incremental scan must therefore NOT create the file,
+        # or it would silently disable that regeneration trigger. Only full scans write the bare [].
+        self._seed_clean_repo()
+        self.assertFalse(self.findings_path.exists())
+        _run_check(self.root, scan_all=False)
+        self.assertFalse(
+            self.findings_path.exists(),
+            "an incremental clean scan must NOT create the ledger (preserves the full-rescan trigger)",
+        )
+
+
 class TestLineHashMatching(unittest.TestCase):
     """Exception lookup survives line drift; stale entries are swept on next scan."""
 
@@ -1898,6 +1963,403 @@ class ScannerScopeHardeningTests(unittest.TestCase):
             errors = _run_check(tmp)
             self.assertTrue(any("test-stripe-key" in e for e in errors), "source secret must be flagged")
             self.assertFalse(any(".lance" in e for e in errors), "LanceDB artifact must not be flagged")
+
+
+# ---------------------------------------------------------------------------
+# Wave 1p8l0 — lifecycle-backed `<prefix>-sec` finding IDs + migration
+# ---------------------------------------------------------------------------
+
+import lifecycle_id as _lifecycle_id  # noqa: E402
+
+# Deterministic lifecycle policy for prefix math (matches the lib default epoch).
+_LIFECYCLE_EPOCH = _lifecycle_id.DEFAULT_EPOCH_UTC
+# A fixed mint timestamp → a fixed prefix for the default epoch ('1p400' family).
+_MINT_TS = datetime(2026, 6, 8, tzinfo=timezone.utc)
+
+
+def _reset_lifecycle_floor() -> None:
+    """Reset the in-process lifecycle prefix floor so per-test prefix math is
+    deterministic regardless of test ordering (wave 1p8l0)."""
+    _lifecycle_id._last_assigned_prefix = None
+
+
+class TestSecretFindingIdShape(unittest.TestCase):
+    """AC-1 / AC-7 / AC-8 — new scanner findings use `<prefix>-sec`, no slug,
+    and `sec` is collision-safe but not a public change-doc kind."""
+
+    _STRIPE_KEY = "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX"
+
+    def setUp(self) -> None:
+        _reset_lifecycle_floor()
+
+    def test_new_finding_id_matches_sec_regex(self) -> None:  # AC-1
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            _make_root(tmp)
+            _write_framework_toml(tmp)
+            (tmp / "config.py").write_text(f'key = "{self._STRIPE_KEY}"\n', encoding="utf-8")
+            _run_check(tmp)
+            findings = load_exceptions(tmp)
+            self.assertEqual(len(findings), 1)
+            fid = findings[0]["id"]
+            self.assertRegex(fid, r"^[0-9a-z]{5}-sec$", f"bad id shape: {fid}")
+            self.assertTrue(_SEC_ID_RE.fullmatch(fid))
+
+    def test_new_finding_id_has_no_slug(self) -> None:  # AC-8
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            _make_root(tmp)
+            _write_framework_toml(tmp)
+            (tmp / "config.py").write_text(f'key = "{self._STRIPE_KEY}"\n', encoding="utf-8")
+            _run_check(tmp)
+            fid = load_exceptions(tmp)[0]["id"]
+            self.assertNotIn(" ", fid, "scanner id must carry no slug")
+            self.assertTrue(fid.endswith("-sec"))
+
+    def test_helper_pins_prefix_with_timestamp(self) -> None:  # AC-10 determinism
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            (tmp / "docs").mkdir(parents=True, exist_ok=True)
+            fid = _next_secret_finding_id(tmp, [], timestamp=_MINT_TS)
+            expected_prefix = _lifecycle_id.build_prefix(_MINT_TS)
+            self.assertEqual(fid, f"{expected_prefix}-sec")
+
+    def test_multiple_findings_in_one_scan_get_distinct_sec_ids(self) -> None:  # AC-6
+        toml = """
+title = "t"
+[policy]
+false_positive_confirmations_required = 2
+[[rules]]
+id = "rule-a"
+regex = '''SECRET_A_[A-Z]{8}'''
+[[rules]]
+id = "rule-b"
+regex = '''SECRET_B_[A-Z]{8}'''
+"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            _make_root(tmp)
+            _write_framework_toml(tmp, toml)
+            (tmp / "x.py").write_text(
+                'a = "SECRET_A_ABCDEFGH"\nb = "SECRET_B_ABCDEFGH"\n', encoding="utf-8"
+            )
+            _run_check(tmp)
+            ids = [e["id"] for e in load_exceptions(tmp)]
+            self.assertEqual(len(ids), 2)
+            self.assertEqual(len(set(ids)), 2, f"duplicate sec ids minted in one scan: {ids}")
+            for fid in ids:
+                self.assertRegex(fid, r"^[0-9a-z]{5}-sec$")
+
+    def test_sec_not_a_public_change_doc_kind(self) -> None:  # AC-7 — guard
+        """`sec` must never become a normal change-doc kind. Assert the
+        `wave_new_*` kind lists are unchanged (do not include `sec`)."""
+        import server_impl
+        self.assertNotIn("sec", server_impl.VALID_CHANGE_KINDS)
+        # The lifecycle CLI mint-kind choices must also not expose `sec`.
+        args = _lifecycle_id.parse_args(["--kind", "change", "--slug", "x"])
+        self.assertEqual(args.kind, "change")
+        with self.assertRaises(SystemExit):
+            _lifecycle_id.parse_args(["--kind", "sec", "--slug", "x"])
+
+
+class TestSecretFindingIdCollision(unittest.TestCase):
+    """AC-6 — new/migrated `sec` ids dedupe against existing lifecycle prefixes
+    (plans/waves/ADRs) AND existing finding ids."""
+
+    def setUp(self) -> None:
+        _reset_lifecycle_floor()
+
+    def test_mint_skips_taken_lifecycle_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            (tmp / "docs" / "plans").mkdir(parents=True, exist_ok=True)
+            natural = _lifecycle_id.build_prefix(_MINT_TS)
+            # Park a plan doc on the natural prefix so the mint must skip it.
+            (tmp / "docs" / "plans" / f"{natural}-enh taken.md").touch()
+            fid = _next_secret_finding_id(tmp, [], timestamp=_MINT_TS)
+            self.assertNotEqual(fid, f"{natural}-sec")
+            self.assertRegex(fid, r"^[0-9a-z]{5}-sec$")
+
+    def test_mint_skips_existing_finding_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            (tmp / "docs").mkdir(parents=True, exist_ok=True)
+            natural = _lifecycle_id.build_prefix(_MINT_TS)
+            existing = [{"id": f"{natural}-sec", "file": "a.py", "line": 1,
+                         "rule_id": "r", "status": "pending"}]
+            fid = _next_secret_finding_id(tmp, existing, timestamp=_MINT_TS)
+            self.assertNotEqual(fid, f"{natural}-sec")
+            self.assertRegex(fid, r"^[0-9a-z]{5}-sec$")
+
+
+class TestLegacyFindingIdMigration(unittest.TestCase):
+    """AC-2 / AC-3 / AC-4 — idempotent, lossless migration with legacy traceability."""
+
+    def setUp(self) -> None:
+        _reset_lifecycle_floor()
+
+    @staticmethod
+    def _classified_legacy() -> list[dict]:
+        return [
+            {
+                "id": "exc-001", "file": "config.py", "line": 3,
+                "line_hash": "abc123def456", "context_hash": "ctxhash00001",
+                "rule_id": "test-stripe-key", "matched_text": "sk_l****5678",
+                "status": "confirmed-secret", "in_comment": False,
+                "override_reason": "rotating soon",
+                "confirmations": [
+                    {"git_user_name": "A", "git_user_email": "a@x.com",
+                     "verdict": "confirmed-secret", "reason": "real key",
+                     "confirmed_at": "2026-06-06T10:00:00Z"},
+                ],
+            },
+            {
+                "id": "exc-002", "file": "other.py", "line": 9,
+                "line_hash": "999888777666", "context_hash": "ctxhash00002",
+                "rule_id": "test-generic-secret", "matched_text": "se****et",
+                "status": "false-positive",
+            },
+        ]
+
+    def test_migration_converts_legacy_ids_to_sec(self) -> None:  # AC-2
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            (tmp / "docs").mkdir(parents=True, exist_ok=True)
+            excs = self._classified_legacy()
+            changed = migrate_legacy_finding_ids(tmp, excs, timestamp=_MINT_TS)
+            self.assertTrue(changed)
+            for e in excs:
+                self.assertRegex(e["id"], r"^[0-9a-z]{5}-sec$")
+
+    def test_migration_records_legacy_id(self) -> None:  # AC-3
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            (tmp / "docs").mkdir(parents=True, exist_ok=True)
+            excs = self._classified_legacy()
+            migrate_legacy_finding_ids(tmp, excs, timestamp=_MINT_TS)
+            self.assertEqual(excs[0]["legacy_id"], "exc-001")
+            self.assertEqual(excs[1]["legacy_id"], "exc-002")
+
+    def test_migration_is_lossless(self) -> None:  # AC-2 — every non-id field preserved
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            (tmp / "docs").mkdir(parents=True, exist_ok=True)
+            original = self._classified_legacy()
+            excs = json.loads(json.dumps(original))  # deep copy
+            migrate_legacy_finding_ids(tmp, excs, timestamp=_MINT_TS)
+            for orig, new in zip(original, excs):
+                for key, value in orig.items():
+                    if key == "id":
+                        continue
+                    self.assertEqual(new[key], value, f"field '{key}' changed during migration")
+
+    def test_migration_is_idempotent(self) -> None:  # AC-4
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            (tmp / "docs").mkdir(parents=True, exist_ok=True)
+            excs = self._classified_legacy()
+            self.assertTrue(migrate_legacy_finding_ids(tmp, excs, timestamp=_MINT_TS))
+            snapshot = json.loads(json.dumps(excs))
+            # Second run: no change, ids stable, no duplicate legacy_id.
+            self.assertFalse(migrate_legacy_finding_ids(tmp, excs, timestamp=_MINT_TS))
+            self.assertEqual(excs, snapshot)
+            self.assertEqual([e.get("legacy_id") for e in excs], ["exc-001", "exc-002"])
+
+    def test_migration_no_collision_between_records(self) -> None:  # AC-6
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            (tmp / "docs").mkdir(parents=True, exist_ok=True)
+            excs = self._classified_legacy()
+            migrate_legacy_finding_ids(tmp, excs, timestamp=_MINT_TS)
+            ids = [e["id"] for e in excs]
+            self.assertEqual(len(ids), len(set(ids)), f"migrated ids collided: {ids}")
+
+    def test_migration_skips_already_sec_records(self) -> None:  # AC-4 — mixed ledger
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            (tmp / "docs").mkdir(parents=True, exist_ok=True)
+            already = {"id": "1p400-sec", "file": "z.py", "line": 1,
+                       "rule_id": "r", "status": "pending", "legacy_id": "exc-009"}
+            excs = [already, self._classified_legacy()[0]]
+            migrate_legacy_finding_ids(tmp, excs, timestamp=_MINT_TS)
+            self.assertEqual(excs[0]["id"], "1p400-sec", "existing sec id must not be re-minted")
+            self.assertEqual(excs[0]["legacy_id"], "exc-009", "existing legacy_id must be preserved")
+            self.assertRegex(excs[1]["id"], r"^[0-9a-z]{5}-sec$")
+
+    def test_scanner_migrates_legacy_ledger_in_place(self) -> None:  # AC-2 end-to-end
+        stripe = "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX"
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            _make_root(tmp)
+            _write_framework_toml(tmp)
+            line = f'key = "{stripe}"'
+            (tmp / "config.py").write_text(line + "\n", encoding="utf-8")
+            _write_exceptions(tmp, [{
+                "id": "exc-001", "file": "config.py", "line": 1,
+                "line_hash": _hash_line(line), "context_hash": _hash_context([line], 1),
+                "rule_id": "test-stripe-key", "matched_text": redact(stripe),
+                "status": "confirmed-secret",
+            }])
+            _run_check(tmp)
+            findings = load_exceptions(tmp)
+            self.assertEqual(len(findings), 1)
+            self.assertRegex(findings[0]["id"], r"^[0-9a-z]{5}-sec$")
+            self.assertEqual(findings[0]["legacy_id"], "exc-001")
+            self.assertEqual(findings[0]["status"], "confirmed-secret")
+
+
+class TestLegacyExcIdTolerance(unittest.TestCase):
+    """Legacy `exc-###` ids must still be parsed/tolerated before migration runs
+    (imported / not-yet-migrated target repos)."""
+
+    def setUp(self) -> None:
+        _reset_lifecycle_floor()
+
+    def test_legacy_pending_still_blocks(self) -> None:
+        stripe = "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX"
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            _make_root(tmp)
+            _write_framework_toml(tmp)
+            (tmp / "config.py").write_text(f'key = "{stripe}"\n', encoding="utf-8")
+            _write_exceptions(tmp, [{
+                "id": "exc-001", "file": "config.py", "line": 1,
+                "rule_id": "test-stripe-key", "matched_text": redact(stripe),
+                "status": "pending",
+            }])
+            errors = _run_check(tmp)
+            # Migration converts the id, but the pending finding still surfaces.
+            self.assertTrue(any("pending" in e for e in errors), errors)
+            self.assertEqual(load_exceptions(tmp)[0]["legacy_id"], "exc-001")
+
+
+class TestLineDriftAfterMigration(unittest.TestCase):
+    """AC-5 — a re-scan with line drift updates the migrated `sec` record (matched
+    by line_hash / context_hash) and does NOT mint a duplicate."""
+
+    _STRIPE_KEY = "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX"
+
+    def setUp(self) -> None:
+        _reset_lifecycle_floor()
+
+    def test_drift_rebinds_migrated_record(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            _make_root(tmp)
+            _write_framework_toml(tmp)
+            flagged = f'key = "{self._STRIPE_KEY}"'
+            # Legacy ledger entry recorded when the line was at line 1.
+            _write_exceptions(tmp, [{
+                "id": "exc-001", "file": "config.py", "line": 1,
+                "line_hash": _hash_line(flagged),
+                "context_hash": _hash_context([flagged], 1),
+                "rule_id": "test-stripe-key", "matched_text": redact(self._STRIPE_KEY),
+                "status": "false-positive",
+                "confirmations": [
+                    {"git_user_name": "A", "git_user_email": "a@x.com",
+                     "verdict": "false-positive", "reason": "fixture",
+                     "confirmed_at": "2026-06-06T10:00:00Z"},
+                    {"git_user_name": "B", "git_user_email": "b@x.com",
+                     "verdict": "false-positive", "reason": "fixture",
+                     "confirmed_at": "2026-06-06T11:00:00Z"},
+                ],
+            }])
+            # File now has the flagged line drifted down by 5 padding lines.
+            (tmp / "config.py").write_text(("# pad\n" * 5) + flagged + "\n", encoding="utf-8")
+            _run_check(tmp)
+            findings = load_exceptions(tmp)
+            self.assertEqual(len(findings), 1, "drift must rebind, not mint a duplicate")
+            self.assertRegex(findings[0]["id"], r"^[0-9a-z]{5}-sec$")
+            self.assertEqual(findings[0]["legacy_id"], "exc-001")
+            self.assertEqual(findings[0]["line"], 6, "line should rebind to the drifted position")
+
+
+class TestGateSemanticsUnchanged(unittest.TestCase):
+    """AC-11 — secrets-gate behavior is identical before AND after migration:
+    pending/suspected block, confirmed reminds (non-blocking), cleared FP clears.
+    The gate keys on `status`, never the id shape, so this is verified by driving
+    the real wave_close gate helper with both `exc-###` and `<prefix>-sec` ids."""
+
+    def setUp(self) -> None:
+        _reset_lifecycle_floor()
+        import server_impl
+        self._gate = server_impl._check_secrets_gate
+        self._notice = server_impl._confirmed_secret_notice
+
+    def _write(self, tmp: Path, entries: list[dict]) -> None:
+        (tmp / "docs").mkdir(parents=True, exist_ok=True)
+        _write_exceptions(tmp, entries)
+
+    def _entry(self, fid: str, status: str, **extra) -> dict:
+        e = {"id": fid, "file": "a.py", "line": 1, "rule_id": "r", "status": status}
+        e.update(extra)
+        return e
+
+    def _assert_gate(self, tmp: Path, *, blocks: bool, reminds: bool) -> None:
+        diags = self._gate(tmp, "1p8nw test-wave")
+        if blocks:
+            self.assertTrue(diags, "gate should block but returned no diagnostics")
+        else:
+            self.assertEqual(diags, [], f"gate should NOT block: {diags}")
+        notice = self._notice(tmp)
+        if reminds:
+            self.assertIsNotNone(notice, "confirmed-secret reminder should be present")
+        else:
+            self.assertIsNone(notice, "no confirmed-secret reminder expected")
+
+    def test_pending_blocks_both_id_shapes(self) -> None:
+        for fid in ("exc-001", "1p400-sec"):
+            with self.subTest(id=fid), tempfile.TemporaryDirectory() as tmp_str:
+                tmp = Path(tmp_str)
+                self._write(tmp, [self._entry(fid, "pending")])
+                self._assert_gate(tmp, blocks=True, reminds=False)
+
+    def test_suspected_blocks_both_id_shapes(self) -> None:
+        for fid in ("exc-002", "1p401-sec"):
+            with self.subTest(id=fid), tempfile.TemporaryDirectory() as tmp_str:
+                tmp = Path(tmp_str)
+                self._write(tmp, [self._entry(fid, "suspected-secret")])
+                self._assert_gate(tmp, blocks=True, reminds=False)
+
+    def test_confirmed_does_not_block_but_reminds_both_id_shapes(self) -> None:
+        for fid in ("exc-003", "1p402-sec"):
+            with self.subTest(id=fid), tempfile.TemporaryDirectory() as tmp_str:
+                tmp = Path(tmp_str)
+                self._write(tmp, [self._entry(fid, "confirmed-secret")])
+                self._assert_gate(tmp, blocks=False, reminds=True)
+
+    def test_false_positive_clears_both_id_shapes(self) -> None:
+        for fid in ("exc-004", "1p403-sec"):
+            with self.subTest(id=fid), tempfile.TemporaryDirectory() as tmp_str:
+                tmp = Path(tmp_str)
+                self._write(tmp, [self._entry(fid, "false-positive")])
+                self._assert_gate(tmp, blocks=False, reminds=False)
+
+    def test_gate_equivalent_across_migration(self) -> None:
+        """Drive the gate on a legacy ledger, then migrate the SAME ledger and
+        drive the gate again — the verdict (block/remind) must be identical."""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            (tmp / "docs").mkdir(parents=True, exist_ok=True)
+            ledger = [
+                self._entry("exc-001", "pending"),
+                self._entry("exc-002", "suspected-secret"),
+                self._entry("exc-003", "confirmed-secret"),
+                self._entry("exc-004", "false-positive"),
+            ]
+            _write_exceptions(tmp, ledger)
+            before_blocks = bool(self._gate(tmp, "1p8nw w"))
+            before_reminds = self._notice(tmp) is not None
+            # Migrate and persist.
+            excs = load_exceptions(tmp)
+            self.assertTrue(migrate_legacy_finding_ids(tmp, excs, timestamp=_MINT_TS))
+            save_exceptions(tmp, excs)
+            after_blocks = bool(self._gate(tmp, "1p8nw w"))
+            after_reminds = self._notice(tmp) is not None
+            self.assertTrue(before_blocks and after_blocks, "pending+suspected must block before and after")
+            self.assertTrue(before_reminds and after_reminds, "confirmed reminder must persist before and after")
+            # Sanity: ids actually changed shape.
+            self.assertTrue(all(_SEC_ID_RE.fullmatch(e["id"]) for e in load_exceptions(tmp)))
 
 
 if __name__ == "__main__":

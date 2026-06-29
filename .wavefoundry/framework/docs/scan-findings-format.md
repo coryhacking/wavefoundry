@@ -21,6 +21,24 @@ of truth; this doc tracks them.
   security reviewer (`seed-213`). Committed to the repo so classifications and
   confirmations persist across runs and reviewers.
 
+## Always-present ledger (a clean scan writes `[]`)
+
+A **full** scan with **zero findings** and no prior file writes the ledger as a
+**bare `[]`** — so the file's *presence* confirms a scan ran (vs. the ambiguous
+"clean or never ran?" of an absent file). This is a bare JSON empty array, **not**
+a metadata wrapper: a `scanned_at`-style wrapper would rewrite the file on every
+scan and churn git history, while a bare `[]` only changes when findings change.
+Scan timing is already tracked separately in the indexer's `scan-state.json`.
+
+- The bare `[]` loads as an empty list, so the `wave_close` secrets gate sees no
+  findings and **does not block** (gate semantics unchanged).
+- The write is **idempotent** — re-running a clean full scan finds the file
+  already present and rewrites nothing, so the content never churns.
+- The write is gated to **full scans only**. An *incremental* scan must not create
+  the file: the indexer's `scan_secrets.update_secrets_scan` keys on the file being
+  **missing** to force a full regeneration re-scan, so an incremental scan
+  fabricating the file would silently disable that trigger.
+
 ## Finding record schema
 
 Each array element is one finding. Scanner-written fields are created by
@@ -30,7 +48,8 @@ Each array element is one finding. Scanner-written fields are created by
 
 | Field | Type | Meaning |
 | ----- | ---- | ------- |
-| `id` | string | Stable per-findings-file id (e.g. `exc-001`). |
+| `id` | string | Stable finding id. New findings use a **lifecycle-backed** id `<prefix>-sec` matching `^[0-9a-z]{5}-sec$` (e.g. `1p8l0-sec`) — see **Finding ID format** below. Legacy `exc-###` ids are still tolerated and migrated on the next scan. |
+| `legacy_id` | string | *(optional)* The previous `exc-###` id when a finding was migrated to the `<prefix>-sec` shape — see **Finding ID format / migration** below. Present only on migrated records. |
 | `file` | string | Repo-relative path of the matched file. |
 | `line` | int | 1-indexed line number of the match. |
 | `line_hash` | string | Hash of the matched line — survives line drift so the entry re-binds when the line moves. |
@@ -56,6 +75,46 @@ Each confirmation (appended by the security reviewer per
 | `verdict` | string | The reviewer's verdict (e.g. `false-positive`). |
 | `reason` | string | Free-text justification. |
 | `confirmed_at` | string | UTC ISO-8601 timestamp. **Confirmations expire** (see policy); re-verifying **appends a new dated entry** — never mutate an existing one. |
+
+## Finding ID format
+
+Scanner-created findings use a **lifecycle-backed** id of the form `<prefix>-sec`
+matching `^[0-9a-z]{5}-sec$` (e.g. `1p8l0-sec`). The `<prefix>` is the same
+5-character base36 lifecycle prefix family used by waves, changes, and ADRs (see
+`lifecycle_id.py`), with a `sec` suffix.
+
+- **No slug.** Unlike change-doc ids (`<prefix>-<kind> <slug>`), a scanner finding
+  id carries **no generated slug**. Finding context lives in the structured record
+  fields (`file`, `line`, `rule_id`, `line_hash`, `context_hash`, `matched_text`),
+  so a slug would only duplicate already-structured data and add avoidable
+  collision/determinism work. The scanner — not an agent — mints the id.
+- **Collision-safe.** New and migrated ids dedupe against existing lifecycle
+  prefixes (plans, waves, ADRs) **and** against existing ids in this file,
+  including multiple findings minted during the same scan.
+- **`sec` is scanner-scoped.** `sec` is **not** a public change-doc kind — it never
+  appears in `wave_new_*` kind lists, `VALID_CHANGE_KINDS`, or plan/wave
+  scaffolding. It is owned by the scanner and the lifecycle library only.
+- **Distinct from reviewer-lane finding ids.** Security-reviewer lane findings use
+  ordinal ids like `SEC-1` (per `213-security-reviewer.prompt.md` / the generic
+  finding-record schema). Those are unrelated to scanner **ledger** ids and are not
+  changed by this format.
+
+### Migration of legacy `exc-###` ids
+
+Earlier findings used local sequential ids such as `exc-001`. On the next scan the
+scanner **migrates** any `exc-###` id to a `<prefix>-sec` id, in place:
+
+- **Lossless.** Every non-id field — `status`, `confirmations`, `override_reason`,
+  line/context hashes, redacted `matched_text`, and any security-reviewer fields —
+  is preserved exactly. Only `id` is replaced.
+- **Traceable.** The previous id is recorded as `legacy_id` (e.g.
+  `"legacy_id": "exc-001"`) so external references to the old id (commits, notes,
+  discussion) can still be traced after conversion.
+- **Idempotent.** Running the scan again does not re-change already-migrated ids or
+  duplicate `legacy_id`.
+- **Re-binding preserved.** A migrated record still re-binds by `file` / `rule_id` /
+  `line_hash` / `context_hash`, so a re-scan with line drift updates the existing
+  `sec` record instead of minting a duplicate.
 
 ## Status lifecycle
 

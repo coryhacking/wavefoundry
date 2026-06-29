@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -39,15 +40,19 @@ class VenvBootstrapTests(unittest.TestCase):
         self.mod = load_setup_index()
 
     def test_bootstrap_venv_creates_venv_when_absent(self):
-        """_bootstrap_venv creates the venv when the directory does not exist."""
+        """_bootstrap_venv creates the venv when the directory does not exist.
+
+        Wave 1p8gu: venv creation now routes through subprocess_util.isolated_run (stdin+no-window),
+        which delegates to subprocess.run — so patch subprocess.run and assert on it."""
         with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
             with patch("pathlib.Path.exists", return_value=False):
-                with patch("subprocess.check_call") as check_call:
+                with patch("subprocess.run") as run:
+                    run.return_value = subprocess.CompletedProcess([], 0)
                     with redirect_stdout(io.StringIO()):
                         result = self.mod._bootstrap_venv()
 
-        check_call.assert_called_once()
-        cmd = check_call.call_args[0][0]
+        run.assert_called_once()
+        cmd = run.call_args[0][0]
         self.assertIn("-m", cmd)
         self.assertIn("venv", cmd)
         self.assertEqual(result, FAKE_VENV_PYTHON)
@@ -56,11 +61,11 @@ class VenvBootstrapTests(unittest.TestCase):
         """_bootstrap_venv does not call venv when the Python binary already exists."""
         with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
             with patch("pathlib.Path.exists", return_value=True):
-                with patch("subprocess.check_call") as check_call:
+                with patch("subprocess.run") as run:
                     with redirect_stdout(io.StringIO()):
                         result = self.mod._bootstrap_venv()
 
-        check_call.assert_not_called()
+        run.assert_not_called()
         self.assertEqual(result, FAKE_VENV_PYTHON)
 
     def test_bootstrap_venv_recreates_partial_venv(self):
@@ -74,7 +79,8 @@ class VenvBootstrapTests(unittest.TestCase):
         with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
             with patch("pathlib.Path.exists", exists_side_effect):
                 with patch("shutil.rmtree") as rmtree:
-                    with patch("subprocess.check_call"):
+                    with patch("subprocess.run") as run:
+                        run.return_value = subprocess.CompletedProcess([], 0)
                         with redirect_stdout(io.StringIO()):
                             self.mod._bootstrap_venv()
 
@@ -91,13 +97,14 @@ class VenvBootstrapTests(unittest.TestCase):
             (venv_dir / "pyvenv.cfg").write_text(f"version = {other}\n", encoding="utf-8")
 
             with patch.object(self.mod, "_tool_venv_python", return_value=venv_python):
-                with patch("subprocess.check_call") as check_call:
+                with patch("subprocess.run") as run:
+                    run.return_value = subprocess.CompletedProcess([], 0)
                     with redirect_stdout(io.StringIO()) as out:
                         result = self.mod._bootstrap_venv()
 
             self.assertEqual(result, venv_python)
             self.assertFalse(venv_dir.exists(), "stale venv should be removed before recreation")
-            check_call.assert_called_once_with([sys.executable, "-m", "venv", str(venv_dir)])
+            self.assertEqual(run.call_args[0][0], [sys.executable, "-m", "venv", str(venv_dir)])
             self.assertIn("was built for Python", out.getvalue())
             self.assertIn("recreating", out.getvalue())
 

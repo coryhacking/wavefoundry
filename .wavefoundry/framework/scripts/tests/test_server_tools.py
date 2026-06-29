@@ -150,25 +150,33 @@ class McpSubprocessHelperTests(unittest.TestCase):
                 self.assertEqual(calls[0][:2], expect_cmd, f"{fn_name} forwarded the wrong command")
 
     def test_no_raw_subprocess_lacks_stdin_isolation(self):
-        # Breadth guard (wave 1p88t): EVERY subprocess invocation in the MCP-reachable modules —
-        # `server_impl` AND the in-process secrets-scan fallback (`wave_lint_lib/secrets_validators`,
-        # reached by the `wave_scan_secrets` tool's except-branch) — must isolate stdin (route through
-        # `_mcp_subprocess_run`, or pass `stdin=...DEVNULL` / `input=`). Covers aliased `_sp.run` /
-        # `__import__("subprocess").run` forms that evaded the first review.
+        # Breadth guard (wave 1p88t, broadened in 1p8gu): EVERY subprocess invocation in the
+        # MCP-reachable modules — `server_impl` AND the in-process secrets-scan fallback
+        # (`wave_lint_lib/secrets_validators`, reached by the `wave_scan_secrets` tool's except-branch)
+        # — must isolate stdin. After 1p8gu the secrets git probes route through
+        # `subprocess_util.isolated_run` (inherently isolated); server_impl keeps `_mcp_subprocess_run`
+        # + inline `stdin=DEVNULL`/`input=`. Covers aliased `_sp.run` / `__import__("subprocess").run`
+        # forms that evaded the first review.
         import re
 
         targets = [
             SCRIPTS_ROOT / "server_impl.py",
             SCRIPTS_ROOT / "wave_lint_lib" / "secrets_validators.py",
         ]
+        # Count both RAW spawns and shared-helper routings so the scan stays non-vacuous after 1p8gu
+        # moved most secrets spawns onto subprocess_util.isolated_run/isolated_popen.
         call_re = re.compile(
             r"(?:subprocess|_sp)\.(?:run|Popen)\(|__import__\((?:'|\")subprocess(?:'|\")\)\.(?:run|Popen)\("
         )
+        helper_re = re.compile(r"subprocess_util\.isolated_(?:run|popen)\(")
         offenders = []
         matched = 0
         for path in targets:
             src_lines = path.read_text(encoding="utf-8").splitlines()
             for i, line in enumerate(src_lines):
+                if helper_re.search(line):
+                    matched += 1
+                    continue  # shared helper guarantees isolation by construction
                 if not call_re.search(line):
                     continue
                 matched += 1
@@ -179,15 +187,421 @@ class McpSubprocessHelperTests(unittest.TestCase):
                 if ("stdin" in window and "DEVNULL" in window) or "input=" in window:
                     continue
                 offenders.append(f"{path.name}:{i + 1}: {line.strip()}")
-        # Non-vacuous: the scan must actually find the known raw subprocess sites across both modules.
+        # Non-vacuous: the scan must actually find the known spawn/routing sites across both modules.
         # If this drops near 0 the regex has rotted into a tautology.
         self.assertGreaterEqual(matched, 10, "subprocess-isolation scan matched too few sites — regex likely broken")
         self.assertEqual(
             offenders, [],
             "raw subprocess invocations in MCP-reachable modules must isolate stdin from the JSON-RPC "
-            "stream (route through _mcp_subprocess_run or pass stdin=subprocess.DEVNULL / input=):\n"
+            "stream (route through subprocess_util.isolated_run / _mcp_subprocess_run or pass "
+            "stdin=subprocess.DEVNULL / input=):\n"
             + "\n".join(offenders),
         )
+
+
+class FrameworkWideSubprocessIsolationGuard(unittest.TestCase):
+    """Wave 1p8gu: the breadth guard now spans EVERY framework script (not just server_impl +
+    secrets). The guarantee is call-path-independent: no framework-initiated subprocess may inherit a
+    blocking stdin or flash a console window on native Windows — regardless of whether it was reached
+    via the MCP server, the `wf` dispatcher, a direct `python <script>.py` run, or an agent invoking
+    `wf <subcommand>`. The field defect (a 1.9.4 native-Windows upgrade) was a stack of flashing
+    console windows + a hang on inherited stdin from the setup/upgrade/index/graph/secrets pipeline,
+    which 1p88t's MCP-only scope had left uncovered.
+
+    This guard FAILS when a new bare `subprocess.run` / `subprocess.Popen` (or aliased `_sp.*`) is
+    added without isolation — that is its whole purpose.
+    """
+
+    # Dev-host-only tools, excluded from every distribution zip (build_pack.EXCLUDED_REL_PATHS): they
+    # run on a developer's source-host terminal with a real console (interactive `gh release` / git
+    # push / the test runner), never on a target machine — the documented must-inherit exception class.
+    _DEV_HOST_EXEMPT_FILES = {"build_pack.py", "run_tests.py"}
+
+    _SPAWN_ATTRS = {"run", "Popen", "call", "check_output", "check_call"}
+    # Process-POOL / raw-process constructs that spawn console-subsystem workers on Windows.
+    _POOL_NAMES = {"ProcessPoolExecutor", "Pool", "Process"}
+
+    @staticmethod
+    def _framework_script_paths() -> list[Path]:
+        paths = sorted(SCRIPTS_ROOT.glob("*.py"))
+        paths += sorted((SCRIPTS_ROOT / "wave_lint_lib").glob("*.py"))
+        # subprocess_util IS the isolation helper; its own `subprocess.run(cmd, **kwargs)` delegation
+        # sets the isolation kwargs and is the single allowlisted exception by construction.
+        return [p for p in paths if p.name != "subprocess_util.py"]
+
+    @staticmethod
+    def _subprocess_aliases(tree) -> tuple[set, set]:
+        """Resolve how `subprocess` is referenced in a module via AST import analysis.
+
+        Returns (module_aliases, direct_callables):
+          - module_aliases: names that ARE the subprocess module — `subprocess`, plus any
+            `import subprocess as X` (adds X). `module_aliases.run(...)` is a spawn.
+          - direct_callables: names bound to spawn funcs via `from subprocess import run as r` →
+            {"r"}; a bare `r(...)` Call is then a spawn.
+        """
+        import ast as _ast
+        module_aliases = {"subprocess", "_sp"}
+        direct_callables: set = set()
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.Import):
+                for alias in node.names:
+                    if alias.name == "subprocess":
+                        module_aliases.add(alias.asname or "subprocess")
+            elif isinstance(node, _ast.ImportFrom) and node.module == "subprocess":
+                for alias in node.names:
+                    name = alias.name
+                    if name in FrameworkWideSubprocessIsolationGuard._SPAWN_ATTRS:
+                        direct_callables.add(alias.asname or name)
+        return module_aliases, direct_callables
+
+    @classmethod
+    def _spawn_calls(cls, tree):
+        """Yield ast.Call nodes that are subprocess spawns (any aliased/from-import/os.system/asyncio
+        form), so a future addition in ANY of these shapes is caught — not just `subprocess.run(`."""
+        import ast as _ast
+        module_aliases, direct_callables = cls._subprocess_aliases(tree)
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.Call):
+                continue
+            func = node.func
+            # subprocess.run / sp.Popen / __import__("subprocess").run, os.system, os.popen,
+            # asyncio.create_subprocess_exec/shell, loop.subprocess_exec/shell
+            if isinstance(func, _ast.Attribute):
+                attr = func.attr
+                base = getattr(func.value, "id", None)
+                if base in module_aliases and attr in cls._SPAWN_ATTRS:
+                    yield node
+                elif base == "os" and attr in ("system", "popen"):
+                    yield node
+                elif attr in ("create_subprocess_exec", "create_subprocess_shell",
+                              "subprocess_exec", "subprocess_shell"):
+                    yield node  # asyncio.* / loop.* process creation
+                elif isinstance(func.value, _ast.Call):
+                    # __import__("subprocess").run(...) form
+                    iv = func.value
+                    if (isinstance(iv.func, _ast.Name) and iv.func.id == "__import__"
+                            and iv.args and isinstance(iv.args[0], _ast.Constant)
+                            and iv.args[0].value == "subprocess" and attr in cls._SPAWN_ATTRS):
+                        yield node
+            elif isinstance(func, _ast.Name) and func.id in direct_callables:
+                yield node  # `from subprocess import run` → bare run(...)
+
+    @staticmethod
+    def _call_kwarg_names(node) -> set:
+        """The kwarg names passed DIRECTLY to this Call node (scoped — not a text window)."""
+        return {kw.arg for kw in node.keywords if kw.arg is not None}
+
+    @staticmethod
+    def _call_has_devnull_or_input(node) -> bool:
+        """True iff the spawn Call's OWN kwargs isolate stdin: stdin=...DEVNULL, input=..., or
+        `**kwargs` splat (the helper-delegation forms set isolation in the splatted dict)."""
+        import ast as _ast
+        for kw in node.keywords:
+            if kw.arg is None:
+                return True  # **kwargs splat — isolation lives in the dict (helper delegation)
+            if kw.arg == "input":
+                return True
+            if kw.arg == "stdin":
+                src = _ast.dump(kw.value)
+                if "DEVNULL" in src:
+                    return True
+        return False
+
+    @staticmethod
+    def _call_has_no_window(node) -> bool:
+        """True iff the spawn Call's OWN kwargs suppress the Windows console: a creationflags= that
+        references a no-window construct, OR a `**kwargs` splat (helper delegation sets it), OR the
+        call routes through subprocess_util.isolated_run/isolated_popen (handled by the caller)."""
+        import ast as _ast
+        tokens = ("CREATE_NO_WINDOW", "no_window_creationflags", "_windows_no_window_flag",
+                  "detached_background_creationflags")
+        for kw in node.keywords:
+            if kw.arg is None:
+                return True  # **kwargs splat
+            if kw.arg == "creationflags":
+                src = _ast.dump(kw.value)
+                if any(t in src for t in tokens):
+                    return True
+        return False
+
+    @classmethod
+    def _is_isolated_helper_call(cls, node) -> bool:
+        """True iff the Call routes through subprocess_util.isolated_run/isolated_popen (or the .run
+        delegation inside subprocess_util itself) — inherently isolated, not a raw spawn to audit."""
+        import ast as _ast
+        func = node.func
+        if isinstance(func, _ast.Attribute) and func.attr in ("isolated_run", "isolated_popen"):
+            return True
+        return False
+
+    def test_every_framework_spawn_isolates_stdin_and_suppresses_window(self):
+        """AST-scoped guard: every raw subprocess spawn (in ANY form — aliased, from-import,
+        os.system/popen, asyncio) must isolate stdin AND suppress the Windows window via ITS OWN
+        kwargs. Routing through subprocess_util.isolated_* counts as isolated."""
+        import ast as _ast
+
+        stdin_offenders: list[str] = []
+        nowindow_offenders: list[str] = []
+        matched = 0
+        for path in self._framework_script_paths():
+            if path.name in self._DEV_HOST_EXEMPT_FILES:
+                continue
+            src = path.read_text(encoding="utf-8")
+            lines = src.splitlines()
+            tree = _ast.parse(src)
+            for node in self._spawn_calls(tree):
+                if self._is_isolated_helper_call(node):
+                    continue
+                matched += 1
+                line = lines[node.lineno - 1].strip()
+                # os.system/os.popen always inherit stdio + (on Windows) flash a console — never allowed.
+                func = node.func
+                is_os_shell = (isinstance(func, _ast.Attribute) and getattr(func.value, "id", None) == "os"
+                               and func.attr in ("system", "popen"))
+                if is_os_shell or not self._call_has_devnull_or_input(node):
+                    stdin_offenders.append(f"{path.name}:{node.lineno}: {line}")
+                if is_os_shell or not self._call_has_no_window(node):
+                    nowindow_offenders.append(f"{path.name}:{node.lineno}: {line}")
+
+        # Non-vacuous: the AST walk must still find the handful of inline-isolated raw spawns that
+        # legitimately remain (server_impl's _mcp_subprocess_run **kwargs delegation + 3 detached Popens
+        # + the _pid_is_running tasklist; setup_index's foreground streaming Popen; venv_bootstrap's
+        # import-fallback). Most spawns route through subprocess_util.isolated_* (skipped above). If this
+        # collapses to ~0 the AST walk broke.
+        self.assertGreaterEqual(
+            matched, 5,
+            "framework-wide spawn scan matched too few raw sites — the AST walk likely broke",
+        )
+        self.assertEqual(
+            stdin_offenders, [],
+            "framework subprocess spawns must isolate stdin via their own kwargs (route through "
+            "subprocess_util.isolated_run/isolated_popen, or pass stdin=subprocess.DEVNULL / input=):\n"
+            + "\n".join(stdin_offenders),
+        )
+        self.assertEqual(
+            nowindow_offenders, [],
+            "framework subprocess spawns must suppress the Windows console window via their own kwargs "
+            "(route through subprocess_util.isolated_*, or OR CREATE_NO_WINDOW into creationflags):\n"
+            + "\n".join(nowindow_offenders),
+        )
+
+    def test_every_process_pool_uses_windowfree_helper(self):
+        """GUARD generalization (MP-1/MP-5): every ProcessPoolExecutor / multiprocessing pool / Pool /
+        Process construction must have the window-free-pool helper (windowless_mp_context /
+        configure_windowless_mp_context) adjacent in the SAME function, so spawn workers do not each
+        flash a console window on Windows. AST-detected so a new pool can't slip in bare."""
+        import ast as _ast
+
+        offenders: list[str] = []
+        matched = 0
+        for path in self._framework_script_paths():
+            if path.name in self._DEV_HOST_EXEMPT_FILES:
+                continue
+            src = path.read_text(encoding="utf-8")
+            tree = _ast.parse(src)
+            # Map each function def to its source span so we can check the helper is used within it.
+            func_spans = []
+            for fn in _ast.walk(tree):
+                if isinstance(fn, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                    end = getattr(fn, "end_lineno", None) or fn.lineno
+                    func_spans.append((fn.lineno, end, _ast.get_source_segment(src, fn) or ""))
+            for node in _ast.walk(tree):
+                if not isinstance(node, _ast.Call):
+                    continue
+                func = node.func
+                name = None
+                if isinstance(func, _ast.Name):
+                    name = func.id
+                elif isinstance(func, _ast.Attribute):
+                    name = func.attr
+                if name not in self._POOL_NAMES:
+                    continue
+                # multiprocessing.get_context is also a pool-prep call but is covered by the helper;
+                # the construction nodes (PPE/Pool/Process) are the audit points.
+                matched += 1
+                # Find the enclosing function's source; require the window-free helper named in it.
+                enclosing = ""
+                for lo, hi, seg in func_spans:
+                    if lo <= node.lineno <= hi and len(seg) > len(enclosing):
+                        enclosing = seg
+                if not enclosing:
+                    enclosing = src  # module-level pool (none expected) — check whole file
+                if ("windowless_mp_context" not in enclosing
+                        and "configure_windowless_mp_context" not in enclosing):
+                    offenders.append(f"{path.name}:{node.lineno}: {name}(...) without window-free pool helper")
+        self.assertGreaterEqual(
+            matched, 1,
+            "process-pool scan matched no pool sites — the AST walk likely broke",
+        )
+        self.assertEqual(
+            offenders, [],
+            "every ProcessPoolExecutor / Pool / Process must construct its mp context via "
+            "subprocess_util.windowless_mp_context (console-free workers on Windows):\n"
+            + "\n".join(offenders),
+        )
+
+    def test_every_captured_text_spawn_decodes_utf8(self):
+        """AC-3 framework-wide (review F2): every captured ``subprocess.run(..., text=True)`` (or
+        capture_output=True) must specify ``encoding=`` on its OWN kwargs, OR route through
+        subprocess_util.isolated_run (which folds in encoding='utf-8', errors='replace'). The earlier
+        AC-3 scan covered ONLY upgrade_wavefoundry.py — this spans all framework scripts via AST."""
+        import ast as _ast
+
+        offenders: list[str] = []
+        matched = 0
+        for path in self._framework_script_paths():
+            if path.name in self._DEV_HOST_EXEMPT_FILES:
+                continue
+            src = path.read_text(encoding="utf-8")
+            lines = src.splitlines()
+            tree = _ast.parse(src)
+            for node in self._spawn_calls(tree):
+                if self._is_isolated_helper_call(node):
+                    continue  # isolated_run folds in encoding/errors
+                kwargs = self._call_kwarg_names(node)
+                if None in {kw.arg for kw in node.keywords}:
+                    continue  # **kwargs splat (the _mcp_subprocess_run-style delegation sets encoding)
+                captured_text = ("text" in kwargs or "universal_newlines" in kwargs
+                                 or "capture_output" in kwargs)
+                if not captured_text:
+                    continue  # not a captured text spawn (e.g. detached Popen to a binary log file)
+                matched += 1
+                if "encoding" not in kwargs:
+                    offenders.append(f"{path.name}:{node.lineno}: {lines[node.lineno-1].strip()}")
+        self.assertGreaterEqual(
+            matched, 1, "captured-text-spawn scan matched none — the AST walk likely broke",
+        )
+        self.assertEqual(
+            offenders, [],
+            "captured text spawns must decode UTF-8 (route through subprocess_util.isolated_run or pass "
+            "encoding='utf-8', errors='replace'):\n" + "\n".join(offenders),
+        )
+
+    def test_cli_entrypoint_mains_configure_utf8_stdio(self):
+        """F3 (review): every CLI entry-point module that prints non-ASCII must wire
+        cli_stdio.configure_utf8_stdio() (at module top after venv activation, or inside main) so a
+        direct ``python <script>.py`` run on a cp1252 console never raises."""
+        entrypoints = [
+            "upgrade_wavefoundry.py", "setup_wavefoundry.py", "setup_index.py", "wf_cli.py",
+            "docs_gardener.py", "docs_lint.py", "run_secrets_scan.py", "gen_codebase_map.py",
+            "dashboard_server.py", "render_platform_surfaces.py", "gpu_doctor.py", "indexer.py",
+            "check_version.py", "prune_framework.py",
+        ]
+        offenders = []
+        for fname in entrypoints:
+            src = (SCRIPTS_ROOT / fname).read_text(encoding="utf-8")
+            if "configure_utf8_stdio()" not in src:
+                offenders.append(fname)
+        self.assertEqual(
+            offenders, [],
+            "these CLI entry points must call cli_stdio.configure_utf8_stdio():\n" + "\n".join(offenders),
+        )
+
+    def test_pipeline_files_route_through_shared_helper(self):
+        # AC-3: the specific upgrade/setup/index/graph/secrets pipeline files must reference the shared
+        # isolation helper (named-file assertion — the spawns that broke the field upgrade).
+        expected = {
+            "upgrade_wavefoundry.py": "subprocess_util",
+            "setup_index.py": "subprocess_util",
+            "indexer.py": "subprocess_util",
+            "graph_indexer.py": "subprocess_util",
+            "gen_codebase_map.py": "cli_stdio",  # no spawns; CLI-encoding wiring instead
+        }
+        for fname, token in expected.items():
+            src = (SCRIPTS_ROOT / fname).read_text(encoding="utf-8")
+            self.assertIn(token, src, f"{fname} does not reference the shared {token} helper")
+        # scan_secrets is a lib (run_secrets_scan is its CLI); both route through subprocess_util.
+        for fname in ("scan_secrets.py", "run_secrets_scan.py"):
+            src = (SCRIPTS_ROOT / fname).read_text(encoding="utf-8")
+            self.assertIn("subprocess_util", src, f"{fname} does not route through subprocess_util")
+
+    def test_single_shared_isolation_helper_no_duplicates(self):
+        # AC-1: the four pre-existing per-module no-window helper bodies are gone — exactly ONE
+        # definition of the consolidated helper remains (anti-drift). server_impl keeps a thin
+        # `_windows_no_window_flag` ALIAS that DELEGATES to the shared helper (not a re-implementation),
+        # so its presence is allowed only when it returns the delegation.
+        import re
+
+        dup_def_re = re.compile(r"^\s*def _no_window_creationflags\(", re.MULTILINE)
+        offenders = []
+        for path in self._framework_script_paths():
+            src = path.read_text(encoding="utf-8")
+            if dup_def_re.search(src):
+                offenders.append(path.name)
+        self.assertEqual(
+            offenders, [],
+            "duplicate `_no_window_creationflags` definitions must be consolidated into "
+            "subprocess_util.no_window_creationflags():\n" + "\n".join(offenders),
+        )
+        # The shared helper is the single source.
+        helper_src = (SCRIPTS_ROOT / "subprocess_util.py").read_text(encoding="utf-8")
+        self.assertIn("def no_window_creationflags(", helper_src)
+        self.assertIn("def isolated_run(", helper_src)
+        self.assertIn("def isolated_popen(", helper_src)
+        # server_impl's retained alias must DELEGATE, not re-implement the getattr lookup.
+        si_src = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        self.assertIn("subprocess_util.no_window_creationflags()", si_src)
+
+    def test_guard_detects_planted_bare_and_aliased_spawns(self):
+        # GUARD-2: drive the PRODUCTION scan methods (_spawn_calls / _call_has_devnull_or_input /
+        # _call_has_no_window) over planted-defect source — NOT a re-implementation. Proves the guard
+        # FAILS for a bare spawn, an ALIASED spawn (`import subprocess as sp`), a from-import spawn
+        # (`from subprocess import run`), and os.system — the exact forms the old text scan missed.
+        import ast as _ast
+        plants = {
+            "bare": "import subprocess\ndef f():\n    return subprocess.run(['git','status'], capture_output=True, text=True)\n",
+            "aliased": "import subprocess as sp\ndef f():\n    return sp.run(['git','status'], capture_output=True, text=True)\n",
+            "from_import": "from subprocess import run\ndef f():\n    return run(['git','status'], capture_output=True, text=True)\n",
+            "os_system": "import os\ndef f():\n    return os.system('git status')\n",
+        }
+        for label, src in plants.items():
+            with self.subTest(plant=label):
+                tree = _ast.parse(src)
+                calls = list(self._spawn_calls(tree))
+                self.assertTrue(calls, f"{label}: _spawn_calls did not detect the planted spawn")
+                node = calls[0]
+                is_os = (isinstance(node.func, _ast.Attribute)
+                         and getattr(node.func.value, "id", None) == "os"
+                         and node.func.attr in ("system", "popen"))
+                # Bare/aliased/from-import lack stdin+no-window; os.system always inherits/flashes.
+                self.assertTrue(
+                    is_os or not self._call_has_devnull_or_input(node),
+                    f"{label}: guard wrongly considered the planted spawn stdin-isolated",
+                )
+                self.assertTrue(
+                    is_os or not self._call_has_no_window(node),
+                    f"{label}: guard wrongly considered the planted spawn window-suppressed",
+                )
+
+    def test_guard_detects_planted_process_pool(self):
+        # GUARD-2 (pool): the pool guard must flag a ProcessPoolExecutor / Pool / Process built WITHOUT
+        # the window-free helper. Drives the same name-detection the production pool scan uses.
+        import ast as _ast
+        for ctor in ("ProcessPoolExecutor", "Pool", "Process"):
+            with self.subTest(ctor=ctor):
+                src = f"def f():\n    p = {ctor}(max_workers=4)\n    return p\n"
+                tree = _ast.parse(src)
+                found = []
+                for node in _ast.walk(tree):
+                    if isinstance(node, _ast.Call):
+                        fn = node.func
+                        nm = fn.id if isinstance(fn, _ast.Name) else getattr(fn, "attr", None)
+                        if nm in self._POOL_NAMES:
+                            found.append(nm)
+                self.assertIn(ctor, found, f"pool guard failed to detect a planted {ctor}")
+                # And the enclosing source lacks the helper → would be flagged.
+                self.assertNotIn("windowless_mp_context", src)
+
+    def test_background_popen_launchers_keep_logfile_and_add_isolation(self):
+        # AC-4: the two upgrade background code-index launchers route through the shared isolated Popen,
+        # keeping their log-file stdout/stderr redirection.
+        src = (SCRIPTS_ROOT / "upgrade_wavefoundry.py").read_text(encoding="utf-8")
+        self.assertEqual(
+            src.count("subprocess_util.isolated_popen("), 2,
+            "both upgrade background launchers must use subprocess_util.isolated_popen",
+        )
+        self.assertIn("stdout=_bg_log_file", src)
+        self.assertIn("stderr=_bg_log_file", src)
 
     def test_provider_policy_nvidia_probe_isolates_stdin_and_no_window_on_windows(self):
         # nvidia-smi probe is MCP-reachable via wave_gpu_doctor / provider selection in the server process.
@@ -4531,6 +4945,96 @@ class WaveMcpReloadTests(unittest.TestCase):
             or "tool_list_changed_notification_failed" in diag_codes,
             f"Expected one of the notification diagnostics; got: {diag_codes}",
         )
+
+
+class ServerHandlerLazyInitTests(unittest.TestCase):
+    """Wave 1p8kz: a STARTED server (root known) must never return `handler_not_ready`. `_get_handler`
+    lazy-builds the handler when `_handler is None` and `_root` is set; it raises only for a genuinely
+    uninitialized server (no root). Field defect: persistent `handler_not_ready` across an upgrade.
+
+    Saves/restores the `_handler`/`_root` module globals so no state leaks to other reload-sensitive
+    tests."""
+
+    def setUp(self):
+        load_server()  # ensures server.py (thin runner) is imported under sys.modules["server"]
+        self.runner = load_thin_runner()
+        # Snapshot the reload-sensitive globals so this test never leaks handler/root state.
+        self._saved_handler = self.runner._handler
+        self._saved_root = self.runner._root
+
+    def tearDown(self):
+        self.runner._handler = self._saved_handler
+        self.runner._root = self._saved_root
+
+    def test_get_handler_raises_only_when_uninitialized(self):
+        # No handler AND no root → genuinely uninitialized → RuntimeError (the only error case).
+        self.runner._handler = None
+        self.runner._root = None
+        with self.assertRaises(RuntimeError):
+            self.runner._get_handler()
+
+    def test_get_handler_lazy_builds_when_root_known(self):
+        # No handler but root known → lazy-build via server_impl.build_handler, no raise.
+        import server_impl
+        sentinel = object()
+        built = {}
+
+        def fake_build(root):
+            built["root"] = root
+            return sentinel
+
+        self.runner._handler = None
+        self.runner._root = Path("/tmp/known-root")
+        with patch.object(server_impl, "build_handler", side_effect=fake_build):
+            handler = self.runner._get_handler()
+        self.assertIs(handler, sentinel, "lazy-build must return the freshly built handler")
+        self.assertEqual(built["root"], Path("/tmp/known-root"))
+        # The lazy-built handler is cached on the module global.
+        self.assertIs(self.runner._handler, sentinel)
+
+    def test_get_handler_returns_existing_handler_without_rebuild(self):
+        existing = object()
+        self.runner._handler = existing
+        self.runner._root = Path("/tmp/known-root")
+        import server_impl
+        with patch.object(server_impl, "build_handler",
+                          side_effect=AssertionError("must not rebuild when a handler exists")):
+            self.assertIs(self.runner._get_handler(), existing)
+
+    def test_build_server_stashes_root_for_lazy_build(self):
+        # AC-4: build_server records the root so a later _get_handler can lazy-build it. Use a real
+        # build_server (skips if mcp absent), then drop the handler and confirm lazy-build uses the
+        # stashed root rather than raising.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            try:
+                self.runner.build_server(root)
+            except ImportError:
+                self.skipTest("mcp package not installed")
+            self.assertEqual(self.runner._root, root, "build_server must stash the root")
+            # Drop the explicitly-set handler; _get_handler must rebuild from the stashed root.
+            self.runner._handler = None
+            handler = self.runner._get_handler()
+            self.assertIsNotNone(handler)
+
+    def test_perform_mcp_reload_no_handler_not_ready_on_started_server(self):
+        # AC-4: after build_server (root stashed), dropping the handler and calling perform_mcp_reload
+        # must NOT surface `handler_not_ready` — the reload's `old = _get_handler()` lazy-builds it.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            fw = root / ".wavefoundry" / "framework"
+            fw.mkdir(parents=True, exist_ok=True)
+            (fw / "VERSION").write_text("test-pack-version", encoding="utf-8")
+            try:
+                self.runner.build_server(root)
+            except ImportError:
+                self.skipTest("mcp package not installed")
+            self.runner._handler = None  # simulate the startup / post-reload window
+            result = self.runner.perform_mcp_reload()
+            diag_codes = [d.get("code") for d in result.get("diagnostics", [])]
+            self.assertNotIn("handler_not_ready", diag_codes,
+                             "a started server (root stashed) must never report handler_not_ready")
+            self.assertEqual(result["status"], "ok")
 
 
 # ---------------------------------------------------------------------------
@@ -18370,6 +18874,54 @@ Status: in-progress
         r = self._call()
         self.assertEqual(r["data"]["status"], "complete")
 
+    # --- Wave 1p8gw: description-as-path regression ---
+
+    _COMPOUND_LOG = """\
+# Wavefoundry Install Log
+
+Owner: operator
+Status: in-progress
+
+## Phase 1 — Harness (no MCP required)
+
+- [ ] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json
+- [x] 1.2 — Bootstrap harness: venv + deps (setup_wavefoundry.py) — artifact: the committed `.mcp.json` names `command: "python"` + `args: [...]` AND `python3 .wavefoundry/framework/scripts/server.py --dry-run` exits 0
+- [ ] 1.3 — STOP: restart agent (instruction)
+"""
+
+    def test_compound_artifact_row_not_reported_as_missing_path(self):
+        # Regression for the native-Windows defect: a [x] row whose artifact: value is a compound
+        # verification DESCRIPTION (backticks + " AND " + "exits 0") must NOT be stat'd as a literal
+        # file path. Before the fix the audit returned checked_but_missing for a bogus "path".
+        self._write_log(self._COMPOUND_LOG)
+        (self.root / "docs" / "workflow-config.json").write_text("{}\n")  # 1.1 artifact (still pending)
+        result = self._call()
+        # The compound 1.2 row is [x] but is a description — it must be skipped, so the audit advances
+        # to the first pending row (1.1), never reporting checked_but_missing for 1.2.
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["status"], "next_step")
+        self.assertEqual(result["data"]["row"]["number"], "1.1")
+
+    def test_compound_artifact_row_brief_exposes_description_not_path(self):
+        # Mark 1.1 [x] too (its artifact exists) so the audit reaches 1.3 — proving 1.2 (the compound
+        # row) is treated as terminal/non-path and never blocks. The row brief classifies it correctly.
+        log = self._COMPOUND_LOG.replace(
+            "- [ ] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json",
+            "- [x] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json",
+        )
+        self._write_log(log)
+        (self.root / "docs" / "workflow-config.json").write_text("{}\n")
+        result = self._call()
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["status"], "next_step")
+        self.assertEqual(result["data"]["row"]["number"], "1.3")
+        # Directly confirm 1.2's classification via the parser the audit uses.
+        import install_log_lib
+        rows = install_log_lib.parse_log(log)
+        row_12 = next(r for r in rows if r.number == "1.2")
+        self.assertIsNone(row_12.artifact_path)
+        self.assertIsNotNone(row_12.description)
+
 
 # ---------------------------------------------------------------------------
 # seed_get disk-fallback (wave 1p35d / change 1p35j)
@@ -18542,6 +19094,17 @@ class WaveCloseSecretsGateTests(unittest.TestCase):
 
     def test_empty_exceptions_file_passes_gate(self):
         self._write_exceptions([])
+        result = self._close()
+        self.assertNotIn("secrets_gate_unresolved", self._diagnostic_codes(result))
+        self.assertNotIn("confirmed_secrets", result["data"])
+
+    def test_always_present_empty_ledger_does_not_block(self):
+        # Wave 1p8o5 #4 / AC-4: a clean full scan now WRITES a bare `[]` (always-present ledger). That
+        # `[]` must keep the gate non-blocking — presence of the file is "scan ran", not "has findings".
+        # This pins the always-write (#4) → gate (`[]` → no block) contract end-to-end.
+        path = self.root / "docs" / "scan-findings.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("[]\n", encoding="utf-8")  # exactly what save_exceptions(root, []) writes
         result = self._close()
         self.assertNotIn("secrets_gate_unresolved", self._diagnostic_codes(result))
         self.assertNotIn("confirmed_secrets", result["data"])

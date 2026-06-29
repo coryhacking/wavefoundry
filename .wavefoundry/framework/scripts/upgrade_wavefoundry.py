@@ -39,6 +39,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import types
 import zipfile
 from pathlib import Path
@@ -53,10 +54,18 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
+import subprocess_util  # shared subprocess isolation (wave 1p8gu)
+import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
 
-OLD_MANIFEST_TMP = Path(
-    os.environ.get("TMPDIR", "/tmp")
-) / "wf-manifest-old.txt"
+# Wave 1p8gv: a native-Windows upgrade crashed printing `⚠` because nothing reconfigured stdout to
+# UTF-8. Reconfigure at import so EVERY entry into this module (CLI, `wf upgrade`, MCP `wave_upgrade`
+# which re-execs this script) prints non-ASCII without raising on a cp1252 console.
+cli_stdio.configure_utf8_stdio()
+
+# Wave 1p8gv: `/tmp` does not exist on native Windows — the old fallback raised FileNotFoundError when
+# copying the pre-upgrade MANIFEST. `tempfile.gettempdir()` resolves the correct OS temp dir (honors
+# TMPDIR/TEMP/TMP) cross-platform.
+OLD_MANIFEST_TMP = Path(tempfile.gettempdir()) / "wf-manifest-old.txt"
 
 UPGRADE_LOG_FILENAME = "upgrade.log"
 
@@ -800,7 +809,7 @@ def _run_hook(
             "WF_YES": "1" if ctx.yes else "0",
         }
         try:
-            result = subprocess.run(
+            result = subprocess_util.isolated_run(
                 [str(hook_path)], env=env, cwd=str(ctx.root),
                 check=False, timeout=_HOOK_TIMEOUT_S,
             )
@@ -848,7 +857,7 @@ def _confirm_proceed(yes: bool) -> bool:
 
 
 def _run(cmd: list[str], root: Path, check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, cwd=str(root), check=check)
+    return subprocess_util.isolated_run(cmd, cwd=str(root), check=check)
 
 
 # ── Dry-run (--dry-run / -n) ──────────────────────────────────────────────────
@@ -1189,7 +1198,7 @@ def phase_surface_rendering(root: Path) -> None:
     if not script.exists():
         _log("  render_platform_surfaces.py not found — skipping surface rendering.")
         return
-    result = subprocess.run(
+    result = subprocess_util.isolated_run(
         [_preferred_python(), str(script), "--repo-root", str(root)],
         cwd=str(root),
         check=False,
@@ -1244,7 +1253,9 @@ def phase_pruning(root: Path) -> int:
     cmd = [_preferred_python(), str(script)]
     if OLD_MANIFEST_TMP.exists():
         cmd += ["--old-manifest", str(OLD_MANIFEST_TMP)]
-    result = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True, check=False)
+    # Wave 1p8gv: capture as UTF-8 (errors=replace) so prune's non-ASCII output decodes cleanly on a
+    # cp1252 Windows console (folded into the shared helper).
+    result = subprocess_util.isolated_run(cmd, cwd=str(root), capture_output=True, text=True, check=False)
     if result.stdout:
         _log(result.stdout.rstrip())
     if result.returncode != 0:
@@ -1274,7 +1285,7 @@ def phase_docs_gate(root: Path) -> None:
         if not py_script.exists():
             _log(f"  {label} not found — skipping.")
             continue
-        result = subprocess.run([_preferred_python(), str(py_script)], cwd=str(root), check=False)
+        result = subprocess_util.isolated_run([_preferred_python(), str(py_script)], cwd=str(root), check=False)
         if result.returncode != 0:
             _err(f"Docs gate failed: {label} exited {result.returncode}")
             sys.exit(1)
@@ -1297,7 +1308,7 @@ def phase_index_update(root: Path) -> None:
         return
 
     _log("  Phase 4a: updating docs index (blocking) ...")
-    result = subprocess.run(
+    result = subprocess_util.isolated_run(
         [_preferred_python(), str(setup_script), "--root", str(root)],
         cwd=str(root),
         check=False,
@@ -1311,7 +1322,7 @@ def phase_index_update(root: Path) -> None:
     # advanced (graph_indexer's version check) — so a graph-builder bump materializes
     # during the upgrade instead of waiting for the first-query lazy rebuild.
     _log("  Phase 4b: updating graph index (blocking) ...")
-    graph_result = subprocess.run(
+    graph_result = subprocess_util.isolated_run(
         [_preferred_python(), str(setup_script), "--root", str(root), "--graph-only"],
         cwd=str(root),
         check=False,
@@ -1331,22 +1342,16 @@ def phase_index_update(root: Path) -> None:
     _bg_log = root / ".wavefoundry" / "logs" / "project-upgrade-bgcode.log"
     _bg_log.parent.mkdir(parents=True, exist_ok=True)
     _bg_log_file = open(_bg_log, "w", encoding="utf-8")  # noqa: SIM115
-    kwargs: dict = {
-        "stdout": _bg_log_file,
-        "stderr": _bg_log_file,
-        "stdin": subprocess.DEVNULL,
-        "cwd": str(root),
-    }
-    if os.name == "nt":
-        kwargs["creationflags"] = (
-            subprocess.DETACHED_PROCESS
-            | subprocess.CREATE_NEW_PROCESS_GROUP
-            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        )
-    else:
-        kwargs["start_new_session"] = True
+    # Wave 1p8gu: route through the shared isolated Popen — keeps the log-file stdout/stderr while it
+    # supplies detached stdin + the detached/no-window Windows creationflags (no flashing console).
     try:
-        subprocess.Popen(background_cmd, **kwargs)
+        subprocess_util.isolated_popen(
+            background_cmd,
+            stdout=_bg_log_file,
+            stderr=_bg_log_file,
+            cwd=str(root),
+            env=subprocess_util.utf8_child_env(),  # 1p8gv: UTF-8 stdio in the child (cp1252 safety)
+        )
     finally:
         _bg_log_file.close()
     _log(f"  Code index update running in background (launcher log: {_bg_log}).")
@@ -1365,7 +1370,7 @@ def phase_index_rebuild(root: Path) -> None:
         return
 
     _log("  Phase 4a: rebuilding docs index (blocking) ...")
-    result = subprocess.run(
+    result = subprocess_util.isolated_run(
         [_preferred_python(), str(setup_script), "--root", str(root), "--full"],
         cwd=str(root),
         check=False,
@@ -1376,7 +1381,7 @@ def phase_index_rebuild(root: Path) -> None:
     # Phase 4b: rebuild the GRAPH index too (blocking; fast, no embedding) —
     # symmetric with the semantic full rebuild.
     _log("  Phase 4b: rebuilding graph index (blocking) ...")
-    graph_result = subprocess.run(
+    graph_result = subprocess_util.isolated_run(
         [_preferred_python(), str(setup_script), "--root", str(root), "--graph-only", "--full"],
         cwd=str(root),
         check=False,
@@ -1395,22 +1400,15 @@ def phase_index_rebuild(root: Path) -> None:
     _bg_log = root / ".wavefoundry" / "logs" / "project-upgrade-bgcode.log"
     _bg_log.parent.mkdir(parents=True, exist_ok=True)
     _bg_log_file = open(_bg_log, "w", encoding="utf-8")  # noqa: SIM115
-    kwargs: dict = {
-        "stdout": _bg_log_file,
-        "stderr": _bg_log_file,
-        "stdin": subprocess.DEVNULL,
-        "cwd": str(root),
-    }
-    if os.name == "nt":
-        kwargs["creationflags"] = (
-            subprocess.DETACHED_PROCESS
-            | subprocess.CREATE_NEW_PROCESS_GROUP
-            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        )
-    else:
-        kwargs["start_new_session"] = True
+    # Wave 1p8gu: route through the shared isolated Popen (see phase_index_update).
     try:
-        subprocess.Popen(background_cmd, **kwargs)
+        subprocess_util.isolated_popen(
+            background_cmd,
+            stdout=_bg_log_file,
+            stderr=_bg_log_file,
+            cwd=str(root),
+            env=subprocess_util.utf8_child_env(),  # 1p8gv: UTF-8 stdio in the child (cp1252 safety)
+        )
     finally:
         _bg_log_file.close()
     _log(f"  Code index rebuild running in background (launcher log: {_bg_log}).")
@@ -1638,50 +1636,68 @@ def _config_review_recommendation_lines(
         return []
 
 
-def _run_reconciliation_scan(root: Path | None) -> list[dict]:
-    """Wave 1p8et — run the shipped retired-surface reconciliation scan over *root*.
+def _run_reconciliation_scan(root: Path | None) -> tuple[list[dict], list[dict]]:
+    """Wave 1p8et / 1p8o5 — run the shipped retired-surface reconciliation scan over *root*.
 
-    Returns a list of ``{file, line, retired_surface, suggested}`` dicts (report-only — the scan
-    never mutates any file). Fully fail-safe: returns ``[]`` when *root* is None or any import/scan
-    error occurs, so a scanner fault never breaks the upgrade summary.
+    Returns ``(reconciliation, host_permission_flags)`` — two lists of
+    ``{file, line, retired_surface, matched, suggested}`` dicts (report-only — the scan never mutates
+    any file):
+
+    * ``reconciliation`` — stale refs in editable repo docs/prompts/configs/scripts (the agent edits).
+    * ``host_permission_flags`` — stale refs in host permission/allow-rule files the agent cannot
+      self-edit under host auto-mode guards (flagged for the operator; wave 1p8o5).
+
+    Fully fail-safe: returns ``([], [])`` when *root* is None or any import/scan error occurs, so a
+    scanner fault never breaks the upgrade summary.
     """
     if root is None:
-        return []
+        return [], []
     try:
         import reconcile_scan
 
-        return [ref.as_dict() for ref in reconcile_scan.scan_repo(root)]
+        reconciliation, host_perm = reconcile_scan.scan_repo_channels(root)
+        return (
+            [ref.as_dict() for ref in reconciliation],
+            [ref.as_dict() for ref in host_perm],
+        )
     except Exception:  # noqa: BLE001 — fail-safe: a scan fault must never break the upgrade
-        return []
+        return [], []
 
 
 def _reconciliation_recommendation_lines(
     from_version: str | None,
     to_version: str | None,
     findings: list[dict] | None = None,
+    host_permission_flags: list[dict] | None = None,
 ) -> list[str]:
     """Recommendation to reconcile local surfaces against changed/retired framework surfaces.
 
-    Wave 1p7ww / 1p8et. Sibling of ``_config_review_recommendation_lines`` — same major/minor gate
-    (``_is_major_or_minor_upgrade``). The mechanical reconciliation (prune pack-removed files,
+    Wave 1p7ww / 1p8et / 1p8kz. Runs on EVERY upgrade (operator direction — a patch or a same-version
+    build-successor can change/retire a surface during testing); NOT gated to major/minor like its
+    sibling ``_config_review_recommendation_lines``. The mechanical reconciliation (prune pack-removed files,
     re-render surfaces, re-heal the ``python`` symlink) is automatic in the upgrade phases; this
     surfaces the *local-surface* part agents must still judge: docs/configs/scripts in THIS repo that
     referenced a framework surface the bump changed or RETIRED.
 
     Wave 1p8et: when ``findings`` (from the shipped ``reconcile_scan`` helper) are supplied, this emits
     the ACTIONABLE ``file:line → suggested wf form`` list instead of the recommend-only prose — the
-    scan replaces the prose. Report-only by default; never blocks. An empty findings list on a
-    major/minor bump still emits the heading + a "no stale references found" line so the operator sees
-    the scan ran. Returns [] (silent) on patch upgrades or any parse failure.
+    scan replaces the prose. Report-only by default; never blocks. An empty findings list still emits
+    the heading + a "no stale references found" line so the operator sees the scan ran. Returns []
+    (silent) only on a parse failure.
+
+    Wave 1p8o5: ``host_permission_flags`` (stale refs in host permission/allow-rule files the agent
+    cannot self-edit) are emitted in a DISTINCT section so the operator — not the agent — makes those
+    edits. They are never folded into the editable list above (seed-160 "flagged separately").
     """
     try:
-        if not _is_major_or_minor_upgrade(from_version, to_version):
-            return []
+        # Wave 1p8kz (operator direction): run on EVERY upgrade, not only major/minor. A patch — or a
+        # same-version build-successor during testing — can change or RETIRE a surface, and the scan is
+        # report-only + cheap + exclusion-aware, so there is no reason to skip it.
         lines = [
             "",
-            f"Reconciliation scan (major/minor upgrade {from_version} → {to_version}) — report-only:",
+            f"Reconciliation scan ({from_version} → {to_version}) — report-only:",
             "  Local surfaces (docs, prompts, configs, scripts) that named a framework surface this",
-            "  bump CHANGED or RETIRED — e.g. the 1.9.0 cutover retired the `.wavefoundry/bin/*`",
+            "  upgrade CHANGED or RETIRED — e.g. the 1.9.0 cutover retired the `.wavefoundry/bin/*`",
             "  wrappers in favor of the cross-OS `wf` dispatcher. Update each below; never auto-fixed.",
         ]
         if findings:
@@ -1695,6 +1711,22 @@ def _reconciliation_recommendation_lines(
                 )
         else:
             lines.append("    No stale retired-surface references found in local surfaces.")
+        # Wave 1p8o5 — host permission/allow-rule files: a SEPARATE operator-flag section. The agent
+        # cannot self-edit these under host auto-mode guards; name each stale rule + the new wf form
+        # and let the operator make the edit (seed-160). Only emit the section when there are hits.
+        if host_permission_flags:
+            lines.append("")
+            lines.append(
+                "  Host permission/allow-rule files (flag for the OPERATOR — agents cannot self-edit"
+            )
+            lines.append(
+                "  these under host auto-mode guards). Name the stale rule + the new wf form:"
+            )
+            for ref in host_permission_flags:
+                matched = ref.get("matched") or f".wavefoundry/bin/{ref['retired_surface']}"
+                lines.append(
+                    f"    {ref['file']}:{ref['line']} ({matched}) → {ref['suggested']}"
+                )
         return lines
     except Exception:
         return []
@@ -1708,13 +1740,17 @@ def _build_upgrade_summary(
     ran_index_rebuild: bool,
     failed_phase: str | None,
     reconciliation: list[dict],
+    host_permission_flags: list[dict] | None = None,
 ) -> dict:
     """Wave 1p8eu — assemble the operator summary ONCE as a dict.
 
     Both the human prose and the machine-readable sentinel line are rendered from this single dict so
     they cannot drift. Reuses ``_docs_gate_summary_line`` and ``_is_major_or_minor_upgrade`` (the
     computed values that agents previously regex-scraped from prose). ``reconciliation`` carries the
-    1p8et scan findings (``[]`` when not a major/minor bump or when the scan found nothing).
+    1p8et scan findings in editable repo surfaces (``[]`` when the scan found nothing).
+
+    Wave 1p8o5: ``host_permission_flags`` carries the DISTINCT host permission/allow-rule findings the
+    agent cannot self-edit (operator must edit them). Additive — it never disturbs ``reconciliation``.
     """
     return {
         "from_version": from_version,
@@ -1730,7 +1766,51 @@ def _build_upgrade_summary(
         "failed_phase": failed_phase,
         "is_major_or_minor": _is_major_or_minor_upgrade(from_version, to_version),
         "reconciliation": reconciliation,
+        "host_permission_flags": host_permission_flags or [],
     }
+
+
+def _emit_summary_line(summary: dict) -> None:
+    """Wave 1p8eu/1p8kz — emit the machine-readable summary sentinel (fail-safe).
+
+    ``wave_upgrade_response`` parses this single line into ``data['summary']``. Rendered from the
+    SAME ``_build_upgrade_summary`` dict everywhere (prose + sentinel + primary-phase emit) so they
+    cannot drift."""
+    try:
+        _log(WAVE_UPGRADE_SUMMARY_SENTINEL + json.dumps(summary, ensure_ascii=False))
+    except (TypeError, ValueError):
+        pass
+
+
+def _emit_primary_phase_summary(
+    from_version: str | None,
+    to_version: str | None,
+    zip_path: Path | None,
+    pruned_count: int,
+    root: Path | None,
+) -> None:
+    """Wave 1p8kz — emit the structured summary sentinel at the end of the primary upgrade phase
+    (phases 0–4, the default ``wave_upgrade()`` call) so agents get ``data['summary']`` — including
+    the 1p8et reconciliation findings — without waiting for the separate ``--cleanup`` phase. The full
+    human operator prose still prints only at cleanup (``phase_cleanup`` → ``_print_operator_summary``);
+    this emits the sentinel only, to avoid duplicating the prose. Wave 1p8kz (operator direction): the
+    reconciliation scan runs on EVERY upgrade — not only major/minor — since a patch or same-version
+    build-successor can change/retire a surface during testing (the rendered surfaces it needs are in
+    place by phase 1); fail-safe."""
+    reconciliation, host_permission_flags = (
+        _run_reconciliation_scan(root) if root is not None else ([], [])
+    )
+    summary = _build_upgrade_summary(
+        from_version=from_version,
+        to_version=to_version,
+        zip_path=zip_path,
+        pruned_count=pruned_count,
+        ran_index_rebuild=True,  # the default --yes path runs phase 4 (index update) before this point
+        failed_phase=None,
+        reconciliation=reconciliation,
+        host_permission_flags=host_permission_flags,
+    )
+    _emit_summary_line(summary)
 
 
 def _print_operator_summary(
@@ -1742,13 +1822,14 @@ def _print_operator_summary(
     failed_phase: str | None = None,
     root: Path | None = None,
 ) -> None:
-    # Wave 1p8et: run the shipped retired-surface reconciliation scan on a major/minor bump (report-
-    # only; fail-safe). Wave 1p8eu: build the summary dict ONCE and render the prose + the machine-
-    # readable sentinel line from it so they cannot drift.
-    if root is not None and not failed_phase and _is_major_or_minor_upgrade(from_version, to_version):
-        reconciliation = _run_reconciliation_scan(root)
+    # Wave 1p8et/1p8kz: run the shipped retired-surface reconciliation scan on EVERY upgrade (operator
+    # direction — a patch or same-version build-successor can change/retire a surface too), report-only
+    # + fail-safe. Wave 1p8eu: build the summary dict ONCE so the prose + machine-readable sentinel
+    # cannot drift.
+    if root is not None and not failed_phase:
+        reconciliation, host_permission_flags = _run_reconciliation_scan(root)
     else:
-        reconciliation = []
+        reconciliation, host_permission_flags = [], []
     summary = _build_upgrade_summary(
         from_version=from_version,
         to_version=to_version,
@@ -1757,6 +1838,7 @@ def _print_operator_summary(
         ran_index_rebuild=ran_index_rebuild,
         failed_phase=failed_phase,
         reconciliation=reconciliation,
+        host_permission_flags=host_permission_flags,
     )
 
     from_str = from_version or "(none)"
@@ -1788,16 +1870,12 @@ def _print_operator_summary(
         for line in _config_review_recommendation_lines(from_version, to_version):
             _log(line)
         for line in _reconciliation_recommendation_lines(
-            from_version, to_version, reconciliation
+            from_version, to_version, reconciliation, host_permission_flags
         ):
             _log(line)
-    # Wave 1p8eu — emit the summary machine-readably on a single sentinel line so
-    # wave_upgrade_response can parse it into data['summary'] (fail-safe). Rendered
-    # from the SAME dict as the prose above.
-    try:
-        _log(WAVE_UPGRADE_SUMMARY_SENTINEL + json.dumps(summary, ensure_ascii=False))
-    except (TypeError, ValueError):
-        pass
+    # Wave 1p8eu/1p8kz — emit the summary machine-readably so wave_upgrade_response parses it into
+    # data['summary'] (fail-safe). Rendered from the SAME dict as the prose above (one source).
+    _emit_summary_line(summary)
     # Wave 1p454 — defer to seed-160 as the authoritative editing-pass checklist
     # (do NOT enumerate its step-8 backfills here — they drift); fix the journal
     # label; prepend a secrets-resolution step before the docs-gate re-run.
@@ -1854,7 +1932,7 @@ def _count_committers(root: Path) -> int:
     windowed count is 0). Returns 0 on any git failure (no repo / no git)."""
     def _count(extra: list[str]) -> int:
         try:
-            r = subprocess.run(
+            r = subprocess_util.isolated_run(
                 ["git", "log", "--format=%ae", *extra],
                 cwd=str(root), capture_output=True, text=True, check=False,
             )
@@ -2336,6 +2414,12 @@ def main(argv: list[str] | None = None) -> int:
         _finalize_failed_upgrade(root, tree_mutated, current_phase)
         _close_log()
         raise
+
+    # Wave 1p8kz — emit the structured summary sentinel now (end of the default primary phase) so the
+    # wave_upgrade() call returns data['summary'] WITH the 1p8et reconciliation findings, instead of
+    # only on the separate --cleanup phase (where the agent often isn't looking). Full operator prose
+    # still prints at cleanup.
+    _emit_primary_phase_summary(from_version, to_version, zip_path, pruned_count, root)
 
     _log(
         "\n✓ Phases 0–4 complete. Proceed with agent editing pass, then run:\n"
