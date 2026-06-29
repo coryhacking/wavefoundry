@@ -6,6 +6,14 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.6] - 2026-06-29
+
+### Fixed
+
+- **No console windows flash on Windows.** Framework subprocesses that don't need a console — the upgrade/index/graph pipeline spawns, the dashboard server, and the rendered hook bodies — now launch via `pythonw.exe` on Windows when their output is redirected. A console-subsystem `python.exe` could still flash a window despite `CREATE_NO_WINDOW`, especially for long-running detached or rapidly-spawned processes. POSIX and the MCP server launch are unchanged.
+- **The dashboard starts cleanly on Windows.** The dashboard server now launches windowless, and the start path no longer false-reports `url_not_ready` or spawns duplicates that climb ports: it reconciles an already-serving dashboard before spawning and accepts a serving dashboard by URL reachability instead of requiring an exact recorded-PID match. The Windows lifetime lock was also moved off the byte the metadata occupies, so the dashboard can publish its URL while holding the lock (Windows mandatory byte-range locking had blocked that write).
+- **The dashboard renders horizontal rules.** A `---` (or `***`/`___`) separator line now renders as a horizontal rule in the dashboard's document view instead of as literal dashes.
+
 ## [1.9.5] - 2026-06-28
 
 ### Added

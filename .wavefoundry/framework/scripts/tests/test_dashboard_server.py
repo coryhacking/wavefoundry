@@ -1542,14 +1542,17 @@ class DashboardProcessControlTests(unittest.TestCase):
                 self.assertIsNone(self.server._dashboard_cmdline_pids(self.root))
 
     def test_start_reconciles_orphans_before_spawn(self):
-        # AC-3: no valid recorded instance + a live orphan → start terminates the
-        # orphan (replace, not spawn-alongside) and emits dashboard_orphan_detected.
+        # AC-3: no valid recorded instance + a live orphan whose URL is NOT serving → start terminates
+        # the orphan (replace, not spawn-alongside) and emits dashboard_orphan_detected. Wave 1p8pf:
+        # the orphan here is genuinely drifted (URL unreachable), so the reconcile-before-spawn does NOT
+        # adopt it — a serving (reachable) instance would instead be adopted (see WaveDashboardPidRaceTests).
         self._write_dashboard_metadata(self.root, pid=8888)  # the (fake) spawned pid
 
         class _FakeProc:
             pid = 8888
 
         with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[7777]), \
+             patch.object(self.server, "_dashboard_url_reachable", return_value=False), \
              patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term, \
              patch("subprocess.Popen", return_value=_FakeProc()):
             env = self.server.wave_dashboard_start_response(self.root)
@@ -1772,6 +1775,122 @@ class DashboardServerLockTests(unittest.TestCase):
                     pass
         # Reading the metadata never required holding the lock.
         self.assertEqual(self.lib.read_dashboard_metadata(self.root).get("url"), "x")
+
+
+class DashboardWindowsSentinelLockTests(unittest.TestCase):
+    """Wave 1p8pf: on Windows the lifetime lock must sit on a SENTINEL byte (`_LOCK_BYTE_OFFSET`), not
+    byte 0, so the daemon's own separate-handle metadata rewrite (at byte 0+, where `url` is published)
+    is not blocked by its own mandatory byte-range lock. POSIX keeps whole-file advisory `flock`."""
+
+    def setUp(self):
+        self.lib, self.srv = load_dashboard_modules()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _fake_msvcrt(self, calls):
+        """A fake `msvcrt` whose `locking` records the (op, offset) — offset read from the fd's real
+        position (set by the production `fh.seek` immediately before), so the assertion is non-vacuous."""
+        import types as _types
+
+        def locking(fileno, mode, nbytes):
+            offset = os.lseek(fileno, 0, os.SEEK_CUR)
+            calls.append((mode, offset, nbytes))
+
+        return _types.SimpleNamespace(
+            locking=locking, LK_NBLCK=1, LK_UNLCK=0,
+        )
+
+    def test_windows_lock_uses_sentinel_offset_not_byte_zero(self):
+        calls: list = []
+        fake = self._fake_msvcrt(calls)
+        with patch.object(self.lib.os, "name", "nt"), \
+             patch.dict(sys.modules, {"msvcrt": fake}):
+            with self.lib.dashboard_server_lock(self.root):
+                pass
+        # Exactly one acquire (LK_NBLCK) + one release (LK_UNLCK), BOTH at the sentinel offset, NEVER 0.
+        self.assertEqual(len(calls), 2, f"expected acquire+release, got {calls}")
+        acquire, release = calls[0], calls[1]
+        self.assertEqual(acquire[0], fake.LK_NBLCK)
+        self.assertEqual(acquire[1], self.lib._LOCK_BYTE_OFFSET,
+                         "acquire must lock the SENTINEL byte, not byte 0")
+        self.assertNotEqual(acquire[1], 0, "the lifetime lock must NOT cover byte 0")
+        self.assertEqual(release[0], fake.LK_UNLCK)
+        self.assertEqual(release[1], self.lib._LOCK_BYTE_OFFSET,
+                         "release must unlock the SAME sentinel byte")
+
+    def test_windows_metadata_write_region_is_disjoint_from_sentinel(self):
+        # The daemon publishes metadata (incl. `url`) at byte 0+; assert that region never reaches the
+        # sentinel offset, so the byte-0 rewrite cannot collide with the mandatory sentinel lock.
+        calls: list = []
+        fake = self._fake_msvcrt(calls)
+        with patch.object(self.lib.os, "name", "nt"), \
+             patch.dict(sys.modules, {"msvcrt": fake}):
+            with self.lib.dashboard_server_lock(self.root):
+                # Simulate the daemon publishing full metadata while holding the lock.
+                self.lib.write_dashboard_metadata(
+                    self.root, {"pid": os.getpid(), "url": "http://127.0.0.1:43127/dashboard.html"},
+                )
+                meta = self.lib.read_dashboard_metadata(self.root)
+        self.assertEqual(meta.get("url"), "http://127.0.0.1:43127/dashboard.html",
+                         "the daemon must be able to publish its url while holding the lock")
+        # The metadata file is small JSON written at byte 0 — far below the 1 GiB sentinel.
+        meta_size = self.lib.dashboard_metadata_path(self.root).stat().st_size
+        self.assertLess(meta_size, self.lib._LOCK_BYTE_OFFSET,
+                        "metadata must be far below the sentinel offset (no region overlap)")
+
+    def test_windows_concurrency_gate_intact_second_acquire_busy(self):
+        # The sentinel lock still gates concurrency: a second acquire of the same offset raises
+        # DashboardLockBusy. Modeled with a fake msvcrt that raises on a re-lock of a held offset.
+        held: set = set()
+
+        import types as _types
+
+        def locking(fileno, mode, nbytes):
+            offset = os.lseek(fileno, 0, os.SEEK_CUR)
+            if mode == 1:  # LK_NBLCK
+                if offset in held:
+                    raise OSError("lock violation")
+                held.add(offset)
+            else:  # LK_UNLCK
+                held.discard(offset)
+
+        fake = _types.SimpleNamespace(locking=locking, LK_NBLCK=1, LK_UNLCK=0)
+        with patch.object(self.lib.os, "name", "nt"), \
+             patch.dict(sys.modules, {"msvcrt": fake}):
+            with self.lib.dashboard_server_lock(self.root):
+                with self.assertRaises(self.lib.DashboardLockBusy):
+                    with self.lib.dashboard_server_lock(self.root):
+                        pass
+            # After release, the offset is free again → a fresh acquire succeeds.
+            with self.lib.dashboard_server_lock(self.root):
+                pass
+
+    def test_posix_branch_uses_whole_file_flock_unchanged(self):
+        # POSIX path must still use advisory whole-file flock with NO byte offset — assert msvcrt is
+        # never touched on POSIX and the real flock lock/unlock are used.
+        if os.name == "nt":
+            self.skipTest("POSIX-only assertion")
+        import fcntl
+        seen_ops: list = []
+        real_flock = fcntl.flock
+
+        def recording_flock(fd, op):
+            seen_ops.append(op)
+            return real_flock(fd, op)
+
+        # If msvcrt were touched on POSIX this would error (no real msvcrt offset handling here).
+        sentinel_msvcrt = object()
+        with patch.object(self.lib.os, "name", "posix"), \
+             patch.object(fcntl, "flock", side_effect=recording_flock), \
+             patch.dict(sys.modules, {"msvcrt": sentinel_msvcrt}):
+            with self.lib.dashboard_server_lock(self.root):
+                pass
+        self.assertIn(fcntl.LOCK_EX | fcntl.LOCK_NB, seen_ops, "POSIX acquire must use flock LOCK_EX|NB")
+        self.assertIn(fcntl.LOCK_UN, seen_ops, "POSIX release must use flock LOCK_UN")
 
 
 class DashboardReadOnlyTests(_HandlerHarnessMixin, unittest.TestCase):
@@ -2970,6 +3089,90 @@ class AgentsEmptyStateGuidanceTests(unittest.TestCase):
         self.assertIn('"build"', source)
         # The category iteration emits group elements
         self.assertIn("hero-agent-group", source)
+
+
+import shutil  # noqa: E402
+
+
+WFDS_PATH = SCRIPTS_ROOT.parent / "dashboard" / "ds" / "wfds.js"
+
+
+class RenderMarkdownishThematicBreakTests(unittest.TestCase):
+    """Wave 1p8pg: renderMarkdownish (ds/wfds.js) must render a standalone `---`/`***`/`___` line as an
+    <hr>, while a `---` inside a fenced code block stays literal and lists/headings/tables are
+    unaffected. The source-text assertion always runs; the node-execution assertions run the REAL
+    renderMarkdownish (non-vacuous) when node is available."""
+
+    _DRIVER = r"""
+const fs = require("fs");
+const vm = require("vm");
+// Minimal React stub: createElement → a plain {type, props, children} vnode tree.
+function createElement(type, props, ...children) {
+  const flat = [];
+  for (const c of children) {
+    if (Array.isArray(c)) flat.push(...c); else flat.push(c);
+  }
+  return { type, props: props || {}, children: flat };
+}
+const root = { React: { createElement, useState(){}, useEffect(){}, useRef(){}, useCallback(){} } };
+const code = fs.readFileSync(process.argv[2], "utf8");
+// The file's IIFE attaches to `this` when window is undefined; run it with `this === root`.
+vm.runInNewContext(code, { window: root, globalThis: root, console }, { filename: "wfds.js" });
+const WFDS = root.WFDS;
+const out = {};
+const types = (text) => WFDS.renderMarkdownish(text).map(n => (n && n.type) || null);
+out.hr_dashes = types("intro\n---\nafter");
+out.hr_stars = types("***");
+out.hr_unders = types("___");
+out.dash_list_item = types("- a\n- b");        // a `- ` list item must NOT become <hr>
+out.heading = types("# Title");
+// Fenced code containing --- must stay a single <pre> (literal), no <hr>.
+const fenced = WFDS.renderMarkdownish("```\n---\n```");
+out.fenced_types = fenced.map(n => (n && n.type) || null);
+// Extract the literal text inside the fenced <pre><code>…</code></pre>.
+function codeText(node) {
+  if (!node) return "";
+  if (typeof node === "string") return node;
+  if (node.children) return node.children.map(codeText).join("");
+  return "";
+}
+out.fenced_code_text = fenced.map(codeText).join("");
+process.stdout.write(JSON.stringify(out));
+"""
+
+    def test_thematic_break_branch_present_in_source(self):
+        # Always-on guard (runs even without node): the branch exists with the exact rule regex,
+        # placed so the code-block collector (which `continue`s first) keeps fenced `---` literal.
+        src = WFDS_PATH.read_text(encoding="utf-8")
+        self.assertIn(r"/^(-{3,}|\*{3,}|_{3,})$/.test(line)", src,
+                      "renderMarkdownish must classify a standalone rule line via the thematic-break regex")
+        self.assertIn('h("hr", { key: key++ })', src,
+                      "the thematic-break branch must emit an <hr> vnode")
+
+    @unittest.skipUnless(shutil.which("node"), "node not available — JS execution test skipped")
+    def test_renderMarkdownish_executes_thematic_break_behavior(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as td:
+            driver = Path(td) / "driver.js"
+            driver.write_text(self._DRIVER, encoding="utf-8")
+            proc = subprocess.run(
+                ["node", str(driver), str(WFDS_PATH)],
+                capture_output=True, text=True, timeout=30,
+            )
+        self.assertEqual(proc.returncode, 0, f"node driver failed: {proc.stderr}")
+        out = json.loads(proc.stdout)
+        # AC-1: standalone ---/***/___ → <hr> (the dashes case sits between two <p>).
+        self.assertIn("hr", out["hr_dashes"], f"--- did not render <hr>: {out['hr_dashes']}")
+        self.assertEqual(out["hr_stars"], ["hr"], f"*** did not render a sole <hr>: {out['hr_stars']}")
+        self.assertEqual(out["hr_unders"], ["hr"], f"___ did not render a sole <hr>: {out['hr_unders']}")
+        # AC-2: a `- ` list item is unaffected (becomes a <ul>, never <hr>).
+        self.assertEqual(out["dash_list_item"], ["ul"], f"list items regressed: {out['dash_list_item']}")
+        self.assertEqual(out["heading"], ["h1"], f"headings regressed: {out['heading']}")
+        # AC-2: fenced code containing --- stays a single literal <pre>, no <hr>.
+        self.assertEqual(out["fenced_types"], ["pre"],
+                         f"fenced --- must stay a single <pre>, no <hr>: {out['fenced_types']}")
+        self.assertIn("---", out["fenced_code_text"],
+                      "the --- inside the fenced block must remain literal text")
 
 
 import threading  # noqa: E402 (already imported above, but needed in test scope)

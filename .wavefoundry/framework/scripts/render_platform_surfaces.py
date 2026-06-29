@@ -183,6 +183,21 @@ def hook_helpers() -> str:
         GUARD_OVERRIDES = REPO_ROOT / ".wavefoundry" / "guard-overrides.json"
 
 
+        def hook_python() -> str:
+            # Wave 1p8pe: prefer the console-free tool-venv pythonw.exe on Windows so these rendered
+            # hook spawns (all output redirected: DEVNULL / PIPE / capture) never flash a console
+            # window. Falls back to sys.executable when subprocess_util is unavailable or on POSIX
+            # (windowless_pythonw() returns None). Every spawned target self-activates the venv.
+            if _wf_subprocess_util is not None:
+                try:
+                    pythonw = _wf_subprocess_util.windowless_pythonw()
+                    if pythonw is not None:
+                        return pythonw
+                except Exception:
+                    pass
+            return sys.executable
+
+
         def read_payload_text() -> str:
             try:
                 if sys.stdin.isatty():
@@ -311,7 +326,7 @@ def hook_helpers() -> str:
             # interpreter; the spawned docs_lint.py self-activates the venv first-line, so it reaches
             # the venv packages.
             docs_lint = REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "docs_lint.py"
-            result = run_command([sys.executable, str(docs_lint)])
+            result = run_command([hook_python(), str(docs_lint)])
             if result.returncode == 0:
                 return False, ""
             message = (result.stdout + result.stderr).strip()
@@ -350,8 +365,10 @@ def hook_helpers() -> str:
                 return
             # sys.executable is the SYSTEM interpreter (after in-process activation, wave 1p802) — an
             # absolute path; the spawned indexer.py self-activates the venv first-line so the child
-            # reaches the venv packages. Never re-resolve a python3/python token.
-            python_exec = sys.executable
+            # reaches the venv packages. Never re-resolve a python3/python token. Wave 1p8pe: prefer the
+            # console-free pythonw.exe on Windows (this is a detached all-DEVNULL spawn — textbook
+            # flasher); hook_python() falls back to sys.executable on POSIX / when unavailable.
+            python_exec = hook_python()
             index_dir = REPO_ROOT / ".wavefoundry" / "index"
             try:
                 hook_helpers = _load_indexer_hook_helpers()
@@ -525,8 +542,17 @@ def claude_simulate_hooks_source() -> str:
                 return 2
             # sys.executable is the SYSTEM interpreter (after in-process activation, wave 1p802); the
             # spawned hook target self-activates the venv first-line, so it reaches the venv packages.
-            # An absolute path; never re-resolve a token.
+            # An absolute path; never re-resolve a token. Wave 1p8pe: prefer the console-free pythonw.exe
+            # on Windows (this dry-run spawn is input=/redirected) so it never flashes a window; this body
+            # defines no hook helpers, so resolve windowless inline with a sys.executable fallback.
             python_exec = sys.executable
+            try:
+                import subprocess_util as _wf_subprocess_util
+                _wf_pythonw = _wf_subprocess_util.windowless_pythonw()
+                if _wf_pythonw is not None:
+                    python_exec = _wf_pythonw
+            except Exception:
+                pass
             result = subprocess.run(  # wave 1p8gu: inline no-window flag so the isolation guard sees it
                 [python_exec, str(target)],
                 cwd=REPO_ROOT,
@@ -619,8 +645,10 @@ def cursor_after_file_edit_source() -> str:
             payload = load_payload(raw)
             # sys.executable is the SYSTEM interpreter (after in-process activation, wave 1p802); each
             # spawned gate script self-activates the venv first-line, so it reaches the venv packages.
-            # An absolute path; never re-resolve a token.
-            python_exec = sys.executable
+            # An absolute path; never re-resolve a token. Wave 1p8pe: prefer the console-free pythonw.exe
+            # on Windows (these gate spawns are input=/capture-redirected); hook_python() falls back to
+            # sys.executable on POSIX / when unavailable.
+            python_exec = hook_python()
             for gate in GATES:
                 if _wf_subprocess_util is not None:
                     result = _wf_subprocess_util.isolated_run(

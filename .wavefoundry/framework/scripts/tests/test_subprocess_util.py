@@ -209,5 +209,98 @@ class Utf8ChildEnvTests(unittest.TestCase):
         self.assertIn("→ done", fixed.stdout)
 
 
+class WindowlessPythonwTests(unittest.TestCase):
+    """Wave 1p8pe: windowless_pythonw() returns the tool-venv pythonw.exe on Windows when present, else
+    None — the graceful-fallback contract every spawn-site conversion relies on. The real Windows
+    console behavior can't run on POSIX, so we simulate os.name == 'nt' + a present/absent pythonw."""
+
+    def test_returns_none_on_posix(self):
+        with patch.object(subprocess_util.os, "name", "posix"):
+            self.assertIsNone(subprocess_util.windowless_pythonw())
+
+    def _fake_nt_os(self):
+        # Patch ONLY subprocess_util's `os` reference so the helper's `os.name != "nt"` gate sees
+        # Windows, while the REAL global os (and pathlib's Path) stays POSIX — otherwise patching the
+        # shared os.name to "nt" makes pathlib try to instantiate WindowsPath and crash on macOS/Linux.
+        import types as _types
+        fake_os = _types.SimpleNamespace(name="nt")
+        return patch.object(subprocess_util, "os", fake_os)
+
+    def test_returns_pythonw_path_on_windows_when_present(self):
+        # Simulate Windows: os.name == 'nt' and a candidate pythonw.exe exists on disk.
+        with tempfile.TemporaryDirectory() as td:
+            scripts = Path(td) / "Scripts"
+            scripts.mkdir()
+            pythonw = scripts / "pythonw.exe"
+            pythonw.write_text("", encoding="utf-8")  # any file — the helper only checks is_file()
+            import venv_bootstrap
+            with self._fake_nt_os(), \
+                 patch.object(venv_bootstrap, "tool_venv_base", return_value=Path(td)):
+                result = subprocess_util.windowless_pythonw()
+            self.assertEqual(result, str(pythonw))
+
+    def test_returns_none_on_windows_when_no_pythonw(self):
+        # Windows but no pythonw anywhere: tool venv base points at an empty dir, and the real
+        # sys.executable's directory (the test interpreter's) has no pythonw.exe sibling — so all
+        # candidates miss and the helper returns None (the graceful-fallback contract).
+        with tempfile.TemporaryDirectory() as td:
+            import venv_bootstrap
+            with self._fake_nt_os(), \
+                 patch.object(venv_bootstrap, "tool_venv_base", return_value=Path(td) / "empty"):
+                self.assertIsNone(subprocess_util.windowless_pythonw())
+
+
+class PreferredPythonResolverTests(unittest.TestCase):
+    """Wave 1p8pe AC-1: server_impl._preferred_python and upgrade_wavefoundry._preferred_python prefer
+    the windowless pythonw on Windows when present, and gracefully fall back to the venv python /
+    sys.executable when windowless_pythonw() returns None (POSIX / no pythonw)."""
+
+    def _load(self, name: str):
+        import importlib
+        return importlib.import_module(name)
+
+    def test_returns_pythonw_when_windowless_available(self):
+        for modname in ("server_impl", "upgrade_wavefoundry"):
+            with self.subTest(module=modname):
+                mod = self._load(modname)
+                with patch.object(mod.subprocess_util, "windowless_pythonw",
+                                  return_value="/venv/Scripts/pythonw.exe"):
+                    self.assertEqual(mod._preferred_python(), "/venv/Scripts/pythonw.exe")
+
+    def test_falls_back_to_venv_python_when_no_windowless(self):
+        # windowless_pythonw() None (POSIX / no pythonw) → the venv python when it exists.
+        for modname in ("server_impl", "upgrade_wavefoundry"):
+            with self.subTest(module=modname):
+                mod = self._load(modname)
+                fake_vp = Path("/fake/venv/bin/python")
+
+                class _VP:
+                    def exists(self_inner):
+                        return True
+
+                    def __str__(self_inner):
+                        return str(fake_vp)
+
+                with patch.object(mod.subprocess_util, "windowless_pythonw", return_value=None), \
+                     patch.object(mod.venv_bootstrap, "tool_venv_python", return_value=_VP()):
+                    self.assertEqual(mod._preferred_python(), str(fake_vp))
+
+    def test_falls_back_to_sys_executable_when_no_venv(self):
+        for modname in ("server_impl", "upgrade_wavefoundry"):
+            with self.subTest(module=modname):
+                mod = self._load(modname)
+
+                class _VP:
+                    def exists(self_inner):
+                        return False
+
+                    def __str__(self_inner):
+                        return "/never/used"
+
+                with patch.object(mod.subprocess_util, "windowless_pythonw", return_value=None), \
+                     patch.object(mod.venv_bootstrap, "tool_venv_python", return_value=_VP()):
+                    self.assertEqual(mod._preferred_python(), mod.sys.executable)
+
+
 if __name__ == "__main__":
     unittest.main()

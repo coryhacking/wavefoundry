@@ -28,6 +28,15 @@ _TASK_RE = re.compile(r"^\s*-\s+(?:(?:\[(?P<mark>[ xX~])\])\s+)?(?P<label>.+?)\s
 _ACTIVE_WAVE_RE = re.compile(r"^\*\*Active wave:\*\*\s+(.+)$", re.MULTILINE)
 DASHBOARD_START_LOCK_NAME = "dashboard-start.lock"
 DASHBOARD_SERVER_LOCK_NAME = "dashboard-server.lock"
+# Wave 1p8pf: on native Windows `msvcrt.locking` is MANDATORY byte-range (unlike POSIX advisory
+# `flock`). The server lock file IS the metadata store (wave 1p64x), and the daemon rewrites its
+# metadata (incl. `url`) through a SEPARATE handle (`write_dashboard_metadata`) while holding the
+# lifetime lock. If the lifetime lock covers byte 0, that separate rewrite hits ERROR_LOCK_VIOLATION
+# on Windows and the daemon can never publish its `url` → the start poll false-reports `url_not_ready`.
+# Locking a SENTINEL byte at a high fixed offset (far beyond any metadata length, which is small JSON
+# written at byte 0+) gates concurrency without overlapping the metadata region, so the same-process
+# rewrite succeeds. POSIX keeps its whole-file advisory `flock` (no offset, unchanged).
+_LOCK_BYTE_OFFSET = 1 << 30  # 1 GiB — well beyond any dashboard metadata length
 GRAPH_DIRNAME = "graph"
 # Wave 1p4ww: single project graph — the framework graph layer was removed.
 GRAPH_FILENAMES = {
@@ -154,6 +163,9 @@ def dashboard_metadata_path(root: Path) -> Path:
     # not two. `flock` is advisory and per-open-file-description, so the lock holder
     # can rewrite this file's content in place (see write_dashboard_metadata) while
     # keeping its lifetime lock. (Was a separate `dashboard-server.json`.)
+    # Wave 1p8pf: on Windows `msvcrt.locking` is mandatory, so the lifetime lock is taken on a
+    # SENTINEL byte at `_LOCK_BYTE_OFFSET` (not byte 0) — the metadata JSON written at byte 0+ stays
+    # disjoint from the lock region, so the holder's own metadata rewrite is not blocked.
     return root / ".wavefoundry" / DASHBOARD_SERVER_LOCK_NAME
 
 
@@ -172,7 +184,10 @@ def dashboard_lock(root: Path, name: str):
         if os.name == "nt":
             import msvcrt
             try:
-                fh.seek(0)
+                # Wave 1p8pf: lock a SENTINEL byte at a high fixed offset, NOT byte 0 — msvcrt.locking
+                # is mandatory byte-range, so a byte-0 lock would block the daemon's own separate-handle
+                # metadata rewrite (write_dashboard_metadata at byte 0+) and stop it publishing `url`.
+                fh.seek(_LOCK_BYTE_OFFSET)
                 msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
                 acquired = True
             except OSError as exc:
@@ -185,6 +200,8 @@ def dashboard_lock(root: Path, name: str):
             except BlockingIOError as exc:
                 raise DashboardLockBusy(f"Dashboard lock busy: {lock_path}") from exc
 
+        # Initial content write lives at byte 0+ (a small JSON), far below the Windows sentinel offset,
+        # so the truncate does not disturb the beyond-EOF sentinel-byte lock.
         fh.seek(0)
         fh.truncate()
         fh.write(json.dumps({"pid": os.getpid(), "started_at": time.time(), "lock": name}))
@@ -195,7 +212,7 @@ def dashboard_lock(root: Path, name: str):
             try:
                 if os.name == "nt":
                     import msvcrt
-                    fh.seek(0)
+                    fh.seek(_LOCK_BYTE_OFFSET)  # unlock the SAME sentinel byte we locked
                     msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
                 else:
                     import fcntl
@@ -225,6 +242,9 @@ def write_dashboard_metadata(root: Path, payload: dict[str, Any]) -> None:
     # new inode, orphaning the lifetime `flock` the running server holds on the old
     # inode, which would let a second server acquire the lock and run concurrently.
     # In-place truncate keeps the holder's per-open-file-description lock intact.
+    # Wave 1p8pf: this is a SEPARATE handle from the lifetime lock; on Windows the lock sits on the
+    # sentinel byte at `_LOCK_BYTE_OFFSET`, so this byte-0+ rewrite no longer collides with the
+    # daemon's own mandatory byte-range lock (the bug: it could not publish `url`).
     path = dashboard_metadata_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

@@ -93,10 +93,16 @@ def _tool_venv_base() -> Path:
 
 
 def _preferred_python() -> str:
-    """Return the shared tool-venv Python when present, else the current interpreter.
+    """Return the spawn interpreter: tool-venv ``pythonw.exe`` on Windows, else tool-venv Python.
 
-    Builds the path via the single resolver (wave 1p7pl); semantics unchanged.
+    Builds the venv path via the single resolver (wave 1p7pl). On native Windows, prefers the
+    console-free tool-venv ``pythonw.exe`` when present so spawned framework processes never flash a
+    console window (wave 1p8pe). Every consumer of this resolver is non-interactive and redirects its
+    output. POSIX is unchanged (``windowless_pythonw()`` returns ``None``).
     """
+    pythonw = subprocess_util.windowless_pythonw()
+    if pythonw is not None:
+        return pythonw
     vp = venv_bootstrap.tool_venv_python()
     return str(vp) if vp.exists() else sys.executable
 

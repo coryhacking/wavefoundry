@@ -141,13 +141,16 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             self.assertNotIn("--index-dir", post_edit)
             self.assertNotIn("should_reindex_framework", post_edit)
             # Wave 1p7pm/1p802 (1p7pb-adr): the body ACTIVATES the tool venv in-process first-line via
-            # the single `venv_bootstrap` resolver, then inner spawns use sys.executable (the re-spawned
-            # script self-activates) — no rendered `_venv_python_path` resolver remains, no re-exec.
+            # the single `venv_bootstrap` resolver — no rendered `_venv_python_path` resolver remains, no
+            # re-exec. Wave 1p8pe: inner spawns now resolve the interpreter via hook_python() (the
+            # console-free pythonw.exe on Windows, else sys.executable; the re-spawned script
+            # self-activates the venv).
             self.assertIn("activate_tool_venv()", post_edit)
             self.assertNotIn("reexec_into_tool_venv", post_edit)
             self.assertIn("import venv_bootstrap", post_edit)
             self.assertNotIn("_venv_python_path", post_edit)
-            self.assertIn("python_exec = sys.executable", post_edit)
+            self.assertIn("python_exec = hook_python()", post_edit)
+            self.assertIn("return sys.executable", post_edit)  # hook_python()'s POSIX/unavailable fallback
             # Wave 1p35d (1p35n, AC-9): the rendered hook helper source must no longer
             # contain the dead `maybe_cleanup_pycache` helper or its `shutil` dependency.
             # The previous third hook was never actually wired in any host's settings,
@@ -183,11 +186,16 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             self.assertIn("[python_exec, str(indexer), \"--root\", str(REPO_ROOT)]", post_edit)
             cursor_after = (repo_root / ".cursor" / "hooks" / "after-file-edit.py").read_text(encoding="utf-8")
             self.assertNotIn("_venv_python_path", cursor_after)
-            self.assertIn("python_exec = sys.executable", cursor_after)
+            # Wave 1p8pe: cursor gate spawns resolve the interpreter via hook_python() (windowless pythonw
+            # on Windows, else sys.executable).
+            self.assertIn("python_exec = hook_python()", cursor_after)
             self.assertIn("[python_exec, str(gate)]", cursor_after)
             claude_sim = (repo_root / ".claude" / "hooks" / "simulate-hooks.py").read_text(encoding="utf-8")
             self.assertNotIn("_venv_python_path", claude_sim)
+            # Wave 1p8pe: simulate-hooks has no shared helpers (include_helpers=False) — it keeps the
+            # sys.executable default and resolves a windowless interpreter inline.
             self.assertIn("python_exec = sys.executable", claude_sim)
+            self.assertIn("windowless_pythonw()", claude_sim)
             self.assertIn("[python_exec, str(target)]", claude_sim)
             upgrade_skill = (repo_root / ".claude" / "skills" / "upgrade-wave.md").read_text(encoding="utf-8")
             self.assertIn(".wavefoundry/guard-overrides.json", upgrade_skill)
@@ -788,6 +796,58 @@ class HookReindexDetachTests(unittest.TestCase):
             "rendered hook bodies must isolate every child spawn (stdin DEVNULL/input + no-window):\n"
             + "\n".join(offenders),
         )
+
+    def test_hook_helpers_defines_windowless_hook_python(self):
+        # Wave 1p8pe AC-4: hook_helpers() exposes hook_python() — the console-free interpreter resolver
+        # that prefers the tool-venv pythonw.exe on Windows (via the guarded _wf_subprocess_util) and
+        # falls back to sys.executable on POSIX / when subprocess_util is unavailable.
+        src = self.mod.hook_helpers()
+        self.assertIn("def hook_python()", src, "hook_helpers must define the windowless hook_python()")
+        self.assertIn("windowless_pythonw()", src, "hook_python must call windowless_pythonw()")
+        self.assertIn("return sys.executable", src, "hook_python must fall back to sys.executable")
+
+    def test_converted_hook_bodies_launch_via_windowless_pythonw(self):
+        # Wave 1p8pe AC-4: the four converted rendered hook bodies launch python via the windowless path
+        # (hook_python() for the helper-bearing bodies; an inline guarded windowless resolution for
+        # claude_simulate_hooks_source which carries no helpers) with a sys.executable fallback, while
+        # preserving their existing input=/stdin/capture wiring.
+        # docs-lint (run_command) + post-edit reindex Popen + cursor gate runners → hook_python().
+        for fname in ("claude_post_edit_source", "cursor_after_file_edit_source"):
+            body = getattr(self.mod, fname)()
+            self.assertIn("hook_python()", body, f"{fname} must launch python via hook_python()")
+        # The docs-lint launch lives in hook_helpers() (shared into post-edit/cursor bodies).
+        self.assertIn("run_command([hook_python(), str(docs_lint)])", self.mod.hook_helpers())
+        # simulate-hooks body: no shared helpers (include_helpers=False) → inline guarded windowless.
+        sim = self.mod.claude_simulate_hooks_source()
+        self.assertIn("windowless_pythonw()", sim,
+                      "claude_simulate_hooks_source must resolve a windowless interpreter inline")
+        self.assertIn("python_exec = sys.executable", sim,
+                      "claude_simulate_hooks_source must keep the sys.executable fallback")
+        # Preserve the existing input= wiring (PIPE payload) in the converted bodies.
+        self.assertIn("input=payload", sim, "simulate-hooks must preserve input=payload")
+        self.assertIn("input=raw", self.mod.cursor_after_file_edit_source(),
+                      "cursor after-file-edit must preserve input=raw")
+
+    def test_every_rendered_mcp_command_stays_python3(self):
+        # Wave 1p8pe AC-5: the MCP JSON-RPC stdio transport must NOT be pythonw-converted — every host's
+        # rendered MCP server command must stay the byte-identical `python3` on server.py (a windows-
+        # subsystem pythonw.exe with no console would break the stdio handshake the same way).
+        renderers = {
+            ".mcp.json": ("render_mcp_json", lambda r: r / ".mcp.json"),
+            "cursor": ("render_cursor_mcp_json", lambda r: r / ".cursor" / "mcp.json"),
+            "junie": ("render_junie_mcp_json", lambda r: r / ".junie" / "mcp" / "mcp.json"),
+            "antigravity": ("render_antigravity_mcp_json", lambda r: r / ".agents" / "mcp_config.json"),
+        }
+        for host, (fn_name, path_of) in renderers.items():
+            with self.subTest(host=host):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    getattr(self.mod, fn_name)(root)
+                    data = json.loads(path_of(root).read_text(encoding="utf-8"))
+                wf = data["mcpServers"]["wavefoundry"]
+                self.assertEqual(wf["command"], "python3",
+                                 f"{host} MCP command must stay python3 (never pythonw)")
+                self.assertEqual(wf["args"], [".wavefoundry/framework/scripts/server.py"])
 
     def test_git_hooks_are_not_rendered(self):
         # Wave 1p88t: git hooks were dropped; the renderer must no longer expose git_hook_source /

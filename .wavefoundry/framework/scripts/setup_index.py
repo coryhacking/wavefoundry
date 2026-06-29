@@ -211,7 +211,11 @@ def _missing_in_venv(venv_python: Path, required_imports: dict[str, str] | None 
         "        missing.append('__dist__:' + dist)\n"
         "print('\\n'.join(missing))"
     )
-    result = subprocess_util.isolated_run([str(venv_python), "-c", script], capture_output=True, text=True)
+    # Wave 1p8pe: prefer the console-free tool-venv pythonw.exe on Windows for this captured import probe
+    # so it does not flash a window; pythonw shares the same venv site-packages, so the probe result is
+    # identical. Falls back to the passed-in venv Python (POSIX returns None).
+    probe_interp = subprocess_util.windowless_pythonw() or str(venv_python)
+    result = subprocess_util.isolated_run([probe_interp, "-c", script], capture_output=True, text=True)
     if result.returncode != 0:
         return list(required_imports.keys())
     missing_mods = [m.strip() for m in result.stdout.strip().splitlines() if m.strip()]
@@ -956,7 +960,12 @@ def _prewarm_gpu_accel(models: list[str]) -> None:
 
 def _spawn_background_code_build(root: Path, args: argparse.Namespace) -> None:
     """Spawn a detached background process to build the code index."""
-    cmd = [str(_tool_venv_python()), __file__, "--root", str(root), "--include-code"]
+    # Wave 1p8pe: prefer the console-free tool-venv pythonw.exe on Windows so this detached background
+    # build (log-file stdout/stderr) never flashes a console window; falls back to the tool-venv Python
+    # (POSIX returns None). The :134 _tool_venv_python resolver stays unchanged (it feeds venv path-math
+    # + the console-streaming pip install).
+    interp = subprocess_util.windowless_pythonw() or str(_tool_venv_python())
+    cmd = [interp, __file__, "--root", str(root), "--include-code"]
     if args.full:
         cmd.append("--full")
     if args.include_tests:
@@ -1001,7 +1010,11 @@ def _run_indexer(
     project_include_prefixes: tuple[str, ...],
     rechunk: bool = False,
 ) -> None:
-    cmd = [str(_tool_venv_python()), str(SCRIPTS_DIR / "indexer.py"), "--root", str(root), "--content", content]
+    # Wave 1p8pe: prefer the console-free tool-venv pythonw.exe on Windows for this foreground indexer
+    # spawn (one-way PIPE — the parent reads its stdout, the child never prints to a console) so it does
+    # not flash a window; falls back to the tool-venv Python (POSIX returns None).
+    interp = subprocess_util.windowless_pythonw() or str(_tool_venv_python())
+    cmd = [interp, str(SCRIPTS_DIR / "indexer.py"), "--root", str(root), "--content", content]
     if full:
         cmd.append("--full")
     if rechunk:  # Wave 1p4n4: re-chunk all + reuse embeddings by hash (no version change)

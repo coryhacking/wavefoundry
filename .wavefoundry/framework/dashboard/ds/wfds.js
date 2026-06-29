@@ -458,6 +458,13 @@
         } else if (line.startsWith("- ")) {
           flushTable();
           listItems.push(h("li", { key: key++ }, renderInline(line.slice(2))));
+        } else if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) {
+          // Thematic break (1p8pg): a standalone rule line (`---`/`***`/`___`) → <hr>. The fenced-code
+          // collector above already `continue`d, so a `---` inside a code block stays literal; a `- `
+          // list item is unaffected (it requires the trailing space this regex disallows).
+          flushList();
+          flushTable();
+          result.push(h("hr", { key: key++ }));
         } else {
           flushList();
           flushTable();

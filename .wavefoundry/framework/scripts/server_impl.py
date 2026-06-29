@@ -146,10 +146,16 @@ def _tool_venv_base() -> Path:
 
 
 def _preferred_python() -> str:
-    """Return the shared tool-venv Python when present, else the current interpreter.
+    """Return the spawn interpreter: tool-venv ``pythonw.exe`` on Windows, else tool-venv Python.
 
-    Builds the path via the single resolver (wave 1p7pl); semantics unchanged.
+    Builds the venv path via the single resolver (wave 1p7pl). On native Windows, prefers the
+    console-free tool-venv ``pythonw.exe`` when present so spawned framework processes never flash a
+    console window (wave 1p8pe). Every consumer of this resolver is non-interactive and redirects its
+    output. POSIX is unchanged (``windowless_pythonw()`` returns ``None``).
     """
+    pythonw = subprocess_util.windowless_pythonw()
+    if pythonw is not None:
+        return pythonw
     vp = venv_bootstrap.tool_venv_python()
     return str(vp) if vp.exists() else sys.executable
 
@@ -6717,6 +6723,11 @@ def wave_dashboard_start_response(root: Path, port: int | None = None) -> dict[s
     meta = running_meta()
     if meta is not None:
         return already_running(meta)
+    # Wave 1p8pf: also early-out when a dashboard is serving under a drifted/non-matching PID (reachable
+    # URL + a live dashboard process) so we never even acquire the start lock to spawn a duplicate.
+    serving = _dashboard_already_serving(root, meta_path)
+    if serving is not None:
+        return already_running(serving)
 
     try:
         start_lock = dashboard_lib.dashboard_start_lock(root)
@@ -6758,11 +6769,21 @@ def wave_dashboard_start_response(root: Path, port: int | None = None) -> dict[s
         if meta is not None:
             return already_running(meta)
 
+        # Wave 1p8pf: reconcile-before-spawn — a dashboard may be serving under a DIFFERENT PID than
+        # any we recorded (the field race: prior spawn wrote metadata under PID X, this start polls for
+        # PID Y). Recognize it by URL-reachability + a live dashboard process and return that URL
+        # instead of spawning a duplicate (which climbed ports). running_meta() above already adopted
+        # the live-recorded-PID case; this catches the PID-drift case before we kill orphans/spawn.
+        serving = _dashboard_already_serving(root, meta_path)
+        if serving is not None:
+            return already_running(serving)
+
         # Wave 1p654: no valid recorded instance — but orphaned dashboards for this
         # root may still be alive (drifted/removed metadata). Terminate them so we
         # converge to exactly one instance instead of spawning alongside (the cause
         # of orphan accumulation + port climb). A genuinely-live instance was
-        # already adopted by running_meta() above; this only fires on real drift.
+        # already adopted by running_meta()/_dashboard_already_serving above; this only
+        # fires on real drift (a dead/unreachable recorded instance).
         orphan_diags: list[dict[str, Any]] = []
         _orphans = _dashboard_cmdline_pids(root) or []
         if _orphans:
@@ -6801,19 +6822,41 @@ def wave_dashboard_start_response(root: Path, port: int | None = None) -> dict[s
                 diagnostics=[_diagnostic("spawn_failed", str(exc))],
             )
 
-        # Poll up to 5s for the server to write its metadata (host, port, URL).
+        # Poll up to 5s for a SERVING dashboard (host, port, URL). Wave 1p8pf: accept a serving
+        # dashboard by URL-reachability and/or a live dashboard PID for this root — NOT by matching the
+        # just-spawned proc.pid. The old PID-exact check (`meta.pid == proc.pid`) false-reported
+        # url_not_ready whenever a prior spawn had already written metadata under a different PID, then
+        # spawned a duplicate that climbed ports. The bounded deadline still makes a genuinely-failed
+        # start (no URL, no reachable server) report failure.
         url = ""
-        deadline = _time.monotonic() + 5.0
+        deadline = _time.monotonic() + DASHBOARD_START_WAIT_SECONDS
         while _time.monotonic() < deadline:
             _time.sleep(0.25)
-            if meta_path.exists():
-                try:
-                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                    if meta.get("pid") == proc.pid and meta.get("url"):
-                        url = meta["url"]
-                        break
-                except (OSError, json.JSONDecodeError):
-                    pass
+            if not meta_path.exists():
+                continue
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            meta_url = meta.get("url") or ""
+            if not meta_url:
+                continue
+            meta_pid = meta.get("pid")
+            # The just-spawned process owns the metadata → the spawn wrote its own URL: success
+            # (unchanged from the original PID-exact accept, so the spawn path is fully backward
+            # compatible). This is the common case.
+            if meta_pid == proc.pid:
+                url = meta_url
+                break
+            # The metadata PID does NOT match proc.pid (the field race: a prior spawn wrote it). Accept
+            # the serving dashboard by liveness + reachability, NOT by our own PID — this is the bug fix.
+            # A live dashboard PID for this root, OR an HTTP-reachable URL, proves it is serving.
+            if isinstance(meta_pid, int) and _dashboard_pid_is_live(meta_pid, root):
+                url = meta_url
+                break
+            if _dashboard_url_reachable(meta_url):
+                url = meta_url
+                break
 
         if not url:
             return _response(
@@ -6902,6 +6945,68 @@ def _dashboard_pid_is_live(pid: int, root: Path) -> bool:
     if live is None:
         return True
     return pid in live
+
+
+def _dashboard_url_reachable(url: str, timeout: float = 1.0) -> bool:
+    """True iff ``url`` answers an HTTP request (any status — a serving dashboard).
+
+    Wave 1p8pf: the dashboard start path must recognize an already-serving dashboard by
+    URL-reachability, not by matching the just-spawned PID. A reachable URL is proof the server
+    is up regardless of which PID owns it; any HTTP response (incl. 4xx/5xx) counts as serving —
+    only a connection failure / timeout means "not reachable". Never raises.
+    """
+    if not url:
+        return False
+    import urllib.request
+    import urllib.error
+
+    try:
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=timeout):  # noqa: S310 — loopback dashboard URL
+            return True
+    except urllib.error.HTTPError:
+        # The server answered with an HTTP error status — it IS serving.
+        return True
+    except Exception:
+        # Connection refused / DNS / timeout / SSE-hang — treat as not (yet) reachable.
+        return False
+
+
+def _dashboard_already_serving(root: Path, meta_path: Path) -> dict[str, Any] | None:
+    """Reconcile-before-spawn: return a serving dashboard's metadata, or None.
+
+    Wave 1p8pf: a dashboard counts as already-serving when EITHER
+      (a) the recorded metadata names a live dashboard PID for ``root`` with a URL
+          (the wave-1p654 ``running_meta`` contract — the common reconcile case, incl. the field
+          race once the just-spawned child's PID is the live recorded one), OR
+      (b) the recorded URL is actually HTTP-reachable AND a live dashboard process exists for
+          ``root`` (cmdline scan) — the dashboard is genuinely serving under a PID that differs from
+          the recorded one (the field race: a prior spawn wrote metadata under a different PID). A
+          reachable URL means killing+respawning would only churn a working server.
+    A present-but-DEAD recorded PID whose URL is NOT reachable is a genuine drift — return None so the
+    orphan reconciliation terminates the stale process and respawns (converge to one instance).
+    Returns ``{"pid", "url"}`` when serving, else None. Never raises.
+    """
+    if not meta_path.exists():
+        return None
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    pid = meta.get("pid")
+    url = meta.get("url", "") or ""
+    if not url:
+        return None
+    # (a) live recorded PID + URL.
+    if isinstance(pid, int) and _dashboard_pid_is_live(pid, root):
+        return {"pid": pid, "url": url}
+    # (b) a genuinely-reachable URL backed by a live dashboard process for this root (any PID) — adopt
+    # rather than churn. A NON-reachable URL falls through to the orphan reconciliation (drift).
+    if _dashboard_url_reachable(url):
+        live = _dashboard_cmdline_pids(root)
+        if live:
+            return {"pid": live[0], "url": url}
+    return None
 
 
 def _dashboard_process_metadata(root: Path) -> tuple[Path, dict[str, Any]]:

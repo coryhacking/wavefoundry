@@ -603,6 +603,198 @@ class FrameworkWideSubprocessIsolationGuard(unittest.TestCase):
         self.assertIn("stdout=_bg_log_file", src)
         self.assertIn("stderr=_bg_log_file", src)
 
+    # ── Wave 1p8pe: framework python spawns must launch via the console-free pythonw.exe on Windows ──
+    #
+    # A console-subsystem ``python.exe`` still briefly flashes a console for long-running / detached /
+    # rapid spawns even WITH ``CREATE_NO_WINDOW``; a windows-subsystem ``pythonw.exe`` cannot allocate a
+    # console at all. So a framework python spawn whose output is redirected (DEVNULL / PIPE / log) must
+    # resolve its interpreter through ``subprocess_util.windowless_pythonw()`` (directly, or via the
+    # ``_preferred_python()`` resolver which prefers pythonw on Windows). Sites that genuinely NEED a
+    # console (operator-visible installs, the operator-terminal CLI re-exec, the MCP JSON-RPC stdio
+    # transport, dev-host tools) are DOCUMENTED KEEPS — listed below, keyed by file + a stable signature
+    # of the kept spawn, with the reason it must inherit a real console.
+    #
+    # An interpreter-token expression counts as a "python spawn" when the spawned argv's first element
+    # references one of these tokens.
+    _PYTHON_INTERP_TOKENS = (
+        "sys.executable", "_preferred_python", "_tool_venv_python", "tool_venv_python",
+        "venv_python", "probe_interp", "python_exec", "windowless_pythonw",
+    )
+    # An interpreter is "windowless" (converted) when its expression — or its enclosing function —
+    # routes the interpreter through pythonw: either the direct helper, or the _preferred_python()
+    # resolver (which prefers pythonw on Windows; wave 1p8pe).
+    _WINDOWLESS_MARKERS = ("windowless_pythonw", "_preferred_python")
+    # Documented keeps: {filename: {signature-substring: reason}}. The signature must appear on the
+    # spawn-call source line so a NEW python spawn (a different signature) is not silently grandfathered.
+    _PYTHONW_KEEPS = {
+        # Console-streaming installs — the operator must SEE pip / venv progress on a real console.
+        "setup_index.py": {
+            '"-m", "venv"': "venv creation — console-visible bootstrap, before any tool venv exists",
+            '"-m", "pip", "install"': "pip install — operator must see the streaming install progress",
+        },
+        "indexer.py": {
+            '"-m", "pip", "install"': "pip install lancedb — console-visible install progress",
+        },
+        # Operator-terminal CLI re-exec — runs on a real console with the operator watching.
+        "wf_cli.py": {
+            "[sys.executable, str(target)": "wf dispatcher re-exec — operator-terminal CLI output",
+        },
+        # setup_wavefoundry runs its MCP smoke / phase scripts with operator console output.
+        "setup_wavefoundry.py": {
+            "[sys.executable, str(script_path)]": "setup phase script — operator-visible console output",
+        },
+        # Dev-host-only (also in _DEV_HOST_EXEMPT_FILES) — runs on a developer terminal.
+        "build_pack.py": {
+            "[sys.executable, str(script)]": "dev-host packaging — developer console",
+            "sys.executable": "dev-host packaging — developer console",
+        },
+    }
+
+    @classmethod
+    def _all_spawn_and_isolated_calls(cls, tree):
+        """Every spawn-shaped Call to audit for its interpreter token: the raw spawns from _spawn_calls
+        PLUS the subprocess_util.isolated_run/isolated_popen wrapper calls (where most framework python
+        spawns actually route — _spawn_calls intentionally excludes the wrapper for the stdin/no-window
+        scan, but the interpreter token lives in the wrapper's argv too)."""
+        import ast as _ast
+        seen = set()
+        for node in cls._spawn_calls(tree):
+            seen.add(id(node))
+            yield node
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.Call) and cls._is_isolated_helper_call(node) and id(node) not in seen:
+                yield node
+
+    @classmethod
+    def _spawn_argv_first_token(cls, node, src):
+        """Return the source text of the spawn argv's first element (the interpreter), or None when the
+        call's first positional arg is not a list literal we can introspect."""
+        import ast as _ast
+        if not node.args:
+            return None
+        a0 = node.args[0]
+        if isinstance(a0, _ast.List) and a0.elts:
+            return _ast.get_source_segment(src, a0.elts[0]) or ""
+        # `cmd` variable form — resolve the most recent `cmd = [<first>, ...]` literal above the call.
+        if isinstance(a0, _ast.Name):
+            target = a0.id
+            best = None
+            for n in _ast.walk(_ast.parse(src)):
+                if (isinstance(n, _ast.Assign) and len(n.targets) == 1
+                        and isinstance(n.targets[0], _ast.Name) and n.targets[0].id == target
+                        and isinstance(n.value, _ast.List) and n.value.elts
+                        and n.lineno <= node.lineno):
+                    if best is None or n.lineno > best.lineno:
+                        best = n
+            if best is not None:
+                return _ast.get_source_segment(src, best.value.elts[0]) or ""
+        return None
+
+    def test_every_framework_python_spawn_uses_windowless_pythonw_or_is_keep(self):
+        """Wave 1p8pe guard: every framework python spawn (argv[0] is a python interpreter) must launch
+        via the console-free pythonw.exe path on Windows — directly through windowless_pythonw() or via
+        the _preferred_python() resolver — UNLESS its file+signature is a documented console keep."""
+        import ast as _ast
+
+        offenders: list[str] = []
+        matched = 0
+        for path in self._framework_script_paths():
+            if path.name in self._DEV_HOST_EXEMPT_FILES:
+                continue
+            src = path.read_text(encoding="utf-8")
+            lines = src.splitlines()
+            tree = _ast.parse(src)
+            # Map each function def to its source span (mirrors the pool guard) so the enclosing-function
+            # `interp = windowless_pythonw() or ...` form counts as converted.
+            func_spans = []
+            for fn in _ast.walk(tree):
+                if isinstance(fn, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                    end = getattr(fn, "end_lineno", None) or fn.lineno
+                    func_spans.append((fn.lineno, end, _ast.get_source_segment(src, fn) or ""))
+            for node in self._all_spawn_and_isolated_calls(tree):
+                first = self._spawn_argv_first_token(node, src)
+                if first is None:
+                    continue
+                if not any(tok in first for tok in self._PYTHON_INTERP_TOKENS):
+                    continue  # not a python interpreter spawn (e.g. a git / nvidia-smi probe)
+                matched += 1
+                call_line = lines[node.lineno - 1]
+                # Converted: the interpreter expr OR the enclosing function references the windowless path.
+                if any(m in first for m in self._WINDOWLESS_MARKERS):
+                    continue
+                enclosing = ""
+                for lo, hi, seg in func_spans:
+                    if lo <= node.lineno <= hi and len(seg) > len(enclosing):
+                        enclosing = seg
+                if any(m in enclosing for m in self._WINDOWLESS_MARKERS):
+                    continue
+                # Documented keep? signature must be on the spawn-call source line.
+                keeps = self._PYTHONW_KEEPS.get(path.name, {})
+                if any(sig in call_line or sig in enclosing for sig in keeps):
+                    continue
+                offenders.append(f"{path.name}:{node.lineno}: {call_line.strip()}")
+        self.assertGreaterEqual(
+            matched, 5,
+            "python-spawn scan matched too few sites — the AST walk likely broke",
+        )
+        self.assertEqual(
+            offenders, [],
+            "framework python spawns must launch via subprocess_util.windowless_pythonw() (directly or "
+            "via _preferred_python()) so they never flash a console window on Windows — or be added to "
+            "_PYTHONW_KEEPS with the reason a real console is required:\n" + "\n".join(offenders),
+        )
+
+    def test_pythonw_keeps_are_real_console_sites(self):
+        """Non-vacuous: each documented pythonw KEEP signature must actually occur in its file (so the
+        allowlist cannot rot into grandfathering spawns that no longer exist)."""
+        for fname, keeps in self._PYTHONW_KEEPS.items():
+            src = (SCRIPTS_ROOT / fname).read_text(encoding="utf-8")
+            for sig in keeps:
+                self.assertIn(
+                    sig, src,
+                    f"_PYTHONW_KEEPS[{fname!r}] signature {sig!r} no longer appears in the file — "
+                    "remove the stale keep so the guard stays honest",
+                )
+
+    def test_converted_python_spawns_reference_windowless_pythonw(self):
+        """Non-vacuous positive: the converted per-site spawns actually thread the windowless helper."""
+        si = (SCRIPTS_ROOT / "setup_index.py").read_text(encoding="utf-8")
+        self.assertEqual(
+            si.count("subprocess_util.windowless_pythonw() or"), 3,
+            "setup_index must convert its three spawn sites (background build, foreground indexer, "
+            "import probe) via windowless_pythonw() with a venv-python fallback",
+        )
+        ds = (SCRIPTS_ROOT / "dashboard_server.py").read_text(encoding="utf-8")
+        self.assertIn("subprocess_util.windowless_pythonw() or sys.executable", ds)
+        for fname in ("server_impl.py", "upgrade_wavefoundry.py"):
+            src = (SCRIPTS_ROOT / fname).read_text(encoding="utf-8")
+            self.assertIn(
+                "subprocess_util.windowless_pythonw()", src,
+                f"{fname}._preferred_python must prefer the windowless pythonw on Windows",
+            )
+
+    def test_setup_index_resolver_and_venv_bootstrap_keeps_unchanged(self):
+        """Wave 1p8pe AC-2: the :134 resolver + venv path-math + console pip install must be UNTOUCHED —
+        _tool_venv_python() stays a plain venv_bootstrap delegation (no pythonw), and the pip-install
+        spawn keeps its plain venv-python interpreter (console-streaming progress)."""
+        import ast as _ast
+        src = (SCRIPTS_ROOT / "setup_index.py").read_text(encoding="utf-8")
+        tree = _ast.parse(src)
+        resolver = None
+        for fn in _ast.walk(tree):
+            if isinstance(fn, _ast.FunctionDef) and fn.name == "_tool_venv_python":
+                resolver = _ast.get_source_segment(src, fn) or ""
+        self.assertIsNotNone(resolver, "setup_index._tool_venv_python not found")
+        self.assertIn("venv_bootstrap.tool_venv_python()", resolver)
+        self.assertNotIn("windowless_pythonw", resolver,
+                         "the :134 resolver must NOT be pythonw-converted (it feeds venv path-math)")
+        # The console pip install keeps the venv python (operator sees streaming install progress).
+        self.assertIn('cmd = [str(venv_python), "-m", "pip", "install"]', src)
+        # venv_bootstrap.tool_venv_python itself stays pythonw-free (shared by in-process callers).
+        vb = (SCRIPTS_ROOT / "venv_bootstrap.py").read_text(encoding="utf-8")
+        self.assertNotIn("windowless_pythonw", vb,
+                         "venv_bootstrap must not import/use windowless_pythonw (stdlib-only)")
+
     def test_provider_policy_nvidia_probe_isolates_stdin_and_no_window_on_windows(self):
         # nvidia-smi probe is MCP-reachable via wave_gpu_doctor / provider selection in the server process.
         import provider_policy
@@ -17508,6 +17700,122 @@ class WaveDashboardBrowserSuppressTests(unittest.TestCase):
         mock_wb.assert_not_called()
         self.assertFalse(result["data"].get("opened"))
         self.assertTrue(result["data"].get("browser_suppressed"))
+
+
+class WaveDashboardPidRaceTests(unittest.TestCase):
+    """Wave 1p8pf: the dashboard start lock/PID race. The readiness poll must NOT require
+    `meta.pid == proc.pid` — a serving dashboard whose metadata was written under a DIFFERENT PID (the
+    field race: poller PID 4920 vs metadata PID 4924) must be recognized, so the start does not
+    false-report url_not_ready, spawn a duplicate, or climb ports."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        os.environ["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = "1"
+        self.meta_path = self.root / ".wavefoundry" / "dashboard-server.lock"
+        self.meta_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_meta(self, pid: int, url: str) -> None:
+        self.meta_path.write_text(json.dumps({"pid": pid, "url": url}), encoding="utf-8")
+
+    def test_metadata_pid_differs_from_proc_pid_no_false_url_not_ready(self):
+        # AC-2/AC-3: the spawned child writes metadata under PID 4924, but the poller's Popen returns
+        # PID 4920 (the field race). With the old `meta.pid == proc.pid` check this false-reported
+        # url_not_ready; now a reachable URL (any live PID) is accepted. No duplicate is spawned beyond
+        # the one start; no port climb.
+        import server_impl
+
+        POLLER_PID = 4920
+        CHILD_PID = 4924
+        URL = "http://127.0.0.1:43127/dashboard.html"
+
+        def _popen_side_effect(cmd, **kwargs):
+            # Simulate the spawned child writing metadata under ITS OWN (different) pid.
+            self._write_meta(CHILD_PID, URL)
+            return MagicMock(pid=POLLER_PID)
+
+        with patch("subprocess.Popen", side_effect=_popen_side_effect) as popen, \
+             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
+             patch.object(server_impl, "_dashboard_url_reachable", return_value=True), \
+             patch.object(server_impl, "_pid_is_running", return_value=False):
+            result = self.srv.wave_dashboard_start_response(self.root)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"].get("started"))
+        self.assertEqual(result["data"].get("url"), URL,
+                         "the serving URL must be returned despite the PID mismatch")
+        diags = result.get("diagnostics") or []
+        codes = {d.get("code") for d in diags}
+        self.assertNotIn("url_not_ready", codes,
+                         "a serving dashboard must NOT report url_not_ready on a PID mismatch")
+        # Exactly ONE spawn — no duplicate / port climb.
+        self.assertEqual(popen.call_count, 1, "a serving dashboard must not be double-spawned")
+
+    def test_reconcile_before_spawn_returns_serving_url_without_spawning(self):
+        # AC-1: a dashboard is ALREADY serving under a drifted PID (recorded metadata PID not live, but a
+        # live dashboard process exists for this root and the URL is reachable). The start must return
+        # that URL WITHOUT spawning — no duplicate, no port climb (43127 stays 43127).
+        import server_impl
+
+        URL = "http://127.0.0.1:43127/dashboard.html"
+        self._write_meta(pid=4924, url=URL)  # recorded PID is NOT live (running_meta returns None)
+
+        with patch("subprocess.Popen") as popen, \
+             patch.object(server_impl, "_pid_is_running", return_value=False), \
+             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[4924]), \
+             patch.object(server_impl, "_dashboard_url_reachable", return_value=True):
+            result = self.srv.wave_dashboard_start_response(self.root)
+
+        popen.assert_not_called()
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"].get("already_running"))
+        self.assertEqual(result["data"].get("url"), URL)
+
+    def test_genuinely_failed_start_still_reports_url_not_ready(self):
+        # AC-4 mitigation: relaxing the PID check must NOT mask a real failure. No metadata, nothing
+        # reachable, no live PID → url_not_ready within the bounded deadline (no infinite hang).
+        import server_impl
+
+        with patch("subprocess.Popen") as popen, \
+             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
+             patch.object(server_impl, "_dashboard_url_reachable", return_value=False), \
+             patch.object(server_impl, "_pid_is_running", return_value=False), \
+             patch.object(server_impl, "DASHBOARD_START_WAIT_SECONDS", 0.0):
+            popen.return_value = MagicMock(pid=4920)
+            result = self.srv.wave_dashboard_start_response(self.root)
+
+        codes = {d.get("code") for d in (result.get("diagnostics") or [])}
+        self.assertIn("url_not_ready", codes,
+                      "a genuinely-failed start must still report url_not_ready")
+
+    def test_url_reachable_helper_returns_true_on_http_error_status(self):
+        # The reachability check must treat ANY HTTP response (incl. 4xx/5xx) as "serving" — only a
+        # connection failure means not-reachable.
+        import server_impl
+        import urllib.request
+        import urllib.error
+
+        # HTTP 404 → serving.
+        def _raise_http_error(*a, **k):
+            raise urllib.error.HTTPError("http://x/", 404, "nf", {}, None)
+
+        with patch.object(urllib.request, "urlopen", side_effect=_raise_http_error):
+            self.assertTrue(server_impl._dashboard_url_reachable("http://127.0.0.1:1/x"))
+
+        # Connection refused → not serving.
+        with patch.object(urllib.request, "urlopen", side_effect=OSError("refused")):
+            self.assertFalse(server_impl._dashboard_url_reachable("http://127.0.0.1:1/x"))
+
+        # Empty URL → not serving (no call).
+        self.assertFalse(server_impl._dashboard_url_reachable(""))
 
 
 class PreferredPythonSubprocessTests(unittest.TestCase):

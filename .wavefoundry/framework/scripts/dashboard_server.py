@@ -700,7 +700,11 @@ def _daemonize(root: Path, argv: list[str]) -> int:
     log_path = root / ".wavefoundry" / "logs" / "dashboard.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     child_args = [a for a in argv if a != "--daemon"]
-    cmd = [sys.executable, str(Path(__file__).resolve()), *child_args]
+    # Wave 1p8pe: prefer the console-free tool-venv pythonw.exe on Windows for this detached daemon
+    # re-spawn (all output goes to dashboard.log, no console) so it never flashes a window; falls back
+    # to sys.executable (POSIX returns None). The re-spawned child self-activates the venv first-line.
+    interp = subprocess_util.windowless_pythonw() or sys.executable
+    cmd = [interp, str(Path(__file__).resolve()), *child_args]
     child_env = {**os.environ, _DAEMON_ENV_MARKER: "1"}
     log_handle = open(log_path, "a", encoding="utf-8")
     try:
