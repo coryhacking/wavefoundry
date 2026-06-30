@@ -2608,5 +2608,45 @@ class CachedFirstEmbedderTests(unittest.TestCase):
         self.assertEqual(seen, [True], "fastembed path loads cached-first (local_files_only=True)")
 
 
+class LanceDbAutoInstallTlsTests(unittest.TestCase):
+    """Wave 1p93v: ``_auto_install_lancedb()``'s pip subprocess call must apply the same pip
+    TLS-conflict mitigation (``setup_index._pip_tls_env()``) used at every other pip/uv install call
+    site in this codebase — it was the one unwired call site found in a post-1p939 sweep."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+
+    def test_applies_pip_tls_env_when_ca_var_set(self):
+        # AC-1: a host-agent/operator CA var set → the pip subprocess receives the merged-bundle env.
+        fake_bundle_env = {"SSL_CERT_FILE": "/fake/merged-bundle.pem", "REQUESTS_CA_BUNDLE": "/fake/merged-bundle.pem"}
+        fake_result = MagicMock(returncode=0)
+        with patch.object(self.bi.venv_bootstrap, "tool_venv_python", return_value=Path(sys.executable)), \
+             patch.object(self.bi.subprocess_util, "isolated_run", return_value=fake_result) as run_mock, \
+             patch("setup_index._pip_tls_env", return_value=fake_bundle_env):
+            self.bi._auto_install_lancedb()
+        run_mock.assert_called_once()
+        _, kwargs = run_mock.call_args
+        self.assertEqual(kwargs.get("env"), fake_bundle_env)
+
+    def test_no_env_override_in_plain_env(self):
+        # AC-2: no CA var set → env=None passed through (inherit unchanged), no regression.
+        fake_result = MagicMock(returncode=0)
+        with patch.object(self.bi.venv_bootstrap, "tool_venv_python", return_value=Path(sys.executable)), \
+             patch.object(self.bi.subprocess_util, "isolated_run", return_value=fake_result) as run_mock, \
+             patch("setup_index._pip_tls_env", return_value=None):
+            self.bi._auto_install_lancedb()
+        run_mock.assert_called_once()
+        _, kwargs = run_mock.call_args
+        self.assertIsNone(kwargs.get("env"), "plain env must pass env=None (inherit unchanged)")
+
+    def test_raises_on_install_failure(self):
+        fake_result = MagicMock(returncode=1)
+        with patch.object(self.bi.venv_bootstrap, "tool_venv_python", return_value=Path(sys.executable)), \
+             patch.object(self.bi.subprocess_util, "isolated_run", return_value=fake_result), \
+             patch("setup_index._pip_tls_env", return_value=None):
+            with self.assertRaises(ImportError):
+                self.bi._auto_install_lancedb()
+
+
 if __name__ == "__main__":
     unittest.main()

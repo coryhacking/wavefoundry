@@ -14,7 +14,7 @@ This is a generated, read-only orientation map of this project's own codebase, b
 - **Drill in** by passing an area's `hub_node_id` (a stable cross-rebuild anchor) to `code_graph_community`, or open its key files with `code_outline`. Use `hub_node_id`, never a `community_id` (those renumber on re-cluster).
 - The map is regenerated with the index build; it tracks index freshness rather than per-commit parity.
 
-_Grouping: graph communities collapsed to packages/directories. Areas shown: 24 of 39. Cluster builder version: `10`. Files in scope: 160; symbols: 9679._
+_Grouping: graph communities collapsed to packages/directories. Areas shown: 24 of 39. Cluster builder version: `10`. Files in scope: 160; symbols: 9684._
 
 ## Areas
 
@@ -23,7 +23,7 @@ _Grouping: graph communities collapsed to packages/directories. Areas shown: 24 
 - Path: `.wavefoundry/framework/scripts/tests`
 - Area id: `tests` (MCP: `wavefoundry://area/tests`)
 - Responsibility: tests
-- Size: 6026 graph nodes
+- Size: 6031 graph nodes
 - Key entry points (by cross-file fan-in): `walk` (function), `map` (function), `fileno` (function), `load_server` (function), `copy_fixture` (function)
 - Key files: `.wavefoundry/framework/scripts/tests/test_server_tools.py`, `.wavefoundry/framework/scripts/tests/test_graph_indexer.py`, `.wavefoundry/framework/scripts/tests/test_chunker.py`, `.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py`, `.wavefoundry/framework/scripts/tests/test_secrets_validators.py`, `.wavefoundry/framework/scripts/tests/test_indexer.py`
 - Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/tests/test_server_tools.py")` or `code_outline` on the key files above.
@@ -83,7 +83,7 @@ _Grouping: graph communities collapsed to packages/directories. Areas shown: 24 
 - Path: `.wavefoundry/framework/scripts`
 - Area id: `setup` (MCP: `wavefoundry://area/setup`)
 - Responsibility: setup
-- Size: 147 graph nodes
+- Size: 148 graph nodes
 - Key entry points (by cross-file fan-in): `tool_venv_python` (function), `diagnostic_report` (function), `activate_tool_venv` (function), `retry_with_ca_bundle_ladder` (function), `ensure_ca_bundle_applied` (function)
 - Key files: `.wavefoundry/framework/scripts/setup_index.py`, `.wavefoundry/framework/scripts/accel_embedder.py`, `.wavefoundry/framework/scripts/provider_policy.py`, `.wavefoundry/framework/scripts/run_tests.py`, `.wavefoundry/framework/scripts/venv_bootstrap.py`, `.wavefoundry/framework/scripts/setup_wavefoundry.py`
 - Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/setup_index.py")` or `code_outline` on the key files above.
@@ -103,7 +103,7 @@ _Grouping: graph communities collapsed to packages/directories. Areas shown: 24 
 - Path: `.wavefoundry/framework/scripts`
 - Area id: `indexer` (MCP: `wavefoundry://area/indexer`)
 - Responsibility: indexer
-- Size: 101 graph nodes
+- Size: 100 graph nodes
 - Key entry points (by cross-file fan-in): `project_index_inputs_stale` (function), `walk_repo` (function), `build_index` (function), `classify_index_build_lock_owner` (function), `main` (function)
 - Key files: `.wavefoundry/framework/scripts/indexer.py`
 - Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/indexer.py")` or `code_outline` on the key files above.

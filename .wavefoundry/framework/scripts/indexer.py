@@ -1115,7 +1115,12 @@ def _atomic_write_text(path: Path, text: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _auto_install_lancedb() -> None:
-    """Install lancedb into the shared Wavefoundry tool venv when missing."""
+    """Install lancedb into the shared Wavefoundry tool venv when missing.
+
+    Wave 1p93v: applies the same pip TLS-conflict mitigation (`setup_index._pip_tls_env()`) used at
+    every other pip/uv install call site in this codebase, so this one doesn't inherit a corp-only
+    `SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE` unchanged and fail against PyPI behind a TLS-intercepting
+    proxy."""
     venv_python = venv_bootstrap.tool_venv_python()  # the single venv resolver (wave 1p7pl)
     if not venv_python.exists():
         raise ImportError(
@@ -1123,8 +1128,9 @@ def _auto_install_lancedb() -> None:
             "Run manually: python3 .wavefoundry/framework/scripts/setup_index.py"
         )
     print("build_index: lancedb not installed — installing into Wavefoundry tool venv ...", flush=True)
+    import setup_index  # wave 1p93v: function-local import, mirrors the established direction-safety pattern
     cmd = [str(venv_python), "-m", "pip", "install", "lancedb"]
-    result = subprocess_util.isolated_run(cmd, check=False)
+    result = subprocess_util.isolated_run(cmd, check=False, env=setup_index._pip_tls_env())
     if result.returncode != 0:
         raise ImportError(
             "lancedb auto-install into the Wavefoundry tool venv failed. "
