@@ -2112,11 +2112,25 @@ def _text_embedding_cached_first(text_embedding_cls, model_name: str, providers)
     the cached model with no request; only if it isn't cached do we fall back to an online download
     (which then caches it). Vectors are identical either way — no parity impact. This mirrors the
     cached-first download in ``accel_embedder`` so both the GPU and CPU embedder paths stay offline
-    on a warm cache."""
+    on a warm cache.
+
+    Wave 1p939 (delivery-phase fix): this is the embedder-construction fallback reached whenever
+    ``accel_embedder.make_embedder()`` returns ``None`` (no GPU/CoreML/CUDA/ROCm/DML offload — the
+    common case on CPU-only/Linux/WSL2/CI hosts, and the fallback even on GPU-capable hosts). It was
+    a fourth raw model-download call site missed by this wave's original literal ``TextEmbedding(``
+    token sweep (the constructor here is invoked via the ``text_embedding_cls`` parameter, not the
+    literal token) — and it is the path every named launcher (MCP ``wave_index_build``, the dashboard
+    watcher, background refresh) actually hits on that hardware class. It now applies the same CA
+    ladder the GPU-path call sites use before the online attempt."""
     try:
         return text_embedding_cls(model_name=model_name, providers=providers, local_files_only=True)
     except Exception:
-        return text_embedding_cls(model_name=model_name, providers=providers)
+        pass
+    import setup_index
+    setup_index.ensure_ca_bundle_applied()
+    return setup_index.retry_with_ca_bundle_ladder(
+        lambda: text_embedding_cls(model_name=model_name, providers=providers), model_name,
+    )
 
 
 def _embed_texts(embedder, texts: list[str], batch_size: int = 256) -> "np.ndarray":

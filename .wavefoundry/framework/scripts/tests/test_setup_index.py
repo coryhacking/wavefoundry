@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -1152,6 +1153,178 @@ class UvSslCertFileIsolationTests(unittest.TestCase):
         self.assertIn("def _os_trust_store_candidates(", src)
         self.assertIn("def _os_trust_store_bundle(", src)
         self.assertIn("def _warm_model(", src)
+
+
+class CaBundleProactiveApplyTests(unittest.TestCase):
+    """Wave 1p939: ``ensure_ca_bundle_applied`` / ``raise_with_ca_bundle_diagnostic`` — the
+    proactive CA-bundle path used by non-setup launchers (accel_embedder, server_impl) that don't
+    go through ``_warm_model``'s full retry ladder."""
+
+    def setUp(self):
+        self.mod = load_setup_index()
+        self.mod._ca_bundle_apply_attempted = False
+
+    def _clear_ca_env(self):
+        for var in ("CODEX_CA_CERTIFICATE", "CLAUDE_CODE_CERT_STORE", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"):
+            os.environ.pop(var, None)
+
+    def test_applies_host_agent_bundle_when_stack_env_unset(self):
+        # AC-1: a host-agent CA var present + no operator stack env → applied.
+        with tempfile.NamedTemporaryFile(suffix=".crt") as codex, \
+             patch.dict(os.environ, {}, clear=False):
+            self._clear_ca_env()
+            os.environ["CODEX_CA_CERTIFICATE"] = codex.name
+            self.mod.ensure_ca_bundle_applied()
+            self.assertEqual(os.environ.get("SSL_CERT_FILE"), codex.name)
+            self.assertEqual(os.environ.get("REQUESTS_CA_BUNDLE"), codex.name)
+
+    def test_no_op_in_plain_env(self):
+        # AC-3: no host-agent/operator CA var set → no mutation, no candidate resolution attempted.
+        with patch.dict(os.environ, {}, clear=False):
+            self._clear_ca_env()
+            with patch.object(self.mod, "_apply_ca_bundle") as apply_mock:
+                self.mod.ensure_ca_bundle_applied()
+                apply_mock.assert_not_called()
+            self.assertNotIn("SSL_CERT_FILE", os.environ)
+
+    def test_idempotent_single_application_per_process(self):
+        # AC-3: only the first call does real work; later calls in the same process are no-ops,
+        # even if the env changes between calls.
+        with tempfile.NamedTemporaryFile(suffix=".crt") as codex, \
+             patch.dict(os.environ, {}, clear=False):
+            self._clear_ca_env()
+            os.environ["CODEX_CA_CERTIFICATE"] = codex.name
+            with patch.object(self.mod, "_apply_ca_bundle") as apply_mock:
+                self.mod.ensure_ca_bundle_applied()
+                self.mod.ensure_ca_bundle_applied()
+                self.mod.ensure_ca_bundle_applied()
+                apply_mock.assert_called_once()
+
+    def test_operator_stack_env_always_wins(self):
+        # Operator-set SSL_CERT_FILE must never be overridden by a host-agent var.
+        with tempfile.NamedTemporaryFile(suffix=".crt") as codex, \
+             tempfile.NamedTemporaryFile(suffix=".crt") as operator, \
+             patch.dict(os.environ, {}, clear=False):
+            self._clear_ca_env()
+            os.environ["CODEX_CA_CERTIFICATE"] = codex.name
+            os.environ["SSL_CERT_FILE"] = operator.name
+            self.mod.ensure_ca_bundle_applied()
+            self.assertEqual(os.environ.get("SSL_CERT_FILE"), operator.name)
+
+    def test_raise_with_ca_bundle_diagnostic_wraps_cert_verify_error(self):
+        # AC-4: a persisting CERTIFICATE_VERIFY_FAILED is wrapped with operator CA-var guidance.
+        exc = Exception("SSLError: certificate verify failed: unable to get local issuer certificate")
+        with self.assertRaises(self.mod.ModelPrewarmError) as ctx:
+            self.mod.raise_with_ca_bundle_diagnostic("BAAI/bge-small-en-v1.5", exc)
+        self.assertIn("CERTIFICATE_VERIFY_FAILED", str(ctx.exception))
+        self.assertIn("NODE_EXTRA_CA_CERTS", str(ctx.exception))
+        self.assertIs(ctx.exception.__cause__, exc)
+
+    def test_raise_with_ca_bundle_diagnostic_passes_through_other_errors(self):
+        # A non-cert error must be re-raised unchanged, not wrapped.
+        exc = ConnectionError("connection reset by peer")
+        with self.assertRaises(ConnectionError) as ctx:
+            self.mod.raise_with_ca_bundle_diagnostic("BAAI/bge-small-en-v1.5", exc)
+        self.assertIs(ctx.exception, exc)
+
+    def test_apply_lock_exists_for_thread_safety(self):
+        # Wave 1p939 (delivery-phase fix, code-reviewer finding): the check-then-set on
+        # _ca_bundle_apply_attempted is lock-protected — two threads in the long-lived MCP server
+        # process must not both pass the early-return check before either sets the flag.
+        self.assertIsInstance(self.mod._ca_bundle_apply_lock, type(threading.Lock()))
+
+
+class RetryWithCaBundleLadderTests(unittest.TestCase):
+    """Wave 1p939 (delivery-phase fix): ``retry_with_ca_bundle_ladder`` — the REACTIVE candidate
+    ladder (host-agent -> operator -> platform OS-bundle paths -> certifi default) that
+    ``ensure_ca_bundle_applied()`` alone does not cover. Closes the delivery-phase council's
+    strongest_challenge: the proactive-only helper left non-setup launchers broken in any
+    corporate-proxy environment whose only working trust rung is an OS-bundle file."""
+
+    def setUp(self):
+        self.mod = load_setup_index()
+        self.mod._ca_bundle_apply_attempted = False
+
+    def _clear_ca_env(self):
+        for var in ("CODEX_CA_CERTIFICATE", "CLAUDE_CODE_CERT_STORE", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"):
+            os.environ.pop(var, None)
+
+    def test_returns_on_first_success_no_candidates_tried(self):
+        calls = []
+
+        def attempt():
+            calls.append(1)
+            return "ok"
+
+        with patch.object(self.mod, "_os_trust_store_candidates") as candidates:
+            result = self.mod.retry_with_ca_bundle_ladder(attempt, "BAAI/bge-small-en-v1.5")
+        self.assertEqual(result, "ok")
+        self.assertEqual(len(calls), 1)
+        candidates.assert_not_called()
+
+    def test_passes_through_non_cert_error_without_retry(self):
+        def attempt():
+            raise ConnectionError("connection reset by peer")
+
+        with patch.object(self.mod, "_os_trust_store_candidates") as candidates:
+            with self.assertRaises(ConnectionError):
+                self.mod.retry_with_ca_bundle_ladder(attempt, "BAAI/bge-small-en-v1.5")
+        candidates.assert_not_called()
+
+    def test_retries_candidates_on_cert_failure_until_success(self):
+        cert_exc = Exception("certificate verify failed: unable to get local issuer certificate")
+        calls = []
+
+        def attempt():
+            calls.append(1)
+            if len(calls) < 3:
+                raise cert_exc
+            return "resolved"
+
+        with tempfile.NamedTemporaryFile(suffix=".crt") as c1, \
+             tempfile.NamedTemporaryFile(suffix=".crt") as c2, \
+             patch.dict(os.environ, {}, clear=False):
+            self._clear_ca_env()
+            with patch.object(self.mod, "_os_trust_store_candidates", return_value=[c1.name, c2.name]):
+                result = self.mod.retry_with_ca_bundle_ladder(attempt, "BAAI/bge-small-en-v1.5")
+            self.assertEqual(os.environ.get("SSL_CERT_FILE"), c2.name, "last applied candidate stuck (no restore)")
+        self.assertEqual(result, "resolved")
+        self.assertEqual(len(calls), 3, "initial attempt + 2 candidate retries")
+
+    def test_raises_diagnostic_when_all_candidates_exhausted(self):
+        cert_exc = Exception("certificate verify failed: unable to get local issuer certificate")
+
+        def attempt():
+            raise cert_exc
+
+        with tempfile.NamedTemporaryFile(suffix=".crt") as c1, patch.dict(os.environ, {}, clear=False):
+            self._clear_ca_env()
+            with patch.object(self.mod, "_os_trust_store_candidates", return_value=[c1.name]):
+                with self.assertRaises(self.mod.ModelPrewarmError) as ctx:
+                    self.mod.retry_with_ca_bundle_ladder(attempt, "BAAI/bge-small-en-v1.5")
+        self.assertIn("CERTIFICATE_VERIFY_FAILED", str(ctx.exception))
+        self.assertIs(ctx.exception.__cause__, cert_exc)
+
+    def test_skips_candidate_already_applied_via_stack_env(self):
+        # The proactive step (ensure_ca_bundle_applied) may already have set SSL_CERT_FILE to the
+        # host-agent bundle before the first attempt; the reactive ladder must not retry that exact
+        # candidate redundantly.
+        cert_exc = Exception("certificate verify failed: unable to get local issuer certificate")
+        calls = []
+
+        def attempt():
+            calls.append(1)
+            raise cert_exc
+
+        with tempfile.NamedTemporaryFile(suffix=".crt") as already_tried, \
+             tempfile.NamedTemporaryFile(suffix=".crt") as untried, \
+             patch.dict(os.environ, {}, clear=False):
+            self._clear_ca_env()
+            os.environ["SSL_CERT_FILE"] = already_tried.name
+            with patch.object(self.mod, "_os_trust_store_candidates", return_value=[already_tried.name, untried.name]):
+                with self.assertRaises(self.mod.ModelPrewarmError):
+                    self.mod.retry_with_ca_bundle_ladder(attempt, "BAAI/bge-small-en-v1.5")
+        self.assertEqual(len(calls), 2, "initial attempt (against already_tried) + 1 retry (untried only)")
 
 
 class GpuDoctorProbeSerialTests(unittest.TestCase):

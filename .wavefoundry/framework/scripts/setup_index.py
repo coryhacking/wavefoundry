@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -592,6 +593,94 @@ def _apply_ca_bundle(bundle: str) -> None:
         huggingface_hub.close_session()
     except Exception:  # noqa: BLE001
         pass
+
+
+_ca_bundle_apply_attempted = False
+_ca_bundle_apply_lock = threading.Lock()
+
+
+def ensure_ca_bundle_applied() -> None:
+    """Idempotent, process-wide proactive CA-bundle application for launchers that don't go through
+    ``_warm_model``'s full retry ladder (wave 1p939: MCP ``wave_index_build``, the dashboard's
+    file-watcher, the server's background index refresh, and the server's own model-cache/embedder
+    paths). Mirrors ``_warm_model``'s proactive pre-config: an operator-set stack CA env
+    (``SSL_CERT_FILE``/``REQUESTS_CA_BUNDLE``) always wins and is left untouched; otherwise, a
+    host-agent CA var (``CODEX_CA_CERTIFICATE``/``CLAUDE_CODE_CERT_STORE``/``NODE_EXTRA_CA_CERTS``)
+    pointing at a real file is applied. The module-level flag (lock-protected: the long-lived MCP
+    server process can reach this from more than one worker thread, delivery-phase council finding)
+    makes every call after the first a no-op (AC-3: zero added cost on a hot path that calls this on
+    every download attempt). Unlike ``_warm_model``, this does NOT restore the mutated env on exit:
+    the launcher processes that call it (short-lived indexer subprocesses, or the long-lived MCP
+    server) never themselves shell out to ``uv``/``pip`` in the same process, so the env-leak risk
+    that motivates ``_warm_model``'s try/finally restore does not apply here (change doc 1p92t
+    Decision Log)."""
+    global _ca_bundle_apply_attempted
+    with _ca_bundle_apply_lock:
+        if _ca_bundle_apply_attempted:
+            return
+        _ca_bundle_apply_attempted = True
+        if any(os.environ.get(v) for v in _STACK_CA_ENV_VARS):
+            return  # operator already configured their own trust anchor — never override it
+        bundle = _host_agent_ca_bundle()
+        if bundle is not None:
+            _apply_ca_bundle(bundle)
+
+
+def raise_with_ca_bundle_diagnostic(model_name: str, exc: BaseException) -> None:
+    """Re-raise ``exc`` with operator CA-var guidance when it is a CERTIFICATE_VERIFY_FAILED that
+    persisted after ``ensure_ca_bundle_applied()`` (wave 1p939); re-raises ``exc`` unchanged
+    otherwise. Mirrors ``_warm_model``'s terminal diagnostic message so the operator gets the same
+    actionable guidance regardless of which launcher hit the failure."""
+    if not _is_cert_verify_error(exc):
+        raise exc
+    raise ModelPrewarmError(
+        f"Model '{model_name}' download failed TLS verification (CERTIFICATE_VERIFY_FAILED). Behind a "
+        "TLS-inspecting proxy or with a private root CA, point the CA bundle at the right store and "
+        "retry — set your host agent's CA var (CODEX_CA_CERTIFICATE / CLAUDE_CODE_CERT_STORE / "
+        "NODE_EXTRA_CA_CERTS) or the generic SSL_CERT_FILE / REQUESTS_CA_BUNDLE, e.g. "
+        "export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt "
+        "REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt"
+    ) from exc
+
+
+def retry_with_ca_bundle_ladder(attempt, model_name: str):
+    """Call ``attempt()`` (a zero-arg callable performing one model-download attempt). On a
+    CERTIFICATE_VERIFY_FAILED, walk the REACTIVE candidate ladder ``_warm_model`` already uses on a
+    confirmed failure — ``_os_trust_store_candidates()`` (host-agent vars -> operator vars -> platform
+    OS-bundle paths -> certifi default) — retrying ``attempt()`` once per untried candidate, applying
+    each via ``_apply_ca_bundle`` first (wave 1p939 delivery-phase council finding:
+    ``ensure_ca_bundle_applied()`` alone only covers the PROACTIVE host-agent-var rung, never this
+    reactive ladder, so a corporate-proxy environment whose only working trust rung is an OS-bundle
+    file remained broken for non-setup launchers even though ``wf setup`` succeeds there). Mirrors
+    ``_warm_model``'s reactive loop minus its interactive ``print()`` progress messages and its
+    restore-on-exit (already separately justified as unnecessary at these call sites, change doc
+    1p92t Decision Log). Re-raises a non-cert-verify error unchanged. When every candidate also fails
+    a cert-verify check, raises via ``raise_with_ca_bundle_diagnostic``. Returns ``attempt()``'s
+    result on success."""
+    try:
+        return attempt()
+    except Exception as exc:
+        if not _is_cert_verify_error(exc):
+            raise
+        last_exc: BaseException = exc
+    tried = {v for v in (os.environ.get(k) for k in _STACK_CA_ENV_VARS) if v}
+    if not tried:
+        certifi_default = _certifi_default_bundle()
+        if certifi_default is not None:
+            tried.add(certifi_default)
+    for bundle in _os_trust_store_candidates():
+        if bundle in tried:
+            continue
+        tried.add(bundle)
+        _apply_ca_bundle(bundle)
+        try:
+            return attempt()
+        except Exception as retry_exc:
+            if not _is_cert_verify_error(retry_exc):
+                raise
+            last_exc = retry_exc
+            continue
+    raise_with_ca_bundle_diagnostic(model_name, last_exc)
 
 
 def _warm_model(model_name: str, *, local_files_only: bool) -> None:

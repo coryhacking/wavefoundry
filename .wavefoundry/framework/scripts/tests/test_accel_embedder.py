@@ -6,6 +6,7 @@ GPU/ANE (per AC-7). The real CoreML cos-equivalence is validated on the operator
 from __future__ import annotations
 
 import importlib.util
+import io
 import os
 import sys
 import tempfile
@@ -380,6 +381,31 @@ class AccelEmbedderTests(unittest.TestCase):
         with patch.dict(sys.modules, {"huggingface_hub": fake_hub}):
             self.assertIsNone(self.ae._resolve_clean_onnx("BAAI/bge-small-en-v1.5"))
 
+    def test_resolve_clean_logs_before_degrading_on_failure(self):
+        # Wave 1p939 (delivery-phase fix): a persisting failure (e.g. CERTIFICATE_VERIFY_FAILED)
+        # must be operator-visible before the silent fallback to the resident model path — not a
+        # silent swallow that reads as an unrelated GPU/accel failure.
+        fake_hub = type(sys)("huggingface_hub")
+        def _fail(*a, **k): raise OSError("certificate verify failed: unable to get local issuer certificate")
+        fake_hub.hf_hub_download = _fail
+        buf = io.StringIO()
+        with patch.dict(sys.modules, {"huggingface_hub": fake_hub}), patch("sys.stderr", buf):
+            self.assertIsNone(self.ae._resolve_clean_onnx("BAAI/bge-small-en-v1.5"))
+        self.assertIn("BAAI/bge-small-en-v1.5", buf.getvalue())
+        self.assertIn("falling back", buf.getvalue())
+
+    def test_resolve_reranker_cpu_files_logs_before_degrading_on_failure(self):
+        # Wave 1p939 (delivery-phase fix): same logging contract as _resolve_clean_onnx, for the
+        # reranker's CPU INT8 export resolution.
+        fake_hub = type(sys)("huggingface_hub")
+        def _fail(*a, **k): raise OSError("certificate verify failed: unable to get local issuer certificate")
+        fake_hub.hf_hub_download = _fail
+        buf = io.StringIO()
+        with patch.dict(sys.modules, {"huggingface_hub": fake_hub}), patch("sys.stderr", buf):
+            self.assertIsNone(self.ae._resolve_reranker_cpu_files("BAAI/bge-small-en-v1.5"))
+        self.assertIn("BAAI/bge-small-en-v1.5", buf.getvalue())
+        self.assertIn("falling back", buf.getvalue())
+
     def test_resolve_clean_none_for_unregistered_model(self):
         self.assertIsNone(self.ae._resolve_clean_onnx("Snowflake/snowflake-arctic-embed-xs"))
 
@@ -451,6 +477,78 @@ class IndexerAccelDispatchTests(unittest.TestCase):
             got = self.idx._get_embedder("BAAI/bge-small-en-v1.5")
         self.assertIs(got, fake_te)
 
+    def test_falls_back_to_fastembed_cache_miss_applies_ca_bundle(self):
+        # Wave 1p939 (delivery-phase fix): the no-GPU fallback path (accel_embedder.make_embedder
+        # returns None) was a fourth, previously-unfixed raw model-download call site. Exercise the
+        # REAL call graph (_get_embedder -> _text_embedding_cached_first), not the inner constructor
+        # in isolation, so a future regression there is actually caught.
+        calls = []
+
+        def fake_te(model_name, providers=None, local_files_only=False):
+            calls.append(local_files_only)
+            if local_files_only:
+                raise RuntimeError("not cached")
+            return "online-embedder"
+
+        fake_fastembed = type(sys)("fastembed")
+        fake_fastembed.TextEmbedding = fake_te
+        fake_setup_index = MagicMock()
+        fake_setup_index.retry_with_ca_bundle_ladder.side_effect = lambda attempt, model_name: attempt()
+        with patch.object(self.idx, "_onnx_providers", return_value=["CPUExecutionProvider"]), \
+             patch.object(self.idx.accel_embedder, "make_embedder", return_value=None), \
+             patch.dict(sys.modules, {"fastembed": fake_fastembed, "setup_index": fake_setup_index}):
+            got = self.idx._get_embedder("BAAI/bge-small-en-v1.5")
+        self.assertEqual(got, "online-embedder")
+        self.assertEqual(calls, [True, False], "cached-first then online download")
+        fake_setup_index.ensure_ca_bundle_applied.assert_called_once()
+        fake_setup_index.retry_with_ca_bundle_ladder.assert_called_once()
+
+    def test_falls_back_to_fastembed_cert_failure_routes_through_diagnostic(self):
+        # Wave 1p939 (delivery-phase fix): a persisting CERTIFICATE_VERIFY_FAILED at this call site
+        # must reach the operator-facing diagnostic, not a bare traceback (AC-4 parity).
+        cert_exc = Exception("certificate verify failed: unable to get local issuer certificate")
+
+        def fake_te(model_name, providers=None, local_files_only=False):
+            if local_files_only:
+                raise RuntimeError("not cached")
+            raise cert_exc
+
+        fake_fastembed = type(sys)("fastembed")
+        fake_fastembed.TextEmbedding = fake_te
+        fake_setup_index = MagicMock()
+        fake_setup_index.raise_with_ca_bundle_diagnostic.side_effect = lambda model, exc: (_ for _ in ()).throw(exc)
+
+        def fake_retry(attempt, model_name):
+            try:
+                return attempt()
+            except Exception as exc:
+                return fake_setup_index.raise_with_ca_bundle_diagnostic(model_name, exc)
+
+        fake_setup_index.retry_with_ca_bundle_ladder.side_effect = fake_retry
+        with patch.object(self.idx, "_onnx_providers", return_value=["CPUExecutionProvider"]), \
+             patch.object(self.idx.accel_embedder, "make_embedder", return_value=None), \
+             patch.dict(sys.modules, {"fastembed": fake_fastembed, "setup_index": fake_setup_index}):
+            with self.assertRaises(Exception):
+                self.idx._get_embedder("BAAI/bge-small-en-v1.5")
+        fake_setup_index.ensure_ca_bundle_applied.assert_called_once()
+        fake_setup_index.raise_with_ca_bundle_diagnostic.assert_called_once_with(
+            "BAAI/bge-small-en-v1.5", cert_exc
+        )
+
+    def test_falls_back_to_fastembed_no_ca_call_when_cached(self):
+        # AC-3 parity at the new call site: a cache hit never reaches the CA-bundle call at all.
+        fake_te = object()
+        fake_fastembed = type(sys)("fastembed")
+        fake_fastembed.TextEmbedding = lambda **kw: fake_te
+        fake_setup_index = MagicMock()
+        with patch.object(self.idx, "_onnx_providers", return_value=["CPUExecutionProvider"]), \
+             patch.object(self.idx.accel_embedder, "make_embedder", return_value=None), \
+             patch.dict(sys.modules, {"fastembed": fake_fastembed, "setup_index": fake_setup_index}):
+            got = self.idx._get_embedder("Snowflake/snowflake-arctic-embed-xs")
+        self.assertIs(got, fake_te)
+        fake_setup_index.ensure_ca_bundle_applied.assert_not_called()
+        fake_setup_index.retry_with_ca_bundle_ladder.assert_not_called()
+
 
 class HfDownloadCachedFirstTests(unittest.TestCase):
     """Wave 1p5cx: clean-ONNX / reranker resolution must hit the local cache first (no Hub
@@ -482,10 +580,109 @@ class HfDownloadCachedFirstTests(unittest.TestCase):
             return f"/downloaded/{filename}"
 
         fake_hub = types.SimpleNamespace(hf_hub_download=fake_dl)
-        with patch.dict(sys.modules, {"huggingface_hub": fake_hub}):
+        fake_setup_index = MagicMock()
+        fake_setup_index.retry_with_ca_bundle_ladder.side_effect = lambda attempt, model_name: attempt()
+        with patch.dict(sys.modules, {"huggingface_hub": fake_hub, "setup_index": fake_setup_index}):
             path = self.accel._hf_download_cached_first("repo", "model.onnx", "/cache")
         self.assertEqual(path, "/downloaded/model.onnx")
         self.assertEqual(calls, [True, False], "cached-first then online download")
+        fake_setup_index.ensure_ca_bundle_applied.assert_called_once()
+        fake_setup_index.retry_with_ca_bundle_ladder.assert_called_once()
+
+    def test_cached_first_applies_ca_bundle_on_cert_verify_failure(self):
+        # Wave 1p939 AC-1: a host-agent CA var present + a cert-verify failure on the online attempt
+        # → ensure_ca_bundle_applied() runs before the (single) online attempt, and a persisting
+        # failure is routed through the reactive ladder (retry_with_ca_bundle_ladder, tested in full
+        # in test_setup_index.py) to the operator-facing diagnostic.
+        cert_exc = Exception("certificate verify failed: unable to get local issuer certificate")
+        calls = []
+
+        def fake_dl(repo, filename, cache_dir=None, local_files_only=False):
+            calls.append(local_files_only)
+            if local_files_only:
+                raise RuntimeError("LocalEntryNotFound")
+            raise cert_exc
+
+        fake_hub = types.SimpleNamespace(hf_hub_download=fake_dl)
+        fake_setup_index = MagicMock()
+        fake_setup_index.raise_with_ca_bundle_diagnostic.side_effect = lambda model, exc: (_ for _ in ()).throw(exc)
+
+        def fake_retry(attempt, model_name):
+            try:
+                return attempt()
+            except Exception as exc:
+                return fake_setup_index.raise_with_ca_bundle_diagnostic(model_name, exc)
+
+        fake_setup_index.retry_with_ca_bundle_ladder.side_effect = fake_retry
+        with patch.dict(sys.modules, {"huggingface_hub": fake_hub, "setup_index": fake_setup_index}):
+            with self.assertRaises(Exception):
+                self.accel._hf_download_cached_first("repo", "model.onnx", "/cache")
+        fake_setup_index.ensure_ca_bundle_applied.assert_called_once()
+        fake_setup_index.retry_with_ca_bundle_ladder.assert_called_once()
+        fake_setup_index.raise_with_ca_bundle_diagnostic.assert_called_once_with("repo", cert_exc)
+
+    def test_cached_first_no_ca_call_when_already_cached(self):
+        # Wave 1p939 AC-3: a cache hit never reaches the CA-bundle call at all.
+        fake_hub = types.SimpleNamespace(hf_hub_download=lambda *a, **k: "/cache/model.onnx")
+        fake_setup_index = MagicMock()
+        with patch.dict(sys.modules, {"huggingface_hub": fake_hub, "setup_index": fake_setup_index}):
+            self.accel._hf_download_cached_first("repo", "model.onnx", "/cache")
+        fake_setup_index.ensure_ca_bundle_applied.assert_not_called()
+        fake_setup_index.retry_with_ca_bundle_ladder.assert_not_called()
+
+
+class EnsureFastembedModelCachedCaTests(unittest.TestCase):
+    """Wave 1p939: ``_ensure_fastembed_model_cached`` applies the CA-resolution ladder before its
+    online download attempt — covers the dashboard file-watcher launcher path."""
+
+    def setUp(self):
+        self.accel = load_accel()
+
+    def test_applies_ca_bundle_before_online_attempt_on_cache_miss(self):
+        calls = []
+
+        def fake_te(model_name, cache_dir=None, local_files_only=False):
+            calls.append(local_files_only)
+            if local_files_only:
+                raise RuntimeError("not cached")
+            return MagicMock()
+
+        fake_fastembed = types.SimpleNamespace(TextEmbedding=fake_te)
+        fake_setup_index = MagicMock()
+        fake_setup_index.retry_with_ca_bundle_ladder.side_effect = lambda attempt, model_name: attempt()
+        with patch.dict(sys.modules, {"fastembed": fake_fastembed, "setup_index": fake_setup_index}):
+            self.accel._ensure_fastembed_model_cached("Snowflake/snowflake-arctic-embed-xs")
+        self.assertEqual(calls, [True, False], "cached-first then online download")
+        fake_setup_index.ensure_ca_bundle_applied.assert_called_once()
+        fake_setup_index.retry_with_ca_bundle_ladder.assert_called_once()
+
+    def test_no_ca_call_when_already_cached(self):
+        # AC-3: a cache hit never reaches the CA-bundle call.
+        fake_fastembed = types.SimpleNamespace(TextEmbedding=lambda **k: MagicMock())
+        fake_setup_index = MagicMock()
+        with patch.dict(sys.modules, {"fastembed": fake_fastembed, "setup_index": fake_setup_index}):
+            self.accel._ensure_fastembed_model_cached("Snowflake/snowflake-arctic-embed-xs")
+        fake_setup_index.ensure_ca_bundle_applied.assert_not_called()
+        fake_setup_index.retry_with_ca_bundle_ladder.assert_not_called()
+
+    def test_swallows_persisting_failure_without_raising(self):
+        # This function's no-op-on-failure contract (cache-priming, best-effort) is unchanged, but a
+        # persisting failure must now route through retry_with_ca_bundle_ladder (delivery-phase fix:
+        # this was the one named call site still missing ladder parity) and be logged before the
+        # swallow, not silently discarded.
+        def fake_te(model_name, cache_dir=None, local_files_only=False):
+            raise Exception("certificate verify failed")
+
+        fake_fastembed = types.SimpleNamespace(TextEmbedding=fake_te)
+        fake_setup_index = MagicMock()
+        fake_setup_index.retry_with_ca_bundle_ladder.side_effect = lambda attempt, model_name: attempt()
+        buf = io.StringIO()
+        with patch.dict(sys.modules, {"fastembed": fake_fastembed, "setup_index": fake_setup_index}), \
+             patch("sys.stderr", buf):
+            self.accel._ensure_fastembed_model_cached("Snowflake/snowflake-arctic-embed-xs")  # must not raise
+        fake_setup_index.retry_with_ca_bundle_ladder.assert_called_once()
+        self.assertIn("Snowflake/snowflake-arctic-embed-xs", buf.getvalue())
+        self.assertIn("falling back", buf.getvalue())
 
 
 # Wave 1p5py: CUDA 12-vs-13 ABI gap detection + venv-local shim (hardware-free).

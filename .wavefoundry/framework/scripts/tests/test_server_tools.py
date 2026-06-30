@@ -11911,6 +11911,51 @@ class BackgroundModelDownloadTests(unittest.TestCase):
         self.assertIn("already cached", output)
         self.assertIn("test-embedding-model", output)
 
+    def test_ensure_model_cached_embedding_download_applies_ca_bundle(self):
+        """Wave 1p939 AC-6: a cache miss → the online download attempt is preceded by
+        setup_index.ensure_ca_bundle_applied(), so the MCP server's own download path (not just
+        accel_embedder's) picks up a host-agent/operator CA bundle."""
+        import io
+
+        mock_embedder = MagicMock()
+        calls = []
+
+        def fake_text_embedding(model_name, local_files_only=None, **kwargs):
+            calls.append(local_files_only)
+            if local_files_only:
+                raise RuntimeError("not cached")
+            return mock_embedder
+
+        with patch.dict(os.environ, {}, clear=False):
+            with patch("fastembed.TextEmbedding", side_effect=fake_text_embedding):
+                with patch("setup_index.ensure_ca_bundle_applied") as ensure_ca:
+                    buf = io.StringIO()
+                    with patch("sys.stderr", buf):
+                        self.srv._ensure_model_cached("test-embedding-model", "embedding")
+        self.assertEqual(calls, [True, False], "offline probe then online download")
+        ensure_ca.assert_called_once()
+
+    def test_ensure_model_cached_embedding_cert_failure_wraps_diagnostic(self):
+        """Wave 1p939 AC-4: a CERTIFICATE_VERIFY_FAILED on the online download attempt is wrapped
+        with setup_index.raise_with_ca_bundle_diagnostic() rather than propagating raw."""
+        cert_exc = Exception("certificate verify failed: unable to get local issuer certificate")
+
+        def fake_text_embedding(model_name, local_files_only=None, **kwargs):
+            if local_files_only:
+                raise RuntimeError("not cached")
+            raise cert_exc
+
+        with patch.dict(os.environ, {}, clear=False):
+            with patch("fastembed.TextEmbedding", side_effect=fake_text_embedding):
+                with patch("setup_index.ensure_ca_bundle_applied"):
+                    with patch(
+                        "setup_index.raise_with_ca_bundle_diagnostic",
+                        side_effect=lambda model, exc: (_ for _ in ()).throw(exc),
+                    ) as diag:
+                        with self.assertRaises(Exception):
+                            self.srv._ensure_model_cached("test-embedding-model", "embedding")
+        diag.assert_called_once_with("test-embedding-model", cert_exc)
+
     def test_ensure_model_cached_reranker_import_error(self):
         """_ensure_model_cached skips gracefully when accel_embedder is unavailable (1p52p: the
         reranker prewarm uses accel_embedder, not fastembed.rerank)."""

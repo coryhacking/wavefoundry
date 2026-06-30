@@ -469,10 +469,16 @@ def _ensure_model_cached(model_name: str, model_type: str) -> None:
             pass
 
         # Not cached — download (object discarded)
-        try:
-            TextEmbedding(model_name=model_name, local_files_only=False)
-        except TypeError:
-            TextEmbedding(model_name=model_name)
+        import setup_index  # wave 1p939: apply the same CA ladder wf setup uses before downloading
+
+        def _download_attempt():
+            try:
+                TextEmbedding(model_name=model_name, local_files_only=False)
+            except TypeError:
+                TextEmbedding(model_name=model_name)
+
+        setup_index.ensure_ca_bundle_applied()
+        setup_index.retry_with_ca_bundle_ladder(_download_attempt, model_name)
         _wf_log(f"[wavefoundry] Model cached: {model_name}")
 
 

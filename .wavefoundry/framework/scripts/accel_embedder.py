@@ -107,7 +107,16 @@ def _hf_download_cached_first(repo: str, filename: str, cache_dir: str) -> str:
     try:
         return hf_hub_download(repo, filename, cache_dir=cache_dir, local_files_only=True)
     except Exception:
-        return hf_hub_download(repo, filename, cache_dir=cache_dir)
+        pass
+    # Wave 1p939: this is a non-setup launcher (MCP wave_index_build, dashboard watcher, background
+    # refresh) — apply the same CA ladder wf setup uses before the online attempt, once per process,
+    # then fall back through the same reactive candidate ladder _warm_model uses on a cert-verify
+    # failure (delivery-phase council finding: the proactive step alone isn't full ladder parity).
+    import setup_index
+    setup_index.ensure_ca_bundle_applied()
+    return setup_index.retry_with_ca_bundle_ladder(
+        lambda: hf_hub_download(repo, filename, cache_dir=cache_dir), repo,
+    )
 
 
 def _resolve_clean_onnx(model_name: str) -> Optional[tuple[str, str]]:
@@ -123,7 +132,12 @@ def _resolve_clean_onnx(model_name: str) -> Optional[tuple[str, str]]:
     try:
         onnx_path = _hf_download_cached_first(repo, onnx_file, str(_CLEAN_ONNX_CACHE))
         tok_path = _hf_download_cached_first(repo, tok_file, str(_CLEAN_ONNX_CACHE))
-    except Exception:
+    except Exception as exc:
+        # Wave 1p939 (delivery-phase fix): log before degrading so a persisting CA-trust failure
+        # is operator-visible instead of silently looking like a GPU/accel failure (the diagnostic
+        # _hf_download_cached_first raises would otherwise be discarded here with no trace).
+        print(f"[wavefoundry] clean ONNX fetch for {model_name!r} failed ({exc}); falling back to "
+              "the resident model path.", file=sys.stderr, flush=True)
         return None
     return os.path.realpath(onnx_path), tok_path
 
@@ -148,7 +162,21 @@ def _ensure_fastembed_model_cached(model_name: str) -> None:
         try:
             TextEmbedding(model_name=model_name, cache_dir=cache_dir, local_files_only=True)
         except Exception:
-            TextEmbedding(model_name=model_name, cache_dir=cache_dir)
+            # Wave 1p939: apply the same CA ladder wf setup uses before the online attempt, then
+            # fall back through the reactive candidate ladder on a persisting cert-verify failure
+            # (delivery-phase fix: this was the one named call site still missing ladder parity).
+            import setup_index
+            setup_index.ensure_ca_bundle_applied()
+            try:
+                setup_index.retry_with_ca_bundle_ladder(
+                    lambda: TextEmbedding(model_name=model_name, cache_dir=cache_dir), model_name,
+                )
+            except Exception as exc:
+                # Log before this function's own best-effort swallow degrades to the CPU path —
+                # see _resolve_clean_onnx.
+                print(f"[wavefoundry] resident model fetch for {model_name!r} failed ({exc}); "
+                      "falling back to the CPU embedder path.", file=sys.stderr, flush=True)
+                raise
     except Exception:
         pass
 
@@ -195,7 +223,10 @@ def _resolve_reranker_cpu_files(model_name: str) -> Optional[tuple[str, str]]:
     try:
         onnx_path = _hf_download_cached_first(repo, RERANKER_CPU_ONNX_FILE, str(_CLEAN_ONNX_CACHE))
         tok_path = _hf_download_cached_first(repo, tok_file, str(_CLEAN_ONNX_CACHE))
-    except Exception:
+    except Exception as exc:
+        # Wave 1p939 (delivery-phase fix): log before degrading — see _resolve_clean_onnx.
+        print(f"[wavefoundry] reranker CPU ONNX fetch for {model_name!r} failed ({exc}); falling "
+              "back to the resident model path.", file=sys.stderr, flush=True)
         return None
     return os.path.realpath(onnx_path), tok_path
 
