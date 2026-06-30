@@ -7,7 +7,9 @@ non-ASCII raises BEFORE the reconfigure and does NOT raise AFTER it.
 from __future__ import annotations
 
 import io
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -80,6 +82,58 @@ class ConfigureUtf8StdioTests(unittest.TestCase):
 
         with patch.object(sys, "stdout", RaisingStream()), patch.object(sys, "stderr", RaisingStream()):
             cli_stdio.configure_utf8_stdio()  # no exception
+
+
+class IsolatedStdoutFdTests(unittest.TestCase):
+    """Wave 1p8vc: the fd-level stdout isolation that protects the MCP JSON-RPC channel from native
+    C-extension writes to fd 1 (which `contextlib.redirect_stdout` cannot intercept)."""
+
+    def test_diverts_native_fd1_writes_and_restores(self):
+        # AC-1: a raw os.write(1, ...) INSIDE the block must NOT reach the original fd-1 target
+        # (it goes to devnull); after the block fd 1 is restored so later writes DO reach it.
+        with tempfile.TemporaryFile() as tf:
+            saved_out = os.dup(1)
+            try:
+                os.dup2(tf.fileno(), 1)  # stand in for the MCP stdout pipe on the real fd 1
+                with cli_stdio.isolated_stdout_fd():
+                    os.write(1, b"NATIVE_INSIDE")  # native fd-1 write — must be diverted away
+                os.write(1, b"AFTER_RESTORE")       # fd 1 restored — must reach the pipe
+            finally:
+                os.dup2(saved_out, 1)
+                os.close(saved_out)
+            tf.seek(0)
+            data = tf.read()
+        self.assertNotIn(b"NATIVE_INSIDE", data, "native fd-1 write must be diverted inside the block")
+        self.assertIn(b"AFTER_RESTORE", data, "fd 1 must be restored after the block")
+
+    def test_noop_without_real_fileno(self):
+        # AC-2: when sys.stdout has no real fileno (e.g. a captured StringIO), the CM is a safe no-op
+        # and never raises — Python-level writes still land in the captured stream.
+        saved = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            with cli_stdio.isolated_stdout_fd():
+                print("hello-under-capture")
+            captured = sys.stdout.getvalue()
+        finally:
+            sys.stdout = saved
+        self.assertIn("hello-under-capture", captured)
+
+    def test_does_not_leak_file_descriptors(self):
+        # The save/devnull fds must be closed in finally — repeated use must not exhaust fds.
+        with tempfile.TemporaryFile() as tf:
+            saved_out = os.dup(1)
+            try:
+                os.dup2(tf.fileno(), 1)
+                before = os.dup(1); os.close(before)  # next free fd number as a baseline
+                for _ in range(50):
+                    with cli_stdio.isolated_stdout_fd():
+                        os.write(1, b"x")
+                after = os.dup(1); os.close(after)
+            finally:
+                os.dup2(saved_out, 1)
+                os.close(saved_out)
+        self.assertEqual(before, after, "isolated_stdout_fd must not leak file descriptors")
 
 
 if __name__ == "__main__":

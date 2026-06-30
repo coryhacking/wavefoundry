@@ -6,6 +6,20 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.7] - 2026-06-29
+
+### Fixed
+
+- **The MCP server no longer hangs on the first model-loading call.** Loading onnxruntime (for the GPU/provider probe behind `wave_gpu_doctor`, and for embedding/reranking on the first `code_search` / `code_ask` / `docs_search`) can make its native execution provider write diagnostics directly to the process's stdout file descriptor — which is the MCP JSON-RPC channel — corrupting the protocol on the first cold call after a host restart. The server now hands the protocol a private copy of stdout and points the real stdout file descriptor at the null device at startup, so no native library write can corrupt the channel; the GPU probe keeps an additional fd-level guard.
+- **`uv` dependency install no longer fails behind a corporate TLS proxy.** When `SSL_CERT_FILE` pointed at a single corporate-root certificate (set so the embedding-model download trusts the proxy), `uv` treated that file as its exclusive trust anchor and rejected PyPI. Setup now runs `uv` with the certificate-file variables removed from its environment and native TLS enabled (OS trust store), and assembles a merged superset trust bundle for the certifi/requests consumers — so both dependency install and the model download succeed. The previous per-store model-download trust ladder is unchanged.
+- **The runtime `.gitignore` block is written programmatically and self-heals.** The Wavefoundry runtime ignore entries (semantic index, logs, lock/state files, pack-drop archives) are now written by the surface renderer on every install / `wf render-surfaces` / upgrade, instead of relying on an agent following prose. A repository that wasn't a git repo at install time — or whose ignore step was skipped — now gets the block automatically on its next upgrade, with operator-authored entries preserved.
+- **Wave-close summaries no longer show stray dashes.** A Markdown table separator row in a change doc's Decision Log no longer leaks a `--------` entry into the generated close summary's key-decisions list.
+
+### Changed
+
+- **Secret-scan finding IDs: the legacy `exc-###` migration was removed.** The one-release shim that auto-converted legacy `exc-###` finding IDs to the lifecycle `<prefix>-sec` form has been removed. The secrets gate keys on a finding's status, not its ID shape, so an existing ledger with old IDs still reads and gates correctly; new findings continue to mint `<prefix>-sec` IDs.
+- **The stage-gate sections stay a fixed contract on upgrade.** Upgrade reconciliation now keeps the two named stage-gate sections in `AGENTS.md` (repository-code gate and product-code guard) as separate named sections rather than letting them be consolidated, because they're referenced by name across host entry docs and lifecycle prompts.
+
 ## [1.9.6] - 2026-06-29
 
 ### Fixed

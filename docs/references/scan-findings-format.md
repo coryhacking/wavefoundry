@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-28
+Last verified: 2026-06-29
 
 The canonical schema for **`docs/scan-findings.json`** — the committed ledger the
 hardcoded-secrets scanner uses to record, classify, and gate every match. It is
@@ -48,8 +48,7 @@ Each array element is one finding. Scanner-written fields are created by
 
 | Field | Type | Meaning |
 | ----- | ---- | ------- |
-| `id` | string | Stable finding id. New findings use a **lifecycle-backed** id `<prefix>-sec` matching `^[0-9a-z]{5}-sec$` (e.g. `1p8l0-sec`) — see **Finding ID format** below. Legacy `exc-###` ids are still tolerated and migrated on the next scan. |
-| `legacy_id` | string | *(optional)* The previous `exc-###` id when a finding was migrated to the `<prefix>-sec` shape — see **Finding ID format / migration** below. Present only on migrated records. |
+| `id` | string | Stable finding id. Findings use a **lifecycle-backed** id `<prefix>-sec` matching `^[0-9a-z]{5}-sec$` (e.g. `1p8l0-sec`) — see **Finding ID format** below. |
 | `file` | string | Repo-relative path of the matched file. |
 | `line` | int | 1-indexed line number of the match. |
 | `line_hash` | string | Hash of the matched line — survives line drift so the entry re-binds when the line moves. |
@@ -88,7 +87,7 @@ matching `^[0-9a-z]{5}-sec$` (e.g. `1p8l0-sec`). The `<prefix>` is the same
   fields (`file`, `line`, `rule_id`, `line_hash`, `context_hash`, `matched_text`),
   so a slug would only duplicate already-structured data and add avoidable
   collision/determinism work. The scanner — not an agent — mints the id.
-- **Collision-safe.** New and migrated ids dedupe against existing lifecycle
+- **Collision-safe.** New ids dedupe against existing lifecycle
   prefixes (plans, waves, ADRs) **and** against existing ids in this file,
   including multiple findings minted during the same scan.
 - **`sec` is scanner-scoped.** `sec` is **not** a public change-doc kind — it never
@@ -98,23 +97,6 @@ matching `^[0-9a-z]{5}-sec$` (e.g. `1p8l0-sec`). The `<prefix>` is the same
   ordinal ids like `SEC-1` (per `213-security-reviewer.prompt.md` / the generic
   finding-record schema). Those are unrelated to scanner **ledger** ids and are not
   changed by this format.
-
-### Migration of legacy `exc-###` ids
-
-Earlier findings used local sequential ids such as `exc-001`. On the next scan the
-scanner **migrates** any `exc-###` id to a `<prefix>-sec` id, in place:
-
-- **Lossless.** Every non-id field — `status`, `confirmations`, `override_reason`,
-  line/context hashes, redacted `matched_text`, and any security-reviewer fields —
-  is preserved exactly. Only `id` is replaced.
-- **Traceable.** The previous id is recorded as `legacy_id` (e.g.
-  `"legacy_id": "exc-001"`) so external references to the old id (commits, notes,
-  discussion) can still be traced after conversion.
-- **Idempotent.** Running the scan again does not re-change already-migrated ids or
-  duplicate `legacy_id`.
-- **Re-binding preserved.** A migrated record still re-binds by `file` / `rule_id` /
-  `line_hash` / `context_hash`, so a re-scan with line drift updates the existing
-  `sec` record instead of minting a duplicate.
 
 ## Status lifecycle
 

@@ -884,5 +884,82 @@ class GitAttributesTests(unittest.TestCase):
             self.assertIn(f"{prefix} text eol=lf", text, f"{prefix} not pinned to eol=lf")
 
 
+class RenderGitignoreBlockTests(unittest.TestCase):
+    """Wave 1p8vj: the runtime .gitignore block is written programmatically + idempotently, and
+    self-heals on every render/upgrade, instead of relying on agent prose."""
+
+    _CANONICAL = (
+        ".wavefoundry/index/",
+        ".wavefoundry/framework/index/",
+        ".wavefoundry/logs/",
+        ".wavefoundry/**/*.lock",
+        ".wavefoundry/dashboard-server.json",
+        ".wavefoundry/upgrade-in-progress.json",
+        ".wavefoundry/guard-overrides.json",
+        "/wavefoundry-*.zip",
+    )
+
+    def setUp(self):
+        self.mod = _load_render_module()
+
+    def test_creates_gitignore_with_block_when_missing(self):
+        # AC-1 + AC-4: a fresh repo gets .gitignore with the full canonical runtime block.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            self.mod.render_gitignore_block(root)
+            text = (root / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn(self.mod._GITIGNORE_BEGIN, text)
+        self.assertIn(self.mod._GITIGNORE_END, text)
+        for entry in self._CANONICAL:
+            self.assertIn(entry, text, f"managed block must contain {entry}")
+
+    def test_appends_block_and_is_idempotent(self):
+        # AC-2: an existing .gitignore without the block gets it appended; a second run does not
+        # duplicate the markers or entries.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            (root / ".gitignore").write_text("node_modules/\n*.log\n", encoding="utf-8")
+            self.mod.render_gitignore_block(root)
+            once = (root / ".gitignore").read_text(encoding="utf-8")
+            self.mod.render_gitignore_block(root)
+            twice = (root / ".gitignore").read_text(encoding="utf-8")
+        self.assertEqual(once, twice, "render must be idempotent")
+        self.assertEqual(twice.count(self.mod._GITIGNORE_BEGIN), 1, "exactly one managed block")
+        self.assertEqual(twice.count(".wavefoundry/index/"), 1, "no duplicate entries")
+
+    def test_preserves_user_entries(self):
+        # AC-3: operator-authored lines outside the managed region are kept verbatim.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            (root / ".gitignore").write_text("node_modules/\n.env\n# my custom rule\nbuild/\n", encoding="utf-8")
+            self.mod.render_gitignore_block(root)
+            text = (root / ".gitignore").read_text(encoding="utf-8")
+        for user_line in ("node_modules/", ".env", "# my custom rule", "build/"):
+            self.assertIn(user_line, text, f"user entry {user_line!r} must be preserved")
+
+    def test_folds_loose_managed_entries_without_duplicating(self):
+        # A repo with the canonical entries as LOOSE lines (older hand-seeded block) must end up with
+        # them ONLY inside the managed block — no duplicates — while user entries stay.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            (root / ".gitignore").write_text(
+                "node_modules/\n.wavefoundry/index/\n.wavefoundry/logs/\n", encoding="utf-8"
+            )
+            self.mod.render_gitignore_block(root)
+            text = (root / ".gitignore").read_text(encoding="utf-8")
+        self.assertEqual(text.count(".wavefoundry/index/"), 1)
+        self.assertEqual(text.count(".wavefoundry/logs/"), 1)
+        self.assertIn("node_modules/", text)
+
+    def test_main_wires_gitignore_render(self):
+        # AC-5: render_platform_surfaces.main() calls render_gitignore_block (runs on every
+        # render / setup / upgrade) so the block is enforced and self-heals.
+        src = SCRIPT_PATH.read_text(encoding="utf-8")
+        start = src.index("def main(")
+        body = src[start:]
+        self.assertIn("render_gitignore_block(repo_root)", body,
+                      "main() must call render_gitignore_block so the block is enforced on every render")
+
+
 if __name__ == "__main__":
     unittest.main()

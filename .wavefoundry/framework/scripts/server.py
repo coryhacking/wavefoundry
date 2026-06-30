@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import io
+import os
 import sys
 import threading
 from pathlib import Path
@@ -81,6 +83,58 @@ def _configure_stdio_for_mcp_transport() -> None:
             # Best-effort only: some host-provided stream objects do not support
             # every TextIOWrapper option. Never block MCP startup for diagnostics.
             continue
+
+
+def _isolate_native_stdout_from_protocol() -> None:
+    """Give the MCP JSON-RPC protocol a PRIVATE dup of stdout and point OS fd 1 at ``os.devnull``.
+
+    Native C/C++ extensions — onnxruntime's DirectML/CUDA execution providers enumerating GPU
+    adapters on their FIRST load — write diagnostics DIRECTLY to file descriptor 1. When fd 1 is the
+    stdio JSON-RPC channel, those bytes corrupt the protocol framing and hang the first call that
+    triggers a model load (`wave_gpu_doctor`, and every first semantic search — `code_search` /
+    `code_ask` / `docs_search` — plus the background prewarm thread). `contextlib.redirect_stdout`
+    only swaps the Python `sys.stdout` object and cannot intercept native fd-1 writes; a per-call
+    `os.dup2` on fd 1 is process-global and so is unsafe against the concurrent background prewarm
+    thread. This isolates fd 1 ONCE, process-wide and thread-safely.
+
+    The mcp stdio transport writes via `TextIOWrapper(sys.stdout.buffer, …)`, captured when the
+    transport starts — i.e. AFTER this runs. So we dup the real stdout to a private fd, repoint
+    `sys.stdout` to a buffered writer over that private fd (the transport then writes there → the
+    host), and redirect fd 1 → devnull so every native fd-1 write is dropped. Best-effort: build the
+    new stream first and only swap when it is ready; on any failure leave `sys.stdout` / fd 1
+    untouched so the transport can never be broken by this hardening. ``sys.stderr`` (fd 2) is left
+    alone — Python logs still reach the host's stderr."""
+    try:
+        stdout_fd = sys.stdout.fileno()
+    except Exception:
+        return  # no real OS fd behind sys.stdout (captured/redirected) — nothing to isolate
+    try:
+        saved_fd = os.dup(stdout_fd)
+    except Exception:
+        return
+    try:
+        # Buffered writer over the PRIVATE dup of the real stdout; mcp reads `sys.stdout.buffer`.
+        private_stdout = io.TextIOWrapper(
+            io.BufferedWriter(io.FileIO(saved_fd, "w", closefd=True)),
+            encoding="utf-8",
+            newline="\n",
+            write_through=True,
+        )
+    except Exception:
+        try:
+            os.close(saved_fd)
+        except Exception:
+            pass
+        return
+    try:
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull_fd, stdout_fd)  # fd 1 → devnull: native writes are dropped process-wide
+        os.close(devnull_fd)
+    except Exception:
+        # Could not point fd 1 at devnull. fd 1 is unchanged (still the pipe); still hand the
+        # protocol the private dup so output flows (degraded: no native isolation, but functional).
+        pass
+    sys.stdout = private_stdout
 
 
 def _refresh_mcp_tool_surface(
@@ -393,6 +447,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     _configure_stdio_for_mcp_transport()
+    # wave 1p8vp: isolate native fd-1 writes (onnxruntime cold-load) from the JSON-RPC channel, once,
+    # before the transport captures sys.stdout.buffer. Runs only on the real stdio path (dry-run
+    # returns above).
+    _isolate_native_stdout_from_protocol()
     mcp = build_server(root)
     mcp.run(transport="stdio")
     return 0

@@ -462,20 +462,16 @@ def save_exceptions(root: Path, exceptions: list[dict]) -> None:
 # is NOT a public change-doc kind (it never appears in `wave_new_*` kind lists,
 # `VALID_CHANGE_KINDS`, or plan/wave scaffolding). The lifecycle CLI/MCP minting
 # tools do not expose it; only the scanner mints `<prefix>-sec`.
-#
-# Legacy `exc-###` IDs are still parsed/tolerated for not-yet-migrated or
-# imported target repositories; `migrate_legacy_finding_ids` converts them once,
-# idempotently and losslessly.
 # ---------------------------------------------------------------------------
 
 _SEC_ID_RE = re.compile(r"^[0-9a-z]{5}-sec$")
-_LEGACY_EXC_ID_RE = re.compile(r"^exc-\d+$")
 
 
 def _existing_finding_ids(exceptions: list[dict]) -> set[str]:
-    """All ids already present on findings — both new `<prefix>-sec` and legacy
-    `exc-###`. Used so a freshly-minted `sec` id never collides with an existing
-    finding (in addition to the lifecycle-prefix dedup against waves/changes/ADRs)."""
+    """All `<prefix>-sec` ids already present on findings. Used so a freshly-minted `sec` id never
+    collides with an existing finding (in addition to the lifecycle-prefix dedup against
+    waves/changes/ADRs). Reads every `id` regardless of shape, so an imported ledger carrying an
+    older id form is still deduped against."""
     out: set[str] = set()
     for e in exceptions:
         eid = e.get("id", "")
@@ -518,56 +514,6 @@ def _next_secret_finding_id(
             return candidate
     # Unreachable in practice; fall through to the last advanced prefix.
     return f"{lifecycle_id.next_available_prefix(timestamp, repo_root=root)}-sec"
-
-
-def migrate_legacy_finding_ids(
-    root: Path,
-    exceptions: list[dict],
-    *,
-    timestamp: datetime | None = None,
-) -> bool:
-    """Rewrite legacy `exc-###` finding ids to lifecycle `<prefix>-sec` ids in place.
-
-    Wave 1p8l0 — idempotent and lossless:
-
-    - Only records whose ``id`` matches `exc-###` AND which do not already carry a
-      ``legacy_id`` are converted, so a second run is a no-op (Requirement 7 /
-      AC-4): already-migrated records (a `<prefix>-sec` id, or any id with a
-      ``legacy_id`` already recorded) are left untouched.
-    - Every NON-id field is preserved exactly — status, confirmations, override
-      reasons, line/context hashes, redacted matched text, and any
-      security-reviewer fields are never read or rewritten here (Requirement 5 /
-      AC-2). Only ``id`` is replaced and ``legacy_id`` is added for traceability
-      (Requirement 6 / AC-3).
-    - Newly-minted ids dedupe against existing lifecycle prefixes (waves/changes/
-      ADRs under ``root``) and against ids already present or assigned in this
-      batch, so two migrated records never collide (Requirement 4 / AC-6).
-
-    Returns True when any record was rewritten (so the caller persists the file).
-    """
-    # Seed the dedup set with EVERY current id (including the legacy ones being
-    # migrated) so a minted `<prefix>-sec` can't reuse a still-present id, then
-    # add each new id as we go so multiple migrations in one pass stay distinct.
-    assigned: set[str] = _existing_finding_ids(exceptions)
-    changed = False
-    for e in exceptions:
-        eid = e.get("id", "")
-        if not isinstance(eid, str) or not _LEGACY_EXC_ID_RE.fullmatch(eid):
-            continue
-        if e.get("legacy_id"):
-            # Already migrated in a prior pass (defensive — a legacy `exc-###` id
-            # with a recorded legacy_id should not normally occur, but never
-            # double-stamp). Leave untouched for idempotence.
-            continue
-        new_id = _next_secret_finding_id(
-            root, exceptions, timestamp=timestamp, taken=assigned
-        )
-        assigned.discard(eid)   # the old id is being freed
-        assigned.add(new_id)
-        e["id"] = new_id
-        e["legacy_id"] = eid
-        changed = True
-    return changed
 
 
 def _sha256_file(path: Path) -> str:
@@ -1428,14 +1374,6 @@ def check_hardcoded_secrets(
 
     exceptions = load_exceptions(root)
     exceptions_changed = False
-
-    # Wave 1p8l0 — one-shot, idempotent migration of legacy `exc-###` finding ids
-    # to lifecycle-backed `<prefix>-sec` ids. Runs before any matching so the
-    # ledger uses the new id family; preserves every non-id field. Already-migrated
-    # repos and fresh ledgers are a no-op. Uses the scan's reference "now" as the
-    # mint timestamp for deterministic prefixes.
-    if migrate_legacy_finding_ids(root, exceptions, timestamp=scan_as_of):
-        exceptions_changed = True
 
     # Sweep findings for paths that now match the combined path allowlist.
     excluded = [e for e in exceptions if _path_matches_allowlist(e.get("file", ""), global_allowlist_paths)]

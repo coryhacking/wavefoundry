@@ -18668,7 +18668,7 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
         decision_table = (
             "## Decision Log\n\n"
             "| Date | Decision | Reason | Alternatives |\n"
-            "| --- | --- | --- | --- |\n"
+            "| ---- | -------- | ------ | ------------ |\n"
             f"{decision_rows}\n"
         ) if decisions else ""
         change_doc = wave_dir / f"{change_id}.md"
@@ -18711,6 +18711,28 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         summary = result["data"].get("wave_summary", "")
         self.assertIn("AC", summary)
+
+    def test_wave_close_summary_skips_decision_log_separator_row(self):
+        """Regression: a GFM Decision Log separator row written with 4+ dashes
+        (`| ---- | -------- | ... |`, the plan-template default) must NOT be parsed
+        as a decision. Previously the guard matched only the literal `---`, so a
+        `----` separator cell leaked into the summary as a `--------` 'key decision'."""
+        wave_md = self._make_closeable_wave(
+            "1200a-sep-test",
+            "1200a-feat-sep",
+            completed_acs=["AC-1: Core behavior"],
+            decisions=["Resolve the contradiction toward fix-canonical"],
+        )
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                result = self.srv.wave_close_response(self.root, "1200a-sep-test", mode="create")
+        self.assertEqual(result["status"], "ok")
+        summary = result["data"].get("wave_summary", "")
+        # The real decision is present...
+        self.assertIn("Resolve the contradiction toward fix-canonical", summary)
+        # ...and no dashes-only separator cell leaked in as a decision.
+        self.assertNotIn("Key decisions: --", summary)
+        self.assertNotIn("; --", summary)
 
     def test_wave_close_summary_requires_no_operator_input(self):
         """AC-3: Summary is generated without operator intervention."""
@@ -19758,3 +19780,16 @@ class GpuDoctorToolTests(unittest.TestCase):
                     "available_onnx_providers", "selected_provider", "selection_reason", "cuda12_abi_gap"):
             self.assertIn(key, data)
         self.assertEqual(resp["usage"], "wave_gpu_doctor()")
+
+    def test_probe_wrapped_in_fd_level_stdout_isolation(self):
+        # 1p8vc AC-3: the cold ORT probe is wrapped in cli_stdio.isolated_stdout_fd (OS fd level),
+        # in addition to the Python-level redirect_stdout — so native onnxruntime/DirectML writes to
+        # fd 1 cannot corrupt the MCP JSON-RPC stdout channel and hang the first call.
+        import re as _re
+        src = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        start = src.index("def wave_gpu_doctor_response(")
+        rest = src[start + 1:]
+        m = _re.search(r"\n(?=def |class )", rest)
+        body = rest[: m.start()] if m else rest
+        self.assertIn("isolated_stdout_fd", body, "probe must be wrapped in the fd-level stdout isolation")
+        self.assertIn("redirect_stdout", body, "Python-level redirect must remain (belt-and-suspenders)")

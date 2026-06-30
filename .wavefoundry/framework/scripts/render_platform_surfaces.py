@@ -1315,6 +1315,78 @@ def render_aiignore(repo_root: Path) -> None:
     write_text(aiignore, "\n".join(lines_out).rstrip() + "\n")
 
 
+_GITIGNORE_BEGIN = "# >>> wavefoundry runtime (managed by render_platform_surfaces.py — edits here are overwritten) >>>"
+_GITIGNORE_END = "# <<< wavefoundry runtime <<<"
+# The canonical Wavefoundry runtime ignore block (single source: seed-050). Every entry is
+# host-local / per-machine / regenerable and must never be committed.
+_GITIGNORE_BLOCK = [
+    "# Wavefoundry runtime state files (host-local — never commit)",
+    ".wavefoundry/dashboard-server.json",
+    ".wavefoundry/upgrade-in-progress.json",
+    ".wavefoundry/guard-overrides.json",
+    "",
+    "# Wavefoundry runtime lock files (host-local process/test locks — never commit)",
+    ".wavefoundry/**/*.lock",
+    "",
+    "# Wavefoundry runtime logs (upgrade, index build, dashboard)",
+    ".wavefoundry/logs/",
+    "",
+    "# Wavefoundry semantic index (binary + per-machine — never commit)",
+    ".wavefoundry/index/",
+    ".wavefoundry/framework/index/",
+    "",
+    "# Wavefoundry framework pack archives (tracked source lives under .wavefoundry/framework/; do not commit zip drops)",
+    "/wavefoundry-*.zip",
+]
+_GITIGNORE_MANAGED_LINES = frozenset(line.strip() for line in _GITIGNORE_BLOCK if line.strip())
+
+
+def render_gitignore_block(repo_root: Path) -> None:
+    """Ensure the canonical Wavefoundry runtime ignore block is present in ``.gitignore``.
+
+    Programmatic + idempotent (the same idea as :func:`render_aiignore`, with sentinel markers): the
+    framework-managed block is delimited by ``_GITIGNORE_BEGIN``/``_GITIGNORE_END``; on every render
+    the region between the markers is rewritten while ALL operator-authored lines are preserved
+    verbatim. Loose copies of managed entries left outside the markers (e.g. an older hand-seeded
+    block) are folded into the managed region so re-runs never duplicate. Creates ``.gitignore`` when
+    absent.
+
+    This is the AUTHORITATIVE writer for the runtime block — it runs on every ``wf setup`` /
+    ``wf render-surfaces`` / upgrade (``main`` calls it unconditionally), so the block is enforced and
+    SELF-HEALS existing repos. The previous contract was agent-prose only (seed-050/seed-160), which
+    silently failed when a repo was not a git repo at install time and upgrade never backfilled it."""
+    gitignore = repo_root / ".gitignore"
+    existing: list[str] = []
+    if gitignore.exists():
+        existing = gitignore.read_text(encoding="utf-8").splitlines()
+
+    preserved: list[str] = []
+    in_block = False
+    for line in existing:
+        stripped = line.strip()
+        if stripped == _GITIGNORE_BEGIN:
+            in_block = True
+            continue
+        if in_block:
+            if stripped == _GITIGNORE_END:
+                in_block = False
+            continue
+        # Drop loose copies of managed lines (patterns + our comment headers) so we don't duplicate
+        # them alongside the managed block; everything else is operator content — keep it verbatim.
+        if stripped in _GITIGNORE_MANAGED_LINES:
+            continue
+        preserved.append(line)
+    while preserved and preserved[-1] == "":
+        preserved.pop()
+
+    managed = [_GITIGNORE_BEGIN, *_GITIGNORE_BLOCK, _GITIGNORE_END]
+    out = list(preserved)
+    if out:
+        out.append("")
+    out.extend(managed)
+    write_text(gitignore, "\n".join(out).rstrip() + "\n")
+
+
 def render_upgrade_skill(repo_root: Path) -> None:
     content = """# Claude skill: Upgrade Wavefoundry
 
@@ -1467,6 +1539,7 @@ def main(argv: list[str] | None = None) -> int:
 
     render_agent_surfaces(repo_root)
     render_bin_launchers(repo_root)
+    render_gitignore_block(repo_root)  # wave 1p8vj: enforce the runtime ignore block on every render/upgrade (self-heals)
     remove_git_hooks(repo_root)  # wave 1p88t: git hooks dropped; clean up any prior renders
     for ds in repo_root.rglob(".DS_Store"):
         try:

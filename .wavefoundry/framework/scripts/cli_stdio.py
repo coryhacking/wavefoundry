@@ -20,7 +20,51 @@ program it is trying to make robust.
 """
 from __future__ import annotations
 
+import contextlib
+import os
 import sys
+
+
+@contextlib.contextmanager
+def isolated_stdout_fd():
+    """Redirect OS-level stdout (file descriptor 1) to ``os.devnull`` for the duration of the block.
+
+    ``contextlib.redirect_stdout`` only swaps the Python ``sys.stdout`` object — it CANNOT intercept
+    a C/C++ extension that writes DIRECTLY to fd 1 (e.g. onnxruntime's DirectML EP enumerating GPU
+    adapters on its first load). When fd 1 is a stdio JSON-RPC channel (the MCP server's transport),
+    those native bytes corrupt the protocol framing and hang the call (wave 1p8vc). This redirects at
+    the OS fd level, which catches native writes too. Pair it with ``redirect_stdout(sys.stderr)`` so
+    meaningful Python-level output still routes to stderr while native fd-1 noise is dropped.
+
+    Saves and restores fd 1 in a ``finally`` (no fd leak), flushing the Python stdout buffer on both
+    sides so buffered Python bytes are not misdirected. Safe no-op when ``sys.stdout`` has no real
+    ``fileno()`` (e.g. a captured ``StringIO`` under test). Pure stdlib; ``os.dup``/``os.dup2`` work
+    on native Windows. Wrap ONLY synchronous work that must not write to the channel, and let fd 1 be
+    restored before anything writes the real response.
+    """
+    try:
+        stdout_fd = sys.stdout.fileno()
+    except (AttributeError, OSError, ValueError):
+        # No real OS fd behind sys.stdout (redirected/captured stream) — nothing to protect.
+        yield
+        return
+    saved_fd = os.dup(stdout_fd)
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    try:
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
+        os.dup2(devnull_fd, stdout_fd)
+        yield
+    finally:
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
+        os.dup2(saved_fd, stdout_fd)
+        os.close(saved_fd)
+        os.close(devnull_fd)
 
 
 def configure_utf8_stdio() -> None:

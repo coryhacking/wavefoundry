@@ -5,9 +5,11 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime
+import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -262,6 +264,7 @@ def _bootstrap_uv(venv_python: Path) -> Path | None:
     result = subprocess_util.isolated_run(
         [str(venv_python), "-m", "pip", "install", "uv"],
         check=False,
+        env=_pip_tls_env(),
     )
     if result.returncode != 0:
         return None
@@ -291,6 +294,9 @@ def _install_deps(missing: list[str], venv_python: Path) -> None:
             "--python", str(venv_python),
             "--exclude-newer", cutoff,
         ] + missing
+        # uv treats SSL_CERT_FILE as its EXCLUSIVE trust anchor; scrub it + use native TLS so a
+        # corp bundle set for the model download cannot break uv's PyPI verification (wave 1p8tf).
+        run_env = _uv_install_env()
     else:
         print(
             "WARNING: uv not available and could not be installed. "
@@ -299,8 +305,11 @@ def _install_deps(missing: list[str], venv_python: Path) -> None:
             file=sys.stderr,
         )
         cmd = [str(venv_python), "-m", "pip", "install"] + missing
+        # pip cannot portably use the OS store; point it at the merged-superset bundle when one
+        # exists so it reaches PyPI whether PyPI is public or MITM-intercepted (wave 1p8tf).
+        run_env = _pip_tls_env()
 
-    result = subprocess_util.isolated_run(cmd, check=False)
+    result = subprocess_util.isolated_run(cmd, check=False, env=run_env)
     if result.returncode != 0:
         installer = "uv" if uv is not None else "pip"
         print(
@@ -451,6 +460,99 @@ def _os_trust_store_bundle() -> "str | None":
     platform locations → certifi default). Verification stays ON — never disables verification."""
     candidates = _os_trust_store_candidates()
     return candidates[0] if candidates else None
+
+
+_CA_MERGE_CACHE_DIR = Path.home() / ".wavefoundry" / "cache" / "ca"
+_CERT_BLOCK_RE = re.compile(
+    r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
+    re.DOTALL,
+)
+# uv (and the rustls/reqwest stack under it) treats SSL_CERT_FILE as its EXCLUSIVE trust anchor — it
+# loads ONLY that file and rejects the rest of the chain. A single corporate-root PEM (set so the
+# certifi-based fastembed/HuggingFace model download trusts a TLS-intercepting proxy) therefore
+# breaks `uv pip install` against PyPI. These are the vars that poison uv; scrub them from uv's
+# child env and let uv use the OS/native store instead (wave 1p8tf).
+_UV_TLS_SCRUB_VARS = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "SSL_CERT_DIR")
+
+
+def _merged_trust_bundle() -> "str | None":
+    """A single merged-superset CA bundle: the union of every readable trust store the host already
+    trusts (host-agent vars → operator vars → platform stores → certifi), deduped by certificate
+    block (wave 1p8tf). Additive to the per-store ladder in ``_warm_model`` — that ladder is unchanged.
+
+    Why a union: a consumer that reads ONE bundle file (pip points requests at a single
+    ``SSL_CERT_FILE``; uv treats it as its exclusive anchor) can then validate BOTH a corporate-MITM
+    host AND a public host like PyPI from the same file. Built only when the environment signals a
+    corporate/proxy trust setup (a host-agent CA var or an operator ``SSL_CERT_FILE`` /
+    ``REQUESTS_CA_BUNDLE`` is set) AND at least two stores contribute — a plain environment returns
+    ``None`` so the default certifi/OS path is unchanged. Tolerates unreadable/malformed candidates
+    (skipped). Verification stays ON — this only widens trust to the union the host already trusts."""
+    has_corp_material = any(
+        os.environ.get(v) for v in (*_HOST_AGENT_CA_ENV_VARS, *_GENERIC_CA_ENV_VARS)
+    )
+    if not has_corp_material:
+        return None
+    blocks: list[str] = []
+    seen: set[str] = set()
+    sources = 0
+    for path in _os_trust_store_candidates():
+        try:
+            text = Path(path).read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        added = False
+        for block in _CERT_BLOCK_RE.findall(text):
+            key = "".join(block.split())
+            if key and key not in seen:
+                seen.add(key)
+                blocks.append(block.strip())
+                added = True
+        if added:
+            sources += 1
+    if not blocks or sources < 2:
+        return None
+    payload = "\n".join(blocks) + "\n"
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    out = _CA_MERGE_CACHE_DIR / f"merged-ca-{digest}.pem"
+    try:
+        _CA_MERGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        if not out.exists():
+            out.write_text(payload, encoding="utf-8")
+    except OSError:
+        return None
+    return str(out)
+
+
+def _uv_install_env() -> "dict[str, str] | None":
+    """Child env for a ``uv`` invocation, or ``None`` to inherit unchanged (wave 1p8tf).
+
+    Returns ``None`` (inherit) when no CA-file env var is set — the conflict only arises when
+    ``SSL_CERT_FILE`` (or a peer) is present, so a plain environment is untouched. Otherwise copies
+    ``os.environ`` (never mutates it), scrubs the vars uv treats as an exclusive anchor, and sets
+    ``UV_NATIVE_TLS=1`` so uv verifies against the OS/platform trust store. Verification stays ON."""
+    if not any(os.environ.get(v) for v in _UV_TLS_SCRUB_VARS):
+        return None
+    env = dict(os.environ)
+    for var in _UV_TLS_SCRUB_VARS:
+        env.pop(var, None)
+    env["UV_NATIVE_TLS"] = "1"
+    return env
+
+
+def _pip_tls_env() -> "dict[str, str] | None":
+    """Child env for a ``pip`` invocation, or ``None`` to inherit unchanged (wave 1p8tf).
+
+    Unlike uv, pip cannot portably use the OS trust store, so point it at the merged-superset bundle
+    (corp + certifi roots) when one exists so pip reaches PyPI whether PyPI is public or
+    MITM-intercepted. Copies ``os.environ`` (never mutates it). Returns ``None`` (inherit) in a plain
+    environment where no merged bundle is built. Verification stays ON."""
+    merged = _merged_trust_bundle()
+    if not merged:
+        return None
+    env = dict(os.environ)
+    env["SSL_CERT_FILE"] = merged
+    env["REQUESTS_CA_BUNDLE"] = merged
+    return env
 
 
 def _is_cert_verify_error(exc: BaseException) -> bool:
@@ -622,6 +724,10 @@ def _probe_embedding_provider(provider: str, *, model_name: str | None = None) -
         # Run one unmeasured warm pass for each provider, then time the second pass.
         # FastEmbed and ONNX Runtime both do lazy setup that would otherwise dominate
         # a tiny benchmark and make CoreML look better than a full-corpus rebuild.
+        # SERIAL ONLY (wave 1p8vc): every `embed()` below runs with the default `parallel=None`
+        # (serial inline path). Do NOT pass `parallel=` here — this probe runs in-process inside the
+        # MCP server (wave_gpu_doctor), and fastembed's parallel path spawns workers that re-load ORT
+        # and would write cold-load diagnostics to the inherited MCP stdout fd, corrupting JSON-RPC.
         cpu_embedding = TextEmbedding(
             model_name=model,
             local_files_only=True,

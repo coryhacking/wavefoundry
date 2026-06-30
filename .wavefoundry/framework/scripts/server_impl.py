@@ -9048,14 +9048,14 @@ def _generate_wave_close_summary(wave_id: str, wave_text: str, wave_md: Path) ->
         progress_entries = []
         for row in progress_body.splitlines():
             cells = [c.strip() for c in row.strip("|").split("|")]
-            if len(cells) >= 2 and cells[0] and cells[0].lower() not in ("date", "---", ""):
+            if len(cells) >= 2 and cells[0] and cells[0].lower() != "date" and not re.fullmatch(r":?-+:?", cells[0]):
                 progress_entries.append(cells[1] if len(cells) > 1 else "")
         # Decision log: data rows
         decision_body = _section_body(ct, "## Decision Log")
         decision_entries = []
         for row in decision_body.splitlines():
             cells = [c.strip() for c in row.strip("|").split("|")]
-            if len(cells) >= 2 and cells[0] and cells[0].lower() not in ("date", "---", ""):
+            if len(cells) >= 2 and cells[0] and cells[0].lower() != "date" and not re.fullmatch(r":?-+:?", cells[0]):
                 decision_entries.append(cells[1] if len(cells) > 1 else "")
         change_summaries.append({"id": cid, "title": title, "completed_acs": completed_acs, "decisions": decision_entries, "progress": progress_entries})
 
@@ -16033,7 +16033,13 @@ def wave_gpu_doctor_response(root: Path) -> dict[str, Any]:
     import sys as _sys
     import provider_policy
     import setup_index
-    with contextlib.redirect_stdout(_sys.stderr):
+    import cli_stdio
+    # The cold ORT/DirectML probe writes native diagnostics straight to OS fd 1 — the MCP JSON-RPC
+    # stdout channel — which `redirect_stdout` (Python-level) cannot intercept; on the first call
+    # after a host restart that corrupts the protocol and hangs (wave 1p8vc). `redirect_stdout`
+    # routes Python-level output to stderr; `cli_stdio.isolated_stdout_fd()` drops native fd-1 writes.
+    # Both wrap ONLY the synchronous probe; fd 1 is restored before the framework writes the response.
+    with contextlib.redirect_stdout(_sys.stderr), cli_stdio.isolated_stdout_fd():
         report = provider_policy.diagnostic_report(provider_probe=setup_index._probe_embedding_provider)
     return _response(
         "ok",

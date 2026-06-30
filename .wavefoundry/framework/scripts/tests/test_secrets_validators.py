@@ -35,9 +35,7 @@ from wave_lint_lib.secrets_validators import (
     get_scan_files,
     load_exceptions,
     load_merged_ruleset,
-    migrate_legacy_finding_ids,
     redact,
-    save_exceptions,
     scan_file_raw,
 )
 from wave_lint_lib.constants import (
@@ -2092,193 +2090,11 @@ class TestSecretFindingIdCollision(unittest.TestCase):
             self.assertRegex(fid, r"^[0-9a-z]{5}-sec$")
 
 
-class TestLegacyFindingIdMigration(unittest.TestCase):
-    """AC-2 / AC-3 / AC-4 — idempotent, lossless migration with legacy traceability."""
-
-    def setUp(self) -> None:
-        _reset_lifecycle_floor()
-
-    @staticmethod
-    def _classified_legacy() -> list[dict]:
-        return [
-            {
-                "id": "exc-001", "file": "config.py", "line": 3,
-                "line_hash": "abc123def456", "context_hash": "ctxhash00001",
-                "rule_id": "test-stripe-key", "matched_text": "sk_l****5678",
-                "status": "confirmed-secret", "in_comment": False,
-                "override_reason": "rotating soon",
-                "confirmations": [
-                    {"git_user_name": "A", "git_user_email": "a@x.com",
-                     "verdict": "confirmed-secret", "reason": "real key",
-                     "confirmed_at": "2026-06-06T10:00:00Z"},
-                ],
-            },
-            {
-                "id": "exc-002", "file": "other.py", "line": 9,
-                "line_hash": "999888777666", "context_hash": "ctxhash00002",
-                "rule_id": "test-generic-secret", "matched_text": "se****et",
-                "status": "false-positive",
-            },
-        ]
-
-    def test_migration_converts_legacy_ids_to_sec(self) -> None:  # AC-2
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            (tmp / "docs").mkdir(parents=True, exist_ok=True)
-            excs = self._classified_legacy()
-            changed = migrate_legacy_finding_ids(tmp, excs, timestamp=_MINT_TS)
-            self.assertTrue(changed)
-            for e in excs:
-                self.assertRegex(e["id"], r"^[0-9a-z]{5}-sec$")
-
-    def test_migration_records_legacy_id(self) -> None:  # AC-3
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            (tmp / "docs").mkdir(parents=True, exist_ok=True)
-            excs = self._classified_legacy()
-            migrate_legacy_finding_ids(tmp, excs, timestamp=_MINT_TS)
-            self.assertEqual(excs[0]["legacy_id"], "exc-001")
-            self.assertEqual(excs[1]["legacy_id"], "exc-002")
-
-    def test_migration_is_lossless(self) -> None:  # AC-2 — every non-id field preserved
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            (tmp / "docs").mkdir(parents=True, exist_ok=True)
-            original = self._classified_legacy()
-            excs = json.loads(json.dumps(original))  # deep copy
-            migrate_legacy_finding_ids(tmp, excs, timestamp=_MINT_TS)
-            for orig, new in zip(original, excs):
-                for key, value in orig.items():
-                    if key == "id":
-                        continue
-                    self.assertEqual(new[key], value, f"field '{key}' changed during migration")
-
-    def test_migration_is_idempotent(self) -> None:  # AC-4
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            (tmp / "docs").mkdir(parents=True, exist_ok=True)
-            excs = self._classified_legacy()
-            self.assertTrue(migrate_legacy_finding_ids(tmp, excs, timestamp=_MINT_TS))
-            snapshot = json.loads(json.dumps(excs))
-            # Second run: no change, ids stable, no duplicate legacy_id.
-            self.assertFalse(migrate_legacy_finding_ids(tmp, excs, timestamp=_MINT_TS))
-            self.assertEqual(excs, snapshot)
-            self.assertEqual([e.get("legacy_id") for e in excs], ["exc-001", "exc-002"])
-
-    def test_migration_no_collision_between_records(self) -> None:  # AC-6
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            (tmp / "docs").mkdir(parents=True, exist_ok=True)
-            excs = self._classified_legacy()
-            migrate_legacy_finding_ids(tmp, excs, timestamp=_MINT_TS)
-            ids = [e["id"] for e in excs]
-            self.assertEqual(len(ids), len(set(ids)), f"migrated ids collided: {ids}")
-
-    def test_migration_skips_already_sec_records(self) -> None:  # AC-4 — mixed ledger
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            (tmp / "docs").mkdir(parents=True, exist_ok=True)
-            already = {"id": "1p400-sec", "file": "z.py", "line": 1,
-                       "rule_id": "r", "status": "pending", "legacy_id": "exc-009"}
-            excs = [already, self._classified_legacy()[0]]
-            migrate_legacy_finding_ids(tmp, excs, timestamp=_MINT_TS)
-            self.assertEqual(excs[0]["id"], "1p400-sec", "existing sec id must not be re-minted")
-            self.assertEqual(excs[0]["legacy_id"], "exc-009", "existing legacy_id must be preserved")
-            self.assertRegex(excs[1]["id"], r"^[0-9a-z]{5}-sec$")
-
-    def test_scanner_migrates_legacy_ledger_in_place(self) -> None:  # AC-2 end-to-end
-        stripe = "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX"
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            _make_root(tmp)
-            _write_framework_toml(tmp)
-            line = f'key = "{stripe}"'
-            (tmp / "config.py").write_text(line + "\n", encoding="utf-8")
-            _write_exceptions(tmp, [{
-                "id": "exc-001", "file": "config.py", "line": 1,
-                "line_hash": _hash_line(line), "context_hash": _hash_context([line], 1),
-                "rule_id": "test-stripe-key", "matched_text": redact(stripe),
-                "status": "confirmed-secret",
-            }])
-            _run_check(tmp)
-            findings = load_exceptions(tmp)
-            self.assertEqual(len(findings), 1)
-            self.assertRegex(findings[0]["id"], r"^[0-9a-z]{5}-sec$")
-            self.assertEqual(findings[0]["legacy_id"], "exc-001")
-            self.assertEqual(findings[0]["status"], "confirmed-secret")
-
-
-class TestLegacyExcIdTolerance(unittest.TestCase):
-    """Legacy `exc-###` ids must still be parsed/tolerated before migration runs
-    (imported / not-yet-migrated target repos)."""
-
-    def setUp(self) -> None:
-        _reset_lifecycle_floor()
-
-    def test_legacy_pending_still_blocks(self) -> None:
-        stripe = "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX"
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            _make_root(tmp)
-            _write_framework_toml(tmp)
-            (tmp / "config.py").write_text(f'key = "{stripe}"\n', encoding="utf-8")
-            _write_exceptions(tmp, [{
-                "id": "exc-001", "file": "config.py", "line": 1,
-                "rule_id": "test-stripe-key", "matched_text": redact(stripe),
-                "status": "pending",
-            }])
-            errors = _run_check(tmp)
-            # Migration converts the id, but the pending finding still surfaces.
-            self.assertTrue(any("pending" in e for e in errors), errors)
-            self.assertEqual(load_exceptions(tmp)[0]["legacy_id"], "exc-001")
-
-
-class TestLineDriftAfterMigration(unittest.TestCase):
-    """AC-5 — a re-scan with line drift updates the migrated `sec` record (matched
-    by line_hash / context_hash) and does NOT mint a duplicate."""
-
-    _STRIPE_KEY = "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX"
-
-    def setUp(self) -> None:
-        _reset_lifecycle_floor()
-
-    def test_drift_rebinds_migrated_record(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            _make_root(tmp)
-            _write_framework_toml(tmp)
-            flagged = f'key = "{self._STRIPE_KEY}"'
-            # Legacy ledger entry recorded when the line was at line 1.
-            _write_exceptions(tmp, [{
-                "id": "exc-001", "file": "config.py", "line": 1,
-                "line_hash": _hash_line(flagged),
-                "context_hash": _hash_context([flagged], 1),
-                "rule_id": "test-stripe-key", "matched_text": redact(self._STRIPE_KEY),
-                "status": "false-positive",
-                "confirmations": [
-                    {"git_user_name": "A", "git_user_email": "a@x.com",
-                     "verdict": "false-positive", "reason": "fixture",
-                     "confirmed_at": "2026-06-06T10:00:00Z"},
-                    {"git_user_name": "B", "git_user_email": "b@x.com",
-                     "verdict": "false-positive", "reason": "fixture",
-                     "confirmed_at": "2026-06-06T11:00:00Z"},
-                ],
-            }])
-            # File now has the flagged line drifted down by 5 padding lines.
-            (tmp / "config.py").write_text(("# pad\n" * 5) + flagged + "\n", encoding="utf-8")
-            _run_check(tmp)
-            findings = load_exceptions(tmp)
-            self.assertEqual(len(findings), 1, "drift must rebind, not mint a duplicate")
-            self.assertRegex(findings[0]["id"], r"^[0-9a-z]{5}-sec$")
-            self.assertEqual(findings[0]["legacy_id"], "exc-001")
-            self.assertEqual(findings[0]["line"], 6, "line should rebind to the drifted position")
-
-
 class TestGateSemanticsUnchanged(unittest.TestCase):
-    """AC-11 — secrets-gate behavior is identical before AND after migration:
-    pending/suspected block, confirmed reminds (non-blocking), cleared FP clears.
-    The gate keys on `status`, never the id shape, so this is verified by driving
-    the real wave_close gate helper with both `exc-###` and `<prefix>-sec` ids."""
+    """Secrets-gate behavior keys on `status`, never the id shape: pending/suspected block,
+    confirmed reminds (non-blocking), cleared FP clears — verified by driving the real wave_close
+    gate helper with both legacy `exc-###` and `<prefix>-sec` ids. (1p8vq: this also pins that a
+    legacy ledger stays gate-correct after the `exc-###` migration was removed.)"""
 
     def setUp(self) -> None:
         _reset_lifecycle_floor()
@@ -2335,31 +2151,28 @@ class TestGateSemanticsUnchanged(unittest.TestCase):
                 self._write(tmp, [self._entry(fid, "false-positive")])
                 self._assert_gate(tmp, blocks=False, reminds=False)
 
-    def test_gate_equivalent_across_migration(self) -> None:
-        """Drive the gate on a legacy ledger, then migrate the SAME ledger and
-        drive the gate again — the verdict (block/remind) must be identical."""
+    def test_legacy_ledger_gates_correctly_and_is_not_rewritten(self) -> None:
+        """1p8vq: with the `exc-###` migration removed, a legacy ledger is still READ and
+        gate-correct (the gate keys on `status`, not id shape) — and the scanner no longer
+        rewrites the old ids to the `sec` shape."""
+        stripe = "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX"
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = Path(tmp_str)
-            (tmp / "docs").mkdir(parents=True, exist_ok=True)
-            ledger = [
-                self._entry("exc-001", "pending"),
-                self._entry("exc-002", "suspected-secret"),
-                self._entry("exc-003", "confirmed-secret"),
-                self._entry("exc-004", "false-positive"),
-            ]
-            _write_exceptions(tmp, ledger)
-            before_blocks = bool(self._gate(tmp, "1p8nw w"))
-            before_reminds = self._notice(tmp) is not None
-            # Migrate and persist.
-            excs = load_exceptions(tmp)
-            self.assertTrue(migrate_legacy_finding_ids(tmp, excs, timestamp=_MINT_TS))
-            save_exceptions(tmp, excs)
-            after_blocks = bool(self._gate(tmp, "1p8nw w"))
-            after_reminds = self._notice(tmp) is not None
-            self.assertTrue(before_blocks and after_blocks, "pending+suspected must block before and after")
-            self.assertTrue(before_reminds and after_reminds, "confirmed reminder must persist before and after")
-            # Sanity: ids actually changed shape.
-            self.assertTrue(all(_SEC_ID_RE.fullmatch(e["id"]) for e in load_exceptions(tmp)))
+            _make_root(tmp)
+            _write_framework_toml(tmp)
+            line = f'key = "{stripe}"'
+            (tmp / "config.py").write_text(line + "\n", encoding="utf-8")
+            _write_exceptions(tmp, [{
+                "id": "exc-001", "file": "config.py", "line": 1,
+                "line_hash": _hash_line(line), "context_hash": _hash_context([line], 1),
+                "rule_id": "test-stripe-key", "matched_text": redact(stripe),
+                "status": "pending",
+            }])
+            errors = _run_check(tmp)
+            self.assertTrue(any("pending" in e for e in errors), errors)
+            findings = load_exceptions(tmp)
+            self.assertEqual(findings[0]["id"], "exc-001", "legacy id must be left as-is (no migration)")
+            self.assertNotIn("legacy_id", findings[0])
 
 
 if __name__ == "__main__":

@@ -7,26 +7,7 @@ __pycache__/
 dist/
 build/
 
-# Wavefoundry framework pack archives (tracked source lives under .wavefoundry/framework/; do not commit zip drops)
-/wavefoundry-*.zip
-
-# Wavefoundry local approval state (never commit)
-.wavefoundry/guard-overrides.json
-
-# Wavefoundry runtime state files (host-local — never commit)
-.wavefoundry/dashboard-server.json
-.wavefoundry/upgrade-in-progress.json
-
-# Wavefoundry runtime lock files (host-local process/test locks — never commit)
-.wavefoundry/**/*.lock
 *.lock
-
-# Wavefoundry runtime logs — all logs consolidated here (upgrade, index build, dashboard)
-.wavefoundry/logs/
-
-# Wavefoundry semantic index (binary + per-machine, never commit)
-.wavefoundry/index/
-.wavefoundry/framework/index/
 
 # Wavefoundry test cache (runtime artifact, host-local, never commit)
 .wavefoundry/framework/test-cache.json
@@ -53,3 +34,23 @@ slides/
 # Transient experiment plan exports
 experiments/
 experiments/*
+
+# >>> wavefoundry runtime (managed by render_platform_surfaces.py — edits here are overwritten) >>>
+# Wavefoundry runtime state files (host-local — never commit)
+.wavefoundry/dashboard-server.json
+.wavefoundry/upgrade-in-progress.json
+.wavefoundry/guard-overrides.json
+
+# Wavefoundry runtime lock files (host-local process/test locks — never commit)
+.wavefoundry/**/*.lock
+
+# Wavefoundry runtime logs (upgrade, index build, dashboard)
+.wavefoundry/logs/
+
+# Wavefoundry semantic index (binary + per-machine — never commit)
+.wavefoundry/index/
+.wavefoundry/framework/index/
+
+# Wavefoundry framework pack archives (tracked source lives under .wavefoundry/framework/; do not commit zip drops)
+/wavefoundry-*.zip
+# <<< wavefoundry runtime <<<

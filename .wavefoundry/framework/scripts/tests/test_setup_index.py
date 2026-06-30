@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -1046,6 +1047,134 @@ class TlsTrustStoreFallbackTests(unittest.TestCase):
         self.assertNotIn("_create_unverified_context", src)
         self.assertNotIn("CERT_NONE", src)
         self.assertNotIn("verify=False", src)
+
+
+class UvSslCertFileIsolationTests(unittest.TestCase):
+    """Wave 1p8tf: uv must not inherit SSL_CERT_FILE (its exclusive trust anchor); pip consumers
+    get a merged superset; a plain environment is unchanged; the per-store ladder is untouched."""
+
+    def setUp(self):
+        self.mod = load_setup_index()
+
+    def _clear_ca_env(self):
+        for var in ("CODEX_CA_CERTIFICATE", "CLAUDE_CODE_CERT_STORE", "NODE_EXTRA_CA_CERTS",
+                    "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "SSL_CERT_DIR", "UV_NATIVE_TLS"):
+            os.environ.pop(var, None)
+
+    def test_uv_env_scrubs_cert_vars_and_sets_native_tls(self):
+        # AC-1: uv child env drops the exclusive-anchor vars and sets UV_NATIVE_TLS; os.environ intact.
+        with patch.dict(os.environ, {}, clear=False):
+            self._clear_ca_env()
+            os.environ["SSL_CERT_FILE"] = "/corp/root.pem"
+            os.environ["REQUESTS_CA_BUNDLE"] = "/corp/root.pem"
+            os.environ["SSL_CERT_DIR"] = "/corp/certs"
+            env = self.mod._uv_install_env()
+            self.assertIsNotNone(env)
+            self.assertNotIn("SSL_CERT_FILE", env)
+            self.assertNotIn("REQUESTS_CA_BUNDLE", env)
+            self.assertNotIn("SSL_CERT_DIR", env)
+            self.assertEqual(env.get("UV_NATIVE_TLS"), "1")
+            # os.environ is not mutated by building the scoped env
+            self.assertEqual(os.environ.get("SSL_CERT_FILE"), "/corp/root.pem")
+
+    def test_uv_env_none_when_no_cert_vars(self):
+        # AC-2/AC-5: a plain environment is left untouched (inherit), not forced through native-TLS.
+        with patch.dict(os.environ, {}, clear=False):
+            self._clear_ca_env()
+            self.assertIsNone(self.mod._uv_install_env())
+
+    def test_merged_bundle_is_superset_and_dedupes(self):
+        # AC-3: union of multiple stores, deduped by certificate block.
+        cert_a = "-----BEGIN CERTIFICATE-----\nAAAAcorp\n-----END CERTIFICATE-----"
+        cert_b = "-----BEGIN CERTIFICATE-----\nBBBBpublic\n-----END CERTIFICATE-----"
+        with tempfile.TemporaryDirectory() as d:
+            fa = Path(d) / "a.pem"; fa.write_text(cert_a + "\n", encoding="utf-8")
+            fb = Path(d) / "b.pem"; fb.write_text(cert_b + "\n", encoding="utf-8")
+            fdup = Path(d) / "dup.pem"; fdup.write_text(cert_a + "\n", encoding="utf-8")
+            with patch.dict(os.environ, {}, clear=False):
+                self._clear_ca_env()
+                os.environ["SSL_CERT_FILE"] = str(fa)  # signals a corp/proxy trust setup
+                with patch.object(self.mod, "_os_trust_store_candidates",
+                                  return_value=[str(fa), str(fb), str(fdup)]):
+                    merged = self.mod._merged_trust_bundle()
+                    self.assertIsNotNone(merged)
+                    text = Path(merged).read_text(encoding="utf-8")
+                    self.assertIn("AAAAcorp", text)
+                    self.assertIn("BBBBpublic", text)
+                    self.assertEqual(text.count("AAAAcorp"), 1, "duplicate cert must be deduped")
+
+    def test_merged_bundle_tolerates_unreadable_candidate(self):
+        # AC-3: an unreadable/missing candidate is skipped, not fatal.
+        cert_a = "-----BEGIN CERTIFICATE-----\nAAAA1\n-----END CERTIFICATE-----"
+        cert_b = "-----BEGIN CERTIFICATE-----\nBBBB1\n-----END CERTIFICATE-----"
+        with tempfile.TemporaryDirectory() as d:
+            fa = Path(d) / "a.pem"; fa.write_text(cert_a + "\n", encoding="utf-8")
+            fb = Path(d) / "b.pem"; fb.write_text(cert_b + "\n", encoding="utf-8")
+            missing = str(Path(d) / "does-not-exist.pem")
+            with patch.dict(os.environ, {}, clear=False):
+                self._clear_ca_env()
+                os.environ["CODEX_CA_CERTIFICATE"] = str(fa)
+                with patch.object(self.mod, "_os_trust_store_candidates",
+                                  return_value=[str(fa), missing, str(fb)]):
+                    merged = self.mod._merged_trust_bundle()
+                    self.assertIsNotNone(merged)
+                    text = Path(merged).read_text(encoding="utf-8")
+                    self.assertIn("AAAA1", text)
+                    self.assertIn("BBBB1", text)
+
+    def test_merged_bundle_none_in_plain_env(self):
+        # AC-5: no corp/host-agent material → no merged bundle (default certifi/OS path unchanged).
+        with patch.dict(os.environ, {}, clear=False):
+            self._clear_ca_env()
+            self.assertIsNone(self.mod._merged_trust_bundle())
+
+    def test_pip_env_points_at_merged_superset(self):
+        # AC-3/Req 1: pip is pointed at the merged superset so it reaches PyPI in either topology.
+        with patch.dict(os.environ, {}, clear=False):
+            self._clear_ca_env()
+            os.environ["SSL_CERT_FILE"] = "/corp/root.pem"
+            with patch.object(self.mod, "_merged_trust_bundle", return_value="/cache/merged.pem"):
+                env = self.mod._pip_tls_env()
+                self.assertIsNotNone(env)
+                self.assertEqual(env.get("SSL_CERT_FILE"), "/cache/merged.pem")
+                self.assertEqual(env.get("REQUESTS_CA_BUNDLE"), "/cache/merged.pem")
+
+    def test_pip_env_none_in_plain_env(self):
+        # AC-5: plain env → pip inherits unchanged.
+        with patch.dict(os.environ, {}, clear=False):
+            self._clear_ca_env()
+            with patch.object(self.mod, "_merged_trust_bundle", return_value=None):
+                self.assertIsNone(self.mod._pip_tls_env())
+
+    def test_warm_model_ladder_functions_unchanged(self):
+        # AC-4: the prior per-store ladder accessors are preserved (not reworked by this change).
+        src = SETUP_INDEX_PATH.read_text(encoding="utf-8")
+        self.assertIn("def _os_trust_store_candidates(", src)
+        self.assertIn("def _os_trust_store_bundle(", src)
+        self.assertIn("def _warm_model(", src)
+
+
+class GpuDoctorProbeSerialTests(unittest.TestCase):
+    """Wave 1p8vc AC-4: the in-server `_probe_embedding_provider` must stay serial — fastembed's
+    parallel path spawns workers that re-load ORT and would write to the inherited MCP stdout fd."""
+
+    def _probe_body(self) -> str:
+        src = SETUP_INDEX_PATH.read_text(encoding="utf-8")
+        start = src.index("def _probe_embedding_provider(")
+        # body runs until the next top-level `def `/`class ` at column 0
+        rest = src[start + 1:]
+        m = re.search(r"\n(?=def |class )", rest)
+        return rest[: m.start()] if m else rest
+
+    def test_probe_does_not_enable_fastembed_parallelism(self):
+        body = self._probe_body()
+        # Strip comment text so the assertion checks CODE, not the explanatory comment (which
+        # deliberately mentions `parallel=` as the thing NOT to do).
+        code = "\n".join(line.split("#", 1)[0] for line in body.splitlines())
+        self.assertIn(".embed(", code, "sanity: the probe calls embed()")
+        self.assertNotIn("parallel=", code,
+                         "the in-server probe must not pass parallel= to fastembed (spawn workers "
+                         "would re-load ORT against the inherited MCP stdout fd — wave 1p8vc)")
 
 
 if __name__ == "__main__":
