@@ -3346,5 +3346,95 @@ class UpgradeCliEncodingTests(unittest.TestCase):
         )
 
 
+class SandboxResilientPackDiscoveryTests(unittest.TestCase):
+    """1p8xl: a permission/sandbox error on one pack-search location (e.g. macOS-TCC ~/Downloads) must
+    not abort discovery — it is logged, skipped, recorded, and surfaced in the upgrade summary."""
+
+    class _Sandboxed:
+        """A search-dir stand-in that EXISTS but raises PermissionError on iterdir (macOS TCC)."""
+
+        def __init__(self, label: str) -> None:
+            self._label = label
+
+        def expanduser(self):
+            return self
+
+        def is_dir(self) -> bool:
+            return True
+
+        def iterdir(self):
+            raise PermissionError("Operation not permitted")
+
+        def __str__(self) -> str:
+            return self._label
+
+    def setUp(self) -> None:
+        self.mod = load_upgrade_module()
+        self.mod._PACK_SCAN_SKIPPED.clear()
+
+    def test_scan_dir_entries_skips_and_records_on_permission_error(self):
+        # AC-1 mechanism + AC-2 record: an unreadable location returns None (skip) and is recorded.
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = self.mod._scan_dir_entries(self._Sandboxed("/Users/x/Downloads"))
+        self.assertIsNone(result)
+        self.assertIn("/Users/x/Downloads", self.mod._PACK_SCAN_SKIPPED)
+
+    def test_scan_dir_entries_lists_readable_dir(self):
+        # AC-3: a readable location returns its listing and records no skip.
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "a.txt").write_text("x", encoding="utf-8")
+            result = self.mod._scan_dir_entries(Path(d))
+        self.assertIsNotNone(result)
+        self.assertEqual(self.mod._PACK_SCAN_SKIPPED, [])
+
+    def test_find_latest_release_zip_resilient_to_unreadable_location(self):
+        # AC-1 end-to-end: one location raises PermissionError, discovery still returns the pack from
+        # the readable locations and does not raise.
+        with tempfile.TemporaryDirectory() as good:
+            good_p = Path(good)
+            (good_p / "wavefoundry-1.2.3.abcd.zip").write_text("x", encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()), \
+                 patch.object(self.mod, "_HOME_DIR", good_p), \
+                 patch.object(self.mod, "_HOME_WAVEFOUNDRY_DIR", good_p), \
+                 patch.object(self.mod, "_DIST_DIR", good_p), \
+                 patch.object(self.mod, "_DOWNLOADS_DIR", self._Sandboxed("/fake/Downloads")):
+                result = self.mod._find_latest_release_zip(good_p)
+        self.assertIsNotNone(result, "must return the pack from the readable location")
+        self.assertEqual(result.name, "wavefoundry-1.2.3.abcd.zip")
+        self.assertIn("/fake/Downloads", self.mod._PACK_SCAN_SKIPPED)
+
+    def test_print_all_release_zips_resilient_to_unreadable_location(self):
+        # AC-4: the --list-zips path is equally resilient — a sandboxed location is skipped, not fatal.
+        with tempfile.TemporaryDirectory() as good:
+            good_p = Path(good)
+            (good_p / "wavefoundry-1.2.3.abcd.zip").write_text("x", encoding="utf-8")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf), \
+                 patch.object(self.mod, "_HOME_DIR", good_p), \
+                 patch.object(self.mod, "_HOME_WAVEFOUNDRY_DIR", good_p), \
+                 patch.object(self.mod, "_DIST_DIR", good_p), \
+                 patch.object(self.mod, "_DOWNLOADS_DIR", self._Sandboxed("/fake/Downloads")):
+                self.mod._print_all_release_zips(good_p)  # must not raise
+        self.assertIn("wavefoundry-1.2.3.abcd.zip", buf.getvalue())
+
+    def test_summary_surfaces_skipped_scan_locations(self):
+        # AC-2 surfacing: the recorded skips appear in the upgrade summary dict.
+        self.mod._PACK_SCAN_SKIPPED.extend(["/fake/Downloads"])
+        summary = self.mod._build_upgrade_summary(
+            from_version="1.9.7+a", to_version="1.9.8+b", zip_path=None,
+            pruned_count=0, ran_index_rebuild=True, failed_phase=None, reconciliation=[],
+        )
+        self.assertEqual(summary["skipped_scan_locations"], ["/fake/Downloads"])
+
+    def test_summary_skipped_empty_when_all_readable(self):
+        # AC-3: no skips → empty field (no behavior change when everything reads).
+        self.mod._PACK_SCAN_SKIPPED.clear()
+        summary = self.mod._build_upgrade_summary(
+            from_version="1.9.7+a", to_version="1.9.8+b", zip_path=None,
+            pruned_count=0, ran_index_rebuild=True, failed_phase=None, reconciliation=[],
+        )
+        self.assertEqual(summary["skipped_scan_locations"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

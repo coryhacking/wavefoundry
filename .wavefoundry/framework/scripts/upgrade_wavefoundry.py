@@ -207,6 +207,38 @@ _DIST_DIR = Path("~/.wavefoundry/dist")
 _DOWNLOADS_DIR = Path("~/Downloads")  # 1p5dk: browser-downloaded packs commonly land here
 
 
+# 1p8xl: pack-search locations that could not be read (e.g. a macOS-TCC-sandboxed ``~/Downloads``).
+# A permission/sandbox error on ONE location must never abort the upgrade — it is logged, skipped, and
+# recorded here so the upgrade summary can surface it for operator acknowledgment.
+_PACK_SCAN_SKIPPED: list[str] = []
+
+
+def _record_skipped_scan_location(search_dir: Path, exc: OSError) -> None:
+    """Log + record a pack-search location that could not be scanned (permission/sandbox)."""
+    loc = str(search_dir)
+    if loc not in _PACK_SCAN_SKIPPED:
+        _PACK_SCAN_SKIPPED.append(loc)
+    _log(
+        f"⚠  Could not scan {loc} for packs ({type(exc).__name__}); skipping that location. "
+        "If a newer pack lives there, grant the host access to it and re-run."
+    )
+
+
+def _scan_dir_entries(search_dir: Path) -> "list | None":
+    """Return the directory listing, or ``None`` when the location is absent or unreadable.
+
+    A non-directory is skipped silently (``None``); a permission/sandbox ``OSError`` (e.g. macOS TCC
+    on ``~/Downloads``) is logged + recorded via ``_record_skipped_scan_location`` and skipped — it
+    never propagates, so one inaccessible location cannot abort pack discovery (1p8xl)."""
+    try:
+        if not search_dir.is_dir():
+            return None
+        return list(search_dir.iterdir())
+    except OSError as exc:
+        _record_skipped_scan_location(search_dir, exc)
+        return None
+
+
 def _find_latest_release_zip(root: Path) -> Path | None:
     """Return the highest-semver wavefoundry zip across the supported search paths.
 
@@ -241,10 +273,12 @@ def _find_latest_release_zip(root: Path) -> Path | None:
         _DIST_DIR.expanduser(),
         _DOWNLOADS_DIR.expanduser(),
     )
+    _PACK_SCAN_SKIPPED.clear()
     for search_dir in search_dirs:
-        if not search_dir.is_dir():
+        entries = _scan_dir_entries(search_dir)
+        if entries is None:
             continue
-        for entry in search_dir.iterdir():
+        for entry in entries:
             m = _ZIP_NAME_RE.match(entry.name)
             if not m:
                 continue
@@ -298,9 +332,10 @@ def _print_all_release_zips(root: Path) -> None:
         _DOWNLOADS_DIR.expanduser(),
     )
     for search_dir in search_dirs:
-        if not search_dir.is_dir():
+        entries = _scan_dir_entries(search_dir)
+        if entries is None:
             continue
-        for entry in search_dir.iterdir():
+        for entry in entries:
             m = _ZIP_NAME_RE.match(entry.name)
             if not m:
                 continue
@@ -1773,6 +1808,10 @@ def _build_upgrade_summary(
         "is_major_or_minor": _is_major_or_minor_upgrade(from_version, to_version),
         "reconciliation": reconciliation,
         "host_permission_flags": host_permission_flags or [],
+        # 1p8xl: pack-search locations skipped because they were unreadable (e.g. a TCC-sandboxed
+        # ~/Downloads). Surfaced so the operator can acknowledge — and grant access + re-run if a
+        # newer pack lives there. Empty when every location read cleanly.
+        "skipped_scan_locations": list(_PACK_SCAN_SKIPPED),
     }
 
 
@@ -1865,6 +1904,13 @@ def _print_operator_summary(
     _log(f"Files pruned:       {summary['pruned_count']}")
     _log(f"Docs gate:          {summary['docs_gate']}")
     _log(f"Index update:       {summary['index_update']}")
+    if summary["skipped_scan_locations"]:
+        _log("")
+        _log("⚠  Pack-search locations SKIPPED (permission/sandbox — could not read):")
+        for loc in summary["skipped_scan_locations"]:
+            _log(f"   - {loc}")
+        _log("   These were NOT searched for a newer pack. If a newer pack lives in one of them, grant")
+        _log("   the host access to that folder and re-run; otherwise acknowledge and proceed.")
     _log("Dashboard:          lock removed; auto-reindex will trigger on lock removal")
     _log("MCP reload: call wave_mcp_reload() (or wave_upgrade cleanup) to load upgraded server code in-process")
     _log("")

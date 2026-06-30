@@ -6,6 +6,13 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.8] - 2026-06-29
+
+### Fixed
+
+- **Upgrades no longer abort when a pack-search location is sandboxed.** The upgrade scans common pack-drop folders (including `~/Downloads`) for a newer release zip; on macOS a privacy-sandboxed folder made that scan raise a permission error and stop the whole upgrade. A location it can't read is now logged, skipped, and listed under `skipped_scan_locations` in the upgrade summary — so you can grant access and re-run if a newer pack lives there, while the upgrade proceeds with the best pack it could reach.
+- **Shipped seeds no longer point at a wavefoundry-internal decision record.** The stage-gate guidance added in 1.9.7 referenced an internal architecture-decision file that target repositories don't have, so an upgrading project's agent could cite a missing document. The references are removed (the rationale stays inline); the stage-gate reconciliation behavior is unchanged.
+
 ## [1.9.7] - 2026-06-29
 
 ### Fixed
