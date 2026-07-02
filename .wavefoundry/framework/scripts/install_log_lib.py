@@ -319,7 +319,15 @@ def is_unparseable(text: Optional[str], rows: list[Row]) -> bool:
     they survive em-dash mojibake), not arbitrary prose or a blank file."""
     if not text or not text.strip() or rows:
         return False
-    return bool(_PHASE_HEADING_RE.search(text) or re.search(r"^\s*-\s+\[[ x~]\]", text, re.MULTILINE))
+    if _PHASE_HEADING_RE.search(text) or re.search(r"^\s*-\s+\[[ x~]\]", text, re.MULTILINE):
+        return True
+    # Wave 1p9hj: a genuinely non-UTF-8 log (UTF-16 BOM, or cp1252 written by a bare PowerShell
+    # Set-Content/Out-File) read with errors="replace" (see read_install_log) yields U+FFFD replacement
+    # chars and/or interleaved NUL bytes, and its ASCII markers no longer match the patterns above — so
+    # the earlier looks-like-an-install-log heuristic misses it. Classify it unparseable so the audit
+    # surfaces an actionable encoding error instead of vacuous "install complete". A clean UTF-8 log
+    # never contains U+FFFD or NUL, so this cannot false-positive on a valid (if row-less) log.
+    return "�" in text or "\x00" in text
 
 
 def write_install_log(project_root: Path, content: str) -> Path:
@@ -343,4 +351,9 @@ def read_install_log(project_root: Path) -> Optional[str]:
     log_path = project_root / INSTALL_LOG_REL_PATH
     if not log_path.exists():
         return None
-    return log_path.read_text(encoding="utf-8")
+    # Wave 1p9hj: errors="replace" so a non-UTF-8 log (UTF-16 BOM / cp1252 from a bare PowerShell
+    # Set-Content/Out-File on Windows) decodes without raising UnicodeDecodeError. Without this the
+    # strict read raised BEFORE is_unparseable() (the 1p9bh safety net) could classify it, crashing
+    # wave_install_audit on Windows. The replacement chars this produces are what is_unparseable keys
+    # on to surface an actionable "install log unparseable" error rather than vacuous success.
+    return log_path.read_text(encoding="utf-8", errors="replace")

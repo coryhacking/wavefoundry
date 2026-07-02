@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import fnmatch
 import heapq
 import importlib.util
@@ -11,6 +12,8 @@ import sys
 from collections import deque
 from pathlib import Path
 from typing import Any, Callable, Iterable, Literal
+
+import cli_stdio  # wave 1p9io: isolated_stdout_fd() for the in-process graph auto-rebuild
 
 Layer = Literal["project"]
 Direction = Literal["callers", "callees", "both"]
@@ -217,13 +220,21 @@ def _ensure_graph_builder_current(root: Path, layer: str) -> dict[str, Any] | No
         indexer_mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(indexer_mod)
         index_dir = _graph_index_dir(root, layer)
-        indexer_mod.build_index(
-            root,
-            full=True,
-            content="graph",
-            index_dir=index_dir,
-            verbose=False,
-        )
+        # Wave 1p9io (defense-in-depth): build_index runs IN-PROCESS here, on the first graph query
+        # after a builder-version bump. Any stdout write inside the rebuild — progress prints, a
+        # missing-grammar warning, or a native fd-1 write from a C extension — would land on the MCP
+        # stdio JSON-RPC channel (sys.stdout) and corrupt the frame. Redirect Python-level stdout to
+        # stderr AND drop native fd-1 writes to devnull for the duration of the rebuild. This
+        # neutralizes the whole class at the boundary regardless of any print site fixed upstream.
+        # isolated_stdout_fd() is a safe no-op when sys.stdout has no real fileno (captured under test).
+        with cli_stdio.isolated_stdout_fd(), contextlib.redirect_stdout(sys.stderr):
+            indexer_mod.build_index(
+                root,
+                full=True,
+                content="graph",
+                index_dir=index_dir,
+                verbose=False,
+            )
         duration_ms = int((time.monotonic() - start) * 1000)
     except Exception as exc:
         return {

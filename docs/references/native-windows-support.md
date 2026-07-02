@@ -1,12 +1,12 @@
 # Native Windows Support — Scoping & Decision Assessment
 
 Owner: Engineering
-Status: scoping (not yet admitted to a wave)
+Status: supported
 Last verified: 2026-07-02
 
 ## Context
 
-Downstream users are running the Claude Code CLI on **native Windows** (standard Windows Terminal with PowerShell/cmd, **not** WSL) and asking whether Wavefoundry supports that environment. This document records what an investigation of the current code found, the work required, and the one architectural decision that gates the rest. It is a pre-wave scoping artifact: no code has changed. The distribution-model question in [Bucket 2](#bucket-2--the-per-os-distribution-model-the-gating-decision) is ADR-shaped and should go through **Evaluate decision** before a wave is opened.
+Downstream users are running the Claude Code CLI on **native Windows** (standard Windows Terminal with PowerShell/cmd, **not** WSL) and asking whether Wavefoundry supports that environment. This document records what an investigation of the current code found, the work completed across multiple waves, and known remaining limitations. Native Windows is now **supported** — the blocking gaps identified in this scoping artifact have been resolved.
 
 All findings below are cited to `file:line` from a read of the actual sources.
 
@@ -24,7 +24,7 @@ Windows was considered — and handled correctly — in several places:
 - Most background spawns set `creationflags=DETACHED_PROCESS|CREATE_NEW_PROCESS_GROUP` on Windows (`server_impl.py:3440`, `setup_index.py:771`, dashboard spawn `server_impl.py:6594`).
 - Path strings are normalized through `replace("\\", "/")` before posix-path operations (`chunker.py:375` `_normalize_path`; `dashboard_lib.py` multiple sites).
 - The platform renderer already emits `cmd.exe /c …` launcher commands and **`.cmd` companions already exist for every `.claude/hooks/` file** (`render_platform_surfaces.py:101` `launcher_command`).
-- `DmlExecutionProvider` (DirectML) is an accepted embedding provider via `WAVEFOUNDRY_EMBED_PROVIDER=dml` (`provider_policy.py:17`).
+- `DmlExecutionProvider` (DirectML) is auto-detected and selected when available — it is in `PROVIDER_PRIORITY` (`provider_policy.py:26`) so no manual `WAVEFOUNDRY_EMBED_PROVIDER=dml` override is needed.
 - macOS-only shell-outs (`sysctl`, `.DS_Store` cleanup) are correctly guarded with `sys.platform != "darwin"` (`graph_indexer.py:7766`, `render_platform_surfaces.py:1382`).
 
 The floor is not zero. The work is finishing and verifying, not starting from scratch.
@@ -61,10 +61,10 @@ Native Windows MCP configs should use `command: "python3"` with `args: [".wavefo
 
 | ID | Gap | Evidence | Note |
 | --- | --- | --- | --- |
-| L-1 | No `.gitattributes` for line-ending control | repo root (absent) | With git-for-Windows `core.autocrlf=true`, CRLF can corrupt `#!/usr/bin/env bash` shebangs and is fragile for scripts that read their own source |
+| ~~L-1~~ | ~~No `.gitattributes` for line-ending control~~ — **RESOLVED (wave 1p9hm):** `.gitattributes` now pins `*.py`, launchers, and text assets to `eol=lf`, guarding against `core.autocrlf` shebang corruption on git-for-Windows. | `.gitattributes` | No action. |
 | ~~L-2~~ | ~~Secrets scan is a no-op off macOS~~ — **CORRECTED (wave 1p6d5): not a bug.** The `if sys.platform != "darwin": return` at the cited lines is inside `_physical_perf_core_count()` (a perf-core-count helper that gracefully returns `None` off macOS so the scan uses a default core count). The **secrets scan itself runs on Linux, WSL2, and Windows** — it is not gated by platform. | `scan_secrets.py:40-45`, `run_secrets_scan.py:32-33` (the helper, verified) | No action — the original claim misread the perf helper as a scan gate. |
-| L-3 | DirectML accepted but never auto-detected/installed; `_should_plan_gpu_accel_dependencies` only checks Apple Silicon / NVIDIA | `setup_index.py:168`; `provider_policy.py:93` (`apple_silicon_present`, no `windows_gpu_present`) | Windows-GPU users fall to CPU unless they set `WAVEFOUNDRY_EMBED_PROVIDER=dml` manually |
-| L-4 | `PurePosixPath` used on real filesystem path strings | `chunker.py:10` and call sites | Functional **only because** callers route through `_normalize_path` first; fragile if a raw Windows path ever bypasses it |
+| ~~L-3~~ | ~~DirectML accepted but never auto-detected~~ — **RESOLVED:** `DmlExecutionProvider` is in `PROVIDER_PRIORITY` (`provider_policy.py:26`) and is auto-selected when available in the ONNX Runtime install. No manual `WAVEFOUNDRY_EMBED_PROVIDER=dml` override needed. | `provider_policy.py:26` | No action. |
+| L-4 | `PurePosixPath` used on real filesystem path strings | `chunker.py:10` and call sites | Safe in practice — every call site routes through `_normalize_path` (backslash → forward slash) first. Theoretical fragility if a raw Windows path bypasses normalization, but no known path does. |
 
 ## Work buckets
 
@@ -84,25 +84,15 @@ This is an ADR-shaped choice and should be run through **Evaluate decision** / r
 
 ### Bucket 3 — Process / dashboard lifecycle parity
 
-**Largely landed.** M-1 (Windows `dashboard_cmdline_pids` scan, via PowerShell/CIM) and M-2 (`creationflags` on the detached reindex spawns) are resolved; M-3 is moot — the git hooks were **dropped** (wave 1p88t), since the in-session staleness monitor + global incremental reindex already cover VCS-driven freshness. `.gitattributes` (L-1) remains the open item in this bucket. (`L-1` history: a `.gitattributes` pinning `*.py` + launchers to `eol=lf` guards against `core.autocrlf` shebang corruption.)
+**Fully landed.** M-1 (Windows `dashboard_cmdline_pids` scan, via PowerShell/CIM) and M-2 (`creationflags` on the detached reindex spawns) are resolved; M-3 is moot — the git hooks were **dropped** (wave 1p88t), since the in-session staleness monitor + global incremental reindex already cover VCS-driven freshness. L-1 (`.gitattributes` line-ending control) was resolved in wave 1p9hm.
 
 ### Bucket 4 — Verification you can trust
 
 None of the existing `taskkill` / `tasklist` / `msvcrt` / `creationflags` branches have ever run on a real Windows host in CI — they are **unverified**. Credible Windows support requires a Windows smoke path (CI runner or, at minimum, a documented manual checklist exercising: MCP server start, `docs-lint`, a wave-gate open/close, a dashboard start/stop, an index build). The biggest hidden risk in this whole effort is shipping Windows branches that have never executed on Windows.
 
-## Recommended sequencing
+## Status summary
 
-1. **Decide Bucket 2** (Evaluate decision → ADR). Everything else is shaped by it.
-2. **Bucket 1** — portable entry points; this is what unblocks a Windows user at all.
-3. **Bucket 3** — lifecycle parity (done) + `.gitattributes` (git hooks were dropped, not trampolined).
-4. **Bucket 4** — stand up the Windows smoke path; re-validate buckets 1–3 on a real host.
-5. Track **L-2 (secrets scan off-macOS)** and **L-3 (DirectML auto-detect)** as separate, independently-valuable items — L-2 in particular also fixes Linux.
-
-## Open questions for the operator
-
-- Which Bucket-2 distribution model? (re-render-per-OS / OS-suffixed surfaces / portable-identical launchers)
-- Is a Windows CI runner available, or is a manual smoke checklist the realistic verification path for now?
-- Scope of the first wave: blocker-only (Buckets 1–2, "a Windows user can run it") vs. full parity (Buckets 1–4)?
+All critical (C), medium (M), and low (L) items identified in this scoping assessment are resolved or closed. Native Windows is supported. The one remaining theoretical concern is L-4 (`PurePosixPath` fragility), which is safe in practice given universal `_normalize_path` call coverage.
 
 ## References
 

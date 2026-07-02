@@ -8607,7 +8607,7 @@ def _audit_harness_coherence(root: Path) -> dict[str, Any]:
             except OSError:
                 continue
             scanned_files += 1
-            rel = str(f.relative_to(root))
+            rel = str(f.relative_to(root)).replace("\\", "/")  # wave 1p9hm: forward-slash in wave_audit output
 
             # Check for stale tool references (tool names mentioned but not in live set)
             import re as _re2

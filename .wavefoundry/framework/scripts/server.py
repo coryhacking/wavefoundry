@@ -23,10 +23,26 @@ import venv_bootstrap
 
 venv_bootstrap.activate_tool_venv()
 
+# wave 1p9i7: fail fast with an actionable message when the venv is missing or broken, rather than
+# producing an opaque -32000 JSON-RPC error from an unhandled ImportError during the MCP handshake.
+if not venv_bootstrap.tool_venv_python().exists():
+    print(
+        "wavefoundry: the tool venv is not set up — run `wf setup` to install required packages.",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+
 # Thin-runner protocol version — bump when transport/stub wiring changes (requires client reconnect).
 SERVER_RUNNER_VERSION = "1"
 
-import server_impl
+try:
+    import server_impl
+except ImportError as exc:
+    print(
+        f"wavefoundry: server dependency import failed ({exc}) — run `wf setup` to reinstall required packages.",
+        file=sys.stderr,
+    )
+    sys.exit(2)
 
 
 def __getattr__(name: str) -> Any:

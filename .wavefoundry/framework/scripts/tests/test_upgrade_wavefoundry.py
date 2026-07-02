@@ -317,6 +317,49 @@ class RunHookTests(unittest.TestCase):
             self.mod._run_hook("post_docs_gate", self.ctx, None)
         self.assertEqual(cm.exception.code, 3)
 
+    # Wave 1p9hm (L-4c): on Windows a bare extensionless convention hook cannot be spawned by path.
+    # It must be SKIPPED (logged) — not spawned — so the OSError that previously escaped the
+    # TimeoutExpired-only except never crashes the upgrade. Exercised on POSIX by patching os.name.
+    def test_convention_hook_windows_skips_extensionless_without_spawn(self):
+        hooks_dir = self.root / ".wavefoundry" / "hooks"
+        hooks_dir.mkdir(parents=True, exist_ok=True)
+        (hooks_dir / "pre-pruning").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")  # extensionless
+        with patch.object(self.mod.os, "name", "nt"):
+            with patch.object(self.mod.subprocess_util, "isolated_run") as run:
+                self.mod._run_hook("pre_pruning", self.ctx, None)  # must NOT raise
+        run.assert_not_called()  # extensionless hook is skipped on Windows, never spawned by path
+
+    # Wave 1p9hm (L-4c): on Windows a `<name>.py` convention hook is dispatched via the interpreter.
+    def test_convention_hook_windows_dispatches_py_via_interpreter(self):
+        from types import SimpleNamespace
+        hooks_dir = self.root / ".wavefoundry" / "hooks"
+        hooks_dir.mkdir(parents=True, exist_ok=True)
+        (hooks_dir / "pre-pruning.py").write_text("import sys; sys.exit(0)\n", encoding="utf-8")
+        with patch.object(self.mod.os, "name", "nt"):
+            with patch.object(self.mod, "_preferred_python", return_value="PY"):
+                with patch.object(self.mod.subprocess_util, "isolated_run",
+                                  return_value=SimpleNamespace(returncode=0)) as run:
+                    self.mod._run_hook("pre_pruning", self.ctx, None)
+        run.assert_called_once()
+        cmd = run.call_args[0][0]
+        self.assertEqual(cmd, ["PY", str(hooks_dir / "pre-pruning.py")])
+
+    # Wave 1p9hm (L-4c): a `<name>.cmd` convention hook must be launched via `cmd /c` — NOT by bare
+    # path — because subprocess.run(shell=False) + Windows CreateProcess cannot execute a batch file
+    # by path (WinError 193). Guards against reintroducing that crash class.
+    def test_convention_hook_windows_dispatches_cmd_via_cmd_shell(self):
+        from types import SimpleNamespace
+        hooks_dir = self.root / ".wavefoundry" / "hooks"
+        hooks_dir.mkdir(parents=True, exist_ok=True)
+        (hooks_dir / "pre-pruning.cmd").write_text("@echo off\r\nexit /b 0\r\n", encoding="utf-8")
+        with patch.object(self.mod.os, "name", "nt"):
+            with patch.object(self.mod.subprocess_util, "isolated_run",
+                              return_value=SimpleNamespace(returncode=0)) as run:
+                self.mod._run_hook("pre_pruning", self.ctx, None)
+        run.assert_called_once()
+        cmd = run.call_args[0][0]
+        self.assertEqual(cmd, ["cmd", "/c", str(hooks_dir / "pre-pruning.cmd")])
+
 
 class UpgradeContextTests(unittest.TestCase):
     """Tests for UpgradeContext attribute population (AC-6)."""
@@ -3275,12 +3318,24 @@ class DetectDashboardLivenessTests(unittest.TestCase):
         self.assertTrue(running)
         self.assertEqual(pid, os.getpid())
 
-    def test_scan_unavailable_falls_back_to_oskill(self):
-        # Windows / ps-error → scan None → unchanged bare-liveness behavior.
-        self._write_lock(os.getpid())
+    def test_scan_unavailable_falls_back_to_pid_liveness_helper(self):
+        # Wave 1p9hi: when the cmdline scan is unavailable (Windows / ps-error → None), _detect_dashboard
+        # must fall back to the cross-OS upgrade_lib._pid_is_running helper, NOT a bare os.kill(pid, 0)
+        # (which on Windows is GenerateConsoleCtrlEvent/TerminateProcess, not a liveness probe). Assert
+        # BOTH the live and dead branches by patching the helper — this exercises the fallback contract
+        # without depending on POSIX signal-0 semantics (the old test only ever ran the POSIX path).
+        import upgrade_lib
+        self._write_lock(4242)
         with patch.object(self.dashboard_lib, "dashboard_cmdline_pids", return_value=None):
-            running, _pid, _url = self.mod._detect_dashboard(self.root)
-        self.assertTrue(running)
+            with patch.object(upgrade_lib, "_pid_is_running", return_value=True) as live_probe:
+                running, pid, url = self.mod._detect_dashboard(self.root)
+            self.assertTrue(running)
+            self.assertEqual(pid, 4242)
+            live_probe.assert_called_once_with(4242)
+            with patch.object(upgrade_lib, "_pid_is_running", return_value=False) as dead_probe:
+                running_dead, pid_dead, url_dead = self.mod._detect_dashboard(self.root)
+            self.assertEqual((running_dead, pid_dead, url_dead), (False, None, None))
+            dead_probe.assert_called_once_with(4242)
 
 
 class WindowsTempPathRobustnessTests(unittest.TestCase):

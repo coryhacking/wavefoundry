@@ -179,20 +179,25 @@ def _detect_dashboard(root: Path) -> tuple[bool, int | None, str | None]:
             # Wave 1p654 (review follow-up): harden the liveness check to match the
             # lifecycle tools — a bare os.kill(pid, 0) accepts a zombie or a recycled
             # PID. Verify the recorded PID is actually a live dashboard for THIS root
-            # via the shared cmdline scan; fall back to os.kill when the scan is
-            # unavailable (Windows / ps error) so behavior is unchanged there.
+            # via the shared cmdline scan; fall back to the pid-liveness helper when the
+            # scan is unavailable (Windows / ps error).
             try:
                 import dashboard_lib
                 live = dashboard_lib.dashboard_cmdline_pids(root)
-            except Exception:  # noqa: BLE001 — best-effort; fall back to os.kill
+            except Exception:  # noqa: BLE001 — best-effort; fall back to _pid_is_running
                 live = None
             if live is not None and pid not in live:
                 return False, None, None
-            try:
-                os.kill(pid, 0)
+            # Wave 1p9hi: use the cross-OS liveness helper, NOT a bare os.kill(pid, 0). On Windows
+            # os.kill(pid, 0) routes to GenerateConsoleCtrlEvent/TerminateProcess (signal 0 ==
+            # signal.CTRL_C_EVENT), not a benign probe: it can raise OSError (mis-reporting a live
+            # dashboard as absent → the upgrade never pauses it) or fire a spurious Ctrl+C event.
+            # This is the last unmigrated liveness site — the three siblings (upgrade_lib,
+            # indexer, server_impl) already branch on os.name. _pid_is_running uses tasklist on
+            # Windows; on POSIX it is the same os.kill(pid, 0) probe, so POSIX behavior is unchanged.
+            import upgrade_lib
+            if upgrade_lib._pid_is_running(pid):
                 return True, pid, url
-            except (ProcessLookupError, OSError):
-                pass
     except (OSError, json.JSONDecodeError):
         pass
     return False, None, None
@@ -840,8 +845,40 @@ def _run_hook(
 
     # 2. Convention script: .wavefoundry/hooks/<name-with-dashes>
     script_name = name.replace("_", "-")
-    hook_path = ctx.root / ".wavefoundry" / "hooks" / script_name
-    if hook_path.exists() and os.access(str(hook_path), os.X_OK):
+    hooks_dir = ctx.root / ".wavefoundry" / "hooks"
+    # Wave 1p9hm: resolve the convention hook in an OS-aware way. On POSIX an extensionless executable
+    # is run directly — os.access(X_OK) is meaningful there. On Windows os.access(X_OK) is a no-op
+    # (True for any file) and an extensionless file cannot be spawned by path — the resulting OSError
+    # previously escaped the TimeoutExpired-only except and crashed the upgrade. So on Windows prefer an
+    # explicit `<name>.py` (run via the interpreter) or `<name>.cmd`/`.bat` (self-executable by
+    # extension), and skip a bare extensionless hook with a warning rather than crashing.
+    hook_cmd: list[str] | None = None
+    if os.name == "nt":
+        py_hook = hooks_dir / f"{script_name}.py"
+        ext_hook = next(
+            (hooks_dir / f"{script_name}{suffix}" for suffix in (".cmd", ".bat")
+             if (hooks_dir / f"{script_name}{suffix}").exists()),
+            None,
+        )
+        if py_hook.exists():
+            hook_cmd = [_preferred_python(), str(py_hook)]
+        elif ext_hook is not None:
+            # Run the batch hook through `cmd /c` — isolated_run calls subprocess.run WITHOUT
+            # shell=True, and Windows CreateProcess cannot launch a .cmd/.bat by path (it raises
+            # WinError 193, which would escape the TimeoutExpired-only except and crash the upgrade —
+            # the very crash class this branch exists to prevent).
+            hook_cmd = ["cmd", "/c", str(ext_hook)]
+        elif (hooks_dir / script_name).exists():
+            _log(
+                f"  Skipping convention hook '{script_name}': on Windows a hook needs a runnable "
+                f"extension — add {script_name}.py or {script_name}.cmd."
+            )
+    else:
+        hook_path = hooks_dir / script_name
+        if hook_path.exists() and os.access(str(hook_path), os.X_OK):
+            hook_cmd = [str(hook_path)]
+
+    if hook_cmd is not None:
         env = {
             **os.environ,
             "WF_FROM_VERSION": ctx.from_version or "",
@@ -851,7 +888,7 @@ def _run_hook(
         }
         try:
             result = subprocess_util.isolated_run(
-                [str(hook_path)], env=env, cwd=str(ctx.root),
+                hook_cmd, env=env, cwd=str(ctx.root),
                 check=False, timeout=_HOOK_TIMEOUT_S,
             )
         except subprocess.TimeoutExpired:

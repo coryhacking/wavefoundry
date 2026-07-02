@@ -270,6 +270,39 @@ class ReadLogTests(unittest.TestCase):
         log_path.write_text("hello world\n")
         self.assertEqual(install_log_lib.read_install_log(self.root), "hello world\n")
 
+    def _write_bytes(self, raw: bytes):
+        log_path = self.root / ".wavefoundry" / "install-log.md"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_bytes(raw)
+        return log_path
+
+    def test_read_install_log_does_not_raise_on_utf16_bom_log(self):
+        # Wave 1p9hj: a PowerShell Set-Content/Out-File default write produces UTF-16 with a BOM.
+        # read_install_log must decode with errors="replace" (not raise UnicodeDecodeError) so the
+        # audit's is_unparseable safety net can run and surface an actionable error.
+        content = "## Phase 1\n\n- [x] 1.1 — Epoch (seed-020) — artifact: docs/workflow-config.json\n"
+        self._write_bytes(content.encode("utf-16"))  # includes BOM \xff\xfe
+        result = install_log_lib.read_install_log(self.root)
+        self.assertIsInstance(result, str)
+        # The garbled decode yields zero parseable rows and is classified unparseable.
+        self.assertEqual(install_log_lib.parse_log(result), [])
+        self.assertTrue(install_log_lib.is_unparseable(result, []))
+
+    def test_read_install_log_does_not_raise_on_cp1252_log(self):
+        # Wave 1p9hj: a bare ANSI (cp1252) write of an em-dash produces raw byte 0x97 — a lone
+        # continuation byte that is invalid UTF-8. read_install_log must decode it with
+        # errors="replace" (not raise UnicodeDecodeError). Per AC-4 the log then either parses (ASCII
+        # markers survived) or is classified unparseable — never a crash and never vacuous success.
+        raw = b"## Phase 1\n\n- [ ] 1.1 \x97 Epoch (seed-020) \x97 artifact: docs/workflow-config.json\n"
+        self._write_bytes(raw)
+        result = install_log_lib.read_install_log(self.root)
+        self.assertIsInstance(result, str)
+        rows = install_log_lib.parse_log(result)
+        self.assertTrue(
+            rows or install_log_lib.is_unparseable(result, rows),
+            "cp1252 log must either parse to rows or be flagged unparseable, never crash/vacuous-succeed",
+        )
+
 
 # ---------------------------------------------------------------------------
 # Wave 1p8gw — description-as-path defect + template↔parser parity
@@ -490,6 +523,24 @@ class EncodingRobustParseTests(unittest.TestCase):
         # No log / blank text is NOT unparseable (that's "no log", handled elsewhere).
         self.assertFalse(install_log_lib.is_unparseable(None, []))
         self.assertFalse(install_log_lib.is_unparseable("   \n", []))
+
+    def test_is_unparseable_flags_non_utf8_decode_with_no_markers(self):
+        # Wave 1p9hj: a UTF-16 log decoded with errors="replace" loses its ASCII markers (NUL bytes
+        # break the "## Phase"/checkbox patterns) and gains U+FFFD from the BOM. is_unparseable must
+        # still classify it via the replacement-char / NUL signal, independent of the marker patterns.
+        utf16_decoded = (
+            "## Phase 1\n\n- [x] 1.1 — Epoch — artifact: docs/workflow-config.json\n"
+            .encode("utf-16").decode("utf-8", errors="replace")
+        )
+        self.assertEqual(install_log_lib.parse_log(utf16_decoded), [])
+        self.assertTrue(install_log_lib.is_unparseable(utf16_decoded, []))
+        # A pure replacement-char blob (e.g. raw cp1252 with no ASCII markers) is also flagged.
+        self.assertTrue(install_log_lib.is_unparseable("�� garbage �", []))
+        # A clean UTF-8 log with a real em-dash but a genuine phase heading still parses (not flagged).
+        clean_emdash = "## Phase 1\n\n- [x] 1.1 — Epoch (seed-020) — artifact: docs/workflow-config.json\n"
+        self.assertFalse(
+            install_log_lib.is_unparseable(clean_emdash, install_log_lib.parse_log(clean_emdash))
+        )
 
     def test_write_install_log_roundtrips_utf8_emdash(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -977,5 +977,80 @@ class RenderGitignoreBlockTests(unittest.TestCase):
                       "main() must call render_gitignore_block so the block is enforced on every render")
 
 
+class RenderGitattributesBlockTests(unittest.TestCase):
+    """Wave 1p9hm: the LF line-ending policy for Wavefoundry-rendered files is propagated to target
+    repos programmatically + idempotently, self-healing on every render/upgrade (previously the 1p7pn
+    .gitattributes existed only in the self-host repo, so a git-for-Windows autocrlf checkout could
+    rewrite the LF shebang in .wavefoundry/bin/* to CRLF and break the launcher)."""
+
+    _PINS = (
+        ".wavefoundry/bin/* text eol=lf",
+        ".claude/hooks/* text eol=lf",
+        ".wavefoundry/bin/*.cmd text eol=crlf",
+    )
+
+    def setUp(self):
+        self.mod = _load_render_module()
+
+    def test_creates_gitattributes_with_block_when_missing(self):
+        # AC-1: a fresh repo gets .gitattributes with the managed line-ending block and the pins.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            self.mod.render_gitattributes_block(root)
+            text = (root / ".gitattributes").read_text(encoding="utf-8")
+        self.assertIn(self.mod._GITATTRIBUTES_BEGIN, text)
+        self.assertIn(self.mod._GITATTRIBUTES_END, text)
+        for pin in self._PINS:
+            self.assertIn(pin, text, f"managed block must contain {pin!r}")
+        # AC-scope: the narrow block must NOT overreach into the target's own sources.
+        self.assertNotIn("* text=auto", text, "must not force a global text policy on a target repo")
+        self.assertNotIn("*.py text eol=lf", text, "must not force all target Python to LF")
+
+    def test_appends_block_and_is_idempotent(self):
+        # AC-1: existing .gitattributes without the block gets it appended; a second run does not
+        # duplicate the markers or entries.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            (root / ".gitattributes").write_text("*.bin -text\n", encoding="utf-8")
+            self.mod.render_gitattributes_block(root)
+            once = (root / ".gitattributes").read_text(encoding="utf-8")
+            self.mod.render_gitattributes_block(root)
+            twice = (root / ".gitattributes").read_text(encoding="utf-8")
+        self.assertEqual(once, twice, "render must be idempotent")
+        self.assertEqual(twice.count(self.mod._GITATTRIBUTES_BEGIN), 1, "exactly one managed block")
+        self.assertEqual(twice.count(".wavefoundry/bin/* text eol=lf"), 1, "no duplicate pins")
+
+    def test_preserves_user_entries(self):
+        # AC-1 (non-destructive): operator-authored attribute rules outside the block are kept verbatim.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            (root / ".gitattributes").write_text(
+                "*.bin -text\n*.md diff=markdown\n# custom\n", encoding="utf-8"
+            )
+            self.mod.render_gitattributes_block(root)
+            text = (root / ".gitattributes").read_text(encoding="utf-8")
+        for user_line in ("*.bin -text", "*.md diff=markdown", "# custom"):
+            self.assertIn(user_line, text, f"user entry {user_line!r} must be preserved")
+
+    def test_folds_loose_managed_pins_without_duplicating(self):
+        # A repo that already has a pin as a LOOSE line ends up with it ONLY inside the managed block.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            (root / ".gitattributes").write_text(
+                "*.bin -text\n.wavefoundry/bin/* text eol=lf\n", encoding="utf-8"
+            )
+            self.mod.render_gitattributes_block(root)
+            text = (root / ".gitattributes").read_text(encoding="utf-8")
+        self.assertEqual(text.count(".wavefoundry/bin/* text eol=lf"), 1)
+        self.assertIn("*.bin -text", text)
+
+    def test_main_wires_gitattributes_render(self):
+        # render_platform_surfaces.main() must call render_gitattributes_block so it self-heals.
+        src = SCRIPT_PATH.read_text(encoding="utf-8")
+        body = src[src.index("def main("):]
+        self.assertIn("render_gitattributes_block(repo_root)", body,
+                      "main() must call render_gitattributes_block so the block is enforced on every render")
+
+
 if __name__ == "__main__":
     unittest.main()

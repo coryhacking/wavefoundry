@@ -250,7 +250,7 @@ Wave `1p5xc` (wave `1p5x8 large-codebase-map`). Vendor-neutral per-area context,
 
 ## Hook Contract
 
-Use `wf render-surfaces` to materialize tracked hook entrypoints and merged settings files for every enabled platform. For each entrypoint the renderer writes three variants — a self-contained Python implementation (`<name>.py`), a POSIX launcher (`<name>`), and a Windows launcher (`<name>.cmd`) — all `chmod +x`. The JSON snippets below show POSIX launcher command values; on Windows the renderer emits the corresponding `cmd.exe /c ...\\.cmd` invocation. Prefer `wf render-surfaces` over hand-editing each hook file independently (see task 13).
+Use `wf render-surfaces` to materialize tracked hook entrypoints and merged settings files for every enabled platform. For each entrypoint the renderer writes a **single** self-contained Python body, `<name>.py` (`chmod +x`), which self-bootstraps into the tool venv; the `.sh`/`.cmd`/extensionless trampolines were retired (wave 1p7pm/1p88t) and a re-render removes any left by an older install. Every hook config invokes it with the byte-identical, cross-OS command `python3 "<name>.py"` — the same command token the MCP config uses — so the committed launcher is identical on every render host. The JSON snippets below therefore show `python3 "…​.py"` command values (not a bare launcher path or a Windows `cmd.exe /c` form). Prefer `wf render-surfaces` over hand-editing each hook file independently (see task 13).
 
 ### Shared hook policy (all platforms)
 
@@ -330,18 +330,18 @@ Seed or update `.claude/settings.json` with the hooks below. **Merge with any ex
 ```json
 {
  "hooks": {
- "PreToolUse": [ { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": ".claude/hooks/pre-edit", "statusMessage": "Checking framework edit gates..." } ] } ],
+ "PreToolUse": [ { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "python3 \".claude/hooks/pre-edit.py\"", "statusMessage": "Checking framework edit gates..." } ] } ],
  "PostToolUse": [
- { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": ".claude/hooks/post-edit", "statusMessage": "Running docs gates..." } ] }
+ { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "python3 \".claude/hooks/post-edit.py\"", "statusMessage": "Running docs gates..." } ] }
  ]
  }
 }
 ```
 
-Generated entrypoints (three variants each: `.py`, POSIX launcher, `.cmd`):
-- `.claude/hooks/pre-edit` — seed protection + framework plan gate
-- `.claude/hooks/post-edit` — `docs-lint`
-- `.claude/hooks/simulate-hooks` — local test harness for the above
+Generated entrypoints (single `<name>.py` body each, launched via `python3 "<name>.py"`):
+- `.claude/hooks/pre-edit.py` — seed protection + framework plan gate
+- `.claude/hooks/post-edit.py` — `docs-lint`
+- `.claude/hooks/simulate-hooks.py` — local test harness for the above
 
 `.gitignore` tracks `.claude/skills/` and `.claude/hooks/` (for reusable operator skills and generated hook entrypoints). `.claude/settings.json` is a committed project-level file and must not be gitignored; `.claude/settings.local.json` is a personal override and should be gitignored.
 
@@ -353,16 +353,16 @@ Cursor has **no pre-write event** — the earliest file-edit hook is `afterFileE
 {
  "version": 1,
  "hooks": {
- "afterFileEdit": [ { "command": ".cursor/hooks/after-file-edit" } ]
+ "afterFileEdit": [ { "command": "python3 \".cursor/hooks/after-file-edit.py\"" } ]
  }
 }
 ```
 
-Generated entrypoints:
-- `.cursor/hooks/after-file-edit` — runs Cursor gates in order and stops after the first blocking result
-- `.cursor/hooks/seed-warn` — seed-protection warn+halt
-- `.cursor/hooks/framework-plan-warn` — framework-plan-gate warn+halt
-- `.cursor/hooks/docs-lint` — runs `wf docs-lint` after docs edits and halts with actionable output when the docs gate fails
+Generated entrypoints (single `<name>.py` body each, launched via `python3 "<name>.py"`):
+- `.cursor/hooks/after-file-edit.py` — runs Cursor gates in order and stops after the first blocking result
+- `.cursor/hooks/seed-warn.py` — seed-protection warn+halt
+- `.cursor/hooks/framework-plan-warn.py` — framework-plan-gate warn+halt
+- `.cursor/hooks/docs-lint.py` — runs `wf docs-lint` after docs edits and halts with actionable output when the docs gate fails
 
 `.gitignore` must track `.cursor/hooks.json` and `.cursor/hooks/` (`!.cursor/hooks.json` and `!.cursor/hooks/` carve-outs when `.cursor/` is broadly ignored). The repo-global `.wavefoundry/guard-overrides.json` override file remains gitignored.
 
@@ -373,15 +373,15 @@ Windsurf has `pre_write_code` which fires **before** the write — true blocking
 ```json
 {
  "hooks": {
- "pre_write_code": [ { "command": ".windsurf/hooks/seed-protect", "show_output": true } ],
- "post_write_code": [ { "command": ".windsurf/hooks/docs-lint", "show_output": true } ]
+ "pre_write_code": [ { "command": "python3 \".windsurf/hooks/seed-protect.py\"", "show_output": true } ],
+ "post_write_code": [ { "command": "python3 \".windsurf/hooks/docs-lint.py\"", "show_output": true } ]
  }
 }
 ```
 
-Generated entrypoints:
-- `.windsurf/hooks/seed-protect` — true-blocking seed protection + framework plan gate
-- `.windsurf/hooks/docs-lint` — runs `wf docs-lint` after docs edits
+Generated entrypoints (single `<name>.py` body each, launched via `python3 "<name>.py"`):
+- `.windsurf/hooks/seed-protect.py` — true-blocking seed protection + framework plan gate
+- `.windsurf/hooks/docs-lint.py` — runs `wf docs-lint` after docs edits
 
 `.gitignore` tracks `.windsurf/hooks.json` and `.windsurf/hooks/`.
 
@@ -398,15 +398,15 @@ Scope boundary:
 {
  "version": 1,
  "hooks": {
- "preToolUse": [ { "type": "command", "bash": ".github/hooks/pre-tool-use" } ],
- "postToolUse": [ { "type": "command", "bash": ".github/hooks/post-tool-use" } ]
+ "preToolUse": [ { "type": "command", "bash": "python3 \".github/hooks/pre-tool-use.py\"" } ],
+ "postToolUse": [ { "type": "command", "bash": "python3 \".github/hooks/post-tool-use.py\"" } ]
  }
 }
 ```
 
-Generated entrypoints:
-- `.github/hooks/pre-tool-use` — blocks seed-prompt edits and broad framework-maintenance edits per the guard-override file
-- `.github/hooks/post-tool-use` — runs `wf docs-lint` after docs edits
+Generated entrypoints (single `<name>.py` body each, launched via `python3 "<name>.py"`):
+- `.github/hooks/pre-tool-use.py` — blocks seed-prompt edits and broad framework-maintenance edits per the guard-override file
+- `.github/hooks/post-tool-use.py` — runs `wf docs-lint` after docs edits
 
 Keep `.github/copilot-instructions.md` as a thin pointer and route mechanical enforcement through `.github/hooks/hooks.json`.
 

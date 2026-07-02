@@ -200,7 +200,7 @@ def _backfill_role_field_on_agent_docs(root: Path) -> list[str]:
         except OSError:
             continue
         try:
-            modified.append(str(path.relative_to(root)))
+            modified.append(str(path.relative_to(root)).replace("\\", "/"))  # wave 1p9hm: forward-slash
         except ValueError:
             modified.append(str(path))
     return modified
@@ -230,7 +230,7 @@ def _delete_pycache_hook_launchers(root: Path) -> list[str]:
         except OSError:
             continue
         try:
-            deleted.append(str(path.relative_to(root)))
+            deleted.append(str(path.relative_to(root)).replace("\\", "/"))  # wave 1p9hm: forward-slash
         except ValueError:
             deleted.append(str(path))
     return deleted
@@ -291,7 +291,7 @@ def _strip_pycache_row_from_settings_file(settings_path: Path, root: Path) -> st
     except OSError:
         return None
     try:
-        return str(settings_path.relative_to(root))
+        return str(settings_path.relative_to(root)).replace("\\", "/")  # wave 1p9hm: forward-slash
     except ValueError:
         return str(settings_path)
 
@@ -418,7 +418,7 @@ def _preview_role_field_backfill(root: Path) -> list[str]:
             continue
         stem = path.stem
         try:
-            rel = str(path.relative_to(root))
+            rel = str(path.relative_to(root)).replace("\\", "/")  # wave 1p9hm: forward-slash
         except ValueError:
             rel = str(path)
         planned.append(f"{rel}: would insert `Role: {stem}`")
@@ -436,7 +436,7 @@ def _preview_pycache_launcher_deletion(root: Path) -> list[str]:
         path = hooks_dir / name
         if path.exists():
             try:
-                rel = str(path.relative_to(root))
+                rel = str(path.relative_to(root)).replace("\\", "/")  # wave 1p9hm: forward-slash
             except ValueError:
                 rel = str(path)
             planned.append(f"would delete {rel}")
@@ -469,7 +469,7 @@ def _preview_settings_pycache_strip(root: Path) -> dict | None:
                 continue
             command = entry["hooks"][0]["command"]
             try:
-                rel = str(settings_path.relative_to(root))
+                rel = str(settings_path.relative_to(root)).replace("\\", "/")  # wave 1p9hm: forward-slash
             except ValueError:
                 rel = str(settings_path)
             return {

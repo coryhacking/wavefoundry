@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -145,10 +146,34 @@ def _tool_venv_python() -> Path:
     return venv_bootstrap.tool_venv_python()
 
 
+def _rmtree_clearing_readonly(path: Path) -> None:
+    """Wave 1p9hk: ``shutil.rmtree`` that clears the Windows read-only attribute and retries the failing
+    op. On Windows a venv's pip-installed ``.pyd``/``.dll`` native extensions (onnxruntime/lancedb/
+    fastembed) and mmap'd model artifacts are frequently read-only or held open, and ``os.remove`` raises
+    ``PermissionError`` on a read-only file. Mirrors ``upgrade_wavefoundry._remove_deprecated_framework_
+    index`` (wave 1p6d6). POSIX has no read-only-blocks-delete semantics, so the handler is a harmless
+    no-op there. Unlike ``ignore_errors=True``, this does NOT hide a genuine failure: if a file is held
+    open the handler swallows that single op, rmtree still returns, and the CALLER checks ``exists()``
+    afterward to surface an actionable error rather than proceeding with a half-gutted venv."""
+    def _clear_readonly_and_retry(func, p, _exc):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except OSError:
+            pass
+    _rm_kw = ({"onexc": _clear_readonly_and_retry} if sys.version_info >= (3, 12)
+              else {"onerror": _clear_readonly_and_retry})
+    shutil.rmtree(path, **_rm_kw)
+
+
 def _bootstrap_venv() -> Path:
     """Ensure the tool venv exists; return the path to its Python binary."""
     venv_python = _tool_venv_python()
     venv_dir = venv_python.parent.parent
+
+    # Wave 1p9hk: track whether we attempted a recreate-triggering removal so we can distinguish a
+    # healthy existing venv (leave it alone) from a venv we tried and FAILED to remove (surface an error).
+    removal_attempted = False
 
     built_for = venv_bootstrap._venv_python_version(venv_dir)
     if venv_python.exists() and built_for is not None and built_for != sys.version_info[:2]:
@@ -157,12 +182,28 @@ def _bootstrap_venv() -> Path:
             f"but setup is running on {sys.version_info[0]}.{sys.version_info[1]}; recreating ...",
             flush=True,
         )
-        shutil.rmtree(venv_dir, ignore_errors=True)
+        _rmtree_clearing_readonly(venv_dir)
+        removal_attempted = True
 
     if venv_dir.exists() and not venv_python.exists():
         # Partial venv: directory present but Python binary absent — delete and recreate.
         print(f"Incomplete venv detected at {venv_dir}; recreating ...", flush=True)
-        shutil.rmtree(venv_dir, ignore_errors=True)
+        _rmtree_clearing_readonly(venv_dir)
+        removal_attempted = True
+
+    # Wave 1p9hk: if a removal was attempted but the directory is still present, rmtree could not fully
+    # remove it — on Windows a running MCP host, IDE extension, or terminal commonly holds a .pyd/.dll
+    # open (an unclearable lock, not just a read-only attribute). Previously ``ignore_errors=True`` hid
+    # this, the ``if not venv_dir.exists()`` gate below was skipped, and _bootstrap_venv returned a
+    # mismatched/half-gutted venv_python — the documented ``wf setup`` recovery path dead-ended silently.
+    # Surface an actionable error instead of proceeding.
+    if removal_attempted and venv_dir.exists():
+        raise RuntimeError(
+            f"Could not recreate the tool venv at {venv_dir}: a previous version could not be fully "
+            f"removed. On Windows this usually means a running process is holding a file open — close "
+            f"the MCP host (quit/restart your agent), any IDE extension using this project, and other "
+            f"terminals, then rerun `wf setup`. If it persists, delete {venv_dir} manually and retry."
+        )
 
     if not venv_dir.exists():
         print(f"Creating tool venv at {venv_dir} ...", flush=True)

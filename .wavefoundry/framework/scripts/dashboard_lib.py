@@ -26,6 +26,11 @@ _SECTION_RE = re.compile(r"^##\s+(.+)$", re.MULTILINE)
 # pending) and excludes `[~]` items from progress denominators.
 _TASK_RE = re.compile(r"^\s*-\s+(?:(?:\[(?P<mark>[ xX~])\])\s+)?(?P<label>.+?)\s*$", re.MULTILINE)
 _ACTIVE_WAVE_RE = re.compile(r"^\*\*Active wave:\*\*\s+(.+)$", re.MULTILINE)
+# Wave 1p9hl: extract the `--root` value from a process command line, quote-aware. Handles both
+# `--root <value>` and `--root=<value>`, each either double-quoted (spaces allowed — the Windows
+# Win32_Process.CommandLine form from subprocess.list2cmdline) or a bare whitespace-delimited token.
+# Backslashes are literal (no escape handling), so Windows paths survive intact.
+_ROOT_ARG_RE = re.compile(r'--root(?:=|\s+)(?:"(?P<quoted>[^"]*)"|(?P<bare>\S+))')
 DASHBOARD_START_LOCK_NAME = "dashboard-start.lock"
 DASHBOARD_SERVER_LOCK_NAME = "dashboard-server.lock"
 # Wave 1p8pf: on native Windows `msvcrt.locking` is MANDATORY byte-range (unlike POSIX advisory
@@ -319,15 +324,20 @@ def dashboard_cmdline_pids(root: Path) -> list[int] | None:
             continue
         if pid == self_pid:
             continue
-        toks = rest.split()
+        # Wave 1p9hl: extract the --root value with a quote-aware regex instead of a bare rest.split().
+        # On Windows the cmdline comes from Win32_Process.CommandLine, where subprocess.list2cmdline
+        # QUOTES any arg containing spaces (e.g. --root "C:\Users\First Last\repo"). A whitespace split
+        # truncated that value at the first space, so the --root token never matched → an empty pid list
+        # → duplicate dashboards + the 1p8pf port-climb. The regex handles both `--root <value>` and
+        # `--root=<value>`, each quoted (spaces allowed) or bare, and never treats a backslash as an
+        # escape (Windows paths are literal). Windows paths never contain literal quote chars, so the
+        # captured value needs no further dequoting.
         matched = False
-        for i, tok in enumerate(toks):
-            cand: str | None = None
-            if tok == "--root" and i + 1 < len(toks):
-                cand = toks[i + 1]
-            elif tok.startswith("--root="):
-                cand = tok[len("--root="):]
+        for m in _ROOT_ARG_RE.finditer(rest):
+            cand = m.group("quoted")
             if cand is None:
+                cand = m.group("bare")
+            if not cand:
                 continue
             try:
                 if Path(cand).resolve() == target:

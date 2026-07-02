@@ -847,9 +847,13 @@ def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
             if max_file_bytes > 0:
                 try:
                     if path.stat().st_size > max_file_bytes:
+                        # Wave 1p9io: stderr, not stdout — walk_repo runs in-process from the MCP
+                        # server (navigation tools + index-health) where stdout is the JSON-RPC
+                        # channel. This skip notice is unconditional, so stdout would corrupt the frame.
                         print(
                             f"build_index: skipping oversized file "
                             f"({path.stat().st_size // 1_000_000} MB > {max_file_bytes // 1_000_000} MB cap): {rel_str}",
+                            file=sys.stderr,
                             flush=True,
                         )
                         continue
@@ -2760,10 +2764,16 @@ def _build_graph_artifacts(
         )
     elapsed = time.monotonic() - _t0
     counts = graph_payload.get("counts") or {}
+    # Wave 1p9io: route to stderr — this progress line is unconditional (not verbose-gated) and
+    # build_index runs IN-PROCESS from graph_query._ensure_graph_builder_current on the first graph
+    # query after a builder-version bump, where sys.stdout IS the MCP JSON-RPC channel. stdout would
+    # corrupt the protocol frame; stderr (fd 2) is left alone by the server's stdout isolation and
+    # still reaches the terminal during a CLI build.
     print(
         f"build_index: finished graph: {len(changed)} changed, {len(removed)} removed"
         f" | nodes: {counts.get('nodes', 0)} | edges: {counts.get('edges', 0)}"
         f" in {elapsed:.1f}s",
+        file=sys.stderr,
         flush=True,
     )
     return {"graph_payload": graph_payload, "cluster_payload": cluster_payload}
@@ -3206,16 +3216,21 @@ def _build_index_locked(
         }
 
     _index_label = {"docs": "docs/seed", "code": "code", "all": "docs/seed + code"}.get(content, content)
+    # Wave 1p9io: route these unconditional (not verbose-gated) top-level progress lines to stderr.
+    # build_index runs in-process from the MCP server's graph auto-rebuild path (full=True) where
+    # sys.stdout is the JSON-RPC channel; stderr is safe there and still visible in a CLI build.
     if full:
         print(
             f"build_index: rebuilding {_index_label} index — {len(files_for_content)} source files\n"
             "  This may take several minutes to complete.",
+            file=sys.stderr,
             flush=True,
         )
     else:
         print(
             f"build_index: updating {_index_label} index — "
             f"{len(changed)} file(s) changed, {len(removed)} removed",
+            file=sys.stderr,
             flush=True,
         )
     if verbose:

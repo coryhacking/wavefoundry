@@ -55,7 +55,7 @@ Three hard prerequisites. Do not run any install command until all three resolve
 
    *Do not proceed past this block until `python3 --version` reports 3.11 or higher.* Install via your package manager (`brew install python@3.11`, `apt install python3.11`) or [`pyenv`](https://github.com/pyenv/pyenv).
 
-2. **A supported host OS** — **macOS** (Apple Silicon or Intel), **Linux** (x86_64/arm64), or **Windows via WSL2**. WSL2 is Linux: it runs the identical POSIX code path as native Linux, so there is no separate install. Native Windows (Terminal/PowerShell/cmd) is **not yet supported** — it is on the roadmap; see [Native Windows support](docs/references/native-windows-support.md).
+2. **A supported host OS** — **macOS** (Apple Silicon or Intel), **Linux** (x86_64/arm64), **Windows via WSL2**, or **native Windows** (Terminal / PowerShell / cmd). WSL2 is Linux and runs the identical POSIX code path with no separate install. Native Windows requires `python3` 3.11 or higher on PATH — verify with `python3 --version`; if Windows has `python` but not `python3`, install a distribution from python.org that provides `python3` and add it to PATH before running setup. See [Native Windows support](docs/references/native-windows-support.md).
 
 3. **An MCP-aware agent host.** **Claude Code** or **Codex CLI** is recommended for first install — both auto-load MCP from on-disk config (`.mcp.json` / `.codex/config.toml`), so the install flow runs with no manual UI step. **Cursor**, **Junie**, and **Antigravity** also auto-load MCP from a rendered config; **GitHub Copilot**, **Windsurf**, **Air**, and **Warp** attach by pasting the stdio entry into the host's own MCP settings — see [Host support](#host-support).
 

@@ -163,22 +163,64 @@ class VenvBootstrapTests(unittest.TestCase):
         self.assertEqual(result, FAKE_VENV_PYTHON)
 
     def test_bootstrap_venv_recreates_partial_venv(self):
-        """_bootstrap_venv deletes and recreates a partial venv (dir exists but Python binary absent)."""
-        venv_dir = FAKE_VENV_PYTHON.parent.parent
+        """_bootstrap_venv deletes and recreates a partial venv (dir exists but Python binary absent).
 
-        def exists_side_effect(self_path):
-            # venv_dir.exists() → True; venv_python.exists() → False (binary absent)
-            return self_path == venv_dir
+        Wave 1p9hk: removal now routes through _rmtree_clearing_readonly (read-only-safe) instead of
+        shutil.rmtree(ignore_errors=True); after a successful removal the recreate proceeds. Uses a real
+        temp dir so exists() reflects the actual removal (the new post-removal guard checks exists())."""
+        with tempfile.TemporaryDirectory() as tmp:
+            venv_dir = Path(tmp) / "venv"
+            venv_python = venv_dir / "bin" / "python"
+            venv_dir.mkdir(parents=True)  # dir exists, python binary absent → partial
 
-        with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
-            with patch("pathlib.Path.exists", exists_side_effect):
-                with patch("shutil.rmtree") as rmtree:
+            with patch.object(self.mod, "_tool_venv_python", return_value=venv_python):
+                with patch("subprocess.run") as run:
+                    run.return_value = subprocess.CompletedProcess([], 0)
+                    with redirect_stdout(io.StringIO()):
+                        result = self.mod._bootstrap_venv()
+
+        self.assertEqual(result, venv_python)
+        self.assertFalse(venv_dir.exists(), "partial venv should be removed before recreation")
+        self.assertEqual(run.call_args[0][0], [sys.executable, "-m", "venv", str(venv_dir)])
+
+    def test_bootstrap_venv_surfaces_error_when_removal_fails(self):
+        """Wave 1p9hk (AC-2/AC-3): when the recreate-triggering rmtree cannot fully remove the venv
+        (Windows: a .pyd/.dll held open by a running MCP host / IDE extension), _bootstrap_venv must
+        raise an actionable error naming `wf setup` — NOT silently return a half-gutted venv_python
+        (the old ignore_errors=True + `if not exists` gate dead-ended silently)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            venv_dir = Path(tmp) / "venv"
+            venv_python = venv_dir / "bin" / "python"
+            venv_dir.mkdir(parents=True)  # partial venv: dir present, python absent
+
+            with patch.object(self.mod, "_tool_venv_python", return_value=venv_python):
+                # Simulate held-open files: the robust rmtree runs but cannot remove the directory.
+                with patch.object(self.mod, "_rmtree_clearing_readonly"):  # no-op
                     with patch("subprocess.run") as run:
-                        run.return_value = subprocess.CompletedProcess([], 0)
                         with redirect_stdout(io.StringIO()):
-                            self.mod._bootstrap_venv()
+                            with self.assertRaises(RuntimeError) as ctx:
+                                self.mod._bootstrap_venv()
+        msg = str(ctx.exception)
+        self.assertIn("wf setup", msg)
+        self.assertIn(str(venv_dir), msg)
+        run.assert_not_called()  # never proceeds to venv creation with a broken venv
 
-        rmtree.assert_called_once_with(venv_dir, ignore_errors=True)
+    def test_rmtree_clearing_readonly_removes_readonly_tree(self):
+        """Wave 1p9hk (AC-1/AC-4): _rmtree_clearing_readonly removes a tree containing a read-only file
+        (the Windows failure mode) without raising."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tree = Path(tmp) / "tree"
+            (tree / "sub").mkdir(parents=True)
+            ro_file = tree / "sub" / "readonly.pyd"
+            ro_file.write_text("x", encoding="utf-8")
+            os.chmod(ro_file, 0o444)  # read-only
+            try:
+                self.mod._rmtree_clearing_readonly(tree)
+            finally:
+                # Best-effort restore if the removal did not complete (POSIX removes it fine).
+                if ro_file.exists():
+                    os.chmod(ro_file, 0o644)
+            self.assertFalse(tree.exists(), "read-only tree must be fully removed")
 
     def test_bootstrap_venv_recreates_python_version_mismatch(self):
         """A stale tool venv built for another Python minor is deleted and recreated."""

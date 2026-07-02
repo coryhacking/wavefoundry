@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-27
+Last verified: 2026-07-02
 
 ## What Wavefoundry Is
 
@@ -28,7 +28,7 @@ Wavefoundry is local-only and runs wherever a supported Python and AI host run. 
 | **macOS** (Apple Silicon + Intel) | **Supported** | Primary dev platform. Apple Silicon gets CoreML/GPU embedding acceleration; Intel runs CPU. |
 | **Linux** (x86_64 / arm64) | **Supported** | Continuously exercised (dev/CI). CPU embedding by default; NVIDIA CUDA used when present. |
 | **Windows via WSL2** | **Supported** | WSL2 **is** Linux — it runs the identical POSIX code path (`os.name == 'posix'`, `bin/python`, `fcntl`, `os.kill`, shebang launchers) with no separate install and no special flags. CUDA works via WSL2 GPU passthrough; CoreML/DirectML do not apply (CPU otherwise). See the WSL2 gotchas below. |
-| **Native Windows** (Terminal / PowerShell / cmd) | **Not yet supported — planned** | The agent entry points (MCP launcher, `bin/` launchers) are not yet Windows-runnable. Roadmap + scoping: `docs/references/native-windows-support.md`. The Python execution layer has been pre-hardened (wave `1p6d5`), but end-to-end native-Windows support awaits the launcher work. |
+| **Native Windows** (Terminal / PowerShell / cmd) | **Supported** | Requires `python3` 3.11 or higher on PATH — verify with `python3 --version` before install. Windows may ship `python` but not `python3`; if so, install a distribution that provides `python3` (e.g. from python.org) and ensure it is on PATH. See `docs/references/native-windows-support.md` for setup notes. |
 
 **WSL2 gotchas** (the few that matter — all are environment setup, not framework config):
 

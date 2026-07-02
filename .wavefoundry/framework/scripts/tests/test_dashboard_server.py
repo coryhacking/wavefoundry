@@ -1506,6 +1506,28 @@ class DashboardProcessControlTests(unittest.TestCase):
             pids = self.server._dashboard_cmdline_pids(self.root)
         self.assertEqual(sorted(pids), [1001, 1005])
 
+    def test_cmdline_scan_matches_quoted_spaced_root(self):
+        # Wave 1p9hl: on Windows Win32_Process.CommandLine QUOTES a --root value containing spaces
+        # (subprocess.list2cmdline: --root "C:\Users\First Last\repo"). The old bare rest.split()
+        # truncated the value at the first space so the --root token never matched → empty pid list →
+        # duplicate dashboards + the 1p8pf port-climb. shlex.split(posix=False) + dequote fixes both
+        # the `--root "..."` and `--root="..."` forms. A real spaced temp dir makes Path.resolve()
+        # match on the POSIX test host; the parse/dequote logic itself is OS-independent.
+        import tempfile
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as base:
+            spaced = Path(base) / "First Last" / "repo"
+            spaced.mkdir(parents=True)
+            root_str = str(spaced.resolve())
+            synthetic = "\n".join([
+                f' 2001 python /x/dashboard_server.py --root "{root_str}"',       # quoted spaced value
+                f' 2002 python /y/dashboard_server.py --root="{root_str}"',       # --root= quoted form
+                ' 2003 python /z/dashboard_server.py --root "/other/no match/x"',  # different root
+            ])
+            with patch("subprocess.run", return_value=SimpleNamespace(stdout=synthetic)):
+                pids = self.server._dashboard_cmdline_pids(spaced)
+        self.assertEqual(sorted(pids), [2001, 2002])
+
     def test_cmdline_scan_returns_none_on_scan_failure(self):
         from types import SimpleNamespace
         # Non-string stdout (e.g. mocked subprocess) → None → callers fall back.

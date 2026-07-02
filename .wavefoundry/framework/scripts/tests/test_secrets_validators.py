@@ -2175,5 +2175,37 @@ class TestGateSemanticsUnchanged(unittest.TestCase):
             self.assertNotIn("legacy_id", findings[0])
 
 
+class TestSha256FileCrlfNormalization(unittest.TestCase):
+    """Wave 1p9hm: _sha256_file normalizes CRLF→LF before hashing so a shipped framework file's
+    allowlist digest survives a git-for-Windows autocrlf checkout (which rewrites non-.py files to
+    CRLF). Without this, the digest baked into the allowlist would not match the on-disk CRLF file and
+    a previously-suppressed framework false-positive would resurface as a hard lint failure."""
+
+    def test_crlf_and_lf_variants_hash_identically(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            lf = root / "a.md"
+            crlf = root / "b.md"
+            lf.write_bytes(b"line one\nline two\nline three\n")
+            crlf.write_bytes(b"line one\r\nline two\r\nline three\r\n")
+            self.assertEqual(
+                _sv._sha256_file(lf), _sv._sha256_file(crlf),
+                "CRLF and LF variants of the same content must produce the same digest",
+            )
+
+    def test_matches_build_scan_allowlist_copy(self):
+        # The two _sha256_file copies (lint-time + allowlist-build-time) must stay byte-identical in
+        # behavior, or the allowlist built by one would never match the digest computed by the other.
+        import importlib.util
+        bsa_path = SCRIPTS_ROOT / "build_scan_allowlist.py"
+        spec = importlib.util.spec_from_file_location("build_scan_allowlist_for_test", bsa_path)
+        bsa = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bsa)
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "c.md"
+            f.write_bytes(b"x\r\ny\r\n")
+            self.assertEqual(_sv._sha256_file(f), bsa._sha256_file(f))
+
+
 if __name__ == "__main__":
     unittest.main()

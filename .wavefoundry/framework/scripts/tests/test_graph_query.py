@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import math
 import sys
@@ -792,6 +794,60 @@ class GraphQueryAutoRebuildCallbackTests(unittest.TestCase):
         with p1, p2:
             diag = self.mod._ensure_graph_builder_current(self.root, "project")
         self.assertEqual(diag["code"], "graph_auto_rebuilt")
+
+    def _with_noisy_rebuild(self):
+        """Like _with_fake_rebuild, but the faked build_index deliberately writes to sys.stdout —
+        simulating any unconditional progress print inside the real build_index. Used to prove the
+        boundary wrapper (isolated_stdout_fd + redirect_stdout) keeps those bytes off the JSON-RPC
+        stdout channel."""
+        from unittest.mock import patch
+        self.mod._get_graph_indexer()
+        real_spec = importlib.util.spec_from_file_location
+        real_module = importlib.util.module_from_spec
+
+        class _NoisyLoader:
+            def exec_module(self, module):
+                def _noisy_build_index(*a, **k):
+                    print("build_index: NOISE that would corrupt the JSON-RPC frame")
+                    return {"ok": True}
+                module.build_index = _noisy_build_index
+
+        class _NoisySpec:
+            name = "indexer_for_graph_query_rebuild"
+            loader = _NoisyLoader()
+
+        def _fake_spec(name, path):
+            if name == "indexer_for_graph_query_rebuild":
+                return _NoisySpec()
+            return real_spec(name, path)
+
+        def _fake_module(spec):
+            if getattr(spec, "name", "") == "indexer_for_graph_query_rebuild":
+                import types
+                return types.ModuleType("fake_indexer_for_rebuild")
+            return real_module(spec)
+
+        return patch("importlib.util.spec_from_file_location", _fake_spec), \
+               patch("importlib.util.module_from_spec", _fake_module)
+
+    def test_auto_rebuild_writes_no_bytes_to_stdout(self):
+        """Wave 1p9io AC-7: the in-process graph auto-rebuild must not write to sys.stdout — that is the
+        MCP stdio JSON-RPC channel on the server. A build_index that prints to stdout must have its
+        output redirected to stderr by the boundary wrapper (isolated_stdout_fd + redirect_stdout), so
+        the captured stdout is empty. Regression guard: removing the wrapper would land the noise on
+        stdout and fail this test."""
+        self._seed_stale_graph()
+        p1, p2 = self._with_noisy_rebuild()
+        captured = io.StringIO()
+        with p1, p2, contextlib.redirect_stdout(captured):
+            diag = self.mod._ensure_graph_builder_current(self.root, "project")
+        self.assertIsNotNone(diag)
+        self.assertEqual(diag["code"], "graph_auto_rebuilt")
+        self.assertEqual(
+            captured.getvalue(), "",
+            "graph auto-rebuild wrote to sys.stdout — this would corrupt the MCP JSON-RPC frame on the "
+            "stdio transport. The build_index call must be wrapped in isolated_stdout_fd()/redirect_stdout.",
+        )
 
     def test_concurrent_auto_rebuild_defers_via_inflight_marker(self):
         """Wave 1p2q3 (1p2w5 / Bug 3): a second `_ensure_graph_builder_current`

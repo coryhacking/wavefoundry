@@ -13,12 +13,20 @@
 *.py text eol=lf
 
 # Shebang-bearing launcher/hook bodies (no extension) — always LF.
+
+# Windows batch shims need CRLF (cmd.exe). A later, more-specific rule wins over the
+# `.wavefoundry/bin/* eol=lf` line above, so `wf.cmd` keeps CRLF (wave 1p7tz).
+*.cmd text eol=crlf
+
+# >>> wavefoundry line-endings (managed by render_platform_surfaces.py — edits here are overwritten) >>>
+# Shebang-bearing Wavefoundry launchers / hook bodies — always LF (autocrlf must not add CRLF).
 .wavefoundry/bin/* text eol=lf
 .claude/hooks/* text eol=lf
 .cursor/hooks/* text eol=lf
 .github/hooks/* text eol=lf
 .windsurf/hooks/* text eol=lf
 
-# Windows batch shims need CRLF (cmd.exe). A later, more-specific rule wins over the
-# `.wavefoundry/bin/* eol=lf` line above, so `wf.cmd` keeps CRLF (wave 1p7tz).
-*.cmd text eol=crlf
+# Windows batch shim needs CRLF (cmd.exe). Listed AFTER the eol=lf line so this more-specific
+# rule wins for wf.cmd (gitattributes precedence is last-match, not specificity).
+.wavefoundry/bin/*.cmd text eol=crlf
+# <<< wavefoundry line-endings <<<

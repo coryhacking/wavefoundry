@@ -946,6 +946,103 @@ def _write_lance_index(root: Path, *, docs_chunks: list[dict] | None = None, doc
         db.create_table("code", data=_rows(code_chunks, code_vectors), mode="overwrite")
 
 
+class FrameworkInProcessStdoutPurityGuard(unittest.TestCase):
+    """Wave 1p9io: a companion to FrameworkWideSubprocessIsolationGuard for Python-level stdout.
+
+    The prior stdio-hardening waves (1p8vc/1p88t) isolated native fd-1 writes (onnxruntime/DirectML)
+    and MCP-helper *subprocess* stdout, but nothing guarded plain Python ``print()`` on the in-process
+    call set reachable from MCP tool handlers. ``server.py`` repoints ``sys.stdout`` to the private fd
+    the stdio JSON-RPC transport writes frames through, so any in-process ``print()`` to stdout corrupts
+    the protocol frame — worst on the native-Windows host least tolerant of a bad first-call frame.
+
+    There are exactly two in-process boundaries where indexer/graph code runs inside the server (every
+    other index build is a subprocess, isolated by construction):
+
+    1. ``graph_query._ensure_graph_builder_current`` → ``indexer.build_index(full=True)`` — the graph
+       auto-rebuild on the first graph query after a builder-version bump. Protected by wrapping the
+       call in ``cli_stdio.isolated_stdout_fd()`` + ``contextlib.redirect_stdout(sys.stderr)`` so ALL
+       output during the rebuild (any of indexer's ~50 progress prints, a missing-grammar warning, a
+       native fd-1 write) is neutralized at the boundary regardless of upstream print sites.
+    2. ``indexer.walk_repo`` — called in-process from the navigation tools and index-health. It is NOT
+       wrapped (called directly), so every ``print()`` in its body must route to ``file=sys.stderr``.
+
+    These guards FAIL if the boundary wrapper is removed (1) or a bare-stdout ``print()`` is added to
+    ``walk_repo`` (2) — their whole purpose.
+    """
+
+    def test_graph_query_in_process_build_index_is_stdout_isolated(self):
+        """Every ``build_index(`` call in graph_query.py must sit inside a function that also references
+        ``isolated_stdout_fd``/``redirect_stdout`` — the in-process graph auto-rebuild must never be able
+        to write to the JSON-RPC stdout channel."""
+        import ast as _ast
+
+        src = (SCRIPTS_ROOT / "graph_query.py").read_text(encoding="utf-8")
+        tree = _ast.parse(src)
+        # Collect the line spans of `with` blocks whose CONTEXT-MANAGER EXPRESSIONS reference the
+        # stdout-isolation helpers. We inspect the withitems' AST (via ast.dump) — NOT the raw source —
+        # so a mere comment mentioning "isolated_stdout_fd" cannot satisfy the guard; only a real
+        # `with cli_stdio.isolated_stdout_fd()/contextlib.redirect_stdout(...):` counts.
+        guard_spans: list[tuple[int, int]] = []
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.With):
+                items_dump = " ".join(_ast.dump(item) for item in node.items)
+                if "isolated_stdout_fd" in items_dump or "redirect_stdout" in items_dump:
+                    guard_spans.append((node.lineno, getattr(node, "end_lineno", None) or node.lineno))
+        matched = 0
+        offenders: list[str] = []
+        for node in _ast.walk(tree):
+            if not (isinstance(node, _ast.Call) and isinstance(node.func, _ast.Attribute)
+                    and node.func.attr == "build_index"):
+                continue
+            matched += 1
+            if not any(lo <= node.lineno <= hi for lo, hi in guard_spans):
+                offenders.append(f"graph_query.py:{node.lineno}")
+        self.assertGreaterEqual(
+            matched, 1, "no in-process build_index( call found in graph_query.py — the AST walk broke",
+        )
+        self.assertGreaterEqual(
+            len(guard_spans), 1,
+            "no stdout-isolation `with` block found in graph_query.py — the AST walk broke or the "
+            "wrapper was removed",
+        )
+        self.assertEqual(
+            offenders, [],
+            "in-process build_index calls must be lexically inside a `with cli_stdio.isolated_stdout_fd(), "
+            "contextlib.redirect_stdout(sys.stderr):` block so the graph auto-rebuild cannot write to the "
+            "MCP JSON-RPC stdout channel:\n" + "\n".join(offenders),
+        )
+
+    def test_indexer_walk_repo_prints_route_to_stderr(self):
+        """``indexer.walk_repo`` runs in-process from the MCP server (navigation tools + index-health);
+        every ``print()`` in its body must carry ``file=`` (routed to stderr) so it cannot corrupt the
+        JSON-RPC stdout channel."""
+        import ast as _ast
+
+        src = (SCRIPTS_ROOT / "indexer.py").read_text(encoding="utf-8")
+        tree = _ast.parse(src)
+        walk_fn = next(
+            (fn for fn in _ast.walk(tree)
+             if isinstance(fn, (_ast.FunctionDef, _ast.AsyncFunctionDef)) and fn.name == "walk_repo"),
+            None,
+        )
+        self.assertIsNotNone(walk_fn, "walk_repo not found in indexer.py — the AST walk broke")
+        prints = 0
+        offenders: list[str] = []
+        for node in _ast.walk(walk_fn):
+            if isinstance(node, _ast.Call) and isinstance(node.func, _ast.Name) and node.func.id == "print":
+                prints += 1
+                if "file" not in {kw.arg for kw in node.keywords if kw.arg is not None}:
+                    offenders.append(f"indexer.py:{node.lineno}")
+        self.assertGreaterEqual(
+            prints, 1, "walk_repo has no print() — the AST walk broke",
+        )
+        self.assertEqual(
+            offenders, [],
+            "walk_repo runs in-process from the MCP server; every print() must route to file=sys.stderr "
+            "so it cannot corrupt the JSON-RPC stdout channel:\n" + "\n".join(offenders),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Root discovery
 # ---------------------------------------------------------------------------
@@ -19208,6 +19305,18 @@ Status: in-progress
         self.assertIn("install-log.md", result["data"]["expected_path"])
         codes = [d["code"] for d in result.get("diagnostics", [])]
         self.assertIn("install_log_missing", codes)
+
+    def test_utf16_bom_log_surfaces_unparseable_not_crash(self):
+        # Wave 1p9hj AC-3: a UTF-16-BOM install log (PowerShell Set-Content/Out-File default on
+        # Windows) must NOT crash wave_install_audit with UnicodeDecodeError. read_install_log decodes
+        # with errors="replace", is_unparseable classifies the garbled result, and the response
+        # surfaces the actionable install_log_unparseable diagnostic instead of vacuous success.
+        log_path = self.root / ".wavefoundry" / "install-log.md"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_bytes(self._MINIMAL_LOG.encode("utf-16"))  # includes BOM
+        result = self._call()  # must not raise
+        codes = [d["code"] for d in result.get("diagnostics", [])]
+        self.assertIn("install_log_unparseable", codes)
 
     def test_lint_errors_block_and_no_artifact_check(self):
         from unittest.mock import patch

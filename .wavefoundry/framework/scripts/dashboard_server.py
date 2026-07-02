@@ -441,6 +441,16 @@ _PEER_DISCONNECT_ERRORS = (ConnectionResetError, BrokenPipeError, ConnectionAbor
 class _QuietThreadingHTTPServer(ThreadingHTTPServer):
     """ThreadingHTTPServer that silences expected peer-disconnect errors."""
 
+    # Wave 1p9hm: HTTPServer defaults allow_reuse_address=1 (SO_REUSEADDR). Disable it ONLY on Windows.
+    # On Windows SO_REUSEADDR lets MULTIPLE sockets bind the same port SIMULTANEOUSLY, so two
+    # near-simultaneous dashboard spawns could both bind the same port with nondeterministic routing;
+    # disabling reuse closes the sub-millisecond TOCTOU window between the _is_port_free probe and the
+    # real bind. On POSIX SO_REUSEADDR does NOT permit duplicate live binds — it only allows rebinding
+    # a TIME_WAIT port, which is the BENEFICIAL default: choose_port prefers the last-recorded port, so
+    # a quick stop→start would otherwise fail with "Address already in use" during TIME_WAIT. Keep the
+    # POSIX default enabled to preserve fast restart; the duplicate-bind hazard is Windows-only.
+    allow_reuse_address = os.name != "nt"
+
     def handle_error(self, request: Any, client_address: Any) -> None:
         import sys
         exc = sys.exc_info()[1]

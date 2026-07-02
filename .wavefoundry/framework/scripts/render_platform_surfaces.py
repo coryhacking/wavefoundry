@@ -1501,6 +1501,74 @@ def render_gitignore_block(repo_root: Path) -> None:
     write_text(gitignore, "\n".join(out).rstrip() + "\n")
 
 
+_GITATTRIBUTES_BEGIN = "# >>> wavefoundry line-endings (managed by render_platform_surfaces.py — edits here are overwritten) >>>"
+_GITATTRIBUTES_END = "# <<< wavefoundry line-endings <<<"
+# Wave 1p9hm: line-ending pins for Wavefoundry-RENDERED files, propagated to every target repo (the
+# 1p7pn .gitattributes previously existed only in the self-host repo). Deliberately NARROW — scoped to
+# framework paths, NOT the self-host's broad `* text=auto` / `*.py eol=lf` / global `*.cmd`, which
+# would override a consuming repo's own line-ending policy. git-for-Windows `autocrlf=true` would
+# otherwise rewrite the LF `#!/usr/bin/env` shebang in `.wavefoundry/bin/wf` and the rendered hook
+# bodies to CRLF on checkout, breaking the POSIX/WSL2 launcher fallback (the 1p7pn L-1 failure class).
+_GITATTRIBUTES_BLOCK = [
+    "# Shebang-bearing Wavefoundry launchers / hook bodies — always LF (autocrlf must not add CRLF).",
+    ".wavefoundry/bin/* text eol=lf",
+    ".claude/hooks/* text eol=lf",
+    ".cursor/hooks/* text eol=lf",
+    ".github/hooks/* text eol=lf",
+    ".windsurf/hooks/* text eol=lf",
+    "",
+    "# Windows batch shim needs CRLF (cmd.exe). Listed AFTER the eol=lf line so this more-specific",
+    "# rule wins for wf.cmd (gitattributes precedence is last-match, not specificity).",
+    ".wavefoundry/bin/*.cmd text eol=crlf",
+]
+_GITATTRIBUTES_MANAGED_LINES = frozenset(line.strip() for line in _GITATTRIBUTES_BLOCK if line.strip())
+
+
+def render_gitattributes_block(repo_root: Path) -> None:
+    """Ensure the Wavefoundry line-ending block is present in ``.gitattributes`` (wave 1p9hm).
+
+    Same idempotent, marker-delimited, operator-preserving contract as :func:`render_gitignore_block`:
+    the managed region between ``_GITATTRIBUTES_BEGIN``/``_GITATTRIBUTES_END`` is rewritten on every
+    render while ALL operator-authored lines are preserved verbatim; loose copies of managed lines are
+    folded into the region so re-runs never duplicate. Creates ``.gitattributes`` when absent.
+
+    NON-DESTRUCTIVE by construction (AC-1): only the marker-delimited block is ever written, so an
+    operator's own attribute rules are never overwritten — there is nothing to "conflict" on because
+    the block owns a distinct, narrow set of framework-path patterns. Runs on every ``wf setup`` /
+    ``wf render-surfaces`` / upgrade so consuming repos self-heal (the 1p7pn policy was never
+    propagated to targets before this wave)."""
+    gitattributes = repo_root / ".gitattributes"
+    existing: list[str] = []
+    if gitattributes.exists():
+        existing = gitattributes.read_text(encoding="utf-8").splitlines()
+
+    preserved: list[str] = []
+    in_block = False
+    for line in existing:
+        stripped = line.strip()
+        if stripped == _GITATTRIBUTES_BEGIN:
+            in_block = True
+            continue
+        if in_block:
+            if stripped == _GITATTRIBUTES_END:
+                in_block = False
+            continue
+        # Fold loose copies of our managed pins into the block so we never duplicate; everything else
+        # is operator content — keep it verbatim.
+        if stripped in _GITATTRIBUTES_MANAGED_LINES:
+            continue
+        preserved.append(line)
+    while preserved and preserved[-1] == "":
+        preserved.pop()
+
+    managed = [_GITATTRIBUTES_BEGIN, *_GITATTRIBUTES_BLOCK, _GITATTRIBUTES_END]
+    out = list(preserved)
+    if out:
+        out.append("")
+    out.extend(managed)
+    write_text(gitattributes, "\n".join(out).rstrip() + "\n")
+
+
 def render_upgrade_skill(repo_root: Path) -> None:
     content = """# Claude skill: Upgrade Wavefoundry
 
@@ -1654,6 +1722,7 @@ def main(argv: list[str] | None = None) -> int:
     render_agent_surfaces(repo_root)
     render_bin_launchers(repo_root)
     render_gitignore_block(repo_root)  # wave 1p8vj: enforce the runtime ignore block on every render/upgrade (self-heals)
+    render_gitattributes_block(repo_root)  # wave 1p9hm: propagate the LF line-ending policy to target repos (self-heals)
     remove_git_hooks(repo_root)  # wave 1p88t: git hooks dropped; clean up any prior renders
     for ds in repo_root.rglob(".DS_Store"):
         try:

@@ -1807,11 +1807,20 @@ def _ts_parse(lang_key: str, source_text: str):
     if parser is None:
         if lang_key not in _TS_WARNED:
             _TS_WARNED.add(lang_key)
+            # Wave 1p9io: stderr, not stdout. _ts_parse runs in-process during the MCP server's graph
+            # auto-rebuild (build_index → update_graph_index → _extract_tree_sitter_artifact), where
+            # sys.stdout is the JSON-RPC channel. Missing grammar wheels are more common on Windows,
+            # so this warning is more likely to fire there — exactly where a stdout write breaks framing.
             if not _TS_AVAILABLE:
-                print(f"build_index: tree-sitter unavailable; using fallback graph extraction for {lang_key}", flush=True)
+                print(
+                    f"build_index: tree-sitter unavailable; using fallback graph extraction for {lang_key}",
+                    file=sys.stderr,
+                    flush=True,
+                )
             else:
                 print(
                     f"build_index: tree-sitter grammar for {lang_key} unavailable; using fallback graph extraction",
+                    file=sys.stderr,
                     flush=True,
                 )
         return None

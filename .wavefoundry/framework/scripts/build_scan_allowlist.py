@@ -32,7 +32,11 @@ from wave_lint_lib.secrets_validators import (
 FRAMEWORK_PREFIX = FRAMEWORK_REL + "/"
 
 def _sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    # Wave 1p9hm: normalize CRLF→LF before hashing so the digest is line-ending independent (see the
+    # byte-identical copy in wave_lint_lib.secrets_validators._sha256_file). A git-for-Windows
+    # autocrlf checkout of a non-.py framework file would otherwise change the digest and break
+    # allowlist matching between build time and lint time.
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def build_allowlist(root: Path) -> None:

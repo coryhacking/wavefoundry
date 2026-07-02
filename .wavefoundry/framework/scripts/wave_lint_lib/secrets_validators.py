@@ -517,7 +517,13 @@ def _next_secret_finding_id(
 
 
 def _sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    # Wave 1p9hm: normalize CRLF→LF before hashing so the digest is line-ending independent. Non-.py
+    # shipped framework files (.md/.json/.html/.js/.css) without an explicit `eol` attribute check out
+    # as CRLF under git-for-Windows `core.autocrlf=true`; a raw byte hash would then differ from the
+    # LF-based digest baked into the shipped scan-allowlist and the previously-suppressed framework
+    # false-positive would resurface as a hard lint failure. Kept byte-identical with the copy in
+    # build_scan_allowlist._sha256_file so allowlist build and lint agree.
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def load_framework_scan_allowlist(root: Path) -> set[str]:
