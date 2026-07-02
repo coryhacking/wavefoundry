@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: implementing
+Status: closed
 Last verified: 2026-07-02
 
 wave-id: `1p9gr socks-proxy-dependency`
@@ -16,10 +16,15 @@ Harden first-time setup by adding default SOCKS proxy support to Wavefoundry's d
 Change ID: `1p9gq-change socks-proxy-dependency`
 Change Status: `implemented`
 
+Completed At: 2026-07-02
+
 ## Wave Summary
 
-This wave updates the package and setup dependency lists for httpx SOCKS support, then corrects initial setup behavior/guidance so the code index is part of the normal setup path. Default setup treats docs and code the same by building both in the foreground; `--background-code` and `--background-docs` remain explicit fast-start options. It also fixes a setup accelerator fallback bug where CoreML could be re-enabled after the setup provider probe selected CPU.
+Wave `1p9gr` (Setup Dependency And Code Index Defaults) delivered one change: Harden setup dependencies and code index defaults. Notable adjustments during implementation: Harden setup dependencies and code index defaults: Planned scoped dependency update.; Harden setup dependencies and code index defaults: Expanded scope per operator report: initial setup must not leave code index absent or document it as optional.
 
+**Changes delivered:**
+
+- **Harden setup dependencies and code index defaults** (`1p9gq-change socks-proxy-dependency`) — 8 ACs completed. Key decisions: Select `httpx[socks]` and probe `socksio`.; Make default setup build docs and code in the foreground.
 ## Journal Watchpoints
 
 - Watchpoint: follow-up required if the dependency probe checks plain `httpx` instead of `socksio`; that would miss existing environments where httpx is present without SOCKS support.
