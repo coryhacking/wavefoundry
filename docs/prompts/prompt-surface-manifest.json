@@ -6,7 +6,7 @@
     "wave_lifecycle",
     "platform_hooks"
   ],
-  "framework_revision": "1.10.0+p9cl",
+  "framework_revision": "1.10.0+p9cr",
   "generated_artifacts": [
     "docs/prompts/prompt-surface-manifest.json",
     "docs/agents/session-handoff.md",
