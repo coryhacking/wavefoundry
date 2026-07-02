@@ -516,23 +516,41 @@ class EnsurePythonResolvesTests(unittest.TestCase):
         self._assert_nothing_created()
 
     def test_python3_below_311_warns_then_strict_raises(self):
+        import io
+        from contextlib import redirect_stderr
+
+        buf = io.StringIO()
         with patch.object(vb.shutil, "which", side_effect=self._which({"python3": "/usr/bin/python3"})), patch.object(
             vb, "_interpreter_version", return_value=(2, 7)
-        ):
+        ), redirect_stderr(buf):
             self.assertEqual(vb.ensure_python_resolves(strict=False), "warn_existing_unusable")
             with self.assertRaises(SystemExit):
                 vb.ensure_python_resolves(strict=True)
+        text = buf.getvalue()
+        self.assertIn("python3 --version", text)
+        self.assertIn("Python 3.11 or newer", text)
+        self.assertNotIn("Alternative:", text)
+        self.assertNotIn("tool-venv Python", text)
         self._assert_nothing_created()  # never clobbers the unusable python3 either
 
     def test_python3_absent_with_python_present_does_NOT_create_anything_posix(self):
         # Only `python` exists (no `python3`). Detect+guide does NOT symlink/create a python3 — it
         # fails closed (strict) / warns (non-strict) and tells the operator to make python3 resolve.
+        import io
+        from contextlib import redirect_stderr
+
+        buf = io.StringIO()
         with patch.object(vb.os, "name", "posix"), patch.object(
             vb.shutil, "which", side_effect=self._which({"python": "/usr/bin/python"})
-        ):
+        ), redirect_stderr(buf):
             self.assertEqual(vb.ensure_python_resolves(strict=False), "warn_unresolved")
             with self.assertRaises(SystemExit):
                 vb.ensure_python_resolves(strict=True)
+        text = buf.getvalue()
+        self.assertIn("python3 --version", text)
+        self.assertIn("Python 3.11 or newer", text)
+        self.assertNotIn("Alternative:", text)
+        self.assertNotIn("tool-venv Python", text)
         self._assert_nothing_created()
 
     def test_python3_absent_with_python_present_does_NOT_create_anything_windows(self):
@@ -563,32 +581,9 @@ class EnsurePythonResolvesTests(unittest.TestCase):
                 vb.ensure_python_resolves(strict=False)
             text = buf.getvalue()
             self.assertIn(needle, text)
+            self.assertIn("python3 --version", text)
             self.assertIn("does not modify your Python", text)
-
-
-class GuiFallbackStanzaTests(unittest.TestCase):
-    """Wave 1p7pm AC-4/AC-5: the GUI-host fallback stanza uses the ABSOLUTE tool-venv Python + the
-    ABSOLUTE server.py path — no relative `python3`, no PATH dependency (GUI hosts don't inherit the
-    shell PATH where setup ensured `python3`)."""
-
-    def test_stanza_uses_absolute_venv_python_and_server_path(self):
-        fake_venv_python = Path("/fake/tool-venv/bin/python")
-        with patch.object(vb, "tool_venv_python", return_value=fake_venv_python):
-            stanza = vb.gui_fallback_mcp_stanza("/some/repo")
-        # Command is the ABSOLUTE venv python — never the relative `python` token.
-        self.assertEqual(stanza["command"], str(fake_venv_python))
-        self.assertNotEqual(stanza["command"], "python")
-        self.assertTrue(Path(stanza["command"]).is_absolute())
-        # args: absolute server.py + --root <abs repo>.
-        self.assertEqual(len(stanza["args"]), 3)
-        server_arg = stanza["args"][0]
-        self.assertTrue(server_arg.endswith(".wavefoundry/framework/scripts/server.py"))
-        self.assertTrue(Path(server_arg).is_absolute())
-        self.assertEqual(stanza["args"][1], "--root")
-        self.assertTrue(Path(stanza["args"][2]).is_absolute())
-        # No relative `python` token anywhere — the whole point of the no-PATH fallback.
-        import json
-        self.assertNotIn('"python"', json.dumps(stanza))
+            self.assertNotIn("Alternative:", text)
 
 
 if __name__ == "__main__":

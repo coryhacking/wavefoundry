@@ -79,6 +79,8 @@ Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
 
 **Action:** Run `wf setup`. This is the orchestrator that completes all the mechanical Phase 1 work in one call:
 
+**Python prerequisite:** Before running setup, `python3 --version` must work from the command line and report Python 3.11 or newer. If `python3` is missing, if only `python` is available, or if `python3` reports a version below 3.11, stop. The agent or operator must install/fix Python and PATH before proceeding; do not bypass this by pointing MCP at a tool-venv or project-local Python.
+
 1. **Step 1/3 — venv + framework deps + semantic indexes**:
    - Creates the tool venv at `~/.wavefoundry/venv/` (user-home, not project-root — the venv is shared across all wavefoundry projects on the machine; `WAVEFOUNDRY_TOOL_VENV` env var overrides).
    - Installs framework deps, including the embedding/index stack and SOCKS proxy support for httpx-backed downloads.
@@ -86,7 +88,7 @@ Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
 2. **Step 2/3 — `wf` dispatcher shim + platform host configs** (via `render_platform_surfaces.py`):
    - The cross-OS `wf` entry point and generated `wf.cmd` shim that dispatch to `wf_cli.py`, which routes subcommands `wf docs-lint`, `wf docs-gardener`, `wf gate`, `wf dashboard`, `wf update-indexes`, `wf lifecycle-id`, `wf upgrade`, and `wf setup` to their backing scripts.
    - `.claude/settings.json` (if Claude Code is detected) and equivalents for other hosts; registers the MCP server (the committed `.mcp.json` runs `python3 .wavefoundry/framework/scripts/server.py`).
-   - MCP configs must launch the PATH `python3` command on Wavefoundry's `server.py`; do not point them at `.wavefoundry/venv/Scripts/python.exe`, `.wavefoundry/venv/bin/python`, or another project-local venv interpreter. `server.py` activates the shared tool environment itself.
+   - MCP configs must launch the PATH `python3` command on Wavefoundry's `server.py`; do not point them at `.wavefoundry/venv/Scripts/python.exe`, `.wavefoundry/venv/bin/python`, or another project-local venv interpreter as a workaround for a missing or too-old `python3`. `server.py` activates the shared tool environment itself.
    - **Do NOT create these files by hand.** The renderer is the source of truth; pre-created files will be overwritten on next render and cause spurious diffs.
 3. **Step 3/3 — MCP server dry-run smoke test** (via `server.py --dry-run`):
    - Verifies the MCP server can initialize through the same launch shape generated MCP configs use: `python3 .wavefoundry/framework/scripts/server.py --dry-run`.

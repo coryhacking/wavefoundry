@@ -35,26 +35,26 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 6265 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 645 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 6266 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 621 |
 | graph | `.wavefoundry/framework/scripts` | code | 224 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 213 |
+| subprocess_util | `.wavefoundry/framework/scripts` | code | 183 |
 | wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 178 |
-| subprocess_util | `.wavefoundry/framework/scripts` | code | 162 |
 | chunker | `.wavefoundry/framework/scripts` | code | 161 |
-| indexer | `.wavefoundry/framework/scripts` | code | 112 |
-| scripts/subprocess_util | `.wavefoundry/framework/scripts` | code | 83 |
+| indexer | `.wavefoundry/framework/scripts` | code | 111 |
+| scripts/subprocess_util | `.wavefoundry/framework/scripts` | code | 85 |
 | render_platform_surfaces | `.wavefoundry/framework/scripts` | code | 62 |
-| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 56 |
+| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 58 |
 | render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 48 |
+| graph_cluster | `.wavefoundry/framework/scripts` | code | 38 |
 | server | `.wavefoundry/framework/scripts` | code | 37 |
-| graph_cluster | `.wavefoundry/framework/scripts` | code | 36 |
-| accel_embedder | `.wavefoundry/framework/scripts` | code | 26 |
+| graph_query | `.wavefoundry/framework/scripts` | code | 27 |
 | design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
 | upgrade_extensions | `.wavefoundry/framework/scripts` | code | 21 |
 | docs_gardener | `.wavefoundry/framework/scripts` | code | 17 |
 | tokens | `docs/design-system/tokens` | config | 320 |
-| docs | `docs` | config | 297 |
+| docs | `docs` | config | 291 |
 | modes | `docs/design-system/tokens/modes` | config | 150 |
 | json | `docs/design-system/exports/json` | config | 86 |
 | nav-sidebar | `docs/design-system/components/nav-sidebar` | config | 32 |

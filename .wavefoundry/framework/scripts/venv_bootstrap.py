@@ -45,7 +45,6 @@ __all__ = [
     "tool_venv_python",
     "activate_tool_venv",
     "ensure_python_resolves",
-    "gui_fallback_mcp_stanza",
 ]
 
 # Minimum interpreter the committed `command: "python3"` launchers require.
@@ -270,42 +269,22 @@ def ensure_python_resolves(strict: bool = False) -> str:
         status = "warn_unresolved"
     if os.name == "nt":
         how = (
-            "make `python3` resolve to Python 3.11+ on PATH — install via Scoop or the Microsoft "
-            "Store (both provide a `python3` command), or add your own `python3` to a PATH directory"
+            "install or repair Python so `python3 --version` works from the command line and reports "
+            "Python 3.11 or newer. On Windows, install via Scoop or the Microsoft Store (both provide "
+            "a `python3` command), or add your own `python3` command to a PATH directory"
         )
     else:
         how = (
-            "make `python3` resolve to Python 3.11+ on PATH — install via your package manager "
-            "(e.g. Homebrew/apt), or symlink `python3` to your interpreter in a PATH directory"
+            "install or repair Python so `python3 --version` works from the command line and reports "
+            "Python 3.11 or newer. Use your package manager (for example Homebrew or apt), or symlink "
+            "`python3` to a Python 3.11+ interpreter in a PATH directory"
         )
     print(
         f"wavefoundry: {reason} — the committed `command: \"{MCP_PYTHON_COMMAND}\"` MCP launchers "
-        f"need it. Please {how}, then rerun setup. Wavefoundry does not modify your Python "
-        "installation or PATH. Alternative: point your MCP host's Wavefoundry config at the absolute "
-        "tool-venv Python (the per-machine fallback stanza setup prints) — it needs nothing on PATH.",
+        f"need it. Stop here and {how}, then rerun setup. Wavefoundry does not modify your Python "
+        "installation or PATH.",
         file=sys.stderr,
     )
     if strict:
         raise SystemExit(2)
     return status
-
-
-# ---------------------------------------------------------------------------
-# GUI-host fallback (wave 1p7pm AC-4/AC-5): the no-PATH-dependency MCP stanza.
-# ---------------------------------------------------------------------------
-
-def gui_fallback_mcp_stanza(repo_root: "str | Path") -> dict[str, object]:
-    """The absolute-venv-path MCP stanza for GUI-launched hosts that don't inherit the shell PATH.
-
-    The committed configs name the byte-identical ``command: "python3"``, which resolves
-    for CLI hosts (they inherit the shell PATH where setup ensured ``python3``). GUI-launched hosts
-    (Claude Desktop, Cursor.app) inherit only a minimal launchd/registry PATH, so ``python3`` may not
-    resolve. This stanza needs NOTHING on PATH: it names the **absolute** tool-venv Python and the
-    **absolute** ``server.py`` path. It is **per-machine** (absolute paths) and must NOT be committed —
-    it's printed as setup guidance for the operator to paste into a GUI host's MCP config override."""
-    repo = Path(repo_root).expanduser().resolve()
-    server_py = repo / ".wavefoundry" / "framework" / "scripts" / "server.py"
-    return {
-        "command": str(tool_venv_python()),
-        "args": [str(server_py), "--root", str(repo)],
-    }

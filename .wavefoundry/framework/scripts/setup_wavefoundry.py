@@ -106,37 +106,6 @@ def _run_gpu_check() -> int:
     return 0
 
 
-def _repo_root_from_args(args: list[str]) -> Path:
-    """Repo root from a ``--root <path>`` arg if present, else the scripts dir's grandparent."""
-    for i, tok in enumerate(args):
-        if tok == "--root" and i + 1 < len(args):
-            return Path(args[i + 1]).expanduser().resolve()
-        if tok.startswith("--root="):
-            return Path(tok.split("=", 1)[1]).expanduser().resolve()
-    # _SCRIPTS_DIR = <repo>/.wavefoundry/framework/scripts → repo root is parents[2].
-    return _SCRIPTS_DIR.parents[2]
-
-
-def _print_gui_fallback_guidance(repo_root: Path) -> None:
-    """Print the per-machine absolute-venv-path MCP stanza for GUI-launched hosts (wave 1p7pm AC-4/5).
-
-    The committed configs name ``command: "python3"``, resolvable for CLI hosts (they inherit the shell
-    PATH where ``python3`` resolves). GUI-launched hosts (Claude Desktop, Cursor.app) inherit only a
-    minimal launchd/registry PATH, so ``python3`` may not resolve; this stanza is also the escape hatch
-    when ``python3`` is not on PATH at all. This is GUIDANCE only — it does NOT overwrite the committed
-    ``.mcp.json`` (the override path is host-specific + per-machine)."""
-    import json as _json
-
-    stanza = venv_bootstrap.gui_fallback_mcp_stanza(repo_root)
-    print(
-        "\nGUI-host note: if a GUI-launched MCP host (Claude Desktop, Cursor.app) can't find `python3` "
-        "on PATH, set its Wavefoundry MCP command to this absolute-path form (per-machine — do NOT "
-        "commit it; the committed `python3` form is for CLI hosts):\n"
-        f"{_json.dumps(stanza, indent=2)}",
-        flush=True,
-    )
-
-
 def main(argv: list[str] | None = None) -> int:
     # Wave 1p6et: `--check-gpu` prints the GPU/provider diagnostic and exits WITHOUT running setup.
     args = list(sys.argv[1:] if argv is None else argv)
@@ -155,11 +124,10 @@ def main(argv: list[str] | None = None) -> int:
         return rc
 
     # Step 1b: verify the committed `command: "python3"` launchers resolve (DETECT + GUIDE; setup
-    # does NOT create a shim/symlink or edit PATH — operator decision, wave 1p88t). Print the
-    # per-machine absolute-venv-path fallback stanza FIRST so the operator always has the no-PATH
-    # escape hatch in view, then run the strict check. strict=True: a box where `python3` does not
-    # resolve to 3.11+ fails loud (the committed configs would be dead-on-arrival), with guidance.
-    _print_gui_fallback_guidance(_repo_root_from_args(args))
+    # does NOT create a shim/symlink or edit PATH — operator decision, wave 1p88t). strict=True: a box
+    # where `python3 --version` does not work or does not report Python 3.11+ fails loud before
+    # rendering surfaces or smoke-testing MCP. The agent/operator must fix the prerequisite before
+    # proceeding.
     venv_bootstrap.ensure_python_resolves(strict=True)
 
     # Step 2: render bin/ launchers and platform host configs.

@@ -169,9 +169,26 @@ class SetupWavefoundryTests(unittest.TestCase):
         self.assertEqual(result, 9)
         self.ensure_python_resolves_mock.assert_not_called()
 
-    def test_prints_gui_fallback_guidance_after_heal(self):
-        """Wave 1p7pm AC-4/5: setup PRINTS the per-machine absolute-venv-path GUI-host fallback stanza
-        (guidance only — it does NOT overwrite the committed `.mcp.json`)."""
+    def test_step_1b_failure_aborts_before_step_2_and_3(self):
+        """A missing or too-old command-line `python3` is a hard setup prerequisite failure."""
+        class FakeSetupIndex:
+            @staticmethod
+            def main(argv=None):
+                return 0
+
+        with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
+             patch.object(self.mod, "_run_render_platform_surfaces") as render_mock, \
+             patch.object(self.mod, "_run_mcp_server_dry_run") as dry_run_mock:
+            self.ensure_python_resolves_mock.side_effect = SystemExit(2)
+            with self.assertRaises(SystemExit):
+                self.mod.main([])
+
+        self.ensure_python_resolves_mock.assert_called_once_with(strict=True)
+        render_mock.assert_not_called()
+        dry_run_mock.assert_not_called()
+
+    def test_setup_does_not_print_gui_fallback_guidance(self):
+        """Setup must stop on the `python3 --version` prerequisite, not advertise a bypass stanza."""
         class FakeSetupIndex:
             @staticmethod
             def main(argv=None):
@@ -186,10 +203,9 @@ class SetupWavefoundryTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         text = out.getvalue()
-        self.assertIn("GUI-host note", text)
-        self.assertIn("server.py", text)
-        # Names the absolute venv python, NOT the relative `python` command.
-        self.assertIn("/.wavefoundry/venv/", text)
+        self.assertNotIn("GUI-host note", text)
+        self.assertNotIn("absolute-path form", text)
+        self.assertNotIn("/.wavefoundry/venv/", text)
 
     # --- Helper subprocess invocations -----------------------------------
 
@@ -236,7 +252,6 @@ class SetupWavefoundryTests(unittest.TestCase):
         with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
              patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
              patch.object(self.mod, "_run_mcp_server_dry_run", return_value=0), \
-             patch.object(self.mod, "_print_gui_fallback_guidance"), \
              redirect_stdout(out):
             result = self.mod.main([])
 

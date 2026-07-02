@@ -33,7 +33,7 @@ After installing Wave Framework, enable the local MCP server in your agent host 
 
 **Supported operator environments:** macOS and Linux are supported natively. Windows is currently supported through **WSL2** for install and operator workflows because some bootstrap and launcher surfaces still assume a POSIX shell.
 
-**Python requirement:** Python 3.11 or later must be resolvable as `python3` on your PATH — Wavefoundry does not modify your Python installation or PATH. `wf setup` is the operator command when the dispatcher is on PATH. It creates a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override), installs all framework dependencies into it, **verifies** `python3` resolves to Python 3.11+ (failing with concrete guidance if it does not — e.g. install via Scoop/Microsoft Store on Windows, or your package manager / a symlink on macOS/Linux), and runs the index setup flow. No system-level or project-level Python environment is modified.
+**Python requirement:** Python 3.11 or later must be resolvable as `python3` on your PATH — Wavefoundry does not modify your Python installation or PATH. Before proceeding, `python3 --version` must work from the command line and report Python 3.11 or newer. If `python3` is missing or reports an older version, stop and fix Python/PATH first (for example, install via Scoop/Microsoft Store on Windows, use your package manager on macOS/Linux, or add a `python3` shim/symlink to a Python 3.11+ interpreter). `wf setup` creates a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override), installs all framework dependencies into it, verifies the same `python3` prerequisite, and runs the index setup flow. No system-level or project-level Python environment is modified.
 
 **Versioning:** Wavefoundry uses `MAJOR.MINOR.PATCH` semver internally. Distribution zips use `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` and land in `~/.wavefoundry/dist/` after packaging.
 
@@ -45,7 +45,7 @@ wf setup
 
 If this setup step fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path. In agent-driven sessions, the agent should ask the operator for permission to rerun the same setup command with network access or host escalation enabled instead of switching to an out-of-band manual model download.
 
-After setup, MCP host configs should launch the PATH `python3` command on Wavefoundry's `server.py`. Do not point MCP config at `.wavefoundry/venv/Scripts/python.exe`, `.wavefoundry/venv/bin/python`, or another project-local venv interpreter. The server activates the shared tool environment itself.
+After setup, MCP host configs should launch the PATH `python3` command on Wavefoundry's `server.py`. Do not point MCP config at `.wavefoundry/venv/Scripts/python.exe`, `.wavefoundry/venv/bin/python`, or another project-local venv interpreter as a workaround for a missing or too-old `python3`; fix `python3 --version` first. The server activates the shared tool environment itself.
 
 `wf setup` smoke-tests the same launch shape the host will use: `python3 .wavefoundry/framework/scripts/server.py --dry-run`. If that fails, fix the reported Python/PATH/dependency issue before restarting the host.
 

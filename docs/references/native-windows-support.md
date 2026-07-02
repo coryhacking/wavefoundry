@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: scoping (not yet admitted to a wave)
-Last verified: 2026-06-27
+Last verified: 2026-07-02
 
 ## Context
 
@@ -47,7 +47,7 @@ On native Windows a Python process spawned without a no-window flag can flash a 
 | ~~C-2~~ | ~~All 9 `.wavefoundry/bin/` launchers are bash-only~~ — **RESOLVED (wave 1p7tz):** the nine POSIX-only wrappers were replaced by one cross-OS `wf` dispatcher (`wf_cli.py`) behind a `wf` (bash) + `wf.cmd` (Windows) shim pair; `wf docs-lint`, `wf docs-gardener`, `wf gate`, `wf setup`, `wf upgrade`, `wf update-indexes`, `wf dashboard`, `wf lifecycle-id` run on every OS. | `render_platform_surfaces.render_bin_launchers`; `wf_cli.py` | No action — operator CLI is cross-OS. |
 | ~~C-3~~ | ~~One committed `.mcp.json` / `.claude/settings.json` reflects **whichever OS last ran the renderer**; a Windows clone of a Mac-rendered repo gets POSIX hook forms~~ — **RESOLVED (wave 1p88t):** `launcher_command` returns one unconditional `python3 "<script>.py"` form (no OS branch), so the committed MCP/hook command surfaces are **byte-identical regardless of the rendering OS**. A Windows clone of a Mac-rendered repo gets the same working `python3` forms; the host spawns them via raw process spawn (no shell), so they run in any session. | `render_platform_surfaces.launcher_command` (unconditional `python3`); `.claude/settings.json` | No action — committed command surfaces are cross-OS identical. |
 
-Native Windows MCP configs should use `command: "python3"` with `args: [".wavefoundry/framework/scripts/server.py"]` for generated repo-local configs, or `args: ["<repo>/.wavefoundry/framework/scripts/server.py", "--root", "<repo>"]` for manual host entries. Do not configure MCP to run `.wavefoundry\venv\Scripts\python.exe` directly; `server.py` owns shared tool-venv activation. After fixing Python on PATH or changing MCP config, start a fresh host session because an already-open conversation may keep the toolset from the earlier failed startup.
+Native Windows MCP configs should use `command: "python3"` with `args: [".wavefoundry/framework/scripts/server.py"]` for generated repo-local configs, or `args: ["<repo>/.wavefoundry/framework/scripts/server.py", "--root", "<repo>"]` for manual host entries. Before proceeding, `python3 --version` must work from the command line and report Python 3.11 or newer; if Windows has `python` but not `python3`, stop and fix PATH or install a Python distribution that provides `python3`. Do not configure MCP to run `.wavefoundry\venv\Scripts\python.exe` directly as a workaround; `server.py` owns shared tool-venv activation. After fixing Python on PATH or changing MCP config, start a fresh host session because an already-open conversation may keep the toolset from the earlier failed startup.
 
 ### Moderate — degrades behavior; MCP server itself survives
 
